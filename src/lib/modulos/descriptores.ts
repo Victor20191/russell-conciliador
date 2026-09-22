@@ -203,6 +203,12 @@ export type DescriptorModulo = {
    * con su ubicación (columna y fila) o No. Vale solo para ese cargue (`aplicarTotalDeCarga`).
    */
   confirmarTotalEnCarga?: boolean;
+  /**
+   * Con un patrón que lee la columna `agrupador` (Nómina: centro de costo / grupo), la carga
+   * pregunta «¿Separar por centro de costo?». Con «No» ese cargue no lee la columna y consolida
+   * solo por concepto; vale solo para ese cargue (`aplicarAgrupadorDeCarga`).
+   */
+  confirmarAgrupadorEnCarga?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -682,6 +688,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nivelCruce: 6,
     cedula: { cuentasAdicionales: CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta })) },
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
+    // Un mismo patrón sirve para cargar con o sin separar por centro de costo.
+    confirmarAgrupadorEnCarga: true,
     // El cruce por tercero queda apagado (RF-NOM-03); si se reactiva es contra la CÉDULA del
     // empleado. `cuentasRussell6` acota el lado contable a las cuentas de RF-NOM-05 aunque el
     // cruce por tercero no exista: es lo que decide «fuera del módulo» y el cierre en firme.

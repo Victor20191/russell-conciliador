@@ -27,7 +27,7 @@ import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import type { SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
-import type { RepartoPendienteVm, ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
+import type { RepartoAplicadoVm, RepartoPendienteVm, ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import type { ValidacionesNomina } from "@/lib/modulos/nomina/validaciones-nomina";
 import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-consolidacion";
 import { renglonesSinGuardar } from "@/lib/modulos/consolidado-sin-guardar";
@@ -406,9 +406,11 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelC
     const guardadas = c.cuentas4.map((x) => x.codigo);
     if (guardadas.length) return [c.clasificador, guardadas];
     // Nómina: la homologación sugerida (cuenta del archivo, memoria + clase, grupo por nombre)
-    // se propone cuando es UNA cuenta de gasto; «multi» y control no se proponen.
+    // se propone cuando es UNA cuenta de gasto; «multi» y control no se proponen. Lo asignado en
+    // los centros (un cargue sin centro) se propone entero, con una o varias cuentas.
     if (c.sugerencia) {
       const s = c.sugerencia;
+      if (s.destino === "gasto" && s.via === "memoria_centros") return [c.clasificador, [...s.cuentas]];
       return [c.clasificador, s.destino === "gasto" && s.via !== "multi" && s.cuentas.length === 1 ? [...s.cuentas] : []];
     }
     const digitos = c.clasificador.replace(/\D/g, "");
@@ -423,6 +425,7 @@ const ETIQUETA_VIA: Record<SugerenciaConsolidado["via"], string> = {
   archivo: "cuenta del archivo",
   memoria_exacta: "memoria del cliente",
   memoria_clase: "memoria + clase del centro",
+  memoria_centros: "lo asignado en los centros",
   multi: "varias cuentas",
   sugerido_nombre: "sugerida por el nombre",
   sin_cuenta: "sin cuenta",
@@ -1745,6 +1748,9 @@ function CruceContableTab({
       {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
 
       <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
+      {cruceContable.nomina && (cruceContable.nomina.repartosAplicados.length > 0 || cruceContable.nomina.repartosIgnorados > 0) && (
+        <RepartosAplicadosNomina aplicados={cruceContable.nomina.repartosAplicados} ignorados={cruceContable.nomina.repartosIgnorados} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
+      )}
       {cruceContable.nomina && cruceContable.nomina.repartosPendientes.length > 0 && (
         <RepartosPendientesNomina pendientes={cruceContable.nomina.repartosPendientes} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
       )}
@@ -2021,27 +2027,179 @@ function CruceContableTab({
 
 const ETIQUETA_ESTADO_SUB: Record<string, string> = { cuadra: "Cuadra", descuadre: "Diferencia", solo_contable: "Solo contabilidad", solo_modulo: "Solo nómina" };
 
+/**
+ * Editor en línea del reparto de UN concepto entre sus cuentas candidatas (pendientes y aplicados):
+ * la Σ tiene que cerrar con el total del concepto para poder guardar.
+ */
+function EditorRepartoNomina({
+  encabezadoId,
+  clasificador,
+  cuentas,
+  total,
+  contablePorCuenta,
+  inicial,
+  onGuardado,
+}: {
+  encabezadoId: number;
+  clasificador: string;
+  cuentas: string[];
+  total: number;
+  contablePorCuenta: Record<string, number>;
+  inicial: Record<string, number>;
+  onGuardado: () => void;
+}) {
+  const router = useRouter();
+  const [valores, setValores] = useState<Record<string, string>>(() => Object.fromEntries(cuentas.map((c) => [c, String(inicial[c] ?? 0)])));
+  const [pending, start] = useTransition();
+  const suma = cuentas.reduce((s, c) => s + (Number(valores[c]) || 0), 0);
+  const cierra = Math.abs(suma - total) <= 0.01;
+  const guardar = () => {
+    start(async () => {
+      const r = await guardarRepartoCruce({ encabezadoId, clasificador, valores: Object.fromEntries(cuentas.map((c) => [c, Number(valores[c]) || 0])) });
+      if (r.ok) { notifySuccess(r.message ?? "Reparto guardado."); onGuardado(); router.refresh(); } else notifyError(r.message ?? "No se pudo guardar el reparto.");
+    });
+  };
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      {cuentas.map((c) => (
+        <label key={c} className="flex flex-col gap-1 text-[11px] text-ink-600">
+          <span className="font-semibold">{c} <span className="font-normal text-ink-400">(balance {fmtContable(contablePorCuenta[c] ?? 0)})</span></span>
+          <input
+            type="number"
+            step="0.01"
+            value={valores[c] ?? ""}
+            onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))}
+            className="w-40 rounded-md border border-ink-200 bg-white px-2 py-1 text-right text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
+          />
+        </label>
+      ))}
+      <div className={`text-[11.5px] font-semibold ${cierra ? "text-ok-700" : "text-err-700"}`}>
+        Σ {fmtContable(suma)} {cierra ? "= total" : `≠ total ${fmtContable(total)} (falta ${fmtContable(total - suma)})`}
+      </div>
+      <button type="button" disabled={pending || !cierra} onClick={guardar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
+        {pending ? "Guardando…" : "Guardar reparto"}
+      </button>
+    </div>
+  );
+}
+
+/** Concepto (código, centro y nombre) en las tablas de reparto. */
+function ConceptoReparto({ codigo, agrupador, descripcion }: { codigo: string; agrupador: string; descripcion: string | null }) {
+  return (
+    <>
+      <span className="font-medium">{codigo}</span>
+      {agrupador && <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 text-[10.5px] font-semibold text-ink-600">{agrupador}</span>}
+      {descripcion && <div className="text-[11px] text-ink-500">{descripcion}</div>}
+    </>
+  );
+}
+
+/**
+ * Cómo quedó cada reparto que rige (RF-NOM-12): el concepto, su total y lo que se llevó cada cuenta.
+ * Se edita con el mismo editor de los pendientes; «Quitar» lo retira y el concepto vuelve a pendientes.
+ */
+function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEditar }: { aplicados: RepartoAplicadoVm[]; ignorados: number; encabezadoId: number; puedeEditar: boolean }) {
+  const router = useRouter();
+  const [visible, setVisible] = useState(false);
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const total = aplicados.reduce((s, p) => s + Math.abs(p.total), 0);
+  const quitar = (p: RepartoAplicadoVm) => {
+    start(async () => {
+      const r = await guardarRepartoCruce({ encabezadoId, clasificador: p.clasificador, valores: {} });
+      if (r.ok) { notifySuccess(`Reparto de ${p.codigo}${p.agrupador ? ` · ${p.agrupador}` : ""} retirado: el concepto vuelve a pendientes.`); router.refresh(); } else notifyError(r.message ?? "No se pudo quitar el reparto.");
+    });
+  };
+  return (
+    <Card className="p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-3 py-2 text-[12px]">
+        <div className="text-ink-700">
+          <b>Repartos aplicados</b> · {aplicados.length} concepto{aplicados.length === 1 ? "" : "s"} ({fmtContable(total)}) cruzan por la porción que se le definió a cada cuenta.
+          {ignorados > 0 && (
+            <span className="ml-1 text-ink-500">
+              {ignorados === 1 ? "1 reparto guardado ya no aplica" : `${ignorados} repartos guardados ya no aplican`} porque el concepto cambió de cuentas.
+            </span>
+          )}
+        </div>
+        {aplicados.length > 0 && (
+          <button type="button" onClick={() => setVisible((v) => !v)} aria-expanded={visible} className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
+            <Icon name={chevronDivulgacion(visible)} size={12} />
+            {visible ? "Ocultar reparto" : "Ver reparto"}
+          </button>
+        )}
+      </div>
+      {visible && aplicados.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px]">
+            <thead className="bg-ink-50 text-left text-ink-500">
+              <tr>
+                <th className="px-3 py-1.5 font-semibold">Concepto</th>
+                <th className="px-3 py-1.5 text-right font-semibold">Total</th>
+                <th className="px-3 py-1.5 font-semibold">Reparto por cuenta</th>
+                <th className="px-3 py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {aplicados.map((p) => (
+                <Fragment key={p.clasificador}>
+                  <tr className="border-t border-ink-100">
+                    <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
+                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {p.cuentas.map((c) => (
+                          <span key={c} className={`rounded border px-1.5 py-0.5 text-[11px] ${(p.valores[c] ?? 0) === 0 ? "border-ink-150 bg-ink-50 text-ink-400" : "border-blue-200 bg-blue-50 text-blue-800"}`} title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
+                            <span className="font-semibold">{c}</span> · {fmtContable(p.valores[c] ?? 0)}
+                            {p.total !== 0 && <span className="ml-1 text-[10.5px] text-ink-500">({Math.round(((p.valores[c] ?? 0) / p.total) * 100)} %)</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {puedeEditar && (
+                        <div className="flex justify-end gap-1.5">
+                          <button type="button" disabled={pending} onClick={() => setAbierto((a) => (a === p.clasificador ? null : p.clasificador))} className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
+                            {abierto === p.clasificador ? "Cerrar" : "Editar…"}
+                          </button>
+                          <button type="button" disabled={pending} onClick={() => quitar(p)} className="rounded-md border border-err-100 bg-white px-2 py-1 text-[11px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50">
+                            Quitar
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                  {abierto === p.clasificador && (
+                    <tr className="border-t border-ink-100 bg-ink-50/60">
+                      <td colSpan={4} className="px-3 py-2.5">
+                        <EditorRepartoNomina
+                          encabezadoId={encabezadoId}
+                          clasificador={p.clasificador}
+                          cuentas={p.cuentas}
+                          total={p.total}
+                          contablePorCuenta={p.contablePorCuenta}
+                          inicial={p.valores}
+                          onGuardado={() => setAbierto(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** Conceptos homologados a varias cuentas Russell sin porción definida: editor de reparto. */
 function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { pendientes: RepartoPendienteVm[]; encabezadoId: number; puedeEditar: boolean }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<string | null>(null);
-  const [valores, setValores] = useState<Record<string, string>>({});
   const [pending, start] = useTransition();
   const total = pendientes.reduce((s, p) => s + Math.abs(p.total), 0);
   const editando = pendientes.find((p) => p.clasificador === abierto) ?? null;
-  const abrir = (p: RepartoPendienteVm) => {
-    setAbierto(p.clasificador);
-    setValores(Object.fromEntries(p.cuentas.map((c) => [c, String(p.sugerido[c] ?? 0)])));
-  };
-  const suma = editando ? editando.cuentas.reduce((s, c) => s + (Number(valores[c]) || 0), 0) : 0;
-  const cierra = editando ? Math.abs(suma - editando.total) <= 0.01 : false;
-  const guardar = () => {
-    if (!editando) return;
-    start(async () => {
-      const r = await guardarRepartoCruce({ encabezadoId, clasificador: editando.clasificador, valores: Object.fromEntries(editando.cuentas.map((c) => [c, Number(valores[c]) || 0])) });
-      if (r.ok) { notifySuccess(r.message ?? "Reparto guardado."); setAbierto(null); router.refresh(); } else notifyError(r.message ?? "No se pudo guardar el reparto.");
-    });
-  };
   const aplicarTodos = () => {
     start(async () => {
       const r = await aplicarRepartosSugeridos({ encabezadoId });
@@ -2052,7 +2210,10 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-warn-100/30 px-3 py-2 text-[12px]">
         <div className="text-warn-700">
-          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell y la porción de cada una la define el auditor (RF-NOM-12). Mientras tanto quedan fuera de la cédula por cuenta. La sugerencia reparte proporcionalmente al movimiento del balance en las cuentas candidatas.
+          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell y la porción de cada una la define el auditor (RF-NOM-12). Mientras tanto quedan fuera de la cédula por cuenta.{" "}
+          {pendientes.some((p) => p.origenSugerido === "centros")
+            ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
+            : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
         </div>
         {puedeEditar && (
           <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
@@ -2074,14 +2235,13 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
             {pendientes.map((p) => (
               <Fragment key={p.clasificador}>
                 <tr className="border-t border-ink-100">
-                  <td className="px-3 py-1.5 text-ink-800">
-                    <span className="font-medium">{p.codigo}</span>
-                    {p.agrupador && <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 text-[10.5px] font-semibold text-ink-600">{p.agrupador}</span>}
-                    {p.descripcion && <div className="text-[11px] text-ink-500">{p.descripcion}</div>}
-                  </td>
+                  <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
                   <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
                   <td className="px-3 py-1.5">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {p.origenSugerido === "centros" && (
+                        <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600" title="El sugerido suma lo que repartiste en los centros de este concepto en el período.">como por centro</span>
+                      )}
                       {p.cuentas.map((c) => (
                         <span key={c} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800" title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
                           <span className="font-semibold">{c}</span> · {fmtContable(p.sugerido[c] ?? 0)}
@@ -2091,7 +2251,7 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     {puedeEditar && (
-                      <button type="button" onClick={() => (abierto === p.clasificador ? setAbierto(null) : abrir(p))} className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
+                      <button type="button" onClick={() => setAbierto((a) => (a === p.clasificador ? null : p.clasificador))} className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
                         {abierto === p.clasificador ? "Cerrar" : "Repartir…"}
                       </button>
                     )}
@@ -2100,26 +2260,15 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
                 {abierto === p.clasificador && editando && (
                   <tr className="border-t border-ink-100 bg-ink-50/60">
                     <td colSpan={4} className="px-3 py-2.5">
-                      <div className="flex flex-wrap items-end gap-3">
-                        {editando.cuentas.map((c) => (
-                          <label key={c} className="flex flex-col gap-1 text-[11px] text-ink-600">
-                            <span className="font-semibold">{c} <span className="font-normal text-ink-400">(balance {fmtContable(editando.contablePorCuenta[c] ?? 0)})</span></span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={valores[c] ?? ""}
-                              onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))}
-                              className="w-40 rounded-md border border-ink-200 bg-white px-2 py-1 text-right text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
-                            />
-                          </label>
-                        ))}
-                        <div className={`text-[11.5px] font-semibold ${cierra ? "text-ok-700" : "text-err-700"}`}>
-                          Σ {fmtContable(suma)} {cierra ? "= total" : `≠ total ${fmtContable(editando.total)} (falta ${fmtContable(editando.total - suma)})`}
-                        </div>
-                        <button type="button" disabled={pending || !cierra} onClick={guardar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
-                          {pending ? "Guardando…" : "Guardar reparto"}
-                        </button>
-                      </div>
+                      <EditorRepartoNomina
+                        encabezadoId={encabezadoId}
+                        clasificador={editando.clasificador}
+                        cuentas={editando.cuentas}
+                        total={editando.total}
+                        contablePorCuenta={editando.contablePorCuenta}
+                        inicial={editando.sugerido}
+                        onGuardado={() => setAbierto(null)}
+                      />
                     </td>
                   </tr>
                 )}

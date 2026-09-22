@@ -19,8 +19,10 @@
 //
 // Puro: sin BD. Pruebas en `cruce-nomina.test.ts`.
 
+import { factorPresentacion } from "@/lib/balance/prevalidador/calcular";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
-import { digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
+import { partirClaveConsolidado } from "./clave-consolidado";
+import { codigoConceptoCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
@@ -228,15 +230,69 @@ export type RepartoPendienteVm = {
   total: number;
   cuentas: string[];
   sugerido: Record<string, number>;
+  /** De dónde sale `sugerido`: lo repartido en los centros del concepto o el saldo del balance. */
+  origenSugerido: "centros" | "saldo";
   /** Saldo contable de cada cuenta candidata (para el editor). */
   contablePorCuenta: Record<string, number>;
 };
+
+/** Concepto «multi» con su reparto vigente: cómo quedó repartido (para verlo y editarlo). */
+export type RepartoAplicadoVm = {
+  clasificador: string;
+  codigo: string;
+  agrupador: string;
+  descripcion: string | null;
+  total: number;
+  cuentas: string[];
+  /** Valor guardado por cuenta, con el signo del concepto (su Σ es el total). */
+  valores: Record<string, number>;
+  /** Saldo contable de cada cuenta candidata (para el editor). */
+  contablePorCuenta: Record<string, number>;
+};
+
+/**
+ * Los repartos guardados que RIGEN (`repartoVigente`) con su concepto, para mostrar cómo quedó cada
+ * uno; `ignorados` cuenta los guardados que ya no aplican (el concepto tiene hoy una sola cuenta u
+ * otras candidatas) o cuyo concepto no está en este cargue.
+ */
+export function repartosAplicadosNomina(
+  renglones: readonly RenglonConsolidadoNomina[],
+  repartos: readonly RepartoConcepto[],
+  contablePorCuenta: Readonly<Record<string, number>>,
+): { aplicados: RepartoAplicadoVm[]; ignorados: number } {
+  const porClave = new Map(renglones.map((r) => [r.clasificador, r]));
+  const aplicados: RepartoAplicadoVm[] = [];
+  let ignorados = 0;
+  for (const rep of repartos) {
+    const r = porClave.get(rep.clasificador);
+    if (!r || !repartoVigente(r.sugerencia, rep.valores)) {
+      ignorados++;
+      continue;
+    }
+    aplicados.push({
+      clasificador: r.clasificador,
+      codigo: r.codigo,
+      agrupador: r.agrupador,
+      descripcion: r.descripcion,
+      total: r.total,
+      cuentas: [...r.sugerencia.cuentas],
+      valores: Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, redondear(rep.valores[c] ?? 0)])),
+      contablePorCuenta: Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contablePorCuenta[c] ?? 0])),
+    });
+  }
+  aplicados.sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
+  return { aplicados, ignorados };
+}
 
 /** Lo que el cruce de Nómina añade al resultado común (pestaña, exportación y cierre). */
 export type ResultadoCruceNomina = {
   vistaSubcuenta: VistaSubcuentaNomina | null;
   control: ControlDeduccionesNomina | null;
   repartosPendientes: RepartoPendienteVm[];
+  /** Repartos que rigen, con su concepto: cómo quedó cada uno. */
+  repartosAplicados: RepartoAplicadoVm[];
+  /** Repartos guardados que ya no aplican (el concepto cambió de cuentas). */
+  repartosIgnorados: number;
   /** Repartos guardados (clave del consolidado → cuenta → valor). */
   repartos: RepartoConcepto[];
   /** Conceptos que entraron a la cédula por reparto. */
@@ -249,6 +305,45 @@ export type ResultadoCruceNomina = {
 export type RepartoConcepto = { clasificador: string; valores: Record<string, number> };
 
 export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4: string[] };
+
+/**
+ * Pesos para sugerir el reparto de un concepto SIN centro con lo que el auditor ya repartió en
+ * sus centros en el mismo período (claves «código ∥ centro»): Σ por cuenta candidata. Un cargue
+ * que no se separa por centro vuelve a pedir el reparto del concepto entero; así se propone el
+ * mismo que decidió por centro (`sugerirReparto` lo ajusta en proporción si el total cambió).
+ * null si el renglón tiene centro o ningún reparto por centro toca sus cuentas.
+ */
+export function pesosRepartoDeCentros(
+  renglon: { codigo: string; agrupador: string },
+  cuentas: readonly string[],
+  repartos: readonly RepartoConcepto[],
+): Record<string, number> | null {
+  if (renglon.agrupador.trim()) return null;
+  const codigo = codigoConceptoCanonico(renglon.codigo);
+  const candidatas = new Set(cuentas);
+  const pesos: Record<string, number> = Object.fromEntries(cuentas.map((c) => [c, 0]));
+  for (const rep of repartos) {
+    const { clasificador, agrupador } = partirClaveConsolidado(rep.clasificador);
+    if (!agrupador || codigoConceptoCanonico(clasificador) !== codigo) continue;
+    for (const [cuenta, valor] of Object.entries(rep.valores)) {
+      if (candidatas.has(cuenta) && Number.isFinite(valor)) pesos[cuenta] = redondear(pesos[cuenta] + valor);
+    }
+  }
+  return Object.values(pesos).some((v) => v !== 0) ? pesos : null;
+}
+
+/**
+ * Valor con que un concepto entra a la fila de SU cuenta en la cédula. El archivo de nómina firma
+ * desde el empleado (devengo +, deducción −) y la cédula presenta las cuentas de naturaleza crédito
+ * (pasivos, ingresos) en positivo. Una deducción siempre se ABONA a su cuenta (retención 2365,
+ * libranzas y embargos 2370, intereses 4210): contra una cuenta crédito entra con el signo invertido,
+ * así los dos lados quedan en la misma convención y no aparece como diferencia el doble de una cifra
+ * que cuadra (Kakaraka: embargos 401.580 contra −401.580). Los devengos (gasto 51/52/72/73 y los
+ * pasivos laborales 25xx de la cédula) ya coinciden en signo y no cambian.
+ */
+export function valorConceptoEnCuenta(cuenta: string, total: number): number {
+  return total < 0 && factorPresentacion(cuenta) === -1 ? redondear(-total) : total;
+}
 
 /**
  * ¿El reparto guardado de un concepto sigue rigiendo? Solo mientras el concepto siga «asignado a
@@ -304,7 +399,7 @@ export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidado
       repartidos++;
       for (const [cuenta, valor] of Object.entries(reparto)) {
         if (valor === 0) continue;
-        entradas.push({ clasificador: `${r.clasificador} → ${cuenta}`, total: redondear(valor), cuentas4: [cuenta] });
+        entradas.push({ clasificador: `${r.clasificador} → ${cuenta}`, total: valorConceptoEnCuenta(cuenta, redondear(valor)), cuentas4: [cuenta] });
       }
       continue;
     }
@@ -314,7 +409,7 @@ export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidado
       continue;
     }
     const determinista = s.via === "archivo" || s.via === "memoria_exacta" || s.via === "memoria_clase";
-    if (determinista && s.cuentas.length === 1) entradas.push({ clasificador: r.clasificador, total: r.total, cuentas4: [s.cuentas[0]] });
+    if (determinista && s.cuentas.length === 1) entradas.push({ clasificador: r.clasificador, total: valorConceptoEnCuenta(s.cuentas[0], r.total), cuentas4: [s.cuentas[0]] });
     else entradas.push({ clasificador: r.clasificador, total: r.total, cuentas4: [] });
   }
   return { entradas, repartidos, pendientesReparto };

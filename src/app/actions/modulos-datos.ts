@@ -50,7 +50,7 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
@@ -1122,7 +1122,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       hoja: GridHoja;
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
-      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null } | null;
+      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null; sinCentro: boolean } | null;
     };
 
     // ARCHIVO MANUAL: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → ia.
@@ -1218,11 +1218,33 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           ? `total del archivo en ${letraColumnaModulo((spec.subtotalesColumna ?? 0) + (hoja.columnaInicial ?? 0))}${spec.subtotalesFila}`
           : "el archivo no trae total";
       }
+      // Nómina: «¿Separar por centro de costo?» — con No este cargue no lee la columna del centro.
+      const respuestaCentro = String(formData.get("separarAgrupador") ?? "").trim();
+      const leiaCentro = descriptor.confirmarAgrupadorEnCarga === true && (spec.columnas.agrupador ?? 0) >= 1;
+      const centro = aplicarAgrupadorDeCarga(descriptor, spec, respuestaCentro === "si" ? true : respuestaCentro === "no" ? false : null);
+      if (!centro.ok) return centro.message;
+      const sinCentro = leiaCentro && !centro.separado;
+      spec = centro.spec;
+      if (descriptor.confirmarAgrupadorEnCarga && anexoEncabezadoId != null) {
+        // Un anexo se separa igual que el cargue al que se suma: mezclar deja el mismo concepto
+        // en dos renglones del Consolidado («8 ∥ GYA» y «8»).
+        const [{ separado: destinoSeparado }] = await prisma.$queryRaw<{ separado: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM modulo_dato_detalle
+            WHERE encabezado_id = ${anexoEncabezadoId} AND COALESCE(btrim(datos->>'agrupador'), '') <> ''
+          ) AS separado`;
+        const esteSeparado = (spec.columnas.agrupador ?? 0) >= 1;
+        if (destinoSeparado !== esteSeparado) {
+          return destinoSeparado
+            ? "El cargue al que agregas este archivo está separado por centro de costo y este no: los conceptos no coincidirían en el Consolidado. Léelo separado por centro de costo."
+            : "El cargue al que agregas este archivo no está separado por centro de costo: responde «No» a «¿Separar por centro de costo?» para que los conceptos coincidan en el Consolidado.";
+        }
+      }
       return {
         hoja,
         spec: normalizarSpecModuloArchivo(descriptor, spec),
         origen: "patron",
-        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue },
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue, sinCentro },
       };
     };
 
@@ -1339,7 +1361,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         }`
       : "";
     const detallePatron = patron
-      ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
+      ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}${patron.sinCentro ? " · sin separar por centro de costo (solo este cargue)" : ""}`
       : ` · ${aplicativo.name}`;
 
     try {

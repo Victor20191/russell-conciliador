@@ -167,6 +167,35 @@ export function aplicarClasificadorDeCarga(
   return { ok: true, spec: normalizado, cambio };
 }
 
+/** Rol del centro de costo / grupo que pregunta `confirmarAgrupadorEnCarga` (Nómina). */
+export const ROL_AGRUPADOR_CARGA = "agrupador";
+
+export type AgrupadorDeCarga =
+  | { ok: true; spec: SpecModulo; separado: boolean }
+  | { ok: false; message: string };
+
+/**
+ * Aplica al spec de ESTE archivo la respuesta a «¿Separar por centro de costo?» (Nómina,
+ * `confirmarAgrupadorEnCarga`). Con «No» el cargue no lee la columna del centro: cada concepto
+ * queda en UN renglón del Consolidado y rige lo asignado sin centro (vale para todos los centros).
+ * Es un dato del cargue, como el tipo de inventario: la versión del patrón no cambia. Si el
+ * patrón no lee esa columna no hay nada que preguntar y el spec sigue igual.
+ */
+export function aplicarAgrupadorDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  separar: boolean | null,
+): AgrupadorDeCarga {
+  if (!descriptor.confirmarAgrupadorEnCarga || (spec.columnas[ROL_AGRUPADOR_CARGA] ?? 0) < 1) {
+    return { ok: true, spec, separado: false };
+  }
+  if (separar == null) return { ok: false, message: "Indica si este cargue se separa por centro de costo." };
+  if (separar) return { ok: true, spec, separado: true };
+  const columnas = { ...spec.columnas };
+  delete columnas[ROL_AGRUPADOR_CARGA];
+  return { ok: true, spec: normalizarSpecModuloArchivo(descriptor, { ...spec, columnas }), separado: false };
+}
+
 /** Respuesta a «¿El archivo trae el valor total?» al cargar con patrón (`confirmarTotalEnCarga`). */
 export type EleccionTotal = { trae: boolean | null; columna?: number; fila?: number };
 

@@ -159,6 +159,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         puedeAdministrarPatrones={autorizacionPatrones.ok}
         confirmarClasificador={descriptor.confirmarClasificadorEnCarga === true}
         confirmarTotal={descriptor.confirmarTotalEnCarga ? { rolValor: descriptor.valor } : null}
+        confirmarAgrupador={descriptor.confirmarAgrupadorEnCarga === true}
       />
     </div>
   );
