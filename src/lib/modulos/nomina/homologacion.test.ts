@@ -176,6 +176,33 @@ describe("resolverCuentaConcepto", () => {
     expect(resolverCuentaConcepto({ clasificador: "100", agrupador: "ca" }, ctx)).toMatchObject({ cuentas: ["510506"], via: "memoria_exacta" });
   });
 
+  it("vía 2 con una cuenta solo del período: la subcuenta y el grupo salen de la fila base del concepto", () => {
+    // Kakaraka: el concepto 8 (Comisiones) trae subcuenta 18 en la carga masiva (centro vacío) y el
+    // auditor le asignó la 519505 solo para 2025-12 en el centro 1, fila que no guarda esos datos.
+    const cuentasRussell6 = [...CUENTAS_RUSSELL_NOMINA, "519505"];
+    const ctx: ContextoHomologacion = {
+      memoria: [
+        { clasificador: "8", agrupador: "", cuenta6: "", cuentaCliente: "0005180000", grupo: "comisiones", subcuentaPuc: "18" },
+        { clasificador: "8", agrupador: "1", cuenta6: "519505" },
+      ],
+      cuentasRussell6,
+    };
+    expect(resolverCuentaConcepto({ clasificador: "8", agrupador: "1" }, ctx)).toMatchObject({
+      cuentas: ["519505"],
+      via: "memoria_exacta",
+      destino: "gasto",
+      subcuentaPuc: "18",
+      grupo: "comisiones",
+      cuentaCliente: "0005180000",
+    });
+    // Lo de la fila exacta manda sobre la base cuando lo trae.
+    const conPropia: ContextoHomologacion = {
+      ...ctx,
+      memoria: [ctx.memoria[0], { clasificador: "8", agrupador: "1", cuenta6: "519505", subcuentaPuc: "05", grupo: "otros" }],
+    };
+    expect(resolverCuentaConcepto({ clasificador: "8", agrupador: "1" }, conPropia)).toMatchObject({ subcuentaPuc: "05", grupo: "otros" });
+  });
+
   it("vía 3: memoria base + regla de clase transpone la cuenta", () => {
     const ctx: ContextoHomologacion = {
       ...ctxVacio,
