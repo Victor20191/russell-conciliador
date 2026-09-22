@@ -29,6 +29,7 @@ describe("construirCruceTerceroCartera", () => {
       claveModuloPorDv: null,
       claveModuloPorNucleo: null,
       sugerencia: null,
+      explicaDiferencia: null,
       emparejadoDesde: [],
       separadoDe: [],
       contable: { porCuenta: { "130505": 1_000_000, "280505": -200_000 }, total: 800_000 },
@@ -294,5 +295,27 @@ describe("emparejamientos manuales", () => {
     expect(validarEmparejamientoTercero(r, "900000002", "900000001").ok).toBe(false); // ya cruza
     expect(validarEmparejamientoTercero(r, "~UNO", "900000009").ok).toBe(false); // no está en la contabilidad
     expect(validarEmparejamientoTercero(r, "~UNO", "~UNO").ok).toBe(false);
+  });
+});
+
+describe("diferencia explicada por un tercero suelto", () => {
+  it("señala el tercero solo en contabilidad cuyo saldo es la diferencia del descuadre", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("890903938", "220505", 189_767_845.67, "BANCOLOMBIA SA"), contable("860059294", "220505", 14_329_514)],
+      modulo: [modulo("890903938", 204_097_359.67)],
+      cuentasModulo: null,
+    });
+    const porClave = Object.fromEntries(r.filas.map((f) => [f.clave, f]));
+    expect(porClave["890903938"].explicaDiferencia).toMatchObject({ clave: "860059294", rol: "suelto", ladoSuelto: "contable" });
+    expect(porClave["860059294"].explicaDiferencia).toMatchObject({ clave: "890903938", rol: "descuadre" });
+  });
+
+  it("no señala nada si hay dos sueltos con el mismo importe", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("890903938", "220505", 90), contable("1", "220505", 10), contable("2", "220505", 10)],
+      modulo: [modulo("890903938", 100)],
+      cuentasModulo: null,
+    });
+    expect(r.filas.every((f) => f.explicaDiferencia === null)).toBe(true);
   });
 });

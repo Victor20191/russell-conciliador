@@ -244,6 +244,53 @@ export function sugerirEmparejamientosTercero(
     || a.claveModulo.localeCompare(b.claveModulo));
 }
 
+/**
+ * Lo que se anota cuando la DIFERENCIA de un tercero con descuadre es exactamente el saldo de
+ * otro tercero que quedó en un solo lado. `rol` dice qué es la fila apuntada: el tercero suelto
+ * (visto desde el descuadre) o el descuadre (visto desde el suelto).
+ */
+export type CompensacionFila = {
+  clave: string;
+  nombre: string | null;
+  rol: "suelto" | "descuadre";
+  /** Lado donde está el tercero suelto. */
+  ladoSuelto: "contable" | "modulo";
+  importe: number;
+  nombreParecido: boolean;
+};
+
+/**
+ * Busca, para cada renglón con descuadre, un tercero suelto cuyo saldo cierre la diferencia al
+ * centavo: uno «solo en contabilidad» que, sumado a la contabilidad del descuadre, la iguala al
+ * auxiliar, o uno «solo en el módulo» que, sumado al auxiliar, la iguala a la contabilidad. Solo
+ * se anota cuando el importe es ÚNICO en los dos lados (un descuadre, un suelto): con dos
+ * candidatos del mismo valor no hay evidencia de cuál es. Anota `explicaDiferencia` en ambos.
+ */
+export function anotarCompensaciones(filas: FilaCruceTerceroCartera[], opciones: { tolerancia?: number } = {}): void {
+  const tolerancia = opciones.tolerancia ?? 0.01;
+  const clave = (v: number) => claveSaldo(v);
+  const descuadres = new Map<string, FilaCruceTerceroCartera[]>();
+  const sueltos = new Map<string, FilaCruceTerceroCartera[]>();
+  const agregar = (mapa: Map<string, FilaCruceTerceroCartera[]>, k: string, f: FilaCruceTerceroCartera) => mapa.set(k, [...(mapa.get(k) ?? []), f]);
+  for (const f of filas) {
+    if (f.estado === "descuadre" && Math.abs(f.diferencia) > Math.max(tolerancia, 1)) agregar(descuadres, clave(f.diferencia), f);
+    // La diferencia (contable − módulo) que cerraría este suelto si fuera del mismo tercero.
+    else if (f.estado === "solo_contable") agregar(sueltos, clave(-f.contable.total), f);
+    else if (f.estado === "solo_modulo") agregar(sueltos, clave(f.modulo.total), f);
+  }
+  for (const [k, lista] of descuadres) {
+    const candidatos = sueltos.get(k);
+    if (lista.length !== 1 || candidatos?.length !== 1) continue;
+    const [d] = lista;
+    const [s] = candidatos;
+    const ladoSuelto = s.estado === "solo_contable" ? "contable" : "modulo";
+    const importe = ladoSuelto === "contable" ? s.contable.total : s.modulo.total;
+    const nombreParecido = nombresParecidos(d.nombre, s.nombre);
+    d.explicaDiferencia = { clave: s.clave, nombre: s.nombre, rol: "suelto", ladoSuelto, importe, nombreParecido };
+    s.explicaDiferencia = { clave: d.clave, nombre: d.nombre, rol: "descuadre", ladoSuelto, importe, nombreParecido };
+  }
+}
+
 /** La nota que deja constancia de por qué la validación de coherencia propuso el par. */
 export function notaDeSugerencia(s: Pick<SugerenciaEmparejamiento, "senales" | "confianza">): string {
   return `Validación de coherencia (confianza ${s.confianza}): ${s.senales.map((x) => ETIQUETA_SENAL[x]).join(", ")}.`;

@@ -133,12 +133,12 @@ describe("crearExportacionModulo · cruce por tercero", () => {
     }));
     const ws = wb.getWorksheet("Cruce por tercero")!;
     // Solo las cuentas con saldo: 130510 no aparece.
-    expect(["A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4", "I4", "J4", "K4"].map((ref) => ws.getCell(ref).value)).toEqual([
-      "NIT", "Nombre", "130505", "280505", "Contabilidad", "Módulo nacional", "Módulo exterior", "Módulo", "Diferencia", "Estado", "Observación",
+    expect(["A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4", "I4", "J4", "K4", "L4"].map((ref) => ws.getCell(ref).value)).toEqual([
+      "NIT", "Nombre", "130505", "280505", "Contabilidad", "Módulo nacional", "Módulo exterior", "Módulo", "Diferencia", "Estado", "% coincidencia", "Observación",
     ]);
     expect([ws.getCell("A5").value, ws.getCell("C5").value, ws.getCell("D5").value, ws.getCell("E5").value, ws.getCell("H5").value, ws.getCell("I5").value, ws.getCell("J5").value])
       .toEqual(["900123456", 1_000, -200, 800, 700, 100, "Diferencia"]);
-    expect([ws.getCell("B6").value, ws.getCell("J6").value, ws.getCell("K6").value]).toEqual(["Consumidor final", "Cuadra", "Sin NIT"]);
+    expect([ws.getCell("B6").value, ws.getCell("J6").value, ws.getCell("K6").value, ws.getCell("L6").value]).toEqual(["Consumidor final", "Cuadra", 1, "Sin NIT"]);
     expect([ws.getCell("A7").value, ws.getCell("E7").value, ws.getCell("H7").value, ws.getCell("I7").value]).toEqual(["Totales", 850, 750, 100]);
   });
 });

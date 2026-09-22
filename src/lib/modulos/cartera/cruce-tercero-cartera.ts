@@ -23,9 +23,11 @@
 //    solo PROPONE: saldo idéntico, NIT con sufijo, nombre parecido.
 import { dvValido, nucleoNit } from "@/lib/nit";
 import {
+  anotarCompensaciones,
   claveParSeparado,
   nombreComparable,
   sugerirEmparejamientosTercero,
+  type CompensacionFila,
   type SugerenciaEmparejamiento,
   type SugerenciaFila,
 } from "./coherencia-tercero";
@@ -74,6 +76,12 @@ export type FilaCruceTerceroCartera = {
    * confirma (una a una o en lote).
    */
   sugerencia: SugerenciaFila | null;
+  /**
+   * Tercero suelto cuyo saldo es EXACTAMENTE la diferencia de un renglón con descuadre (en los
+   * dos renglones: el descuadre apunta al suelto y el suelto al descuadre). Típicamente el mismo
+   * tercero registrado en la contabilidad con otro NIT. Solo informa: no se une ni se aplica.
+   */
+  explicaDiferencia: CompensacionFila | null;
   /** Claves del auxiliar que un emparejamiento manual unió a este tercero del balance. */
   emparejadoDesde: string[];
   /** Claves del auxiliar que el auditor SEPARÓ de este tercero del balance (no se unen solas). */
@@ -296,6 +304,7 @@ export function construirCruceTerceroCartera(input: {
       claveModuloPorDv,
       claveModuloPorNucleo,
       sugerencia: null,
+      explicaDiferencia: null,
       emparejadoDesde: [...(emparejadas.get(clave) ?? [])].sort(),
       separadoDe: [...(separadoDe.get(clave) ?? [])].sort(),
       contable: { porCuenta: redondearCuentas(c?.porCuenta ?? {}), total: totalContable },
@@ -314,6 +323,7 @@ export function construirCruceTerceroCartera(input: {
   // cada lado —típicamente el proveedor que el auxiliar trae sin NIT o con un sufijo, o el
   // mismo saldo al centavo bajo otro identificador. Anota `sugerencia` en los dos renglones.
   const sugerencias = sugerirEmparejamientosTercero(filas, { tolerancia, separadas });
+  anotarCompensaciones(filas, { tolerancia });
 
   filas.sort((a, b) =>
     PRIORIDAD[a.estado] - PRIORIDAD[b.estado]

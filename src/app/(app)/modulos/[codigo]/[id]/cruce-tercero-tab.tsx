@@ -9,6 +9,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
 import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
+import { coincidenciaTercero, type CoincidenciaTercero } from "@/lib/modulos/cartera/coincidencia-tercero";
 import { anclaCruceTercero, type FilaCruceTerceroMarcada, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
 import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
@@ -63,6 +64,50 @@ const ESTADO: Record<EstadoCruceTercero, { label: string; tone: "ok" | "warn" | 
   solo_modulo: { label: "Solo en el módulo", tone: "warn" },
   sin_saldo: { label: "Sin saldo", tone: "ink" },
 };
+
+/**
+ * El % de coincidencia del renglón: verde si cruzó bien, ámbar a medias, rojo si no cruzó con
+ * nada; azul si solo hay un candidato. Contra qué se calculó aparece SOLO al pasar el mouse (una
+ * burbuja fija al viewport, para que la tabla con scroll no la recorte).
+ */
+function PorcentajeCoincidencia({ coincidencia }: { coincidencia: CoincidenciaTercero | null }) {
+  const [burbuja, setBurbuja] = useState<{ top: number; left: number } | null>(null);
+  if (!coincidencia) return null;
+  const { porcentaje, tipo } = coincidencia;
+  const color = tipo === "candidato"
+    ? "border-blue-400 bg-blue-50 text-blue-500"
+    : porcentaje >= 95 ? "border-ok-500 bg-ok-100 text-ok-700"
+      : porcentaje >= 60 ? "border-warn-500 bg-warn-100 text-warn-700"
+        : "border-err-500 bg-err-100 text-err-700";
+  const etiqueta = tipo === "candidato" ? `${porcentaje} % candidato` : tipo === "sin_cruce" ? "0 % sin cruce" : `${porcentaje} %`;
+  const ANCHO = 300;
+  const mostrar = (e: React.MouseEvent<HTMLSpanElement> | React.FocusEvent<HTMLSpanElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setBurbuja({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - ANCHO, window.innerWidth - ANCHO - 8)) });
+  };
+  return (
+    <span
+      tabIndex={0}
+      onMouseEnter={mostrar}
+      onFocus={mostrar}
+      onMouseLeave={() => setBurbuja(null)}
+      onBlur={() => setBurbuja(null)}
+      className={`inline-flex cursor-help items-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none ${color}`}
+    >
+      {etiqueta}
+      {burbuja && (
+        <span
+          role="tooltip"
+          style={{ top: burbuja.top, left: burbuja.left, width: ANCHO }}
+          className="pointer-events-none fixed z-50 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[11.5px] font-normal leading-snug text-ink-600 shadow-lg"
+        >
+          <span className="mb-1 block font-semibold text-ink-800">{coincidencia.contra}</span>
+          {coincidencia.explicacion}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const normalizar = (texto: string) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const contar = (n: number) => n.toLocaleString("es-CO");
@@ -125,6 +170,10 @@ export function CruceTerceroTab({
       && !(ocultarSinSaldo && f.estado === "sin_saldo")
       && (!consulta || normalizar(`${f.clave} ${f.nombre ?? ""}`).includes(consulta)));
   }, [resumen, filtro, busqueda, verSinSaldo]);
+  const coincidencias = useMemo(
+    () => new Map((resumen?.filas ?? []).map((f) => [f.clave, coincidenciaTercero(f)] as const)),
+    [resumen],
+  );
   const cantidadSinSaldo = useMemo(() => (resumen?.filas ?? []).filter((f) => f.estado === "sin_saldo").length, [resumen]);
   const observaciones = useMemo(
     () => (resumen?.filas ?? []).filter((f) => f.marca != null).sort((a, b) => a.marca!.numero - b.marca!.numero),
@@ -359,6 +408,7 @@ export function CruceTerceroTab({
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1">
                       <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
+                      <PorcentajeCoincidencia coincidencia={coincidencias.get(f.clave) ?? null} />
                       {f.sinNit && <Chip label="Sin NIT" tone="ink" />}
                       {f.claveModuloPorDv && (
                         <span className="inline-flex items-center gap-1" title={`Unido con ${f.claveModuloPorDv} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`}>

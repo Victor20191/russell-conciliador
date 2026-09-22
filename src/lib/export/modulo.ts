@@ -6,6 +6,7 @@
 //  - "Consolidado": total por clasificador con sus cuentas Russell (4 díg.) asignadas.
 // Puro (sin BD): recibe los view-models ya resueltos por el loader RSC.
 import ExcelJS from "exceljs";
+import { coincidenciaTercero } from "@/lib/modulos/cartera/coincidencia-tercero";
 import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCartera } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import type { ControlDeduccionesNomina, VistaSubcuentaNomina } from "@/lib/modulos/nomina/cruce-nomina";
@@ -273,6 +274,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
     { header: "Módulo", key: "modulo", width: 20 },
     { header: "Diferencia", key: "diferencia", width: 18 },
     { header: "Estado", key: "estado", width: 22 },
+    { header: "% coincidencia", key: "coincidencia", width: 16 },
     { header: "Observación", key: "observacion", width: 48 },
   ];
   ws.spliceRows(1, 0, [], [], []);
@@ -286,6 +288,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
 
   for (const f of resumen.filas) {
+    const coincidencia = coincidenciaTercero(f);
     const row = ws.addRow({
       clave: f.sinNit ? null : f.clave,
       nombre: f.nombre,
@@ -296,10 +299,12 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
       modulo: f.modulo.total,
       diferencia: f.diferencia,
       estado: ESTADO_CRUCE_TERCERO[f.estado],
+      coincidencia: coincidencia == null ? null : coincidencia.porcentaje / 100,
       observacion: [
         f.sinNit ? "Sin NIT" : null,
         f.claveModuloPorDv ? `Emparejado por DV con ${f.claveModuloPorDv} del auxiliar` : null,
         f.claveModuloPorNucleo ? `Emparejado por núcleo con ${f.claveModuloPorNucleo}` : null,
+        coincidencia && (coincidencia.tipo !== "cruzado" || coincidencia.propuesto) ? coincidencia.explicacion : null,
         f.sugerencia
           ? `Posible: ${f.sugerencia.clave.startsWith("~") ? "un tercero sin NIT" : f.sugerencia.clave} del otro lado (${describirSenales(f.sugerencia.senales)}; confianza ${f.sugerencia.confianza})`
           : null,
@@ -309,6 +314,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
       ].filter(Boolean).join(" · ") || null,
     });
     for (const k of numericas) row.getCell(k).numFmt = NUM_FMT;
+    row.getCell("coincidencia").numFmt = "0%";
     if (f.estado !== "cuadra" && f.estado !== "sin_saldo") row.font = { color: { argb: "FFB91C1C" } };
   }
   const total = ws.addRow({
