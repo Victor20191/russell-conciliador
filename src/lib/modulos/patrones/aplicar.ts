@@ -104,10 +104,11 @@ function reubicarIdentificadorCompartido(
   const cumple = (n: number, total: number) => total > 0 && n / total >= UMBRAL_IDENTIFICADOR;
 
   // ¿La columna compartida trae el documento? Si en las filas de documento viene vacía o repite
-  // lo de su cabecera, no.
+  // lo de su cabecera, no. Una marca sin letras ni dígitos («*», que SIESA pone en algunos
+  // documentos) cuenta como vacía: no es un número de documento.
   const noEsDocumento = detalle.filter(({ fila, cabecera: cab }) => {
     const v = celda(fila, compartida);
-    return v === "" || (cab != null && v === celda(cab, compartida));
+    return !/[\p{L}\p{N}]/u.test(v) || (cab != null && v === celda(cab, compartida));
   }).length;
   if (!cumple(noEsDocumento, detalle.length)) return { spec };
 

@@ -166,6 +166,21 @@ describe("aplicarPatronASpec con el identificador compartido de SIESA", () => {
     expect(movimientos.map((f) => f.datos.documento)).toEqual(["001-FC-1", "001-FC-2"]);
   });
 
+  it("la marca «*» de SIESA en la columna compartida no impide mover el documento", () => {
+    // Transportes Gómez (CxP dic-2025): 30 de 164 documentos traen «*» en la columna del NIT.
+    const filas: CeldaCruda[][] = [
+      ["Documento", null, "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
+      ["900123456", "PROVEEDOR UNO", null, null, null, 100, 50, 150],
+      ["*", "001-FC-1", "2025-12-01", "2025-12-31", null, 100, 0, 0],
+      [null, "001-FC-2", "2025-11-01", "2025-11-30", null, 0, 50, 0],
+    ];
+    const { hoja, ubicacion } = ubicarSiesa(filas);
+    const { spec } = aplicarPatronASpec(CXP, ubicacion, hoja);
+    expect(spec.columnas).toMatchObject({ nit: 1, documento: 2 });
+    const movimientos = transformarModulo(CXP, spec, hoja).filas.filter((f) => f.tipoFila === "movimiento");
+    expect(movimientos.map((f) => f.datos.documento)).toEqual(["001-FC-1", "001-FC-2"]);
+  });
+
   it("el archivo con el mismo formato de la muestra queda igual", () => {
     const filas: CeldaCruda[][] = [
       [null, "Documento", "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
