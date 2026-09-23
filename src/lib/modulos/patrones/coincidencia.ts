@@ -10,7 +10,7 @@
 // Las columnas encontradas en otra letra se RE-MAPEAN al aplicar el patrón (ver `aplicar.ts`).
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
-import { esTipoFormatoCartera, tipoConDocumento, tipoConEdades } from "../cartera/tipo-formato";
+import { esTipoFormatoCartera, esTipoFormatoDeclarable, tipoConDocumento, tipoConEdades, tipoFormatoCartera } from "../cartera/tipo-formato";
 import { modoClasificadorDe } from "../perfil-modulo";
 import { clavesEncabezado } from "./rotulos";
 
@@ -87,15 +87,19 @@ function faltantesDelTipoFormato(
   spec: SpecModulo,
   mapaColumnas: Readonly<Record<number, number>>,
 ): string[] {
-  if (!descriptor.crucePorTercero.detalleTercero || !esTipoFormatoCartera(spec.tipoFormato)) return [];
+  if (!descriptor.crucePorTercero.detalleTercero) return [];
+  // Una versión por cuenta y NIT (declarada o deducida) ya no concilia: nunca lee un archivo.
+  const { tipo } = tipoFormatoCartera(spec);
+  if (!esTipoFormatoDeclarable(tipo)) return ["Documento o rangos de vencimiento"];
+  if (!esTipoFormatoCartera(spec.tipoFormato)) return [];
   const faltan: string[] = [];
   const etiquetaDe = (rol: string) => descriptor.columnas.find((c) => c.nombre === rol)?.etiqueta ?? rol;
   const ubicada = (rol: string) => {
     const columna = spec.columnas[rol] ?? 0;
     return columna >= 1 && mapaColumnas[columna] != null;
   };
-  if (tipoConDocumento(spec.tipoFormato) && !ubicada("documento")) faltan.push(etiquetaDe("documento"));
-  if (tipoConEdades(spec.tipoFormato)) {
+  if (tipoConDocumento(tipo) && !ubicada("documento")) faltan.push(etiquetaDe("documento"));
+  if (tipoConEdades(tipo)) {
     const rangos = spec.familias?.edades ?? [];
     const conEdades = rangos.length > 0
       ? rangos.some((r) => mapaColumnas[r.columna] != null)

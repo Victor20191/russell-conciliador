@@ -15,7 +15,7 @@ import {
   nivelCarteraDeSpec,
   nivelDeTipoFormato,
   tipoFormatoSugerido,
-  TIPOS_FORMATO_CARTERA,
+  TIPOS_FORMATO_DECLARABLES,
 } from "@/lib/modulos/cartera/tipo-formato";
 import { sugerirTrmCierre, type AnalisisModulo } from "@/app/actions/modulos-datos";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
@@ -291,7 +291,7 @@ export function EditorMapeoModulo({
                   {modoEditor === "patron" ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
                 </option>
               )}
-              {TIPOS_FORMATO_CARTERA.map((t) => (
+              {TIPOS_FORMATO_DECLARABLES.map((t) => (
                 <option key={t} value={t}>{INFO_TIPO_FORMATO[t].etiqueta} — {INFO_TIPO_FORMATO[t].fila.toLowerCase()}</option>
               ))}
             </select>

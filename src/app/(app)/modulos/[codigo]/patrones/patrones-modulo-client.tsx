@@ -12,7 +12,7 @@ import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones
 import { ETIQUETA_ESTADO_PATRON, motivoNoBorrable } from "@/lib/modulos/patrones/version";
 import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
 import { Modal } from "@/components/modal";
-import { INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_CARTERA, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
+import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
 const TONO_ESTADO = { aprobada: "ok", pendiente: "warn", inactiva: "ink" } as const;
 
@@ -144,7 +144,9 @@ const NIVEL_FILA = { documento: "un documento", tercero: "un tercero" } as const
 function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onClose: () => void }) {
   const router = useRouter();
   const formato = version.formato!;
-  const [tipo, setTipo] = useState<TipoFormatoCartera>(formato.tipo);
+  // Un formato retirado (por cuenta y NIT) no es una opción: se parte de la primera declarable.
+  const retirado = !esTipoFormatoDeclarable(formato.tipo);
+  const [tipo, setTipo] = useState<TipoFormatoCartera>(retirado ? TIPOS_FORMATO_DECLARABLES[0] : formato.tipo);
   const [guardando, startGuardar] = useTransition();
   const nivelNuevo = nivelDeTipoFormato(tipo);
   const cambiaNivel = nivelNuevo !== formato.nivel;
@@ -175,10 +177,11 @@ function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onC
             ? <>Hoy es <b>{formato.etiqueta.toLowerCase()}</b>.</>
             : <>La versión no lo declara; por su mapeo parece <b>{formato.etiqueta.toLowerCase()}</b>.</>}{" "}
           Las columnas no cambian. Lo que declares rige desde el próximo archivo: los cargues ya hechos conservan su lectura.
+          {retirado && " Ese formato ya no se acepta: sin documento ni edades no hay con qué validar el auxiliar, así que esta versión no lee ningún archivo y no se puede aprobar."}
           {version.estado !== "pendiente" && " En una versión aprobada o inactiva el tipo se declara una sola vez."}
         </p>
         <fieldset className="flex flex-col gap-2">
-          {TIPOS_FORMATO_CARTERA.map((t) => (
+          {TIPOS_FORMATO_DECLARABLES.map((t) => (
             <label key={t} className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 ${tipo === t ? "border-blue-400 bg-blue-50" : "border-ink-150"}`}>
               <input type="radio" name={`tipo-${version.id}`} checked={tipo === t} onChange={() => setTipo(t)} className="mt-0.5" />
               <span className="flex min-w-0 flex-col">
@@ -307,7 +310,7 @@ function FilaVersion({
         {version.formato && (
           <div className="mt-1">
             <Chip
-              label={version.formato.declarado ? version.formato.etiqueta : `Sin declarar · parece ${version.formato.etiqueta.toLowerCase()}`}
+              label={`${version.formato.declarado ? version.formato.etiqueta : `Sin declarar · parece ${version.formato.etiqueta.toLowerCase()}`}${esTipoFormatoDeclarable(version.formato.tipo) ? "" : " · ya no se acepta"}`}
               tone={version.formato.declarado ? "blue" : "warn"}
             />
           </div>

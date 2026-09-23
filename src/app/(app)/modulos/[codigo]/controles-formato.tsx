@@ -5,7 +5,7 @@
 // dato cargado (con las tablas).
 import { fmtContable, fmtNum } from "@/lib/format";
 import type { ControlesFormatoCartera, EstadoControlFormato } from "@/lib/modulos/cartera/controles-formato";
-import { INFO_TIPO_FORMATO } from "@/lib/modulos/cartera/tipo-formato";
+import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO } from "@/lib/modulos/cartera/tipo-formato";
 
 const TONO: Record<EstadoControlFormato, string> = {
   cuadra: "border-ok-100 bg-ok-100/40 text-ok-700",
@@ -39,12 +39,20 @@ export function ControlesFormato({
 }) {
   const { documentosVsCliente: docs, edadesVsTotal: edades, tercerosVsCuenta: porCuenta } = controles;
   const formato = controles.tipos.map((t) => INFO_TIPO_FORMATO[t].etiqueta).join(" + ");
+  // Cargues anteriores al 22/Sep/2026: se leyeron por cuenta y NIT, que ya no se acepta.
+  const retirado = controles.tipos.filter((t) => !esTipoFormatoDeclarable(t)).map((t) => INFO_TIPO_FORMATO[t].etiqueta);
   return (
     <div className="flex flex-col gap-1.5" aria-label="Controles del formato">
       <div className="text-[11.5px] text-ink-600">
         <span className="font-semibold text-ink-700">Formato: {formato}</span>
         {controles.deducido ? " · deducido del mapeo, el patrón no lo declara" : ""}
       </div>
+      {retirado.length > 0 && (
+        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+          Este cargue se leyó con el formato «{retirado.join(" + ")}», que ya no se acepta: sin documento ni edades no hay con qué validar el
+          auxiliar. Lo cargado se conserva con sus controles; para el próximo período pide el auxiliar por documento o por edades.
+        </div>
+      )}
 
       {docs && (
         <div className={`rounded-md border px-3 py-2 text-[12px] ${TONO[docs.estado]}`}>

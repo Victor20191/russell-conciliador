@@ -37,7 +37,7 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
-import { INFO_TIPO_FORMATO, nivelCarteraDeSpec, tipoFormatoCartera, TIPOS_FORMATO_CARTERA, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
+import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import type { ActionState } from "@/lib/definitions";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
 
@@ -462,7 +462,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
 const DeclararTipoSchema = z.object({
   id: z.number().int().positive(),
   actualizadoEn: z.string().min(1),
-  tipoFormato: z.enum(TIPOS_FORMATO_CARTERA as readonly [string, ...string[]]).transform((t) => t as TipoFormatoCartera),
+  tipoFormato: z.enum(TIPOS_FORMATO_DECLARABLES as readonly [string, ...string[]]).transform((t) => t as TipoFormatoCartera),
 });
 
 /**
@@ -543,9 +543,15 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
     if (estado === "aprobada") {
       const motivo = motivoNoAprobable(version);
       if (motivo) throw new ErrorPatron(motivo);
-      if (version.estado === "pendiente" && descriptorDe(version.moduloCodigo).crucePorTercero.detalleTercero) {
+      if (descriptorDe(version.moduloCodigo).crucePorTercero.detalleTercero) {
         const spec = SpecModuloSchema.safeParse(version.specJson);
-        if (!spec.success || !spec.data.tipoFormato) throw new ErrorPatron(`${MENSAJE_TIPO_FORMATO} Edita la versión antes de aprobarla.`);
+        if (version.estado === "pendiente" && (!spec.success || !spec.data.tipoFormato)) {
+          throw new ErrorPatron(`${MENSAJE_TIPO_FORMATO} Edita la versión antes de aprobarla.`);
+        }
+        // Ni se aprueba ni se reactiva una versión por cuenta y NIT: ese formato ya no concilia.
+        if (spec.success && !esTipoFormatoDeclarable(tipoFormatoCartera(spec.data).tipo)) {
+          throw new ErrorPatron(MENSAJE_FORMATO_NO_CONCILIABLE);
+        }
       }
     }
     const user = await getCurrentUser();

@@ -59,7 +59,7 @@ import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
 import { repartoQuedaViejo, validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
-import { esTipoFormatoCartera, formatoArchivoCartera, leerFormatosCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
+import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
@@ -333,6 +333,8 @@ export type AnalisisModulo = {
     mejor: { version: number; porcentaje: number; hoja: string; faltantes: string[]; faltantesRequeridos: string[] } | null;
   };
   advertenciaValor?: string;
+  /** Cartera y CxP: el archivo no trae documento ni edades, así que no sirve para conciliar. */
+  advertenciaFormato?: string;
   /**
    * El libro trae otra hoja con exactamente el mismo formato que la elegida. No se bloquea
    * —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro momento,
@@ -719,6 +721,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       aplicativo: aplicativoVm,
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
+      ...(descriptor.crucePorTercero.detalleTercero
+        && !esTipoFormatoDeclarable(tipoFormatoCartera(sugerirSpec(descriptor, hoja)).tipo)
+        ? { advertenciaFormato: MENSAJE_FORMATO_NO_CONCILIABLE }
+        : {}),
       sinPatron: {
         totalVersiones: total,
         mejor: ubicacion

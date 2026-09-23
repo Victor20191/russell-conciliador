@@ -38,6 +38,9 @@ export type ConceptoRow = {
   actualizadoEn: number;
 };
 
+/** Valor del selector para ver los conceptos de todos los clientes a la vez. */
+const TODOS = "todos";
+
 const BOTON_ACCION =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition";
 
@@ -74,34 +77,58 @@ export default function ConceptosNominaClient({
   clientes: ClienteOpcionConceptos[];
 }) {
   const router = useRouter();
+  // El catálogo se revisa CLIENTE POR CLIENTE: sin uno elegido la tabla no lista nada, porque
+  // mezclar los conceptos de todos los clientes no se puede leer («todos» queda como opción).
+  const [cliente, setCliente] = useState<string>("");
   const [busqueda, setBusqueda] = useState("");
   const [borrando, setBorrando] = useState<ConceptoRow | null>(null);
   const [enProceso, iniciarBorrado] = useTransition();
 
+  // Conceptos del cliente elegido (o de todos): la base de la tabla Y de las tarjetas.
+  const delCliente = useMemo(() => {
+    if (cliente === "") return [];
+    if (cliente === TODOS) return rows;
+    const id = Number(cliente);
+    return rows.filter((r) => r.clienteId === id);
+  }, [rows, cliente]);
+
   const filtradas = useMemo(() => {
     const q = normalizarBusqueda(busqueda);
-    if (!q) return rows;
-    return rows.filter((r) =>
+    if (!q) return delCliente;
+    return delCliente.filter((r) =>
       normalizarBusqueda(
         `${r.clienteNombre} ${r.clienteCodigo} ${r.clienteNit} ${r.codigo} ${r.agrupador} ${r.concepto ?? ""} ${r.grupo ?? ""} ${r.cuentas
           .map((c) => `${c.codigo} ${c.cuentaCliente}`)
           .join(" ")}`,
       ).includes(q),
     );
-  }, [rows, busqueda]);
+  }, [delCliente, busqueda]);
 
   const pg = usePagination(filtradas);
   const buscando = busqueda.trim().length > 0;
 
+  // Las tarjetas cuentan lo del cliente elegido; sin elegir, todo lo que el usuario alcanza.
+  const base = cliente === "" ? rows : delCliente;
   const totales = useMemo(
     () => ({
-      conceptos: rows.length,
-      clientes: new Set(rows.map((r) => r.clienteId)).size,
-      sinRussell: rows.filter((r) => r.cuentas.every((c) => !c.codigo && !esControl(c.cuentaCliente))).length,
-      control: rows.filter((r) => r.cuentas.length > 0 && r.cuentas.every((c) => !c.codigo && esControl(c.cuentaCliente))).length,
+      conceptos: base.length,
+      clientes: new Set(base.map((r) => r.clienteId)).size,
+      centros: new Set(base.map((r) => r.agrupador).filter(Boolean)).size,
+      sinRussell: base.filter((r) => r.cuentas.every((c) => !c.codigo && !esControl(c.cuentaCliente))).length,
+      control: base.filter((r) => r.cuentas.length > 0 && r.cuentas.every((c) => !c.codigo && esControl(c.cuentaCliente))).length,
     }),
-    [rows],
+    [base],
   );
+
+  // Clientes del selector: los que ya tienen catálogo primero, con cuántos conceptos tiene cada uno.
+  const opcionesCliente = useMemo(() => {
+    const conteo = new Map<number, number>();
+    for (const r of rows) conteo.set(r.clienteId, (conteo.get(r.clienteId) ?? 0) + 1);
+    return clientes
+      .map((c) => ({ id: c.id, nombre: c.name, conceptos: conteo.get(c.id) ?? 0 }))
+      .sort((a, b) => (b.conceptos > 0 ? 1 : 0) - (a.conceptos > 0 ? 1 : 0) || a.nombre.localeCompare(b.nombre, "es"));
+  }, [rows, clientes]);
+  const elegido = cliente !== "" && cliente !== TODOS ? opcionesCliente.find((c) => String(c.id) === cliente) ?? null : null;
 
   const confirmarBorrado = () => {
     const objetivo = borrando;
@@ -125,12 +152,20 @@ export default function ConceptosNominaClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-4">
-        <StatCard label="Conceptos mapeados" value={String(totales.conceptos)} hint="códigos con cuenta asignada (por centro)" />
         <StatCard
-          label="Clientes con catálogo"
-          value={`${totales.clientes} de ${totalClientes}`}
-          hint="de los clientes a tu alcance"
+          label="Conceptos mapeados"
+          value={String(totales.conceptos)}
+          hint={elegido ? `de ${elegido.nombre}, por centro` : "códigos con cuenta asignada (por centro)"}
         />
+        {elegido ? (
+          <StatCard label="Centros de costo" value={String(totales.centros)} hint="además del catálogo que vale para todos" />
+        ) : (
+          <StatCard
+            label="Clientes con catálogo"
+            value={`${totales.clientes} de ${totalClientes}`}
+            hint="de los clientes a tu alcance"
+          />
+        )}
         <StatCard
           label="Sin cuenta Russell"
           value={String(totales.sinRussell)}
@@ -151,6 +186,26 @@ export default function ConceptosNominaClient({
           }
         />
         <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
+          <label className="flex min-w-[260px] items-center gap-2 text-[11px] font-medium text-ink-600">
+            Cliente
+            <select
+              value={cliente}
+              onChange={(evento) => {
+                setCliente(evento.target.value);
+                pg.resetToFirstPage();
+              }}
+              aria-label="Cliente cuyos conceptos se muestran"
+              className="min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            >
+              <option value="">— elige un cliente —</option>
+              <option value={TODOS}>Todos los clientes ({rows.length})</option>
+              {opcionesCliente.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.nombre}{c.conceptos > 0 ? ` · ${c.conceptos}` : " · sin catálogo"}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
             <Icon name="search" size={15} />
             <input
@@ -201,9 +256,13 @@ export default function ConceptosNominaClient({
               {pg.pageItems.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-                    {buscando
-                      ? "Ningún concepto coincide con esa búsqueda."
-                      : "Todavía no hay conceptos de nómina cargados. Descarga la plantilla o carga el catálogo del ERP."}
+                    {cliente === ""
+                      ? "Elige un cliente para ver sus conceptos de nómina."
+                      : buscando
+                        ? "Ningún concepto coincide con esa búsqueda."
+                        : elegido
+                          ? `${elegido.nombre} todavía no tiene conceptos cargados. Carga el catálogo del ERP o la plantilla.`
+                          : "Todavía no hay conceptos de nómina cargados. Descarga la plantilla o carga el catálogo del ERP."}
                   </td>
                 </tr>
               )}

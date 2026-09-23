@@ -3,10 +3,14 @@ import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import { normalizarSpecModulo, validarSpecModulo } from "../perfil-modulo";
 import {
+  esTipoFormatoCartera,
+  esTipoFormatoDeclarable,
   faltantesTipoFormato,
+  MENSAJE_FORMATO_NO_CONCILIABLE,
   nivelCarteraDeSpec,
   tipoFormatoCartera,
   tipoFormatoSugerido,
+  TIPOS_FORMATO_DECLARABLES,
 } from "./tipo-formato";
 
 const CAR = descriptorModulo("CAR")!;
@@ -54,19 +58,22 @@ describe("tipo de formato de cartera", () => {
     expect(faltantesTipoFormato(base({ tipoFormato: "edades" }))).toEqual(["El formato por edades necesita los rangos de vencimiento."]);
     expect(faltantesTipoFormato(base({ tipoFormato: "documento_edades" }))).toHaveLength(2);
     expect(faltantesTipoFormato(base({ tipoFormato: "documento_edades", columnas: columnas({ nit: 1, documento: 3, total: 7 }), familias: { edades: RANGOS } }))).toEqual([]);
-    // Sin tipo declarado no se exige nada (perfiles y versiones anteriores).
-    expect(faltantesTipoFormato(base())).toEqual([]);
+    // Sin tipo declarado se mira el deducido: con documento no falta nada…
+    expect(faltantesTipoFormato(base({ columnas: columnas({ nit: 1, documento: 3, total: 7 }) }))).toEqual([]);
+    // …y sin documento ni edades es el formato por cuenta y NIT, que ya no concilia.
+    expect(faltantesTipoFormato(base())).toEqual([MENSAJE_FORMATO_NO_CONCILIABLE]);
   });
 
-  it("por cuenta y NIT: no exige documento ni rangos, y cada fila es un tercero", () => {
+  it("por cuenta y NIT ya no concilia: no se declara ni se carga, pero se sigue leyendo lo cargado (22/Sep/2026)", () => {
     const spec = base({ tipoFormato: "cuenta_tercero" });
-    expect(faltantesTipoFormato(spec)).toEqual([]);
+    expect(TIPOS_FORMATO_DECLARABLES).toEqual(["documento", "edades", "documento_edades"]);
+    expect(esTipoFormatoDeclarable("cuenta_tercero")).toBe(false);
+    expect(faltantesTipoFormato(spec)).toEqual([MENSAJE_FORMATO_NO_CONCILIABLE]);
+    expect(validarSpecModulo(CXP, normalizarSpecModulo(CXP, spec))).toBe(MENSAJE_FORMATO_NO_CONCILIABLE);
+    // El tipo se conserva al leer: los cargues anteriores mantienen su formato y su control.
     expect(nivelCarteraDeSpec(spec)).toBe("tercero");
     expect(normalizarSpecModulo(CXP, spec)).toMatchObject({ tipoFormato: "cuenta_tercero", nivel: "tercero" });
-    expect(validarSpecModulo(CXP, normalizarSpecModulo(CXP, spec))).toBeNull();
-    // El tercero y el saldo los sigue exigiendo el módulo, como en cualquier otro formato.
-    const sinNit = base({ tipoFormato: "cuenta_tercero", columnas: columnas({ nombre: 2, total: 7 }) });
-    expect(validarSpecModulo(CXP, normalizarSpecModulo(CXP, sinNit))).toContain("columna obligatoria");
+    expect(esTipoFormatoCartera("cuenta_tercero")).toBe(true);
   });
 
   it("la validación del spec lo aplica en Cartera y CxP y lo ignora en los demás módulos", () => {
