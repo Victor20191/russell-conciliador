@@ -7,6 +7,7 @@ import { BackLink, Chip, PageHeader } from "@/components/ui";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import TicketHistorial from "@/components/ticket-historial";
+import TicketUrlPagina from "@/components/ticket-url-pagina";
 import TicketMensajeForm from "@/components/ticket-mensaje-form";
 import { historialDeTicket, ladoParaEscribir, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 
@@ -36,6 +37,7 @@ export default async function ReporteDetallePage({
       description: true,
       routeLabel: true,
       menuLabel: true,
+      pageUrl: true,
       status: true,
       solution: true,
       resolvedByName: true,
@@ -81,8 +83,9 @@ export default async function ReporteDetallePage({
           arriba porque es la primera entrada del historial. */}
       <section className="rounded-lg border border-ink-150 bg-paper p-5 shadow-sm">
         {ubicacion && (
-          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-ink-500">{ubicacion}</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-500">{ubicacion}</p>
         )}
+        <TicketUrlPagina url={ticket.pageUrl} className="mb-4" />
         <TicketHistorial entradas={historial} />
         {lado !== null && (
           <TicketMensajeForm ticketId={ticket.id} code={ticket.code} lado={lado} />

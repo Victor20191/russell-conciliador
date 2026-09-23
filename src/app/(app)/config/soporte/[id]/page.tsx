@@ -7,6 +7,7 @@ import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import TicketHistorial from "@/components/ticket-historial";
+import TicketUrlPagina from "@/components/ticket-url-pagina";
 import { historialDeTicket, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 import TicketGestionForm from "../ticket-gestion-form";
 import TicketEliminarBoton from "../ticket-eliminar-boton";
@@ -40,6 +41,7 @@ export default async function SoporteTicketDetallePage({
       description: true,
       routeLabel: true,
       menuLabel: true,
+      pageUrl: true,
       status: true,
       solution: true,
       resolvedByName: true,
@@ -110,6 +112,7 @@ export default async function SoporteTicketDetallePage({
             <Dato etiqueta="Origen" valor={ticket.createdById === null ? "Formulario público" : "Plataforma"} />
             <div className="col-span-2 sm:col-span-4">
               <Dato etiqueta="Ubicación" valor={ubicacion ?? "Sin ubicación indicada"} apagado={!ubicacion} />
+              <TicketUrlPagina url={ticket.pageUrl} className="mt-2" />
             </div>
           </dl>
 

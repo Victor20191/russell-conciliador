@@ -12,6 +12,7 @@ import { fmtDateTime } from "@/lib/format";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte-estados";
 import type { DetalleTicket } from "@/lib/definitions";
 import TicketHistorial from "@/components/ticket-historial";
+import TicketUrlPagina from "@/components/ticket-url-pagina";
 import TicketMensajeForm from "@/components/ticket-mensaje-form";
 
 type Respuesta = { ticketId: number; detalle: DetalleTicket | null; error: string | null };
@@ -129,10 +130,11 @@ export default function TicketDetalleModal({
 
           <section className="rounded-lg border border-ink-150 bg-paper p-4">
             {detalle.ubicacion && (
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-500">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-500">
                 {detalle.ubicacion}
               </p>
             )}
+            <TicketUrlPagina url={detalle.pageUrl} className="mb-3" />
             <TicketHistorial entradas={detalle.historial} />
             {detalle.puedeEscribir && (
               <TicketMensajeForm

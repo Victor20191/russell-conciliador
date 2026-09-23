@@ -55,6 +55,7 @@ export default function Sidebar({
   onCloseMobile,
   desktopCollapsed = false,
   onExpandDesktop,
+  onDesktopHoverChange,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
   permisos: string[];
@@ -64,8 +65,11 @@ export default function Sidebar({
   appVersion?: { number: string; title: string | null } | null;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  /** Colapso VISUAL efectivo (fijado por el usuario y no expandido por hover). */
   desktopCollapsed?: boolean;
   onExpandDesktop?: () => void;
+  /** Notifica al contenedor que el mouse entró/salió del sidebar en escritorio. */
+  onDesktopHoverChange?: (hovering: boolean) => void;
 }) {
   const pathname = usePathname();
 
@@ -138,6 +142,12 @@ export default function Sidebar({
           event.stopPropagation();
           onExpandDesktop();
         }}
+        onMouseEnter={() => {
+          // Solo importa en escritorio: en el drawer móvil no hay hover real.
+          if (!window.matchMedia("(min-width: 1024px)").matches) return;
+          onDesktopHoverChange?.(true);
+        }}
+        onMouseLeave={() => onDesktopHoverChange?.(false)}
         className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
         } ${desktopCollapsed ? "lg:w-14 lg:cursor-pointer" : "lg:w-[232px]"}`}

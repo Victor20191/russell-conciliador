@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   cuerpoBinarioRespuesta,
   detectarTipoAdjunto,
+  nombreAdjuntoTicket,
   tipoContenidoAdjunto,
   urlAdjuntoTicket,
   validarAdjuntoTicket,
@@ -26,6 +27,33 @@ describe("adjuntos de una novedad", () => {
     const r = validarAdjuntoTicket(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "logo ru.png");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("logo ru.png");
+  });
+
+  test("acepta PDF, Excel y TXT por su contenido real", () => {
+    const pdf = new TextEncoder().encode("%PDF-1.7 ...");
+    const xlsx = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const xls = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00]);
+    const txt = new TextEncoder().encode("NIT 900123456 · saldo 1.234");
+    expect(detectarTipoAdjunto(pdf, "reporte.pdf")).toBe("pdf");
+    expect(detectarTipoAdjunto(pdf, "sin-extension")).toBe("pdf");
+    expect(detectarTipoAdjunto(xlsx, "cartera.xlsx")).toBe("xlsx");
+    expect(detectarTipoAdjunto(xls, "cartera.xls")).toBe("xls");
+    expect(detectarTipoAdjunto(txt, "log.txt")).toBe("txt");
+    const r = validarAdjuntoTicket(xlsx, "cartera.xlsx");
+    expect(r.ok && r.contentType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  });
+
+  test("rechaza un ZIP cualquiera, un binario disfrazado de TXT y el texto sin extensión .txt", () => {
+    expect(detectarTipoAdjunto(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), "algo.docx")).toBeNull();
+    expect(detectarTipoAdjunto(new Uint8Array([0x41, 0x00, 0x42]), "log.txt")).toBeNull();
+    expect(detectarTipoAdjunto(new TextEncoder().encode("hola"), "notas.csv")).toBeNull();
+  });
+
+  test("un documento se guarda con la extensión de su tipo", () => {
+    expect(nombreAdjuntoTicket("soporte", "pdf")).toBe("soporte.pdf");
+    expect(nombreAdjuntoTicket("cartera.XLSX", "xlsx")).toBe("cartera.XLSX");
+    expect(nombreAdjuntoTicket("../a/b.txt", "txt")).toBe("..ab.txt");
+    expect(nombreAdjuntoTicket("captura", "png")).toBe("captura");
   });
 
   test("la URL del adjunto queda namespaced por id", () => {

@@ -1,6 +1,7 @@
 import * as z from "zod";
 import type { EntradaHistorial } from "@/lib/soporte-historial";
 import { tieneDigitosNit } from "@/lib/nit";
+import { esUrlHttp } from "@/lib/soporte-estados";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 
@@ -57,6 +58,12 @@ export const SupportTicketInternalCreateSchema = z.object({
   description: z.string().trim().min(10, { error: "Cuéntanos con un poco más de detalle qué ocurrió." }).max(5000, { error: "La descripción es demasiado larga." }),
   routeKey: z.string().trim().min(1, { error: "Selecciona la ruta donde ocurre la novedad." }).max(160),
   menuKey: z.string().trim().min(1, { error: "Selecciona el menú de esa ruta." }).max(160),
+  pageUrl: z
+    .string()
+    .trim()
+    .min(1, { error: "Pega la URL de la pantalla donde ocurre la novedad." })
+    .max(2000, { error: "La URL es demasiado larga." })
+    .refine(esUrlHttp, { error: "Pega la URL completa, tal como aparece en la barra del navegador (https://…)." }),
 });
 
 export const SupportTicketStatusSchema = z
@@ -136,6 +143,7 @@ export type DetalleTicket = {
   subject: string;
   reportante: string;
   ubicacion: string | null;
+  pageUrl: string | null;
   status: string;
   createdAt: string;
   adjuntos: { id: number; fileName: string }[];

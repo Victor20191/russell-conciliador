@@ -94,8 +94,8 @@ function Burbuja({
         ) : (
           <p className={`mt-3 text-[11.5px] ${firma}`}>
             {entrada.adjuntos.length === 1
-              ? "Adjuntó 1 imagen."
-              : `Adjuntó ${entrada.adjuntos.length} imágenes.`}
+              ? "Adjuntó 1 archivo."
+              : `Adjuntó ${entrada.adjuntos.length} archivos.`}
           </p>
         )
       )}

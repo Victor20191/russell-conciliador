@@ -30,6 +30,37 @@ export const ETIQUETA_ESTADO_TICKET: Record<EstadoTicket, string> = {
 
 export const ADJUNTOS_MAX = 5;
 export const ADJUNTO_MAX_BYTES = 4 * 1024 * 1024;
+/** Los documentos (PDF, Excel, texto) pesan más que una captura. */
+export const ADJUNTO_DOCUMENTO_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Extensiones que acepta el selector de archivos de una novedad. */
+export const ACCEPT_ADJUNTOS_TICKET =
+  "image/jpeg,image/png,image/webp,image/gif,image/svg+xml,.pdf,application/pdf,.xlsx,.xls,.txt,text/plain";
+
+/**
+ * ¿El adjunto guardado es un documento (se descarga) y no una imagen (se pinta
+ * en miniatura)? Se decide por la extensión del nombre guardado, que para los
+ * documentos el alta fuerza a coincidir con el tipo validado por firma.
+ */
+export function esDocumentoPorNombre(nombre: string): boolean {
+  const base = (nombre ?? "").trim().toLowerCase();
+  const punto = base.lastIndexOf(".");
+  const extension = punto >= 0 ? base.slice(punto + 1) : "";
+  return extension === "pdf" || extension === "xlsx" || extension === "xls" || extension === "txt";
+}
+
+/**
+ * ¿Es la URL completa de una pantalla (http/https)? Es la que pega quien reporta
+ * desde la barra del navegador; nunca se usa para redirigir, solo se muestra.
+ */
+export function esUrlHttp(valor: string): boolean {
+  try {
+    const url = new URL(valor.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export function esEstadoTicket(valor: string): valor is EstadoTicket {
   return (ESTADOS_TICKET as readonly string[]).includes(valor);

@@ -2275,6 +2275,8 @@ model SupportTicket {
   routeLabel            String?                   @map("ruta_etiqueta")
   menuKey               String?                   @map("menu_clave")
   menuLabel             String?                   @map("menu_etiqueta")
+  // URL exacta de la pantalla donde ocurrió la novedad (la pega quien reporta).
+  pageUrl               String?                   @map("url_pagina")
   status                String                    @default("abierto") @map("estado") // abierto | en_evaluacion | en_proceso | resuelto | cerrado
   solution              String?                   @map("solucion")
   resolvedById          Int?                      @map("resuelto_por_id")

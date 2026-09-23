@@ -99,6 +99,7 @@ function formularioNovedad() {
   form.set("description", "Cambié la cuenta y al recargar volvió al valor anterior.");
   form.set("routeKey", rutaBalance.clave);
   form.set("menuKey", menuBorrador.clave);
+  form.set("pageUrl", "https://russell.example.co/balance/borradores/12");
   return form;
 }
 
@@ -235,6 +236,7 @@ describe("Server Actions de soporte", () => {
         routeLabel: "Balance de comprobación",
         menuKey: menuBorrador.clave,
         menuLabel: "Borrador Balance",
+        pageUrl: "https://russell.example.co/balance/borradores/12",
       }),
       select: { id: true },
     });
@@ -287,6 +289,35 @@ describe("Server Actions de soporte", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.message).toMatch(/almacenamiento/i);
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("exige la URL completa de la pantalla", async () => {
+    const form = formularioNovedad();
+    form.set("pageUrl", "balance/borradores");
+    const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.errors?.pageUrl?.[0]).toMatch(/URL/);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("acepta un PDF como evidencia y conserva su extensión", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    const form = formularioNovedad();
+    form.append(
+      "adjuntos",
+      new File([new TextEncoder().encode("%PDF-1.7 contenido")], "soporte", { type: "application/pdf" }),
+    );
+
+    const resultado = await crearNovedadInterna(undefined, form);
+
+    expect(resultado.ok).toBe(true);
+    expect(mocks.attachmentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        objectKey: expect.stringMatching(/^tickets\/1\/[a-f0-9]{16}\.pdf$/),
+        fileName: "soporte.pdf",
+        contentType: "application/pdf",
+      }),
+    });
   });
 
   it("sube la evidencia al almacenamiento aislado de tickets", async () => {

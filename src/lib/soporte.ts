@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { TipoAdjunto } from "@/lib/soporte-adjuntos";
 
 export {
+  ADJUNTO_DOCUMENTO_MAX_BYTES,
   ADJUNTO_MAX_BYTES,
   ADJUNTOS_MAX,
   ESTADO_TICKET_ABIERTO,

@@ -6,7 +6,11 @@ import { crearNovedadInterna } from "@/app/actions/soporte";
 import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { notifyActionState } from "@/lib/client-notifications";
-import { ADJUNTOS_MAX } from "@/lib/soporte-estados";
+import {
+  ACCEPT_ADJUNTOS_TICKET,
+  ADJUNTOS_MAX,
+  esDocumentoPorNombre,
+} from "@/lib/soporte-estados";
 import { catalogoUbicacionesNovedad, type RutaNovedad } from "@/lib/soporte-rutas";
 import type { SupportTicketInternalCreateState } from "@/lib/definitions";
 
@@ -31,6 +35,7 @@ export default function NuevaNovedadForm({
   const [descripcion, setDescripcion] = useState("");
   const [rutaClave, setRutaClave] = useState("");
   const [menuClave, setMenuClave] = useState("");
+  const [urlPagina, setUrlPagina] = useState("");
   const [previews, setPreviews] = useState<{ src: string; nombre: string }[]>([]);
   const rutaElegida = catalogo.find((ruta) => ruta.clave === rutaClave);
   const menus = rutaElegida?.menus ?? [];
@@ -69,6 +74,15 @@ export default function NuevaNovedadForm({
     let pendientes = files.length;
     const leidas: { src: string; nombre: string; orden: number }[] = [];
     files.forEach((file, orden) => {
+      // Los documentos no tienen miniatura: basta con listar su nombre.
+      if (esDocumentoPorNombre(file.name)) {
+        leidas.push({ src: "", nombre: file.name, orden });
+        pendientes -= 1;
+        if (pendientes === 0) {
+          setPreviews(leidas.sort((a, b) => a.orden - b.orden).map(({ src, nombre }) => ({ src, nombre })));
+        }
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         leidas.push({ src: String(reader.result ?? ""), nombre: file.name, orden });
@@ -114,6 +128,15 @@ export default function NuevaNovedadForm({
         }
       >
         <form id="nueva-novedad" action={dispatch} className="flex flex-col gap-4">
+          <div className="rounded-md border border-err-100 bg-err-100 px-3.5 py-3 text-[12.5px] leading-5 text-err-700" role="note">
+            <p className="font-semibold">Antes de reportar, ten en cuenta:</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              <li>Reporta la novedad desde el lugar exacto donde ocurre y pega abajo la URL de esa pantalla.</li>
+              <li>La captura debe mostrar la pantalla completa, no solo un recorte.</li>
+              <li>Si la novedad involucra un tercero, indica exactamente cuál es (nombre y NIT o documento).</li>
+            </ul>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
               Ruta *
@@ -167,6 +190,21 @@ export default function NuevaNovedadForm({
           </div>
 
           <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
+            URL de la pantalla *
+            <input
+              name="pageUrl"
+              type="url"
+              required
+              maxLength={2000}
+              value={urlPagina}
+              onChange={(e) => setUrlPagina(e.target.value)}
+              className={INPUT}
+              placeholder="Copia y pega la dirección de la barra del navegador (https://…)"
+            />
+            <ErrorCampo mensajes={state?.errors?.pageUrl} />
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
             Asunto *
             <input
               name="subject"
@@ -192,38 +230,44 @@ export default function NuevaNovedadForm({
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
               className={INPUT}
-              placeholder="Describe qué estabas haciendo, qué ocurrió y qué esperabas ver."
+              placeholder="Describe qué estabas haciendo, qué ocurrió y qué esperabas ver. Si hay un tercero involucrado, indica cuál."
             />
             <ErrorCampo mensajes={state?.errors?.description} />
           </label>
 
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold uppercase tracking-wider text-ink-500">
-              Imágenes de la novedad
+              Archivos de la novedad
             </span>
             {storageReady ? (
               <>
                 <input
                   name="adjuntos"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                  accept={ACCEPT_ADJUNTOS_TICKET}
                   multiple
                   onChange={onPick}
                   className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3.5 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-navy-600 focus:outline-none"
                 />
                 <p className="text-[11px] text-ink-500">
-                  Hasta {ADJUNTOS_MAX} imágenes en JPG, PNG, WEBP, GIF o SVG. Máximo 4 MB cada una.
+                  Hasta {ADJUNTOS_MAX} archivos: imágenes (JPG, PNG, WEBP, GIF o SVG, máximo 4 MB) o documentos (PDF, Excel XLSX/XLS o TXT, máximo 10 MB).
                 </p>
                 {previews.length > 0 && (
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
                     {previews.map((preview) => (
                       <figure key={preview.nombre} className="overflow-hidden rounded-md border border-ink-150 bg-ink-50">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={preview.src}
-                          alt={preview.nombre}
-                          className="h-28 w-full bg-navy-800 object-contain p-2"
-                        />
+                        {preview.src ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={preview.src}
+                            alt={preview.nombre}
+                            className="h-28 w-full bg-navy-800 object-contain p-2"
+                          />
+                        ) : (
+                          <div className="flex h-28 w-full items-center justify-center bg-ink-100 text-[13px] font-semibold uppercase text-ink-500">
+                            {preview.nombre.split(".").pop()}
+                          </div>
+                        )}
                         <figcaption className="truncate px-2 py-1 text-[11px] text-ink-500">{preview.nombre}</figcaption>
                       </figure>
                     ))}
@@ -232,7 +276,7 @@ export default function NuevaNovedadForm({
               </>
             ) : (
               <p className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
-                El almacenamiento de imágenes no está configurado. Puedes enviar la descripción y adjuntar capturas cuando el administrador lo habilite.
+                El almacenamiento de archivos no está configurado. Puedes enviar la descripción y adjuntar capturas cuando el administrador lo habilite.
               </p>
             )}
           </div>

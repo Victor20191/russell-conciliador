@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/modal";
 import { Icon } from "@/components/icons";
+import { esDocumentoPorNombre } from "@/lib/soporte-estados";
 
 function srcAdjunto(id: number, download = false) {
   return `/api/soporte/adjuntos/${id}${download ? "?download=1" : ""}`;
@@ -16,55 +17,85 @@ export type AdjuntoVista = {
 export default function AdjuntosGaleria({ adjuntos }: { adjuntos: AdjuntoVista[] }) {
   const [abierto, setAbierto] = useState<AdjuntoVista | null>(null);
   if (adjuntos.length === 0) return null;
+  const imagenes = adjuntos.filter((adjunto) => !esDocumentoPorNombre(adjunto.fileName));
+  const documentos = adjuntos.filter((adjunto) => esDocumentoPorNombre(adjunto.fileName));
 
   return (
     <div className="mt-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
-          Imágenes adjuntas ({adjuntos.length})
-        </p>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {adjuntos.map((adjunto) => (
-          <div
-            key={adjunto.id}
-            className="group relative flex flex-col overflow-hidden rounded-md border border-ink-150 bg-white transition hover:border-ink-300 hover:shadow-sm"
-          >
-            <button
-              type="button"
-              onClick={() => setAbierto(adjunto)}
-              className="relative block h-32 w-full bg-navy-800 p-3 text-left focus:outline-none"
-              title={`Ver ${adjunto.fileName}`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado */}
-              {/* navy-800: los SVG de marca suelen ir en blanco y desaparecen sobre fondo blanco. */}
-              <img
-                src={srcAdjunto(adjunto.id)}
-                alt={adjunto.fileName}
-                className="h-full w-full object-contain transition group-hover:scale-[1.02]"
-              />
-              <span className="sr-only">Ver imagen {adjunto.fileName}</span>
-            </button>
-            <div className="flex items-center justify-between gap-1.5 border-t border-ink-100 bg-white px-2.5 py-1.5">
-              <p
-                className="min-w-0 flex-1 truncate text-[11px] font-medium text-ink-600"
-                title={adjunto.fileName}
-              >
-                {adjunto.fileName}
-              </p>
-              <a
-                href={srcAdjunto(adjunto.id, true)}
-                download={adjunto.fileName}
-                title={`Descargar ${adjunto.fileName}`}
-                aria-label={`Descargar ${adjunto.fileName}`}
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-400 transition hover:bg-ink-100 hover:text-ink-800"
-              >
-                <Icon name="download" size={13} />
-              </a>
-            </div>
+      {imagenes.length > 0 && (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
+              Imágenes adjuntas ({imagenes.length})
+            </p>
           </div>
-        ))}
-      </div>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {imagenes.map((adjunto) => (
+              <div
+                key={adjunto.id}
+                className="group relative flex flex-col overflow-hidden rounded-md border border-ink-150 bg-white transition hover:border-ink-300 hover:shadow-sm"
+              >
+                <button
+                  type="button"
+                  onClick={() => setAbierto(adjunto)}
+                  className="relative block h-32 w-full bg-navy-800 p-3 text-left focus:outline-none"
+                  title={`Ver ${adjunto.fileName}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado */}
+                  {/* navy-800: los SVG de marca suelen ir en blanco y desaparecen sobre fondo blanco. */}
+                  <img
+                    src={srcAdjunto(adjunto.id)}
+                    alt={adjunto.fileName}
+                    className="h-full w-full object-contain transition group-hover:scale-[1.02]"
+                  />
+                  <span className="sr-only">Ver imagen {adjunto.fileName}</span>
+                </button>
+                <div className="flex items-center justify-between gap-1.5 border-t border-ink-100 bg-white px-2.5 py-1.5">
+                  <p
+                    className="min-w-0 flex-1 truncate text-[11px] font-medium text-ink-600"
+                    title={adjunto.fileName}
+                  >
+                    {adjunto.fileName}
+                  </p>
+                  <a
+                    href={srcAdjunto(adjunto.id, true)}
+                    download={adjunto.fileName}
+                    title={`Descargar ${adjunto.fileName}`}
+                    aria-label={`Descargar ${adjunto.fileName}`}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-400 transition hover:bg-ink-100 hover:text-ink-800"
+                  >
+                    <Icon name="download" size={13} />
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {documentos.length > 0 && (
+        <div className={imagenes.length > 0 ? "mt-4" : ""}>
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
+            Archivos adjuntos ({documentos.length})
+          </p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {documentos.map((adjunto) => (
+              <li key={adjunto.id}>
+                <a
+                  href={srcAdjunto(adjunto.id, true)}
+                  download={adjunto.fileName}
+                  title={`Descargar ${adjunto.fileName}`}
+                  className="flex items-center gap-2.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12px] text-ink-700 transition hover:border-ink-300 hover:shadow-sm"
+                >
+                  <Icon name="doc" size={16} className="shrink-0 text-ink-500" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{adjunto.fileName}</span>
+                  <Icon name="download" size={13} className="shrink-0 text-ink-400" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <Modal
         open={abierto !== null}

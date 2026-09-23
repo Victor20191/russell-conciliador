@@ -1,7 +1,21 @@
 import { detectarTipoImagen, mimeDeTipo } from "@/lib/avatares";
-import { ADJUNTO_MAX_BYTES } from "@/lib/soporte-estados";
+import { ADJUNTO_DOCUMENTO_MAX_BYTES, ADJUNTO_MAX_BYTES } from "@/lib/soporte-estados";
+import { detectarTipoSoporteMarca, extensionDeNombre } from "@/lib/modulos/marcas-adjuntos";
 
-export type TipoAdjunto = "jpg" | "png" | "webp" | "gif" | "svg";
+export type TipoImagenAdjunto = "jpg" | "png" | "webp" | "gif" | "svg";
+export type TipoDocumentoAdjunto = "pdf" | "xlsx" | "xls" | "txt";
+export type TipoAdjunto = TipoImagenAdjunto | TipoDocumentoAdjunto;
+
+const MIME_DOCUMENTO: Record<TipoDocumentoAdjunto, string> = {
+  pdf: "application/pdf",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  txt: "text/plain; charset=utf-8",
+};
+
+export function esDocumentoAdjunto(tipo: TipoAdjunto): tipo is TipoDocumentoAdjunto {
+  return tipo in MIME_DOCUMENTO;
+}
 
 export type ValidacionAdjunto =
   | { ok: true; tipo: TipoAdjunto; contentType: string }
@@ -31,7 +45,13 @@ function esSvg(bytes: Uint8Array): boolean {
   return /<svg[\s>]/i.test(cabeza) || /<\?xml[\s\S]{0,200}<svg[\s>]/i.test(cabeza);
 }
 
-export function detectarTipoAdjunto(bytes: Uint8Array): TipoAdjunto | null {
+export function detectarTipoAdjunto(bytes: Uint8Array, nombre = ""): TipoAdjunto | null {
+  // PDF y Excel se reconocen por su firma (el Excel desempata con la extensión);
+  // el texto plano no tiene firma y se acepta por extensión si el contenido es texto.
+  const extension = extensionDeNombre(nombre);
+  const documento = detectarTipoSoporteMarca(bytes, extension === "txt" ? "txt" : extension);
+  if (documento === "pdf" || documento === "xlsx" || documento === "xls") return documento;
+  if (documento === "csv" && extension === "txt") return "txt";
   const limpio = sinBom(bytes);
   const raster = detectarTipoImagen(limpio);
   if (raster) return raster;
@@ -45,6 +65,7 @@ export function urlAdjuntoTicket(id: number): string {
 }
 
 export function mimeDeAdjunto(tipo: TipoAdjunto): string {
+  if (esDocumentoAdjunto(tipo)) return MIME_DOCUMENTO[tipo];
   if (tipo === "gif") return "image/gif";
   if (tipo === "svg") return "image/svg+xml";
   return mimeDeTipo(tipo);
@@ -56,9 +77,20 @@ export function tipoContenidoAdjunto(
   tipoAlmacenamiento: string | undefined,
   tipoRegistro: string | undefined,
 ): string {
-  if (tipoRegistro?.startsWith("image/")) return tipoRegistro;
+  if (tipoRegistro && tipoRegistro !== "application/octet-stream") return tipoRegistro;
   if (tipoAlmacenamiento?.startsWith("image/")) return tipoAlmacenamiento;
   return tipoRegistro || tipoAlmacenamiento || "application/octet-stream";
+}
+
+/**
+ * Nombre a guardar: sin rutas, acotado y, para documentos, terminado en la
+ * extensión del tipo validado (así la galería sabe que no es una imagen).
+ */
+export function nombreAdjuntoTicket(nombre: string, tipo: TipoAdjunto): string {
+  const limpio = (nombre ?? "").replace(/[/\\]/g, "").trim().slice(0, 180);
+  if (!limpio) return esDocumentoAdjunto(tipo) ? `archivo.${tipo}` : `captura.${tipo}`;
+  if (esDocumentoAdjunto(tipo) && extensionDeNombre(limpio) !== tipo) return `${limpio}.${tipo}`;
+  return limpio;
 }
 
 /** Copia propia del binario para `Response` (evita SharedArrayBuffer / buffer pooled). */
@@ -68,17 +100,18 @@ export function cuerpoBinarioRespuesta(bytes: Uint8Array): ArrayBuffer {
 
 export function validarAdjuntoTicket(bytes: Uint8Array, nombre = "archivo"): ValidacionAdjunto {
   if (bytes.length === 0) return { ok: false, error: `«${nombre}» está vacío.` };
-  if (bytes.length > ADJUNTO_MAX_BYTES) {
-    return {
-      ok: false,
-      error: `«${nombre}» supera ${Math.round(ADJUNTO_MAX_BYTES / 1024 / 1024)} MB.`,
-    };
-  }
-  const tipo = detectarTipoAdjunto(bytes);
+  const tipo = detectarTipoAdjunto(bytes, nombre);
   if (!tipo) {
     return {
       ok: false,
-      error: `«${nombre}» no es una imagen válida. Usa JPG, PNG, WEBP, GIF o SVG (el nombre no basta).`,
+      error: `«${nombre}» no es un archivo admitido. Usa una imagen (JPG, PNG, WEBP, GIF o SVG), PDF, Excel (XLSX/XLS) o TXT (el nombre no basta).`,
+    };
+  }
+  const tope = esDocumentoAdjunto(tipo) ? ADJUNTO_DOCUMENTO_MAX_BYTES : ADJUNTO_MAX_BYTES;
+  if (bytes.length > tope) {
+    return {
+      ok: false,
+      error: `«${nombre}» supera ${Math.round(tope / 1024 / 1024)} MB.`,
     };
   }
   return { ok: true, tipo, contentType: mimeDeAdjunto(tipo) };

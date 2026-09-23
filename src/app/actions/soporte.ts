@@ -23,7 +23,7 @@ import {
   type SupportTicketInternalCreateState,
 } from "@/lib/definitions";
 import {
-  ADJUNTO_MAX_BYTES,
+  ADJUNTO_DOCUMENTO_MAX_BYTES,
   ADJUNTOS_MAX,
   crearCodigoTicket,
   crearTokenAccesoTicket,
@@ -43,7 +43,7 @@ import {
 import { historialDeTicket, ladoParaEscribir, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { getMatriz } from "@/lib/rbac/contexto";
-import { validarAdjuntoTicket } from "@/lib/soporte-adjuntos";
+import { nombreAdjuntoTicket, validarAdjuntoTicket, type TipoAdjunto } from "@/lib/soporte-adjuntos";
 import {
   almacenamientoEvidenciasTicketsDisponible,
   eliminarEvidenciaTicket,
@@ -74,7 +74,7 @@ function archivosAdjuntos(formData: FormData): File[] {
 async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<void> {
   if (archivos.length === 0) return;
   if (archivos.length > ADJUNTOS_MAX) {
-    throw new Error(`Puedes adjuntar hasta ${ADJUNTOS_MAX} imágenes.`);
+    throw new Error(`Puedes adjuntar hasta ${ADJUNTOS_MAX} archivos.`);
   }
   if (!almacenamientoEvidenciasTicketsDisponible()) {
     throw new Error("El almacenamiento de imágenes no está configurado. Avisa al administrador o envía la novedad sin capturas.");
@@ -82,14 +82,14 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
 
   const preparados: {
     bytes: Uint8Array;
-    tipo: "jpg" | "png" | "webp" | "gif" | "svg";
+    tipo: TipoAdjunto;
     contentType: string;
     fileName: string;
     size: number;
   }[] = [];
   for (const archivo of archivos) {
-    if (archivo.size > ADJUNTO_MAX_BYTES) {
-      throw new Error(`«${archivo.name}» supera ${Math.round(ADJUNTO_MAX_BYTES / 1024 / 1024)} MB.`);
+    if (archivo.size > ADJUNTO_DOCUMENTO_MAX_BYTES) {
+      throw new Error(`«${archivo.name}» supera ${Math.round(ADJUNTO_DOCUMENTO_MAX_BYTES / 1024 / 1024)} MB.`);
     }
     const bytes = new Uint8Array(await archivo.arrayBuffer());
     const val = validarAdjuntoTicket(bytes, archivo.name);
@@ -98,7 +98,7 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
       bytes,
       tipo: val.tipo,
       contentType: val.contentType,
-      fileName: archivo.name.replace(/[/\\]/g, "").slice(0, 180) || `captura.${val.tipo}`,
+      fileName: nombreAdjuntoTicket(archivo.name, val.tipo),
       size: bytes.length,
     });
   }
@@ -184,6 +184,7 @@ export async function crearNovedadInterna(
     description: formData.get("description"),
     routeKey: formData.get("routeKey"),
     menuKey: formData.get("menuKey"),
+    pageUrl: formData.get("pageUrl") ?? "",
   });
   if (!parsed.success) {
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
@@ -207,7 +208,7 @@ export async function crearNovedadInterna(
 
   const adjuntos = archivosAdjuntos(formData);
   if (adjuntos.length > ADJUNTOS_MAX) {
-    return { ok: false, message: `Puedes adjuntar hasta ${ADJUNTOS_MAX} imágenes.` };
+    return { ok: false, message: `Puedes adjuntar hasta ${ADJUNTOS_MAX} archivos.` };
   }
   if (adjuntos.length > 0 && !almacenamientoEvidenciasTicketsDisponible()) {
     return {
@@ -232,6 +233,7 @@ export async function crearNovedadInterna(
         routeLabel: ubicacion.ruta.etiqueta,
         menuKey: ubicacion.menu.clave,
         menuLabel: ubicacion.menu.etiqueta,
+        pageUrl: parsed.data.pageUrl,
         publicAccessTokenHash: huellaTokenAcceso(token),
       },
       select: { id: true },
@@ -288,6 +290,7 @@ export async function obtenerDetalleTicket(ticketId: number): Promise<DetalleTic
           description: true,
           routeLabel: true,
           menuLabel: true,
+          pageUrl: true,
           status: true,
           solution: true,
           resolvedByName: true,
@@ -315,6 +318,7 @@ export async function obtenerDetalleTicket(ticketId: number): Promise<DetalleTic
         subject: ticket.subject,
         reportante: `${ticket.reporterFirstName} ${ticket.reporterLastName}`,
         ubicacion: resolverEtiquetaUbicacion(ticket.routeLabel, ticket.menuLabel),
+        pageUrl: ticket.pageUrl,
         status: ticket.status,
         createdAt: ticket.createdAt.toISOString(),
         adjuntos: ticket.attachments,
