@@ -199,6 +199,28 @@ export function normalizarSpecModuloArchivo(descriptor: DescriptorModulo, spec: 
  * Valida un spec YA normalizado contra el descriptor. Devuelve el primer mensaje de
  * error legible o `null` si el perfil se puede guardar y aplicar.
  */
+/** ¿El spec trae alguna de las columnas de las que se DERIVA el valor (Nómina: devengo/deducción, débito/crédito)? */
+export function valorAlternoMapeado(descriptor: DescriptorModulo, spec: Pick<SpecModulo, "columnas">): boolean {
+  return (descriptor.valorAlterno ?? []).some((rol) => (spec.columnas[rol] ?? 0) >= 1);
+}
+
+/**
+ * ¿Un rol OBLIGATORIO del descriptor se puede dejar sin mapear en este spec? Dos casos, y solo
+ * dos: el clasificador en modo global (todo el archivo es un único grupo, p. ej. un inventario
+ * globalizado) y el rol de valor cuando el archivo trae sus alternos (SIESA y Novasoft separan
+ * devengos y deducciones; las interfaces contables traen débito y crédito, y `valor-nomina.ts`
+ * deriva de ahí el valor de la fila). Es la MISMA regla en la validación del spec, en el aviso
+ * del asistente y en la coincidencia del patrón.
+ */
+export function rolRequeridoExento(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  rol: string,
+): boolean {
+  if (rol === descriptor.clasificador && modoClasificadorDe(spec) === "global") return true;
+  return rol === descriptor.valor && valorAlternoMapeado(descriptor, spec);
+}
+
 export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
   if (spec.hoja.trim().length === 0) return "Indica el nombre exacto de la hoja del archivo.";
   if (spec.hoja.trim().length > 120) return "El nombre de la hoja es demasiado largo (máx. 120 caracteres).";
@@ -208,16 +230,12 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
   if (!Number.isInteger(spec.primeraFilaDatos) || spec.primeraFilaDatos <= spec.filaEncabezado) {
     return "La primera fila de datos debe ir después de la fila de encabezado.";
   }
-  const modo = modoClasificadorDe(spec);
   for (const rol of descriptor.columnas) {
     const valor = spec.columnas[rol.nombre] ?? 0;
     if (!Number.isInteger(valor) || valor < 0) {
       return "Las columnas deben usar índices positivos; usa 0 únicamente para indicar que una columna no existe.";
     }
-    // El clasificador en modo global no se lee de ninguna columna: todo el archivo es un
-    // único grupo (p. ej. inventario globalizado).
-    const exentoPorGlobal = rol.nombre === descriptor.clasificador && modo === "global";
-    if (rol.requerido && !exentoPorGlobal && valor < 1) {
+    if (rol.requerido && valor < 1 && !rolRequeridoExento(descriptor, spec, rol.nombre)) {
       return `Falta la columna obligatoria «${rol.etiqueta}».`;
     }
   }
@@ -230,7 +248,7 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
       return "El texto que marca las filas de subtotal es demasiado largo (máx. 80 caracteres).";
     }
   }
-  if (modo === "seccion") {
+  if (modoClasificadorDe(spec) === "seccion") {
     const rolSenal = spec.seccionColumnaVaciaRol ?? "";
     const definicion = descriptor.columnas.find((rc) => rc.nombre === rolSenal);
     if (!definicion || rolSenal === descriptor.clasificador) {

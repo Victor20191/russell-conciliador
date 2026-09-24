@@ -25,7 +25,7 @@ import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 import { saldoFavorRedundante, type FilaMuestraEdades } from "../cartera/edades";
 import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
-import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
+import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 
@@ -370,6 +370,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // del valor mira los primeros y el pie repetido del ERP los segundos.
   const rolesMapeados = new Set(descriptor.columnas.filter((rc) => (spec.columnas[rc.nombre] ?? 0) >= 1).map((rc) => rc.nombre));
   const rolesTextoMapeados = descriptor.columnas.filter((rc) => rc.tipo === "texto" && rolesMapeados.has(rc.nombre)).map((rc) => rc.nombre);
+  // Cómo firma ESTE archivo su columna de deducción: se mira la columna entera antes de leer las
+  // filas, porque una reversa (deducción en negativo) solo se distingue mirando el resto.
+  const colDeduccion = spec.columnas.deduccion ?? 0;
+  const signoDeduccion = nomina?.valorPorNaturaleza && colDeduccion >= 1
+    ? signoDeduccionDeArchivo(hoja.filas.slice(spec.primeraFilaDatos - 1).map((f) => celda(f ?? [], colDeduccion)))
+    : "magnitud";
   // Mes de corte del cargue y año de contexto para los períodos que no lo traen («PERIODO 3»). El
   // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese mes.
   const corteCargue: Mes | null = nomina?.periodoPorFila ? spec.periodoHasta ?? spec.periodoDesde ?? null : null;
@@ -745,7 +751,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const empleadoCrudo = aTexto(datos.empleado);
       if (empleadoCrudo) datos.empleado = nombreSinCedula(empleadoCrudo.replace(/^\s*\d{2,12}\s*-?\s*/, "")) ?? empleadoCrudo;
       if (nomina.valorPorNaturaleza) {
-        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados);
+        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion);
         valor = ev.valor;
         if (ev.naturaleza) datos.naturaleza = ev.naturaleza;
         if (ev.excluir) exclusionNomina = ev.excluir;

@@ -20,7 +20,21 @@ import {
 import { sugerirTrmCierre, type AnalisisModulo } from "@/app/actions/modulos-datos";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 
-export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
+export type RolModulo = {
+  nombre: string;
+  etiqueta: string;
+  tipo: string;
+  requerido: boolean;
+  /**
+   * Roles de los que se DERIVA este (Nómina: «Valor» sale de devengo/deducción o débito/crédito).
+   * Con alguno mapeado deja de ser obligatorio: SIESA y Novasoft no traen una columna de valor.
+   */
+  derivaDe?: string[];
+};
+
+/** ¿Este rol ya no hace falta porque el archivo trae las columnas de las que se deriva? */
+export const rolDerivado = (rc: RolModulo, columnas: Record<string, number>): boolean =>
+  (rc.derivaDe ?? []).some((rol) => (columnas[rol] ?? 0) >= 1);
 type ModoClasificador = "columna" | "arrastrar" | "seccion" | "global";
 
 export const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
@@ -251,8 +265,16 @@ export function EditorMapeoModulo({
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="text-[12px] font-medium leading-snug text-ink-700">
                     {rc.etiqueta}
-                    {rc.requerido && <span className="text-err-700"> *</span>}
+                    {rc.requerido && !rolDerivado(rc, spec.columnas) && <span className="text-err-700"> *</span>}
                   </span>
+                  {rolDerivado(rc, spec.columnas) && (
+                    <span
+                      className="rounded bg-ink-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-ink-600"
+                      title={`Se deriva de: ${(rc.derivaDe ?? []).filter((rol) => (spec.columnas[rol] ?? 0) >= 1).map((rol) => roles.find((r) => r.nombre === rol)?.etiqueta ?? rol).join(", ")}.`}
+                    >
+                      se deriva
+                    </span>
+                  )}
                   {rc.nombre === clasificadorRol && (
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">clasifica</span>
                   )}

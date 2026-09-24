@@ -130,3 +130,26 @@ describe("coincidenciaPatron", () => {
     expect(coincidenciaPatron(CXP, patron, ENCABEZADO_SIESA).porcentaje).toBe(0);
   });
 });
+
+describe("patrón de Nómina sin columna de «Valor» (SIESA, 24/Sep/2026)", () => {
+  const NOM = descriptorModulo("NOM")!;
+  const ENCABEZADO_NOM = ["Nit", "Descripción", "Grupo de CCostos", "Periodo", "Concepto", "Descripción Concepto", "Devengo", "Deducción"];
+  const SPEC_NOM: SpecModulo = {
+    hoja: "Modulo nómina 2025",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: columnasEn(NOM, { cedula: 1, empleado: 2, agrupador: 3, periodo: 4, codigo: 5, concepto: 6, devengo: 7, deduccion: 8 }),
+  };
+
+  it("sirve si el archivo trae las columnas de las que se deriva el valor", () => {
+    expect(coincidenciaPatron(NOM, { encabezado: ENCABEZADO_NOM, spec: SPEC_NOM }, ENCABEZADO_NOM))
+      .toMatchObject({ porcentaje: 100, faltantesRequeridos: [], elegible: true });
+  });
+
+  it("no sirve si el archivo no trae ni el valor ni sus alternos", () => {
+    const sinImportes = ["Nit", "Descripción", "Grupo de CCostos", "Periodo", "Concepto", "Descripción Concepto", null, null];
+    const r = coincidenciaPatron(NOM, { encabezado: ENCABEZADO_NOM, spec: SPEC_NOM }, sinImportes);
+    expect(r.faltantesRequeridos).toEqual(["Valor"]);
+    expect(r.elegible).toBe(false);
+  });
+});

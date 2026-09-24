@@ -149,7 +149,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       <ModulosDatosClient
         moduloCodigo={moduloCodigo}
         moduloLabel={descriptor.label}
-        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))}
+        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
         clasificadorRol={descriptor.clasificador}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
         clientes={clientes}

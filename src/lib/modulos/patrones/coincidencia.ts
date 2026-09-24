@@ -160,9 +160,16 @@ export function coincidenciaPatron(
     if (destino != null) mapaColumnas[columna] = destino;
   }
 
+  // Un alterno del valor vale si el patrón lo lee Y el archivo lo trae: con Devengo y Deducción
+  // ubicadas, la versión sirve aunque no exista una columna única de «Valor» (SIESA, Novasoft).
+  const alternoUbicado = (descriptor.valorAlterno ?? []).some((rol) => {
+    const columna = patron.spec.columnas[rol] ?? 0;
+    return columna >= 1 && mapaColumnas[columna] != null;
+  });
   const modo = modoClasificadorDe(patron.spec);
   const faltantesRequeridos = descriptor.columnas
     .filter((rol) => rol.requerido && !(rol.nombre === descriptor.clasificador && modo === "global"))
+    .filter((rol) => !(rol.nombre === descriptor.valor && alternoUbicado))
     .filter((rol) => {
       const columna = patron.spec.columnas[rol.nombre] ?? 0;
       return columna < 1 || mapaColumnas[columna] == null;

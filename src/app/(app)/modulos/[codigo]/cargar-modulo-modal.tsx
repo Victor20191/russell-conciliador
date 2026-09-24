@@ -32,7 +32,7 @@ import {
   type AplicativoOpcion,
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
-import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, type RolModulo } from "./editor-mapeo-modulo";
+import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
 
 export type { RolModulo };
 export type ClienteModulo = { id: number; name: string; nit: string };
@@ -537,7 +537,12 @@ function CargarModal({
     }
     if (!porPatron) {
       const modoClasificador = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
-      const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modoClasificador === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
+      // «Valor» no falta cuando el archivo trae las columnas de las que se deriva (Nómina:
+      // devengo y deducción, o débito y crédito), igual que en la validación del servidor.
+      const faltantes = roles.filter((rc) => rc.requerido
+        && !(rc.nombre === clasificadorRol && modoClasificador === "global")
+        && !rolDerivado(rc, spec.columnas)
+        && (spec.columnas[rc.nombre] ?? 0) < 1);
       if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
     }
     if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {

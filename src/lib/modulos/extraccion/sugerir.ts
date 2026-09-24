@@ -7,6 +7,7 @@ import { esRotuloEdad, saldoFavorRedundante } from "../cartera/edades";
 import { esIdentificadorVacio } from "../cartera/identificador-compartido";
 import { monedaPorNombreHoja } from "../cartera/moneda";
 import type { SpecModulo } from "./esquema";
+import { rolRequeridoExento } from "../perfil-modulo";
 
 export const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 export const norm = (s: unknown) =>
@@ -565,15 +566,14 @@ export function marcarSaldoFavorRedundante(hoja: GridHoja, spec: SpecModulo, rol
 }
 
 /**
- * Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard). El rol de
- * VALOR no falta cuando el archivo trae alguno de sus alternos (devengo/deducción,
- * débito/crédito en Nómina): el valor de la fila se deriva de ellos.
+ * Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard), con las dos
+ * excepciones de `rolRequeridoExento`: el clasificador global y el valor que se deriva de sus
+ * alternos (devengo/deducción, débito/crédito en Nómina).
  */
 export function rolesRequeridosFaltantes(descriptor: DescriptorModulo, spec: SpecModulo): string[] {
-  const alternoMapeado = (descriptor.valorAlterno ?? []).some((rol) => (spec.columnas[rol] ?? 0) >= 1);
   return descriptor.columnas
     .filter((rc) => rc.requerido && (spec.columnas[rc.nombre] ?? 0) < 1)
-    .filter((rc) => !(rc.nombre === descriptor.valor && alternoMapeado))
+    .filter((rc) => !rolRequeridoExento(descriptor, spec, rc.nombre))
     .map((rc) => rc.nombre);
 }
 

@@ -56,7 +56,7 @@ export default async function NuevoPatronPage({
       <EditorPatronClient
         moduloCodigo={moduloCodigo}
         moduloLabel={descriptor.label}
-        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))}
+        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
         clasificadorRol={descriptor.clasificador}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
         erps={erps.map((e) => ({ id: e.id, nombre: e.name }))}

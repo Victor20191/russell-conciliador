@@ -658,3 +658,31 @@ describe("celda del total del cargue con detección automática", () => {
     expect(controlSubtotales(r.filas).granTotal?.estado).toBe("descuadre");
   });
 });
+
+describe("NOM · signo de la columna de deducción (24/Sep/2026)", () => {
+  const ENC: CeldaCruda[] = ["Concepto", "Descripción Concepto", "Nit", "Empleado", "Centro", "Devengo", "Deducción"];
+  const SPEC: SpecModulo = {
+    hoja: "Nómina",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { codigo: 1, concepto: 2, cedula: 3, empleado: 4, agrupador: 5, devengo: 6, deduccion: 7 },
+  };
+  const leer = (filas: CeldaCruda[][]) => transformarModulo(NOM, SPEC, hojaNom([ENC, ...filas])).filas.map((f) => f.valor);
+
+  it("SIESA: las deducciones van en positivo, así que una negativa es una reversa y devuelve", () => {
+    // INCODOL: 59.204 deducciones positivas y dos reversas de embargo judicial.
+    expect(leer([
+      ["100", "SALARIO BASICO", "1", "Ana", "AS", 1000, 0],
+      ["610", "DESCUENTO EMBARGO JUDICIAL", "1", "Ana", "AS", 0, 96180],
+      ["610", "DESCUENTO EMBARGO JUDICIAL", "1", "Ana", "AS", 0, -23064],
+    ])).toEqual([1000, -96180, 23064]);
+  });
+
+  it("Ofimática: si la columna viene toda en negativo, el signo no informa y se toma la magnitud", () => {
+    expect(leer([
+      ["100", "SALARIO BASICO", "1", "Ana", "AS", 1000, 0],
+      ["501", "APORTE SALUD", "1", "Ana", "AS", 0, -19236],
+      ["503", "APORTE PENSION", "1", "Ana", "AS", 0, -19236],
+    ])).toEqual([1000, -19236, -19236]);
+  });
+});

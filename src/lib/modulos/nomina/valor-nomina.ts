@@ -20,6 +20,9 @@
 
 export type NaturalezaNomina = "devengo" | "deduccion" | "neto";
 
+/** Cómo firma el ARCHIVO su columna de deducción (se decide por la columna, no por fila). */
+export type SignoDeduccion = "magnitud" | "firmado";
+
 /** Motivo por el que una fila de nómina no imputa (se guarda como agrupadora, visible). */
 export type ExclusionNomina = "neto" | "pie_repetido" | "sin_concepto";
 
@@ -29,6 +32,26 @@ export type EvaluacionFilaNomina = {
   naturaleza: NaturalezaNomina | null;
   excluir: ExclusionNomina | null;
 };
+
+/**
+ * Convención de signo de la columna de deducción de ESTE archivo. Ofimática imprime TODAS sus
+ * deducciones en negativo: ahí el signo no informa y se toma la magnitud. SIESA y Novasoft las
+ * imprimen en positivo y usan el negativo para REVERSAR una deducción anterior: ese renglón
+ * devuelve, no descuenta, y tomar su magnitud la restaba dos veces (INCODOL, dos reversas de
+ * embargo judicial en enero de 2025: 146.232 de menos en el cargue). Empate o columna vacía →
+ * «firmado», que con deducciones positivas da exactamente lo mismo.
+ */
+export function signoDeduccionDeArchivo(valores: Iterable<unknown>): SignoDeduccion {
+  let positivos = 0;
+  let negativos = 0;
+  for (const v of valores) {
+    const n = num(v);
+    if (n == null || n === 0) continue;
+    if (n > 0) positivos++;
+    else negativos++;
+  }
+  return negativos > positivos ? "magnitud" : "firmado";
+}
 
 /** Roles del descriptor NOM que participan aquí (los demás se ignoran). */
 export type DatosNomina = Record<string, unknown>;
@@ -66,13 +89,18 @@ export function esConceptoNeto(codigo: unknown, concepto: unknown): boolean {
  * spec). Orden: devengo/deducción en columnas aparte → débito/crédito → valor con columna de
  * tipo → valor firmado tal cual.
  */
-export function valorFilaNomina(datos: DatosNomina, mapeados: ReadonlySet<string>): { valor: number; naturaleza: NaturalezaNomina | null } {
+export function valorFilaNomina(
+  datos: DatosNomina,
+  mapeados: ReadonlySet<string>,
+  signoDeduccion: SignoDeduccion = "magnitud",
+): { valor: number; naturaleza: NaturalezaNomina | null } {
   const tiene = (rol: string) => mapeados.has(rol);
   if (tiene("devengo") || tiene("deduccion")) {
     const devengo = num(datos.devengo) ?? 0;
-    // Ofimática imprime la deducción en negativo; Novasoft y SIESA en positivo. Es la misma
-    // deducción: se toma su magnitud.
-    const deduccion = Math.abs(num(datos.deduccion) ?? 0);
+    // Con «magnitud» el archivo firma todas sus deducciones en negativo (Ofimática) y el signo no
+    // informa; con «firmado» una deducción negativa es una reversa y devuelve (SIESA, Novasoft).
+    const crudo = num(datos.deduccion) ?? 0;
+    const deduccion = signoDeduccion === "magnitud" ? Math.abs(crudo) : crudo;
     if (devengo !== 0 && deduccion !== 0) return { valor: redondear(devengo - deduccion), naturaleza: "devengo" };
     if (devengo !== 0) return { valor: redondear(devengo), naturaleza: "devengo" };
     if (deduccion !== 0) return { valor: redondear(-deduccion), naturaleza: "deduccion" };
@@ -104,9 +132,14 @@ export function esPieRepetido(datos: DatosNomina, rolesTexto: readonly string[])
 }
 
 /** Evaluación completa de la fila: valor con signo, naturaleza y si se excluye. */
-export function evaluarFilaNomina(datos: DatosNomina, mapeados: ReadonlySet<string>, rolesTexto: readonly string[]): EvaluacionFilaNomina {
+export function evaluarFilaNomina(
+  datos: DatosNomina,
+  mapeados: ReadonlySet<string>,
+  rolesTexto: readonly string[],
+  signoDeduccion: SignoDeduccion = "magnitud",
+): EvaluacionFilaNomina {
   if (esPieRepetido(datos, rolesTexto)) return { valor: 0, naturaleza: null, excluir: "pie_repetido" };
-  const { valor, naturaleza } = valorFilaNomina(datos, mapeados);
+  const { valor, naturaleza } = valorFilaNomina(datos, mapeados, signoDeduccion);
   const concepto = texto(datos.concepto) || texto(datos.codigo);
   if (esConceptoNeto(datos.codigo, datos.concepto)) return { valor: 0, naturaleza: "neto", excluir: "neto" };
   if (naturaleza === "neto") return { valor: 0, naturaleza: "neto", excluir: "neto" };

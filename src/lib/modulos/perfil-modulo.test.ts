@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODULOS_IMPORT } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
+import { rolesRequeridosFaltantes } from "./extraccion/sugerir";
 import {
   descripcionModoClasificador,
   descripcionSubtotalesModulo,
@@ -372,5 +373,34 @@ describe("normalizarSpecModulo · moneda, TRM de cierre y fecha de corte", () =>
   it("los módulos sin detalle por tercero no conservan nada de esto", () => {
     const inv = normalizarSpecModuloArchivo(INV, specInv({ monedaArchivo: "USD", trmCierre: 4000, fechaCorte: "2025-12-31" }));
     expect([inv.monedaArchivo, inv.trmCierre, inv.fechaCorte]).toEqual([undefined, undefined, undefined]);
+  });
+});
+
+describe("«Valor» cuando el archivo trae devengo y deducción (SIESA, 24/Sep/2026)", () => {
+  const NOM = MODULOS_IMPORT.NOM;
+  // Módulo de nómina de INCODOL: no hay columna de valor, el devengo y la deducción van aparte.
+  const specNom = (extra: Partial<SpecModulo> = {}): SpecModulo => ({
+    hoja: "Modulo nómina 2025",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { codigo: 16, concepto: 17, cedula: 4, empleado: 3, agrupador: 7, periodo: 13, ...(extra.columnas ?? {}) },
+    ...extra,
+  });
+
+  it("con devengo y deducción el spec vale, y sin ninguno de los dos falta «Valor»", () => {
+    expect(validarSpecModulo(NOM, specNom({ columnas: { codigo: 16, concepto: 17, devengo: 19, deduccion: 20 } }))).toBeNull();
+    // Basta uno de los alternos (una interfaz contable trae solo débito y crédito).
+    expect(validarSpecModulo(NOM, specNom({ columnas: { codigo: 16, concepto: 17, debito: 19, credito: 20 } }))).toBeNull();
+    expect(validarSpecModulo(NOM, specNom({ columnas: { codigo: 16, concepto: 17 } }))).toBe("Falta la columna obligatoria «Valor».");
+  });
+
+  it("los demás módulos siguen exigiendo su valor", () => {
+    expect(validarSpecModulo(INV, specInv({ columnas: { tipo: 1, referencia: 2, descripcion: 3, cantidad: 4, valorUnitario: 5 } })))
+      .toBe("Falta la columna obligatoria «Valor total».");
+  });
+
+  it("rolesRequeridosFaltantes usa la misma regla", () => {
+    expect(rolesRequeridosFaltantes(NOM, specNom({ columnas: { codigo: 16, concepto: 17, devengo: 19, deduccion: 20 } }))).toEqual([]);
+    expect(rolesRequeridosFaltantes(NOM, specNom({ columnas: { codigo: 16, concepto: 17 } }))).toEqual(["valor"]);
   });
 });
