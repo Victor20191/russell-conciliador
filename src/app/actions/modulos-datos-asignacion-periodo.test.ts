@@ -42,8 +42,8 @@ vi.mock("@/lib/modulos/patrones/servidor", () => ({
   versionesPatronCandidatas: vi.fn(async () => ({ versiones: [], total: 0 })),
 }));
 vi.mock("@/lib/parametros/prevalidador", () => ({ getCatalogoPrevalidador: async () => catalogoPrevalidadorDeFabrica() }));
-vi.mock("@/lib/prisma", () => ({
-  default: {
+vi.mock("@/lib/prisma", () => {
+  const cliente = {
     client: { findUnique: vi.fn(async () => ({ name: "Redplas" })) },
     moduloDatoEncabezado: { findUnique: mocks.encabezadoFindUnique },
     standardAccount: { findMany: mocks.standardFindMany },
@@ -59,9 +59,14 @@ vi.mock("@/lib/prisma", () => ({
       deleteMany: mocks.memoriaDeleteMany,
       createMany: mocks.memoriaCreateMany,
     },
-    $transaction: mocks.transaction,
-  },
-}));
+    $transaction: (arg: unknown, opciones?: unknown) => {
+      mocks.transaction(arg, opciones);
+      // El guardado del Consolidado va en UNA transacción interactiva (pocas sentencias).
+      return typeof arg === "function" ? (arg as (tx: unknown) => Promise<unknown>)(cliente) : Promise.resolve([]);
+    },
+  };
+  return { default: cliente };
+});
 
 import { consultarCuentasRussell, guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "./modulos-datos";
 
@@ -102,7 +107,7 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     expect(mocks.memoriaDeleteMany).not.toHaveBeenCalled();
     expect(mocks.memoriaCreateMany).not.toHaveBeenCalled();
     expect(mocks.periodoDeleteMany).toHaveBeenCalledWith({
-      where: { clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", clasificador: "GIROS", agrupador: "" },
+      where: { clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", OR: [{ clasificador: "GIROS", agrupador: "" }] },
     });
     const filas = mocks.periodoCreateMany.mock.calls[0][0].data;
     expect(filas.map((f: { cuenta4: string; cuenta6: string }) => `${f.cuenta4}/${f.cuenta6}`).sort()).toEqual(["2105/210510", "2205/220505"]);
@@ -116,7 +121,7 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     const r = await guardar(["220505"]);
 
     expect(r).toMatchObject({ ok: true, message: "Consolidación guardada." });
-    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: { clienteId: 17, moduloCodigo: "CXP", clasificador: "GIROS", agrupador: "" } });
+    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: { clienteId: 17, moduloCodigo: "CXP", OR: [{ clasificador: "GIROS", agrupador: "" }] } });
     expect(mocks.memoriaCreateMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ cuenta4: "2205", cuenta6: "220505" })]);
     expect(mocks.periodoDeleteMany).toHaveBeenCalledTimes(1);
     expect(mocks.periodoCreateMany).not.toHaveBeenCalled();
@@ -186,7 +191,7 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
 
     expect(r).toMatchObject({ ok: true });
     expect(r.message).toContain("2 consolidaciones guardadas.");
-    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: expect.objectContaining({ clasificador: "NACIONALES" }) });
+    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: expect.objectContaining({ OR: [{ clasificador: "NACIONALES", agrupador: "" }] }) });
     expect(mocks.periodoCreateMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ clasificador: "GIROS", cuenta6: "210510" })]);
   });
 });

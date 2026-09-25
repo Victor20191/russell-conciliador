@@ -36,7 +36,6 @@ import {
 } from "@/lib/modulos/cuentas-modulo";
 import {
   cedulaDelCargue,
-  filasPeriodoDeCuentas,
   llaveAsignacion,
   separarCuentasCedula,
 } from "@/lib/modulos/asignacion-periodo";
@@ -65,6 +64,7 @@ import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
 import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
+import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
@@ -2310,26 +2310,6 @@ async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], ced
 // todos) y conserva lo que la carga masiva supo del concepto (grupo RF-NOM-02, subcuenta PUC,
 // cuenta del cliente): editar la cuenta Russell a mano no borra esa memoria.
 type MemoriaConcepto = { descripcion: string | null; grupo: string | null; subcuentaPuc: string | null; cuentaCliente: string };
-function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null, memoria: Partial<MemoriaConcepto> | null = null, agrupador = "") {
-  const descripcion = memoria?.descripcion ?? null;
-  return [
-    tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador, agrupador } }),
-    ...(cuentas.length
-      ? [tx.consolidacionModuloCliente.createMany({
-          data: cuentas.map((cuenta) => ({
-            clienteId, moduloCodigo, clasificador, agrupador, descripcion, actualizadoPor: actor,
-            cuenta4: cuenta.slice(0, 4),
-            cuenta6: cuenta.length === 6 ? cuenta : "",
-            grupo: memoria?.grupo ?? null,
-            subcuentaPuc: memoria?.subcuentaPuc ?? null,
-            cuentaCliente: memoria?.cuentaCliente ?? "",
-            origen: "manual",
-          })),
-        })]
-      : []),
-  ];
-}
-
 // Lo ya guardado de cada clasificador (nombre, grupo, subcuenta, cuenta del cliente), para no
 // perderlo al reemplazar sus cuentas. Llave: la clave del consolidado («1» o «1 ∥ GYA»); las
 // filas con agrupador heredan el nombre y el grupo de la memoria base del concepto.
@@ -2491,33 +2471,43 @@ async function guardarConsolidacion(args: {
     const repartosViejos = separadas
       .filter((f) => cuentasReparto.has(f.clave) && repartoQuedaViejo([...f.deCedula, ...f.extras], cuentasReparto.get(f.clave)!))
       .map((f) => f.clave);
-    await prisma.$transaction([
-      ...(repartosViejos.length > 0
-        ? [prisma.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } })]
-        : []),
-      ...separadas.flatMap((f) => {
-        const delRenglon = periodo ? { clienteId, moduloCodigo, periodo, clasificador: f.clasificador, agrupador: f.agrupador } : null;
-        if (f.extras.length === 0) {
-          return [
-            ...reemplazarCuentasTx(prisma, clienteId, moduloCodigo, f.clasificador, f.deCedula, actor, memoria.get(f.clave) ?? null, f.agrupador),
-            ...(delRenglon && previos.has(llaveAsignacion(f.clasificador, f.agrupador)) ? [prisma.asignacionPeriodoModulo.deleteMany({ where: delRenglon })] : []),
-          ];
+    // CUATRO sentencias, vengan 1 o 300 renglones: con dos por renglón, «Guardar propuestas» de
+    // un cargue de nómina (33 renglones) agotaba el tiempo de la transacción contra la base
+    // remota (P2028). El criterio de qué va a memoria y qué al período no cambia.
+    const plan = planEscrituraConsolidacion(
+      separadas.map((f) => ({
+        clasificador: f.clasificador,
+        agrupador: f.agrupador,
+        deCedula: f.deCedula,
+        extras: f.extras,
+        memoria: memoria.get(f.clave) ?? null,
+        teniaPeriodo: previos.has(llaveAsignacion(f.clasificador, f.agrupador)),
+      })),
+    );
+    await prisma.$transaction(
+      async (tx) => {
+        if (repartosViejos.length > 0) {
+          await tx.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } });
         }
-        return [
-          prisma.asignacionPeriodoModulo.deleteMany({ where: delRenglon! }),
-          prisma.asignacionPeriodoModulo.createMany({
-            data: filasPeriodoDeCuentas(f.clasificador, f.agrupador, [...f.deCedula, ...f.extras]).map((fila) => ({
-              ...fila,
-              clienteId,
-              moduloCodigo,
-              periodo: periodo!,
-              creadoPor: actor,
-              creadoPorId: user?.id ?? null,
-            })),
-          }),
-        ];
-      }),
-    ]);
+        if (plan.memoriaBorrar.length > 0) {
+          await tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, OR: plan.memoriaBorrar } });
+        }
+        if (plan.memoriaCrear.length > 0) {
+          await tx.consolidacionModuloCliente.createMany({
+            data: plan.memoriaCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, actualizadoPor: actor, origen: "manual" })),
+          });
+        }
+        if (periodo && plan.periodoBorrar.length > 0) {
+          await tx.asignacionPeriodoModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo, OR: plan.periodoBorrar } });
+        }
+        if (periodo && plan.periodoCrear.length > 0) {
+          await tx.asignacionPeriodoModulo.createMany({
+            data: plan.periodoCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, periodo, creadoPor: actor, creadoPorId: user?.id ?? null })),
+          });
+        }
+      },
+      { timeout: 60_000 },
+    );
     await auditarConsolidacion(
       clienteId,
       moduloCodigo,
