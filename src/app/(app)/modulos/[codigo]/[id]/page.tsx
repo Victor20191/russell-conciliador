@@ -31,8 +31,9 @@ import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { ESTADO_CIERRE_FIRME, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
-import { construirConsolidadoNomina } from "@/lib/modulos/nomina/consolidado-nomina";
-import { validarNomina } from "@/lib/modulos/nomina/validaciones-nomina";
+import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
+import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
+import { columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
 import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 
@@ -50,11 +51,13 @@ export default async function DatoModuloPage({
   const encabezadoId = Number(id);
   if (!descriptor || !Number.isInteger(encabezadoId)) notFound();
 
-  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
-    where: { id: encabezadoId },
-    include: { detalles: { orderBy: { filaNum: "asc" } } },
-  });
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId } });
   if (!encabezado || encabezado.moduloCodigo !== moduloCodigo) notFound();
+  // El detalle de un cargue de NÓMINA son cientos de miles de filas (INCODOL: 124.957 = 70 MB):
+  // su consolidado y sus novedades se piden agregados y la pestaña «Detalle» pagina.
+  const detalles = descriptor.nomina
+    ? []
+    : await prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, orderBy: { filaNum: "asc" } });
 
   // Alcance de lectura sobre el cliente del dato (fail-closed).
   const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
@@ -176,7 +179,7 @@ export default async function DatoModuloPage({
     (homologacionPorSubgrupo[clave] ??= []).push({ codigo: a.code, nombre: a.name });
   }
 
-  const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
+  const detalleVm: FilaDetalleVm[] = detalles.map((d) => ({
     filaNum: d.filaNum,
     clasificador: d.clasificador,
     valor: Number(d.valor),
@@ -209,9 +212,10 @@ export default async function DatoModuloPage({
   // Nómina: un renglón por (concepto, centro de costo) con la memoria guardada para ese par y la
   // sugerencia de homologación (cuenta del archivo, memoria + regla de clase, grupo por nombre).
   const reglasClase = new Map(reglasClaseRows.filter((r) => esClaseNomina(r.clase)).map((r) => [r.agrupador, r.clase as ClaseNomina]));
-  const consolidadoNomina = descriptor.nomina
-    ? construirConsolidadoNomina({
-        detalle: detalleVm,
+  const gruposNomina = descriptor.nomina ? await gruposNominaDelCargue(encabezadoId) : undefined;
+  const consolidadoNomina = descriptor.nomina && gruposNomina
+    ? construirConsolidadoNominaDeGrupos({
+        grupos: gruposNomina,
         memoria: consolidacionRows.map((r) => ({ ...r, cuenta6: r.cuenta6 ?? "" })),
         reglasClase,
         mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
@@ -250,12 +254,13 @@ export default async function DatoModuloPage({
       moduloCodigo,
       periodo: encabezado.periodo,
       verificaciones: encabezado.verificaciones,
-      detalles: encabezado.detalles.map((d) => ({
+      detalles: detalles.map((d) => ({
         clasificador: d.clasificador,
         valor: Number(d.valor),
         datos: (d.datos ?? {}) as Record<string, unknown>,
         imputable: d.imputable,
       })),
+      gruposNomina,
     },
     consolidacionRows,
     asignacionesPeriodo: consolidacion.filasPeriodo,
@@ -277,7 +282,7 @@ export default async function DatoModuloPage({
           periodo: encabezado.periodo,
           total: Number(encabezado.total),
           nivelSaldo: encabezado.nivelSaldo,
-          detalles: encabezado.detalles.map((d) => ({
+          detalles: detalles.map((d) => ({
             filaNum: d.filaNum,
             valor: Number(d.valor),
             datos: (d.datos ?? {}) as Record<string, unknown>,
@@ -374,7 +379,7 @@ export default async function DatoModuloPage({
   // Fecha de corte y divisa del cargue (Cartera, CxP): contra la fecha se miden días y edades.
   const fechaCorte = encabezado.fechaCorte ? fechaCalendarioISO(encabezado.fechaCorte) : finDePeriodo(encabezado.periodo);
   const monedasCargue = [...new Set(
-    encabezado.detalles
+    detalles
       .map((d) => (d.datos as Record<string, unknown> | null)?.[CLAVE_MONEDA])
       .filter((m): m is string => typeof m === "string"),
   )].sort();
@@ -422,8 +427,8 @@ export default async function DatoModuloPage({
         ...novedades,
         // Nómina: netos por fila, conceptos sin cuenta / con reparto, deducciones de control,
         // cédulas con varios nombres y meses del archivo, sobre el mismo consolidado del cruce.
-        nomina: validarNomina({
-          detalle: encabezado.detalles.map((d) => ({ filaNum: d.filaNum, valor: Number(d.valor), datos: (d.datos ?? {}) as Record<string, unknown> })),
+        nomina: validarNominaConNovedades({
+          porFila: await novedadesFilaNominaDelCargue(encabezadoId),
           renglones: cruce.nomina?.renglones ?? consolidadoNomina?.renglones ?? [],
         }),
       }
@@ -431,7 +436,7 @@ export default async function DatoModuloPage({
     ? {
         ...novedades,
         tercero: validarAuxiliarTercero({
-          filas: encabezado.detalles.map((d) => ({
+          filas: detalles.map((d) => ({
             filaNum: d.filaNum,
             valor: Number(d.valor),
             imputable: d.imputable,
@@ -454,6 +459,14 @@ export default async function DatoModuloPage({
   // Columnas de la tabla de detalle: las del descriptor más, cuando el archivo las trajo,
   // una por cada rango de vencimiento. Ver `columnas-cartera.ts`.
   const columnasDeLaTabla = columnasDetalleModulo(descriptor, encabezado.rangosEdades);
+  // La pestaña «Detalle» pide sus filas por páginas: al navegador solo viajan el conteo y qué
+  // columnas trae el archivo (antes iban las 124.957 filas del cargue, 74 MB).
+  const [totalFilasDetalle, columnasConDatos] = await Promise.all([
+    conteoDetalleCargue(encabezadoId),
+    columnasConDatosCargue(encabezadoId, columnasDeLaTabla),
+  ]);
+  const claveColumnaTabla = (c: (typeof columnasDeLaTabla)[number]) => (c.familia ? `${c.familia.clave}.${c.familia.etiqueta}` : c.nombre);
+  const columnasVisiblesTabla = columnasDeLaTabla.filter((c) => c.esValor === true || c.nombre === descriptor.clasificador || columnasConDatos.has(claveColumnaTabla(c)));
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
     id: hermano.id,
@@ -494,7 +507,8 @@ export default async function DatoModuloPage({
         total={Number(encabezado.total)}
         columnas={columnasDeLaTabla}
         clasificadorEtiqueta={descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"}
-        detalle={detalleVm}
+        totalFilasDetalle={totalFilasDetalle}
+        columnasVisiblesDetalle={columnasVisiblesTabla}
         consolidado={consolidadoVm}
         cruceContable={cruceContableVm}
         cruceTercero={cruceTerceroVm}

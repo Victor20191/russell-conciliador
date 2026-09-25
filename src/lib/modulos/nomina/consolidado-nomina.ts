@@ -69,6 +69,55 @@ function moda(filas: FilaDetalleNomina[], rol: string): string | null {
   return mejor;
 }
 
+/**
+ * Un renglón del consolidado ANTES de homologar: el par (concepto, centro) con sus cifras y el
+ * valor más repetido de los roles que la homologación mira. Se puede armar leyendo las filas
+ * (`agruparDetalleNomina`) o pidiéndoselo a la base con un GROUP BY: un cargue de nómina tiene
+ * cientos de miles de filas y no hacen falta todas para saber a qué cuenta va cada concepto.
+ */
+export type GrupoNominaAgregado = {
+  /** Clave del renglón («1» o «1 ∥ GYA»). */
+  clasificador: string;
+  codigo: string;
+  agrupador: string;
+  filas: number;
+  total: number;
+  /** Valor más repetido de cada rol en las filas del grupo (la `moda`). */
+  concepto: string | null;
+  cuenta: string | null;
+  cuentaAdmin: string | null;
+  cuentaVentas: string | null;
+  cuentaMOD: string | null;
+  cuentaMOI: string | null;
+};
+
+const ROLES_MODA = ["concepto", "cuenta", "cuentaAdmin", "cuentaVentas", "cuentaMOD", "cuentaMOI"] as const;
+
+/** Agrupa el detalle por (concepto, centro) con la moda de los roles que mira la homologación. */
+export function agruparDetalleNomina(detalle: readonly FilaDetalleNomina[]): GrupoNominaAgregado[] {
+  const consolidado = consolidarPorClasificador(
+    detalle.map((d) => ({ clasificador: d.clasificador, valor: d.valor, agrupador: texto(d.datos.agrupador) })),
+    { porAgrupador: true },
+  );
+  const filasPorClave = new Map<string, FilaDetalleNomina[]>();
+  for (const d of detalle) {
+    const k = claveConsolidado(d.clasificador?.trim() || "(sin clasificar)", texto(d.datos.agrupador));
+    filasPorClave.set(k, [...(filasPorClave.get(k) ?? []), d]);
+  }
+  return consolidado.map((c) => {
+    const filas = filasPorClave.get(c.clasificador) ?? [];
+    const modas = Object.fromEntries(ROLES_MODA.map((rol) => [rol, moda(filas, rol)])) as Record<(typeof ROLES_MODA)[number], string | null>;
+    return {
+      clasificador: c.clasificador,
+      codigo: c.codigo ?? c.clasificador,
+      agrupador: c.agrupador ?? "",
+      filas: c.filas,
+      total: c.total,
+      ...modas,
+    };
+  });
+}
+
 export function construirConsolidadoNomina(input: {
   detalle: FilaDetalleNomina[];
   memoria: MemoriaConceptoRow[];
@@ -76,16 +125,18 @@ export function construirConsolidadoNomina(input: {
   mapeoCliente?: ReadonlyMap<string, string>;
   cuentasRussell6: readonly string[];
 }): { renglones: RenglonConsolidadoNomina[]; agrupadores: AgrupadorConsolidado[] } {
-  const consolidado = consolidarPorClasificador(
-    input.detalle.map((d) => ({ clasificador: d.clasificador, valor: d.valor, agrupador: texto(d.datos.agrupador) })),
-    { porAgrupador: true },
-  );
-  // Filas de cada renglón (para la cuenta del archivo y el nombre del concepto).
-  const filasPorClave = new Map<string, FilaDetalleNomina[]>();
-  for (const d of input.detalle) {
-    const k = claveConsolidado(d.clasificador?.trim() || "(sin clasificar)", texto(d.datos.agrupador));
-    filasPorClave.set(k, [...(filasPorClave.get(k) ?? []), d]);
-  }
+  return construirConsolidadoNominaDeGrupos({ ...input, grupos: agruparDetalleNomina(input.detalle) });
+}
+
+/** El mismo consolidado partiendo de los grupos ya agregados (sin las filas del archivo). */
+export function construirConsolidadoNominaDeGrupos(input: {
+  grupos: readonly GrupoNominaAgregado[];
+  memoria: MemoriaConceptoRow[];
+  reglasClase: ReadonlyMap<string, ClaseNomina>;
+  mapeoCliente?: ReadonlyMap<string, string>;
+  cuentasRussell6: readonly string[];
+}): { renglones: RenglonConsolidadoNomina[]; agrupadores: AgrupadorConsolidado[] } {
+  const consolidado = input.grupos;
   // Memoria: guardadas por clave exacta y descripción por concepto.
   const guardadas = new Map<string, string[]>();
   const descripcionPorCodigo = new Map<string, string>();
@@ -108,19 +159,18 @@ export function construirConsolidadoNomina(input: {
   const renglones: RenglonConsolidadoNomina[] = consolidado.map((c) => {
     const codigo = c.codigo ?? c.clasificador;
     const agrupador = c.agrupador ?? "";
-    const filas = filasPorClave.get(c.clasificador) ?? [];
-    const descripcion = descripcionPorCodigo.get(codigo) ?? moda(filas, "concepto");
+    const descripcion = descripcionPorCodigo.get(codigo) ?? c.concepto;
     const r = resolverCuentaConcepto(
       {
         clasificador: codigo,
         agrupador,
         nombre: descripcion,
-        cuentaArchivo: moda(filas, "cuenta"),
+        cuentaArchivo: c.cuenta,
         cuentasPorClaseArchivo: {
-          "51": moda(filas, "cuentaAdmin"),
-          "52": moda(filas, "cuentaVentas"),
-          "72": moda(filas, "cuentaMOD"),
-          "73": moda(filas, "cuentaMOI"),
+          "51": c.cuentaAdmin,
+          "52": c.cuentaVentas,
+          "72": c.cuentaMOD,
+          "73": c.cuentaMOI,
         },
       },
       ctx,

@@ -41,7 +41,8 @@ import {
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
-import { construirConsolidadoNomina } from "@/lib/modulos/nomina/consolidado-nomina";
+import { gruposNominaDelCargue } from "@/lib/modulos/cargue-servidor";
+import { agruparDetalleNomina, construirConsolidadoNominaDeGrupos, type GrupoNominaAgregado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { esClaseNomina, sugerirReparto, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import {
   construirControlDeducciones,
@@ -66,6 +67,12 @@ export type InsumosCruceModulo = {
      * con valor relacionado (la depreciación de Activos fijos). `imputable: false` no suma.
      */
     detalles: { clasificador: string | null; valor: number; datos?: Record<string, unknown>; imputable?: boolean }[];
+    /**
+     * Nómina: el consolidado ya agregado por (concepto, centro). Cuando viene, el detalle NO se
+     * lee: un cargue de nómina son cientos de miles de filas y el GROUP BY las resume en una
+     * consulta con gruposNominaDelCargue.
+     */
+    gruposNomina?: readonly GrupoNominaAgregado[];
   };
   /**
    * `cuenta6` solo importa en los módulos que cruzan a 6 dígitos (`nivelCruce: 6`); las demás
@@ -166,9 +173,14 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
   // El JSON de cada fila solo hace falta en Nómina (agrupador, cuenta del archivo): en
   // Cartera/CxP son cientos de miles de filas y no se lee.
   // La depreciación de Activos fijos (valor relacionado) también vive en `datos`.
-  const conDatos = descriptor?.nomina != null || descriptor?.cedula?.valorRelacionado != null;
-  const [detalles, consolidacion, subgrupos, catalogoPrevalidador] = await Promise.all([
-    prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
+  // En Nómina NO se lee el detalle: el consolidado sale de un GROUP BY (cientos de miles de
+  // filas contra 81 renglones). La depreciación de Activos fijos sí necesita el JSON de la fila.
+  const conDatos = descriptor?.cedula?.valorRelacionado != null;
+  const [detalles, gruposNomina, consolidacion, subgrupos, catalogoPrevalidador] = await Promise.all([
+    descriptor?.nomina
+      ? Promise.resolve([])
+      : prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
+    descriptor?.nomina ? gruposNominaDelCargue(encabezadoId) : Promise.resolve(undefined),
     cargarConsolidacionDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
@@ -178,6 +190,7 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     encabezado: {
       ...encabezado,
       detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), imputable: d.imputable, ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
+      gruposNomina,
     },
     consolidacionRows: consolidacion.filas,
     asignacionesPeriodo: consolidacion.filasPeriodo,
@@ -284,8 +297,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   // guardados; el lado módulo de la cédula sale de ahí.
   const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, encabezado.periodo) : null;
   const consolidadoNomina = descriptor.nomina && insumosNomina
-    ? construirConsolidadoNomina({
-        detalle: encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos ?? {} })),
+    ? construirConsolidadoNominaDeGrupos({
+        grupos: encabezado.gruposNomina
+          ?? agruparDetalleNomina(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos ?? {} }))),
         memoria: consolidacionRows.map((r) => ({ ...r, agrupador: r.agrupador ?? "", cuenta6: r.cuenta6 ?? "" })),
         reglasClase: insumosNomina.reglasClase,
         mapeoCliente: insumosNomina.mapeoCliente,

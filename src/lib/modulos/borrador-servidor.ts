@@ -15,8 +15,7 @@
 // Va por el DRIVER `pg` y no por Prisma: el motor de Prisma serializa cada fila con su `Decimal`
 // y su JSON, y la misma consulta pasa de ~1 s a ~30 s.
 import "server-only";
-import { Pool } from "pg";
-import { ZONA_HORARIA_COLOMBIA } from "@/lib/fecha-hora";
+import { poolLectura as pool } from "./pool-lectura";
 import type { DescriptorModulo } from "./descriptores";
 import { esDescuadreProducto } from "./validaciones";
 import { controlesFormatoCartera } from "./cartera/controles-formato";
@@ -24,23 +23,6 @@ import type { FormatoArchivoCartera } from "./cartera/tipo-formato";
 import type { NivelCartera } from "./cartera/saldos-tercero";
 import type { ColumnaDetalle } from "./cartera/columnas-cartera";
 import { claveColumna, claveGrupo, resumirBorrador, type FilaBorrador, type FilaSlim, type ResumenBorrador } from "./borrador-resumen";
-
-const globalParaStaging = globalThis as unknown as { poolStagingModulos?: Pool };
-
-function pool(): Pool {
-  if (!globalParaStaging.poolStagingModulos) {
-    globalParaStaging.poolStagingModulos = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      options: `-c timezone=${ZONA_HORARIA_COLOMBIA}`,
-      keepAlive: true,
-      // Pool propio y mínimo: estas consultas son de lectura y no compiten con el de la app.
-      max: 2,
-      connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT_MS ?? "15000"),
-      idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS ?? "30000"),
-    });
-  }
-  return globalParaStaging.poolStagingModulos;
-}
 
 type FilaCruda = {
   fila_num: number;

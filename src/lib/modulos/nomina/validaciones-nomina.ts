@@ -35,8 +35,24 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Lo que solo se sabe mirando FILA a fila. Se puede calcular leyendo el detalle
+ * (`novedadesPorFila`) o pedírselo a la base con tres consultas que devuelven poco
+ * (`novedadesFilaNominaDelCargue`): un cargue de nómina son cientos de miles de filas.
+ */
+export type NovedadesPorFilaNomina = {
+  netos: NetoDescuadrado[];
+  cedulas: CedulaConVariosNombres[];
+  meses: string[];
+};
+
 export function validarNomina(input: { detalle: readonly FilaDetalleValidacion[]; renglones: readonly RenglonConsolidadoNomina[]; tolerancia?: number }): ValidacionesNomina {
-  const tolerancia = input.tolerancia ?? 1;
+  return validarNominaConNovedades({ porFila: novedadesPorFila(input.detalle, input.tolerancia ?? 1), renglones: input.renglones });
+}
+
+/** Las novedades por fila, leyendo el detalle (la forma original; la usan las pruebas puras). */
+export function novedadesPorFila(detalle: readonly FilaDetalleValidacion[], tolerancia = 1): NovedadesPorFilaNomina {
+  const input = { detalle };
   const netos: NetoDescuadrado[] = [];
   const nombresPorCedula = new Map<string, Map<string, number>>();
   const meses = new Set<string>();
@@ -64,7 +80,15 @@ export function validarNomina(input: { detalle: readonly FilaDetalleValidacion[]
     .filter(([, m]) => m.size > 1)
     .map(([cedula, m]) => ({ cedula, nombres: [...m.keys()].sort(), filas: [...m.values()].reduce((a, b) => a + b, 0) }))
     .sort((a, b) => b.filas - a.filas);
+  return { netos, cedulas, meses: [...meses].sort() };
+}
 
+/** El resto: lo que se lee de los RENGLONES del consolidado, no de las filas. */
+export function validarNominaConNovedades(input: {
+  porFila: NovedadesPorFilaNomina;
+  renglones: readonly RenglonConsolidadoNomina[];
+}): ValidacionesNomina {
+  const { netos, cedulas } = input.porFila;
   const sinCuenta: ValidacionesNomina["sinCuenta"] = [];
   const multi: ValidacionesNomina["multi"] = [];
   let controlConceptos = 0;
@@ -82,7 +106,7 @@ export function validarNomina(input: { detalle: readonly FilaDetalleValidacion[]
     multi: multi.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)),
     control: { conceptos: controlConceptos, total: Math.round(controlTotal * 100) / 100 },
     cedulas,
-    meses: [...meses].sort(),
+    meses: input.porFila.meses,
     total: netos.length + sinCuenta.length + cedulas.length,
   };
 }

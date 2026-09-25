@@ -20,6 +20,7 @@ import {
   cerrarConciliacionModulo,
   desbloquearConciliacion,
   consultarCuentasRussell,
+  filasDetalleCargue,
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
@@ -33,8 +34,8 @@ import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-co
 import { renglonesSinGuardar } from "@/lib/modulos/consolidado-sin-guardar";
 import { ModalCuentasSinGuardar, useAvisoCierreNavegador, useInterceptarEnlaces } from "./aviso-salida-consolidado";
 import { EstadoGuardado } from "@/components/estado-guardado";
-import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
-import { columnasVisiblesDetalle, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
@@ -219,7 +220,8 @@ export default function DatoCargadoClient({
   total,
   columnas,
   clasificadorEtiqueta,
-  detalle,
+  totalFilasDetalle,
+  columnasVisiblesDetalle,
   consolidado,
   cruceContable,
   cruceTercero,
@@ -244,7 +246,10 @@ export default function DatoCargadoClient({
   total: number;
   columnas: Columna[];
   clasificadorEtiqueta: string;
-  detalle: FilaDetalleVm[];
+  /** Cuántas filas tiene el cargue: la pestaña «Detalle» las pide por páginas. */
+  totalFilasDetalle: number;
+  /** Columnas que el archivo trae (las decide el servidor mirando el cargue entero). */
+  columnasVisiblesDetalle: Columna[];
   consolidado: ConsolidadoVm[];
   cruceContable: CruceContableVm;
   cruceTercero: CruceTerceroVm;
@@ -367,7 +372,7 @@ export default function DatoCargadoClient({
       {tab === "consolidado" ? (
         <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} onGuardado={alGuardarConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
-        <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
+        <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
         <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
       ) : tab === "cruceTercero" ? (
@@ -1499,25 +1504,51 @@ function ModalAsignacionMasiva({
   );
 }
 
-function DetalleTab({ columnas: columnasDelCargue, clasificadorEtiqueta, detalle, negativosFilas, encabezadoId, comentarios }: { columnas: Columna[]; clasificadorEtiqueta: string; detalle: FilaDetalleVm[]; negativosFilas: Set<number>; encabezadoId: number; comentarios: Record<string, number> }) {
+/**
+ * Detalle del cargue, POR PÁGINAS. Las filas ya no viajan con la página: un cargue de nómina
+ * son cientos de miles (INCODOL: 124.957 = 74 MB de JSON) y el navegador no las aguantaba. Se
+ * piden de a 500 y los filtros por columna los resuelve el servidor con las mismas funciones.
+ */
+function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas, clasificadorEtiqueta, negativosFilas, encabezadoId, comentarios }: { columnas: Columna[]; columnasVisibles: Columna[]; totalFilas: number; clasificadorEtiqueta: string; negativosFilas: Set<number>; encabezadoId: number; comentarios: Record<string, number> }) {
   const esNum = (t: string) => t === "moneda" || t === "numero";
   // Saldo efectivo, rangos de vencimiento y fechas: ver `celda-detalle-modulo.ts`.
   const celda = (f: FilaDetalleVm, col: Columna) => textoCeldaDetalle(valorColumnaDetalle(f, col), col);
-  // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan.
   const [verTodasColumnas, setVerTodasColumnas] = useState(false);
-  const visibilidadColumnas = useMemo(() => columnasVisiblesDetalle(columnasDelCargue, detalle), [columnasDelCargue, detalle]);
-  const columnas = verTodasColumnas ? columnasDelCargue : visibilidadColumnas.visibles;
+  const ocultas = useMemo(
+    () => columnasDelCargue.filter((c) => !columnasVisibles.some((v) => v.nombre === c.nombre && v.familia?.etiqueta === c.familia?.etiqueta)),
+    [columnasDelCargue, columnasVisibles],
+  );
+  const columnas = verTodasColumnas ? columnasDelCargue : columnasVisibles;
   const idxValor = indiceColumnaValor(columnas);
   const [filtros, setFiltros] = useState<FiltrosDetalleModulo>({});
   const hayFiltros = hayFiltrosDetalleModulo(filtros);
-  const detalleFiltrado = useMemo(
-    () => filtrarFilasDetalleModulo(detalle, columnas, filtros, valorColumnaDetalle),
-    [detalle, columnas, filtros],
-  );
+  const [filas, setFilas] = useState<FilaDetalleVm[]>([]);
+  const [total, setTotal] = useState(totalFilas);
+  const [cargando, setCargando] = useState(true);
+
+  const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo) => {
+    setCargando(true);
+    try {
+      const r = await filasDetalleCargue({ encabezadoId, desde, filtros: hayFiltrosDetalleModulo(filtrosPedidos) ? filtrosPedidos : undefined });
+      if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
+      setFilas((previas) => (desde > 0 ? [...previas, ...r.filas] : r.filas));
+      setTotal(r.total);
+    } finally {
+      setCargando(false);
+    }
+  }, [encabezadoId]);
+
+  // Primera página al abrir la pestaña y cada vez que cambian los filtros (con una pausa, para
+  // no pedir una página por cada tecla).
+  useEffect(() => {
+    const id = setTimeout(() => { void traer(0, filtros); }, hayFiltrosDetalleModulo(filtros) ? 400 : 0);
+    return () => clearTimeout(id);
+  }, [filtros, traer]);
+
   const grupos = useMemo(() => {
     const orden: string[] = [];
     const m = new Map<string, { filas: FilaDetalleVm[]; subtotal: number }>();
-    for (const f of detalleFiltrado) {
+    for (const f of filas) {
       const k = f.clasificador?.trim() || "(sin clasificar)";
       let g = m.get(k);
       if (!g) { g = { filas: [], subtotal: 0 }; m.set(k, g); orden.push(k); }
@@ -1525,24 +1556,24 @@ function DetalleTab({ columnas: columnasDelCargue, clasificadorEtiqueta, detalle
       g.subtotal += f.valor;
     }
     return orden.map((k) => ({ clasificador: k, ...m.get(k)! }));
-  }, [detalleFiltrado]);
+  }, [filas]);
   return (
     <Card className="p-0">
       <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-3 py-2 text-[12px] text-ink-500">
         <span>
-          {hayFiltros
-            ? <><span className="font-semibold text-ink-700">{detalleFiltrado.length.toLocaleString("es-CO")}</span> de {detalle.length.toLocaleString("es-CO")} filas</>
-            : <><span className="font-semibold text-ink-700">{detalle.length.toLocaleString("es-CO")}</span> filas</>}
+          <span className="font-semibold text-ink-700">{filas.length.toLocaleString("es-CO")}</span> de {total.toLocaleString("es-CO")} filas
+          {hayFiltros ? ` (de ${totalFilas.toLocaleString("es-CO")} del cargue)` : ""}
+          {cargando ? " · trayendo…" : ""}
         </span>
         <div className="flex items-center gap-2">
-          {visibilidadColumnas.ocultas.length > 0 && (
+          {ocultas.length > 0 && (
             <button
               type="button"
               onClick={() => setVerTodasColumnas((v) => !v)}
-              title={verTodasColumnas ? "Oculta las columnas sin datos y los rangos que no suman al saldo" : `Ocultas: ${visibilidadColumnas.ocultas.map((c) => c.etiqueta).join(", ")}`}
+              title={verTodasColumnas ? "Oculta las columnas sin datos y los rangos que no suman al saldo" : `Ocultas: ${ocultas.map((c) => c.etiqueta).join(", ")}`}
               className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
             >
-              {verTodasColumnas ? "Ocultar columnas sin datos" : `Mostrar todas las columnas (${visibilidadColumnas.ocultas.length} ocultas)`}
+              {verTodasColumnas ? "Ocultar columnas sin datos" : `Mostrar todas las columnas (${ocultas.length} ocultas)`}
             </button>
           )}
           {hayFiltros && (
@@ -1582,7 +1613,7 @@ function DetalleTab({ columnas: columnasDelCargue, clasificadorEtiqueta, detalle
             {grupos.length === 0 && (
               <tr>
                 <td colSpan={columnas.length + 2} className="px-2.5 py-6 text-center text-ink-400">
-                  Ninguna fila coincide con los filtros.
+                  {cargando ? "Trayendo el detalle…" : hayFiltros ? "Ninguna fila coincide con los filtros." : "Este cargue no tiene filas."}
                 </td>
               </tr>
             )}
@@ -1610,6 +1641,20 @@ function DetalleTab({ columnas: columnasDelCargue, clasificadorEtiqueta, detalle
                 ))}
               </Fragment>
             ))}
+            {filas.length < total && (
+              <tr className="border-t border-ink-100 bg-ink-50">
+                <td colSpan={columnas.length + 2} className="px-2.5 py-2 text-center">
+                  <button
+                    type="button"
+                    disabled={cargando}
+                    onClick={() => void traer(filas.length, filtros)}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
+                  >
+                    {cargando ? "Trayendo…" : `Ver más filas (${filas.length.toLocaleString("es-CO")} de ${total.toLocaleString("es-CO")})`}
+                  </button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

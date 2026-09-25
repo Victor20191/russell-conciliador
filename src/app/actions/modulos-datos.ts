@@ -64,6 +64,7 @@ import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
 import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
+import { paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
@@ -1537,6 +1538,45 @@ export async function filasBorradorModulo(entrada: {
     return { ok: true, filas: visibles.slice(desde, desde + FILAS_POR_PAGINA_BORRADOR), total: visibles.length };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("filasBorradorModulo", e), filas: [], total: 0 };
+  }
+}
+
+/**
+ * Una página del detalle de un cargue. La pantalla ya no recibe las filas con la página (un
+ * cargue de nómina son cientos de miles), así que las pide de a 500; con filtros de columna el
+ * servidor recorre el cargue y filtra con las mismas funciones puras que usaba el navegador.
+ */
+export async function filasDetalleCargue(entrada: {
+  encabezadoId: number;
+  desde?: number;
+  filtros?: Record<string, string>;
+}): Promise<{ ok: boolean; message?: string; filas: FilaDetalleCargue[]; total: number }> {
+  const authz = await authorizePermiso("modulos_datos:ver");
+  if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
+  const encabezadoId = Number(entrada.encabezadoId);
+  if (!Number.isInteger(encabezadoId)) return { ok: false, message: "Cargue inválido.", filas: [], total: 0 };
+  try {
+    const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+      where: { id: encabezadoId },
+      select: { clienteId: true, moduloCodigo: true, rangosEdades: true },
+    });
+    if (!encabezado) return { ok: false, message: "El cargue ya no existe.", filas: [], total: 0 };
+    const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message, filas: [], total: 0 };
+    const descriptor = descriptorModulo(encabezado.moduloCodigo);
+    if (!descriptor) return { ok: false, message: "Módulo desconocido.", filas: [], total: 0 };
+    const columnas = columnasDetalleModulo(descriptor, encabezado.rangosEdades);
+    const pagina = await paginaDetalleCargue({
+      encabezadoId,
+      descriptor,
+      columnas,
+      desde: entrada.desde,
+      limite: FILAS_POR_PAGINA_BORRADOR,
+      filtros: entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null,
+    });
+    return { ok: true, ...pagina };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("filasDetalleCargue", e), filas: [], total: 0 };
   }
 }
 
