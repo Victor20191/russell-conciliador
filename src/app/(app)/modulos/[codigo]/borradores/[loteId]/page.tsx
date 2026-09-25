@@ -13,7 +13,8 @@ import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar"
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
-import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
+import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
+import BorradorModuloClient from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
   await requirePermiso("modulos_datos:crear");
@@ -22,9 +23,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) notFound();
 
+  // Las filas se leen ENTERAS aquí para calcular los agregados, pero NO viajan al navegador:
+  // la tabla pide el detalle grupo por grupo con la accion filasBorradorModulo.
   const [lote, filas] = await Promise.all([
     prisma.moduloImportacionLote.findUnique({ where: { loteId } }),
-    prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
+    filasDelLote(loteId),
   ]);
   if (!lote || lote.moduloCodigo !== moduloCodigo || filas.length === 0) notFound();
   if (lote.clienteId == null) notFound();
@@ -167,15 +170,13 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     (familiasDelLote?.edades ?? []).map((e) => e.etiqueta),
   );
 
-  const filasVm: FilaBorradorModulo[] = filas.map((f) => ({
-    filaNum: f.filaNum,
-    clasificador: f.clasificador,
-    valor: Number(f.valor),
-    datos: (f.datos ?? {}) as Record<string, string | number | null>,
-    tipoFila: f.tipoFila,
-    omitida: f.omitida,
-    motivo: f.motivoTipoFila,
-  }));
+  const resumen = await cargarResumenBorrador({
+    loteId,
+    descriptor,
+    columnas: columnasDelBorrador,
+    nivelCartera: nivelDelLote,
+    formatoCartera: formatoDelLote,
+  });
 
   return (
     <div>
@@ -192,14 +193,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         cliente={cliente?.name ?? (lote.clienteId != null ? `Cliente ${lote.clienteId}` : "(sin cliente)")}
         periodoSugerido={periodoSugerido}
         columnas={columnasDelBorrador}
-        nivelCartera={nivelDelLote}
-        formatoCartera={formatoDelLote}
         clasificadorRol={descriptor.clasificador}
-        valorRol={descriptor.valor}
         noNegativos={descriptor.noNegativos ?? []}
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
-        filas={filasVm}
+        resumen={resumen}
         reconciliacion={reconciliacion}
         anexo={anexo}
         sinNombre={[...gruposSinNombre].map(([grupo, g]) => ({ grupo, filas: g.filas, total: Math.round(g.total * 100) / 100 }))}

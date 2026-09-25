@@ -59,6 +59,12 @@ import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
 import { repartoQuedaViejo, validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
+import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
+import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
+import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
@@ -1474,6 +1480,66 @@ function asignarAgrupadorStaging(loteId: string, rol: string, valor: string | nu
 // ============================================================
 // EDITAR el borrador: marcar agrupador / subtotal / omitir por fila (se guarda en el staging).
 // ============================================================
+/** Tope por petición: una página de detalle que el navegador pinta sin ahogarse. */
+const FILAS_POR_PAGINA_BORRADOR = 500;
+
+/**
+ * Detalle de un grupo del borrador. La pantalla ya no recibe las filas del archivo completo
+ * (INCODOL: 125.043 filas = 73,5 MB), así que las pide grupo por grupo y de a páginas; los
+ * filtros por columna y los renglones de estructura se resuelven aquí, con las mismas
+ * funciones puras que usaba el navegador.
+ */
+export async function filasBorradorModulo(entrada: {
+  loteId: string;
+  clasificador: string;
+  desde?: number;
+  verEstructura?: boolean;
+  soloNovedades?: number[];
+  filtros?: Record<string, string>;
+}): Promise<PaginaFilasBorrador> {
+  const authz = await authorizePermiso("modulos_datos:crear");
+  if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
+  const id = String(entrada.loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido.", filas: [], total: 0 };
+  try {
+    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId: id }, select: { clienteId: true, moduloCodigo: true, specJson: true } });
+    if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente.", filas: [], total: 0 };
+    const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message, filas: [], total: 0 };
+    const descriptor = descriptorModulo(lote.moduloCodigo);
+    if (!descriptor) return { ok: false, message: "Módulo desconocido.", filas: [], total: 0 };
+
+    const grupo = String(entrada.clasificador ?? "").trim();
+    const novedades = Array.isArray(entrada.soloNovedades) ? new Set(entrada.soloNovedades.filter(Number.isInteger)) : null;
+    const filtros = entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null;
+    const desde = Number.isInteger(entrada.desde) && entrada.desde! > 0 ? entrada.desde! : 0;
+    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null;
+
+    // Sin nada que recortar, la página se pide directamente a la base: un grupo de 23.000 filas
+    // no viaja entero para mostrar 500. Con filtros hay que verlo completo, pero es UN grupo.
+    if (!recorta) {
+      const [filas, total] = await Promise.all([
+        filasDelGrupo(id, grupo, { limite: FILAS_POR_PAGINA_BORRADOR, desde }),
+        conteoDelGrupo(id, grupo),
+      ]);
+      return { ok: true, filas, total };
+    }
+
+    const familias = ((lote.specJson ?? {}) as { familias?: Record<string, { etiqueta: string }[]> }).familias;
+    const columnas = columnasDetalleModulo(descriptor, (familias?.edades ?? []).map((e) => e.etiqueta));
+    let visibles = await filasDelGrupo(id, grupo);
+    if (entrada.verEstructura !== true) visibles = visibles.filter((f) => !esRenglonEstructura(f));
+    if (novedades) visibles = visibles.filter((f) => novedades.has(f.filaNum));
+    if (filtros) {
+      visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, (fila, columna) =>
+        columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna));
+    }
+    return { ok: true, filas: visibles.slice(desde, desde + FILAS_POR_PAGINA_BORRADOR), total: visibles.length };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("filasBorradorModulo", e), filas: [], total: 0 };
+  }
+}
+
 export async function aplicarCambiosBorradorModulo(
   loteId: string,
   cambios: { filaNum: number; tipoFila?: string; omitida?: boolean | null; clasificador?: string | null }[],
