@@ -186,8 +186,22 @@ export type ReferenciaMarcaVm = MarcaPeriodo & {
  * pestaña cita las de la otra, en su lugar, para que la secuencia 1, 2, 3… se lea sin huecos.
  * Se edita solo en su pestaña.
  */
-export function ReferenciaMarca({ referencia }: { referencia: ReferenciaMarcaVm }) {
+export function ReferenciaMarca({
+  referencia,
+  onQuitar,
+  ocupado = false,
+}: {
+  referencia: ReferenciaMarcaVm;
+  /**
+   * Retirar una marca cuyo renglón ya no aparece (se agruparon sus cuentas, cambió el mapeo).
+   * Sin esto no había cómo soltar las cuentas no modulares que dejó: seguían tachadas y no
+   * había dónde editarlas.
+   */
+  onQuitar?: () => void;
+  ocupado?: boolean;
+}) {
   const { destino } = referencia;
+  const noModulares = referencia.noModulares ?? [];
   return (
     <li id={anclaObservacionMarca(referencia.numero)} className="flex gap-3 bg-ink-50/60 px-3 py-2.5 scroll-mt-24">
       <div className="pt-0.5">
@@ -206,11 +220,32 @@ export function ReferenciaMarca({ referencia }: { referencia: ReferenciaMarcaVm 
           )}
         </div>
         <p className="whitespace-pre-wrap break-words text-[11.5px] text-ink-600">{referencia.nota}</p>
+        {noModulares.length > 0 && (
+          <p className="text-[11px] leading-snug text-ink-500">
+            <span className="font-semibold text-ink-600">Deja fuera de la conciliación:</span>{" "}
+            {noModulares.map((c) => `${c.cuenta8}${c.nombre ? ` ${c.nombre}` : ""}`).join(" · ")}.
+            {!destino && " Retira la marca para que vuelvan a contar."}
+          </p>
+        )}
         <span className="text-[10.5px] text-ink-400">
           {referencia.marcadoPor ? `${referencia.marcadoPor} · ` : ""}{referencia.marcadoEn}
           {referencia.soportes > 0 ? ` · ${referencia.soportes} soporte${referencia.soportes === 1 ? "" : "s"}` : ""}
         </span>
       </div>
+      {onQuitar && (
+        <div className="flex shrink-0 items-start">
+          <button
+            type="button"
+            onClick={onQuitar}
+            disabled={ocupado}
+            title="Retirar la marca (se lleva sus soportes y libera sus cuentas no modulares)"
+            aria-label="Retirar la marca"
+            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+          >
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      )}
     </li>
   );
 }

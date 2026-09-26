@@ -108,7 +108,11 @@ export default async function DatoModuloPage({
     prisma.marcaCruceModulo.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
       orderBy: { numero: "asc" },
-      select: { numero: true, dimension: true, cuenta4: true, clave: true, nota: true, diferencia: true, marcadoPor: true, marcadoEn: true, _count: { select: { adjuntos: true } } },
+      select: {
+        numero: true, dimension: true, cuenta4: true, clave: true, nota: true, diferencia: true, marcadoPor: true, marcadoEn: true,
+        _count: { select: { adjuntos: true } },
+        noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true } },
+      },
     }),
   ]);
   const marcasPeriodo: MarcaPeriodo[] = marcasPeriodoRows.map((m) => ({
@@ -120,6 +124,7 @@ export default async function DatoModuloPage({
     marcadoPor: m.marcadoPor,
     marcadoEn: fmtDateTime(m.marcadoEn),
     soportes: m._count.adjuntos,
+    noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta })),
   }));
   const consolidacionRows = consolidacion.filas;
   const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));

@@ -386,6 +386,12 @@ export type MarcaPeriodo = {
   /** Fecha ya formateada para la UI. */
   marcadoEn: string;
   soportes: number;
+  /**
+   * Cuentas del cliente que esta marca dejó fuera de la conciliación. Se listan aunque el
+   * renglón de la marca ya no aparezca en el cruce: son las que se ven tachadas, y mientras la
+   * marca exista siguen restando, la escribiera quien la escribiera.
+   */
+  noModulares?: { cuenta8: string; nombre: string | null }[];
 };
 
 export type EntradaObservacion<T, M extends MarcaPeriodo = MarcaPeriodo> =

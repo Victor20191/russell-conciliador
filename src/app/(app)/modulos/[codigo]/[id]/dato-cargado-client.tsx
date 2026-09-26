@@ -1766,6 +1766,17 @@ function CruceContableTab({
     });
   };
 
+  // Marca del período cuyo renglón ya no aparece (sus cuentas se agruparon, cambió el mapeo):
+  // se retira desde las observaciones, que es donde se sigue viendo.
+  const quitarHuerfana = (marca: ReferenciaMarcaVm) => {
+    startQuitar(async () => {
+      const r = await quitarMarcaCruce({ encabezadoId, cuenta4: marca.llave });
+      if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
+      else notifyError(r.message ?? "No se pudo retirar la marca.");
+      router.refresh();
+    });
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {cruceContable.balanceFuente && (
@@ -2011,6 +2022,8 @@ function CruceContableTab({
         comentarios={comentarios}
         puedeEditar={puedeEditar}
         ocupado={quitando}
+        dimensionPropia="cuenta4"
+        onQuitarHuerfana={quitarHuerfana}
         onEditar={(fila) => setMarcando(fila)}
         onQuitar={quitar}
       />
@@ -2780,6 +2793,8 @@ function ObservacionesMarcas({
   comentarios,
   puedeEditar,
   ocupado,
+  dimensionPropia,
+  onQuitarHuerfana,
   onEditar,
   onQuitar,
 }: {
@@ -2790,6 +2805,13 @@ function ObservacionesMarcas({
   comentarios: Record<string, number>;
   puedeEditar: boolean;
   ocupado: boolean;
+  /**
+   * Retirar una marca del período que ya no tiene renglón en ninguna pestaña. Se ofrece en la
+   * pestaña de SU dimensión: si no, sus cuentas no modulares quedaban tachadas para siempre,
+   * sin dónde editarlas (Aceros Mapa: la marca de 410505 al agruparse con 417505).
+   */
+  dimensionPropia?: "cuenta4" | "tercero";
+  onQuitarHuerfana?: (marca: ReferenciaMarcaVm) => void;
   onEditar: (fila: FilaCruceMarcada) => void;
   onQuitar: (fila: FilaCruceMarcada) => void;
 }) {
@@ -2813,7 +2835,16 @@ function ObservacionesMarcas({
       ) : (
         <ol className="divide-y divide-ink-100">
           {entradas.map((entrada) => entrada.tipo === "referencia" ? (
-            <ReferenciaMarca key={`ref-${entrada.numero}`} referencia={entrada.marca} />
+            <ReferenciaMarca
+              key={`ref-${entrada.numero}`}
+              referencia={entrada.marca}
+              ocupado={ocupado}
+              onQuitar={
+                puedeEditar && onQuitarHuerfana && !entrada.marca.destino && entrada.marca.dimension === dimensionPropia
+                  ? () => onQuitarHuerfana(entrada.marca)
+                  : undefined
+              }
+            />
           ) : (
             <ObservacionMarca
               key={entrada.item.cuenta4}

@@ -105,6 +105,7 @@ export function ObservacionesMarcasTercero({
   comentarios,
   puedeEditar,
   ocupado,
+  onQuitarHuerfana,
   onEditar,
   onQuitar,
 }: {
@@ -115,6 +116,8 @@ export function ObservacionesMarcasTercero({
   comentarios: Record<string, number>;
   puedeEditar: boolean;
   ocupado: boolean;
+  /** Retirar una marca de TERCERO cuyo renglón ya no aparece (su detalle sigue aquí al pie). */
+  onQuitarHuerfana?: (marca: ReferenciaMarcaVm) => void;
   onEditar: (fila: FilaCruceTerceroMarcada) => void;
   onQuitar: (fila: FilaCruceTerceroMarcada) => void;
 }) {
@@ -138,7 +141,17 @@ export function ObservacionesMarcasTercero({
       ) : (
         <ol className="divide-y divide-ink-100">
           {entradas.map((entrada) => {
-            if (entrada.tipo === "referencia") return <ReferenciaMarca key={`ref-${entrada.numero}`} referencia={entrada.marca} />;
+            if (entrada.tipo === "referencia") {
+              const huerfanaPropia = puedeEditar && onQuitarHuerfana && !entrada.marca.destino && entrada.marca.dimension === "tercero";
+              return (
+                <ReferenciaMarca
+                  key={`ref-${entrada.numero}`}
+                  referencia={entrada.marca}
+                  ocupado={ocupado}
+                  onQuitar={huerfanaPropia ? () => onQuitarHuerfana!(entrada.marca) : undefined}
+                />
+              );
+            }
             const fila = entrada.item;
             const marca = fila.marca!;
             return (

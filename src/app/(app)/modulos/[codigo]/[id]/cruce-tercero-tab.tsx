@@ -200,6 +200,15 @@ export function CruceTerceroTab({
       router.refresh();
     });
   };
+  // Marca de tercero cuyo renglón ya no aparece en el cruce: se retira desde las observaciones.
+  const quitarMarcaHuerfana = (marca: ReferenciaMarcaVm) => {
+    startAccion(async () => {
+      const r = await quitarMarcaCruce({ encabezadoId, clave: marca.llave });
+      if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
+      else notifyError(r.message ?? "No se pudo retirar la marca.");
+      router.refresh();
+    });
+  };
   const deshacerEmparejamiento = (emparejamiento: EmparejamientoTerceroVm) => {
     startAccion(async () => {
       const r = await quitarEmparejamientoTercero({ encabezadoId, emparejamientoId: emparejamiento.id });
@@ -533,6 +542,7 @@ export function CruceTerceroTab({
           comentarios={comentarios}
           puedeEditar={puedeEditar}
           ocupado={ocupado}
+          onQuitarHuerfana={quitarMarcaHuerfana}
           onEditar={(fila) => setMarcando(fila)}
           onQuitar={quitarMarca}
         />
