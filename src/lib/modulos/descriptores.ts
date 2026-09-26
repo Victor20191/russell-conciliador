@@ -596,7 +596,10 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       cuentas6: CUENTAS_RUSSELL_INGRESOS,
       cuentasAdicionales: [{ cuenta: "422005" }],
     },
-    crucePorTercero: { habilitado: true },
+    // El cruce POR TERCERO queda apagado en Ingresos (26/Sep/2026): la conciliación del módulo
+    // se hace contra la cédula de la 41 y el detalle por tercero no aporta. La columna del
+    // tercero se sigue mapeando y guardando, así que volver a encenderlo es cambiar esta línea.
+    crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "ing_sin_impuestos", texto: "Confirme que el valor cargado corresponde al ingreso neto sin IVA ni otros impuestos y que las devoluciones o notas crédito conservan signo negativo." },
       { id: "ing_vinculados", texto: "Confirme si los ingresos incluyen operaciones con vinculados económicos." },

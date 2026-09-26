@@ -61,12 +61,14 @@ describe("descriptores de módulos", () => {
     });
   }
 
-  it("habilita el cruce por tercero solo en CxC, CxP e Ingresos", () => {
+  it("habilita el cruce por tercero solo en CxC y CxP (Ingresos se apagó el 26/Sep/2026)", () => {
     const habilitados = Object.values(MODULOS_IMPORT)
       .filter((d) => d.crucePorTercero.habilitado)
       .map((d) => d.codigo)
       .sort();
-    expect(habilitados).toEqual(["CAR", "CXP", "ING"]);
+    expect(habilitados).toEqual(["CAR", "CXP"]);
+    // Ingresos conserva la columna del tercero en el mapeo: apagarlo es solo la pestaña.
+    expect(MODULOS_IMPORT.ING.columnas.some((c) => c.nombre === "tercero")).toBe(true);
 
     // Cartera dejó el rol genérico `tercero` por uno propio (`nit`, requerido): sus
     // reportes traen el identificador y el nombre en columnas separadas y el NIT es el
@@ -253,7 +255,7 @@ describe("ampliaciones de la cédula contable (16/Sep/2026)", () => {
       cuentasAdicionales: [{ cuenta: "422005" }],
     });
     // La lista es solo de la cédula: el cruce por tercero de Ingresos no cambia.
-    expect(ING.crucePorTercero).toEqual({ habilitado: true });
+    expect(ING.crucePorTercero).toEqual({ habilitado: false });
     for (const cuenta of [...CUENTAS_RUSSELL_INGRESOS, "422005"]) expect(codigosPuc.has(cuenta), cuenta).toBe(true);
   });
 
