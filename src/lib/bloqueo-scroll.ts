@@ -26,6 +26,11 @@ const ATRIBUTO = "modalAbierto";
  * conoce. El cuerpo del modal conserva su propio scroll: la regla solo alcanza
  * a los contenedores marcados con `data-scroll-app`.
  */
+/** Hay al menos un modal abierto (p. ej. para que Esc no cierre lo que queda debajo). */
+export function hayModalAbierto(): boolean {
+  return abiertos > 0;
+}
+
 export function useBloqueoScrollFondo(activo: boolean) {
   useEffect(() => {
     if (!activo) return;

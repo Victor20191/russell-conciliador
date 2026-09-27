@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useMemo, useState, useTransition } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
@@ -9,6 +9,7 @@ import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
+import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { esImputable } from "@/lib/modulos/promocion";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
@@ -165,6 +166,8 @@ export default function BorradorModuloClient({
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
+  const tablaRef = useRef<HTMLDivElement>(null);
   // DETALLE BAJO DEMANDA: el archivo puede traer cientos de miles de filas, así que la tabla
   // abre agrupada y solo pide al servidor las filas del grupo que el usuario despliega.
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
@@ -354,6 +357,7 @@ export default function BorradorModuloClient({
     setTotalPorGrupo({});
     setAbiertos(new Set());
     setSeleccion(new Set());
+    tablaRef.current?.scrollTo({ top: 0 });
   };
 
   /** Trae del servidor una página de filas del grupo (la primera al abrirlo). */
@@ -429,6 +433,33 @@ export default function BorradorModuloClient({
       else for (const id of idsSeleccionablesVista) n.add(id);
       return n;
     });
+
+  // Acciones en bloque sobre las filas seleccionadas. Se arma una vez y se pinta arriba de la
+  // tabla o, en pantalla completa, dentro de la vista (si no, quedaría detrás de ella).
+  const barraSeleccion = seleccion.size > 0 ? (
+    <div className={`flex flex-wrap items-center gap-2 bg-navy-700 px-3 py-2 text-[12px] text-white ${pantallaCompleta ? "shrink-0 border-b border-navy-600" : "rounded-md border border-navy-600 shadow-lg"}`}>
+      <span className="font-semibold">{seleccion.size} seleccionada{seleccion.size === 1 ? "" : "s"}</span>
+      <span className="text-white/40">·</span>
+      <span className="text-white/70">Agrupador:</span>
+      <input
+        list="agrupadores-borrador"
+        value={agrupadorManual}
+        onChange={(e) => setAgrupadorManual(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") asignarAgrupadorSeleccion(); }}
+        placeholder={`Escribe el ${clasificadorEtiqueta.toLowerCase()}…`}
+        className="min-w-[12rem] rounded border border-white/30 bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
+      />
+      <datalist id="agrupadores-borrador">
+        {agrupadoresExistentes.map((a) => <option key={a} value={a} />)}
+      </datalist>
+      <button type="button" disabled={!agrupadorManual.trim()} onClick={asignarAgrupadorSeleccion} className="rounded border border-white/30 bg-white/15 px-2 py-1 font-semibold hover:bg-white/25 disabled:opacity-50">Asignar</button>
+      <span className="ml-1 text-white/40">·</span>
+      <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Omitir</button>
+      <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Incluir</button>
+      <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como totales del archivo: no se cargan y se usan como control" className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Marcar total</button>
+      <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-white/30 px-2 py-1 font-medium hover:bg-white/20">Limpiar selección</button>
+    </div>
+  ) : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -611,35 +642,12 @@ export default function BorradorModuloClient({
         />
       </Card>
 
-      {/* Barra de acciones EN BLOQUE (visible al seleccionar filas) */}
-      {seleccion.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-navy-600 bg-navy-700 px-3 py-2 text-[12px] text-white shadow-lg">
-          <span className="font-semibold">{seleccion.size} seleccionada{seleccion.size === 1 ? "" : "s"}</span>
-          <span className="text-white/40">·</span>
-          <span className="text-white/70">Agrupador:</span>
-          <input
-            list="agrupadores-borrador"
-            value={agrupadorManual}
-            onChange={(e) => setAgrupadorManual(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") asignarAgrupadorSeleccion(); }}
-            placeholder={`Escribe el ${clasificadorEtiqueta.toLowerCase()}…`}
-            className="min-w-[12rem] rounded border border-white/30 bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
-          />
-          <datalist id="agrupadores-borrador">
-            {agrupadoresExistentes.map((a) => <option key={a} value={a} />)}
-          </datalist>
-          <button type="button" disabled={!agrupadorManual.trim()} onClick={asignarAgrupadorSeleccion} className="rounded border border-white/30 bg-white/15 px-2 py-1 font-semibold hover:bg-white/25 disabled:opacity-50">Asignar</button>
-          <span className="ml-1 text-white/40">·</span>
-          <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Omitir</button>
-          <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Incluir</button>
-          <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como totales del archivo: no se cargan y se usan como control" className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Marcar total</button>
-          <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-white/30 px-2 py-1 font-medium hover:bg-white/20">Limpiar selección</button>
-        </div>
-      )}
+      {/* Barra de acciones EN BLOQUE (visible al seleccionar filas); en pantalla completa va dentro de la vista. */}
+      {!pantallaCompleta && barraSeleccion}
 
-      {/* Tabla del borrador */}
-      <Card className="p-0">
-        <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
+      {/* Tabla del borrador: región propia (no `<Card>`) para poder ocupar el viewport en pantalla completa. */}
+      <div role="region" aria-label="Detalle en borrador" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-500">
             <span className="font-semibold uppercase tracking-wider">Detalle en borrador (crudo del archivo)</span>
             <span>
@@ -686,9 +694,41 @@ export default function BorradorModuloClient({
             >
               <Icon name="download" size={13} /> Exportar a Excel
             </a>
+            <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
           </div>
         </div>
-        <div className="max-h-[70vh] overflow-auto">
+        {/* En pantalla completa los filtros de «Consolidado por clasificador» quedan detrás: aquí se
+            ven el de novedades y el grupo filtrado, para no leer una tabla recortada sin saberlo. */}
+        {pantallaCompleta && (filasConNovedad.size > 0 || filtro !== null) && (
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2 text-[11px]">
+            <button
+              type="button"
+              aria-pressed={filtro === null}
+              onClick={() => { setFiltro(null); reiniciarDetalle(); }}
+              className={`rounded-md border px-2 py-1 font-semibold ${filtro === null ? "border-navy-700 bg-blue-50 text-navy-800" : "border-ink-200 bg-white text-ink-600 hover:border-ink-300"}`}
+            >
+              Todos <span className="font-normal text-ink-400">({totalItems.toLocaleString("es-CO")})</span>
+            </button>
+            {filasConNovedad.size > 0 && (
+              <button
+                type="button"
+                aria-pressed={filtro === FILTRO_NOVEDADES}
+                onClick={() => { setFiltro((f) => (f === FILTRO_NOVEDADES ? null : FILTRO_NOVEDADES)); reiniciarDetalle(); }}
+                className={`rounded-md border border-err-500 px-2 py-1 font-semibold text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100" : "bg-err-100/40 hover:bg-err-100"}`}
+              >
+                ⚠ Novedades ({filasConNovedad.size.toLocaleString("es-CO")})
+              </button>
+            )}
+            {filtro !== null && filtro !== FILTRO_NOVEDADES && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-navy-700 bg-blue-50 px-2 py-1 font-semibold text-navy-800">
+                {clasificadorEtiqueta}: {filtro}
+                <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-700/60 hover:text-err-700">×</button>
+              </span>
+            )}
+          </div>
+        )}
+        {pantallaCompleta && barraSeleccion}
+        <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta, "max-h-[70vh]")}>
           <table className="tabla-encabezado-fijo tabla-encabezado-doble w-full text-[12px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
@@ -763,7 +803,7 @@ export default function BorradorModuloClient({
                         );
                       })()}
                     </td>
-                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
                     <td className="px-2.5 py-1.5" colSpan={idxValor >= 1 ? columnas.length - idxValor : 1} />
                   </tr>
                   {g.abierto && (g.cargadas ?? []).map((cargada) => {
@@ -793,7 +833,7 @@ export default function BorradorModuloClient({
                         </td>
                         <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                         {columnas.map((c) => (
-                          <td key={c.nombre} title={c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>
+                          <td key={c.nombre} title={c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
                             {c.nombre === clasificadorRol ? (f.clasificador ?? "—") : celda(f, c)}
                           </td>
                         ))}
@@ -857,7 +897,7 @@ export default function BorradorModuloClient({
             </tbody>
           </table>
         </div>
-      </Card>
+      </div>
 
       {/* Barra de acciones */}
       <Card className="flex flex-wrap items-end justify-between gap-3 p-4">

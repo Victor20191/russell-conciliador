@@ -34,6 +34,7 @@ import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-co
 import { renglonesSinGuardar } from "@/lib/modulos/consolidado-sin-guardar";
 import { ModalCuentasSinGuardar, useAvisoCierreNavegador, useInterceptarEnlaces } from "./aviso-salida-consolidado";
 import { EstadoGuardado } from "@/components/estado-guardado";
+import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
@@ -640,6 +641,8 @@ function ConsolidadoTab({
   // Salida pendiente de confirmar en el modal (cambio de pestaña o enlace del menú).
   const [salidaPendiente, setSalidaPendiente] = useState<(() => void) | null>(null);
   const [guardandoSalida, setGuardandoSalida] = useState(false);
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
+  const tablaRef = useRef<HTMLDivElement>(null);
   const nombrePorCuenta = useMemo(() => new Map([...cuentas, ...cuentasExtra].map((c) => [c.codigo, c.nombre])), [cuentas, cuentasExtra]);
   // Lo último que se ve de las asignaciones, para lo que se agrega tras consultar el servidor.
   const valoresRef = useRef(valores);
@@ -859,32 +862,38 @@ function ConsolidadoTab({
     continuar?.();
   };
 
+  // Región propia (no `<Card>`): en pantalla completa pasa a ser el contenedor fijo en columna,
+  // con las barras arriba y la tabla como lo único que scrollea.
   return (
-    <Card className="p-0">
+    <div role="region" aria-label="Consolidado del cargue" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
       {agrupadores.length > 0 && (
-        <PanelClasesAgrupador agrupadores={agrupadores} clienteId={clienteId} moduloCodigo={moduloCodigo} puedeEditar={puedeEditar} />
+        // En la vista completa el panel de clases (Nómina) no puede comerse la tabla: se acota.
+        <div className={pantallaCompleta ? "max-h-[35vh] shrink-0 overflow-y-auto" : undefined}>
+          <PanelClasesAgrupador agrupadores={agrupadores} clienteId={clienteId} moduloCodigo={moduloCodigo} puedeEditar={puedeEditar} />
+        </div>
       )}
       {esInventarios && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
           <span className="text-ink-500">Mostrar:</span>
           <button
             type="button"
-            onClick={() => setFiltroVista("todas")}
+            onClick={() => { setFiltroVista("todas"); tablaRef.current?.scrollTo({ top: 0 }); }}
             className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "todas" ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
           >
             Todas ({consolidado.length})
           </button>
           <button
             type="button"
-            onClick={() => setFiltroVista("sinCuenta")}
+            onClick={() => { setFiltroVista("sinCuenta"); tablaRef.current?.scrollTo({ top: 0 }); }}
             className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "sinCuenta" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
           >
             Sin cuenta asignada ({sinCuentaGuardada})
           </button>
         </div>
       )}
-      {puedeEditar && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
+      {/* La barra va siempre (lleva «Pantalla completa»); selección y guardado, solo a quien edita. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
+        {puedeEditar ? (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-500">
             <span className={nSel > 0 ? "font-semibold text-navy-700" : ""}>Selección: {nSel} de {clasificadores.length}</span>
             <span className="text-ink-300">·</span>
@@ -894,36 +903,45 @@ function ConsolidadoTab({
               <button type="button" onClick={() => seleccionarTodos(false)} className="font-medium text-ink-500 hover:underline">Limpiar</button>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <EstadoGuardado estado={autosave.snapshot.estado} mensaje={autosave.snapshot.mensaje ?? undefined} onReintentar={autosave.reintentar} />
-            {propuestas.length > 0 && (
-              <p className="text-[11.5px] text-warn-700" title="Cuentas que el sistema propuso al abrir (por el código del renglón). Se graban cuando las confirmas.">
-                {propuestas.length === 1 ? "1 propuesta sin guardar" : `${propuestas.length} propuestas sin guardar`}
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={nSel === 0 || ocupado}
-              onClick={() => setMasivoAbierto(true)}
-              className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-              title={nSel === 0 ? `Marca ${etiquetaPlural} en la tabla para asignarles cuentas en bloque` : undefined}
-            >
-              Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
-            </button>
-            {propuestas.length > 0 && (
+        ) : (
+          <span className="text-[11.5px] text-ink-500">
+            <span className="font-semibold text-ink-700">{clasificadores.length.toLocaleString("es-CO")}</span> {clasificadores.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}
+          </span>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {puedeEditar && (
+            <>
+              <EstadoGuardado estado={autosave.snapshot.estado} mensaje={autosave.snapshot.mensaje ?? undefined} onReintentar={autosave.reintentar} />
+              {propuestas.length > 0 && (
+                <p className="text-[11.5px] text-warn-700" title="Cuentas que el sistema propuso al abrir (por el código del renglón). Se graban cuando las confirmas.">
+                  {propuestas.length === 1 ? "1 propuesta sin guardar" : `${propuestas.length} propuestas sin guardar`}
+                </p>
+              )}
               <button
                 type="button"
-                disabled={ocupado}
-                onClick={guardarPropuestas}
-                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={nSel === 0 || ocupado}
+                onClick={() => setMasivoAbierto(true)}
+                className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                title={nSel === 0 ? `Marca ${etiquetaPlural} en la tabla para asignarles cuentas en bloque` : undefined}
               >
-                {guardandoTodo ? "Guardando…" : `Guardar propuestas (${propuestas.length})`}
+                Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
               </button>
-            )}
-          </div>
+              {propuestas.length > 0 && (
+                <button
+                  type="button"
+                  disabled={ocupado}
+                  onClick={guardarPropuestas}
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {guardandoTodo ? "Guardando…" : `Guardar propuestas (${propuestas.length})`}
+                </button>
+              )}
+            </>
+          )}
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
-      )}
-      <div className="max-h-[70vh] overflow-auto">
+      </div>
+      <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta, "max-h-[70vh]")}>
         <table className="tabla-encabezado-fijo w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
@@ -1157,7 +1175,7 @@ function ConsolidadoTab({
           onClose={() => setSalidaPendiente(null)}
         />
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -1514,6 +1532,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   // Saldo efectivo, rangos de vencimiento y fechas: ver `celda-detalle-modulo.ts`.
   const celda = (f: FilaDetalleVm, col: Columna) => textoCeldaDetalle(valorColumnaDetalle(f, col), col);
   const [verTodasColumnas, setVerTodasColumnas] = useState(false);
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const ocultas = useMemo(
     () => columnasDelCargue.filter((c) => !columnasVisibles.some((v) => v.nombre === c.nombre && v.familia?.etiqueta === c.familia?.etiqueta)),
     [columnasDelCargue, columnasVisibles],
@@ -1525,6 +1544,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   const [filas, setFilas] = useState<FilaDetalleVm[]>([]);
   const [total, setTotal] = useState(totalFilas);
   const [cargando, setCargando] = useState(true);
+  const tablaRef = useRef<HTMLDivElement>(null);
 
   const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo) => {
     setCargando(true);
@@ -1540,8 +1560,12 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
 
   // Primera página al abrir la pestaña y cada vez que cambian los filtros (con una pausa, para
   // no pedir una página por cada tecla).
+  // La página nueva reemplaza a la anterior: la tabla vuelve arriba para leerla desde el principio.
   useEffect(() => {
-    const id = setTimeout(() => { void traer(0, filtros); }, hayFiltrosDetalleModulo(filtros) ? 400 : 0);
+    const id = setTimeout(() => {
+      tablaRef.current?.scrollTo({ top: 0 });
+      void traer(0, filtros);
+    }, hayFiltrosDetalleModulo(filtros) ? 400 : 0);
     return () => clearTimeout(id);
   }, [filtros, traer]);
 
@@ -1557,9 +1581,11 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
     }
     return orden.map((k) => ({ clasificador: k, ...m.get(k)! }));
   }, [filas]);
+  // Región propia (no `<Card>`) porque en pantalla completa deja de ser tarjeta y pasa a ser un
+  // contenedor fijo en columna, igual que el detalle del balance; `CLASE_TARJETA` conserva el aspecto.
   return (
-    <Card className="p-0">
-      <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-3 py-2 text-[12px] text-ink-500">
+    <div role="region" aria-label="Detalle del cargue" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
         <span>
           <span className="font-semibold text-ink-700">{filas.length.toLocaleString("es-CO")}</span> de {total.toLocaleString("es-CO")} filas
           {hayFiltros ? ` (de ${totalFilas.toLocaleString("es-CO")} del cargue)` : ""}
@@ -1581,9 +1607,10 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
               Limpiar filtros
             </button>
           )}
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
       </div>
-      <div className="max-h-[70vh] overflow-auto">
+      <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta, "max-h-[70vh]")}>
         <table className="tabla-encabezado-fijo tabla-encabezado-doble w-full text-[12px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
@@ -1625,14 +1652,14 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                     {clasificadorEtiqueta}: {g.clasificador}
                     <span className="ml-2 font-normal text-ink-500">· {g.filas.filter((f) => !esEncabezadoTercero(f)).length} ítems</span>
                   </td>
-                  <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
+                  <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
                   <td className="px-2.5 py-1.5" colSpan={idxValor >= 1 ? columnas.length - idxValor : 1} />
                 </tr>
                 {g.filas.map((f) => (
                   <tr key={f.filaNum} title={esEncabezadoTercero(f) ? "Encabezado del tercero en el archivo: muestra el saldo que declara el reporte y no suma al total" : undefined} className={`border-t border-ink-100 ${negativosFilas.has(f.filaNum) ? "bg-err-100 text-err-700" : esEncabezadoTercero(f) ? "bg-ink-50 italic text-ink-500" : "text-ink-700"}`}>
                     <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                     {columnas.map((c) => (
-                      <td key={c.nombre} title={tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
+                      <td key={c.nombre} title={tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
                     ))}
                     <td className="px-2.5 py-1.5 text-center">
                       <ComentarioAncla tipo="modulos_datos" entityId={encabezadoId} anchor={`fila:${f.filaNum}`} titulo={`Fila ${f.filaNum}${f.datos.referencia ? ` · ${f.datos.referencia}` : ""}`} count={comentarios[`fila:${f.filaNum}`] ?? 0} />
@@ -1658,7 +1685,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -1704,6 +1731,8 @@ function CruceContableTab({
       return siguiente;
     });
   const [quitando, startQuitar] = useTransition();
+  // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
   // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
   const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
@@ -1756,6 +1785,7 @@ function CruceContableTab({
   // Renglón del saldo del módulo sin cuenta: sus hijos son clasificadores, no cuentas del cliente.
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
+  const conDiferencia = filasMarcadas.filter((f) => !f.cuadra).length;
 
   const quitar = (fila: FilaCruceMarcada) => {
     startQuitar(async () => {
@@ -1811,9 +1841,20 @@ function CruceContableTab({
         <RepartosPendientesNomina pendientes={cruceContable.nomina.repartosPendientes} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
       )}
 
-      <Card className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
+      {/* La cédula en su región: en pantalla completa ocupa el viewport con el encabezado fijo. Las
+          marcas llevan a su observación al pie; desde la vista completa, el enlace sale de ella. */}
+      <div role="region" aria-label="Cédula del cruce contable" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
+          <span>
+            <span className="font-semibold text-ink-700">{filasMarcadas.length.toLocaleString("es-CO")}</span> {filasMarcadas.length === 1 ? "renglón" : "renglones"} en la cédula
+            {filasMarcadas.length > 0 && (conDiferencia > 0
+              ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
+              : <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
+          </span>
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
+        </div>
+        <div className={claseScrollTabla(pantallaCompleta, null)}>
+          <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
                 <th className="px-3 py-2 font-semibold">Cuenta</th>
@@ -2013,7 +2054,7 @@ function CruceContableTab({
             )}
           </table>
         </div>
-      </Card>
+      </div>
 
       <ObservacionesMarcas
         observaciones={observaciones}

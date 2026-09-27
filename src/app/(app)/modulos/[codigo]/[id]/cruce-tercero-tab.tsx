@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
+import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
@@ -160,6 +161,11 @@ export function CruceTerceroTab({
   const [emparejando, setEmparejando] = useState<FilaCruceTerceroMarcada | null>(null);
   const [validando, setValidando] = useState(false);
   const [ocupado, startAccion] = useTransition();
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
+  // Al filtrar, la tabla vuelve arriba: en pantalla completa es ella la que scrollea y, si no,
+  // se aterriza a mitad de una lista que ya es otra.
+  const tablaRef = useRef<HTMLDivElement>(null);
+  const alInicioDeLaTabla = () => tablaRef.current?.scrollTo({ top: 0 });
 
   const filtradas = useMemo(() => {
     if (!resumen) return [];
@@ -271,6 +277,7 @@ export function CruceTerceroTab({
   const elegir = (siguiente: Filtro) => {
     setFiltro((actual) => (actual === siguiente ? "todos" : siguiente));
     setLimite(PAGINA);
+    alInicioDeLaTabla();
   };
 
   const fuera = resumen.contableFueraDelModulo;
@@ -337,45 +344,66 @@ export function CruceTerceroTab({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="search"
-          value={busqueda}
-          onChange={(e) => { setBusqueda(e.target.value); setLimite(PAGINA); }}
-          placeholder={`Buscar por ${cruceTercero.etiquetaClave} o ${cruceTercero.etiquetaNombre.toLocaleLowerCase("es")}`}
-          className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px]"
-        />
-        <span className="text-[12px] text-ink-500">
-          {contar(filtradas.length)} de {contar(resumen.filas.length)} terceros
-          {filtro === "todos" && !busqueda.trim() && cantidadSinSaldo > 0 && (
-            <button
-              type="button"
-              onClick={() => { setVerSinSaldo((v) => !v); setLimite(PAGINA); }}
-              className="ml-2 font-semibold text-blue-700 hover:underline"
-              title="Terceros en cero en la contabilidad y en el auxiliar"
-            >
-              {verSinSaldo ? `Ocultar los ${contar(cantidadSinSaldo)} sin saldo` : `Mostrar los ${contar(cantidadSinSaldo)} sin saldo`}
-            </button>
-          )}
-          {filtro !== "todos" && (
-            <button type="button" onClick={() => elegir(filtro)} className="ml-2 font-semibold text-blue-700 hover:underline">Quitar filtro</button>
-          )}
-        </span>
-        {puedeEditar && resumen.sugerencias.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setValidando(true)}
-            className="ml-auto rounded-md border border-navy-700 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 transition hover:bg-blue-50"
-            title="Revisa y aplica en lote las coincidencias entre terceros sueltos: mismo saldo, NIT con sufijo o nombre parecido."
-          >
-            Validar coherencia… ({contar(resumen.sugerencias.length)})
-          </button>
+      {/* Búsqueda + tabla en una región: en pantalla completa ocupan el viewport, con los filtros por
+          estado compactos arriba y el encabezado de la tabla fijo. */}
+      <div role="region" aria-label="Cruce por tercero" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-white px-3 py-2">
+          <input
+            type="search"
+            value={busqueda}
+            onChange={(e) => { setBusqueda(e.target.value); setLimite(PAGINA); alInicioDeLaTabla(); }}
+            placeholder={`Buscar por ${cruceTercero.etiquetaClave} o ${cruceTercero.etiquetaNombre.toLocaleLowerCase("es")}`}
+            className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px]"
+          />
+          <span className="text-[12px] text-ink-500">
+            {contar(filtradas.length)} de {contar(resumen.filas.length)} terceros
+            {filtro === "todos" && !busqueda.trim() && cantidadSinSaldo > 0 && (
+              <button
+                type="button"
+                onClick={() => { setVerSinSaldo((v) => !v); setLimite(PAGINA); alInicioDeLaTabla(); }}
+                className="ml-2 font-semibold text-blue-700 hover:underline"
+                title="Terceros en cero en la contabilidad y en el auxiliar"
+              >
+                {verSinSaldo ? `Ocultar los ${contar(cantidadSinSaldo)} sin saldo` : `Mostrar los ${contar(cantidadSinSaldo)} sin saldo`}
+              </button>
+            )}
+            {filtro !== "todos" && (
+              <button type="button" onClick={() => elegir(filtro)} className="ml-2 font-semibold text-blue-700 hover:underline">Quitar filtro</button>
+            )}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {puedeEditar && resumen.sugerencias.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setValidando(true)}
+                className="rounded-md border border-navy-700 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 transition hover:bg-blue-50"
+                title="Revisa y aplica en lote las coincidencias entre terceros sueltos: mismo saldo, NIT con sufijo o nombre parecido."
+              >
+                Validar coherencia… ({contar(resumen.sugerencias.length)})
+              </button>
+            )}
+            <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
+          </div>
+        </div>
+        {/* Las tarjetas de estado quedan detrás de la vista completa: aquí van compactas. */}
+        {pantallaCompleta && (
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
+            {tarjetas.map((t) => (
+              <button
+                key={t.filtro}
+                type="button"
+                aria-pressed={filtro === t.filtro}
+                onClick={() => elegir(t.filtro)}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold ${filtro === t.filtro ? "border-navy-700 bg-blue-50 text-navy-800" : "border-ink-200 bg-white text-ink-600 hover:border-ink-300"}`}
+              >
+                {t.titulo}
+                <span className={`tabular-nums ${t.tono}`}>{contar(t.cantidad)}</span>
+              </button>
+            ))}
+          </div>
         )}
-      </div>
-
-      <Card className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
+        <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta, null)}>
+          <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
                 <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaClave}</th>
@@ -526,13 +554,13 @@ export function CruceTerceroTab({
           </table>
         </div>
         {filtradas.length > limite && (
-          <div className="border-t border-ink-100 px-3 py-2 text-center">
+          <div className="shrink-0 border-t border-ink-100 px-3 py-2 text-center">
             <button type="button" onClick={() => setLimite((l) => l + PAGINA)} className="text-[12.5px] font-semibold text-blue-700 hover:underline">
               Mostrar {contar(Math.min(PAGINA, filtradas.length - limite))} más
             </button>
           </div>
         )}
-      </Card>
+      </div>
 
       {(observaciones.length > 0 || referenciasMarcas.length > 0 || (resumenMarcas?.conDiferencia ?? 0) > 0) && (
         <ObservacionesMarcasTercero
