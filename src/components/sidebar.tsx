@@ -135,6 +135,7 @@ export default function Sidebar({
       )}
       <aside
         id="app-sidebar"
+        data-collapsed={desktopCollapsed}
         onClickCapture={(event) => {
           if (!desktopCollapsed || !onExpandDesktop || !window.matchMedia("(min-width: 1024px)").matches) return;
           // El primer clic abre el menú; la opción se elige con el menú visible.
@@ -148,7 +149,7 @@ export default function Sidebar({
           onDesktopHoverChange?.(true);
         }}
         onMouseLeave={() => onDesktopHoverChange?.(false)}
-        className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+        className={`sidebar-motion fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col overflow-hidden border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
         } ${desktopCollapsed ? "lg:w-14 lg:cursor-pointer" : "lg:w-[232px]"}`}
       >
@@ -156,7 +157,7 @@ export default function Sidebar({
       <div className={`border-b border-white/10 px-[18px] py-3.5 ${desktopCollapsed ? "lg:px-3.5" : ""}`}>
         <div className={`flex items-center gap-2.5 ${desktopCollapsed ? "lg:justify-center lg:gap-0" : ""}`}>
           <BrandMark size={28} />
-          <div className={`min-w-0 flex-1 font-serif text-sm font-medium leading-tight text-white ${desktopCollapsed ? "lg:sr-only" : ""}`}>
+          <div className={`sidebar-reveal min-w-0 flex-1 whitespace-nowrap font-serif text-sm font-medium leading-tight text-white ${desktopCollapsed ? "lg:sr-only" : ""}`}>
             Russell Bedford
             <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
               Conciliador
@@ -172,7 +173,7 @@ export default function Sidebar({
           </button>
         </div>
         {etiquetaVer && (
-          <div className={`mt-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
+          <div className={`sidebar-reveal mt-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
             {puedeVerNovedades ? (
               <Link
                 href="/novedades"
@@ -246,7 +247,7 @@ export default function Sidebar({
             name={user?.name}
             size={32}
           />
-          <div className={`min-w-0 flex-1 leading-tight ${desktopCollapsed ? "lg:hidden" : ""}`}>
+          <div className={`sidebar-reveal min-w-0 flex-1 leading-tight ${desktopCollapsed ? "lg:hidden" : ""}`}>
             <div className="truncate text-[12.5px] font-semibold text-white">
               {user?.name ?? "Usuario"}
             </div>
@@ -255,7 +256,7 @@ export default function Sidebar({
             </div>
           </div>
         </Link>
-        <form action={logout} className={desktopCollapsed ? "lg:hidden" : ""}>
+        <form action={logout} className={`sidebar-reveal ${desktopCollapsed ? "lg:hidden" : ""}`}>
           <BotonCerrarSesion />
         </form>
       </div>
@@ -307,16 +308,16 @@ function NavGroupItem({
           active ? "bg-white/10 text-white" : "hover:bg-white/5"
         }`}
       >
-        <span className="text-current"><Icon name={item.icon} /></span>
-        <span className="truncate">{item.label}</span>
+        <span className="shrink-0 text-current"><Icon name={item.icon} /></span>
+        <span className="sidebar-reveal truncate">{item.label}</span>
         {inDevelopment && <DevBadge />}
         {item.count != null && <Count n={item.count} />}
-        <span className="ml-auto opacity-50">
+        <span className="sidebar-reveal ml-auto opacity-50">
           <Icon name={chevronDivulgacion(open)} size={11} />
         </span>
       </button>
       {open && (
-        <div className={`mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
+        <div className={`sidebar-reveal mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
           {item.children.map((ch) => {
             const childActive = isChildActive(pathname, ch.href);
             return (
@@ -368,7 +369,7 @@ function TopLink({
       }`}
     >
       <span className="shrink-0"><Icon name={item.icon} /></span>
-      <span className={`truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
+      <span className={`sidebar-reveal truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
       <span className={desktopCollapsed ? "lg:hidden" : "contents"}>
         {inDevelopment && <DevBadge />}
         {item.count != null && <Count n={item.count} />}
@@ -395,7 +396,7 @@ function Count({ n }: { n: number }) {
 
 function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
   return (
-    <div className={`px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3] ${collapsed ? "lg:sr-only" : ""}`}>
+    <div className={`sidebar-reveal whitespace-nowrap px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3] ${collapsed ? "lg:sr-only" : ""}`}>
       {children}
     </div>
   );

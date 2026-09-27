@@ -129,6 +129,12 @@ button.sidebar-logout:disabled {
 /* En la barra compacta, el canal de scroll no desplaza los iconos del centro.
    Se conserva el desplazamiento con rueda, trackpad y teclado. */
 @media (min-width: 1024px) {
+  /* Panel y botón comparten la curva para mantener sus bordes alineados. */
+  .sidebar-motion {
+    transition-duration: 320ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
   .sidebar-scroll-collapsed {
     scrollbar-gutter: auto;
     scrollbar-width: none;
@@ -136,6 +142,29 @@ button.sidebar-logout:disabled {
 
   .sidebar-scroll-collapsed::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* El texto entra cuando el panel ya tiene espacio; el recorte evita desbordes. */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .sidebar-motion[data-collapsed="false"] .sidebar-reveal {
+    animation: sidebar-content-reveal 180ms ease-out 80ms backwards;
+  }
+}
+
+@keyframes sidebar-content-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-5px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-motion {
+    transition: none;
   }
 }
 
