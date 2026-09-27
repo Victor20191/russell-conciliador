@@ -309,12 +309,13 @@ export default async function DatoModuloPage({
         catalogoPrevalidador,
         consolidacionRows,
         asignacionesPeriodo: consolidacion.filasPeriodo,
+        conAlcance: true,
       })
     : null;
 
   // Conciliación en firme del (cliente, módulo, período): estado + quién puede
   // cerrar/desbloquear (senior o gerente asignado; Superadministrador por alcance).
-  const [cierreRow, cerrarAuth, desbloquearAuth] = await Promise.all([
+  const [cierreRow, cerrarAuth, desbloquearAuth, administrarCuentasAuth] = await Promise.all([
     prisma.conciliacionModuloCierre.findUnique({
       where: { clienteId_moduloCodigo_periodo: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo } },
       select: {
@@ -325,6 +326,8 @@ export default async function DatoModuloPage({
     }),
     autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId),
     autorizarCierreConciliacion("conciliaciones:desbloquear", encabezado.clienteId),
+    // Quién puede editar las cuentas que concilia el módulo (Filtros de cuentas): el panel del cruce por tercero lo enlaza.
+    authorizePermiso("parametros:administrar"),
   ]);
   const exigeTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.exigidoParaCierre === true;
   const evaluacionCierre = cruce.cruceContable
@@ -428,6 +431,9 @@ export default async function DatoModuloPage({
     contableNoModular: cruceTercero?.contableNoModular ?? { total: 0, filas: 0, cuentas: [] },
     moduloDerivadoDelDetalle: cruceTercero?.moduloDerivadoDelDetalle ?? false,
     moduloNoAtribuido: cruceTercero?.moduloNoAtribuido ?? 0,
+    alcance: cruceTercero?.alcance ?? null,
+    listaDelCierre: cierreRow?.estado === ESTADO_CIERRE_FIRME,
+    enlaceCuentasModulo: administrarCuentasAuth.ok ? `/config/prevalidador/${moduloCodigo.toLowerCase()}` : null,
     ...etiquetasCruceTercero(descriptor),
   };
 

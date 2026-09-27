@@ -43,7 +43,8 @@ import {
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
-import type { BalanceFuenteCruce, InsumosCruceModulo, ResultadoCruceModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarCuentasEstandarCruce, type BalanceFuenteCruce, type InsumosCruceModulo, type ResultadoCruceModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { alcanceCruceTercero, type AlcanceCruceTercero } from "@/lib/modulos/cartera/alcance-cruce-tercero";
 
 export type DetalleCruceTercero = {
   filaNum: number;
@@ -84,6 +85,8 @@ export type InsumosCruceTercero = {
   asignacionesPeriodo: InsumosCruceModulo["asignacionesPeriodo"];
   /** Umbral de descuadre ya resuelto por quien llama; sin él se lee de `/config/parametros`. */
   umbralDescuadre?: number;
+  /** Arma también el alcance por cuenta (panel «Cuentas en este cruce»); solo lo pide la página. */
+  conAlcance?: boolean;
 };
 
 export type EstadoCruceTerceroModulo = "sin_balance" | "sin_detalle_tercero" | "bloqueado" | "listo";
@@ -127,6 +130,8 @@ export type ResultadoCruceTerceroModulo = {
   moduloDerivadoDelDetalle: boolean;
   /** Parte del total del cargue que no quedó atribuida a ningún tercero (debe ser 0). */
   moduloNoAtribuido: number;
+  /** Qué cuentas se tienen en cuenta en el cruce y qué queda fuera; solo con `conAlcance`. */
+  alcance: AlcanceCruceTercero | null;
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
@@ -156,6 +161,7 @@ const resultado = (
   contableNoModular: { total: 0, filas: 0, cuentas: [] },
   moduloDerivadoDelDetalle: false,
   moduloNoAtribuido: 0,
+  alcance: null,
 });
 
 /**
@@ -369,6 +375,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
         origenCartera: origenPorAsignacion(cuentas, descriptor.crucePorTercero.cuentasExterior, descriptor.crucePorTercero.cuentasNacional)
           ?? origenDe(s.origenCartera),
         cuenta6: cuentas[0] ?? null,
+        cuentas6: cuentas,
         sinCuentaDelModulo: porAsignacion && cuentas.length === 0,
         cuentaArchivo: s.cuentaCliente,
       };
@@ -385,14 +392,35 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const sumaModulo = saldosModulo.reduce((suma, s) => suma + s.saldo, 0);
   const noAtribuido = redondear(encabezado.total - sumaModulo);
 
+  const listaCuentas = descriptor.crucePorTercero.cuentasRussell6?.length ? descriptor.crucePorTercero.cuentasRussell6 : null;
   const cruce = construirCruceTerceroCartera({
     contable: movimientos,
     modulo: saldosModulo,
-    cuentasModulo: descriptor.crucePorTercero.cuentasRussell6?.length ? [...descriptor.crucePorTercero.cuentasRussell6, ...cuentasPeriodo6] : null,
+    cuentasModulo: listaCuentas ? [...listaCuentas, ...cuentasPeriodo6] : null,
     emparejamientos: emparejamientos.filter((e) => e.tipo === "union"),
     separaciones: emparejamientos.filter((e) => e.tipo === "separacion"),
   });
   const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbrales.descuadre });
+
+  let alcance: AlcanceCruceTercero | null = null;
+  if (insumos.conAlcance) {
+    const exterior = new Set(descriptor.crucePorTercero.cuentasExterior ?? []);
+    const nacional = new Set(descriptor.crucePorTercero.cuentasNacional ?? []);
+    const cuentasModulo = listaCuentas?.map((cuenta) => ({
+      cuenta,
+      origen: exterior.has(cuenta) ? "exterior" as const : nacional.has(cuenta) ? "nacional" as const : null,
+    })) ?? null;
+    const codigos = [...new Set([...(listaCuentas ?? []), ...cuentasPeriodo6, ...movimientos.map((m) => m.cuenta6)])];
+    const nombres = codigos.length > 0 ? await cargarCuentasEstandarCruce(codigos) : [];
+    alcance = alcanceCruceTercero({
+      cuentasModulo,
+      cuentasPeriodo: cuentasPeriodo6,
+      fueraDePrefijos: cedula.adicionales,
+      nombres: new Map(nombres.map((n) => [n.codigo, n.nombre])),
+      contable: movimientos,
+      modulo: saldosModulo,
+    });
+  }
 
   return {
     estado: "listo",
@@ -406,6 +434,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     contableNoModular: { total: redondear(contableNoModular.total), filas: contableNoModular.cuentas.size, cuentas: [...contableNoModular.cuentas].sort() },
     moduloDerivadoDelDetalle,
     moduloNoAtribuido: Math.abs(noAtribuido) <= 0.01 ? 0 : noAtribuido,
+    alcance,
   };
 }
 

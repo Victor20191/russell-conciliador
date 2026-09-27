@@ -381,7 +381,7 @@ export default function DatoCargadoClient({
           {cruceContable.balanceEncontrado && (
             <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
           )}
-          <CruceTerceroTab cruceTercero={cruceTercero} cuentasPeriodo={cruceContable.cuentasPeriodo ?? []} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+          <CruceTerceroTab cruceTercero={cruceTercero} cuentasPeriodo={cruceContable.cuentasPeriodo ?? []} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} onIrConsolidado={() => irATab("consolidado")} />
         </div>
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />

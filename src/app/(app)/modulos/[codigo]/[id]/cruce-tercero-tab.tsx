@@ -19,6 +19,8 @@ import type { ReferenciaMarcaVm } from "./soportes-marca";
 import { ModalEmparejarTercero } from "./emparejar-tercero";
 import { ModalValidarCoherencia } from "./validar-coherencia-tercero";
 import { ParametrosCargue, type ParametrosCargueVm } from "./parametros-cargue";
+import { AlcanceCuentasTercero } from "./alcance-cuentas-tercero";
+import type { AlcanceCruceTercero } from "@/lib/modulos/cartera/alcance-cruce-tercero";
 
 // Cruce por tercero: el balance por terceros ligado al balance del período contra el auxiliar
 // del módulo, un renglón por tercero. Lo calcula `cruce-tercero-servidor.ts` con el mismo
@@ -50,6 +52,12 @@ export type CruceTerceroVm = {
   contableNoModular: { total: number; filas: number; cuentas: string[] };
   moduloDerivadoDelDetalle: boolean;
   moduloNoAtribuido: number;
+  /** Qué cuentas se tienen en cuenta en el cruce y qué queda fuera (panel plegado «Cuentas en este cruce»). */
+  alcance: AlcanceCruceTercero | null;
+  /** La conciliación del período está en firme: rige la lista de cuentas guardada al cerrar. */
+  listaDelCierre: boolean;
+  /** Filtros de cuentas del módulo, si el usuario los administra. */
+  enlaceCuentasModulo: string | null;
   /** Rótulos de la clave del cruce: «NIT»/«Nombre», o «Cédula»/«Empleado» en Nómina. */
   etiquetaClave: string;
   etiquetaNombre: string;
@@ -201,6 +209,7 @@ export function CruceTerceroTab({
   encabezadoId,
   comentarios,
   puedeEditar,
+  onIrConsolidado,
 }: {
   cruceTercero: CruceTerceroVm;
   /** Todas las marcas del período (numeración compartida con el cruce contable). */
@@ -210,6 +219,7 @@ export function CruceTerceroTab({
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
+  onIrConsolidado?: () => void;
 }) {
   const router = useRouter();
   const { resumen, balance, resumenMarcas } = cruceTercero;
@@ -485,6 +495,18 @@ export function CruceTerceroTab({
             <span className="text-ink-500">{contar(resumenMarcas.bajoUmbral ?? 0)} bajo el umbral: la marca es opcional.</span>
           )}
         </div>
+      )}
+
+      {cruceTercero.alcance && (
+        <AlcanceCuentasTercero
+          alcance={cruceTercero.alcance}
+          periodo={cruceTercero.periodo}
+          listaDelCierre={cruceTercero.listaDelCierre}
+          enlaceCuentasModulo={cruceTercero.enlaceCuentasModulo}
+          contableNoModular={cruceTercero.contableNoModular}
+          contableExcluidoFilas={cruceTercero.contableExcluidoFilas}
+          onIrConsolidado={onIrConsolidado}
+        />
       )}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

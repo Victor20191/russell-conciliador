@@ -53,6 +53,8 @@ export type SaldoModuloTercero = {
   origenCartera: "nacional" | "exterior" | null;
   /** Cuenta Russell de seis dígitos asignada en el Consolidado a la cuenta del archivo, si hay una. */
   cuenta6: string | null;
+  /** Todas las cuentas del módulo asignadas a la cuenta del archivo (`cuenta6` es la primera). Solo informa el alcance. */
+  cuentas6?: readonly string[];
   /** La cuenta del archivo no tiene asignada en el Consolidado ninguna cuenta del módulo: no entra al cruce. */
   sinCuentaDelModulo?: boolean;
   /** Cuenta del archivo tal como la trae el auxiliar, para decir cuáles faltan por asignar. */
