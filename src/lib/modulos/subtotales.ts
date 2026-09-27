@@ -229,6 +229,63 @@ export function bloqueDeSubtotal(
   return arriba ?? abajo;
 }
 
+/**
+ * Lo único que el barrido necesita saber de un bloque: cuántas filas trae, cuánto suman y de
+ * qué grupo son. Se mantiene en O(1) por fila, sin recorrer el bloque (ver `bloquesHaciaAbajo`).
+ */
+type BloqueAgregado = { items: number; suma: number; clasificador: string | null; direccion: "arriba" | "abajo" };
+
+/**
+ * Incorpora al bloque de ARRIBA la fila que el barrido acaba de dejar atrás. El clasificador
+ * del bloque es el de la fila MÁS CERCANA a la candidata —la última incorporada—, igual que
+ * `bloqueDeSubtotal`, que lo fija con la primera fila que encuentra al subir.
+ */
+function acumularArriba(estado: BloqueAgregado | null, fila: FilaCandidata, marcada: boolean): BloqueAgregado | null {
+  if (marcada) return null; // otro subtotal cierra el bloque
+  if (!esMovimientoConValor(fila)) return estado; // lo que no es parte se salta
+  if (estado == null || !mismoClasificador(estado.clasificador, fila.clasificador)) {
+    return { items: 1, suma: fila.valor, clasificador: fila.clasificador, direccion: "arriba" };
+  }
+  return { items: estado.items + 1, suma: estado.suma + fila.valor, clasificador: fila.clasificador, direccion: "arriba" };
+}
+
+/**
+ * El bloque de ABAJO de cada fila, de una pasada desde el final. Solo mira los subtotales ya
+ * marcados al empezar el barrido (la cola de control y la coordenada del usuario): los que el
+ * propio barrido marca quedan siempre por ENCIMA de la fila que se está mirando, así que no
+ * entran en su bloque de abajo.
+ */
+function bloquesHaciaAbajo(filas: readonly FilaCandidata[], marcados: ReadonlySet<number>): (BloqueAgregado | null)[] {
+  const salida: (BloqueAgregado | null)[] = new Array(filas.length).fill(null);
+  for (let i = filas.length - 2; i >= 0; i--) {
+    const k = i + 1;
+    const fila = filas[k];
+    if (marcados.has(k)) continue; // otro subtotal cierra el bloque: queda null
+    if (!esMovimientoConValor(fila)) { salida[i] = salida[k]; continue; }
+    const siguiente = salida[k];
+    salida[i] = siguiente != null && mismoClasificador(fila.clasificador, siguiente.clasificador)
+      ? { items: siguiente.items + 1, suma: siguiente.suma + fila.valor, clasificador: fila.clasificador, direccion: "abajo" }
+      : { items: 1, suma: fila.valor, clasificador: fila.clasificador, direccion: "abajo" };
+  }
+  return salida;
+}
+
+/** Misma preferencia que `bloqueDeSubtotal`: el de arriba si cuadra, luego el de abajo, y si ninguno cuadra el de arriba. */
+function elegirBloqueAgregado(
+  candidata: FilaCandidata,
+  arriba: BloqueAgregado | null,
+  abajo: BloqueAgregado | null,
+): BloqueAgregado | null {
+  const redondeado = (b: BloqueAgregado | null): BloqueAgregado | null => (b == null ? null : { ...b, suma: redondear(b.suma) });
+  const a = redondeado(arriba);
+  const b = redondeado(abajo);
+  const cuadra = (x: BloqueAgregado | null): boolean =>
+    x != null && x.items >= MINIMO_FILAS_BLOQUE && Math.abs(candidata.valor - x.suma) <= toleranciaSubtotal(candidata.valor);
+  if (cuadra(a)) return a;
+  if (cuadra(b)) return b;
+  return a ?? b;
+}
+
 /** El gran total no pertenece a ningún grupo: si su «clasificador» es el propio rótulo, queda null. */
 const grupoGranTotal = (f: FilaCandidata): string | null => (f.clasificador != null && esRotuloTotal(f.clasificador) ? null : f.clasificador);
 
@@ -439,10 +496,24 @@ export function detectarSubtotales(
     }
   }
 
+  // Los bloques se calculan UNA vez, no uno por fila. `bloqueDeSubtotal` recorre hasta que
+  // cambia el clasificador, así que en un archivo donde todas las filas comparten grupo —un
+  // export de Ingresos con «FACTURA ELECTRONICA DE VENTA» en sus 29.628 filas— cada candidata
+  // recorría el archivo entero y la lectura crecía al cuadrado: 16 minutos, con el servidor
+  // bloqueado (es código sincrónico). Lo que deciden las señales es solo el AGREGADO del
+  // bloque (filas, suma y grupo), que se mantiene en O(1); el objeto con sus índices se
+  // materializa nada más para las filas que resultan ser subtotal, que son pocas.
+  const marcadosAlBarrer: ReadonlySet<number> = new Set(marcados);
+  const bloquesAbajo = bloquesHaciaAbajo(filas, marcadosAlBarrer);
+  let bloqueArriba: BloqueAgregado | null = null;
+
   for (let i = 0; i < filas.length; i++) {
+    // Se incorpora SIEMPRE, también en las filas que el barrido salta: el bloque de arriba de
+    // la siguiente candidata las incluye igual.
+    if (i > 0) bloqueArriba = acumularArriba(bloqueArriba, filas[i - 1], marcados.has(i - 1));
     const f = filas[i];
     if (marcados.has(i) || !esCandidata(f)) continue;
-    const bloque = bloqueDeSubtotal(filas, i, esMarcado);
+    const bloque = elegirBloqueAgregado(f, bloqueArriba, bloquesAbajo[i]);
     const grupo = bloque?.clasificador ?? f.clasificador;
     const textos = textosDeFila(f, descriptor);
     const senales: SenalSubtotal[] = [];
@@ -461,7 +532,7 @@ export function detectarSubtotales(
       && (detalleDeclarado || f.clasificador != null || f.rotuloClasificador != null)
     ) senales.push("sin_detalle");
     if (f.negrita === true) senales.push("negrita");
-    if (bloque && bloque.indices.length >= MINIMO_FILAS_BLOQUE && Math.abs(f.valor - bloque.suma) <= toleranciaSubtotal(f.valor)) {
+    if (bloque && bloque.items >= MINIMO_FILAS_BLOQUE && Math.abs(f.valor - bloque.suma) <= toleranciaSubtotal(f.valor)) {
       senales.push(bloque.direccion === "arriba" ? "aritmetica" : "aritmetica_arriba");
     }
 
@@ -481,13 +552,16 @@ export function detectarSubtotales(
       esSubtotal = !(propio != null && bloque != null && !mismoClasificador(propio, bloque.clasificador) && !esRotuloTotal(propio));
     }
     if (!esSubtotal) continue;
+    // Ya se sabe que la fila es subtotal: aquí sí vale recorrer su bloque para guardarlo con
+    // sus índices, que es lo que espera quien lea `DeteccionSubtotal.bloque`.
+    const bloqueDetallado = bloqueDeSubtotal(filas, i, esMarcado);
     marcados.add(i);
     // Rótulo de GRAN total («Gran total», «Total general») que no cuadra con ningún bloque
     // parcial: es el total del archivo, no un subtotal de grupo.
     const granPorRotulo = rotulo && !aritmetica && textos.some(esRotuloGranTotal);
     resultado.push(granPorRotulo
       ? { indice: i, filaNum: f.filaNum, esSubtotal: true, clase: "gran_total", senales, grupo: grupoGranTotal(f), bloque: null }
-      : { indice: i, filaNum: f.filaNum, esSubtotal: true, clase: "subtotal", senales, grupo, bloque });
+      : { indice: i, filaNum: f.filaNum, esSubtotal: true, clase: "subtotal", senales, grupo, bloque: bloqueDetallado });
   }
 
   // GRAN TOTAL: entre los subtotales ya marcados y los movimientos restantes, la fila cuyo

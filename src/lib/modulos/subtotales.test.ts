@@ -180,6 +180,44 @@ describe("detectarSubtotales", () => {
   });
 });
 
+describe("barrido de un archivo grande", () => {
+  // Regresión de RENDIMIENTO: cuando todas las filas comparten clasificador, el bloque de cada
+  // candidata llega hasta el principio del archivo. Recorrerlo por fila hacía que un export de
+  // Ingresos de 29.628 filas tardara ~16 minutos y bloqueara el servidor (es código sincrónico).
+  const FILAS = 20_000;
+
+  it("detecta el mismo subtotal y no crece al cuadrado", () => {
+    reset();
+    const filas: FilaCandidata[] = [];
+    for (let i = 0; i < FILAS; i++) filas.push(item("A", `R${i}`, 100));
+    filas.push(sub("A", FILAS * 100, "Total A"));
+
+    const t0 = Date.now();
+    const d = detectarSubtotales(filas, INV);
+    const ms = Date.now() - t0;
+
+    expect(d.map((x) => x.filaNum)).toEqual([FILAS + 1]);
+    expect(d[0].senales).toContain("aritmetica");
+    // El bloque conserva sus índices: se materializa al confirmarse el subtotal.
+    expect(d[0].bloque?.indices).toHaveLength(FILAS);
+    expect(ms).toBeLessThan(3_000);
+  });
+
+  it("con un subtotal por grupo los bloques se cortan donde corresponde", () => {
+    reset();
+    const filas: FilaCandidata[] = [];
+    for (let g = 0; g < 200; g++) {
+      const grupo = `G${g}`;
+      for (let i = 0; i < 50; i++) filas.push(item(grupo, `R${g}-${i}`, 10));
+      filas.push(sub(grupo, 500, `Total ${grupo}`));
+    }
+    const d = detectarSubtotales(filas, INV);
+    expect(d).toHaveLength(200);
+    expect(d.every((x) => x.esSubtotal && x.bloque?.indices.length === 50)).toBe(true);
+    expect(new Set(d.map((x) => x.clase))).toEqual(new Set(["subtotal"]));
+  });
+});
+
 describe("bloqueDeSubtotal", () => {
   it("salta agrupadoras y omitidas y corta al cambiar de clasificador", () => {
     reset();

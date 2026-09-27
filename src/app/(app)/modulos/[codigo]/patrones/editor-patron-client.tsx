@@ -18,6 +18,7 @@ import {
   type AnalisisPatron,
 } from "@/app/actions/patrones-modulo";
 import { EditorMapeoModulo, type RolModulo } from "../editor-mapeo-modulo";
+import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
 
 export type BasePatron = { version: number; specJson: string; encabezadoJson: string };
 export type EdicionPatron = { id: number; version: number; erpNombre: string; nota: string; actualizadoEn: string; muestraNombre: string };
@@ -59,12 +60,15 @@ export default function EditorPatronClient({
   const muestraRef = useRef<File | null>(null);
   const [analizando, startAnalizar] = useTransition();
   const [guardando, startGuardar] = useTransition();
+  // Remonta el panel de la prueba al cambiar el archivo o la hoja (descarta su resultado).
+  const [pruebaId, setPruebaId] = useState(0);
 
   const aplicar = (r: AnalisisPatron, esMuestra: boolean) => {
     if (!r.ok || !r.spec) {
       notifyError(r.message ?? "No se pudo analizar el archivo.");
       return;
     }
+    setPruebaId((n) => n + 1); // otro archivo u otra hoja: la prueba anterior ya no corresponde
     setAnalisis(r);
     setSpec({ ...r.spec, subtotalesFila: undefined, fechaCorte: undefined, trmCierre: undefined });
     setMuestraLista(esMuestra);
@@ -161,6 +165,19 @@ export default function EditorPatronClient({
     });
   };
 
+  // Con qué archivo se prueba el mapeo: la muestra ya subida manda; si no, la guardada de la
+  // versión que se edita o, mientras no haya muestra, el archivo del cliente que lo prellenó.
+  // Se resuelve AL PULSAR: el archivo vive en un ref y no se lee durante el render.
+  const fuentePrueba = (): FuentePrueba | null => (
+    muestraRef.current
+      ? { tipo: "muestra", archivo: muestraRef.current }
+      : edicion
+        ? { tipo: "version", id: edicion.id }
+        : recepcionLoteId
+          ? { tipo: "original", recepcionLoteId }
+          : null
+  );
+
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
   const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando;
 
@@ -227,6 +244,17 @@ export default function EditorPatronClient({
             <textarea value={nota} maxLength={2000} rows={3} onChange={(e) => setNota(e.target.value)} placeholder="Versión del ERP, informe del que sale el archivo, particularidades…" className={claseCampo} />
           </label>
         </Card>
+      )}
+
+      {analisis && spec && (
+        <PruebaMapeoPatron
+          key={pruebaId}
+          moduloCodigo={moduloCodigo}
+          clasificadorEtiqueta={roles.find((r) => r.nombre === clasificadorRol)?.etiqueta ?? "grupo"}
+          spec={spec}
+          fuente={fuentePrueba}
+          puedeProbar={muestraLista || edicion != null || recepcionLoteId != null}
+        />
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
