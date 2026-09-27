@@ -32,6 +32,7 @@ import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type 
 import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import {
   cuentasAgrupadorasExcluidas,
@@ -55,6 +56,11 @@ import {
 } from "@/lib/modulos/nomina/cruce-nomina";
 
 export type InsumosCruceModulo = {
+  /**
+   * El descriptor con las cuentas que concilia el módulo en este cargue (`resolverDescriptorVigente`:
+   * las de /config/prevalidador o las del cierre en firme del período). `null` = módulo no registrado.
+   */
+  descriptor: DescriptorModulo | null;
   encabezado: {
     id: number;
     clienteId: number;
@@ -169,7 +175,8 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     },
   });
   if (!encabezado) return null;
-  const descriptor = descriptorModulo(encabezado.moduloCodigo);
+  const base = descriptorModulo(encabezado.moduloCodigo);
+  const descriptor = base ? await resolverDescriptorVigente(base, { clienteId: encabezado.clienteId, periodo: encabezado.periodo }) : null;
   // El JSON de cada fila solo hace falta en Nómina (agrupador, cuenta del archivo): en
   // Cartera/CxP son cientos de miles de filas y no se lee.
   // La depreciación de Activos fijos (valor relacionado) también vive en `datos`.
@@ -187,6 +194,7 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
   ]);
   const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
   return {
+    descriptor,
     encabezado: {
       ...encabezado,
       detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), imputable: d.imputable, ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
@@ -260,9 +268,8 @@ export async function cargarCuentasEstandarDeCedula(
  * prevalidador, agregado contable por cuenta Russell de 4 díg., cédula y marcas.
  */
 export async function construirCruceContableModulo(insumos: InsumosCruceModulo): Promise<ResultadoCruceModulo> {
-  const { encabezado, consolidacionRows, asignacionesPeriodo, subgrupos, cuentasEstandar, catalogoPrevalidador } = insumos;
+  const { descriptor, encabezado, consolidacionRows, asignacionesPeriodo, subgrupos, cuentasEstandar, catalogoPrevalidador } = insumos;
   const moduloCodigo = encabezado.moduloCodigo;
-  const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) {
     return vacio(null, `Módulo ${moduloCodigo} no reconocido.`);
   }

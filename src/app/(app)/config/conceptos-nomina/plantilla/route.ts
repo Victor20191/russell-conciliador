@@ -5,7 +5,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { crearPlantillaConceptosNomina } from "@/lib/import/conceptos-nomina-template";
 import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
 import { cedulaModulo, opcionesCedula, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { descriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarCuentasEstandarDeCedula } from "@/lib/modulos/cruce-contable-servidor";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -28,7 +28,7 @@ export async function GET() {
     const alc = await alcanceLecturaUsuario();
     // Nómina cruza a 6 dígitos: las referencias son las cuentas Russell completas del módulo
     // (gasto de personal y los pasivos laborales que también concilia).
-    const descriptor = descriptorModulo(MODULO_CONCEPTOS_NOMINA);
+    const descriptor = await descriptorVigente(MODULO_CONCEPTOS_NOMINA);
     const [clientes, cuentasEstandar, catalogo] = await Promise.all([
       prisma.client.findMany({
         where: alc.todos ? {} : { id: { in: alc.clientIds } },

@@ -181,17 +181,19 @@ test("la solución valida ticket, versión y explicación", () => {
   expect(SupportTicketSolutionSchema.safeParse({ ...base, solution: "Listo" }).success).toBe(false);
 });
 
-test("la novedad interna pide asunto, descripción, ruta y menú", () => {
+test("la novedad interna pide asunto, descripción, ruta, menú y URL", () => {
   const valido = {
     subject: "El balance no carga",
     description: "Al elegir el archivo la pantalla se queda en blanco.",
     routeKey: "trabajo:balance",
     menuKey: "balance",
+    pageUrl: "https://russell.example/balance",
   };
   expect(SupportTicketInternalCreateSchema.safeParse(valido).success).toBe(true);
   expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, subject: "abc" }).success).toBe(false);
   expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, routeKey: "" }).success).toBe(false);
   expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, menuKey: "" }).success).toBe(false);
+  expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, pageUrl: "" }).success).toBe(false);
 });
 
 test("cambiar estado exige solución solo al marcar resuelto", () => {

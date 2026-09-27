@@ -146,6 +146,13 @@ export type DetalleTicket = {
   pageUrl: string | null;
   status: string;
   createdAt: string;
+  /** Guard optimista de `gestionarTicket`: la misma caja de gestión que usa
+   * `/config/soporte/[id]` se reutiliza en el modal de `/reportes`, así que el
+   * modal necesita este valor para poder gestionar sin salir de Ayuda. */
+  updatedAt: string;
+  /** Si el ticket ya tiene una respuesta oficial (`solution`): decide si el
+   * próximo texto se vuelve la respuesta o queda como un mensaje más. */
+  tieneRespuesta: boolean;
   adjuntos: { id: number; fileName: string }[];
   historial: EntradaHistorial[];
   /** Si quien mira puede responder en el hilo (Xentria, o el autor del ticket). */
@@ -433,6 +440,27 @@ export const FilaPrevalidadorSchema = z.object({
   baseCalculo: z.enum(["saldo", "movimiento"], { error: "Base de cálculo inválida." }),
   orden: z.coerce.number().int().min(0).max(9999).default(0),
   activa: z.preprocess((v) => v === "si" || v === "true" || v === true, z.boolean()),
+});
+
+// Cuentas de 6 dígitos que concilia un módulo (/config/prevalidador). El módulo se valida contra
+// su descriptor en la Server Action (solo los que concilian a 6 dígitos).
+const OrigenCuentaConciliacionSchema = z.preprocess(
+  (v) => (v === "" || v == null ? null : v),
+  z.enum(["nacional", "exterior"], { error: "Origen inválido." }).nullable(),
+);
+
+export const CuentaConciliacionSchema = z.object({
+  moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Selecciona el módulo." }).max(10),
+  cuenta: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[\s.]/g, "") : v),
+    z.string().regex(/^\d{6}$/, { error: "La cuenta debe ser una cuenta Russell de 6 dígitos." }),
+  ),
+  origen: OrigenCuentaConciliacionSchema,
+});
+
+export const OrigenCuentaConciliacionFormSchema = z.object({
+  id: z.coerce.number({ error: "Cuenta inválida." }).int().positive({ error: "Cuenta inválida." }),
+  origen: OrigenCuentaConciliacionSchema,
 });
 
 // Aprobación/revocación append-only del informe. La huella y el actor se calculan

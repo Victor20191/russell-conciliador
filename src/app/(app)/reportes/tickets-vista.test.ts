@@ -11,6 +11,10 @@ vi.mock("@/app/actions/soporte", () => ({
   cambiarEstadoTicket: vi.fn(),
   eliminarTicketSoporte: vi.fn(),
   obtenerDetalleTicket: vi.fn(),
+  // El modal ahora gestiona en línea (TicketGestionForm) con la misma Server
+  // Action que `/config/soporte`: el módulo la importa aunque, con el modal
+  // cerrado en estos tests, nunca llegue a invocarse.
+  gestionarTicket: vi.fn(),
 }));
 
 vi.mock("@/lib/client-notifications", () => ({

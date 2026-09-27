@@ -110,6 +110,8 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { resolverDescriptorVigente, type ContextoCuentasConciliacion } from "@/lib/parametros/cuentas-conciliacion";
+import { cuentasConciliacionDe } from "@/lib/modulos/cuentas-conciliacion";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
@@ -2310,9 +2312,12 @@ function cuentaMarcable(v: string): string {
   return normalizarClaveCruce(v);
 }
 
-// Cédula contable del módulo (nivel, prefijos del prevalidador y ampliaciones del descriptor).
-async function cedulaDelModulo(moduloCodigo: string, descriptor: DescriptorModulo): Promise<CedulaModulo> {
-  return cedulaModulo(descriptor, prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador()));
+// Cédula contable del módulo (nivel, prefijos del prevalidador, cuentas de /config/prevalidador y
+// ampliaciones del descriptor). Con el cliente y período del cargue, un período conciliado en firme
+// usa las cuentas que guardó su cierre.
+async function cedulaDelModulo(moduloCodigo: string, descriptor: DescriptorModulo, contexto?: ContextoCuentasConciliacion | null): Promise<CedulaModulo> {
+  const [vigente, catalogo] = await Promise.all([resolverDescriptorVigente(descriptor, contexto), getCatalogoPrevalidador()]);
+  return cedulaModulo(vigente, prefijosCuentaModulo(moduloCodigo, catalogo));
 }
 
 // Valida que TODAS las cuentas del conjunto sean asignables en la cédula del módulo (una vez).
@@ -2324,8 +2329,8 @@ async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], ced
   if (fuera) {
     const adicionales = [...cedula.adicionales.keys()];
     const listado = cedula.nivel === 6 && cedula.lista6
-      ? [...cedula.lista6, ...adicionales].join(", ")
-      : [...cedula.prefijos, ...adicionales].join(", ") || "—";
+      ? [...new Set([...cedula.lista6, ...adicionales])].join(", ")
+      : [...new Set([...cedula.prefijos, ...adicionales])].join(", ") || "—";
     const abierto = cedula.abiertos.has(fuera.slice(0, 4))
       ? ` Las cuentas de ${fuera.slice(0, 4)} no se asignan: salen de la relación con el activo.`
       : "";
@@ -2445,7 +2450,7 @@ async function guardarConsolidacion(args: {
   contexto: string;
 }): Promise<ActionState> {
   const { clienteId, moduloCodigo, descriptor, periodo, filas } = args;
-  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
+  const cedula = await cedulaDelModulo(moduloCodigo, descriptor, periodo ? { clienteId, periodo } : null);
   const longitudes = [...longitudesCedula(cedula)].sort().join(" o ");
   const separadas = filas.map((f) => ({ ...f, ...separarCuentasCedula(cedula, f.cuentas) }));
 
@@ -2642,7 +2647,7 @@ export async function consultarCuentasRussell(input: { encabezadoId: number; tex
 > {
   const encabezadoId = Number(input?.encabezadoId);
   if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
-  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true } });
   if (!encabezado) return { ok: false, message: "El cargue ya no existe." };
   const authz = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -2653,7 +2658,7 @@ export async function consultarCuentasRussell(input: { encabezadoId: number; tex
   const porCodigo = digitos.length >= 2 && digitos.length === texto.replace(/\s/g, "").length;
   if (!porCodigo && texto.length < 3) return { ok: true, cuentas: [] };
   try {
-    const cedula = await cedulaDelModulo(encabezado.moduloCodigo, descriptor);
+    const cedula = await cedulaDelModulo(encabezado.moduloCodigo, descriptor, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
     const LIMITE = 30;
     const filas = cedula.nivel === 6
       ? (await prisma.standardAccount.findMany({
@@ -2763,7 +2768,7 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
       const invalido = validarReparto(renglon.total, limpios);
       if (invalido) return { ok: false, message: invalido };
       // Las cuentas del período (fuera de la cédula) también se pueden repartir en ese período.
-      const cuentasRussell6 = cuentasCedula6(descriptor, cruce?.cuentasPeriodo ?? []);
+      const cuentasRussell6 = cuentasCedula6(insumos?.descriptor ?? descriptor, cruce?.cuentasPeriodo ?? []);
       const fuera = Object.keys(limpios).find((c) => !cuentasRussell6.includes(c));
       if (fuera) return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo de Nómina.` };
     }
@@ -3836,7 +3841,8 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     }
     // Donde el módulo lo exige (Cartera, CxP), el cruce por tercero también tiene que estar
     // conciliado: disponible y con marca en toda diferencia desde el umbral de descuadre.
-    const descriptor = descriptorModulo(encabezado.moduloCodigo);
+    // Las cuentas con que se calculó el cruce (las vigentes: un período en firme no se vuelve a cerrar).
+    const descriptor = insumos.descriptor;
     const exigeTercero = descriptor?.crucePorTercero.habilitado === true && descriptor.crucePorTercero.exigidoParaCierre === true;
     const tercero = exigeTercero ? await cruceTerceroDeCargue(insumos, cruce) : null;
     const evaluacion = evaluarCierreConciliacion(
@@ -3856,6 +3862,9 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       ? alcanceExplicitoDelCruce(cedulaDelCargue(descriptor, encabezado.moduloCodigo, insumos.catalogoPrevalidador, insumos.asignacionesPeriodo).cedula, cruce.cruceContable)
       : null;
     const evidenciaTercero = tercero?.resumen ? evidenciaCruceTercero(tercero.resumen, tercero.resumenMarcas) : null;
+    // Copia de las cuentas que concilia el módulo: mientras el cierre esté en firme el cruce se
+    // sigue calculando con ellas aunque cambien en /config/prevalidador.
+    const cuentasConciliacion = cuentasConciliacionDe(descriptor);
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
@@ -3923,6 +3932,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         cuentasRussell,
         cuentasRussell6: cuentasRussell6 ?? Prisma.DbNull,
         resumenCruceTercero: evidenciaTercero ? (evidenciaTercero as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        cuentasConciliacion: cuentasConciliacion ? (cuentasConciliacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         estado: ESTADO_CIERRE_FIRME,
         cerradoPorId: authz.userId,
         cerradoPor: actor,

@@ -22,9 +22,18 @@ import {
  * ojos de quien gestiona. La distinción real no era «mensaje vs. respuesta»,
  * sino la transición de estado: por eso ahora hay un solo texto y el destino lo
  * decide el selector (`gestionarTicket` aplica la misma regla en el servidor).
+ *
+ * Se reutiliza TAL CUAL (mismo componente y misma Server Action) en el modal de
+ * `/reportes` y en `/reportes/[id]` («Ayuda»): gestionar un ticket ya no exige
+ * saltar a `/config/soporte`. `navegarAlCerrar` (por defecto `true`, el
+ * comportamiento histórico de esta pantalla) es lo único que cambia entre los
+ * dos contextos; `alActualizar` es un callback extra para quien —como el
+ * modal— necesita refrescar SU PROPIO estado local además de la página.
  */
 export default function TicketGestionForm({
   ticket,
+  navegarAlCerrar = true,
+  alActualizar,
 }: {
   ticket: {
     id: number;
@@ -33,10 +42,16 @@ export default function TicketGestionForm({
     tieneRespuesta: boolean;
     updatedAt: string;
   };
+  /** `false` en `/reportes` y su modal: gestionar nunca saca de Ayuda. */
+  navegarAlCerrar?: boolean;
+  /** El modal de `/reportes` no es una página RSC que se refresque sola: este
+   * callback le permite recargar el detalle que tiene en memoria. */
+  alActualizar?: () => void;
 }) {
   const router = useRouter();
   const [state, action, pending] = useActionState(gestionarTicket, undefined);
   const formRef = useRef<HTMLFormElement>(null);
+  const respuestaProcesada = useRef<typeof state>(undefined);
   const estadoActual = (ESTADOS_TICKET as readonly string[]).includes(ticket.status)
     ? (ticket.status as EstadoTicket)
     : "abierto";
@@ -57,18 +72,23 @@ export default function TicketGestionForm({
   const esRespuesta = cambiaEstado && requiereSolucion(estadoSeleccionado) && !ticket.tieneRespuesta;
 
   useEffect(() => {
+    // Un resultado se procesa una sola vez: elegir otro estado después de
+    // guardar no debe resetear el texto nuevo ni repetir la recarga del modal.
+    if (!state || respuestaProcesada.current === state) return;
+    respuestaProcesada.current = state;
     notifyActionState(state, {
       success: `Ticket ${ticket.code} actualizado.`,
       error: "No se pudo actualizar el ticket.",
     });
     if (state?.ok) {
       formRef.current?.reset();
-      if (estadoSeleccionado === ESTADO_TICKET_CERRADO) {
+      if (navegarAlCerrar && estadoSeleccionado === ESTADO_TICKET_CERRADO) {
         router.push("/config/soporte");
       }
       router.refresh();
+      alActualizar?.();
     }
-  }, [state, router, ticket.code, estadoSeleccionado]);
+  }, [state, router, ticket.code, estadoSeleccionado, navegarAlCerrar, alActualizar]);
 
   return (
     <form ref={formRef} action={action} className="mt-4 border-t border-ink-100 pt-4">

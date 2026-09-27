@@ -15,6 +15,7 @@ import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { fmtDateTime } from "@/lib/format";
 import type { MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
 import { cedulaDelCargue, llaveAsignacion } from "@/lib/modulos/asignacion-periodo";
@@ -47,12 +48,15 @@ export default async function DatoModuloPage({
   await requirePermiso("modulos_datos:ver");
   const [{ codigo, id }, query] = await Promise.all([params, searchParams]);
   const moduloCodigo = codigo.toUpperCase();
-  const descriptor = descriptorModulo(moduloCodigo);
+  const descriptorBase = descriptorModulo(moduloCodigo);
   const encabezadoId = Number(id);
-  if (!descriptor || !Number.isInteger(encabezadoId)) notFound();
+  if (!descriptorBase || !Number.isInteger(encabezadoId)) notFound();
 
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId } });
   if (!encabezado || encabezado.moduloCodigo !== moduloCodigo) notFound();
+  // Las cuentas que concilia el módulo: las de /config/prevalidador o, con la conciliación del
+  // período en firme, las que guardó el cierre.
+  const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
   // El detalle de un cargue de NÓMINA son cientos de miles de filas (INCODOL: 124.957 = 70 MB):
   // su consolidado y sus novedades se piden agregados y la pestaña «Detalle» pagina.
   const detalles = descriptor.nomina
@@ -252,6 +256,7 @@ export default async function DatoModuloPage({
   // Cruce contable (balance vs. archivos del módulo): el MISMO cálculo que verifica
   // la Server Action al cerrar la conciliación (`cruce-contable-servidor.ts`).
   const cruce = await construirCruceContableModulo({
+    descriptor,
     encabezado: {
       id: encabezado.id,
       clienteId: encabezado.clienteId,
@@ -280,6 +285,7 @@ export default async function DatoModuloPage({
   // sin él. Mismo balance y compuertas del cruce contable, contra el detalle por tercero ligado.
   const cruceTercero = descriptor.crucePorTercero.habilitado
     ? await construirCruceTerceroModulo({
+        descriptor,
         encabezado: {
           id: encabezado.id,
           clienteId: encabezado.clienteId,

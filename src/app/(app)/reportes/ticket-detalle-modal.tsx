@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Modal } from "@/components/modal";
 import TicketEliminarModal from "@/components/ticket-eliminar-modal";
 import { Chip } from "@/components/ui";
@@ -14,6 +13,7 @@ import type { DetalleTicket } from "@/lib/definitions";
 import TicketHistorial from "@/components/ticket-historial";
 import TicketUrlPagina from "@/components/ticket-url-pagina";
 import TicketMensajeForm from "@/components/ticket-mensaje-form";
+import TicketGestionForm from "../config/soporte/ticket-gestion-form";
 
 type Respuesta = { ticketId: number; detalle: DetalleTicket | null; error: string | null };
 
@@ -25,6 +25,14 @@ type Respuesta = { ticketId: number; detalle: DetalleTicket | null; error: strin
  *
  * La página `/reportes/[id]` sigue existiendo y es la misma información: el
  * modal no la reemplaza, la adelanta.
+ *
+ * Quien administra soporte (`puedeGestionar`) gestiona el ticket AQUÍ mismo,
+ * con la MISMA caja (`TicketGestionForm`) y la MISMA Server Action
+ * (`gestionarTicket`) que `/config/soporte/[id]`: ya no hace falta un enlace
+ * «Gestionar este ticket» que saque del modal. `navegarAlCerrar={false}`
+ * evita la navegación a `/config/soporte` que esa caja hace por defecto, y
+ * `alActualizar` recarga el detalle en memoria del modal (que no es una
+ * página RSC que se refresque sola) y refresca el listado de fondo.
  */
 export default function TicketDetalleModal({
   ticketId,
@@ -87,25 +95,15 @@ export default function TicketDetalleModal({
       title={detalle?.code ?? "Reporte"}
       size="3xl"
       footer={
-        detalle && (puedeEliminar || puedeGestionar) ? (
+        detalle && puedeEliminar ? (
           <div className="flex w-full flex-wrap items-center justify-end gap-2">
-            {puedeEliminar && (
-              <button
-                type="button"
-                onClick={() => setBorradoDe(detalle.id)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-err-500/40 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
-              >
-                <Icon name="trash" size={14} /> Eliminar
-              </button>
-            )}
-            {puedeGestionar && (
-              <Link
-                href={`/config/soporte/${detalle.id}`}
-                className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
-              >
-                Gestionar este ticket
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={() => setBorradoDe(detalle.id)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-err-500/40 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
+            >
+              <Icon name="trash" size={14} /> Eliminar
+            </button>
           </div>
         ) : undefined
       }
@@ -136,13 +134,31 @@ export default function TicketDetalleModal({
             )}
             <TicketUrlPagina url={detalle.pageUrl} className="mb-3" />
             <TicketHistorial entradas={detalle.historial} />
-            {detalle.puedeEscribir && (
-              <TicketMensajeForm
-                ticketId={detalle.id}
-                code={detalle.code}
-                lado={puedeGestionar ? "xentria" : "reportante"}
-                onEnviado={recargar}
+            {/* Quien administra soporte gestiona AQUÍ, con la misma caja que
+                `/config/soporte/[id]`; quien no administra conserva la caja
+                simple de mensajes en su propio lado del hilo. */}
+            {puedeGestionar ? (
+              <TicketGestionForm
+                key={detalle.id}
+                ticket={{
+                  id: detalle.id,
+                  code: detalle.code,
+                  status: detalle.status,
+                  tieneRespuesta: detalle.tieneRespuesta,
+                  updatedAt: detalle.updatedAt,
+                }}
+                navegarAlCerrar={false}
+                alActualizar={recargar}
               />
+            ) : (
+              detalle.puedeEscribir && (
+                <TicketMensajeForm
+                  ticketId={detalle.id}
+                  code={detalle.code}
+                  lado="reportante"
+                  onEnviado={recargar}
+                />
+              )
             )}
           </section>
         </div>

@@ -150,12 +150,20 @@ const seisDigitos = (v: string | null | undefined): string => {
 
 export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, prefijos: readonly string[]): CedulaModulo {
   const cfg = descriptor?.cedula;
-  const lista = cfg?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6;
+  const lista = (cfg?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6 ?? []).map((c) => normalizarPrefijo(c));
+  // Las cuentas de la lista se administran en /config/prevalidador y pueden quedar fuera de los
+  // prefijos del prevalidador (422005 en Ingresos, los pasivos 25xx de Nómina): esas entran como
+  // adicionales, que es lo que la cédula sabe conciliar fuera de los prefijos. Sin prefijos (quien
+  // solo necesita la clave o los nombres) no se separa nada.
+  const adicionales = new Set((cfg?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta)));
+  if (prefijos.length > 0) {
+    for (const c of lista) if (c.length === 6 && !cuenta4DelModulo(c.slice(0, 4), prefijos)) adicionales.add(c);
+  }
   return {
     nivel: descriptor?.nivelCruce === 6 ? 6 : 4,
     prefijos,
-    lista6: lista?.length ? new Set(lista) : null,
-    adicionales: new Set((cfg?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta))),
+    lista6: lista.length ? new Set(lista) : null,
+    adicionales,
     abiertos: new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza])),
     relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
     rolRelacionado: cfg?.valorRelacionado?.rol ?? null,

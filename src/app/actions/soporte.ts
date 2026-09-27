@@ -296,6 +296,7 @@ export async function obtenerDetalleTicket(ticketId: number): Promise<DetalleTic
           resolvedByName: true,
           resolvedAt: true,
           createdAt: true,
+          updatedAt: true,
           attachments: {
             orderBy: { createdAt: "asc" },
             select: { id: true, fileName: true },
@@ -321,6 +322,11 @@ export async function obtenerDetalleTicket(ticketId: number): Promise<DetalleTic
         pageUrl: ticket.pageUrl,
         status: ticket.status,
         createdAt: ticket.createdAt.toISOString(),
+        // El modal gestiona en línea (`gestionarTicket`) con la MISMA caja que
+        // `/config/soporte/[id]`: necesita `updatedAt` (guard optimista) y
+        // `tieneRespuesta` (decide si el próximo texto es la respuesta oficial).
+        updatedAt: ticket.updatedAt.toISOString(),
+        tieneRespuesta: Boolean(ticket.solution),
         adjuntos: ticket.attachments,
         historial: historialDeTicket(ticket),
         puedeEscribir:

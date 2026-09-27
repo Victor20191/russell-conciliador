@@ -18,7 +18,7 @@ import "server-only";
  */
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
-import { descriptorModulo, nivelCruceModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import { nivelCruceModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import { claveCruceContable, cuenta4DelModulo, esCuentaDelPeriodo, filtrarSubgruposPorModulo } from "@/lib/modulos/cuentas-modulo";
 import { cedulaDelCargue } from "@/lib/modulos/asignacion-periodo";
 import { calcularValorContableTercero } from "@/lib/modulos/valor-contable";
@@ -56,6 +56,8 @@ export type DetalleCruceTercero = {
 };
 
 export type InsumosCruceTercero = {
+  /** Descriptor con las cuentas que concilia el módulo en este cargue (`InsumosCruceModulo.descriptor`). */
+  descriptor: DescriptorModulo | null;
   encabezado: {
     id: number;
     clienteId: number;
@@ -212,8 +214,7 @@ async function marcasTerceroDelPeriodo(clienteId: number, moduloCodigo: string, 
 }
 
 export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero): Promise<ResultadoCruceTerceroModulo> {
-  const { encabezado, balanceEmparejado } = insumos;
-  const descriptor = descriptorModulo(encabezado.moduloCodigo);
+  const { descriptor, encabezado, balanceEmparejado } = insumos;
   if (!descriptor?.crucePorTercero.habilitado) return resultado("sin_balance", null);
   if (!balanceEmparejado) return resultado("sin_balance", null);
 
@@ -244,7 +245,10 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const prefijos = cedula.prefijos;
   const codigosModulo = new Set(filtrarSubgruposPorModulo([...insumos.subgrupos], prefijos).map((s) => s.codigo));
   const cuentasPeriodo6 = cuentasPeriodo.filter((c) => c.length === 6);
-  const delPeriodo = (russell: string) => esCuentaDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4));
+  // Cuentas del período y cuentas de la lista fuera de los prefijos del prevalidador: entran aunque
+  // su subgrupo no sea del módulo y hacen de su propia regla (como en la cédula contable).
+  const adicionales = [...cedula.adicionales];
+  const delPeriodo = (russell: string) => esCuentaDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4)) || cedula.adicionales.has(russell.slice(0, 6));
 
   const [crudas, emparejamientos, marcas, umbrales, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
@@ -253,6 +257,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
         OR: [
           ...prefijos.flatMap((p) => [{ cuenta6Russell: { startsWith: p } }, { cuenta4: { startsWith: p } }]),
           ...cuentasPeriodo.map((c) => ({ cuenta6Russell: { startsWith: c } })),
+          ...adicionales.map((c) => ({ cuenta6Russell: { startsWith: c } })),
         ],
       },
       select: {
@@ -414,7 +419,7 @@ export async function cruceTerceroDeCargue(
   insumos: InsumosCruceModulo,
   cruce: Pick<ResultadoCruceModulo, "balanceEmparejado" | "bloqueo">,
 ): Promise<ResultadoCruceTerceroModulo | null> {
-  const descriptor = descriptorModulo(insumos.encabezado.moduloCodigo);
+  const descriptor = insumos.descriptor;
   if (!descriptor?.crucePorTercero.habilitado) return null;
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({
     where: { id: insumos.encabezado.id },
@@ -426,6 +431,7 @@ export async function cruceTerceroDeCargue(
   });
   if (!encabezado) return null;
   return construirCruceTerceroModulo({
+    descriptor,
     encabezado: {
       id: insumos.encabezado.id,
       clienteId: insumos.encabezado.clienteId,

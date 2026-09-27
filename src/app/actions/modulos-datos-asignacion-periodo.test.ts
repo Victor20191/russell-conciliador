@@ -42,6 +42,8 @@ vi.mock("@/lib/modulos/patrones/servidor", () => ({
   versionesPatronCandidatas: vi.fn(async () => ({ versiones: [], total: 0 })),
 }));
 vi.mock("@/lib/parametros/prevalidador", () => ({ getCatalogoPrevalidador: async () => catalogoPrevalidadorDeFabrica() }));
+// Las cuentas que concilia cada módulo (/config/prevalidador): aquí, las de fábrica del descriptor.
+vi.mock("@/lib/parametros/cuentas-conciliacion", () => ({ resolverDescriptorVigente: async (descriptor: unknown) => descriptor }));
 vi.mock("@/lib/prisma", () => {
   const cliente = {
     client: { findUnique: vi.fn(async () => ({ name: "Redplas" })) },

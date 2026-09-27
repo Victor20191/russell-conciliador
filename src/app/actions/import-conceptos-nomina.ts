@@ -47,7 +47,7 @@ import {
 import { leerCatalogoConceptosErp } from "@/lib/import/conceptos-nomina-erp";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { cedulaModulo, cuentaAsignableCedula, cuentasCedula6, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { descriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { grupoPorSubcuentaPuc, sugerirGrupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import {
   claseDeCuentaCliente,
@@ -75,7 +75,8 @@ type FilaAEscribir = FilaConceptoAEscribir;
  * memoria del balance del cliente (`cuentas_cliente`) se carga UNA vez por cliente.
  */
 async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: FilaAEscribir[]; problemas: ErrorImport[]; avisos: string[]; sinRussell: number }> {
-  const descriptor = descriptorModulo(MODULO_CONCEPTOS_NOMINA);
+  // Las cuentas vigentes de /config/prevalidador: la homologación del concepto vale para todos los meses.
+  const descriptor = await descriptorVigente(MODULO_CONCEPTOS_NOMINA);
   const prefijos = prefijosCuentaModulo(MODULO_CONCEPTOS_NOMINA, await getCatalogoPrevalidador());
   // Cuentas de la cédula de Nómina: las de gasto y los pasivos laborales que también concilia.
   const cedula = cedulaModulo(descriptor, prefijos);

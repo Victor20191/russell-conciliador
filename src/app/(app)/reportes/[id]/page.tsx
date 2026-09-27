@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
@@ -9,6 +8,7 @@ import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import TicketHistorial from "@/components/ticket-historial";
 import TicketUrlPagina from "@/components/ticket-url-pagina";
 import TicketMensajeForm from "@/components/ticket-mensaje-form";
+import TicketGestionForm from "../../config/soporte/ticket-gestion-form";
 import { historialDeTicket, ladoParaEscribir, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 
 export default async function ReporteDetallePage({
@@ -43,6 +43,7 @@ export default async function ReporteDetallePage({
       resolvedByName: true,
       resolvedAt: true,
       createdAt: true,
+      updatedAt: true,
       attachments: {
         orderBy: { createdAt: "asc" },
         select: { id: true, fileName: true },
@@ -87,18 +88,26 @@ export default async function ReporteDetallePage({
         )}
         <TicketUrlPagina url={ticket.pageUrl} className="mb-4" />
         <TicketHistorial entradas={historial} />
-        {lado !== null && (
-          <TicketMensajeForm ticketId={ticket.id} code={ticket.code} lado={lado} />
+        {/* Quien administra soporte gestiona AQUÍ, sin salir de Ayuda: la misma
+            caja (componente y Server Action) que `/config/soporte/[id]`, solo
+            que `navegarAlCerrar={false}` la mantiene en esta página aunque el
+            ticket quede cerrado. Quien no administra sigue con la caja simple
+            de mensajes, en SU lado del hilo (`lado`). */}
+        {admin.ok ? (
+          <TicketGestionForm
+            ticket={{
+              id: ticket.id,
+              code: ticket.code,
+              status: ticket.status,
+              tieneRespuesta: Boolean(ticket.solution),
+              updatedAt: ticket.updatedAt.toISOString(),
+            }}
+            navegarAlCerrar={false}
+          />
+        ) : (
+          lado !== null && <TicketMensajeForm ticketId={ticket.id} code={ticket.code} lado={lado} />
         )}
       </section>
-
-      {admin.ok && (
-        <p className="mt-4 text-xs text-ink-500">
-          <Link href={`/config/soporte/${ticket.id}`} className="font-semibold text-blue-500 hover:underline">
-            Gestionar este ticket
-          </Link>
-        </p>
-      )}
     </div>
   );
 }

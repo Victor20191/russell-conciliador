@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { crearExportacionModulo, type ColumnaExportModulo, type CruceNominaExportModulo, type CruceTerceroExportModulo } from "@/lib/export/modulo";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
@@ -24,9 +25,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
   if (!authz.ok) return NextResponse.json({ message: authz.message }, { status: 403 });
   const { codigo, id } = await params;
   const moduloCodigo = codigo.toUpperCase();
-  const descriptor = descriptorModulo(moduloCodigo);
+  const descriptorBase = descriptorModulo(moduloCodigo);
   const encabezadoId = Number(id);
-  if (!descriptor || !Number.isInteger(encabezadoId)) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
+  if (!descriptorBase || !Number.isInteger(encabezadoId)) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
   try {
     const encabezado = await prisma.moduloDatoEncabezado.findUnique({
       where: { id: encabezadoId },
@@ -35,6 +36,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     if (!encabezado || encabezado.moduloCodigo !== moduloCodigo) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
     const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
     if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
+    // Las cuentas que concilia el módulo en este cargue (las del cierre si el período está en firme).
+    const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
 
     // Misma clave que la pantalla: subgrupo de 4 dígitos, la cuenta Russell completa o una mezcla.
     // La clave no depende de los prefijos del prevalidador, así que no se carga el catálogo.

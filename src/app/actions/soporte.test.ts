@@ -761,6 +761,7 @@ describe("Server Actions de soporte", () => {
       resolvedByName: null,
       resolvedAt: null,
       createdAt: new Date("2026-08-07T15:00:00.000Z"),
+      updatedAt: new Date("2026-08-09T10:00:00.000Z"),
       attachments: [{ id: 5, fileName: "captura.png" }],
       messages: [
         {
@@ -788,6 +789,11 @@ describe("Server Actions de soporte", () => {
           reportante: "Ana Pérez",
           ubicacion: "Balance de comprobación · Balance",
           createdAt: "2026-08-07T15:00:00.000Z",
+          // El modal gestiona en línea con la misma caja de `/config/soporte`:
+          // necesita el guard optimista (`updatedAt`) y si ya hay respuesta
+          // oficial (`tieneRespuesta`) para decidir el siguiente texto.
+          updatedAt: "2026-08-09T10:00:00.000Z",
+          tieneRespuesta: false,
           adjuntos: [{ id: 5, fileName: "captura.png" }],
           // El modal recibe el hilo listo para pintar: la descripción es la
           // primera entrada, no un campo suelto.
@@ -811,6 +817,23 @@ describe("Server Actions de soporte", () => {
           puedeEscribir: true,
         }),
       });
+    });
+
+    it("marca tieneRespuesta cuando el ticket ya tiene una respuesta oficial", async () => {
+      mocks.findUnique.mockResolvedValue({
+        ...ticketBase,
+        status: "resuelto",
+        solution: "Se corrigió el mapeo de la cuenta.",
+        resolvedByName: "Soporte Xentria",
+        resolvedAt: new Date("2026-08-10T09:00:00.000Z"),
+      });
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado.ok).toBe(true);
+      if (resultado.ok) {
+        expect(resultado.ticket.tieneRespuesta).toBe(true);
+      }
     });
 
     it("oculta los tickets públicos a quien no administra soporte", async () => {

@@ -60,6 +60,10 @@ export interface ConfiguracionCrucePorTercero {
    * 130505/130510/280505, no todo el grupo 13 (RF-CXC-04/05). Lo que el tercero tenga en
    * las demás cuentas del grupo se informa aparte, sin entrar al renglón.
    * Vacío/ausente = sin acotar (comportamiento actual).
+   *
+   * Desde el 27/Sep/2026 es el valor de FÁBRICA: la lista vigente (y el origen nacional/exterior)
+   * se administra en /config/prevalidador (`cuentas_conciliacion_modulo`) y el servidor la aplica
+   * con `resolverDescriptorVigente`. Aquí sirve para la siembra y los cierres anteriores.
    */
   cuentasRussell6?: readonly string[];
   /**
@@ -151,7 +155,11 @@ export type ValorRelacionadoCedula = {
   pares: readonly { subgrupo: string; cuenta6: string }[];
 };
 
-/** Lo que la cédula contable concilia además de los prefijos del prevalidador. */
+/**
+ * Lo que la cédula contable concilia además de los prefijos del prevalidador. `cuentas6` y
+ * `cuentasAdicionales` son valores de FÁBRICA: los vigentes se administran en /config/prevalidador
+ * (`resolverDescriptorVigente`); los subgrupos abiertos y el valor relacionado siguen aquí.
+ */
 export interface ConfiguracionCedula {
   /**
    * Cuentas de 6 que acotan una cédula a 6 SOLO en la cédula (Ingresos: las siete de la 41). Manda
