@@ -1,18 +1,19 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { fmtContable } from "@/lib/format";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
 import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import { coincidenciaTercero, type CoincidenciaTercero } from "@/lib/modulos/cartera/coincidencia-tercero";
 import { anclaCruceTercero, type FilaCruceTerceroMarcada, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
+import { MenuAccionesFila, type AccionMenuFila } from "@/components/menu-acciones-fila";
 import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
 import type { ReferenciaMarcaVm } from "./soportes-marca";
 import { ModalEmparejarTercero } from "./emparejar-tercero";
@@ -66,15 +67,50 @@ const ESTADO: Record<EstadoCruceTercero, { label: string; tone: "ok" | "warn" | 
   sin_saldo: { label: "Sin saldo", tone: "ink" },
 };
 
+/** Cómo aparece el tercero propuesto dentro del texto de la burbuja (ver `nombrar` en coincidencia-tercero). */
+const textoDelPropuesto = (p: { clave: string; nombre: string | null }) =>
+  p.clave.startsWith("~") ? `«${p.nombre ?? p.clave.slice(1)}»` : p.clave;
+
+/**
+ * Pinta `texto` con cada aparición de `token` como enlace. Un NIT solo cuenta completo: no se
+ * enlaza si va pegado a otros dígitos (4195414 dentro de 41954149).
+ */
+function TextoConEnlace({ texto, token, onIr }: { texto: string; token: string | null; onIr: () => void }) {
+  if (!token) return <>{texto}</>;
+  const partes: React.ReactNode[] = [];
+  let desde = 0;
+  for (let i = texto.indexOf(token); i >= 0; i = texto.indexOf(token, i + token.length)) {
+    const fin = i + token.length;
+    if (/\d/.test(texto[i - 1] ?? "") || /\d/.test(texto[fin] ?? "")) continue;
+    partes.push(texto.slice(desde, i));
+    partes.push(
+      <button
+        key={i}
+        type="button"
+        onClick={onIr}
+        className="font-semibold text-blue-700 underline decoration-dotted underline-offset-2 hover:decoration-solid"
+        title="Ir a este tercero en la tabla"
+      >
+        {token}
+      </button>,
+    );
+    desde = fin;
+  }
+  partes.push(texto.slice(desde));
+  return <>{partes}</>;
+}
+
 /**
  * El % de coincidencia del renglón: verde si cruzó bien, ámbar a medias, rojo si no cruzó con
  * nada; azul si solo hay un candidato. Contra qué se calculó aparece SOLO al pasar el mouse (una
- * burbuja fija al viewport, para que la tabla con scroll no la recorte).
+ * burbuja fija al viewport, para que la tabla con scroll no la recorte). El tercero del otro lado
+ * que nombra la burbuja es un enlace a su renglón, así que la burbuja se deja alcanzar con el mouse.
  */
-function PorcentajeCoincidencia({ coincidencia }: { coincidencia: CoincidenciaTercero | null }) {
+function PorcentajeCoincidencia({ coincidencia, onIrATercero }: { coincidencia: CoincidenciaTercero | null; onIrATercero: (clave: string) => void }) {
   const [burbuja, setBurbuja] = useState<{ top: number; left: number } | null>(null);
+  const cierre = useRef<number | null>(null);
   if (!coincidencia) return null;
-  const { porcentaje, tipo } = coincidencia;
+  const { porcentaje, tipo, propuesto } = coincidencia;
   const color = tipo === "candidato"
     ? "border-blue-400 bg-blue-50 text-blue-500"
     : porcentaje >= 95 ? "border-ok-500 bg-ok-100 text-ok-700"
@@ -82,17 +118,33 @@ function PorcentajeCoincidencia({ coincidencia }: { coincidencia: CoincidenciaTe
         : "border-err-500 bg-err-100 text-err-700";
   const etiqueta = tipo === "candidato" ? `${porcentaje} % candidato` : tipo === "sin_cruce" ? "0 % sin cruce" : `${porcentaje} %`;
   const ANCHO = 300;
+  const cancelarCierre = () => {
+    if (cierre.current != null) window.clearTimeout(cierre.current);
+    cierre.current = null;
+  };
   const mostrar = (e: React.MouseEvent<HTMLSpanElement> | React.FocusEvent<HTMLSpanElement>) => {
+    cancelarCierre();
     const r = e.currentTarget.getBoundingClientRect();
     setBurbuja({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - ANCHO, window.innerWidth - ANCHO - 8)) });
+  };
+  // Un respiro antes de cerrar: el mouse cruza el hueco entre el % y la burbuja para llegar al enlace.
+  const ocultar = () => {
+    cancelarCierre();
+    cierre.current = window.setTimeout(() => setBurbuja(null), 150);
+  };
+  const token = propuesto ? textoDelPropuesto(propuesto) : null;
+  const ir = () => {
+    cancelarCierre();
+    setBurbuja(null);
+    if (propuesto) onIrATercero(propuesto.clave);
   };
   return (
     <span
       tabIndex={0}
       onMouseEnter={mostrar}
       onFocus={mostrar}
-      onMouseLeave={() => setBurbuja(null)}
-      onBlur={() => setBurbuja(null)}
+      onMouseLeave={ocultar}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) ocultar(); }}
       className={`inline-flex cursor-help items-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums outline-none ${color}`}
     >
       {etiqueta}
@@ -100,10 +152,10 @@ function PorcentajeCoincidencia({ coincidencia }: { coincidencia: CoincidenciaTe
         <span
           role="tooltip"
           style={{ top: burbuja.top, left: burbuja.left, width: ANCHO }}
-          className="pointer-events-none fixed z-50 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[11.5px] font-normal leading-snug text-ink-600 shadow-lg"
+          className="fixed z-50 cursor-default rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[11.5px] font-normal leading-snug text-ink-600 shadow-lg"
         >
-          <span className="mb-1 block font-semibold text-ink-800">{coincidencia.contra}</span>
-          {coincidencia.explicacion}
+          <span className="mb-1 block font-semibold text-ink-800"><TextoConEnlace texto={coincidencia.contra} token={token} onIr={ir} /></span>
+          <TextoConEnlace texto={coincidencia.explicacion} token={token} onIr={ir} />
         </span>
       )}
     </span>
@@ -121,6 +173,15 @@ function cumpleFiltro(fila: FilaCruceTerceroMarcada, filtro: Filtro): boolean {
   if (filtro === "sugeridos") return fila.sugerencia != null;
   if (filtro === "pendientes") return fila.requiereMarca && (!fila.marca || fila.desactualizada);
   return fila.estado === filtro;
+}
+
+function filtrarTerceros(filas: FilaCruceTerceroMarcada[], filtro: Filtro, busqueda: string, verSinSaldo: boolean) {
+  const consulta = normalizar(busqueda);
+  const ocultarSinSaldo = filtro === "todos" && !verSinSaldo && !consulta;
+  return filas.filter((f) =>
+    cumpleFiltro(f, filtro)
+    && !(ocultarSinSaldo && f.estado === "sin_saldo")
+    && (!consulta || normalizar(`${f.clave} ${f.nombre ?? ""}`).includes(consulta)));
 }
 
 function EstadoVacio({ titulo, children, enlace }: { titulo: string; children: React.ReactNode; enlace: { href: string; texto: string } }) {
@@ -167,15 +228,50 @@ export function CruceTerceroTab({
   const tablaRef = useRef<HTMLDivElement>(null);
   const alInicioDeLaTabla = () => tablaRef.current?.scrollTo({ top: 0 });
 
-  const filtradas = useMemo(() => {
-    if (!resumen) return [];
-    const consulta = normalizar(busqueda);
-    const ocultarSinSaldo = filtro === "todos" && !verSinSaldo && !consulta;
-    return resumen.filas.filter((f) =>
-      cumpleFiltro(f, filtro)
-      && !(ocultarSinSaldo && f.estado === "sin_saldo")
-      && (!consulta || normalizar(`${f.clave} ${f.nombre ?? ""}`).includes(consulta)));
-  }, [resumen, filtro, busqueda, verSinSaldo]);
+  const filtradas = useMemo(
+    () => (resumen ? filtrarTerceros(resumen.filas, filtro, busqueda, verSinSaldo) : []),
+    [resumen, filtro, busqueda, verSinSaldo],
+  );
+
+  // Salto a un tercero desde la burbuja del %: si el filtro o la búsqueda lo esconden se quitan,
+  // se amplía la página hasta alcanzarlo y, ya pintado, se lleva a la vista y se resalta un momento.
+  const [destacada, setDestacada] = useState<string | null>(null);
+  const pendienteScrollRef = useRef<string | null>(null);
+  const irATercero = (clave: string) => {
+    const fila = resumen?.filas.find((f) => f.clave === clave);
+    if (!resumen || !fila) {
+      notifyInfo("Ese tercero no aparece en este cruce.");
+      return;
+    }
+    let lista = filtradas;
+    if (!lista.includes(fila)) {
+      const verTodos = verSinSaldo || fila.estado === "sin_saldo";
+      setFiltro("todos");
+      setBusqueda("");
+      setVerSinSaldo(verTodos);
+      lista = filtrarTerceros(resumen.filas, "todos", "", verTodos);
+    }
+    const i = lista.indexOf(fila);
+    if (i >= limite) setLimite(Math.ceil((i + 1) / PAGINA) * PAGINA);
+    pendienteScrollRef.current = clave;
+    setDestacada(clave);
+  };
+  // Sin dependencias: la fila puede montarse uno o dos renders después del salto; el ref hace
+  // que este efecto sea inocuo el resto del tiempo.
+  useEffect(() => {
+    const clave = pendienteScrollRef.current;
+    if (clave == null) return;
+    const fila = Array.from(tablaRef.current?.querySelectorAll<HTMLTableRowElement>("tr[data-clave]") ?? [])
+      .find((tr) => tr.dataset.clave === clave);
+    if (!fila) return;
+    pendienteScrollRef.current = null;
+    fila.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  });
+  useEffect(() => {
+    if (!destacada) return;
+    const t = window.setTimeout(() => setDestacada(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [destacada]);
   const coincidencias = useMemo(
     () => new Map((resumen?.filas ?? []).map((f) => [f.clave, coincidenciaTercero(f)] as const)),
     [resumen],
@@ -232,6 +328,68 @@ export function CruceTerceroTab({
       else notifyError(r.message ?? "No se pudieron separar.");
       router.refresh();
     });
+  };
+
+  // Acciones aplicables a la fila, llevadas al menú "⋯": una por cada emparejamiento/separación
+  // vigente, con el destino explícito en la etiqueta para no confundir cuando hay varios.
+  const accionesFila = (fila: FilaCruceTerceroMarcada): AccionMenuFila[] => {
+    const acciones: AccionMenuFila[] = [];
+    if (fila.claveModuloPorDv) {
+      const claveModulo = fila.claveModuloPorDv;
+      acciones.push({
+        id: `separar-dv-${claveModulo}`,
+        icono: "x",
+        etiqueta: `Separar de ${claveModulo} (por DV)`,
+        descripcion: `Unido con ${claveModulo} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`,
+        ejecutar: () => separar(fila, claveModulo),
+        deshabilitada: ocupado,
+      });
+    }
+    if (fila.claveModuloPorNucleo) {
+      const claveModulo = fila.claveModuloPorNucleo;
+      acciones.push({
+        id: `separar-nucleo-${claveModulo}`,
+        icono: "x",
+        etiqueta: "Deshacer",
+        descripcion: `Emparejado con ${claveModulo} del auxiliar por sus nueve primeros dígitos: revisa que sea el mismo tercero.`,
+        ejecutar: () => separar(fila, claveModulo),
+        deshabilitada: ocupado,
+      });
+    }
+    fila.separadoDe.forEach((claveModulo) => {
+      const separacion = separacionPorClave.get(claveModulo);
+      if (!separacion) return;
+      acciones.push({
+        id: `unir-${claveModulo}`,
+        icono: "link",
+        etiqueta: `Volver a unir con ${claveModulo}`,
+        descripcion: `Separado por ${separacion.creadoPor ?? "—"} · ${separacion.creadoEn} · ${separacion.periodo ? `solo ${separacion.periodo}` : "todos los períodos"}.`,
+        ejecutar: () => deshacerEmparejamiento(separacion),
+        deshabilitada: ocupado,
+      });
+    });
+    fila.emparejadoDesde.forEach((claveModulo) => {
+      const emparejamiento = emparejamientoPorClave.get(claveModulo);
+      if (!emparejamiento) return;
+      const nombre = claveModulo.startsWith("~") ? (emparejamiento.nombreModulo ?? claveModulo.slice(1)) : claveModulo;
+      acciones.push({
+        id: `deshacer-${claveModulo}`,
+        icono: "x",
+        etiqueta: `Deshacer inclusión de ${nombre}`,
+        descripcion: `Emparejado por ${emparejamiento.creadoPor ?? "—"} · ${emparejamiento.creadoEn} · ${emparejamiento.periodo ? `solo ${emparejamiento.periodo}` : "todos los períodos"}${emparejamiento.nota ? ` · ${emparejamiento.nota}` : ""}`,
+        ejecutar: () => deshacerEmparejamiento(emparejamiento),
+        deshabilitada: ocupado,
+      });
+    });
+    if (fila.estado === "solo_modulo") {
+      acciones.push({
+        id: "emparejar",
+        icono: "link",
+        etiqueta: "Emparejar…",
+        ejecutar: () => setEmparejando(fila),
+      });
+    }
+    return acciones;
   };
 
   if (cruceTercero.estado === "sin_balance" || !balance) {
@@ -427,8 +585,18 @@ export function CruceTerceroTab({
                   <td colSpan={columnas} className="px-3 py-6 text-center text-ink-400">Sin terceros para mostrar.</td>
                 </tr>
               )}
-              {filtradas.slice(0, limite).map((f) => (
-                <tr key={f.clave} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : f.estado === "sin_saldo" ? "text-ink-400" : ""}`}>
+              {filtradas.slice(0, limite).map((f) => {
+                const coincidencia = coincidencias.get(f.clave) ?? null;
+                // Una fila que ya cuadra al 100 % no necesita el % de coincidencia: es ruido visual.
+                const mostrarPorcentaje = !(f.estado === "cuadra" && coincidencia?.porcentaje === 100);
+                return (
+                <tr
+                  key={f.clave}
+                  data-clave={f.clave}
+                  className={`border-t border-ink-100 transition-colors duration-500 ${
+                    destacada === f.clave ? "bg-blue-100" : f.estado === "descuadre" ? "bg-err-100/30" : ""
+                  } ${f.estado === "sin_saldo" ? "text-ink-400" : ""}`}
+                >
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
                   <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
                   {mostrarCuentas && cuentas.map((c) => (
@@ -444,27 +612,23 @@ export function CruceTerceroTab({
                   <td className={`px-3 py-2 text-right font-semibold tabular-nums ${Math.abs(f.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1">
-                      <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
-                      <PorcentajeCoincidencia coincidencia={coincidencias.get(f.clave) ?? null} />
+                      <div className="inline-flex shrink-0 items-center gap-1">
+                        {f.estado !== "solo_contable" && (
+                          <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
+                        )}
+                        <PorcentajeCoincidencia coincidencia={mostrarPorcentaje ? coincidencia : null} onIrATercero={irATercero} />
+                        {puedeEditar && (
+                          <MenuAccionesFila
+                            id={f.clave}
+                            etiquetaAria={`tercero ${f.sinNit ? f.nombre ?? "sin NIT" : f.clave}`}
+                            acciones={accionesFila(f)}
+                          />
+                        )}
+                      </div>
                       {f.sinNit && <Chip label="Sin NIT" tone="ink" />}
                       {f.claveModuloPorDv && (
-                        <span className="inline-flex items-center gap-1" title={`Unido con ${f.claveModuloPorDv} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`}>
+                        <span title={`Unido con ${f.claveModuloPorDv} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`}>
                           <Chip label="Por DV" tone="warn" />
-                          {puedeEditar && (
-                            <button type="button" onClick={() => separar(f, f.claveModuloPorDv!)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
-                              Separar
-                            </button>
-                          )}
-                        </span>
-                      )}
-                      {f.claveModuloPorNucleo && (
-                        <span className="inline-flex items-center gap-1" title={`Emparejado con ${f.claveModuloPorNucleo} del auxiliar por sus nueve primeros dígitos: revisa que sea el mismo tercero.`}>
-                          <Chip label="Por núcleo" tone="warn" />
-                          {puedeEditar && (
-                            <button type="button" onClick={() => separar(f, f.claveModuloPorNucleo!)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
-                              Separar
-                            </button>
-                          )}
                         </span>
                       )}
                       {f.separadoDe.map((claveModulo) => {
@@ -472,17 +636,11 @@ export function CruceTerceroTab({
                         return (
                           <span
                             key={claveModulo}
-                            className="inline-flex items-center gap-1"
                             title={separacion
                               ? `Separado por ${separacion.creadoPor ?? "—"} · ${separacion.creadoEn} · ${separacion.periodo ? `solo ${separacion.periodo}` : "todos los períodos"}: no se une solo con ${claveModulo}.`
                               : `No se une solo con ${claveModulo}.`}
                           >
                             <Chip label={`Separado de ${claveModulo}`} tone="ink" />
-                            {puedeEditar && separacion && (
-                              <button type="button" onClick={() => deshacerEmparejamiento(separacion)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
-                                Volver a unir
-                              </button>
-                            )}
                           </span>
                         );
                       })}
@@ -497,34 +655,14 @@ export function CruceTerceroTab({
                         return (
                           <span
                             key={claveModulo}
-                            className="inline-flex items-center gap-1"
                             title={emparejamiento
                               ? `Emparejado por ${emparejamiento.creadoPor ?? "—"} · ${emparejamiento.creadoEn} · ${emparejamiento.periodo ? `solo ${emparejamiento.periodo}` : "todos los períodos"}${emparejamiento.nota ? ` · ${emparejamiento.nota}` : ""}`
                               : undefined}
                           >
                             <Chip label={`Incluye ${nombre}`} tone="blue" />
-                            {puedeEditar && emparejamiento && (
-                              <button
-                                type="button"
-                                onClick={() => deshacerEmparejamiento(emparejamiento)}
-                                disabled={ocupado}
-                                className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50"
-                              >
-                                Deshacer
-                              </button>
-                            )}
                           </span>
                         );
                       })}
-                      {puedeEditar && f.estado === "solo_modulo" && (
-                        <button
-                          type="button"
-                          onClick={() => setEmparejando(f)}
-                          className="rounded border border-ink-200 px-1.5 py-0.5 text-[11px] font-semibold text-ink-600 transition hover:border-navy-700 hover:text-navy-700"
-                        >
-                          Emparejar…
-                        </button>
-                      )}
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-center align-middle">
@@ -537,7 +675,8 @@ export function CruceTerceroTab({
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             {resumen.filas.length > 0 && (
               <tfoot>
