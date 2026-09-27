@@ -413,7 +413,7 @@ export async function guardarFilaPrevalidador(_prev: ActionState, formData: Form
       detail: `${baseCalculo === "movimiento" ? "Movimiento del período" : "Saldo final"}${activa ? "" : " · inactiva"}`,
     });
     updateTag(PREVALIDADOR_CACHE_TAG);
-    revalidatePath(PATH_CONFIG);
+    revalidatePath(PATH_CONFIG, "layout");
     revalidatePath(PATH_BALANCE, "layout");
     return { ok: true, message: id ? "Cuenta actualizada." : "Cuenta agregada al prevalidador." };
   } catch (e) {
@@ -449,7 +449,7 @@ export async function eliminarFilaPrevalidador(_prev: ActionState, formData: For
       detail: arrastradas > 0 ? `Arrastró ${arrastradas} override(s) de balance` : "Sin overrides de balance asociados",
     });
     updateTag(PREVALIDADOR_CACHE_TAG);
-    revalidatePath(PATH_CONFIG);
+    revalidatePath(PATH_CONFIG, "layout");
     revalidatePath(PATH_BALANCE, "layout");
     return {
       ok: true,

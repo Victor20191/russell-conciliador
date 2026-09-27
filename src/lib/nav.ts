@@ -1,5 +1,6 @@
 import type { IconName } from "@/components/icons";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
+import { nombreModuloFabrica, PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
 
 export type NavChild = {
   label: string;
@@ -111,9 +112,26 @@ export const configNav: NavItem[] = [
   { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
   { label: "Parámetros de alertas", href: "/config/parametros", icon: "settings", permiso: "parametros:administrar", modulo: "parametros" },
   { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
-  // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son
-  // criterios de la firma que fija quien administra la herramienta.
-  { label: "Cuentas del prevalidador", href: "/config/prevalidador", icon: "chart", permiso: "parametros:administrar", modulo: "parametros" },
+  {
+    // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
+    // firma que fija quien administra la herramienta. «Cuentas del prevalidador» es el resumen de
+    // todos los módulos; cada módulo de conciliación tiene su sub-ruta (`/config/prevalidador/cxp`)
+    // con sus prefijos y las cuentas que concilia, en el orden del informe del prevalidador.
+    label: "Filtros de cuentas",
+    href: "/config/prevalidador",
+    icon: "chart",
+    permiso: "parametros:administrar",
+    modulo: "parametros",
+    children: [
+      { label: "Cuentas del prevalidador", href: "/config/prevalidador", permiso: "parametros:administrar", modulo: "parametros" },
+      ...PREVALIDADOR_MODULOS_ORDEN.map((codigo) => ({
+        label: nombreModuloFabrica(codigo),
+        href: `/config/prevalidador/${codigo.toLowerCase()}`,
+        permiso: "parametros:administrar",
+        modulo: "parametros",
+      })),
+    ],
+  },
   {
     // Memoria de carga por fuente: el balance en la raíz y cada módulo del motor
     // genérico en su propia sub-ruta (`/config/perfiles-carga/inv`, …). Los hijos

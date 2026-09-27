@@ -6,13 +6,12 @@
 // conciliación en firme, que conservan la copia guardada en su cierre.
 
 import { revalidatePath, updateTag } from "next/cache";
-import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
-import { CuentaConciliacionSchema, OrigenCuentaConciliacionFormSchema, type ActionState } from "@/lib/definitions";
+import { CuentaConciliacionSchema, type ActionState } from "@/lib/definitions";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { moduloConCuentasConciliacion, moduloConOrigenPorCuenta } from "@/lib/modulos/cuentas-conciliacion";
 import { CUENTAS_CONCILIACION_CACHE_TAG } from "@/lib/parametros/cuentas-conciliacion";
@@ -27,7 +26,7 @@ const ETIQUETA_ORIGEN = { nacional: "nacional", exterior: "del exterior" } as co
 /** Tras un cambio: la caché de la configuración y las pantallas que la leen. */
 function invalidar() {
   updateTag(CUENTAS_CONCILIACION_CACHE_TAG);
-  revalidatePath(PATH_CONFIG);
+  revalidatePath(PATH_CONFIG, "layout");
   revalidatePath("/modulos", "layout");
   revalidatePath("/config/conceptos-nomina");
 }
@@ -45,75 +44,74 @@ function validarModulo(moduloCodigo: string, origen: string | null): string {
   return descriptor.label;
 }
 
-/** Agrega una cuenta de 6 dígitos a las que concilia el módulo. */
-export async function agregarCuentaConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+/** Alta o edición de una cuenta de 6 dígitos que concilia un módulo (mismo flujo que los prefijos). */
+export async function guardarCuentaConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso(PERMISO);
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = CuentaConciliacionSchema.safeParse({
+    id: formData.get("id"),
     moduloCodigo: formData.get("moduloCodigo"),
     cuenta: formData.get("cuenta"),
     origen: formData.get("origen"),
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { moduloCodigo, cuenta, origen } = parsed.data;
+  const { id, moduloCodigo, cuenta, origen } = parsed.data;
 
   try {
     const etiquetaModulo = validarModulo(moduloCodigo, origen);
     const user = await getCurrentUser();
-    const nombre = await transaccionSerializable(async (tx) => {
-      await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${moduloCodigo}`);
-      const [plan, existente] = await Promise.all([
+    const resultado = await transaccionSerializable(async (tx) => {
+      const previa = id
+        ? await tx.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true, origen: true } })
+        : null;
+      if (id && !previa) throw new ErrorDominio("Esa cuenta ya no está configurada.");
+      // Candado de los módulos que cambian (el de origen y el de destino, en orden fijo).
+      for (const m of [...new Set([moduloCodigo, previa?.moduloCodigo].filter((x): x is string => !!x))].sort()) {
+        await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${m}`);
+      }
+      const [plan, duplicada] = await Promise.all([
         tx.standardAccount.findUnique({ where: { code: cuenta }, select: { name: true } }),
         tx.cuentaConciliacionModulo.findUnique({ where: { moduloCodigo_cuenta: { moduloCodigo, cuenta } }, select: { id: true } }),
       ]);
       if (!plan) throw new ErrorDominio(`La cuenta ${cuenta} no existe en el plan estándar Russell.`);
-      if (existente) throw new ErrorDominio(`${etiquetaModulo} ya concilia la cuenta ${cuenta}.`);
-      await tx.cuentaConciliacionModulo.create({ data: { moduloCodigo, cuenta, origen, actualizadoPor: user?.name ?? null } });
-      return plan.name;
+      if (duplicada && duplicada.id !== id) throw new ErrorDominio(`${etiquetaModulo} ya concilia la cuenta ${cuenta}.`);
+      // Pasar la cuenta a otro módulo no puede dejar el de origen sin cuentas.
+      if (previa && previa.moduloCodigo !== moduloCodigo) {
+        const restantes = await tx.cuentaConciliacionModulo.count({ where: { moduloCodigo: previa.moduloCodigo } });
+        if (restantes <= 1) throw new ErrorDominio("El módulo de origen debe conciliar al menos una cuenta: agrégale otra antes de mover esta.");
+      }
+      const datos = { moduloCodigo, cuenta, origen, actualizadoPor: user?.name ?? null };
+      if (id) await tx.cuentaConciliacionModulo.update({ where: { id }, data: datos });
+      else await tx.cuentaConciliacionModulo.create({ data: datos });
+      return { nombre: plan.name, previa };
     });
 
+    const { previa } = resultado;
+    const cambios = previa
+      ? [
+          previa.moduloCodigo !== moduloCodigo ? `módulo ${descriptorModulo(previa.moduloCodigo)?.label ?? previa.moduloCodigo} → ${etiquetaModulo}` : null,
+          previa.cuenta !== cuenta ? `cuenta ${previa.cuenta} → ${cuenta}` : null,
+          (previa.origen ?? null) !== origen ? `origen ${etiquetaOrigen(previa.origen)} → ${etiquetaOrigen(origen)}` : null,
+        ].filter(Boolean)
+      : [];
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: "AGREGÓ CUENTA DE CONCILIACIÓN",
+      action: id ? "EDITÓ CUENTA DE CONCILIACIÓN" : "AGREGÓ CUENTA DE CONCILIACIÓN",
       entity: `${etiquetaModulo} · ${cuenta}`,
-      detail: `${nombre}${origen ? ` · cuenta ${ETIQUETA_ORIGEN[origen]}` : ""}`,
+      detail: id
+        ? cambios.join(" · ") || "Sin cambios"
+        : `${resultado.nombre}${origen ? ` · cuenta ${ETIQUETA_ORIGEN[origen]}` : ""}`,
     });
     invalidar();
-    return { ok: true, message: `Cuenta ${cuenta} agregada a ${etiquetaModulo}.` };
+    return { ok: true, message: id ? `Cuenta ${cuenta} actualizada.` : `Cuenta ${cuenta} agregada a ${etiquetaModulo}.` };
   } catch (e) {
     if (e instanceof ErrorDominio) return { ok: false, message: e.message };
-    return { ok: false, message: mensajeErrorBD("agregarCuentaConciliacion", e) };
+    return { ok: false, message: mensajeErrorBD("guardarCuentaConciliacion", e) };
   }
 }
 
-/** Cambia qué cuenta es la nacional o la del exterior (Cartera y CxP). */
-export async function cambiarOrigenCuentaConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso(PERMISO);
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const parsed = OrigenCuentaConciliacionFormSchema.safeParse({ id: formData.get("id"), origen: formData.get("origen") });
-  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { id, origen } = parsed.data;
-
-  try {
-    const fila = await prisma.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true, origen: true } });
-    if (!fila) return { ok: false, message: "Esa cuenta ya no está configurada." };
-    const etiquetaModulo = validarModulo(fila.moduloCodigo, origen);
-    if ((fila.origen ?? null) === origen) return { ok: true, message: "Sin cambios." };
-    const user = await getCurrentUser();
-    await prisma.cuentaConciliacionModulo.update({ where: { id }, data: { origen, actualizadoPor: user?.name ?? null } });
-
-    await logAudit({
-      user: user?.name ?? "Sistema",
-      action: "CAMBIÓ ORIGEN DE CUENTA DE CONCILIACIÓN",
-      entity: `${etiquetaModulo} · ${fila.cuenta}`,
-      detail: `${fila.origen ? ETIQUETA_ORIGEN[fila.origen as keyof typeof ETIQUETA_ORIGEN] ?? fila.origen : "sin origen"} → ${origen ? ETIQUETA_ORIGEN[origen] : "sin origen"}`,
-    });
-    invalidar();
-    return { ok: true, message: `Origen de la cuenta ${fila.cuenta} actualizado.` };
-  } catch (e) {
-    if (e instanceof ErrorDominio) return { ok: false, message: e.message };
-    return { ok: false, message: mensajeErrorBD("cambiarOrigenCuentaConciliacion", e) };
-  }
+function etiquetaOrigen(origen: string | null | undefined): string {
+  return origen === "nacional" || origen === "exterior" ? ETIQUETA_ORIGEN[origen] : "sin origen";
 }
 
 /** Quita una cuenta del módulo. Un módulo a 6 dígitos conserva al menos una. */

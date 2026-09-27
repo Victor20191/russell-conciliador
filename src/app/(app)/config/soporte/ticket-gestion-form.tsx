@@ -141,10 +141,8 @@ export default function TicketGestionForm({
         >
           {pending ? (
             <EstadoProcesando>Guardando</EstadoProcesando>
-          ) : cambiaEstado ? (
-            "Actualizar ticket"
           ) : (
-            "Enviar mensaje"
+            "Guardar cambios"
           )}
         </button>
       </div>

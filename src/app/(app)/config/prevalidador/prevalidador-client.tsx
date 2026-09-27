@@ -10,151 +10,87 @@ import { eliminarFilaPrevalidador, guardarFilaPrevalidador } from "@/app/actions
 import type { ActionState } from "@/lib/definitions";
 import type { FilaCatalogoVista } from "@/lib/parametros/prevalidador";
 import { baseCalculoPorDefecto } from "@/lib/balance/prevalidador/catalogo";
-import type { CuentaConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
-import CuentasConciliacionPanel, { type CuentaPlanVm } from "./cuentas-conciliacion-panel";
 
-type ModuloOpcion = { id: number; code: string; name: string };
+export type ModuloOpcion = { id: number; code: string; name: string };
 
-/** Lo que la pantalla necesita del descriptor de cada módulo (resuelto en el servidor). */
-export type ModuloConfigVm = ModuloOpcion & {
-  /** Concilia contra una lista de cuentas de 6 dígitos (Ingresos, Cartera, CxP, Nómina). */
-  conCuentas6: boolean;
-  /** Sus cuentas deciden el origen nacional/exterior del saldo (Cartera y CxP). */
-  conOrigen: boolean;
-  conCrucePorTercero: boolean;
-  /** Activos fijos: subgrupos que se abren a 6 dígitos y pares activo → depreciación (fijos en código). */
-  subgruposAbiertos: { subgrupo: string; naturaleza: "D" | "C" }[];
-  paresRelacionados: { subgrupo: string; cuenta6: string }[];
-};
-
-const CONTROL_CLASS =
+export const CONTROL_CLASS =
   "h-9 w-full rounded-md border border-ink-200 bg-white px-2.5 text-[12.5px] text-ink-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
 
 export default function PrevalidadorConfigClient({
-  catalogo,
+  catalogo: catalogoCompleto,
   modulos,
-  cuentas,
-  plan6,
-  moduloInicial,
+  soloModulo,
 }: {
   catalogo: FilaCatalogoVista[];
-  modulos: ModuloConfigVm[];
-  cuentas: CuentaConciliacionVista[];
-  plan6: CuentaPlanVm[];
-  moduloInicial: string;
+  modulos: ModuloOpcion[];
+  /** Página de un módulo (`/config/prevalidador/cxp`): la misma vista con solo sus cuentas. */
+  soloModulo?: string;
 }) {
-  const [activo, setActivo] = useState(moduloInicial);
   const [creando, setCreando] = useState(false);
-  const modulo = modulos.find((m) => m.code === activo) ?? modulos[0];
+  const catalogo = soloModulo ? catalogoCompleto.filter((f) => f.moduloCodigo === soloModulo) : catalogoCompleto;
+  const modulosVista = soloModulo ? modulos.filter((m) => m.code === soloModulo) : modulos;
 
-  // La pestaña queda en la URL (?modulo=CXP) para enlazarla y para que sobreviva a la recarga.
-  const elegir = (code: string) => {
-    setActivo(code);
-    setCreando(false);
-    const url = new URL(window.location.href);
-    url.searchParams.set("modulo", code);
-    window.history.replaceState(null, "", url);
-  };
-
-  if (!modulo) return <p className="text-[12.5px] text-ink-500">No hay módulos de conciliación registrados.</p>;
-  const filas = catalogo.filter((f) => f.moduloCodigo === modulo.code);
-  const cuentasModulo = cuentas.filter((c) => c.moduloCodigo === modulo.code);
+  // Un bloque por módulo, respetando el orden en que se muestran en el informe.
+  const porModulo = modulosVista
+    .map((m) => ({ modulo: m, filas: catalogo.filter((f) => f.moduloCodigo === m.code) }))
+    .filter((g) => g.filas.length > 0)
+    .sort((a, b) => (a.filas[0]?.moduloOrden ?? 999) - (b.filas[0]?.moduloOrden ?? 999));
+  const sinFilas = modulosVista.filter((m) => !catalogo.some((f) => f.moduloCodigo === m.code));
 
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
-        Los cambios rigen de inmediato para los balances y los cargues abiertos. Una revisión aprobada del prevalidador
-        conserva su instantánea y queda marcada como desactualizada si cambian sus prefijos; un período conciliado en
-        firme conserva las cuentas con que se cerró.
+        Los cambios actualizan el cálculo vigente de los balances. Toda revisión aprobada conserva su instantánea y
+        queda marcada como desactualizada si el catálogo usado para aprobar ya no coincide.
       </div>
 
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Módulos de conciliación">
-        {modulos.map((m) => {
-          const on = m.code === modulo.code;
-          const total = catalogo.filter((f) => f.moduloCodigo === m.code).length + (m.conCuentas6 ? cuentas.filter((c) => c.moduloCodigo === m.code).length : 0);
-          return (
-            <button
-              key={m.code}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => elegir(m.code)}
-              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}
-            >
-              {m.name}
-              <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{total}</span>
-            </button>
-          );
-        })}
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] text-ink-500">
+          {catalogo.length} cuenta(s) configuradas · {catalogo.filter((f) => f.activa).length} activa(s)
+        </p>
+        {!creando && (
+          <button
+            type="button"
+            onClick={() => setCreando(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
+          >
+            <Icon name="plus" size={13} /> Agregar cuenta
+          </button>
+        )}
       </div>
 
-      <div role="tabpanel" aria-label={modulo.name} className="flex flex-col gap-4">
+      {creando && (
         <Card className="p-4">
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Icon name="settings" size={15} />
-                <h2 className="text-[14px] font-semibold text-ink-900">Prefijos del prevalidador</h2>
-                <span className="text-[11px] text-ink-400">{modulo.code}</span>
-              </div>
-              <p className="mt-1 text-[11.5px] text-ink-500">
-                {modulo.conCuentas6
-                  ? "Grupos (2 dígitos) o cuentas (4 dígitos) que el prevalidador compara contra el PUC del cliente antes de conciliar."
-                  : `${modulo.name} concilia por subgrupo de 4 dígitos: estos prefijos son su filtro de cuentas y los que el prevalidador compara contra el PUC del cliente.`}
-              </p>
-            </div>
-            {!creando && (
-              <button
-                type="button"
-                onClick={() => setCreando(true)}
-                className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
-              >
-                <Icon name="plus" size={13} /> Agregar prefijo
-              </button>
-            )}
+          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva cuenta del prevalidador</h2>
+          <FilaEditor
+            modulos={modulos}
+            moduloIdPorDefecto={modulosVista[0]?.id}
+            onListo={() => setCreando(false)}
+            onCancelar={() => setCreando(false)}
+          />
+        </Card>
+      )}
+
+      {porModulo.map(({ modulo, filas }) => (
+        <Card key={modulo.id} className="p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Icon name="settings" size={15} />
+            <h2 className="text-[14px] font-semibold text-ink-900">{modulo.name}</h2>
+            <span className="text-[11px] text-ink-400">{modulo.code}</span>
           </div>
           <div className="flex flex-col gap-2">
-            {creando && (
-              <FilaEditor
-                key={`nueva-${modulo.code}`}
-                modulos={modulos}
-                moduloIdPorDefecto={modulo.id}
-                onListo={() => setCreando(false)}
-                onCancelar={() => setCreando(false)}
-              />
-            )}
             {filas.map((f) => (
               <FilaEditor key={f.id} fila={f} modulos={modulos} />
             ))}
-            {filas.length === 0 && !creando && (
-              <p className="text-[11.5px] text-ink-400">Sin prefijos: el módulo no aparece en el informe del prevalidador.</p>
-            )}
           </div>
         </Card>
+      ))}
 
-        {modulo.conCuentas6 && (
-          <CuentasConciliacionPanel key={modulo.code} modulo={modulo} cuentas={cuentasModulo} catalogo={catalogo} plan6={plan6} />
-        )}
-
-        {modulo.subgruposAbiertos.length > 0 && (
-          <Card className="p-4">
-            <h2 className="text-[14px] font-semibold text-ink-900">Cuentas relacionadas</h2>
-            <p className="mt-1 text-[11.5px] text-ink-500">
-              Fijas en el sistema: {modulo.subgruposAbiertos.map((s) => s.subgrupo).join(", ")} se concilia por cuenta de 6
-              dígitos y la depreciación del archivo cruza contra la cuenta relacionada con cada activo.
-            </p>
-            {modulo.paresRelacionados.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {modulo.paresRelacionados.map((p) => (
-                  <span key={p.subgrupo} className="rounded-md border border-ink-150 bg-ink-50/60 px-2 py-1 font-mono text-[11.5px] tabular-nums text-ink-600">
-                    {p.subgrupo} → {p.cuenta6}
-                  </span>
-                ))}
-              </div>
-            )}
-          </Card>
-        )}
-      </div>
+      {sinFilas.length > 0 && (
+        <p className="text-[11.5px] text-ink-400">
+          Módulos sin cuentas configuradas: {sinFilas.map((m) => m.name).join(", ")}. No aparecerán en el informe.
+        </p>
+      )}
     </div>
   );
 }
@@ -355,7 +291,7 @@ function FilaEditor({
   );
 }
 
-function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string; children: React.ReactNode }) {
+export function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string; children: React.ReactNode }) {
   return (
     <label className="flex min-w-0 flex-col gap-1">
       <span className="text-[11px] font-medium text-ink-600">{etiqueta}</span>

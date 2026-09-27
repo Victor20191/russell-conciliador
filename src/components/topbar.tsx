@@ -36,6 +36,18 @@ const CRUMB_LABELS: Record<string, string> = {
   maestros: "Maestros",
   parametros: "Parámetros de alertas",
   "conceptos-nomina": "Conceptos de nómina",
+  prevalidador: "Filtros de cuentas",
+};
+
+// Sub-rutas por módulo de conciliación (`/config/prevalidador/cxp`, `/config/perfiles-carga/inv`,
+// `/modulos/car`): el segmento es el código del módulo en minúsculas.
+const CRUMB_MODULOS: Record<string, string> = {
+  ing: "Ingresos",
+  car: "Cartera",
+  inv: "Inventarios",
+  afi: "Activos fijos",
+  cxp: "Cuentas por pagar",
+  nom: "Nómina",
 };
 
 // Agrupadores de navegación que no tienen una página propia.
@@ -60,6 +72,7 @@ export default function Topbar({
     .map((seg, index, segments) => {
       const href = `/${segments.slice(0, index + 1).join("/")}`;
       const label = CRUMB_LABELS[seg]
+        ?? (index > 0 ? CRUMB_MODULOS[seg] : undefined)
         ?? (/^[1-9]\d*$/.test(seg) ? "Detalle" : seg.charAt(0).toUpperCase() + seg.slice(1));
       return { href, label };
     });

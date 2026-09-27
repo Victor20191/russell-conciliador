@@ -450,16 +450,13 @@ const OrigenCuentaConciliacionSchema = z.preprocess(
 );
 
 export const CuentaConciliacionSchema = z.object({
+  // null = alta.
+  id: z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().int().positive().nullable()),
   moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Selecciona el módulo." }).max(10),
   cuenta: z.preprocess(
     (v) => (typeof v === "string" ? v.replace(/[\s.]/g, "") : v),
     z.string().regex(/^\d{6}$/, { error: "La cuenta debe ser una cuenta Russell de 6 dígitos." }),
   ),
-  origen: OrigenCuentaConciliacionSchema,
-});
-
-export const OrigenCuentaConciliacionFormSchema = z.object({
-  id: z.coerce.number({ error: "Cuenta inválida." }).int().positive({ error: "Cuenta inválida." }),
   origen: OrigenCuentaConciliacionSchema,
 });
 

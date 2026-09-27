@@ -1,24 +1,22 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useMemo, useState } from "react";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { SelectBuscable } from "@/components/select-buscable";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
-import { agregarCuentaConciliacion, cambiarOrigenCuentaConciliacion, quitarCuentaConciliacion } from "@/app/actions/cuentas-conciliacion";
+import { guardarCuentaConciliacion, quitarCuentaConciliacion } from "@/app/actions/cuentas-conciliacion";
 import type { ActionState } from "@/lib/definitions";
 import type { FilaCatalogoVista } from "@/lib/parametros/prevalidador";
 import type { CuentaConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { Campo, CONTROL_CLASS } from "./prevalidador-client";
 
 export type CuentaPlanVm = { codigo: string; nombre: string };
 
-type ModuloPanel = { code: string; name: string; conOrigen: boolean; conCrucePorTercero: boolean };
-
-const CONTROL_CLASS =
-  "h-9 w-full rounded-md border border-ink-200 bg-white px-2.5 text-[12.5px] text-ink-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+/** Módulo que concilia a 6 dígitos; `conOrigen` = sus cuentas deciden nacional/exterior (Cartera y CxP). */
+export type ModuloCuentasVm = { code: string; name: string; conOrigen: boolean; conCrucePorTercero: boolean };
 
 const ORIGENES = [
   { value: "", label: "Sin origen" },
@@ -26,244 +24,262 @@ const ORIGENES = [
   { value: "exterior", label: "Exterior" },
 ] as const;
 
+// Mismo diseño de fila que los prefijos del prevalidador (`FilaEditor`); la columna del origen solo
+// existe en Cartera y CxP.
+const GRID_CON_ORIGEN =
+  "grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(8.5rem,1fr)_7rem_minmax(13rem,2.6fr)_minmax(9rem,1fr)_auto] xl:items-start";
+const GRID_SIN_ORIGEN =
+  "grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(8.5rem,1fr)_7rem_minmax(13rem,3.6fr)_auto] xl:items-start";
+
 /**
- * Cuentas Russell de 6 dígitos que concilia un módulo: la cédula contable (y, en Cartera y CxP, el
- * cruce por tercero) solo toma estas cuentas; las demás del grupo se informan «fuera del módulo».
+ * Cuentas Russell de 6 dígitos que concilia un módulo, con la misma gramática visual que los
+ * prefijos del prevalidador: contador + «Agregar», tarjeta con una fila editable por cuenta.
  */
 export default function CuentasConciliacionPanel({
   modulo,
+  modulosCuentas,
   cuentas,
   catalogo,
   plan6,
 }: {
-  modulo: ModuloPanel;
+  modulo: ModuloCuentasVm;
+  /** Los módulos que concilian a 6 dígitos: el editor permite mover una cuenta a otro. */
+  modulosCuentas: ModuloCuentasVm[];
   cuentas: CuentaConciliacionVista[];
   catalogo: FilaCatalogoVista[];
   plan6: CuentaPlanVm[];
 }) {
-  const nombre = useMemo(() => new Map(plan6.map((c) => [c.codigo, c.nombre])), [plan6]);
-  // Los prefijos ACTIVOS del módulo: una cuenta fuera de ellos se concilia como adicional (sin regla
-  // del prevalidador). Mismo criterio que la cédula (`cedulaModulo`).
-  const prefijos = useMemo(
-    () => prefijosCuentaModulo(modulo.code, catalogo.map((f) => ({ moduloCodigo: f.moduloCodigo, cuentaRussell: f.cuentaRussell, activa: f.activa }))),
-    [catalogo, modulo.code],
-  );
-  const configuradas = useMemo(() => new Set(cuentas.map((c) => c.cuenta)), [cuentas]);
+  const [creando, setCreando] = useState(false);
+  const listaPlan = useId();
+  const nombrePlan = useMemo(() => new Map(plan6.map((c) => [c.codigo, c.nombre])), [plan6]);
+  // Una cuenta fuera de los prefijos ACTIVOS de su módulo se concilia como adicional (sin regla del
+  // prevalidador). Mismo criterio que la cédula (`cedulaModulo`).
+  const fueraDePrefijos = (moduloCodigo: string, cuenta: string) =>
+    !cuenta4DelModulo(cuenta.slice(0, 4), prefijosCuentaModulo(moduloCodigo, catalogo));
+  const fuera = cuentas.filter((c) => fueraDePrefijos(c.moduloCodigo, c.cuenta)).length;
+  const comunes = { modulo, modulosCuentas, nombrePlan, listaPlan, fueraDePrefijos };
 
   return (
-    <Card className="p-4">
-      <div className="mb-3">
-        <h2 className="text-[14px] font-semibold text-ink-900">Cuentas que concilia · 6 dígitos</h2>
-        <p className="mt-1 text-[11.5px] text-ink-500">
-          El cruce contable{modulo.conCrucePorTercero ? " y el cruce por tercero" : ""} de {modulo.name} solo toman estas
-          cuentas Russell; lo demás de sus prefijos se informa «fuera del módulo». Una cuenta fuera de los prefijos se
-          concilia igual, por su saldo final, sin pasar por el prevalidador.
-          {modulo.conOrigen ? " El origen dice qué cuenta es la nacional y cuál la del exterior en el cruce por tercero." : ""}
+    <div className="flex flex-col gap-4">
+      <datalist id={listaPlan}>
+        {plan6.map((c) => (
+          <option key={c.codigo} value={c.codigo}>
+            {c.nombre}
+          </option>
+        ))}
+      </datalist>
+
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] text-ink-500">
+          {cuentas.length} cuenta(s) de 6 dígitos que concilia {modulo.name}
+          {fuera > 0 ? ` · ${fuera} fuera de los prefijos` : ""}
         </p>
+        {!creando && (
+          <button
+            type="button"
+            onClick={() => setCreando(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
+          >
+            <Icon name="plus" size={13} /> Agregar cuenta que concilia
+          </button>
+        )}
       </div>
 
-      <AgregarCuenta modulo={modulo} plan6={plan6} configuradas={configuradas} />
-
-      <div className="mt-3 overflow-x-auto rounded-lg border border-ink-150">
-        <table className="w-full min-w-[560px] text-[12.5px]">
-          <thead className="bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-            <tr>
-              <th className="px-3 py-2">Cuenta</th>
-              <th className="px-3 py-2">Nombre</th>
-              {modulo.conOrigen && <th className="px-3 py-2">Origen</th>}
-              <th className="px-3 py-2">Editado</th>
-              <th className="px-3 py-2 text-right" aria-label="Acciones" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-ink-100">
-            {cuentas.map((c) => (
-              <FilaCuenta
-                key={c.id}
-                cuenta={c}
-                nombre={nombre.get(c.cuenta) ?? null}
-                conOrigen={modulo.conOrigen}
-                fueraDePrefijos={!cuenta4DelModulo(c.cuenta.slice(0, 4), prefijos)}
-                unica={cuentas.length === 1}
-              />
-            ))}
-            {cuentas.length === 0 && (
-              <tr>
-                <td colSpan={modulo.conOrigen ? 5 : 4} className="px-3 py-4 text-center text-[12px] text-ink-400">
-                  Sin cuentas: el módulo concilia todas las cuentas de 6 dígitos de sus prefijos.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 text-[11px] text-ink-400">
-        {cuentas.length} cuenta(s). Los cambios rigen para todos los cargues abiertos; un período conciliado en firme
-        conserva las cuentas con que se cerró hasta que se desbloquee.
-      </p>
-    </Card>
-  );
-}
-
-function AgregarCuenta({ modulo, plan6, configuradas }: { modulo: ModuloPanel; plan6: CuentaPlanVm[]; configuradas: ReadonlySet<string> }) {
-  const [state, action, guardando] = useActionState<ActionState, FormData>(agregarCuentaConciliacion, {});
-  const [elegida, setCuenta] = useState("");
-  // Una vez agregada, la cuenta sale de las opciones y la selección se descarta sola.
-  const cuenta = configuradas.has(elegida) ? "" : elegida;
-  const opciones = useMemo(
-    () => plan6.filter((c) => !configuradas.has(c.codigo)).map((c) => ({ value: c.codigo, label: `${c.codigo} · ${c.nombre}`, sublabel: c.codigo })),
-    [plan6, configuradas],
-  );
-
-  useEffect(() => {
-    notifyActionState(state, { success: "Cuenta agregada.", error: "No se pudo agregar la cuenta." });
-  }, [state]);
-
-  return (
-    <form action={action} className="grid grid-cols-1 gap-3 rounded-lg border border-ink-150 bg-ink-50/40 p-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end">
-      <input type="hidden" name="moduloCodigo" value={modulo.code} />
-      <input type="hidden" name="cuenta" value={cuenta} />
-      <label className="flex min-w-0 flex-col gap-1">
-        <span className="text-[11px] font-medium text-ink-600">Cuenta del plan estándar Russell</span>
-        <SelectBuscable
-          opciones={opciones}
-          value={cuenta}
-          onChange={setCuenta}
-          placeholder="Buscar por código o nombre…"
-          sinResultados="No hay cuentas de 6 dígitos con ese código o nombre."
-          ariaLabel="Cuenta a agregar"
-        />
-      </label>
-      {modulo.conOrigen ? (
-        <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-[11px] font-medium text-ink-600">Origen</span>
-          <select name="origen" defaultValue="" className={CONTROL_CLASS}>
-            {ORIGENES.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <span className="hidden sm:block" />
+      {creando && (
+        <Card className="p-4">
+          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva cuenta que concilia</h2>
+          <CuentaEditor {...comunes} onListo={() => setCreando(false)} onCancelar={() => setCreando(false)} />
+        </Card>
       )}
-      <button
-        type="submit"
-        disabled={guardando || !cuenta}
-        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
-      >
-        {!guardando && <Icon name="plus" size={13} />}
-        {guardando ? <EstadoProcesando>Agregando</EstadoProcesando> : "Agregar"}
-      </button>
-    </form>
+
+      <Card className="p-4">
+        <div className="mb-1 flex items-center gap-2">
+          <Icon name="settings" size={15} />
+          <h2 className="text-[14px] font-semibold text-ink-900">Cuentas que concilia · 6 dígitos</h2>
+          <span className="text-[11px] text-ink-400">{modulo.code}</span>
+        </div>
+        <p className="mb-3 text-[11.5px] text-ink-500">
+          {modulo.conCrucePorTercero ? "El cruce contable y el cruce por tercero" : "El cruce contable"} de {modulo.name} solo{" "}
+          {modulo.conCrucePorTercero ? "toman" : "toma"} estas cuentas Russell; lo demás de sus prefijos se informa «fuera del
+          módulo». Una cuenta fuera de los prefijos se concilia igual, por su saldo final, sin pasar por el prevalidador. Los
+          cambios rigen para los cargues abiertos; un período conciliado en firme conserva las cuentas con que se cerró.
+        </p>
+        <div className="flex flex-col gap-2">
+          {cuentas.map((c) => (
+            <CuentaEditor key={c.id} {...comunes} cuenta={c} unica={cuentas.length === 1} />
+          ))}
+          {cuentas.length === 0 && (
+            <p className="text-[11.5px] text-ink-400">Sin cuentas: el módulo concilia todas las cuentas de 6 dígitos de sus prefijos.</p>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }
 
-function FilaCuenta({
+function CuentaEditor({
   cuenta,
-  nombre,
-  conOrigen,
+  modulo,
+  modulosCuentas,
+  nombrePlan,
+  listaPlan,
   fueraDePrefijos,
-  unica,
+  unica = false,
+  onListo,
+  onCancelar,
 }: {
-  cuenta: CuentaConciliacionVista;
-  nombre: string | null;
-  conOrigen: boolean;
-  fueraDePrefijos: boolean;
-  unica: boolean;
+  cuenta?: CuentaConciliacionVista;
+  modulo: ModuloCuentasVm;
+  modulosCuentas: ModuloCuentasVm[];
+  nombrePlan: ReadonlyMap<string, string>;
+  listaPlan: string;
+  fueraDePrefijos: (moduloCodigo: string, cuenta: string) => boolean;
+  unica?: boolean;
+  onListo?: () => void;
+  onCancelar?: () => void;
 }) {
-  const [origenState, origenAction, cambiando] = useActionState<ActionState, FormData>(cambiarOrigenCuentaConciliacion, {});
+  const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(guardarCuentaConciliacion, {});
   const [quitarState, quitarAction, quitando] = useActionState<ActionState, FormData>(quitarCuentaConciliacion, {});
-  const [confirmar, setConfirmar] = useState(false);
-  const origenForm = useRef<HTMLFormElement>(null);
-  const origenSelect = useRef<HTMLSelectElement>(null);
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false);
+  const [codigo, setCodigo] = useState(cuenta?.cuenta ?? "");
+  const [moduloSel, setModuloSel] = useState(cuenta?.moduloCodigo ?? modulo.code);
 
   useEffect(() => {
-    notifyActionState(origenState, { success: "Origen actualizado.", error: "No se pudo cambiar el origen." });
-    // Si el servidor lo rechazó, el control vuelve a mostrar lo guardado.
-    if (origenState?.ok === false && origenSelect.current) origenSelect.current.value = cuenta.origen ?? "";
-  }, [origenState, cuenta.origen]);
+    notifyActionState(guardarState, { success: "Cuenta guardada.", error: "No se pudo guardar la cuenta." });
+    if (guardarState?.ok) onListo?.();
+  }, [guardarState, onListo]);
+
   useEffect(() => {
     notifyActionState(quitarState, { success: "Cuenta retirada del módulo.", error: "No se pudo quitar la cuenta." });
   }, [quitarState]);
 
+  const digitos = codigo.replace(/[\s.]/g, "");
+  const nombre = nombrePlan.get(digitos) ?? null;
+  const conOrigen = modulosCuentas.find((m) => m.code === moduloSel)?.conOrigen ?? false;
+
   return (
-    <>
-      <tr className="align-middle">
-        <td className="px-3 py-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-mono font-semibold tabular-nums text-ink-800">{cuenta.cuenta}</span>
-            {fueraDePrefijos && <Chip label="Fuera de los prefijos" tone="ai" />}
-          </div>
-        </td>
-        <td className="px-3 py-2 text-ink-600">{nombre ?? <span className="text-err-700">No está en el plan estándar</span>}</td>
+    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
+      <form action={guardarAction} className={conOrigen ? GRID_CON_ORIGEN : GRID_SIN_ORIGEN}>
+        {cuenta && <input type="hidden" name="id" value={cuenta.id} />}
+        <Campo etiqueta="Módulo">
+          <select name="moduloCodigo" value={moduloSel} onChange={(e) => setModuloSel(e.target.value)} className={CONTROL_CLASS}>
+            {modulosCuentas.map((m) => (
+              <option key={m.code} value={m.code}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo etiqueta="Cuenta Russell">
+          <input
+            name="cuenta"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            inputMode="numeric"
+            maxLength={8}
+            list={listaPlan}
+            placeholder="130505"
+            className={`${CONTROL_CLASS} font-mono tabular-nums`}
+          />
+        </Campo>
+
+        <Campo etiqueta="Nombre en el plan Russell" ayuda={digitos.length === 6 && !nombre ? "No está en el plan estándar Russell." : undefined}>
+          <input
+            value={nombre ?? ""}
+            readOnly
+            tabIndex={-1}
+            placeholder="Se completa con la cuenta"
+            className={`${CONTROL_CLASS} bg-ink-50/60 text-ink-600`}
+          />
+        </Campo>
+
         {conOrigen && (
-          <td className="px-3 py-2">
-            <form ref={origenForm} action={origenAction}>
-              <input type="hidden" name="id" value={cuenta.id} />
-              <select
-                ref={origenSelect}
-                name="origen"
-                defaultValue={cuenta.origen ?? ""}
-                disabled={cambiando}
-                onChange={() => origenForm.current?.requestSubmit()}
-                aria-label={`Origen de la cuenta ${cuenta.cuenta}`}
-                className="h-8 rounded-md border border-ink-200 bg-white px-2 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:opacity-60"
-              >
-                {ORIGENES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </form>
-          </td>
+          <Campo etiqueta="Origen">
+            <select name="origen" defaultValue={cuenta?.origen ?? ""} className={CONTROL_CLASS}>
+              {ORIGENES.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
         )}
-        <td className="px-3 py-2 text-[11px] text-ink-400">
-          {fmtDateTime(cuenta.actualizadoEn)}
-          {cuenta.actualizadoPor ? ` · ${cuenta.actualizadoPor}` : ""}
-        </td>
-        <td className="px-3 py-2 text-right">
+
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:col-span-2 lg:col-span-full xl:col-span-1 xl:pt-5">
+          {onCancelar && (
+            <button
+              type="button"
+              onClick={onCancelar}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-ink-200 bg-white px-3 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50"
+            >
+              Cancelar
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={guardando}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+          >
+            {!guardando && <Icon name={cuenta ? "check" : "plus"} size={13} />}
+            {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : cuenta ? "Guardar" : "Agregar"}
+          </button>
+          {cuenta && (
+            <button
+              type="button"
+              onClick={() => setConfirmarBorrado(true)}
+              disabled={unica}
+              title={unica ? "El módulo debe conciliar al menos una cuenta." : `Quitar la cuenta ${cuenta.cuenta} de las que concilia el módulo.`}
+              aria-label={`Quitar la cuenta ${cuenta.cuenta} de las que concilia el módulo`}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          )}
+        </div>
+      </form>
+
+      {cuenta && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
+          <p className="text-[11px] text-ink-400">
+            Editado {fmtDateTime(cuenta.actualizadoEn)}
+            {cuenta.actualizadoPor ? ` · ${cuenta.actualizadoPor}` : ""}
+          </p>
+          {fueraDePrefijos(cuenta.moduloCodigo, cuenta.cuenta) && <Chip label="Fuera de los prefijos" tone="ai" />}
+        </div>
+      )}
+
+      {cuenta && confirmarBorrado && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+          <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
+            ¿Quitar la cuenta {cuenta.cuenta}? Deja de conciliarse en los cargues abiertos: su saldo pasa a «fuera del módulo».
+          </span>
           <button
             type="button"
-            onClick={() => setConfirmar(true)}
-            disabled={unica || quitando}
-            title={unica ? "El módulo debe conciliar al menos una cuenta." : `Quitar la cuenta ${cuenta.cuenta}`}
-            aria-label={`Quitar la cuenta ${cuenta.cuenta}`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => setConfirmarBorrado(false)}
+            disabled={quitando}
+            className="inline-flex h-8 items-center justify-center rounded-md border border-ink-200 bg-white px-3 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50 disabled:opacity-60"
           >
-            <Icon name="trash" size={13} />
+            Cancelar
           </button>
-        </td>
-      </tr>
-      {confirmar && (
-        <tr>
-          <td colSpan={conOrigen ? 5 : 4} className="bg-err-100/30 px-3 py-2">
-            <form action={quitarAction} className="flex flex-wrap items-center gap-2">
-              <input type="hidden" name="id" value={cuenta.id} />
-              <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
-                ¿Quitar la {cuenta.cuenta}? Deja de conciliarse en los cargues abiertos: su saldo pasa a «fuera del módulo».
-              </span>
-              <button
-                type="button"
-                onClick={() => setConfirmar(false)}
-                disabled={quitando}
-                className="inline-flex h-8 items-center justify-center rounded-md border border-ink-200 bg-white px-3 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50 disabled:opacity-60"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={quitando}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
-              >
-                {!quitando && <Icon name="trash" size={12} />}
-                {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Sí, quitar"}
-              </button>
-            </form>
-          </td>
-        </tr>
+          <button
+            type="submit"
+            form={`quitar-cuenta-${cuenta.id}`}
+            disabled={quitando}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+          >
+            {!quitando && <Icon name="trash" size={12} />}
+            {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Sí, quitar"}
+          </button>
+        </div>
       )}
-    </>
+
+      {/* Form separado para quitar (no puede anidarse en el de guardar). */}
+      {cuenta && (
+        <form id={`quitar-cuenta-${cuenta.id}`} action={quitarAction} className="hidden">
+          <input type="hidden" name="id" value={cuenta.id} />
+        </form>
+      )}
+    </div>
   );
 }
