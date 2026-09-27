@@ -16,14 +16,14 @@ import { ingerir, type GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { ERP_MANUAL_CODE } from "@/lib/erp-procesos";
 import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { invalidarValorAmbiguoIngresos, sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
+import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
-import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { vistaAnalisisHoja } from "@/lib/modulos/extraccion/vista-analisis";
-import { normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
+import { normalizarSpecModulo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
 import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion, type VersionCandidata } from "@/lib/modulos/patrones/mejor-version";
-import { encabezadoParaGuardar, normalizarRotulo } from "@/lib/modulos/patrones/rotulos";
+import { FILAS_MAXIMAS_PRUEBA, MENSAJE_SIN_FILAS, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
+import { vistaPruebaMapeo, type ResultadoPruebaMapeo, type OrigenPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
 import {
   esVersionEditable,
   motivoNoAprobable,
@@ -151,11 +151,11 @@ function analisisDeHojas(
   };
 }
 
-const MENSAJE_TIPO_FORMATO = "Elige el tipo de formato del archivo: por documento, por edades o por documento y edades.";
-
 /**
  * Valida un mapeo contra la muestra y devuelve lo que se guarda: el mapeo reutilizable y los
- * rótulos del encabezado con que se reconocerán los archivos.
+ * rótulos del encabezado con que se reconocerán los archivos. La comprobación es la MISMA que
+ * enseña «Probar el mapeo» (`revisarMapeoMuestra`): aquí el primer impedimento detiene el
+ * guardado, allá se muestran todos junto a las filas leídas.
  */
 function prepararVersion(
   descriptor: DescriptorModulo,
@@ -163,33 +163,60 @@ function prepararVersion(
   specEntrada: SpecModulo,
   opciones: { exigirTipoFormato: boolean },
 ) {
-  const spec = normalizarSpecModulo(descriptor, specEntrada);
-  // Cartera y CxP: el tipo de formato decide qué controles se validan en cada cargue.
-  if (opciones.exigirTipoFormato && descriptor.crucePorTercero.detalleTercero && !spec.tipoFormato) {
-    throw new ErrorPatron(MENSAJE_TIPO_FORMATO);
+  const revision = revisarMapeoMuestra(descriptor, hojas, specEntrada, opciones);
+  const impedimento = revision.impedimentos[0];
+  if (impedimento || !revision.hoja || !revision.encabezado) {
+    throw new ErrorPatron(impedimento ?? MENSAJE_SIN_FILAS);
   }
-  const error = validarSpecModulo(descriptor, spec);
-  if (error) throw new ErrorPatron(error);
-  const hoja = hojas.find((h) => h.nombre === spec.hoja);
-  if (!hoja) throw new ErrorPatron(`La muestra no tiene la hoja «${spec.hoja}».`);
-  const filaEncabezado = hoja.filas[spec.filaEncabezado - 1] ?? [];
-  const encabezado = encabezadoParaGuardar(filaEncabezado);
-  if (encabezado.filter((rotulo) => normalizarRotulo(rotulo) !== "").length < 2) {
-    throw new ErrorPatron("La fila de encabezado de la muestra no tiene rótulos suficientes para reconocer el archivo.");
-  }
-  if (invalidarValorAmbiguoIngresos(descriptor, hoja, spec).invalidado) {
-    throw new ErrorPatron("Ingresos no admite una columna de total de factura como valor. Mapea ingreso neto sin IVA/impuestos, subtotal o base gravable.");
-  }
-  const lectura = transformarModulo(descriptor, normalizarSpecModuloArchivo(descriptor, spec), hoja);
-  if (!lectura.filas.some((f) => f.tipoFila === "movimiento")) {
-    throw new ErrorPatron("Con este mapeo la muestra no produce ninguna fila. Revisa las filas y las columnas.");
-  }
-  return { spec, hoja, encabezado };
+  return { spec: revision.spec, hoja: revision.hoja, encabezado: revision.encabezado };
 }
 
 function respuestaError(contexto: string, e: unknown): { ok: false; message: string } {
   if (e instanceof ErrorPatron) return { ok: false, message: e.message };
   return { ok: false, message: mensajeErrorBD(contexto, e) };
+}
+
+/** Relee del almacén la muestra guardada de una versión, verificando su integridad. */
+async function hojasDeMuestraVersion(version: {
+  muestraClaveObjeto: string | null;
+  muestraSha256: string | null;
+  muestraNombre: string | null;
+}): Promise<GridHoja[]> {
+  if (!version.muestraClaveObjeto) throw new ErrorPatron("La versión no tiene muestra: súbela primero.");
+  const objeto = await obtenerObjeto(version.muestraClaveObjeto);
+  if (!objeto || (version.muestraSha256 && huellaSha256Archivo(objeto.cuerpo) !== version.muestraSha256)) {
+    throw new ErrorPatron("La muestra de la versión no está disponible o no supera la verificación de integridad.");
+  }
+  return hojasDe(objeto.cuerpo, version.muestraNombre ?? "muestra.xlsx");
+}
+
+/**
+ * Lee el archivo de un cliente que no coincidió con ningún patrón. Es el único camino de esta
+ * pantalla que toca un dato de un cliente, así que exige ALCANCE de lectura sobre él.
+ */
+async function hojasDeOriginalCliente(
+  descriptor: DescriptorModulo,
+  recepcionLoteId: unknown,
+): Promise<{ hojas: GridHoja[]; referencia: { nombreArchivo: string; cliente: string } }> {
+  const loteId = z.string().uuid().safeParse(recepcionLoteId);
+  if (!loteId.success) throw new ErrorPatron("El archivo de referencia no es válido.");
+  const original = await prisma.archivoOriginalModulo.findUnique({
+    where: { loteId: loteId.data },
+    select: { clienteId: true, moduloCodigo: true, nombreArchivo: true, nombreCliente: true, claveObjeto: true, disponible: true, huellaSha256: true },
+  });
+  if (!original || original.moduloCodigo !== descriptor.codigo || !original.disponible || !original.claveObjeto) {
+    throw new ErrorPatron("El archivo de referencia ya no está disponible.");
+  }
+  const alcance = await authorizePermiso(PERMISO, { clientId: original.clienteId, modo: "lectura" });
+  if (!alcance.ok) throw new ErrorPatron(alcance.message);
+  const objeto = await obtenerObjeto(original.claveObjeto);
+  if (!objeto || huellaSha256Archivo(objeto.cuerpo) !== original.huellaSha256) {
+    throw new ErrorPatron("El archivo de referencia no supera la verificación de integridad.");
+  }
+  return {
+    hojas: await hojasDe(objeto.cuerpo, original.nombreArchivo),
+    referencia: { nombreArchivo: original.nombreArchivo, cliente: original.nombreCliente },
+  };
 }
 
 // ============================================================
@@ -222,12 +249,7 @@ export async function analizarMuestraDeVersion(input: { id: number; hoja?: strin
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number(input.id) } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
     const descriptor = descriptorDe(version.moduloCodigo);
-    if (!version.muestraClaveObjeto) throw new ErrorPatron("La versión no tiene muestra: súbela primero.");
-    const objeto = await obtenerObjeto(version.muestraClaveObjeto);
-    if (!objeto || (version.muestraSha256 && huellaSha256Archivo(objeto.cuerpo) !== version.muestraSha256)) {
-      throw new ErrorPatron("La muestra de la versión no está disponible o no supera la verificación de integridad.");
-    }
-    const hojas = await hojasDe(objeto.cuerpo, version.muestraNombre ?? "muestra.xlsx");
+    const hojas = await hojasDeMuestraVersion(version);
     const parsed = SpecModuloSchema.safeParse(version.specJson);
     if (!parsed.success) throw new ErrorPatron("El mapeo guardado de la versión es ilegible.");
     const spec = normalizarSpecModulo(descriptor, parsed.data);
@@ -248,27 +270,75 @@ export async function analizarOriginalParaPatron(input: { recepcionLoteId: strin
   if (!permiso.ok) return { ok: false, message: permiso.message };
   try {
     const descriptor = descriptorDe(input.moduloCodigo);
-    const loteId = z.string().uuid().safeParse(input.recepcionLoteId);
-    if (!loteId.success) throw new ErrorPatron("El archivo de referencia no es válido.");
-    const original = await prisma.archivoOriginalModulo.findUnique({
-      where: { loteId: loteId.data },
-      select: { clienteId: true, moduloCodigo: true, nombreArchivo: true, nombreCliente: true, claveObjeto: true, disponible: true, huellaSha256: true },
-    });
-    if (!original || original.moduloCodigo !== descriptor.codigo || !original.disponible || !original.claveObjeto) {
-      throw new ErrorPatron("El archivo de referencia ya no está disponible.");
-    }
-    const alcance = await authorizePermiso(PERMISO, { clientId: original.clienteId, modo: "lectura" });
-    if (!alcance.ok) return { ok: false, message: alcance.message };
-    const objeto = await obtenerObjeto(original.claveObjeto);
-    if (!objeto || huellaSha256Archivo(objeto.cuerpo) !== original.huellaSha256) {
-      throw new ErrorPatron("El archivo de referencia no supera la verificación de integridad.");
-    }
-    const hojas = await hojasDe(objeto.cuerpo, original.nombreArchivo);
+    const { hojas, referencia } = await hojasDeOriginalCliente(descriptor, input.recepcionLoteId);
     const { analisis } = analisisDeHojas(descriptor, hojas, {});
-    return { ...analisis, referencia: { nombreArchivo: original.nombreArchivo, cliente: original.nombreCliente } };
+    return { ...analisis, referencia };
   } catch (e) {
     return respuestaError("analizarOriginalParaPatron", e);
   }
+}
+
+/**
+ * PROBAR EL MAPEO: devuelve las primeras filas de la muestra tal como las lee el motor, con lo
+ * que impediría guardar la versión. Es de solo lectura —no toca la versión ni el spec guardado—
+ * y comparte la comprobación con el guardado (`revisarMapeoMuestra`), así que lo que se ve aquí
+ * es exactamente lo que se guardaría.
+ */
+export async function probarMapeoPatron(formData: FormData): Promise<ResultadoPruebaMapeo> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  try {
+    const descriptor = descriptorDe(formData.get("moduloCodigo"));
+    const spec = specDeFormulario(descriptor, formData.get("specJson"));
+    if (!spec) throw new ErrorPatron("Falta el mapeo de columnas.");
+    const { hojas, origen } = await hojasParaProbar(descriptor, formData);
+    // Con tope de filas: la lectura es sincrónica y una muestra grande dejaría al servidor
+    // entero sin responder mientras corre. El guardado sí lee el archivo completo.
+    const revision = revisarMapeoMuestra(descriptor, hojas, spec, {
+      exigirTipoFormato: true,
+      maxFilasDatos: FILAS_MAXIMAS_PRUEBA,
+    });
+    return {
+      ok: true,
+      origen,
+      ...vistaPruebaMapeo({
+        descriptor,
+        spec: revision.spec,
+        hoja: revision.hoja,
+        lectura: revision.lectura,
+        impedimentos: revision.impedimentos,
+        recorte: revision.recorte,
+      }),
+    };
+  } catch (e) {
+    return respuestaError("probarMapeoPatron", e);
+  }
+}
+
+/** El archivo sobre el que se prueba: el que el editor tenga a mano en ese momento. */
+async function hojasParaProbar(
+  descriptor: DescriptorModulo,
+  formData: FormData,
+): Promise<{ hojas: GridHoja[]; origen: OrigenPruebaMapeo }> {
+  const fuente = String(formData.get("fuente") ?? "").trim();
+  if (fuente === "muestra") {
+    const { archivo, bytes } = await bytesDeArchivo(formData.get("archivo"));
+    return { hojas: await hojasDe(bytes, archivo.name), origen: { tipo: "muestra", nombre: archivo.name } };
+  }
+  if (fuente === "version") {
+    const id = Number(formData.get("versionId"));
+    const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number.isInteger(id) ? id : 0 } });
+    if (!version || version.moduloCodigo !== descriptor.codigo) throw new ErrorPatron("La versión ya no existe.");
+    return {
+      hojas: await hojasDeMuestraVersion(version),
+      origen: { tipo: "version", nombre: version.muestraNombre ?? "la muestra de la versión" },
+    };
+  }
+  if (fuente === "original") {
+    const { hojas, referencia } = await hojasDeOriginalCliente(descriptor, formData.get("recepcionLoteId"));
+    return { hojas, origen: { tipo: "original", nombre: referencia.nombreArchivo, cliente: referencia.cliente } };
+  }
+  throw new ErrorPatron("No hay archivo sobre el que probar el mapeo.");
 }
 
 // ============================================================
@@ -427,11 +497,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
     const descriptor = descriptorDe(version.moduloCodigo);
     const specEntrada = specDeFormulario(descriptor, datos.specJson);
     if (!specEntrada) throw new ErrorPatron("Falta el mapeo de columnas.");
-    const objeto = await obtenerObjeto(version.muestraClaveObjeto);
-    if (!objeto || (version.muestraSha256 && huellaSha256Archivo(objeto.cuerpo) !== version.muestraSha256)) {
-      throw new ErrorPatron("La muestra de la versión no está disponible o no supera la verificación de integridad.");
-    }
-    const hojas = await hojasDe(objeto.cuerpo, version.muestraNombre ?? "muestra.xlsx");
+    const hojas = await hojasDeMuestraVersion(version);
     const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
       where: { id: datos.id, estado: "pendiente", actualizadoEn: version.actualizadoEn },
