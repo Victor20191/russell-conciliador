@@ -56,8 +56,10 @@ export type CruceTerceroVm = {
   alcance: AlcanceCruceTercero | null;
   /** La conciliación del período está en firme: rige la lista de cuentas guardada al cerrar. */
   listaDelCierre: boolean;
-  /** Filtros de cuentas del módulo, si el usuario los administra. */
-  enlaceCuentasModulo: string | null;
+  /** Filtros de cuentas del módulo (con regreso a esta pestaña), si el usuario los administra. */
+  enlaceCuentasModulo: { href: string; modulo: string } | null;
+  /** Se vuelve de Filtros de cuentas: el panel de cuentas abre desplegado. */
+  abrirPanelCuentas: boolean;
   /** Rótulos de la clave del cruce: «NIT»/«Nombre», o «Cédula»/«Empleado» en Nómina. */
   etiquetaClave: string;
   etiquetaNombre: string;
@@ -503,6 +505,7 @@ export function CruceTerceroTab({
           periodo={cruceTercero.periodo}
           listaDelCierre={cruceTercero.listaDelCierre}
           enlaceCuentasModulo={cruceTercero.enlaceCuentasModulo}
+          abiertoInicial={cruceTercero.abrirPanelCuentas}
           contableNoModular={cruceTercero.contableNoModular}
           contableExcluidoFilas={cruceTercero.contableExcluidoFilas}
           onIrConsolidado={onIrConsolidado}

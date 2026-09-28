@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Card, PageHeader } from "@/components/ui";
+import { BackLink, Card, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
@@ -15,12 +15,26 @@ import { cargarPlan6, configuracionModulo, moduloDeRuta } from "../datos";
  * `/cxp`, `/nom`): la misma vista de «Cuentas del prevalidador» con solo las cuentas del módulo y,
  * en los que concilian a 6 dígitos, las cuentas Russell que concilian. Entrada del submenú.
  */
-export default async function PrevalidadorModuloPage({ params }: { params: Promise<{ modulo: string }> }) {
+/**
+ * `?volver=` trae de regreso a la pestaña Cruce por tercero de un cargue (panel «Cuentas en este
+ * cruce»). Solo se acepta esa ruta exacta: nunca un destino arbitrario.
+ */
+const RUTA_VOLVER = /^\/modulos\/[a-z]+\/\d+\?tab=cruceTercero(&panel=cuentas)?$/;
+
+export default async function PrevalidadorModuloPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ modulo: string }>;
+  searchParams: Promise<{ volver?: string }>;
+}) {
   // Administrador y Superadministrador (permiso parametros:administrar): qué se prevalida y qué
   // concilia cada módulo es un criterio de la firma, no un dato de cliente.
   await requirePermiso("parametros:administrar");
   const codigo = moduloDeRuta((await params).modulo);
   if (!codigo) notFound();
+  const { volver } = await searchParams;
+  const volverAlCruce = typeof volver === "string" && RUTA_VOLVER.test(volver) ? volver : null;
 
   const config = configuracionModulo(codigo);
   const [catalogo, modulos, cuentas, plan6] = await Promise.all([
@@ -44,6 +58,7 @@ export default async function PrevalidadorModuloPage({ params }: { params: Promi
 
   return (
     <div>
+      {volverAlCruce && <div className="mb-3"><BackLink href={volverAlCruce} label="Volver al cruce por tercero" /></div>}
       <PageHeader
         title={`Cuentas del prevalidador · ${modulo.name}`}
         subtitle={`Cuentas del plan estándar Russell que se comparan contra el PUC del cliente antes de conciliar ${modulo.name}.`}

@@ -43,7 +43,7 @@ export default async function DatoModuloPage({
   searchParams,
 }: {
   params: Promise<{ codigo: string; id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; panel?: string }>;
 }) {
   await requirePermiso("modulos_datos:ver");
   const [{ codigo, id }, query] = await Promise.all([params, searchParams]);
@@ -433,7 +433,14 @@ export default async function DatoModuloPage({
     moduloNoAtribuido: cruceTercero?.moduloNoAtribuido ?? 0,
     alcance: cruceTercero?.alcance ?? null,
     listaDelCierre: cierreRow?.estado === ESTADO_CIERRE_FIRME,
-    enlaceCuentasModulo: administrarCuentasAuth.ok ? `/config/prevalidador/${moduloCodigo.toLowerCase()}` : null,
+    // Filtros de cuentas del módulo, con regreso a esta pestaña y el panel de cuentas abierto.
+    enlaceCuentasModulo: administrarCuentasAuth.ok
+      ? {
+          href: `/config/prevalidador/${moduloCodigo.toLowerCase()}?volver=${encodeURIComponent(`/modulos/${moduloCodigo.toLowerCase()}/${encabezado.id}?tab=cruceTercero&panel=cuentas`)}`,
+          modulo: descriptor.label,
+        }
+      : null,
+    abrirPanelCuentas: query.panel === "cuentas",
     ...etiquetasCruceTercero(descriptor),
   };
 
@@ -540,7 +547,7 @@ export default async function DatoModuloPage({
         puedeEditar={puedeEditar}
         versiones={versiones}
         versionActualId={encabezado.id}
-        tabInicial={query.tab === "versiones" ? "versiones" : null}
+        tabInicial={query.tab === "versiones" ? "versiones" : query.tab === "cruceTercero" && descriptor.crucePorTercero.habilitado ? "cruceTercero" : null}
       />
       <div className="mt-4">
         <Conversacion

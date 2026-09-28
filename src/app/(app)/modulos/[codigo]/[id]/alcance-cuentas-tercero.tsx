@@ -28,6 +28,7 @@ export function AlcanceCuentasTercero({
   periodo,
   listaDelCierre,
   enlaceCuentasModulo,
+  abiertoInicial = false,
   contableNoModular,
   contableExcluidoFilas,
   onIrConsolidado,
@@ -36,13 +37,15 @@ export function AlcanceCuentasTercero({
   periodo: string;
   /** La conciliación del período está en firme: rige la lista de cuentas guardada al cerrar. */
   listaDelCierre: boolean;
-  /** Filtros de cuentas del módulo; null si el usuario no los administra. */
-  enlaceCuentasModulo: string | null;
+  /** Filtros de cuentas del módulo (con regreso a esta pestaña); null si el usuario no los administra. */
+  enlaceCuentasModulo: { href: string; modulo: string } | null;
+  /** Abre desplegado (se vuelve de Filtros de cuentas). */
+  abiertoInicial?: boolean;
   contableNoModular: { total: number; filas: number; cuentas: string[] };
   contableExcluidoFilas: number;
   onIrConsolidado?: () => void;
 }) {
-  const [abierto, setAbierto] = useState(false);
+  const [abierto, setAbierto] = useState(abiertoInicial);
   const { cuentas, grupos, auxiliarSinDesglose, fueraDelModulo, archivoSinAsignar } = alcance;
   const delModulo = cuentas.filter((c) => c.fuente === "modulo").length;
   const delPeriodo = cuentas.filter((c) => c.fuente === "periodo").length;
@@ -82,12 +85,25 @@ export function AlcanceCuentasTercero({
               : "Son las cuentas que el módulo concilia según Filtros de cuentas; un cambio en esa lista rige de inmediato en este cruce."}
             {delPeriodo > 0 && <> Las marcadas «Solo {periodo}» las asignó el Consolidado únicamente para este período.</>}
             {" "}El auxiliar entra por la cuenta del módulo que el Consolidado le asignó a cada cuenta del archivo.
-            {enlaceCuentasModulo && (
-              <> <Link href={enlaceCuentasModulo} className="font-semibold text-blue-700 hover:underline">Editar cuentas del módulo →</Link></>
-            )}
+            {enlaceCuentasModulo
+              ? " La lista es la misma para todos los clientes: «Filtros de cuentas» la edita y te regresa aquí."
+              : " La lista es la misma para todos los clientes y solo un administrador la cambia en Filtros de cuentas."}
           </p>
 
           <div className="overflow-x-auto rounded-md border border-ink-150">
+            {enlaceCuentasModulo && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-white px-3 py-1.5">
+                <span className="text-[11.5px] text-ink-500">Cuentas que concilia {enlaceCuentasModulo.modulo} para todos los clientes</span>
+                <Link
+                  href={enlaceCuentasModulo.href}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-navy-700 hover:border-navy-700 hover:bg-blue-50"
+                  title={`Filtros de cuentas › ${enlaceCuentasModulo.modulo}: agregar o quitar las cuentas que concilia el módulo.`}
+                >
+                  <Icon name="settings" size={13} />
+                  Filtros de cuentas · {enlaceCuentasModulo.modulo}
+                </Link>
+              </div>
+            )}
             <table className="w-full text-[12px]">
               <thead className="bg-ink-50 text-left text-ink-500">
                 <tr>
@@ -225,7 +241,13 @@ export function AlcanceCuentasTercero({
                     ))}
                   </ul>
                   <div className="mt-0.5 text-[11.5px] text-ink-500">
-                    Si alguna debe conciliarse, agrégala a las cuentas del módulo en Filtros de cuentas (administrador) o asígnala solo para {periodo} desde el Consolidado con «Buscar…».
+                    Si alguna debe conciliarse,{" "}
+                    {enlaceCuentasModulo ? (
+                      <Link href={enlaceCuentasModulo.href} className="font-semibold text-blue-700 hover:underline">agrégala a las cuentas de {enlaceCuentasModulo.modulo}</Link>
+                    ) : (
+                      "un administrador puede agregarla en Filtros de cuentas"
+                    )}
+                    {" "}(todos los clientes) o asígnala solo para {periodo} desde el Consolidado con «Buscar…».
                   </div>
                 </div>
               )}

@@ -269,7 +269,7 @@ export default function DatoCargadoClient({
   puedeEditar: boolean;
   versiones: VersionModuloVm[];
   versionActualId: number;
-  tabInicial: "versiones" | null;
+  tabInicial: "versiones" | "cruceTercero" | null;
 }) {
   type TabId = "detalle" | "consolidado" | "cruce" | "cruceTercero" | "novedades" | "versiones";
   const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
