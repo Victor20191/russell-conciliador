@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   coincideBusquedaModulo,
+  contarPeriodosPorEstado,
   direccionInicialColumnaModulo,
+  estadoPeriodoModulo,
   filtrarGruposCargaModulo,
+  filtrarGruposPorEstado,
   ordenarFilasModulo,
   type FilaListadoModulo,
 } from "./listado";
@@ -150,6 +153,40 @@ describe("filtrarGruposCargaModulo", () => {
 
   it("no muta el grupo original al recortar sus períodos", () => {
     filtrarGruposCargaModulo(grupos, "ABRIL");
+    expect(grupos[0].periodos).toHaveLength(2);
+  });
+});
+
+describe("estado del período en el listado de cargados", () => {
+  const cierre = { cerradoPor: "Ana" };
+  const periodo = (p: string, estado: { conciliacionCerrada?: object | null; estaCongelado?: boolean; esOficial?: boolean }) => ({
+    periodo: p,
+    conciliacionCerrada: estado.conciliacionCerrada ?? null,
+    estaCongelado: estado.estaCongelado ?? false,
+    esOficial: estado.esOficial ?? false,
+  });
+  const grupos = [
+    { clienteNombre: "A", periodos: [periodo("2026-01", { esOficial: true }), periodo("2026-02", { conciliacionCerrada: cierre, esOficial: true })] },
+    { clienteNombre: "B", periodos: [periodo("2026-01", { estaCongelado: true, esOficial: true })] },
+    { clienteNombre: "C", periodos: [periodo("2026-01", {})] },
+  ];
+
+  it("la conciliación cerrada manda sobre congelado y vigente; sin nada es histórica", () => {
+    expect(estadoPeriodoModulo(periodo("x", { conciliacionCerrada: cierre, estaCongelado: true, esOficial: true }))).toBe("cerrado");
+    expect(estadoPeriodoModulo(periodo("x", { estaCongelado: true, esOficial: true }))).toBe("congelado");
+    expect(estadoPeriodoModulo(periodo("x", { esOficial: true }))).toBe("vigente");
+    expect(estadoPeriodoModulo(periodo("x", {}))).toBe("historica");
+  });
+
+  it("cuenta los períodos de cada estado", () => {
+    expect(contarPeriodosPorEstado(grupos)).toEqual({ vigente: 1, cerrado: 1, congelado: 1, historica: 1 });
+  });
+
+  it("sin estado devuelve todo; con estado deja solo esos períodos y descarta la tarjeta vacía", () => {
+    expect(filtrarGruposPorEstado(grupos, null)).toEqual(grupos);
+    const cerrados = filtrarGruposPorEstado(grupos, "cerrado");
+    expect(cerrados.map((g) => g.clienteNombre)).toEqual(["A"]);
+    expect(cerrados[0].periodos.map((p) => p.periodo)).toEqual(["2026-02"]);
     expect(grupos[0].periodos).toHaveLength(2);
   });
 });

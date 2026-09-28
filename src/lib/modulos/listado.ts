@@ -156,3 +156,54 @@ export function filtrarGruposCargaModulo<
     return periodos.length > 0 ? [{ ...grupo, periodos }] : [];
   });
 }
+
+/**
+ * Estado con que el listado de cargados rotula un período. La conciliación en firme manda sobre
+ * el estado de la versión, luego el congelado, luego la oficial («Vigente») y, si ninguna aplica,
+ * la versión es «Histórica». Es la ÚNICA regla: la celda «Estado» y el filtro la comparten.
+ */
+export type EstadoPeriodoModulo = "cerrado" | "congelado" | "vigente" | "historica";
+
+export const ESTADOS_PERIODO_MODULO: readonly { valor: EstadoPeriodoModulo; etiqueta: string }[] = [
+  { valor: "vigente", etiqueta: "Vigente" },
+  { valor: "cerrado", etiqueta: "Cerrado" },
+  { valor: "congelado", etiqueta: "Congelado" },
+  { valor: "historica", etiqueta: "Histórica" },
+];
+
+export function estadoPeriodoModulo(periodo: {
+  conciliacionCerrada: unknown | null;
+  estaCongelado: boolean;
+  esOficial: boolean;
+}): EstadoPeriodoModulo {
+  if (periodo.conciliacionCerrada) return "cerrado";
+  if (periodo.estaCongelado) return "congelado";
+  if (periodo.esOficial) return "vigente";
+  return "historica";
+}
+
+type PeriodoConEstado = Parameters<typeof estadoPeriodoModulo>[0];
+
+/** Períodos por estado en todo el listado (alimenta los contadores del filtro). */
+export function contarPeriodosPorEstado<G extends { periodos: PeriodoConEstado[] }>(
+  grupos: readonly G[],
+): Record<EstadoPeriodoModulo, number> {
+  const conteo: Record<EstadoPeriodoModulo, number> = { vigente: 0, cerrado: 0, congelado: 0, historica: 0 };
+  for (const grupo of grupos) for (const periodo of grupo.periodos) conteo[estadoPeriodoModulo(periodo)] += 1;
+  return conteo;
+}
+
+/**
+ * Deja solo los períodos con el estado pedido y descarta la tarjeta del cliente que se queda sin
+ * ninguno. `null` = todos los estados.
+ */
+export function filtrarGruposPorEstado<G extends { periodos: PeriodoConEstado[] }>(
+  grupos: readonly G[],
+  estado: EstadoPeriodoModulo | null,
+): G[] {
+  if (!estado) return [...grupos];
+  return grupos.flatMap((grupo) => {
+    const periodos = grupo.periodos.filter((periodo) => estadoPeriodoModulo(periodo) === estado);
+    return periodos.length > 0 ? [{ ...grupo, periodos }] : [];
+  });
+}

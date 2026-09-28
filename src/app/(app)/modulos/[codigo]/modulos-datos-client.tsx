@@ -15,10 +15,24 @@ import { Card, Chip, EmptyState } from "@/components/ui";
 import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import { fmtContable } from "@/lib/format";
 import { archivosDeVersion } from "@/lib/modulos/archivos-carga";
-import { filtrarGruposCargaModulo } from "@/lib/modulos/listado";
+import {
+  contarPeriodosPorEstado,
+  ESTADOS_PERIODO_MODULO,
+  estadoPeriodoModulo,
+  filtrarGruposCargaModulo,
+  filtrarGruposPorEstado,
+  type EstadoPeriodoModulo,
+} from "@/lib/modulos/listado";
 import { EliminarDatosModuloButton } from "./eliminar-datos-modulo-modal";
 import { AgregarArchivoButton, CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
-import { BOTON_ACCION, BadgeComentarios, BuscadorListado, etiquetaOrigen, type OnConversar } from "./listado-compartido";
+import {
+  BOTON_ACCION,
+  BadgeComentarios,
+  BuscadorListado,
+  etiquetaOrigen,
+  FiltroEstadoListado,
+  type OnConversar,
+} from "./listado-compartido";
 
 /** Un período del cliente, con los datos de la versión que lo representa. */
 export type PeriodoModuloRow = {
@@ -186,14 +200,19 @@ function CargadosPorCliente({
   confirmarTotal: { rolValor: string } | null;
   confirmarAgrupador: boolean;
 }) {
-  // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
-  // cliente y, si no, solo los períodos que coinciden.
-  const visibles = useMemo(() => filtrarGruposCargaModulo(grupos, busqueda), [grupos, busqueda]);
+  const [estado, setEstado] = useState<EstadoPeriodoModulo | null>(null);
+  const conteoEstados = useMemo(() => contarPeriodosPorEstado(grupos), [grupos]);
+  // Primero el estado (recorta los períodos) y luego el buscador: filtra la tarjeta entera cuando
+  // identifica al cliente y, si no, solo los períodos que coinciden.
+  const visibles = useMemo(
+    () => filtrarGruposCargaModulo(filtrarGruposPorEstado(grupos, estado), busqueda),
+    [grupos, estado, busqueda],
+  );
   const pg = usePagination(visibles, 50);
   const { resetToFirstPage } = pg;
   useEffect(() => {
     resetToFirstPage();
-  }, [busqueda, resetToFirstPage]);
+  }, [busqueda, estado, resetToFirstPage]);
 
   if (grupos.length === 0) {
     return (
@@ -221,12 +240,17 @@ function CargadosPorCliente({
         <span className="text-[11px] text-ink-400">
           {grupos.length === 1 ? "1 cliente" : `${grupos.length} clientes`}
         </span>
+        <div className="ml-auto">
+          <FiltroEstadoListado estado={estado} setEstado={setEstado} conteo={conteoEstados} />
+        </div>
       </div>
 
       {visibles.length === 0 && (
         <Card>
           <div className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-            No se encontraron cargues con ese archivo, NIT, razón social o período.
+            {estado
+              ? `No se encontraron períodos en estado «${ESTADOS_PERIODO_MODULO.find((e) => e.valor === estado)?.etiqueta}»${busqueda.trim() ? " con esa búsqueda" : ""}.`
+              : "No se encontraron cargues con ese archivo, NIT, razón social o período."}
           </div>
         </Card>
       )}
@@ -379,7 +403,7 @@ function CargadosPorCliente({
                           que el equipo necesita saber del período (la versión ya se ve en
                           «Versión vigente»). El cierre es del período y puede venir de otra
                           versión: el título dice de cuál. */}
-                      {p.conciliacionCerrada ? (
+                      {estadoPeriodoModulo(p) === "cerrado" && p.conciliacionCerrada ? (
                         <span
                           title={`Conciliación en firme · cargue #${p.conciliacionCerrada.encabezadoId} · cerró ${p.conciliacionCerrada.cerradoPor} · ${p.conciliacionCerrada.cerradoEn}`}
                           className="flex flex-col items-start gap-0.5"
@@ -389,9 +413,9 @@ function CargadosPorCliente({
                           </span>
                           <span className="whitespace-nowrap text-[10px] text-ink-400">por {p.conciliacionCerrada.cerradoPor}</span>
                         </span>
-                      ) : p.estaCongelado ? (
+                      ) : estadoPeriodoModulo(p) === "congelado" ? (
                         <Chip label="Congelado" tone="blue" />
-                      ) : p.esOficial ? (
+                      ) : estadoPeriodoModulo(p) === "vigente" ? (
                         <Chip label="Vigente" tone="ok" />
                       ) : (
                         <Chip label="Histórica" tone="ink" />

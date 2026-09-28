@@ -18,9 +18,11 @@ import { Chip } from "@/components/ui";
 import {
   coincideBusquedaModulo,
   direccionInicialColumnaModulo,
+  ESTADOS_PERIODO_MODULO,
   ordenarFilasModulo,
   type ColumnaOrdenModulo,
   type DireccionOrden,
+  type EstadoPeriodoModulo,
   type FilaListadoModulo,
 } from "@/lib/modulos/listado";
 
@@ -51,6 +53,39 @@ export function BuscadorListado({ busqueda, setBusqueda }: { busqueda: string; s
         </button>
       )}
     </div>
+  );
+}
+
+/** Filtro por estado del período (Vigente, Cerrado, Congelado, Histórica), con cuántos hay de cada uno. */
+export function FiltroEstadoListado({
+  estado,
+  setEstado,
+  conteo,
+}: {
+  estado: EstadoPeriodoModulo | null;
+  setEstado: (v: EstadoPeriodoModulo | null) => void;
+  conteo: Record<EstadoPeriodoModulo, number>;
+}) {
+  const total = ESTADOS_PERIODO_MODULO.reduce((suma, e) => suma + conteo[e.valor], 0);
+  return (
+    <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+      Estado
+      <select
+        value={estado ?? ""}
+        onChange={(event) => setEstado((event.target.value || null) as EstadoPeriodoModulo | null)}
+        aria-label="Filtrar por estado"
+        className={`h-8 rounded-md border bg-white px-2 text-[12px] font-normal normal-case tracking-normal text-ink-700 shadow-sm outline-none transition focus:border-blue-400 ${
+          estado ? "border-blue-300 bg-blue-50/50" : "border-ink-200"
+        }`}
+      >
+        <option value="">Todos ({total})</option>
+        {ESTADOS_PERIODO_MODULO.map((e) => (
+          <option key={e.valor} value={e.valor}>
+            {e.etiqueta} ({conteo[e.valor]})
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
