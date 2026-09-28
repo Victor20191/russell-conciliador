@@ -77,11 +77,15 @@ export default function ModulosDatosClient({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  rolValor,
+  confirmarValorSinImpuestos,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  rolValor: string;
+  confirmarValorSinImpuestos: boolean;
   /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
   conNivelCartera: boolean;
   clientes: ClienteModulo[];
@@ -116,6 +120,8 @@ export default function ModulosDatosClient({
             confirmarClasificador={confirmarClasificador}
             confirmarTotal={confirmarTotal}
             confirmarAgrupador={confirmarAgrupador}
+            rolValor={rolValor}
+            confirmarValorSinImpuestos={confirmarValorSinImpuestos}
           />
         )}
       </div>
@@ -146,6 +152,8 @@ export default function ModulosDatosClient({
         confirmarClasificador={confirmarClasificador}
         confirmarTotal={confirmarTotal}
         confirmarAgrupador={confirmarAgrupador}
+        rolValor={rolValor}
+        confirmarValorSinImpuestos={confirmarValorSinImpuestos}
       />
     </div>
   );
@@ -168,6 +176,8 @@ function CargadosPorCliente({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  rolValor,
+  confirmarValorSinImpuestos,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -185,6 +195,8 @@ function CargadosPorCliente({
   confirmarClasificador: boolean;
   confirmarTotal: { rolValor: string } | null;
   confirmarAgrupador: boolean;
+  rolValor: string;
+  confirmarValorSinImpuestos: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
   // cliente y, si no, solo los períodos que coinciden.
@@ -431,6 +443,8 @@ function CargadosPorCliente({
                             confirmarClasificador={confirmarClasificador}
                             confirmarTotal={confirmarTotal}
                             confirmarAgrupador={confirmarAgrupador}
+                            rolValor={rolValor}
+                            confirmarValorSinImpuestos={confirmarValorSinImpuestos}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

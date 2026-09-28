@@ -26,6 +26,8 @@ export const CLAVE_SALDO_DECLARADO = "_saldoDeclarado";
 export const CLAVE_SALDO_DIVISA = "_saldoDivisa";
 export const CLAVE_MONEDA = "_moneda";
 export const CLAVE_TRM = "_trm";
+/** Valor por FÓRMULA (cualquier módulo): el aporte de cada término, «M · Total sin Descuento» → importe. */
+export const CLAVE_FORMULA = "_formula";
 
 export const CLAVES_CARTERA = [
   CLAVE_EDADES,
@@ -36,6 +38,7 @@ export const CLAVES_CARTERA = [
   CLAVE_SALDO_DIVISA,
   CLAVE_MONEDA,
   CLAVE_TRM,
+  CLAVE_FORMULA,
 ] as const;
 
 /** Lo que el transform produce además de los roles. */
@@ -43,7 +46,8 @@ export type ExtrasCartera = {
   familias?: Record<string, Record<string, number>>;
   sumaFamilia?: number;
   valorReportado?: number | null;
-  origenValor?: "columna" | "familia" | "columna_y_familia";
+  origenValor?: "columna" | "familia" | "columna_y_familia" | "formula";
+  terminosFormula?: Record<string, number>;
   saldoDeclarado?: number;
   saldoDivisa?: number;
   moneda?: string;
@@ -65,7 +69,8 @@ export function datosConExtrasCartera(
     || extras.valorReportado != null
     || extras.origenValor != null
     || extras.saldoDeclarado != null
-    || extras.saldoDivisa != null;
+    || extras.saldoDivisa != null
+    || extras.terminosFormula != null;
   if (!hayAlgo) return datos;
 
   const salida: Record<string, unknown> = { ...datos };
@@ -74,6 +79,7 @@ export function datosConExtrasCartera(
   if (extras.valorReportado != null) salida[CLAVE_SALDO_REPORTADO] = extras.valorReportado;
   if (extras.origenValor != null) salida[CLAVE_ORIGEN_VALOR] = extras.origenValor;
   if (extras.saldoDeclarado != null) salida[CLAVE_SALDO_DECLARADO] = extras.saldoDeclarado;
+  if (extras.terminosFormula != null) salida[CLAVE_FORMULA] = extras.terminosFormula;
   if (extras.saldoDivisa != null) {
     salida[CLAVE_SALDO_DIVISA] = extras.saldoDivisa;
     if (extras.moneda) salida[CLAVE_MONEDA] = extras.moneda;

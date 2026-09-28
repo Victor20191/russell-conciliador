@@ -40,11 +40,9 @@ import {
   separarCuentasCedula,
 } from "@/lib/modulos/asignacion-periodo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import {
-  encabezadoValorIngresoAmbiguo,
-  invalidarValorAmbiguoIngresos,
-  sugerirSpec,
-} from "@/lib/modulos/extraccion/sugerir";
+import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
+import { confirmacionValor, detalleAuditoriaValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
+import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
@@ -293,9 +291,6 @@ function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string 
 // (`export type { X }`), porque el build con Turbopack lo trata como export en runtime y el módulo
 // revienta al cargar («CeldaMuestra is not defined»), tumbando TODAS las acciones de la página.
 
-const ADVERTENCIA_VALOR_AMBIGUO =
-  "El mapeo guardado apuntaba a un total de factura ambiguo. Selecciona una columna de ingreso neto sin IVA/impuestos, subtotal o base gravable.";
-
 export type AnalisisModulo = {
   ok: boolean;
   message?: string;
@@ -341,7 +336,6 @@ export type AnalisisModulo = {
     totalVersiones: number;
     mejor: { version: number; porcentaje: number; hoja: string; faltantes: string[]; faltantesRequeridos: string[] } | null;
   };
-  advertenciaValor?: string;
   /** Cartera y CxP: el archivo no trae documento ni edades, así que no sirve para conciliar. */
   advertenciaFormato?: string;
   /**
@@ -658,22 +652,12 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     // ARCHIVO MANUAL: el analista mapea las columnas y el mapeo se memoriza por cliente (perfil
     // por huella). Es el único camino que usa la memoria por cliente.
     if (aplicativo.manual) {
+      // El perfil del cliente se respeta tal cual: si su valor es una columna de «total», la
+      // confirmación del IVA viaja en el propio perfil (`valorSinImpuestosConfirmado`) y, si no
+      // la trae, el editor la pregunta en vivo.
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      let spec: SpecModulo;
-      let origen: "perfil" | "ia";
-      let valorAmbiguoInvalidado: boolean;
-      if (perfilSpec) {
-        const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, normalizarSpecModulo(descriptor, perfilSpec));
-        spec = saneado.spec;
-        origen = "perfil";
-        valorAmbiguoInvalidado = saneado.invalidado;
-      } else {
-        spec = sugerirSpec(descriptor, hoja);
-        origen = "ia";
-        valorAmbiguoInvalidado = moduloCodigo === "ING"
-          && (spec.columnas[descriptor.valor] ?? 0) < 1
-          && (hoja.filas[spec.filaEncabezado - 1] ?? []).some(encabezadoValorIngresoAmbiguo);
-      }
+      const spec = perfilSpec ? normalizarSpecModulo(descriptor, perfilSpec) : sugerirSpec(descriptor, hoja);
+      const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
       revalidarListadosModulo(moduloCodigo);
       return {
         ok: true,
@@ -683,7 +667,6 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         ...vistaAnalisisHoja(descriptor, ingesta.hojas, hoja, spec, seleccionHoja),
         spec,
         origen,
-        ...(valorAmbiguoInvalidado ? { advertenciaValor: ADVERTENCIA_VALOR_AMBIGUO } : {}),
       };
     }
 
@@ -696,30 +679,27 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       hojaPropuesta: hoja.nombre,
     });
     const hojaPatron = ubicacion ? ingesta.hojas.find((h) => h.nombre === ubicacion.hoja) : undefined;
-    let valorAmbiguoPatron = false;
     if (ubicacion && hojaPatron && ubicacion.coincidencia.elegible) {
+      // Un valor de «total» ya no saca al archivo de su patrón: el administrador confirmó al
+      // crearlo que excluye el IVA (la firma viaja en el spec) y la carga solo lo informa.
       const aplicado = aplicarPatronASpec(descriptor, ubicacion, hojaPatron);
-      const saneado = invalidarValorAmbiguoIngresos(descriptor, hojaPatron, aplicado.spec);
-      valorAmbiguoPatron = saneado.invalidado;
-      if (!saneado.invalidado) {
-        revalidarListadosModulo(moduloCodigo);
-        return {
-          ok: true,
-          recepcionLoteId: loteId,
-          modo: "patron",
-          origen: "patron",
-          aplicativo: aplicativoVm,
-          ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaPatron, saneado.spec, seleccionHoja),
-          spec: saneado.spec,
-          coincidencia: {
-            versionId: ubicacion.version.id,
-            version: ubicacion.version.version,
-            porcentaje: ubicacion.coincidencia.porcentaje,
-            estado: ubicacion.version.estado,
-            advertencias: aplicado.advertencias,
-          },
-        };
-      }
+      revalidarListadosModulo(moduloCodigo);
+      return {
+        ok: true,
+        recepcionLoteId: loteId,
+        modo: "patron",
+        origen: "patron",
+        aplicativo: aplicativoVm,
+        ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaPatron, aplicado.spec, seleccionHoja),
+        spec: aplicado.spec,
+        coincidencia: {
+          versionId: ubicacion.version.id,
+          version: ubicacion.version.version,
+          porcentaje: ubicacion.coincidencia.porcentaje,
+          estado: ubicacion.version.estado,
+          advertencias: aplicado.advertencias,
+        },
+      };
     }
 
     revalidarListadosModulo(moduloCodigo);
@@ -746,9 +726,6 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
             }
           : null,
       },
-      ...(valorAmbiguoPatron
-        ? { advertenciaValor: "El patrón apunta a un total de factura con impuestos como valor del ingreso. Un administrador debe corregirlo antes de cargar." }
-        : {}),
     };
   } catch (e) {
     if (recepcionLoteId) {
@@ -1269,16 +1246,18 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     let spec = lectura.spec;
 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
-    // manipulado solo conservan roles vigentes del descriptor. Después se aplica la
-    // protección específica que impide colar un total de factura como cuenta 41.
+    // manipulado solo conservan roles vigentes del descriptor.
     spec = normalizarSpecModuloArchivo(descriptor, spec);
-    const valorSeguro = invalidarValorAmbiguoIngresos(descriptor, hoja, spec);
-    if (valorSeguro.invalidado) {
-      return marcarNoProcesable(
-        "Ingresos no admite una columna de total de factura para el cruce contable. Mapea ingreso neto sin IVA/impuestos, subtotal o base gravable.",
-      );
-    }
-    spec = valorSeguro.spec;
+    // Ingresos: el valor puede venir de una columna (o fórmula) de «total», pero solo con la
+    // confirmación de que excluye el IVA. Es una omisión del mapeo que se corrige en el mismo
+    // modal, así que el original NO se marca como no procesable (como «Faltan columnas»).
+    const encabezadoLectura = hoja.filas[spec.filaEncabezado - 1] ?? [];
+    const valorSinConfirmar = impedimentoValorSinConfirmar(descriptor, spec, encabezadoLectura);
+    if (valorSinConfirmar) return { ok: false, message: valorSinConfirmar };
+    const confirmacion = confirmacionValor(descriptor, spec, encabezadoLectura);
+    const letraLectura = (columna: number) => letraColumnaModulo(columna + (hoja.columnaInicial ?? 0));
+    const detalleValor = (tieneValorFormula(spec) ? ` · valor = ${textoValorFormula(spec.valorFormula, letraLectura, encabezadoLectura)}` : "")
+      + detalleAuditoriaValor(confirmacion.rotulo, confirmacion.confirmado);
 
     // Nómina: el mes de corte del cargue viaja en el spec de ESTE archivo (nunca al perfil). El
     // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese
@@ -1364,7 +1343,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // para que el borrador pueda avisarlo. El perfil reutilizable (`perfilCargaModulo`) NO
     // lleva esta marca: es información de ESTE archivo, no del layout que se memoriza.
     const reconciliacion = resultadoAReconciliacion(resultado);
-    const specConReconciliacion = reconciliacion ? { ...spec, reconciliacion } : spec;
+    const specConReconciliacion = {
+      ...spec,
+      ...(reconciliacion ? { reconciliacion } : {}),
+      ...(detalleValor ? { detalleValor } : {}),
+    };
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
     const specPerfil = normalizarSpecModulo(descriptor, spec);
@@ -1446,7 +1429,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);
@@ -1748,9 +1731,15 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
 
     const lote = await prisma.moduloImportacionLote.findUnique({
       where: { loteId },
-      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true },
+      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true, specJson: true },
     });
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
+    // Rastro del valor que dejó la lectura (fórmula y confirmación del IVA): el lote se purga al
+    // promover y la hoja ya no está, así que se toma el texto que se guardó al leer.
+    const detalleValorLote = (() => {
+      const crudo = (lote.specJson as Record<string, unknown> | null)?.detalleValor;
+      return typeof crudo === "string" ? crudo.slice(0, 600) : "";
+    })();
     const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     const descriptor = descriptorModulo(lote.moduloCodigo);
@@ -2190,8 +2179,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         action: resultado.modo === "agregar" ? `AGREGÓ ítems a ${descriptor.label}` : `CARGÓ ${descriptor.label}`,
         entity: cliente.name,
         detail: resultado.modo === "agregar"
-          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}`
-          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}`,
+          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleValorLote}`
+          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleValorLote}`,
         clientId: lote.clienteId,
       });
     }

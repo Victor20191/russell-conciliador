@@ -7,7 +7,6 @@ import {
   MENSAJE_ENCABEZADO_POBRE,
   MENSAJE_SIN_FILAS,
   MENSAJE_TIPO_FORMATO,
-  MENSAJE_VALOR_AMBIGUO_INGRESOS,
   revisarMapeoMuestra,
 } from "./revision-mapeo";
 
@@ -119,22 +118,22 @@ describe("revisarMapeoMuestra", () => {
     expect(revisarMapeoMuestra(INV, [hoja], SPEC, { exigirTipoFormato: true, maxFilasDatos: FILAS_MAXIMAS_PRUEBA }).recorte).toBeNull();
   });
 
-  it("Ingresos rechaza una columna de total de factura como valor", () => {
+  it("Ingresos acepta una columna de total como valor, pero solo con la confirmación del IVA", () => {
     const hoja: GridHoja = {
       nombre: "Ventas",
       filas: [
-        ["Concepto", "Total factura"],
-        ["Servicios", 119000],
+        ["Concepto", "Total sin Descuento"],
+        ["Servicios", 100000],
       ],
     };
-    const r = revisarMapeoMuestra(
-      ING,
-      [hoja],
-      { hoja: "Ventas", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 1, valor: 2 } },
-      { exigirTipoFormato: true },
-    );
+    const spec: SpecModulo = { hoja: "Ventas", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 1, valor: 2 } };
 
-    expect(r.impedimentos).toEqual([MENSAJE_VALOR_AMBIGUO_INGRESOS]);
-    expect(r.lectura?.filas).toHaveLength(1);
+    const sinConfirmar = revisarMapeoMuestra(ING, [hoja], spec, { exigirTipoFormato: true });
+    expect(sinConfirmar.impedimentos).toEqual(["Confirma que «Total sin Descuento» excluye el IVA: es una columna de total."]);
+    expect(sinConfirmar.lectura?.filas).toHaveLength(1);
+
+    const confirmado = revisarMapeoMuestra(ING, [hoja], { ...spec, valorSinImpuestosConfirmado: "total sin descuento" }, { exigirTipoFormato: true });
+    expect(confirmado.impedimentos).toEqual([]);
+    expect(confirmado.spec.valorSinImpuestosConfirmado).toBe("total sin descuento");
   });
 });

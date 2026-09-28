@@ -7,6 +7,7 @@ import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import { detectarFamilias } from "../extraccion/sugerir";
+import { tieneValorFormula, type TerminoFormula } from "../extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
@@ -177,6 +178,21 @@ export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: Ubic
   };
   delete spec.familias;
   delete spec.subtotalesFila;
+
+  // El valor por FÓRMULA se traslada término a término. Sin todos sus términos no se lee: un
+  // ingreso sin uno de los fletes saldría corto y en silencio. (La confirmación del IVA viaja
+  // con `base`: su firma son rótulos, así que vale en cualquier archivo que los repita.)
+  if (tieneValorFormula(base)) {
+    const trasladada = base.valorFormula.map((t) => ({ signo: t.signo, columna: mapa[t.columna] }));
+    if (trasladada.every((t) => t.columna != null)) {
+      spec.valorFormula = trasladada as TerminoFormula[];
+    } else {
+      delete spec.valorFormula;
+      const etiqueta = descriptor.columnas.find((rol) => rol.nombre === descriptor.valor)?.etiqueta ?? "Valor";
+      const faltan = base.valorFormula.filter((t) => mapa[t.columna] == null).map((t) => rotuloDe(t.columna));
+      advertencias.push(`No se encontraron todas las columnas de la fórmula de «${etiqueta}» (${faltan.join(", ")}): no se leerá.`);
+    }
+  }
 
   if (descriptor.familiasDinamicas?.length) {
     const usadas = new Set(Object.values(columnas).filter((c) => c > 0));

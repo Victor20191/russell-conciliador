@@ -7,7 +7,7 @@
 // qué quedó en cada columna mapeada. Nada crece con el tamaño del archivo.
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { columnasDetalleModulo, type ColumnaDetalle } from "../cartera/columnas-cartera";
-import { datosConExtrasCartera } from "../cartera/detalle-cartera";
+import { CLAVE_FORMULA, datosConExtrasCartera } from "../cartera/detalle-cartera";
 import { valorColumnaDetalle } from "../celda-detalle-modulo";
 import type { DescriptorModulo } from "../descriptores";
 import type { RecorteMuestra } from "../patrones/revision-mapeo";
@@ -16,6 +16,8 @@ import { esImputable, type FilaStagingModulo } from "../promocion";
 import { etiquetaRenglonNoSuma } from "../renglones-archivo";
 import type { SpecModulo } from "./esquema";
 import type { ResultadoTransformModulo, TipoFilaModulo } from "./transformar";
+import { claveTerminoFormula, textoValorFormula, tieneValorFormula } from "./valor-formula";
+import { confirmacionValor } from "./valor-sin-impuestos";
 
 /** Cuántas filas leídas se muestran. Lo justo para reconocer el archivo de un vistazo. */
 export const LIMITE_FILAS_PRUEBA = 15;
@@ -25,8 +27,10 @@ const MAX_TEXTO_CELDA = 60;
 export type ColumnaPruebaMapeo = ColumnaDetalle & {
   /** Letra de Excel de la columna en el archivo, o «—» cuando el motor no la lee de una celda. */
   letra: string;
-  /** Por qué no hay letra: «global», «se deriva». */
+  /** Por qué no hay letra: «global», «se deriva», «fórmula». */
   nota?: string;
+  /** Con el valor por fórmula: «M + N + O + P», para el título del encabezado. */
+  formula?: string;
 };
 
 export type FilaPruebaMapeo = {
@@ -74,8 +78,11 @@ export type ResultadoPruebaMapeo =
  * son del cargue—, así que en la prueba Nómina trae todos los meses y una hoja en divisa se ve
  * sin convertir. Sin decirlo, las dos cosas se leen como errores del mapeo.
  */
-function avisosDeLaPrueba(descriptor: DescriptorModulo, spec: SpecModulo): string[] {
+function avisosDeLaPrueba(descriptor: DescriptorModulo, spec: SpecModulo, encabezado: readonly unknown[]): string[] {
   const avisos: string[] = [];
+  // Ingresos: lo que el usuario confirmó al mapear queda a la vista en la prueba.
+  const { rotulo, confirmado } = confirmacionValor(descriptor, spec, encabezado);
+  if (rotulo && confirmado) avisos.push(`El valor se lee de «${rotulo}», confirmado sin IVA.`);
   if (descriptor.nomina?.periodoPorFila) {
     avisos.push("El patrón no fija el período: aquí entran todas las filas del archivo. El mes de corte se declara en cada carga.");
   }
@@ -101,7 +108,9 @@ export function columnasPruebaMapeo(
   descriptor: DescriptorModulo,
   spec: SpecModulo,
   columnaInicial = 0,
+  encabezado: readonly unknown[] = [],
 ): ColumnaPruebaMapeo[] {
+  const letra = (columna: number): string => letraColumnaModulo(columna + columnaInicial);
   const edades = spec.familias?.edades ?? [];
   const letraDeFamilia = new Map(edades.map((e) => [e.etiqueta, letraColumnaModulo(e.columna + columnaInicial)]));
   const global = modoClasificadorDe(spec) === "global";
@@ -121,6 +130,23 @@ export function columnasPruebaMapeo(
       continue;
     }
     if (columna.esValor) {
+      // Con FÓRMULA, el valor calculado y detrás una columna por término, leída de `_formula`
+      // (el aporte de cada una): así se ve de dónde sale cada peso.
+      if (tieneValorFormula(spec)) {
+        salida.push({ ...columna, letra: "—", nota: "fórmula", formula: textoValorFormula(spec.valorFormula, letra) });
+        for (const t of spec.valorFormula) {
+          const clave = claveTerminoFormula(t.columna, letra, encabezado);
+          const rotulo = String(encabezado[t.columna - 1] ?? "").replace(/\s+/g, " ").trim();
+          salida.push({
+            nombre: `${CLAVE_FORMULA}:${clave}`,
+            etiqueta: `${t.signo === "-" ? "− " : ""}${rotulo || letra(t.columna)}`,
+            tipo: "moneda",
+            letra: letra(t.columna),
+            familia: { clave: CLAVE_FORMULA, etiqueta: clave },
+          });
+        }
+        continue;
+      }
       const sinColumna = col < 1 && derivado;
       salida.push({ ...columna, letra: sinColumna ? "—" : letraColumnaModulo(col + columnaInicial), ...(sinColumna ? { nota: "se deriva" } : {}) });
       continue;
@@ -142,7 +168,8 @@ export function vistaPruebaMapeo(input: {
   recorte?: RecorteMuestra | null;
 }): VistaPruebaMapeo {
   const { descriptor, spec, hoja, lectura } = input;
-  const columnas = columnasPruebaMapeo(descriptor, spec, hoja?.columnaInicial ?? 0);
+  const encabezado = hoja?.filas[spec.filaEncabezado - 1] ?? [];
+  const columnas = columnasPruebaMapeo(descriptor, spec, hoja?.columnaInicial ?? 0, encabezado);
   const todas = lectura?.filas ?? [];
   // El MISMO criterio con que la promoción decide qué suma (`modulos-datos.ts`), para que la
   // prueba no prometa una fila que el cargue luego descarta por venir toda en cero.
@@ -191,7 +218,7 @@ export function vistaPruebaMapeo(input: {
     columnas,
     filas,
     impedimentos: [...input.impedimentos],
-    avisos: avisosDeLaPrueba(descriptor, spec),
+    avisos: avisosDeLaPrueba(descriptor, spec, encabezado),
     recorte: input.recorte ?? null,
   };
 }

@@ -12,6 +12,7 @@ import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, tipoConDocumento, tipoConEdades, tipoFormatoCartera } from "../cartera/tipo-formato";
 import { modoClasificadorDe } from "../perfil-modulo";
+import { tieneValorFormula } from "../extraccion/valor-formula";
 import { clavesEncabezado } from "./rotulos";
 
 export const UMBRAL_COINCIDENCIA_PATRON = 80;
@@ -46,6 +47,9 @@ function columnasLeidas(descriptor: DescriptorModulo, spec: SpecModulo): Map<num
     leidas.set(columna as number, lista);
   };
   for (const rol of descriptor.columnas) anotar(spec.columnas[rol.nombre], rol.etiqueta);
+  // El valor por FÓRMULA lee varias columnas: todas pesan como leídas y todas deben estar.
+  const etiquetaValor = descriptor.columnas.find((rol) => rol.nombre === descriptor.valor)?.etiqueta ?? "Valor";
+  for (const termino of spec.valorFormula ?? []) anotar(termino.columna, `${etiquetaValor} (fórmula)`);
   for (const familia of descriptor.familiasDinamicas ?? []) {
     for (const columna of spec.familias?.[familia.nombre] ?? []) anotar(columna.columna, familia.etiqueta);
   }
@@ -166,15 +170,28 @@ export function coincidenciaPatron(
     const columna = patron.spec.columnas[rol] ?? 0;
     return columna >= 1 && mapaColumnas[columna] != null;
   });
+  // Con el valor por FÓRMULA, el valor está en el archivo solo si están TODOS sus términos: sin
+  // uno de los fletes, el ingreso saldría corto y en silencio.
+  const formula = tieneValorFormula(patron.spec) ? patron.spec.valorFormula : null;
+  const terminosSinUbicar = (formula ?? []).filter((t) => mapaColumnas[t.columna] == null);
+  const rotuloPatron = (columna: number): string => {
+    const texto = String(patron.encabezado[columna - 1] ?? "").trim();
+    return texto ? `«${texto}»` : "una columna sin rótulo";
+  };
   const modo = modoClasificadorDe(patron.spec);
-  const faltantesRequeridos = descriptor.columnas
-    .filter((rol) => rol.requerido && !(rol.nombre === descriptor.clasificador && modo === "global"))
-    .filter((rol) => !(rol.nombre === descriptor.valor && alternoUbicado))
-    .filter((rol) => {
-      const columna = patron.spec.columnas[rol.nombre] ?? 0;
-      return columna < 1 || mapaColumnas[columna] == null;
-    })
-    .map((rol) => rol.etiqueta);
+  const faltantesRequeridos: string[] = [];
+  for (const rol of descriptor.columnas) {
+    if (!rol.requerido || (rol.nombre === descriptor.clasificador && modo === "global")) continue;
+    if (rol.nombre === descriptor.valor && alternoUbicado) continue;
+    if (rol.nombre === descriptor.valor && formula) {
+      if (terminosSinUbicar.length > 0) {
+        faltantesRequeridos.push(`${rol.etiqueta} (fórmula: falta ${terminosSinUbicar.map((t) => rotuloPatron(t.columna)).join(", ")})`);
+      }
+      continue;
+    }
+    const columna = patron.spec.columnas[rol.nombre] ?? 0;
+    if (columna < 1 || mapaColumnas[columna] == null) faltantesRequeridos.push(rol.etiqueta);
+  }
   faltantesRequeridos.push(...faltantesDelTipoFormato(descriptor, patron.spec, mapaColumnas));
 
   const porcentaje = total > 0 ? Math.round((100 * logrado) / total) : 0;

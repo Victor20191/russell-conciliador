@@ -370,3 +370,42 @@ describe("aplicarAgrupadorDeCarga («¿Separar por centro de costo?» en el carg
     expect(leer(r.spec)).toHaveLength(2);
   });
 });
+
+describe("aplicarPatronASpec con el valor como FÓRMULA", () => {
+  const ING = descriptorModulo("ING")!;
+  const colIng = (mapa: Record<string, number>) => Object.fromEntries(ING.columnas.map((rol) => [rol.nombre, mapa[rol.nombre] ?? 0]));
+  const ENCABEZADO_SAP = ["Clase de Documento", "Documento", "Total sin Descuento", "Total Fletes"];
+  const SPEC_SAP: SpecModulo = {
+    hoja: "Hoja1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: colIng({ concepto: 1, documento: 2 }),
+    valorFormula: [{ columna: 3, signo: "+" }, { columna: 4, signo: "+" }],
+    valorSinImpuestosConfirmado: "+total sin descuento +total fletes",
+  };
+  const vSap: VersionCandidata = {
+    id: 7, version: 1, estado: "aprobada", clienteOrigenId: null, hoja: "Hoja1",
+    filaEncabezado: 1, primeraFilaDatos: 2, encabezado: ENCABEZADO_SAP, spec: SPEC_SAP,
+  };
+  const ubicarSap = (fila: readonly (string | null)[]): UbicacionPatron => ({
+    version: vSap,
+    hoja: "Hoja1",
+    filaEncabezado: 1,
+    encabezadoArchivo: fila,
+    coincidencia: coincidenciaPatron(ING, { encabezado: vSap.encabezado, spec: vSap.spec }, fila),
+  });
+
+  it("traslada cada término a su columna en el archivo y conserva la confirmación del IVA", () => {
+    const { spec, advertencias } = aplicarPatronASpec(ING, ubicarSap(["Asesor", "Clase de Documento", "Documento", "Total sin Descuento", "Total Fletes"]));
+    expect(advertencias).toEqual([]);
+    expect(spec.valorFormula).toEqual([{ columna: 4, signo: "+" }, { columna: 5, signo: "+" }]);
+    expect(spec.columnas.valor).toBe(0);
+    expect(spec.valorSinImpuestosConfirmado).toBe("+total sin descuento +total fletes");
+  });
+
+  it("sin todos los términos, la fórmula no se aplica y lo avisa", () => {
+    const { spec, advertencias } = aplicarPatronASpec(ING, ubicarSap(["Clase de Documento", "Documento", "Total sin Descuento", "Otra"]));
+    expect(spec.valorFormula).toBeUndefined();
+    expect(advertencias).toEqual(["No se encontraron todas las columnas de la fórmula de «Ingreso neto sin impuestos» («Total Fletes»): no se leerá."]);
+  });
+});

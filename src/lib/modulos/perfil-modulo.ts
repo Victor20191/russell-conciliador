@@ -11,6 +11,7 @@ import type { SpecModulo } from "./extraccion/esquema";
 export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from "./subtotales";
 import { descripcionModoSubtotales } from "./subtotales";
 import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
+import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -182,6 +183,18 @@ function normalizarSpecModuloInterno(
       if (texto) normalizado.subtotalesTexto = texto;
     }
   }
+  // El valor como FÓRMULA y la confirmación «excluye el IVA» son del FORMATO, no del cargue:
+  // valen en el perfil del cliente y en el patrón, y se trasladan a otros archivos por rótulo.
+  // Con fórmula, la columna del rol de valor no se lee: queda en 0.
+  const formula = sanearValorFormula(spec.valorFormula);
+  if (formula) {
+    normalizado.valorFormula = formula;
+    normalizado.columnas[descriptor.valor] = 0;
+  }
+  if (descriptor.confirmarValorSinImpuestos) {
+    const firma = spec.valorSinImpuestosConfirmado?.trim();
+    if (firma) normalizado.valorSinImpuestosConfirmado = firma.slice(0, 400);
+  }
   return normalizado;
 }
 
@@ -218,7 +231,8 @@ export function rolRequeridoExento(
   rol: string,
 ): boolean {
   if (rol === descriptor.clasificador && modoClasificadorDe(spec) === "global") return true;
-  return rol === descriptor.valor && valorAlternoMapeado(descriptor, spec);
+  // El valor también puede venir como FÓRMULA de varias columnas (SAP: neto + fletes).
+  return rol === descriptor.valor && (valorAlternoMapeado(descriptor, spec) || tieneValorFormula(spec));
 }
 
 export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
@@ -239,6 +253,8 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
       return `Falta la columna obligatoria «${rol.etiqueta}».`;
     }
   }
+  const errorFormula = validarValorFormula(spec, letraColumnaModulo);
+  if (errorFormula) return errorFormula;
   if (spec.subtotales === "manual") {
     const columna = spec.subtotalesColumna ?? 0;
     if (!Number.isInteger(columna) || columna < 1) {
@@ -312,6 +328,10 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
   for (const rol of descriptor.columnas) {
     if (rol.nombre === descriptor.clasificador && modo === "global") {
       partes.push(`${rol.etiqueta.toLowerCase()} global`);
+      continue;
+    }
+    if (rol.nombre === descriptor.valor && tieneValorFormula(spec)) {
+      partes.push(`${rol.etiqueta.toLowerCase()} = ${textoValorFormula(spec.valorFormula, letraColumnaModulo)}`);
       continue;
     }
     const numero = spec.columnas[rol.nombre] ?? 0;

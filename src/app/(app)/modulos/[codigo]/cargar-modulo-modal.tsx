@@ -26,6 +26,9 @@ import {
   type AnalisisModulo,
 } from "@/app/actions/modulos-datos";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
+import { tieneValorFormula, validarValorFormula } from "@/lib/modulos/extraccion/valor-formula";
+import { confirmacionValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
+import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -61,6 +64,10 @@ type PropsCarga = {
   confirmarTotal: { rolValor: string } | null;
   /** Con patrón que lee el centro de costo, pregunta si el cargue se separa por centro (Nómina). */
   confirmarAgrupador: boolean;
+  /** El rol del valor del descriptor: admite una fórmula de varias columnas. */
+  rolValor: string;
+  /** Ingresos: el valor de una columna de «total» se confirma sin IVA al mapear. */
+  confirmarValorSinImpuestos: boolean;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -320,6 +327,8 @@ function CargarModal({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  rolValor,
+  confirmarValorSinImpuestos,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -542,8 +551,15 @@ function CargarModal({
       const faltantes = roles.filter((rc) => rc.requerido
         && !(rc.nombre === clasificadorRol && modoClasificador === "global")
         && !rolDerivado(rc, spec.columnas)
+        && !(rc.nombre === rolValor && tieneValorFormula(spec))
         && (spec.columnas[rc.nombre] ?? 0) < 1);
       if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
+      const errorFormula = validarValorFormula(spec, (c) => columnaLetra(c - 1 + (analisis.columnaInicial ?? 0)));
+      if (errorFormula) { notifyError(errorFormula); return; }
+      if (confirmarValorSinImpuestos) {
+        const sinConfirmar = impedimentoValorSinConfirmar({ valor: rolValor, confirmarValorSinImpuestos }, spec, analisis.encabezado ?? []);
+        if (sinConfirmar) { notifyError(sinConfirmar); return; }
+      }
     }
     if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {
       notifyError(`Indica la TRM de cierre: los importes están en ${spec.monedaArchivo}.`);
@@ -884,9 +900,6 @@ function CargarModal({
           {analisis.advertenciaFormato && (
             <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-err-700">{analisis.advertenciaFormato}</p>
           )}
-          {analisis.advertenciaValor && (
-            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">{analisis.advertenciaValor}</p>
-          )}
           <div className="flex flex-wrap gap-2">
             <Link href={rutaPatrones} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50">
               Ver patrones de archivo
@@ -920,6 +933,20 @@ function CargarModal({
               {analisis.coincidencia.advertencias.map((a) => <li key={a}>{a}</li>)}
             </ul>
           )}
+          {(() => {
+            // Ingresos: el patrón lee el valor de una columna (o fórmula) de «total» que el
+            // administrador confirmó sin IVA al crearlo. Aquí solo se informa; no se pregunta.
+            if (!confirmarValorSinImpuestos) return null;
+            const { rotulo, confirmado } = confirmacionValor({ valor: rolValor, confirmarValorSinImpuestos }, spec, analisis.encabezado ?? []);
+            if (!rotulo) return null;
+            return (
+              <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+                {confirmado
+                  ? <>El patrón lee el valor de <b>«{rotulo}»</b>; el administrador confirmó que excluye el IVA.</>
+                  : <>El patrón lee el valor de <b>«{rotulo}»</b> y nadie confirmó que excluya el IVA: la carga se detendrá. Pide a un administrador que lo confirme en el patrón.</>}
+              </p>
+            );
+          })()}
           {analisis.advertenciaHojas && (
             <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">{analisis.advertenciaHojas}</p>
           )}
@@ -1043,6 +1070,8 @@ function CargarModal({
             setSpec={setSpec}
             roles={roles}
             clasificadorRol={clasificadorRol}
+            rolValor={rolValor}
+            confirmarValorSinImpuestos={confirmarValorSinImpuestos}
             conNivelCartera={conNivelCartera}
             modo="carga"
             onCambiarHoja={(hoja) => analizar(hoja)}

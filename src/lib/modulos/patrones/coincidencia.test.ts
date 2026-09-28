@@ -153,3 +153,30 @@ describe("patrón de Nómina sin columna de «Valor» (SIESA, 24/Sep/2026)", () 
     expect(r.elegible).toBe(false);
   });
 });
+
+describe("patrón de Ingresos con el valor como FÓRMULA (SAP Business One, 28/Sep/2026)", () => {
+  const ING = descriptorModulo("ING")!;
+  const ENCABEZADO_SAP = ["Clase de Documento", "Documento", "Cliente", "Total sin Descuento", "Total Fletes", "Total Impuestos", "Total Documento"];
+  const SPEC_SAP: SpecModulo = {
+    hoja: "Hoja1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: columnasEn(ING, { concepto: 1, documento: 2, tercero: 3 }),
+    valorFormula: [{ columna: 4, signo: "+" }, { columna: 5, signo: "+" }],
+  };
+
+  it("sirve si el archivo trae todos los términos, aunque se hayan movido de columna", () => {
+    const movido = ["Clase de Documento", "Documento", "Cliente", "Asesor", "Total sin Descuento", "Total Fletes", "Total Impuestos", "Total Documento"];
+    const r = coincidenciaPatron(ING, { encabezado: ENCABEZADO_SAP, spec: SPEC_SAP }, movido);
+    expect(r).toMatchObject({ faltantesRequeridos: [], elegible: true });
+    expect(r.mapaColumnas[4]).toBe(5);
+    expect(r.mapaColumnas[5]).toBe(6);
+  });
+
+  it("no sirve si falta uno de los términos: el ingreso saldría corto", () => {
+    const sinFletes = ["Clase de Documento", "Documento", "Cliente", "Total sin Descuento", "Otra", "Total Impuestos", "Total Documento"];
+    const r = coincidenciaPatron(ING, { encabezado: ENCABEZADO_SAP, spec: SPEC_SAP }, sinFletes);
+    expect(r.faltantesRequeridos).toEqual(["Ingreso neto sin impuestos (fórmula: falta «Total Fletes»)"]);
+    expect(r.elegible).toBe(false);
+  });
+});

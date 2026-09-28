@@ -3,6 +3,7 @@ import { MODULOS_IMPORT } from "../descriptores";
 import { transformarModulo } from "./transformar";
 import { invalidarValorAmbiguoIngresos, sugerirSpec, rolesRequeridosFaltantes } from "./sugerir";
 import { controlSubtotales } from "../subtotales";
+import { esImputable, type FilaStagingModulo } from "../promocion";
 import type { GridHoja, CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import type { SpecModulo } from "./esquema";
 
@@ -406,6 +407,52 @@ describe("sugerirSpec (ING)", () => {
       expect(spec.columnas.valor).toBe(3);
     },
   );
+
+  it("lee el VALOR como fórmula de varias columnas (SAP: neto + fletes) y deja la evidencia", () => {
+    // B Clase · C Documento · D «Total sin Descuento» · E «Total Fletes» · F «Total Impuestos».
+    const grid = hoja([
+      ["Clase", "Documento", "Total sin Descuento", "Total Fletes", "Total Impuestos"],
+      ["Factura", "686823", 2300999.6, 138060, 463421.4],
+      ["Factura", "697929", 5650700.02, null, 1073633],
+      ["Factura", "000001", null, null, null],
+    ]);
+    const spec: SpecModulo = {
+      hoja: grid.nombre,
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { concepto: 1, documento: 2, valor: 0 },
+      valorFormula: [{ columna: 3, signo: "+" }, { columna: 4, signo: "+" }],
+    };
+    const r = transformarModulo(ING, spec, grid);
+    expect(r.filas.map((f) => f.valor)).toEqual([2439059.6, 5650700.02, 0]);
+    expect(r.filas[0].datos.valor).toBe(2439059.6);
+    expect(r.filas[0]).toMatchObject({
+      origenValor: "formula",
+      terminosFormula: { "C · Total sin Descuento": 2300999.6, "D · Total Fletes": 138060 },
+    });
+    // Sin ningún término con dato, la fila se lee igual que con la columna del valor vacía:
+    // valor vacío (no un cero inventado), sin evidencia y sin imputar.
+    const vacia = r.filas[2];
+    expect(vacia.datos.valor).toBeNull();
+    expect(vacia.terminosFormula).toBeUndefined();
+    const staging: FilaStagingModulo = { ...vacia, omitida: vacia.omitida ?? null };
+    expect(esImputable(staging, ["valor"])).toBe(false);
+  });
+
+  it("con fórmula, una resta también vale (total del documento − impuestos)", () => {
+    const grid = hoja([
+      ["Clase", "Documento", "Total Documento", "Total Impuestos"],
+      ["Factura", "686823", 2902481, 463421.4],
+    ]);
+    const r = transformarModulo(ING, {
+      hoja: grid.nombre,
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { concepto: 1, documento: 2, valor: 0 },
+      valorFormula: [{ columna: 3, signo: "+" }, { columna: 4, signo: "-" }],
+    }, grid);
+    expect(r.filas[0].valor).toBe(2439059.6);
+  });
 
   it("invalida el rol valor de un perfil antiguo sin perder los demás mapeos", () => {
     const grid = hoja([["Concepto", "Documento", "Total factura"]]);

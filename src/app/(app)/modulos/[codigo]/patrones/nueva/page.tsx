@@ -58,6 +58,8 @@ export default async function NuevoPatronPage({
         moduloLabel={descriptor.label}
         roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
         clasificadorRol={descriptor.clasificador}
+        rolValor={descriptor.valor}
+        confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
         erps={erps.map((e) => ({ id: e.id, nombre: e.name }))}
         erpInicial={erpInicial}
