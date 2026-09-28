@@ -19,6 +19,9 @@ import {
 } from "@/lib/modulos/cartera/tipo-formato";
 import { sugerirTrmCierre, type AnalisisModulo } from "@/app/actions/modulos-datos";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
+import { tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
+import { retirarConfirmacionValor } from "@/lib/modulos/extraccion/valor-sin-impuestos";
+import { ConfirmacionIvaValor, EnlaceFormula, FormulaValor } from "./campo-valor-modulo";
 
 export type RolModulo = {
   nombre: string;
@@ -120,6 +123,8 @@ export function EditorMapeoModulo({
   setSpec,
   roles,
   clasificadorRol,
+  rolValor,
+  confirmarValorSinImpuestos,
   conNivelCartera,
   modo: modoEditor,
   onCambiarHoja,
@@ -132,6 +137,10 @@ export function EditorMapeoModulo({
   setSpec: Dispatch<SetStateAction<SpecModulo | null>>;
   roles: RolModulo[];
   clasificadorRol: string;
+  /** El rol del valor del descriptor: admite una fórmula de varias columnas. */
+  rolValor: string;
+  /** Ingresos: pregunta si el valor excluye el IVA cuando sale de una columna de «total». */
+  confirmarValorSinImpuestos: boolean;
   conNivelCartera: boolean;
   modo: "carga" | "patron";
   onCambiarHoja: (hoja: string) => void;
@@ -143,7 +152,11 @@ export function EditorMapeoModulo({
   marcaTotalesCarga?: ReactNode;
 }) {
   const esCarga = modoEditor === "carga";
-  const setCol = (rol: string, col: number) => setSpec((s) => (s ? { ...s, columnas: { ...s.columnas, [rol]: col } } : s));
+  const setCol = (rol: string, col: number) => setSpec((s) => {
+    if (!s) return s;
+    const siguiente = { ...s, columnas: { ...s.columnas, [rol]: col } };
+    return rol === rolValor ? retirarConfirmacionValor(siguiente) : siguiente;
+  });
   const setEnc = (v: number) => setSpec((s) => (s ? { ...s, filaEncabezado: v } : s));
   const setDat = (v: number) => setSpec((s) => (s ? { ...s, primeraFilaDatos: v } : s));
   const modo: ModoClasificador = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
@@ -214,11 +227,6 @@ export function EditorMapeoModulo({
 
   return (
     <div className="flex flex-col gap-4">
-      {analisis.advertenciaValor && (
-        <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
-          {analisis.advertenciaValor}
-        </p>
-      )}
       {analisis.advertenciaHojas && (
         <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
           {analisis.advertenciaHojas}
@@ -265,8 +273,11 @@ export function EditorMapeoModulo({
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="text-[12px] font-medium leading-snug text-ink-700">
                     {rc.etiqueta}
-                    {rc.requerido && !rolDerivado(rc, spec.columnas) && <span className="text-err-700"> *</span>}
+                    {rc.requerido && !rolDerivado(rc, spec.columnas) && !(rc.nombre === rolValor && tieneValorFormula(spec)) && <span className="text-err-700"> *</span>}
                   </span>
+                  {rc.nombre === rolValor && tieneValorFormula(spec) && (
+                    <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">fórmula</span>
+                  )}
                   {rolDerivado(rc, spec.columnas) && (
                     <span
                       className="rounded bg-ink-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-ink-600"
@@ -279,6 +290,16 @@ export function EditorMapeoModulo({
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">clasifica</span>
                   )}
                 </div>
+                {rc.nombre === rolValor && tieneValorFormula(spec) ? (
+                  <FormulaValor
+                    spec={spec}
+                    setSpec={setSpec}
+                    rolValor={rolValor}
+                    opciones={opciones}
+                    muestraFilas={analisis.muestraFilas ?? []}
+                    columnaInicial={analisis.columnaInicial ?? 0}
+                  />
+                ) : (
                 <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                   <select
                     value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec.columnas[rc.nombre] ?? 0}
@@ -295,6 +316,15 @@ export function EditorMapeoModulo({
                     {muestraTxt}
                   </span>
                 </div>
+                )}
+                {rc.nombre === rolValor && (
+                  <>
+                    <EnlaceFormula spec={spec} setSpec={setSpec} rolValor={rolValor} ancho={opciones.length} />
+                    {confirmarValorSinImpuestos && (
+                      <ConfirmacionIvaValor spec={spec} setSpec={setSpec} rolValor={rolValor} encabezado={analisis.encabezado ?? []} />
+                    )}
+                  </>
+                )}
               </div>
             );
           })}

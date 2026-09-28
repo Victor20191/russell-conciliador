@@ -121,6 +121,20 @@ export const SpecModuloSchema = z.object({
   // cargue, no del formato: nunca se guarda en el perfil del cliente.
   periodoDesde: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   periodoHasta: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+
+  // ===== El VALOR como FÓRMULA de varias columnas (28/Sep/2026) =====
+  // SAP Business One no trae el ingreso neto en una columna: es «Total sin Descuento» + los tres
+  // «Total Fletes». Cuando viene, la columna del rol de valor queda en 0 y el valor de cada fila
+  // es la Σ con signo de estas columnas (`valor-formula.ts`). Es parte del FORMATO: se guarda en
+  // el patrón y en el perfil del cliente, y se traslada a otros archivos por rótulo.
+  valorFormula: z.array(z.object({
+    columna: z.number().int().min(1),
+    signo: z.enum(["+", "-"]),
+  })).optional(),
+  // Firma normalizada de lo que el usuario confirmó que EXCLUYE el IVA (Ingresos): el rótulo de
+  // la columna del valor, o los de la fórmula unidos con « + » (`valor-sin-impuestos.ts`). Se
+  // guarda la firma y no un booleano para que una confirmación no valide en silencio otro mapeo.
+  valorSinImpuestosConfirmado: z.string().max(400).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

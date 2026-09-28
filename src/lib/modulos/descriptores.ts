@@ -217,6 +217,12 @@ export type DescriptorModulo = {
    * solo por concepto; vale solo para ese cargue (`aplicarAgrupadorDeCarga`).
    */
   confirmarAgrupadorEnCarga?: boolean;
+  /**
+   * El valor se concilia contra cuentas SIN impuestos (Ingresos → la 41). Cuando la columna o la
+   * fórmula del valor lleva «total» en el rótulo, el editor pregunta UNA vez —al mapear— si
+   * excluye el IVA, y la firma de lo confirmado viaja en el spec (`valor-sin-impuestos.ts`).
+   */
+  confirmarValorSinImpuestos?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -608,13 +614,11 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // se hace contra la cédula de la 41 y el detalle por tercero no aporta. La columna del
     // tercero se sigue mapeando y guardando, así que volver a encenderlo es cambiar esta línea.
     crucePorTercero: { habilitado: false },
-    verificaciones: [
-      { id: "ing_sin_impuestos", texto: "Confirme que el valor cargado corresponde al ingreso neto sin IVA ni otros impuestos y que las devoluciones o notas crédito conservan signo negativo." },
-      { id: "ing_vinculados", texto: "Confirme si los ingresos incluyen operaciones con vinculados económicos." },
-      { id: "ing_clasificacion", texto: "Verifique la clasificación entre ingresos operacionales y no operacionales." },
-      { id: "ing_devoluciones", texto: "Confirme si las devoluciones y descuentos están correctamente registrados." },
-    ],
-    verificacionesCriticasSi: ["ing_sin_impuestos"],
+    // Sin verificaciones manuales al cargar (28/Sep/2026): el borrador ya no pregunta por el IVA, los
+    // vinculados, la clasificación ni las devoluciones (los cargues anteriores conservan las
+    // respuestas que guardaron). La confirmación de que el valor excluye el IVA se hace UNA vez, al
+    // mapear la columna o la fórmula del valor, y queda en el patrón o en el perfil del cliente.
+    confirmarValorSinImpuestos: true,
   },
 
   // ===== Nómina (NOM) → gasto y costo de personal a SEIS dígitos =====

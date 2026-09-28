@@ -30,6 +30,8 @@ export default function EditorPatronClient({
   moduloLabel,
   roles,
   clasificadorRol,
+  rolValor,
+  confirmarValorSinImpuestos,
   conNivelCartera,
   erps,
   erpInicial,
@@ -41,6 +43,8 @@ export default function EditorPatronClient({
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  rolValor: string;
+  confirmarValorSinImpuestos: boolean;
   conNivelCartera: boolean;
   erps: { id: number; nombre: string }[];
   erpInicial?: number | null;
@@ -235,6 +239,8 @@ export default function EditorPatronClient({
             setSpec={setSpec}
             roles={roles}
             clasificadorRol={clasificadorRol}
+            rolValor={rolValor}
+            confirmarValorSinImpuestos={confirmarValorSinImpuestos}
             conNivelCartera={conNivelCartera}
             modo="patron"
             onCambiarHoja={cambiarHoja}

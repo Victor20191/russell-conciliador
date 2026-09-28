@@ -28,6 +28,8 @@ import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
+import { letraColumnaModulo } from "../perfil-modulo";
+import { claveTerminoFormula, evaluarValorFormula, tieneValorFormula } from "./valor-formula";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -53,8 +55,10 @@ export type FilaModulo = {
   sumaFamilia?: number;
   /** El valor que declaraba la columna del descriptor, cuando existe y se derivó otro. */
   valorReportado?: number | null;
-  /** De dónde salió `valor`: la columna, la familia, o ambas coincidiendo. */
-  origenValor?: "columna" | "familia" | "columna_y_familia";
+  /** De dónde salió `valor`: la columna, la familia, ambas coincidiendo, o la fórmula del mapeo. */
+  origenValor?: "columna" | "familia" | "columna_y_familia" | "formula";
+  /** Con el valor por FÓRMULA: el aporte de cada término, llaveado «M · Total sin Descuento». */
+  terminosFormula?: Record<string, number>;
   /** Saldo que la CABECERA de un tercero declara para todo su bloque (`terceroModo`). */
   saldoDeclarado?: number;
   /** Importe en divisa del que salió `valor` (hoja en USD o celda «USD (54,323.40)»), su moneda y la TRM. */
@@ -364,6 +368,20 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     mensaje: "Importe en moneda extranjera sin convertir en «" + etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos.",
   });
 
+  // El VALOR como FÓRMULA de varias columnas (SAP: «Total sin Descuento» + los «Total Fletes»).
+  // Cada término se lee como un importe más —con el signo del archivo y su divisa— y el resultado
+  // ocupa el lugar de la columna del valor; los términos quedan en `datos._formula` como evidencia.
+  const formulaValor = tieneValorFormula(spec) ? spec.valorFormula : null;
+  const encabezadoHoja = hoja.filas[spec.filaEncabezado - 1] ?? [];
+  const letraHoja = (columna: number): string => letraColumnaModulo(columna + (hoja.columnaInicial ?? 0));
+  const claveTermino = (columna: number): string => claveTerminoFormula(columna, letraHoja, encabezadoHoja);
+  const leerTermino = (fila: CeldaCruda[], filaNum: number) => (columna: number): number | null => {
+    const raw = celda(fila, columna);
+    const conDivisa = importeConDivisa(raw);
+    if (conDivisa === null) avisoSinTrm(filaNum, claveTermino(columna), String(raw));
+    return conDivisa !== undefined ? (conDivisa?.valor ?? null) : conSigno(aNumero(raw));
+  };
+
   // ===== NÓMINA (ver `ConfiguracionNomina`) =====
   const nomina = descriptor.nomina ?? null;
   // Roles mapeados en el spec (los que el archivo trae) y, de ellos, los de texto: la regla
@@ -453,6 +471,16 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         continue;
       }
       datos[rc.nombre] = rc.tipo === "moneda" ? conSigno(aNumero(raw)) : aNumero(raw);
+    }
+    // 1.1) El valor por FÓRMULA ocupa el lugar de la columna del valor: desde aquí la fila se lee
+    //      igual que si el archivo la trajera (fila vacía, derivaciones, identidad, subtotales).
+    let terminosFormula: Record<string, number> | undefined;
+    if (formulaValor) {
+      const evaluado = evaluarValorFormula(formulaValor, leerTermino(fila, filaNum), claveTermino);
+      // Sin ningún término con dato, la fila no trae valor (no un cero inventado): así la
+      // detección de fila vacía y de pie de reporte la sigue viendo como antes.
+      datos[descriptor.valor] = evaluado.algunDato ? evaluado.valor : null;
+      if (evaluado.algunDato) terminosFormula = evaluado.terminos;
     }
 
     // 1.2) SIESA · marcas de relleno en los roles de identidad («*» en la columna del NIT de
@@ -603,6 +631,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // 3) Derivaciones: producto (a×b) o cociente (a÷b). Solo rellenan la columna
     //    destino cuando falta; el producto además avisa si el archivo la trae y no cuadra.
     for (const [destino, regla] of Object.entries(descriptor.derivar ?? {})) {
+      // Con fórmula, el valor lo decide el usuario: una derivación no lo rellena ni lo discute.
+      if (formulaValor && destino === descriptor.valor) continue;
       const actual = aNumero(datos[destino]);
       const yaEsta = actual != null && actual !== 0;
       if ("producto" in regla) {
@@ -705,6 +735,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       }
       valorReportado = valorColumna;
     }
+    // El valor salió de la FÓRMULA (la columna del valor no se lee): el detalle lo muestra como
+    // calculado por el motor y el título de la celda explica de qué columnas sale.
+    if (terminosFormula && origenValor == null) origenValor = "formula";
 
     // 4.7) Hoja en DIVISA: todo se leyó en la divisa y se convierte a pesos con la TRM de cierre
     //      —baldes, su suma, el valor y el total reportado—, dejando la divisa como constancia.
@@ -878,6 +911,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       ...(familias ? { familias, sumaFamilia } : {}),
       ...(valorReportado !== undefined ? { valorReportado } : {}),
       ...(origenValor ? { origenValor } : {}),
+      ...(terminosFormula ? { terminosFormula } : {}),
       ...(saldoDivisa != null && monedaFila && trmCierre ? { saldoDivisa, moneda: monedaFila, trm: trmCierre } : {}),
       ...(saldoDelBloque != null && saldoDelBloque !== 0 ? { saldoDeclarado: redondear(saldoDelBloque) } : {}),
     });

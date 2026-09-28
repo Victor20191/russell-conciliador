@@ -217,6 +217,43 @@ describe("vistaPruebaMapeo", () => {
     expect(vista([]).avisos).toEqual([]);
   });
 
+  it("con el valor por FÓRMULA muestra el valor calculado y una columna por término", () => {
+    const ING = descriptorModulo("ING")!;
+    const encabezado = ["Clase", "Documento", "Total sin Descuento", "Total Fletes"];
+    const spec: SpecModulo = {
+      hoja: "Hoja1",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { concepto: 1, documento: 2, valor: 0 },
+      valorFormula: [{ columna: 3, signo: "+" }, { columna: 4, signo: "+" }],
+      valorSinImpuestosConfirmado: "+total sin descuento +total fletes",
+    };
+    const v = vistaPruebaMapeo({
+      descriptor: ING,
+      spec,
+      hoja: { nombre: "Hoja1", filas: [encabezado, []] },
+      lectura: lecturaDe([fila({
+        filaNum: 2,
+        clasificador: "Factura",
+        valor: 2439059.6,
+        datos: { concepto: "Factura", documento: "686823", valor: 2439059.6 },
+        origenValor: "formula",
+        terminosFormula: { "C · Total sin Descuento": 2300999.6, "D · Total Fletes": 138060 },
+      })]),
+      impedimentos: [],
+    });
+
+    const valor = v.columnas.find((c) => c.esValor);
+    expect(valor).toMatchObject({ letra: "—", nota: "fórmula", formula: "C + D" });
+    const terminos = v.columnas.filter((c) => c.familia?.clave === "_formula");
+    expect(terminos.map((c) => [c.etiqueta, c.letra])).toEqual([["Total sin Descuento", "C"], ["Total Fletes", "D"]]);
+    const celda = (nombre: string) => v.filas[0].celdas[v.columnas.findIndex((c) => c.nombre === nombre)];
+    expect(celda(valor!.nombre)).toBe(2439059.6);
+    expect(terminos.map((c) => celda(c.nombre))).toEqual([2300999.6, 138060]);
+    // Lo confirmado al mapear queda a la vista.
+    expect(v.avisos).toEqual(["El valor se lee de «Total sin Descuento + Total Fletes», confirmado sin IVA."]);
+  });
+
   it("recorta los textos largos y sobrevive sin lectura (spec que no valida)", () => {
     const largo = "X".repeat(200);
     const v = vista([fila({ filaNum: 2, datos: { referencia: largo } })]);

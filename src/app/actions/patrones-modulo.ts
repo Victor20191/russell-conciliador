@@ -19,7 +19,9 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { vistaAnalisisHoja } from "@/lib/modulos/extraccion/vista-analisis";
-import { normalizarSpecModulo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
+import { letraColumnaModulo, normalizarSpecModulo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
+import { confirmacionValor, detalleAuditoriaValor } from "@/lib/modulos/extraccion/valor-sin-impuestos";
+import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion, type VersionCandidata } from "@/lib/modulos/patrones/mejor-version";
 import { FILAS_MAXIMAS_PRUEBA, MENSAJE_SIN_FILAS, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
@@ -169,6 +171,14 @@ function prepararVersion(
     throw new ErrorPatron(impedimento ?? MENSAJE_SIN_FILAS);
   }
   return { spec: revision.spec, hoja: revision.hoja, encabezado: revision.encabezado };
+}
+
+/** Rastro del valor para la auditoría del patrón: la fórmula, si la hay, y la confirmación del IVA. */
+function detalleValorPatron(descriptor: DescriptorModulo, spec: SpecModulo, hoja: GridHoja, encabezado: readonly unknown[]): string {
+  const letra = (columna: number) => letraColumnaModulo(columna + (hoja.columnaInicial ?? 0));
+  const { rotulo, confirmado } = confirmacionValor(descriptor, spec, encabezado);
+  return (tieneValorFormula(spec) ? ` · valor = ${textoValorFormula(spec.valorFormula, letra, encabezado)}` : "")
+    + detalleAuditoriaValor(rotulo, confirmado);
 }
 
 function respuestaError(contexto: string, e: unknown): { ok: false; message: string } {
@@ -362,7 +372,7 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
     if (!nota.success) throw new ErrorPatron(nota.error.issues[0]?.message ?? "La nota no es válida.");
     const aprobar = formData.get("aprobar") === "1";
     const hojas = await hojasDe(bytes, archivo.name);
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
+    const { spec, hoja, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const user = await getCurrentUser();
 
     const creada = await transaccionSerializable(async (tx) => {
@@ -405,7 +415,7 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
       user: user?.name ?? "Sistema",
       action: "CREÓ PATRÓN DE ARCHIVO",
       entity: `${descriptor.label} · ${erp.name} v${creada.version}`,
-      detail: `${aprobar ? "aprobada" : "pendiente"} · muestra ${archivo.name} · hoja «${spec.hoja}» · ${encabezado.filter(Boolean).length} rótulos`,
+      detail: `${aprobar ? "aprobada" : "pendiente"} · muestra ${archivo.name} · hoja «${spec.hoja}» · ${encabezado.filter(Boolean).length} rótulos${detalleValorPatron(descriptor, spec, hoja, encabezado)}`,
     });
     revalidatePath(rutaPatrones(descriptor.codigo));
     return { ok: true, versionId: creada.id, version: creada.version, message: `Versión ${creada.version} de ${erp.name} ${aprobar ? "aprobada" : "guardada como pendiente"}.` };
@@ -439,7 +449,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
       throw new ErrorPatron(`La muestra no coincide con esta versión (${ubicacion?.coincidencia.porcentaje ?? 0} %). Para ese formato crea una versión nueva.`);
     }
     // Una versión migrada puede no declarar aún su tipo: se declara al editarla o al aprobarla.
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec, { exigirTipoFormato: false });
+    const { spec, hoja: hojaMuestra, encabezado } = prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec, { exigirTipoFormato: false });
     const clave = claveMuestraPatronModulo({ moduloCodigo: version.moduloCodigo, erpCode: version.erp.code, version: version.version, nombreArchivo: archivo.name });
     await subirObjeto({ key: clave, cuerpo: bytes, contentType: tipoContenidoArchivo(archivo.name, archivo.type) });
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
@@ -465,7 +475,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
       user: user?.name ?? "Sistema",
       action: "SUBIÓ MUESTRA DE PATRÓN",
       entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
-      detail: `${archivo.name} · coincidencia ${ubicacion.coincidencia.porcentaje} %`,
+      detail: `${archivo.name} · coincidencia ${ubicacion.coincidencia.porcentaje} %${detalleValorPatron(descriptor, spec, hojaMuestra, encabezado)}`,
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
     return { ok: true, message: `Muestra guardada (${ubicacion.coincidencia.porcentaje} % de coincidencia).` };
@@ -498,7 +508,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
     const specEntrada = specDeFormulario(descriptor, datos.specJson);
     if (!specEntrada) throw new ErrorPatron("Falta el mapeo de columnas.");
     const hojas = await hojasDeMuestraVersion(version);
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
+    const { spec, hoja, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
       where: { id: datos.id, estado: "pendiente", actualizadoEn: version.actualizadoEn },
       data: {
@@ -516,7 +526,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
       user: user?.name ?? "Sistema",
       action: "EDITÓ PATRÓN DE ARCHIVO",
       entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
-      detail: `hoja «${spec.hoja}» · encabezado fila ${spec.filaEncabezado}`,
+      detail: `hoja «${spec.hoja}» · encabezado fila ${spec.filaEncabezado}${detalleValorPatron(descriptor, spec, hoja, encabezado)}`,
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
     return { ok: true, message: "Versión actualizada." };

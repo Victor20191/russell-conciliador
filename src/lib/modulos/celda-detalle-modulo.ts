@@ -8,7 +8,7 @@
 //    documento no sumaba;
 //  - las fechas, que algunos libros entregan como número de serie de Excel («46009»).
 import { fmtContable, fmtNum } from "@/lib/format";
-import { CLAVE_MONEDA, CLAVE_ORIGEN_VALOR, CLAVE_SALDO_DIVISA, CLAVE_SALDO_REPORTADO, CLAVE_TRM } from "./cartera/detalle-cartera";
+import { CLAVE_FORMULA, CLAVE_MONEDA, CLAVE_ORIGEN_VALOR, CLAVE_SALDO_DIVISA, CLAVE_SALDO_REPORTADO, CLAVE_TRM } from "./cartera/detalle-cartera";
 import { esRotuloEdad } from "./cartera/edades";
 import { fechaISO } from "./cartera/fecha-corte";
 import { parsearFechaCelda } from "./nomina/periodo";
@@ -78,6 +78,16 @@ export function tituloCeldaDetalle(fila: FilaCeldaDetalle, columna: ColumnaCelda
     const moneda = typeof monedaDato === "string" ? monedaDato : "divisa";
     const trm = numero(fila.datos[CLAVE_TRM]);
     return `${moneda} ${fmtNum(divisa)} convertidos a pesos${trm != null ? ` con la TRM ${fmtNum(trm)}` : ""}.`;
+  }
+  if (fila.datos[CLAVE_ORIGEN_VALOR] === "formula") {
+    const terminos = fila.datos[CLAVE_FORMULA];
+    if (terminos == null || typeof terminos !== "object") return "Calculado con la fórmula del mapeo.";
+    const partes = Object.entries(terminos as Record<string, unknown>)
+      .map(([clave, v], i) => {
+        const n = numero(v) ?? 0;
+        return `${i === 0 ? (n < 0 ? "−" : "") : n < 0 ? "− " : "+ "}${clave} ${fmtContable(Math.abs(n))}`;
+      });
+    return `Fórmula del mapeo: ${partes.join(" ")}.`;
   }
   if (fila.datos[CLAVE_ORIGEN_VALOR] !== "familia") return undefined;
   const reportado = numero(fila.datos[CLAVE_SALDO_REPORTADO]);

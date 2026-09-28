@@ -11,9 +11,9 @@
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
-import { invalidarValorAmbiguoIngresos } from "../extraccion/sugerir";
 import { transformarModulo, type ResultadoTransformModulo } from "../extraccion/transformar";
 import { normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
+import { impedimentoValorSinConfirmar } from "../extraccion/valor-sin-impuestos";
 import { encabezadoParaGuardar, normalizarRotulo } from "./rotulos";
 
 /** Mínimo de rótulos con texto para que el encabezado sirva de huella del formato. */
@@ -23,8 +23,6 @@ export const MENSAJE_TIPO_FORMATO =
   "Elige el tipo de formato del archivo: por documento, por edades o por documento y edades.";
 export const MENSAJE_SIN_FILAS =
   "Con este mapeo la muestra no produce ninguna fila. Revisa las filas y las columnas.";
-export const MENSAJE_VALOR_AMBIGUO_INGRESOS =
-  "Ingresos no admite una columna de total de factura como valor. Mapea ingreso neto sin IVA/impuestos, subtotal o base gravable.";
 export const MENSAJE_ENCABEZADO_POBRE =
   "La fila de encabezado de la muestra no tiene rótulos suficientes para reconocer el archivo.";
 
@@ -115,9 +113,10 @@ export function revisarMapeoMuestra(
   if (encabezado.filter((rotulo) => normalizarRotulo(rotulo) !== "").length < MINIMO_ROTULOS) {
     impedimentos.push(MENSAJE_ENCABEZADO_POBRE);
   }
-  if (invalidarValorAmbiguoIngresos(descriptor, hoja, spec).invalidado) {
-    impedimentos.push(MENSAJE_VALOR_AMBIGUO_INGRESOS);
-  }
+  // Ingresos: una columna (o fórmula) de «total» como valor vale, pero solo con la confirmación
+  // de que excluye el IVA. Antes se rechazaba sin más, y SAP rotula el neto «Total sin Descuento».
+  const sinConfirmar = impedimentoValorSinConfirmar(descriptor, spec, hoja.filas[spec.filaEncabezado - 1] ?? []);
+  if (sinConfirmar) impedimentos.push(sinConfirmar);
   if (!lectura.filas.some((f) => f.tipoFila === "movimiento")) impedimentos.push(MENSAJE_SIN_FILAS);
   return { spec, hoja, encabezado, lectura, impedimentos, recorte };
 }

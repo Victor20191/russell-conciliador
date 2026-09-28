@@ -108,6 +108,47 @@ describe("validarSpecModulo", () => {
   });
 });
 
+describe("valor por fórmula y confirmación del IVA", () => {
+  const ING = MODULOS_IMPORT.ING;
+  const specIng = (extra: Partial<SpecModulo> = {}): SpecModulo => ({
+    hoja: "Hoja1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { concepto: 2, documento: 3, valor: 0 },
+    ...extra,
+  });
+  const SAP = [{ columna: 13, signo: "+" as const }, { columna: 14, signo: "+" as const }];
+
+  it("la fórmula es del formato: se conserva en el perfil y en el archivo, y deja el valor en 0", () => {
+    const conFormula = specIng({ columnas: { concepto: 2, documento: 3, valor: 13 }, valorFormula: SAP });
+    for (const n of [normalizarSpecModulo(ING, conFormula), normalizarSpecModuloArchivo(ING, conFormula)]) {
+      expect(n.valorFormula).toEqual(SAP);
+      expect(n.columnas.valor).toBe(0);
+    }
+    // Cualquier módulo la admite (es genérica).
+    expect(normalizarSpecModulo(INV, specInv({ valorFormula: [{ columna: 5, signo: "+" }, { columna: 6, signo: "-" }] })).valorFormula).toHaveLength(2);
+  });
+
+  it("la confirmación se conserva solo en los módulos que la piden", () => {
+    const confirmado = specIng({ valorSinImpuestosConfirmado: "+total sin descuento +total fletes", valorFormula: SAP });
+    expect(normalizarSpecModulo(ING, confirmado).valorSinImpuestosConfirmado).toBe("+total sin descuento +total fletes");
+    expect(normalizarSpecModulo(INV, specInv({ valorSinImpuestosConfirmado: "x" })).valorSinImpuestosConfirmado).toBeUndefined();
+  });
+
+  it("con fórmula el valor no falta; una fórmula mal armada sí se rechaza", () => {
+    expect(validarSpecModulo(ING, normalizarSpecModulo(ING, specIng()))).toBe("Falta la columna obligatoria «Ingreso neto sin impuestos».");
+    expect(validarSpecModulo(ING, normalizarSpecModulo(ING, specIng({ valorFormula: SAP })))).toBeNull();
+    expect(validarSpecModulo(ING, specIng({ valorFormula: [{ columna: 13, signo: "+" }, { columna: 13, signo: "-" }] })))
+      .toBe("La fórmula del valor repite la columna M.");
+    expect(rolesRequeridosFaltantes(ING, normalizarSpecModulo(ING, specIng({ valorFormula: SAP })))).not.toContain("valor");
+  });
+
+  it("el resumen muestra la fórmula del valor", () => {
+    expect(resumenColumnasModulo(ING, normalizarSpecModulo(ING, specIng({ valorFormula: SAP }))))
+      .toBe("concepto / línea B · documento C · ingreso neto sin impuestos = M + N");
+  });
+});
+
 describe("resumenColumnasModulo", () => {
   it("lista los roles mapeados con su letra en el orden del descriptor y omite los que están en 0", () => {
     const resumen = resumenColumnasModulo(INV, specInv({ columnas: { tipo: 2, referencia: 1, valorTotal: 27 } }));

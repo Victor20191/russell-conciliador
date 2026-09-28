@@ -30,7 +30,9 @@ const ENCABEZADOS_INGRESO_NETO_SEGUROS = [
 /**
  * Un total de factura suele incluir IVA/otros impuestos y no es comparable con
  * la cuenta 41. Se considera ambiguo salvo que el encabezado declare de forma
- * inequívoca una base neta/sin impuestos.
+ * inequívoca una base neta/sin impuestos. Desde el 28/Sep/2026 NO bloquea: decide
+ * cuándo el editor pregunta «¿excluye el IVA?» (`valor-sin-impuestos.ts`) y que el
+ * sugeridor no proponga la columna por su cuenta.
  */
 export function encabezadoValorIngresoAmbiguo(encabezado: unknown): boolean {
   const texto = norm(encabezado);
@@ -42,8 +44,9 @@ export function encabezadoValorIngresoAmbiguo(encabezado: unknown): boolean {
 }
 
 /**
- * Invalida únicamente el rol monetario peligroso de ING; conserva el resto del
- * perfil para que el usuario solo tenga que volver a escoger el ingreso neto.
+ * Deja sin proponer el valor de ING cuando la heurística eligió una columna de
+ * «total»; conserva el resto del mapeo. Solo la usa el SUGERIDOR: mapear esa
+ * columna a mano vale, con la confirmación del IVA (`valor-sin-impuestos.ts`).
  */
 export function invalidarValorAmbiguoIngresos(
   descriptor: DescriptorModulo,
