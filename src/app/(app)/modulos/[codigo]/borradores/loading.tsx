@@ -15,7 +15,7 @@ export default function LoadingBorradoresModulo() {
       </div>
 
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_0.6fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 border-b border-ink-100 bg-ink-50 px-3 py-3">
+        <div className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_0.6fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-2 sm:gap-4 border-b border-ink-100 bg-ink-50 px-3 py-3">
           {Array.from({ length: 9 }, (_, index) => (
             <div key={index} className="h-3 rounded bg-ink-150" />
           ))}
@@ -23,7 +23,7 @@ export default function LoadingBorradoresModulo() {
         {Array.from({ length: FILAS_ESQUELETO }, (_, index) => (
           <div
             key={index}
-            className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_0.6fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 border-b border-ink-100 px-3 py-3 last:border-0"
+            className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_0.6fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-2 sm:gap-4 border-b border-ink-100 px-3 py-3 last:border-0"
           >
             {Array.from({ length: 9 }, (__, column) => (
               <div key={column} className="h-3 rounded bg-ink-100" />

@@ -242,7 +242,7 @@ function CargadosPorCliente({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
           {moduloLabel} cargados
         </span>
@@ -273,7 +273,7 @@ function CargadosPorCliente({
             <span className="text-ink-400">
               <Icon name="doc" size={16} />
             </span>
-            <h2 className="text-[13px] font-semibold text-ink-800">{grupo.clienteNombre}</h2>
+            <h2 className="min-w-0 break-words text-[13px] font-semibold text-ink-800">{grupo.clienteNombre}</h2>
             {grupo.clienteNit && (
               <span className="font-mono text-[11px] text-ink-400">{grupo.clienteNit}</span>
             )}
@@ -281,7 +281,10 @@ function CargadosPorCliente({
               {grupo.periodos.length === 1 ? "1 período" : `${grupo.periodos.length} períodos`}
             </span>
           </div>
-          <div className="max-sm:overflow-x-auto">
+          {/* Scroll horizontal hasta xl: con la barra lateral, un portátil deja ~750–1000 px y la
+              tabla se salía de la tarjeta. Desde xl no lleva scroll propio para que el encabezado
+              fijo (`tabla-encabezado-fijo`) siga pegado al <main>. */}
+          <div className="max-xl:overflow-x-auto">
             <table className="tabla-encabezado-fijo w-full text-[12.5px]">
               <thead className="bg-ink-50 text-ink-500">
                 <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
@@ -406,8 +409,8 @@ function CargadosPorCliente({
                         <span className="block text-[10.5px] text-ink-400">por {p.cargadoPor}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">{p.filas}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-ink-800">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-700">{p.filas}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums text-ink-800">
                       {fmtContable(p.total)}
                     </td>
                     <td className="px-4 py-2.5">

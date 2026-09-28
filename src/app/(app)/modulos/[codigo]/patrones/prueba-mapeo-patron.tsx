@@ -93,7 +93,7 @@ export function PruebaMapeoPatron({
   return (
     <Card className="flex flex-col gap-3 p-4 text-[12.5px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Prueba del mapeo</span>
           {obsoleto
             ? <Chip label="el mapeo cambió desde esta prueba" tone="warn" />
@@ -108,7 +108,7 @@ export function PruebaMapeoPatron({
           type="button"
           onClick={probar}
           disabled={probando || !puedeProbar}
-          className="rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50"
+          className="whitespace-nowrap rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50"
         >
           {probando ? "Probando…" : resultado ? "Volver a probar" : "Probar el mapeo"}
         </button>
@@ -164,12 +164,12 @@ export function PruebaMapeoPatron({
                       key={f.filaNum}
                       className={`border-t border-ink-100 ${f.tipoFila === "total" ? "bg-ink-50" : ""} ${f.imputa ? "" : "text-ink-400"} ${f.salto ? "border-t-2 border-dashed border-ink-300" : ""}`}
                     >
-                      <td className="px-2.5 py-1.5 tabular-nums">{f.filaNum}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums">{f.filaNum}</td>
                       <td className="px-2.5 py-1.5">
                         <Chip label={f.motivoTexto} tone={f.imputa ? "ok" : "ink"} />
                       </td>
                       {resultado.columnas.map((c, i) => (
-                        <td key={c.nombre} className={`px-2.5 py-1.5 ${esNumerica(c.tipo) ? "text-right tabular-nums" : ""}`}>
+                        <td key={c.nombre} className={`px-2.5 py-1.5 ${esNumerica(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
                           {textoCeldaDetalle(f.celdas[i], c)}
                         </td>
                       ))}

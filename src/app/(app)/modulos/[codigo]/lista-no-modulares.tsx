@@ -33,7 +33,7 @@ export function ListaNoModulares({
         const marcada = seleccion.has(h.cuenta8);
         const contenido = (
           <>
-            <span className="w-[110px] shrink-0 font-mono text-[11.5px] text-ink-600">{h.cuenta8}</span>
+            <span className="shrink-0 font-mono sm:w-[110px] text-[11.5px] text-ink-600">{h.cuenta8}</span>
             <span className="min-w-0 flex-1 truncate text-[12px] text-ink-700" title={h.nombre}>{h.nombre}</span>
             <span className={`shrink-0 tabular-nums text-[12px] ${marcada ? "text-ink-400 line-through" : "text-ink-800"}`}>
               {fmtContable(h.valor)}

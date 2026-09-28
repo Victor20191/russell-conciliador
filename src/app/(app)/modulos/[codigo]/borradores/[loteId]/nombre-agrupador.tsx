@@ -102,7 +102,7 @@ function BloqueGrupo({
                 type="button"
                 onClick={() => setNombre(o.nombre)}
                 title={o.detalle}
-                className={`rounded border px-2 py-0.5 text-[11.5px] font-semibold ${nombre === o.nombre ? "border-navy-600 bg-blue-50 text-navy-800" : "border-ink-200 bg-white text-ink-700 hover:bg-ink-50"}`}
+                className={`max-w-full break-words rounded border px-2 py-0.5 text-left text-[11.5px] font-semibold ${nombre === o.nombre ? "border-navy-600 bg-blue-50 text-navy-800" : "border-ink-200 bg-white text-ink-700 hover:bg-ink-50"}`}
               >
                 {o.nombre}
               </button>
@@ -119,7 +119,7 @@ function BloqueGrupo({
           onKeyDown={(e) => { if (e.key === "Enter" && nombre.trim() && !bloqueado && !guardando) aplicar(); }}
           placeholder={grupo.grupo === "global" ? "Nuevo nombre del agrupador…" : "Nombre del agrupador (letras o números)…"}
           aria-label={`Nombre para las filas «${etiqueta}»`}
-          className="min-w-[16rem] rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800 outline-none focus:border-blue-400"
+          className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] sm:w-auto sm:min-w-[16rem] text-ink-800 outline-none focus:border-blue-400"
         />
         <datalist id={listaId}>
           {opciones.map((o) => <option key={o.nombre} value={o.nombre}>{o.detalle}</option>)}

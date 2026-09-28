@@ -131,7 +131,7 @@ function TablaBorradores({
 
   return (
     <Card>
-      <div className="flex items-center gap-2 border-b border-ink-100 bg-warn-50/60 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 bg-warn-50/60 px-4 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
           Borradores por confirmar
         </span>
@@ -139,7 +139,7 @@ function TablaBorradores({
           {rows.length}
         </span>
       </div>
-      <div className="max-sm:overflow-x-auto">
+      <div className="max-xl:overflow-x-auto">
         <table className="tabla-encabezado-fijo w-full text-[12.5px]">
           <thead className="bg-ink-50 text-ink-500">
             <tr className="text-left">
@@ -161,11 +161,11 @@ function TablaBorradores({
           <tbody>
             {pg.pageItems.map((r) => (
               <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
-                <td className="px-3 py-2">
+                <td className="min-w-[10rem] max-w-[280px] px-3 py-2">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <Link
                       href={`${ruta}/borradores/${r.loteId}`}
-                      className="font-medium text-blue-500 hover:underline"
+                      className="font-medium text-blue-500 wrap-anywhere hover:underline"
                     >
                       {r.archivoNombre}
                     </Link>
@@ -205,7 +205,7 @@ function TablaBorradores({
                 >
                   {r.filas}
                 </td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">
+                <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">
                   {fmtContable(r.total)}
                 </td>
                 <td className="px-3 py-2">

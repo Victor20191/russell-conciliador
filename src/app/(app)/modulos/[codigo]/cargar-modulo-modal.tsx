@@ -300,7 +300,7 @@ export function CargarModuloButton(props: PropsCarga) {
       <button
         type="button"
         onClick={() => setAbierto(true)}
-        className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"
+        className="whitespace-nowrap rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"
       >
         Cargar {props.moduloLabel.toLowerCase()}
       </button>
@@ -806,7 +806,7 @@ function CargarModal({
                     <p className="text-[11px] text-ink-400">Aplicativos de {aplicativos.campoNombre.toLowerCase()} registrados para el cliente. Confirma el de este archivo.</p>
                   )}
                   {aplicativos.delCliente.map((a) => (
-                    <label key={a.id} className="flex items-center gap-2 text-[12.5px] text-ink-700">
+                    <label key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px] text-ink-700">
                       <input type="radio" name="aplicativo-archivo" checked={eleccion === String(a.id)} onChange={() => cambiarEleccion(String(a.id))} />
                       {a.nombre}{a.manual ? <span className="text-[11px] text-ink-400">(se mapea a mano)</span> : null}
                     </label>
@@ -853,8 +853,8 @@ function CargarModal({
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
             <span className="text-[11px] text-ink-500">Selecciónalo con el botón o arrástralo y suéltalo sobre este campo.</span>
-            <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
-            {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
+            <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onArchivo} className="min-w-0 max-w-full text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
+            {tieneArchivo && <span className="break-words text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
           {!anexo && (
@@ -960,15 +960,15 @@ function CargarModal({
           )}
           <dl className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[11.5px] text-ink-600 sm:grid-cols-[auto_1fr]">
             <dt className="font-medium text-ink-700">Hoja</dt>
-            <dd>«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
+            <dd className="min-w-0 break-words">«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
             <dt className="font-medium text-ink-700">Columnas</dt>
-            <dd>{resumenMapeo(separarCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+            <dd className="min-w-0 break-words">{resumenMapeo(separarCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
             {conNivelCartera && (() => {
               const { tipo, declarado } = tipoFormatoCartera(spec);
               return (
                 <>
                   <dt className="font-medium text-ink-700">Formato</dt>
-                  <dd>
+                  <dd className="min-w-0 break-words">
                     {INFO_TIPO_FORMATO[tipo].etiqueta}
                     {declarado ? "" : " (deducido: el patrón no lo declara)"} · se validará{" "}
                     {INFO_TIPO_FORMATO[tipo].controles.join(" y ").toLowerCase()}

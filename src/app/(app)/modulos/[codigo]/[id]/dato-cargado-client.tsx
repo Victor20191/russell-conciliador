@@ -289,6 +289,18 @@ export default function DatoCargadoClient({
   const consolidadoGuardo = useRef(false);
   const tabActual = useRef(tab);
   useEffect(() => { tabActual.current = tab; }, [tab]);
+  // En pantallas angostas la barra de pestañas se desplaza en horizontal: se lleva la activa a la
+  // vista (solo ese desplazamiento; `scrollIntoView` movería también la página).
+  const barraTabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const barra = barraTabsRef.current;
+    const activa = barra?.querySelector<HTMLElement>("[data-activa]");
+    if (!barra || !activa) return;
+    if (activa.offsetLeft < barra.scrollLeft) barra.scrollLeft = activa.offsetLeft;
+    else if (activa.offsetLeft + activa.offsetWidth > barra.scrollLeft + barra.clientWidth) {
+      barra.scrollLeft = activa.offsetLeft + activa.offsetWidth - barra.clientWidth;
+    }
+  }, [tab]);
   // Una edición que el autoguardado termina de enviar DESPUÉS de salir del Consolidado (se vacía
   // la cola al desmontar) también tiene que verse en el cruce: se recarga en ese momento.
   const alGuardarConsolidado = () => {
@@ -354,28 +366,35 @@ export default function DatoCargadoClient({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-1 border-b border-ink-150">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => irATab(t)}
-            className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
+      {/* Por debajo de xl las pestañas no caben junto al total y la exportación: estos suben a su
+          propio renglón y las pestañas se desplazan en horizontal en vez de montarse. */}
+      <div className="flex flex-col-reverse gap-2 border-b border-ink-150 xl:flex-row xl:items-center xl:gap-1">
+        <div ref={barraTabsRef} className="relative -mb-px flex min-w-0 items-center gap-1 overflow-x-auto">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              data-activa={tab === t || undefined}
+              onClick={() => irATab(t)}
+              className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
+            >
+              {etiquetaTab(t)}
+              {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
+              {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 xl:ml-auto xl:flex-nowrap xl:justify-end">
+          <span className="text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmtContable(total)}</span></span>
+          <a
+            href={`/modulos/${moduloCodigo.toLowerCase()}/${encabezadoId}/export`}
+            data-sin-aviso-salida
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100 xl:mb-1 xl:ml-2"
+            title="Exporta a Excel el detalle y el consolidado de este cargue"
           >
-            {etiquetaTab(t)}
-            {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
-            {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
-          </button>
-        ))}
-        <span className="ml-auto text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmtContable(total)}</span></span>
-        <a
-          href={`/modulos/${moduloCodigo.toLowerCase()}/${encabezadoId}/export`}
-          data-sin-aviso-salida
-          className="mb-1 ml-2 inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
-          title="Exporta a Excel el detalle y el consolidado de este cargue"
-        >
-          <Icon name="download" size={13} /> Exportar a Excel
-        </a>
+            <Icon name="download" size={13} /> Exportar a Excel
+          </a>
+        </div>
       </div>
 
       {tab === "consolidado" ? (
@@ -495,7 +514,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
   return (
     <div className="border-b border-ink-100 bg-ink-50/40">
       <button type="button" onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[11.5px]">
-        <span>
+        <span className="min-w-0">
           <span className="font-semibold text-ink-700">Clases por centro de costo</span>{" "}
           <span className="text-ink-500">· {agrupadores.length} centro{agrupadores.length === 1 ? "" : "s"} en el archivo</span>
           {sinClase > 0 && <span className="ml-2 rounded-full border border-warn-500 bg-warn-100 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700">{sinClase} sin clase</span>}
@@ -508,6 +527,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
             El centro decide la CLASE del gasto (51 administración, 52 ventas, 72 mano de obra directa, 73 indirecta) y el concepto pone la subcuenta:
             con la clase, la memoria de cada concepto se lleva al centro sin volver a homologar. Sin clase, la porción por clase se define en el cruce.
           </p>
+          <div className="overflow-x-auto">
           <table className="w-full text-[11.5px]">
             <thead className="text-left text-ink-500">
               <tr><th className="py-1 pr-3 font-semibold">Centro / clase del archivo</th><th className="py-1 pr-3 text-right font-semibold">Filas</th><th className="py-1 pr-3 text-right font-semibold">Total</th><th className="py-1 font-semibold">Clase contable</th></tr>
@@ -516,11 +536,11 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
               {agrupadores.map((a) => (
                 <tr key={a.agrupador} className="border-t border-ink-100">
                   <td className="py-1 pr-3 font-medium text-ink-800">{a.agrupador}</td>
-                  <td className="py-1 pr-3 text-right tabular-nums text-ink-500">{a.filas}</td>
-                  <td className="py-1 pr-3 text-right tabular-nums text-ink-700">{fmtContable(a.total)}</td>
+                  <td className="whitespace-nowrap py-1 pr-3 text-right tabular-nums text-ink-500">{a.filas}</td>
+                  <td className="whitespace-nowrap py-1 pr-3 text-right tabular-nums text-ink-700">{fmtContable(a.total)}</td>
                   <td className="py-1">
                     {puedeEditar ? (
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
                         <select
                           value={a.clase ?? ""}
                           disabled={guardando === a.agrupador}
@@ -543,6 +563,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
@@ -1010,7 +1031,7 @@ function ConsolidadoTab({
                       <div className="text-[11px] font-normal text-ink-500">{c.descripcion}</div>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
                   <td className="px-3 py-2">
                     <div className="flex min-w-0 flex-col gap-1.5">
@@ -1593,13 +1614,13 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   // contenedor fijo en columna, igual que el detalle del balance; `CLASE_TARJETA` conserva el aspecto.
   return (
     <div role="region" aria-label="Detalle del cargue" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
-        <span>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
+        <span className="min-w-0">
           <span className="font-semibold text-ink-700">{filas.length.toLocaleString("es-CO")}</span> de {total.toLocaleString("es-CO")} filas
           {hayFiltros ? ` (de ${totalFilas.toLocaleString("es-CO")} del cargue)` : ""}
           {cargando ? " · trayendo…" : ""}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {ocultas.length > 0 && (
             <button
               type="button"
@@ -1665,7 +1686,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                 </tr>
                 {g.filas.map((f) => (
                   <tr key={f.filaNum} title={esEncabezadoTercero(f) ? "Encabezado del tercero en el archivo: muestra el saldo que declara el reporte y no suma al total" : undefined} className={`border-t border-ink-100 ${negativosFilas.has(f.filaNum) ? "bg-err-100 text-err-700" : esEncabezadoTercero(f) ? "bg-ink-50 italic text-ink-500" : "text-ink-700"}`}>
-                    <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                     {columnas.map((c) => (
                       <td key={c.nombre} title={tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
                     ))}
@@ -1866,8 +1887,8 @@ function CruceContableTab({
       {/* La cédula en su región: en pantalla completa ocupa el viewport con el encabezado fijo. Las
           marcas llevan a su observación al pie; desde la vista completa, el enlace sale de ella. */}
       <div role="region" aria-label="Cédula del cruce contable" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
-          <span>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
+          <span className="min-w-0">
             <span className="font-semibold text-ink-700">{filasMarcadas.length.toLocaleString("es-CO")}</span> {filasMarcadas.length === 1 ? "renglón" : "renglones"} en la cédula
             {filasMarcadas.length > 0 && (conDiferencia > 0
               ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
@@ -1879,7 +1900,7 @@ function CruceContableTab({
           <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
+                <th className="min-w-[12rem] px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">{encabezado("Contabilidad", "contable", "right", "Ordenar por el saldo contable.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">{encabezado(`${moduloLabel} (archivos)`, "modulo", "right", "Ordenar por el saldo del módulo.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">
@@ -1923,7 +1944,7 @@ function CruceContableTab({
                           className={`${primero ? "border-t border-ink-100" : ""} ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}
                         >
                           <td className={`px-3 py-2 font-medium text-ink-800 ${agrupada ? "border-l-2 border-l-blue-300" : ""}`}>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {primero && tieneDetalle ? (
                                 <button
                                   type="button"
@@ -1953,28 +1974,28 @@ function CruceContableTab({
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(renglon.contable)}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(renglon.contable)}</td>
                           {primero && (
-                            <td rowSpan={alto} className={`px-3 py-2 text-right align-middle tabular-nums text-ink-700 ${agrupada ? "border-x border-ink-100 font-semibold" : ""}`}>
+                            <td rowSpan={alto} className={`whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-700 ${agrupada ? "border-x border-ink-100 font-semibold" : ""}`}>
                               {fmtContable(f.inventario)}
                             </td>
                           )}
-                          {primero && <td rowSpan={alto} className="px-3 py-2 text-right align-middle tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>}
+                          {primero && <td rowSpan={alto} className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>}
                           {/* Efecto en la diferencia: el contable excluido la baja; el módulo excluido la sube. */}
                           {(() => {
                             const efecto = sinCuenta ? f.noModularModulo : -renglon.noModular;
                             return (
-                              <td className="px-3 py-2 text-right tabular-nums text-warn-700">
+                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700">
                                 {efecto === 0 ? <span className="text-ink-300">—</span> : fmtContable(efecto)}
                               </td>
                             );
                           })()}
                           {primero && (
                             <td rowSpan={alto} className="px-3 py-2 text-right align-middle">
-                              <div className="flex items-center justify-end gap-1.5">
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
                                 {f.estado === "solo_contable" && <Chip label={`Sin ${moduloEnMinuscula}`} tone="warn" />}
                                 {f.estado === "solo_inventario" && !sinCuenta && <Chip label="Sin contabilidad" tone="warn" />}
-                                <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                                <span className={`whitespace-nowrap tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
                               </div>
                             </td>
                           )}
@@ -2064,18 +2085,18 @@ function CruceContableTab({
               <tfoot>
                 <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
                   <td className="px-3 py-2">Totales</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.inventario)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(resumen.totales.diferenciaBruta)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.inventario)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(resumen.totales.diferenciaBruta)}</td>
                   {(() => {
                     const efecto = -resumen.totales.noModular + (resumen.totales.noModularModulo ?? 0);
                     return (
-                      <td className="px-3 py-2 text-right tabular-nums text-warn-700">
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700">
                         {efecto === 0 ? <span className="text-ink-300">—</span> : fmtContable(efecto)}
                       </td>
                     );
                   })()}
-                  <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
                   <td className="px-3 py-2" />
                 </tr>
               </tfoot>
@@ -2271,7 +2292,7 @@ function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEdit
                 <Fragment key={p.clasificador}>
                   <tr className="border-t border-ink-100">
                     <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
-                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
                     <td className="px-3 py-1.5">
                       <div className="flex flex-wrap gap-1.5">
                         {p.cuentas.map((c) => (
@@ -2363,7 +2384,7 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
               <Fragment key={p.clasificador}>
                 <tr className="border-t border-ink-100">
                   <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
                   <td className="px-3 py-1.5">
                     <div className="flex flex-wrap items-center gap-1.5">
                       {p.origenSugerido === "centros" && (
@@ -2445,9 +2466,9 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
                         <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
                     <td className="px-3 py-2"><Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} /></td>
                   </tr>
                   {abierta && (
@@ -2457,13 +2478,13 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
                           <div>
                             <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
                             {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
-                              <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="tabular-nums">{fmtContable(c.valor)}</span></div>
+                              <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
                             ))}
                           </div>
                           <div>
                             <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
                             {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
-                              <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="tabular-nums">{fmtContable(c.total)}</span></div>
+                              <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
                             ))}
                           </div>
                         </div>
@@ -2477,9 +2498,9 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
           <tfoot>
             <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
               <td className="px-3 py-2">Totales</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.contable)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.modulo)}</td>
-              <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(vista.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(vista.totales.diferencia)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.contable)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.modulo)}</td>
+              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(vista.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(vista.totales.diferencia)}</td>
               <td />
             </tr>
           </tfoot>
@@ -2523,18 +2544,18 @@ function ControlDeduccionesCard({ control, moduloLabel }: { control: NonNullable
                   {f.cuentasBalance.length > 1 && <div className="text-[10.5px] text-ink-400">{f.cuentasBalance.join(", ")}</div>}
                 </td>
                 <td className="px-3 py-2 text-[11.5px] text-ink-600">{f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · ")}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink-700">{f.contable == null ? <span className="text-ink-300">—</span> : fmtContable(f.contable)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : f.diferencia == null ? "text-ink-400" : "text-err-700"}`}>{f.diferencia == null ? "—" : fmtContable(f.diferencia)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{f.contable == null ? <span className="text-ink-300">—</span> : fmtContable(f.contable)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
+                <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : f.diferencia == null ? "text-ink-400" : "text-err-700"}`}>{f.diferencia == null ? "—" : fmtContable(f.diferencia)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
               <td className="px-3 py-2" colSpan={2}>Totales</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.contable)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.modulo)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.diferencia)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.contable)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.modulo)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.diferencia)}</td>
             </tr>
           </tfoot>
         </table>
@@ -2578,12 +2599,12 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
               <tbody>
                 {v.netos.slice(0, 200).map((n) => (
                   <tr key={n.filaNum} className="border-t border-ink-100">
-                    <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{n.filaNum}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-500">{n.filaNum}</td>
                     <td className="px-2.5 py-1.5 text-ink-700">{n.cedula ?? "—"}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtContable(n.devengo)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums">{fmtContable(n.deduccion)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(n.neto)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmtContable(n.esperado)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums">{fmtContable(n.devengo)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums">{fmtContable(n.deduccion)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(n.neto)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmtContable(n.esperado)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2887,8 +2908,8 @@ function ObservacionesMarcas({
   const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
   return (
     <Card className="p-0">
-      <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
-        <h3 className="text-[12.5px] font-semibold text-ink-800">Observaciones · marcas de auditoría</h3>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
+        <h3 className="min-w-0 text-[12.5px] font-semibold text-ink-800">Observaciones · marcas de auditoría</h3>
         {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
             {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
@@ -3122,7 +3143,7 @@ function ModalMarca({
       }
     >
       <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-4 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px]">
+        <div className="grid grid-cols-2 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] sm:grid-cols-4">
           <div>
             <div className="text-ink-500">Contabilidad</div>
             <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.contable)}</div>
@@ -3237,10 +3258,10 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
                 <tbody>
                   {novedades.negativos.map((n, i) => (
                     <tr key={i} className="border-t border-ink-100">
-                      <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{n.filaNum}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-500">{n.filaNum}</td>
                       <td className="px-2.5 py-1.5 text-ink-700">{n.referencia ?? "—"}</td>
                       <td className="px-2.5 py-1.5 text-ink-700">{n.etiqueta}</td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(n.valor)}</td>
+                      <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(n.valor)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3261,10 +3282,10 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
               <tbody>
                 {novedades.descuadres.map((d, i) => (
                   <tr key={i} className="border-t border-ink-100">
-                    <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{d.filaNum}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-500">{d.filaNum}</td>
                     <td className="px-2.5 py-1.5 text-ink-700">{d.referencia ?? "—"}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmtContable(d.esperado)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(d.declarado)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmtContable(d.esperado)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(d.declarado)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3359,8 +3380,8 @@ function VersionesTab({
                     <div className="text-[10.5px] text-ink-400">{version.archivoTam ?? "Tamaño no registrado"}</div>
                   </td>
                   <td className="px-4 py-2.5 text-ink-600">{origenVersion(version.origenExtraccion)}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-ink-600">{version.filas}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(version.total)}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-600">{version.filas}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(version.total)}</td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-ink-500">{version.ultimaCarga}</td>
                   <td className="px-4 py-2.5 text-ink-500">{version.cargadoPor ?? "—"}</td>
                   <td className="px-4 py-2.5 text-right">

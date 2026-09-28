@@ -145,7 +145,7 @@ export function EliminarDatosModuloButton({
       >
         <div className="space-y-4">
           <div className="rounded-lg border border-ink-150 bg-ink-50 px-4 py-3">
-            <p className="text-[13px] font-semibold text-ink-800">{clienteNombre}</p>
+            <p className="break-words text-[13px] font-semibold text-ink-800">{clienteNombre}</p>
             <p className="mt-0.5 text-[12px] text-ink-500">
               Estás ubicado en {moduloLabel} · {periodo} · v{version}. Elige exactamente cuánto deseas borrar.
             </p>
@@ -169,7 +169,7 @@ export function EliminarDatosModuloButton({
                     value={opcion.value}
                     checked={seleccionada}
                     onChange={() => setAlcance(opcion.value)}
-                    className="mt-0.5 h-4 w-4 accent-red-600"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-red-600"
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center justify-between gap-2">

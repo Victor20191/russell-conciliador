@@ -16,7 +16,7 @@ import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_F
 
 const TONO_ESTADO = { aprobada: "ok", pendiente: "warn", inactiva: "ink" } as const;
 
-const botonAccion = "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-45";
+const botonAccion = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-45";
 
 function tamano(bytes: number | null): string {
   if (bytes == null) return "";
@@ -39,13 +39,13 @@ export default function PatronesModuloClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-3xl text-[12px] leading-relaxed text-ink-500">
+        <p className="min-w-0 max-w-3xl text-[12px] leading-relaxed text-ink-500">
           Cada versión guarda cómo se lee el archivo de {moduloLabel.toLowerCase()} de un aplicativo: su encabezado, el mapeo de
           columnas y un archivo de muestra. Una versión <b>pendiente</b> solo sirve al cliente del que salió; al <b>aprobarla</b> la usan
           todos los clientes del aplicativo.
         </p>
         {puedeAdministrar && (
-          <Link href={`${ruta}/nueva`} className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
+          <Link href={`${ruta}/nueva`} className="whitespace-nowrap rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
             Nuevo patrón
           </Link>
         )}
@@ -78,10 +78,10 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
       <CardHeader
         title={`${patron.erp.nombre}${patron.erp.activo ? "" : " (inactivo)"}`}
         right={
-          <span className="text-[11.5px] text-ink-500">
+          <span className="min-w-0 text-right text-[11.5px] text-ink-500">
             {patron.clientes} cliente{patron.clientes === 1 ? "" : "s"} · {patron.versiones.length} versión{patron.versiones.length === 1 ? "" : "es"} · {aprobadas} aprobada{aprobadas === 1 ? "" : "s"}
             {puedeAdministrar && patron.erp.activo && (
-              <Link href={`${ruta}/nueva?erp=${patron.erp.id}`} className="ml-3 font-semibold text-blue-700 hover:underline">Nueva versión</Link>
+              <Link href={`${ruta}/nueva?erp=${patron.erp.id}`} className="ml-3 whitespace-nowrap font-semibold text-blue-700 hover:underline">Nueva versión</Link>
             )}
           </span>
         }
@@ -336,7 +336,7 @@ function FilaVersion({
           <Chip label="Sin muestra" tone="warn" />
         )}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-ink-600">{version.vecesUsado}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-ink-600">{version.vecesUsado}</td>
       <td className="px-3 py-2.5 text-ink-500">
         <div>{fmtDate(version.creadoEn)}</div>
         <div className="text-[10.5px]">{version.creadoPor ?? "—"}</div>

@@ -170,7 +170,7 @@ function PorcentajeCoincidencia({ coincidencia, onIrATercero }: { coincidencia: 
         <span
           role="tooltip"
           style={{ top: burbuja.top, left: burbuja.left, width: ANCHO }}
-          className="fixed z-50 cursor-default rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[11.5px] font-normal leading-snug text-ink-600 shadow-lg"
+          className="fixed z-50 max-w-[calc(100vw-1rem)] cursor-default rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[11.5px] font-normal leading-snug text-ink-600 shadow-lg"
         >
           <span className="mb-1 block font-semibold text-ink-800"><TextoConEnlace texto={coincidencia.contra} token={token} onIr={ir} /></span>
           <TextoConEnlace texto={coincidencia.explicacion} token={token} onIr={ir} />
@@ -532,7 +532,7 @@ export function CruceTerceroTab({
       {cuentasDelPeriodo.length > 0 && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">
           {cuentasDelPeriodo.length === 1 ? "La cuenta" : "Las cuentas"} <b>{cuentasDelPeriodo.map((c) => `R - ${c}`).join(", ")}</b>{" "}
-          {cuentasDelPeriodo.length === 1 ? "no es" : "no son"} de la cédula del módulo: el Consolidado {cuentasDelPeriodo.length === 1 ? "la asignó" : "las asignó"} solo
+          {cuentasDelPeriodo.length === 1 ? "no está" : "no están"} entre las cuentas que concilia el módulo: el Consolidado {cuentasDelPeriodo.length === 1 ? "la asignó" : "las asignó"} solo
           para {cruceTercero.periodo}, así que sus terceros entran a este cruce únicamente en ese período.
         </div>
       )}
@@ -574,17 +574,17 @@ export function CruceTerceroTab({
         />
       )}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {tarjetas.map((t) => (
           <button
             key={t.filtro}
             type="button"
             onClick={() => elegir(t.filtro)}
-            className={`rounded-md border px-3 py-2 text-left ${filtro === t.filtro ? "border-navy-700 bg-blue-50" : "border-ink-150 bg-white hover:border-ink-300"}`}
+            className={`min-w-0 rounded-md border px-3 py-2 text-left ${filtro === t.filtro ? "border-navy-700 bg-blue-50" : "border-ink-150 bg-white hover:border-ink-300"}`}
           >
             <div className="text-[11.5px] text-ink-500">{t.titulo}</div>
             <div className={`text-[16px] font-semibold tabular-nums ${t.tono}`}>{contar(t.cantidad)}</div>
-            {t.monto != null && <div className="text-[11px] tabular-nums text-ink-500">{fmtContable(t.monto)}</div>}
+            {t.monto != null && <div className="break-words text-[11px] tabular-nums text-ink-500">{fmtContable(t.monto)}</div>}
           </button>
         ))}
       </div>
@@ -598,7 +598,7 @@ export function CruceTerceroTab({
             value={busqueda}
             onChange={(e) => { setBusqueda(e.target.value); setLimite(PAGINA); alInicioDeLaTabla(); }}
             placeholder={`Buscar por ${cruceTercero.etiquetaClave} o ${cruceTercero.etiquetaNombre.toLocaleLowerCase("es")}`}
-            className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px]"
+            className="w-full min-w-0 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] sm:w-72"
           />
           <span className="text-[12px] text-ink-500">
             {contar(filtradas.length)} de {contar(resumen.filas.length)} terceros
@@ -654,7 +654,7 @@ export function CruceTerceroTab({
                 <th className="px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaClave, "clave")}</th>
                 <th className="min-w-[10rem] px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaNombre, "nombre")}</th>
                 {mostrarCuentas && cuentas.map((c) => (
-                  <th key={c} className="px-3 py-2 text-right font-semibold" title={delPeriodo.has(c) ? `Fuera de la cédula: vale solo para ${cruceTercero.periodo}` : undefined}>
+                  <th key={c} className="px-3 py-2 text-right font-semibold" title={delPeriodo.has(c) ? `Fuera de las cuentas que concilia el módulo: vale solo para ${cruceTercero.periodo}` : undefined}>
                     {encabezado(c, `c:${c}`, "right")}
                     {delPeriodo.has(c) && <span className="block text-[10px] font-semibold uppercase tracking-wide text-warn-700">solo {cruceTercero.periodo}</span>}
                   </th>
@@ -689,19 +689,21 @@ export function CruceTerceroTab({
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
                   <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
                   {mostrarCuentas && cuentas.map((c) => (
-                    <td key={c} className="px-3 py-2 text-right tabular-nums text-ink-600">{f.contable.porCuenta[c] ? fmtContable(f.contable.porCuenta[c]) : ""}</td>
+                    <td key={c} className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-600">{f.contable.porCuenta[c] ? fmtContable(f.contable.porCuenta[c]) : ""}</td>
                   ))}
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable.total)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable.total)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">
                     {fmtContable(f.modulo.total)}
                     {f.modulo.exterior !== 0 && (
                       <div className="text-[11px] text-ink-500">Nal. {fmtContable(f.modulo.nacional + f.modulo.sinOrigen)} · Ext. {fmtContable(f.modulo.exterior)}</div>
                     )}
                   </td>
-                  <td className={`px-3 py-2 text-right font-semibold tabular-nums ${Math.abs(f.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums ${Math.abs(f.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1">
-                      <div className="inline-flex shrink-0 items-center gap-1">
+                      {/* nowrap: el distintivo, el % y el menú van juntos; sin él la tabla le daba a la
+                          columna el ancho del distintivo partido y el grupo invadía «Marca». */}
+                      <div className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
                         {f.estado !== "solo_contable" && (
                           <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
                         )}
@@ -784,10 +786,10 @@ export function CruceTerceroTab({
               <tfoot>
                 <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
                   <td className="px-3 py-2" colSpan={2}>Totales</td>
-                  {mostrarCuentas && cuentas.map((c) => <td key={c} className="px-3 py-2 text-right tabular-nums">{fmtContable(totales.porCuenta[c] ?? 0)}</td>)}
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(totales.contable)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(totales.modulo)}</td>
-                  <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totales.diferencia)}</td>
+                  {mostrarCuentas && cuentas.map((c) => <td key={c} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.porCuenta[c] ?? 0)}</td>)}
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.contable)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.modulo)}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totales.diferencia)}</td>
                   <td className="px-3 py-2" colSpan={2} />
                 </tr>
               </tfoot>

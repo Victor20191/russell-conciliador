@@ -128,12 +128,12 @@ export function ModalValidarCoherencia({
                       <div className="font-medium text-ink-800">{etiqueta(s.claveModulo, s.nombreModulo)}</div>
                       {!s.claveModulo.startsWith("~") && s.nombreModulo && <div className="text-ink-500">{s.nombreModulo}</div>}
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums align-top">{fmtContable(s.saldoModulo)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums align-top">{fmtContable(s.saldoModulo)}</td>
                     <td className="px-2 py-1.5 align-top">
                       <div className="font-medium text-ink-800">{etiqueta(s.claveBalance, s.nombreBalance)}</div>
                       {!s.claveBalance.startsWith("~") && s.nombreBalance && <div className="text-ink-500">{s.nombreBalance}</div>}
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums align-top">{fmtContable(s.saldoContable)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums align-top">{fmtContable(s.saldoContable)}</td>
                     <td className="px-2 py-1.5 align-top">
                       <div className="flex flex-wrap gap-1">
                         {s.senales.map((x) => <Chip key={x} label={ETIQUETA_SENAL[x]} tone="ink" />)}
@@ -151,7 +151,7 @@ export function ModalValidarCoherencia({
 
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-[12px] font-semibold text-ink-700">Alcance</legend>
-          <label className="flex items-center gap-2">
+          <label className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <input type="radio" name="alcance-coherencia" checked={alcance === "todos"} onChange={() => setAlcance("todos")} />
             Todos los períodos del cliente
             <span className="text-ink-400">(la forma en que cada lado escribe el tercero es del ERP, no del mes)</span>

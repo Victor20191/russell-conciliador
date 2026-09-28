@@ -92,11 +92,13 @@ export function BotonPantallaCompleta({ activa, onToggle }: { activa: boolean; o
       aria-pressed={activa}
       onClick={onToggle}
       title={activa ? "Salir de pantalla completa (Esc)" : "Abrir la tabla a pantalla completa"}
-      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${activa ? "border-navy-700 bg-navy-700 text-white hover:bg-navy-600" : "border-ink-200 bg-white text-ink-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
+      aria-label={activa ? "Salir de pantalla completa" : "Pantalla completa"}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-semibold transition ${activa ? "border-navy-700 bg-navy-700 text-white hover:bg-navy-600" : "border-ink-200 bg-white text-ink-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
     >
       <Icon name={activa ? "minimize" : "maximize"} size={13} />
-      {activa ? "Salir de pantalla completa" : "Pantalla completa"}
-      {activa && <kbd className="ml-0.5 rounded border border-white/30 px-1 font-sans text-[9px] font-medium text-white/80">Esc</kbd>}
+      {/* En móvil solo el icono: la barra de la tabla ya va apretada y el título dice qué hace. */}
+      <span className="hidden sm:inline">{activa ? "Salir de pantalla completa" : "Pantalla completa"}</span>
+      {activa && <kbd className="ml-0.5 hidden rounded border border-white/30 px-1 font-sans text-[9px] font-medium text-white/80 sm:inline">Esc</kbd>}
     </button>
   );
 }

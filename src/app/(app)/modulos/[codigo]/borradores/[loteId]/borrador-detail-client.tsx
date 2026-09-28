@@ -64,7 +64,7 @@ function MenuVersionesBorradorModulo({
       {abierto && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
-          <div className="absolute right-0 z-40 mt-1 w-[24rem] overflow-hidden rounded-md border border-ink-200 bg-white shadow-lg">
+          <div className="absolute right-0 z-40 mt-1 w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-ink-200 bg-white shadow-lg">
             <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-500">
               Borradores de este cliente y período
             </div>
@@ -447,7 +447,7 @@ export default function BorradorModuloClient({
         onChange={(e) => setAgrupadorManual(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") asignarAgrupadorSeleccion(); }}
         placeholder={`Escribe el ${clasificadorEtiqueta.toLowerCase()}…`}
-        className="min-w-[12rem] rounded border border-white/30 bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
+        className="w-full min-w-0 rounded border border-white/30 sm:w-auto sm:min-w-[12rem] bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
       />
       <datalist id="agrupadores-borrador">
         {agrupadoresExistentes.map((a) => <option key={a} value={a} />)}
@@ -464,8 +464,8 @@ export default function BorradorModuloClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
-        <span className="text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {totalItems.toLocaleString("es-CO")} filas imputables de {resumen.totalFilas.toLocaleString("es-CO")} · total <span className="font-semibold">{fmtContable(total)}</span></span>
-        <span className="flex items-center gap-2">
+        <span className="min-w-0 break-words text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {totalItems.toLocaleString("es-CO")} filas imputables de {resumen.totalFilas.toLocaleString("es-CO")} · total <span className="font-semibold">{fmtContable(total)}</span></span>
+        <span className="flex flex-wrap items-center gap-2">
           {hayCambios && <span className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar.</span>}
           {version && <Chip label={`Borrador v${version}`} tone="blue" />}
           {hermanos.length > 1 && <MenuVersionesBorradorModulo moduloCodigo={moduloCodigo} loteId={loteId} hermanos={hermanos} />}
@@ -544,7 +544,7 @@ export default function BorradorModuloClient({
         )}
 
         {verificaciones.length > 0 && (
-          <div className="flex items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">
               Verificaciones obligatorias
             </span>
@@ -587,7 +587,7 @@ export default function BorradorModuloClient({
                   </button>
                 ))}
                 <input value={respuestas[v.id]?.nota ?? ""} onChange={(e) => setNota(v.id, e.target.value)} placeholder="Observación (opcional)"
-                  className="min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[12px] text-ink-700 outline-none focus:border-blue-400" />
+                  className="min-w-[10rem] flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[12px] text-ink-700 outline-none focus:border-blue-400" />
               </div>
             </div>
           );
@@ -599,8 +599,8 @@ export default function BorradorModuloClient({
             className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
         </label>
         {!verifCompletas && verificaciones.length > 0 && (
-          <div className="flex items-center gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] font-medium text-warn-700">
-            <Icon name="warn" size={14} />
+          <div className="flex items-start gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] font-medium text-warn-700 sm:items-center">
+            <span className="shrink-0"><Icon name="warn" size={14} /></span>
             Responde todas las verificaciones (Sí / No / N/A) para poder confirmar la carga.
           </div>
         )}
@@ -624,7 +624,7 @@ export default function BorradorModuloClient({
             const activo = filtro === c.clasificador;
             return (
               <button key={c.clasificador} type="button" onClick={() => { setFiltro((f) => (f === c.clasificador ? null : c.clasificador)); reiniciarDetalle(); }}
-                className={`rounded-md border px-3 py-1.5 text-[12px] ${activo ? "border-navy-600 bg-blue-50 font-semibold" : "border-ink-150 bg-ink-50 hover:bg-ink-100"}`}>
+                className={`max-w-full break-words rounded-md border px-3 py-1.5 text-left text-[12px] ${activo ? "border-navy-600 bg-blue-50 font-semibold" : "border-ink-150 bg-ink-50 hover:bg-ink-100"}`}>
                 <span className="font-medium text-ink-700">{c.clasificador}</span>{" "}
                 <span className="font-semibold text-ink-900">{fmtContable(c.total)}</span>{" "}
                 <span className="text-ink-400">({c.filas})</span>
@@ -647,7 +647,7 @@ export default function BorradorModuloClient({
 
       {/* Tabla del borrador: región propia (no `<Card>`) para poder ocupar el viewport en pantalla completa. */}
       <div role="region" aria-label="Detalle en borrador" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-500">
             <span className="font-semibold uppercase tracking-wider">Detalle en borrador (crudo del archivo)</span>
             <span>
@@ -656,7 +656,7 @@ export default function BorradorModuloClient({
               {gruposVista.length > 0 ? " · abre un grupo para ver su detalle" : ""}
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {hayFiltrosColumnas && (
               <button
                 type="button"
@@ -831,7 +831,7 @@ export default function BorradorModuloClient({
                         <td className="px-2.5 py-1.5 text-center">
                           {!cero && <input type="checkbox" checked={seleccion.has(f.filaNum)} onChange={() => toggleSel(f.filaNum)} className="cursor-pointer align-middle" />}
                         </td>
-                        <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                         {columnas.map((c) => (
                           <td key={c.nombre} title={c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
                             {c.nombre === clasificadorRol ? (f.clasificador ?? "—") : celda(f, c)}
@@ -901,7 +901,7 @@ export default function BorradorModuloClient({
 
       {/* Barra de acciones */}
       <Card className="flex flex-wrap items-end justify-between gap-3 p-4">
-        <div className="flex items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <button type="button" disabled={!hayCambios || guardando} onClick={guardar} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
@@ -911,7 +911,7 @@ export default function BorradorModuloClient({
             <button type="button" onClick={descartar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700">Descartar</button>
           )}
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Período (AAAA-MM)</span>
             {/* En un anexo el período es el del cargue destino: cambiarlo aquí haría que la

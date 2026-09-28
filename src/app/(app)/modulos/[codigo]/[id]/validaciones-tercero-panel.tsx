@@ -48,12 +48,12 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
                   <tbody>
                     {diasVsCorte.filas.map((f) => (
                       <tr key={f.filaNum} className="border-t border-ink-100">
-                        <td className={`${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
+                        <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
                         <td className={`${celda} text-ink-700`}>{f.tercero}</td>
                         <td className={`${celda} text-ink-700`}>{f.documento ?? "—"}</td>
-                        <td className={`${celda} tabular-nums text-ink-700`}>{fechaLegible(f.vencimiento)}</td>
-                        <td className={`${celda} text-right tabular-nums text-ink-700`}>{f.diasArchivo}</td>
-                        <td className={`${celda} text-right font-semibold tabular-nums text-warn-700`}>{f.diasAlCorte}</td>
+                        <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-700`}>{fechaLegible(f.vencimiento)}</td>
+                        <td className={`whitespace-nowrap ${celda} text-right tabular-nums text-ink-700`}>{f.diasArchivo}</td>
+                        <td className={`whitespace-nowrap ${celda} text-right font-semibold tabular-nums text-warn-700`}>{f.diasAlCorte}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -76,11 +76,11 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
                   <tbody>
                     {edadVsCorte.filas.map((f) => (
                       <tr key={f.filaNum} className="border-t border-ink-100">
-                        <td className={`${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
+                        <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
                         <td className={`${celda} text-ink-700`}>{f.tercero}</td>
                         <td className={`${celda} text-ink-700`}>{f.documento ?? "—"}</td>
                         <td className={`${celda} text-ink-700`}>{f.rango}</td>
-                        <td className={`${celda} text-right font-semibold tabular-nums text-warn-700`}>{f.diasAlCorte}</td>
+                        <td className={`whitespace-nowrap ${celda} text-right font-semibold tabular-nums text-warn-700`}>{f.diasAlCorte}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -118,7 +118,7 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
                     {documentosRepetidos.grupos.map((g) => (
                       <tr key={`${g.documento}|${g.valor}`} className="border-t border-ink-100 align-top">
                         <td className={`${celda} font-medium text-ink-800`}>{g.documento}</td>
-                        <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(g.valor)}</td>
+                        <td className={`whitespace-nowrap ${celda} text-right tabular-nums text-ink-700`}>{fmtContable(g.valor)}</td>
                         <td className={`${celda} text-ink-700`}>
                           {g.terceros.map((t) => `${t.nombre ?? (t.clave.startsWith("~") ? t.clave.slice(1) : t.clave)} (${t.filas.join(", ")})`).join(" · ")}
                         </td>
@@ -161,8 +161,8 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
                       <tr key={`${s.clave}|${s.cuenta}`} className="border-t border-ink-100">
                         <td className={`${celda} font-medium text-ink-800`}>{s.clave.startsWith("~") ? "—" : s.clave}</td>
                         <td className={`${celda} text-ink-700`}>{s.nombre ?? "—"}</td>
-                        <td className={`${celda} tabular-nums text-ink-700`}>{s.cuenta}</td>
-                        <td className={`${celda} text-right font-semibold tabular-nums text-warn-700`}>{fmtContable(s.valor)}</td>
+                        <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-700`}>{s.cuenta}</td>
+                        <td className={`whitespace-nowrap ${celda} text-right font-semibold tabular-nums text-warn-700`}>{fmtContable(s.valor)}</td>
                       </tr>
                     ))}
                   </tbody>

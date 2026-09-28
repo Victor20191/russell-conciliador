@@ -124,8 +124,8 @@ export function ObservacionesMarcasTercero({
   const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
   return (
     <Card className="p-0">
-      <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
-        <h3 className="text-[12.5px] font-semibold text-ink-800">Observaciones · marcas del cruce por tercero</h3>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
+        <h3 className="min-w-0 text-[12.5px] font-semibold text-ink-800">Observaciones · marcas del cruce por tercero</h3>
         {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
             {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
@@ -162,7 +162,7 @@ export function ObservacionesMarcasTercero({
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-[12.5px] font-semibold text-ink-800">{etiquetaTercero(fila)}</span>
+                    <span className="min-w-0 break-words text-[12.5px] font-semibold text-ink-800">{etiquetaTercero(fila)}</span>
                     <span className={`text-[12px] font-semibold tabular-nums ${fila.admiteMarca ? "text-err-700" : "text-ok-700"}`}>
                       {fmtContable(fila.diferencia)}
                     </span>
@@ -293,7 +293,7 @@ export function ModalMarcaTercero({
       }
     >
       <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-3 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px]">
+        <div className="grid grid-cols-1 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] sm:grid-cols-3">
           <div>
             <div className="text-ink-500">Contabilidad</div>
             <div className="font-semibold tabular-nums text-ink-800">{fmtContable(fila.contable.total)}</div>

@@ -192,7 +192,7 @@ export default function EditorPatronClient({
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Aplicativo <span className="text-err-600">*</span></span>
             {edicion ? (
-              <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700">{edicion.erpNombre} · versión {edicion.version}</span>
+              <span className="break-words rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700">{edicion.erpNombre} · versión {edicion.version}</span>
             ) : (
               <select value={erpId ?? ""} onChange={(e) => setErpId(e.target.value ? Number(e.target.value) : null)} className={claseCampo}>
                 <option value="">— elige el aplicativo —</option>
@@ -203,9 +203,9 @@ export default function EditorPatronClient({
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo de muestra {edicion ? "" : <span className="text-err-600">*</span>}</span>
             {edicion ? (
-              <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-700">{edicion.muestraNombre}</span>
+              <span className="break-words rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-700">{edicion.muestraNombre}</span>
             ) : (
-              <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onMuestra} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
+              <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onMuestra} className="min-w-0 max-w-full text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
             )}
             {!edicion && (
               <span className="text-[11px] leading-snug text-ink-400">

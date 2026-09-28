@@ -73,7 +73,7 @@ export function ModalCuentasSinGuardar({
       title="Cuentas sin guardar"
       size="md"
       footer={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={onSalirSinGuardar}
@@ -104,9 +104,9 @@ export function ModalCuentasSinGuardar({
         </p>
         <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
           {listados.map((r) => (
-            <li key={r.clasificador} className="flex items-baseline gap-2 px-2.5 py-1.5">
+            <li key={r.clasificador} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-2.5 py-1.5">
               <span className="min-w-0 flex-1 truncate font-medium text-ink-800" title={`${clasificadorEtiqueta}: ${r.clasificador}`}>{r.clasificador}</span>
-              <span className="shrink-0 text-[11.5px] text-ink-600">
+              <span className="min-w-0 break-words text-[11.5px] text-ink-600">
                 {r.cuentas.length ? r.cuentas.map((c) => `R-${c}`).join(", ") : "sin cuenta"}
               </span>
               <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">

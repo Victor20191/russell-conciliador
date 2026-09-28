@@ -126,7 +126,7 @@ export function FormulaValor({
           Usar una sola columna
         </button>
       </div>
-      <p className="text-[11.5px] text-ink-600">
+      <p className="break-words text-[11.5px] text-ink-600">
         <span className="font-semibold">= </span>
         {formula.map((t, i) => `${i === 0 ? (t.signo === "-" ? "−" : "") : t.signo === "-" ? " − " : " + "}${letra(t.columna)}`).join("")}
       </p>
@@ -134,7 +134,7 @@ export function FormulaValor({
         const partes = formula.map((t) => ({ signo: t.signo, v: numeroDe(fila[t.columna - 1] ?? null) }));
         const total = partes.reduce((s, p) => s + (p.signo === "-" ? -(p.v ?? 0) : p.v ?? 0), 0);
         return (
-          <p key={filaNum} className="text-[11px] tabular-nums text-ink-500">
+          <p key={filaNum} className="break-words text-[11px] tabular-nums text-ink-500">
             Fila {filaNum}:{" "}
             {partes.map((p, i) => `${i === 0 ? (p.signo === "-" ? "−" : "") : p.signo === "-" ? " − " : " + "}${p.v == null ? "0" : fmtContable(p.v)}`).join("")}
             {" = "}

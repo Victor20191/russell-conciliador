@@ -31,25 +31,29 @@ export function PestanasModulo({
   ];
 
   return (
-    <nav aria-label="Secciones del módulo" className="mb-5 flex items-center gap-1 border-b border-ink-150">
-      {pestanas.map((p) => {
-        const esActiva = p.id === activa;
-        return (
-          <Link
-            key={p.id}
-            href={p.href}
-            aria-current={esActiva ? "page" : undefined}
-            className={`-mb-px inline-flex items-center border-b-2 px-3 py-2 text-[12.5px] font-semibold ${
-              esActiva ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"
-            }`}
-          >
-            {p.label}
-            {p.contador != null && p.contador > 0 && (
-              <span className="ml-1.5 rounded-full bg-warn-100 px-1.5 text-[10px] font-bold text-warn-700">{p.contador}</span>
-            )}
-          </Link>
-        );
-      })}
+    // En móvil las pestañas no caben: el nav hace scroll horizontal y la raya inferior vive en el
+    // div interior (ancho mínimo = el del nav), así el `-mb-px` de la activa no se recorta.
+    <nav aria-label="Secciones del módulo" className="mb-5 overflow-x-auto">
+      <div className="flex w-max min-w-full items-center gap-1 border-b border-ink-150">
+        {pestanas.map((p) => {
+          const esActiva = p.id === activa;
+          return (
+            <Link
+              key={p.id}
+              href={p.href}
+              aria-current={esActiva ? "page" : undefined}
+              className={`-mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-2 text-[12.5px] font-semibold ${
+                esActiva ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"
+              }`}
+            >
+              {p.label}
+              {p.contador != null && p.contador > 0 && (
+                <span className="ml-1.5 rounded-full bg-warn-100 px-1.5 text-[10px] font-bold text-warn-700">{p.contador}</span>
+              )}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

@@ -11,12 +11,12 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-5 flex items-start justify-between gap-4">
-      <div>
-        <h1 className="font-serif text-2xl text-ink-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-[13px] text-ink-500">{subtitle}</p>}
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div className="min-w-0 flex-1 basis-72">
+        <h1 className="break-words font-serif text-xl text-ink-900 sm:text-2xl">{title}</h1>
+        {subtitle && <p className="mt-1 break-words text-[13px] text-ink-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -45,8 +45,8 @@ export function CardHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
-      <h2 className="text-[13px] font-semibold text-ink-800">{title}</h2>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 px-4 py-3">
+      <h2 className="min-w-0 text-[13px] font-semibold text-ink-800">{title}</h2>
       {right}
     </div>
   );
@@ -69,7 +69,7 @@ export function Chip({
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${tones[tone]}`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${tones[tone]}`}
     >
       {label}
     </span>

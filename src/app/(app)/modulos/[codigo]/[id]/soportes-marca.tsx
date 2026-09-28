@@ -40,10 +40,10 @@ export function ListaSoportesMarca({ adjuntos }: { adjuntos: AdjuntoMarca[] }) {
   return (
     <ul className="flex flex-wrap gap-1.5">
       {adjuntos.map((a) => (
-        <li key={a.id}>
+        <li key={a.id} className="min-w-0 max-w-full">
           <a
             href={`${urlSoporteMarca(a.id)}?descargar=1`}
-            className="inline-flex max-w-[260px] items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] text-ink-700 transition hover:border-blue-400 hover:text-blue-700"
+            className="inline-flex max-w-[min(260px,100%)] items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] text-ink-700 transition hover:border-blue-400 hover:text-blue-700"
             title={`${a.nombreArchivo} · ${tamanoLegible(a.tamanoBytes)}`}
           >
             <Icon name="doc" size={11} />

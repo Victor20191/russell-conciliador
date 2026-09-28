@@ -99,10 +99,10 @@ export function ControlesFormato({
                 {docs.diferencias.filas.map((f) => (
                   <tr key={f.claveTercero} className="border-t border-ink-100">
                     <td className={`${celda} text-ink-700`}>{f.nombre ?? "—"}</td>
-                    <td className={`${celda} tabular-nums text-ink-500`}>{f.claveTercero.startsWith("~") ? "—" : f.claveTercero}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.declarado)}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{f.estado === "solo_declarado" ? "sin documentos" : fmtContable(f.calculado)}</td>
-                    <td className={`${celda} text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
+                    <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-500`}>{f.claveTercero.startsWith("~") ? "—" : f.claveTercero}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.declarado)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{f.estado === "solo_declarado" ? "sin documentos" : fmtContable(f.calculado)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -156,11 +156,11 @@ export function ControlesFormato({
               <tbody>
                 {porCuenta.diferencias.filas.map((f) => (
                   <tr key={f.cuenta} className="border-t border-ink-100">
-                    <td className={`${celda} tabular-nums text-ink-700`}>{f.cuenta}</td>
+                    <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-700`}>{f.cuenta}</td>
                     <td className={`${celda} text-ink-700`}>{f.nombre ?? "—"}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.declarado)}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.calculado)}</td>
-                    <td className={`${celda} text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.declarado)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.calculado)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -208,12 +208,12 @@ export function ControlesFormato({
               <tbody>
                 {edades.diferencias.filas.map((f) => (
                   <tr key={f.filaNum} className="border-t border-ink-100">
-                    <td className={`${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
+                    <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
                     <td className={`${celda} text-ink-700`}>{f.tercero}</td>
                     <td className={`${celda} text-ink-700`}>{f.documento ?? "—"}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.total)}</td>
-                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.sumaEdades)}</td>
-                    <td className={`${celda} text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.total)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.sumaEdades)}</td>
+                    <td className={`${celda} whitespace-nowrap text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
                   </tr>
                 ))}
               </tbody>

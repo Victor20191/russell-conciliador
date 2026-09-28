@@ -90,10 +90,11 @@ export function AlcanceCuentasTercero({
               : " La lista es la misma para todos los clientes y solo un administrador la cambia en Filtros de cuentas."}
           </p>
 
-          <div className="overflow-x-auto rounded-md border border-ink-150">
+          {/* La barra queda fuera del scroll horizontal: con la tabla desplazada, el enlace sigue a la vista. */}
+          <div className="overflow-hidden rounded-md border border-ink-150">
             {enlaceCuentasModulo && (
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-white px-3 py-1.5">
-                <span className="text-[11.5px] text-ink-500">Cuentas que concilia {enlaceCuentasModulo.modulo} para todos los clientes</span>
+                <span className="min-w-0 text-[11.5px] text-ink-500">Cuentas que concilia {enlaceCuentasModulo.modulo} para todos los clientes</span>
                 <Link
                   href={enlaceCuentasModulo.href}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-navy-700 hover:border-navy-700 hover:bg-blue-50"
@@ -104,127 +105,129 @@ export function AlcanceCuentasTercero({
                 </Link>
               </div>
             )}
-            <table className="w-full text-[12px]">
-              <thead className="bg-ink-50 text-left text-ink-500">
-                <tr>
-                  <th className="px-3 py-1.5 font-semibold">Cuenta</th>
-                  <th className="px-3 py-1.5 font-semibold">Nombre</th>
-                  {conOrigen && <th className="px-3 py-1.5 font-semibold">Origen</th>}
-                  <th className="px-3 py-1.5 text-right font-semibold">Contabilidad</th>
-                  <th className="px-3 py-1.5 text-right font-semibold" title="Terceros con saldo en la cuenta">Terc.</th>
-                  <th className="px-3 py-1.5 text-right font-semibold">Auxiliar (módulo)</th>
-                  <th className="px-3 py-1.5 text-right font-semibold" title="Terceros con saldo en la cuenta">Terc.</th>
-                  <th className="px-3 py-1.5 text-right font-semibold">Diferencia</th>
-                  <th className="px-3 py-1.5 font-semibold">Cuentas del archivo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cuentas.map((c) => {
-                  const diferencia = c.contable.total - c.auxiliar.total;
-                  const enGrupo = c.grupo != null;
-                  const soloGrupo = enGrupo && !conSaldo(c.auxiliar.total) && !conSaldo(c.auxiliar.sinTercero);
-                  const sinAsignar = conSaldo(c.contable.total) && c.auxiliar.cuentasArchivo.length === 0 && !enGrupo;
-                  return (
-                    <tr key={c.cuenta} className={`border-t border-ink-100 align-top ${tieneSaldo(c) ? "" : "text-ink-400"}`}>
-                      <td className="whitespace-nowrap px-3 py-1.5">
-                        <span className={`font-semibold ${tieneSaldo(c) ? "text-ink-800" : ""}`}>{c.cuenta}</span>
-                        <div className="mt-0.5 flex flex-wrap gap-1">
-                          {c.fuente === "periodo" && (
-                            <span title={`No es de la lista del módulo: el Consolidado la asignó solo para ${periodo}.`}><Chip label={`Solo ${periodo}`} tone="warn" /></span>
-                          )}
-                          {c.fueraDePrefijos && (
-                            <span title="Está en la lista del módulo aunque su subgrupo no esté en los prefijos del prevalidador: se concilia por saldo final."><Chip label="Fuera de los prefijos" tone="ink" /></span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-1.5">{c.nombre ?? "—"}{!tieneSaldo(c) && <span className="ml-1 text-[11px]">· sin saldo en el período</span>}</td>
-                      {conOrigen && <td className="px-3 py-1.5">{c.origen === "exterior" ? "Exterior" : c.origen === "nacional" ? "Nacional" : "—"}</td>}
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(c.contable.total)}<SinTercero valor={c.contable.sinTercero} /></td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(c.contable.terceros)}</td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
-                        {soloGrupo ? (
-                          <span className="text-[11px] text-ink-500">En el grupo {c.grupo! + 1}</span>
-                        ) : (
-                          <>
-                            {fmtContable(c.auxiliar.total)}
-                            <SinTercero valor={c.auxiliar.sinTercero} />
-                            {enGrupo && <div className="text-[11px] text-ink-500">+ su parte del grupo {c.grupo! + 1}</div>}
-                          </>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{soloGrupo ? "—" : contar(c.auxiliar.terceros)}</td>
-                      <td
-                        className={`whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums ${enGrupo ? "font-normal text-ink-400" : conSaldo(diferencia) ? "text-err-700" : "text-ok-700"}`}
-                        title={enGrupo ? `El auxiliar de esta cuenta está asignado junto con otras: la diferencia se lee en el grupo ${c.grupo! + 1}.` : undefined}
-                      >
-                        {enGrupo ? `Grupo ${c.grupo! + 1}` : fmtContable(diferencia)}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {c.auxiliar.cuentasArchivo.length > 0 ? (
-                          <span className="text-ink-600">{c.auxiliar.cuentasArchivo.join(" · ")}</span>
-                        ) : enGrupo ? (
-                          <span className="text-ink-500">Las del grupo {c.grupo! + 1}</span>
-                        ) : sinAsignar ? (
-                          <span className="text-warn-700">
-                            Ninguna asignada
-                            {onIrConsolidado && (
-                              <button type="button" onClick={onIrConsolidado} className="ml-1.5 font-semibold text-blue-700 hover:underline">Ir al Consolidado</button>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead className="bg-ink-50 text-left text-ink-500">
+                  <tr>
+                    <th className="px-3 py-1.5 font-semibold">Cuenta</th>
+                    <th className="px-3 py-1.5 font-semibold">Nombre</th>
+                    {conOrigen && <th className="px-3 py-1.5 font-semibold">Origen</th>}
+                    <th className="px-3 py-1.5 text-right font-semibold">Contabilidad</th>
+                    <th className="px-3 py-1.5 text-right font-semibold" title="Terceros con saldo en la cuenta">Terc.</th>
+                    <th className="px-3 py-1.5 text-right font-semibold">Auxiliar (módulo)</th>
+                    <th className="px-3 py-1.5 text-right font-semibold" title="Terceros con saldo en la cuenta">Terc.</th>
+                    <th className="px-3 py-1.5 text-right font-semibold">Diferencia</th>
+                    <th className="px-3 py-1.5 font-semibold">Cuentas del archivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cuentas.map((c) => {
+                    const diferencia = c.contable.total - c.auxiliar.total;
+                    const enGrupo = c.grupo != null;
+                    const soloGrupo = enGrupo && !conSaldo(c.auxiliar.total) && !conSaldo(c.auxiliar.sinTercero);
+                    const sinAsignar = conSaldo(c.contable.total) && c.auxiliar.cuentasArchivo.length === 0 && !enGrupo;
+                    return (
+                      <tr key={c.cuenta} className={`border-t border-ink-100 align-top ${tieneSaldo(c) ? "" : "text-ink-400"}`}>
+                        <td className="whitespace-nowrap px-3 py-1.5">
+                          <span className={`font-semibold ${tieneSaldo(c) ? "text-ink-800" : ""}`}>{c.cuenta}</span>
+                          <div className="mt-0.5 flex flex-wrap gap-1">
+                            {c.fuente === "periodo" && (
+                              <span title={`No es de la lista del módulo: el Consolidado la asignó solo para ${periodo}.`}><Chip label={`Solo ${periodo}`} tone="warn" /></span>
                             )}
-                          </span>
-                        ) : "—"}
+                            {c.fueraDePrefijos && (
+                              <span title="Está en la lista del módulo aunque su subgrupo no esté en los prefijos del prevalidador: se concilia por saldo final."><Chip label="Fuera de los prefijos" tone="ink" /></span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5">{c.nombre ?? "—"}{!tieneSaldo(c) && <span className="ml-1 text-[11px]">· sin saldo en el período</span>}</td>
+                        {conOrigen && <td className="px-3 py-1.5">{c.origen === "exterior" ? "Exterior" : c.origen === "nacional" ? "Nacional" : "—"}</td>}
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(c.contable.total)}<SinTercero valor={c.contable.sinTercero} /></td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(c.contable.terceros)}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+                          {soloGrupo ? (
+                            <span className="text-[11px] text-ink-500">En el grupo {c.grupo! + 1}</span>
+                          ) : (
+                            <>
+                              {fmtContable(c.auxiliar.total)}
+                              <SinTercero valor={c.auxiliar.sinTercero} />
+                              {enGrupo && <div className="text-[11px] text-ink-500">+ su parte del grupo {c.grupo! + 1}</div>}
+                            </>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{soloGrupo ? "—" : contar(c.auxiliar.terceros)}</td>
+                        <td
+                          className={`whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums ${enGrupo ? "font-normal text-ink-400" : conSaldo(diferencia) ? "text-err-700" : "text-ok-700"}`}
+                          title={enGrupo ? `El auxiliar de esta cuenta está asignado junto con otras: la diferencia se lee en el grupo ${c.grupo! + 1}.` : undefined}
+                        >
+                          {enGrupo ? `Grupo ${c.grupo! + 1}` : fmtContable(diferencia)}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          {c.auxiliar.cuentasArchivo.length > 0 ? (
+                            <span className="text-ink-600">{c.auxiliar.cuentasArchivo.join(" · ")}</span>
+                          ) : enGrupo ? (
+                            <span className="text-ink-500">Las del grupo {c.grupo! + 1}</span>
+                          ) : sinAsignar ? (
+                            <span className="text-warn-700">
+                              Ninguna asignada
+                              {onIrConsolidado && (
+                                <button type="button" onClick={onIrConsolidado} className="ml-1.5 font-semibold text-blue-700 hover:underline">Ir al Consolidado</button>
+                              )}
+                            </span>
+                          ) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {grupos.length > 0 && (
+                    <tr className="border-t-2 border-ink-200 bg-ink-50/60">
+                      <td colSpan={columnas} className="px-3 py-1.5 text-[11.5px] text-ink-600">
+                        <b className="text-ink-700">Cuentas asignadas juntas en el Consolidado.</b>{" "}
+                        Un renglón del Consolidado con varias cuentas no se reparte entre ellas: esas cuentas se comparan en conjunto.
                       </td>
                     </tr>
-                  );
-                })}
-                {grupos.length > 0 && (
-                  <tr className="border-t-2 border-ink-200 bg-ink-50/60">
-                    <td colSpan={columnas} className="px-3 py-1.5 text-[11.5px] text-ink-600">
-                      <b className="text-ink-700">Cuentas asignadas juntas en el Consolidado.</b>{" "}
-                      Un renglón del Consolidado con varias cuentas no se reparte entre ellas: esas cuentas se comparan en conjunto.
-                    </td>
-                  </tr>
-                )}
-                {grupos.map((g, i) => {
-                  const diferencia = g.contable.total - g.auxiliar.total;
-                  return (
-                    <tr key={g.cuentas.join("+")} className="border-t border-ink-100 align-top">
-                      <td className="px-3 py-1.5" colSpan={conOrigen ? 3 : 2}>
-                        <span className="font-semibold text-ink-800">Grupo {i + 1}</span>
-                        <span className="ml-2 text-ink-600">{g.cuentas.join(" + ")}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(g.contable.total)}</td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(g.contable.terceros)}</td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(g.auxiliar.total)}<SinTercero valor={g.auxiliar.sinTercero} /></td>
-                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(g.auxiliar.terceros)}</td>
-                      <td className={`whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums ${conSaldo(diferencia) ? "text-err-700" : "text-ok-700"}`}>{fmtContable(diferencia)}</td>
-                      <td className="px-3 py-1.5 text-ink-600">{g.cuentasArchivo.join(" · ")}</td>
+                  )}
+                  {grupos.map((g, i) => {
+                    const diferencia = g.contable.total - g.auxiliar.total;
+                    return (
+                      <tr key={g.cuentas.join("+")} className="border-t border-ink-100 align-top">
+                        <td className="px-3 py-1.5" colSpan={conOrigen ? 3 : 2}>
+                          <span className="font-semibold text-ink-800">Grupo {i + 1}</span>
+                          <span className="ml-2 text-ink-600">{g.cuentas.join(" + ")}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(g.contable.total)}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(g.contable.terceros)}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(g.auxiliar.total)}<SinTercero valor={g.auxiliar.sinTercero} /></td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(g.auxiliar.terceros)}</td>
+                        <td className={`whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums ${conSaldo(diferencia) ? "text-err-700" : "text-ok-700"}`}>{fmtContable(diferencia)}</td>
+                        <td className="px-3 py-1.5 text-ink-600">{g.cuentasArchivo.join(" · ")}</td>
+                      </tr>
+                    );
+                  })}
+                  {auxiliarSinDesglose && (
+                    <tr className="border-t border-ink-100 align-top">
+                      <td className="px-3 py-1.5 text-ink-600" colSpan={conOrigen ? 5 : 4}>Auxiliar sin cuenta por fila (el módulo no las asigna en el Consolidado)</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(auxiliarSinDesglose.total)}<SinTercero valor={auxiliarSinDesglose.sinTercero} /></td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(auxiliarSinDesglose.terceros)}</td>
+                      <td className="px-3 py-1.5" colSpan={2} />
                     </tr>
-                  );
-                })}
-                {auxiliarSinDesglose && (
-                  <tr className="border-t border-ink-100 align-top">
-                    <td className="px-3 py-1.5 text-ink-600" colSpan={conOrigen ? 5 : 4}>Auxiliar sin cuenta por fila (el módulo no las asigna en el Consolidado)</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(auxiliarSinDesglose.total)}<SinTercero valor={auxiliarSinDesglose.sinTercero} /></td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{contar(auxiliarSinDesglose.terceros)}</td>
-                    <td className="px-3 py-1.5" colSpan={2} />
+                  )}
+                  {cuentas.length === 0 && (
+                    <tr><td colSpan={columnas} className="px-3 py-4 text-center text-ink-400">El módulo no tiene cuentas para conciliar.</td></tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
+                    <td className="px-3 py-1.5" colSpan={conOrigen ? 3 : 2}>Total en el cruce</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(totalContable)}</td>
+                    <td />
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(totalAuxiliar)}</td>
+                    <td />
+                    <td className={`whitespace-nowrap px-3 py-1.5 text-right tabular-nums ${conSaldo(totalContable - totalAuxiliar) ? "text-err-700" : "text-ok-700"}`}>{fmtContable(totalContable - totalAuxiliar)}</td>
+                    <td />
                   </tr>
-                )}
-                {cuentas.length === 0 && (
-                  <tr><td colSpan={columnas} className="px-3 py-4 text-center text-ink-400">El módulo no tiene cuentas para conciliar.</td></tr>
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-                  <td className="px-3 py-1.5" colSpan={conOrigen ? 3 : 2}>Total en el cruce</td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(totalContable)}</td>
-                  <td />
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtContable(totalAuxiliar)}</td>
-                  <td />
-                  <td className={`px-3 py-1.5 text-right tabular-nums ${conSaldo(totalContable - totalAuxiliar) ? "text-err-700" : "text-ok-700"}`}>{fmtContable(totalContable - totalAuxiliar)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+                </tfoot>
+              </table>
+            </div>
           </div>
 
           {(fuera > 0 || contableExcluidoFilas > 0) && (
