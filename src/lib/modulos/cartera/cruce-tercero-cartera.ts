@@ -86,6 +86,11 @@ export type FilaCruceTerceroCartera = {
   explicaDiferencia: CompensacionFila | null;
   /** Claves del auxiliar que un emparejamiento manual unió a este tercero del balance. */
   emparejadoDesde: string[];
+  /**
+   * Claves de la CONTABILIDAD que el auditor sumó a este renglón: el mismo tercero registrado en
+   * el balance con otro NIT (BANCOLOMBIA 890903938 + 860059294), que el auxiliar trae bajo este.
+   */
+  incluyeContable: string[];
   /** Claves del auxiliar que el auditor SEPARÓ de este tercero del balance (no se unen solas). */
   separadoDe: string[];
   contable: { porCuenta: Record<string, number>; total: number };
@@ -210,6 +215,12 @@ export function construirCruceTerceroCartera(input: {
   cuentasModulo: readonly string[] | null;
   /** Emparejamientos manuales: la clave del auxiliar se lee como la del balance (N:1). */
   emparejamientos?: readonly { claveModulo: string; claveBalance: string }[];
+  /**
+   * Emparejamientos manuales del lado CONTABLE: el tercero `claveContable` del balance se lee como
+   * el renglón `claveDestino` (N:1). Es el espejo del anterior para cuando la contabilidad parte en
+   * dos NIT lo que el auxiliar trae bajo uno.
+   */
+  unionesContables?: readonly { claveContable: string; claveDestino: string }[];
   /** Pares que el auditor separó: no se unen por DV ni por núcleo, ni se vuelven a proponer. */
   separaciones?: readonly { claveModulo: string; claveBalance: string }[];
   tolerancia?: number;
@@ -229,6 +240,10 @@ export function construirCruceTerceroCartera(input: {
     (input.emparejamientos ?? []).filter((e) => e.claveModulo !== e.claveBalance).map((e) => [e.claveModulo, e.claveBalance]),
   );
   const emparejadas = new Map<string, Set<string>>();
+  const reLlaveContable = new Map(
+    (input.unionesContables ?? []).filter((u) => u.claveContable !== u.claveDestino).map((u) => [u.claveContable, u.claveDestino]),
+  );
+  const incluidasContables = new Map<string, Set<string>>();
 
   for (const m of input.contable) {
     if (delModulo && !delModulo.has(m.cuenta6)) {
@@ -239,11 +254,15 @@ export function construirCruceTerceroCartera(input: {
       acumular(contableSinTercero, m.cuenta6, m.valor);
       continue;
     }
-    const lado = contable.get(m.clave) ?? { porCuenta: {}, total: 0, nombre: null };
+    const clave = reLlaveContable.get(m.clave) ?? m.clave;
+    const reLlavada = clave !== m.clave;
+    if (reLlavada) incluidasContables.set(clave, (incluidasContables.get(clave) ?? new Set()).add(m.clave));
+    const lado = contable.get(clave) ?? { porCuenta: {}, total: 0, nombre: null };
     lado.porCuenta[m.cuenta6] = (lado.porCuenta[m.cuenta6] ?? 0) + m.valor;
     lado.total += m.valor;
-    lado.nombre ??= m.nombre;
-    contable.set(m.clave, lado);
+    // El nombre del renglón es el de su propio NIT, no el del tercero que se le sumó.
+    if (!reLlavada) lado.nombre ??= m.nombre;
+    contable.set(clave, lado);
   }
 
   for (const s of input.modulo) {
@@ -308,6 +327,7 @@ export function construirCruceTerceroCartera(input: {
       sugerencia: null,
       explicaDiferencia: null,
       emparejadoDesde: [...(emparejadas.get(clave) ?? [])].sort(),
+      incluyeContable: [...(incluidasContables.get(clave) ?? [])].sort(),
       separadoDe: [...(separadoDe.get(clave) ?? [])].sort(),
       contable: { porCuenta: redondearCuentas(c?.porCuenta ?? {}), total: totalContable },
       modulo: {
@@ -385,4 +405,30 @@ export function validarEmparejamientoTercero(
     return { ok: false, message: "Ese tercero no aparece en la contabilidad del período." };
   }
   return { ok: true };
+}
+
+/**
+ * ¿Se puede sumar, en el cruce vigente, el tercero `claveContable` de la contabilidad al renglón
+ * `claveDestino`? El de la contabilidad tiene que estar SOLO en la contabilidad y no recibir ya a
+ * otros (una sola capa: no se encadenan), y el destino tiene que tener saldo en el auxiliar, que es
+ * con lo que se va a cruzar.
+ */
+export function validarEmparejamientoContable(
+  resumen: Pick<ResumenCruceTerceroCartera, "filas">,
+  claveContable: string,
+  claveDestino: string,
+): { ok: true; destinoSoloModulo: boolean } | { ok: false; message: string } {
+  if (claveContable === claveDestino) return { ok: false, message: "Los dos terceros son el mismo." };
+  const origen = resumen.filas.find((f) => f.clave === claveContable);
+  if (!origen || origen.estado !== "solo_contable") {
+    return { ok: false, message: "Ese tercero ya no está solo en la contabilidad. Recarga la pantalla." };
+  }
+  if (origen.incluyeContable.length > 0) {
+    return { ok: false, message: `Ese tercero ya incluye a ${origen.incluyeContable.join(", ")} de la contabilidad: deshaz esa inclusión primero.` };
+  }
+  const destino = resumen.filas.find((f) => f.clave === claveDestino);
+  if (!destino || destino.modulo.total === 0) {
+    return { ok: false, message: "Ese tercero no tiene saldo en el auxiliar del período." };
+  }
+  return { ok: true, destinoSoloModulo: destino.estado === "solo_modulo" };
 }

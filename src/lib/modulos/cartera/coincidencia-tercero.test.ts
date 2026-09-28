@@ -14,6 +14,7 @@ function fila(parcial: Partial<FilaCruceTerceroCartera> & { c?: number; m?: numb
     sugerencia: null,
     explicaDiferencia: null,
     emparejadoDesde: [],
+    incluyeContable: [],
     separadoDe: [],
     contable: { porCuenta: {}, total: c },
     modulo: { nacional: m, exterior: 0, sinOrigen: 0, total: m },
@@ -65,6 +66,9 @@ describe("coincidenciaTercero", () => {
 
   it("emparejado por el auditor cuenta como identidad plena", () => {
     expect(coincidenciaTercero(fila({ c: 10, m: 10, emparejadoDesde: ["15370181"] }))?.porcentaje).toBe(100);
+    const incluye = coincidenciaTercero(fila({ c: 10, m: 10, incluyeContable: ["860059294"] }));
+    expect(incluye?.porcentaje).toBe(100);
+    expect(incluye?.contra).toContain("860059294 de la contabilidad");
   });
 
   it("solo en un lado con candidato → confianza del candidato", () => {

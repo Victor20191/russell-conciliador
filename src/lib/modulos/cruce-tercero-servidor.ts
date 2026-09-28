@@ -100,8 +100,11 @@ export type EmparejamientoTerceroVm = {
   nombreBalance: string | null;
   /** `null` = vale para todos los períodos del cliente. */
   periodo: string | null;
-  /** `union`: X del auxiliar es Y del balance. `separacion`: X NO se une solo con Y (por DV ni por núcleo). */
-  tipo: "union" | "separacion";
+  /**
+   * `union`: X del auxiliar es Y del balance. `separacion`: X NO se une solo con Y (por DV ni por
+   * núcleo). `union_contable`: X de la CONTABILIDAD (en `claveModulo`) se suma al renglón Y.
+   */
+  tipo: "union" | "separacion" | "union_contable";
   origen: string;
   nota: string | null;
   creadoPor: string | null;
@@ -173,10 +176,13 @@ async function emparejamientosDelPeriodo(clienteId: number, moduloCodigo: string
     where: { clienteId, moduloCodigo, periodo: { in: [periodo, ""] } },
     orderBy: [{ creadoEn: "asc" }, { id: "asc" }],
   });
+  // La clave es la del auxiliar salvo en `union_contable`, donde es la de la contabilidad: cada
+  // lado deduplica aparte para que un NIT repetido en los dos no se pise.
+  const llave = (f: (typeof filas)[number]) => `${f.tipo === "union_contable" ? "c" : "m"}\u0000${f.claveModulo}`;
   const porClave = new Map<string, (typeof filas)[number]>();
   for (const f of filas) {
-    const previo = porClave.get(f.claveModulo);
-    if (!previo || (previo.periodo === "" && f.periodo !== "")) porClave.set(f.claveModulo, f);
+    const previo = porClave.get(llave(f));
+    if (!previo || (previo.periodo === "" && f.periodo !== "")) porClave.set(llave(f), f);
   }
   return [...porClave.values()].map((f) => ({
     id: f.id,
@@ -185,7 +191,7 @@ async function emparejamientosDelPeriodo(clienteId: number, moduloCodigo: string
     nombreModulo: f.nombreModulo,
     nombreBalance: f.nombreBalance,
     periodo: f.periodo || null,
-    tipo: f.tipo === "separacion" ? "separacion" : "union",
+    tipo: f.tipo === "separacion" ? "separacion" : f.tipo === "union_contable" ? "union_contable" : "union",
     origen: f.origen,
     nota: f.nota,
     creadoPor: f.creadoPor,
@@ -399,6 +405,9 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     cuentasModulo: listaCuentas ? [...listaCuentas, ...cuentasPeriodo6] : null,
     emparejamientos: emparejamientos.filter((e) => e.tipo === "union"),
     separaciones: emparejamientos.filter((e) => e.tipo === "separacion"),
+    unionesContables: emparejamientos
+      .filter((e) => e.tipo === "union_contable")
+      .map((e) => ({ claveContable: e.claveModulo, claveDestino: e.claveBalance })),
   });
   const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbrales.descuadre });
 

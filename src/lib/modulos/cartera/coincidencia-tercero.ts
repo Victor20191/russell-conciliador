@@ -71,7 +71,7 @@ const LADO = { contable: "contabilidad", modulo: "auxiliar" } as const;
 export function coincidenciaTercero(
   fila: Pick<
     FilaCruceTerceroCartera,
-    "clave" | "estado" | "contable" | "modulo" | "diferencia" | "claveModuloPorDv" | "claveModuloPorNucleo" | "emparejadoDesde" | "sugerencia" | "explicaDiferencia"
+    "clave" | "estado" | "contable" | "modulo" | "diferencia" | "claveModuloPorDv" | "claveModuloPorNucleo" | "emparejadoDesde" | "incluyeContable" | "sugerencia" | "explicaDiferencia"
   >,
   tolerancia = 0.01,
 ): CoincidenciaTercero | null {
@@ -86,7 +86,9 @@ export function coincidenciaTercero(
         ? [IDENTIDAD_POR_NUCLEO, `con ${fila.claveModuloPorNucleo} del auxiliar (por núcleo)`, `unido por el sistema con ${fila.claveModuloPorNucleo} (mismos nueve dígitos)`]
         : fila.emparejadoDesde.length > 0
           ? [100, `con ${fila.emparejadoDesde.join(", ")} del auxiliar (emparejado)`, "emparejado por el auditor"]
-          : [100, "mismo NIT en el auxiliar", "mismo NIT en los dos lados"];
+          : fila.incluyeContable.length > 0
+            ? [100, `mismo NIT en el auxiliar · suma ${fila.incluyeContable.join(", ")} de la contabilidad (emparejado)`, "emparejado por el auditor con otro NIT de la contabilidad"]
+            : [100, "mismo NIT en el auxiliar", "mismo NIT en los dos lados"];
     const saldos = fila.estado === "cuadra" ? "saldos iguales" : `saldos ${valor} % iguales`;
     const partes = [`Cruzó: ${como} (identidad ${identidad} %); ${saldos}.`];
     if (compensa) {

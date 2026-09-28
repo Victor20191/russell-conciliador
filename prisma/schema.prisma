@@ -1445,7 +1445,9 @@ model EmparejamientoTerceroModulo {
   claveBalance  String   @map("clave_balance")
   nombreModulo  String?  @map("nombre_modulo")
   nombreBalance String?  @map("nombre_balance")
-  /// `union` | `separacion` (CHECK en BD).
+  /// `union` | `separacion` | `union_contable` (CHECK en BD). En `union_contable`, `claveModulo`
+  /// lleva la clave de la CONTABILIDAD que se suma al renglón `claveBalance` (el mismo tercero con
+  /// otro NIT en el balance); la llave única la hace sumable a un solo renglón por alcance.
   tipo          String   @default("union") @map("tipo")
   /// `manual` | `sugerido_nombre` (sugerencia por nombre, histórico) | `sugerido_coherencia` (el
   /// usuario aplicó una propuesta de la validación de coherencia: saldo, NIT con sufijo, nombre).

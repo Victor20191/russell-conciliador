@@ -309,6 +309,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
           ? `Posible: ${f.sugerencia.clave.startsWith("~") ? "un tercero sin NIT" : f.sugerencia.clave} del otro lado (${describirSenales(f.sugerencia.senales)}; confianza ${f.sugerencia.confianza})`
           : null,
         f.emparejadoDesde.length > 0 ? `Emparejado con ${f.emparejadoDesde.join(", ")} del auxiliar` : null,
+        f.incluyeContable.length > 0 ? `Suma ${f.incluyeContable.join(", ")} de la contabilidad (mismo tercero con otro NIT)` : null,
         f.separadoDe.length > 0 ? `Separado por el auditor de ${f.separadoDe.join(", ")} del auxiliar` : null,
         f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : null,
       ].filter(Boolean).join(" · ") || null,

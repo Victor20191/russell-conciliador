@@ -21,6 +21,14 @@ import { ModalValidarCoherencia } from "./validar-coherencia-tercero";
 import { ParametrosCargue, type ParametrosCargueVm } from "./parametros-cargue";
 import { AlcanceCuentasTercero } from "./alcance-cuentas-tercero";
 import type { AlcanceCruceTercero } from "@/lib/modulos/cartera/alcance-cruce-tercero";
+import { HeaderOrdenable } from "../listado-compartido";
+import {
+  direccionInicialCruceTercero,
+  ordenarCruceTercero,
+  siguienteOrdenCruce,
+  type ColumnaCruceTercero,
+  type OrdenCruce,
+} from "@/lib/modulos/orden-cruce";
 
 // Cruce por tercero: el balance por terceros ligado al balance del período contra el auxiliar
 // del módulo, un renglón por tercero. Lo calcula `cruce-tercero-servidor.ts` con el mismo
@@ -231,7 +239,10 @@ export function CruceTerceroTab({
   // Terceros en cero en los dos lados: ocultos de entrada. Se ven con su tarjeta, al buscarlos o a pedido.
   const [verSinSaldo, setVerSinSaldo] = useState(false);
   const [marcando, setMarcando] = useState<FilaCruceTerceroMarcada | null>(null);
-  const [emparejando, setEmparejando] = useState<FilaCruceTerceroMarcada | null>(null);
+  // Tercero suelto que se está emparejando y, si se abrió desde el renglón con diferencia, su destino.
+  const [emparejando, setEmparejando] = useState<{ fila: FilaCruceTerceroMarcada; destino: string | null } | null>(null);
+  // Orden por columna elegido en el encabezado (null = el del sistema: diferencias primero).
+  const [orden, setOrden] = useState<OrdenCruce<ColumnaCruceTercero>>(null);
   const [validando, setValidando] = useState(false);
   const [ocupado, startAccion] = useTransition();
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
@@ -241,9 +252,14 @@ export function CruceTerceroTab({
   const alInicioDeLaTabla = () => tablaRef.current?.scrollTo({ top: 0 });
 
   const filtradas = useMemo(
-    () => (resumen ? filtrarTerceros(resumen.filas, filtro, busqueda, verSinSaldo) : []),
-    [resumen, filtro, busqueda, verSinSaldo],
+    () => (resumen ? ordenarCruceTercero(filtrarTerceros(resumen.filas, filtro, busqueda, verSinSaldo), orden) : []),
+    [resumen, filtro, busqueda, verSinSaldo, orden],
   );
+  const ordenar = (columna: ColumnaCruceTercero) => {
+    setOrden((actual) => siguienteOrdenCruce(actual, columna, direccionInicialCruceTercero(columna)));
+    setLimite(PAGINA);
+    alInicioDeLaTabla();
+  };
 
   // Salto a un tercero desde la burbuja del %: si el filtro o la búsqueda lo esconden se quitan,
   // se amplía la página hasta alcanzarlo y, ya pintado, se lleva a la vista y se resalta un momento.
@@ -261,7 +277,7 @@ export function CruceTerceroTab({
       setFiltro("todos");
       setBusqueda("");
       setVerSinSaldo(verTodos);
-      lista = filtrarTerceros(resumen.filas, "todos", "", verTodos);
+      lista = ordenarCruceTercero(filtrarTerceros(resumen.filas, "todos", "", verTodos), orden);
     }
     const i = lista.indexOf(fila);
     if (i >= limite) setLimite(Math.ceil((i + 1) / PAGINA) * PAGINA);
@@ -297,6 +313,8 @@ export function CruceTerceroTab({
     () => (resumen?.filas ?? []).filter((f) => Object.keys(f.contable.porCuenta).length > 0),
     [resumen],
   );
+  // Para emparejar un tercero que solo está en la contabilidad: los que tienen saldo en el auxiliar.
+  const candidatosAuxiliar = useMemo(() => (resumen?.filas ?? []).filter((f) => f.modulo.total !== 0), [resumen]);
   const emparejamientoPorClave = useMemo(
     () => new Map(cruceTercero.emparejamientos.filter((e) => e.tipo === "union").map((e) => [e.claveModulo, e])),
     [cruceTercero.emparejamientos],
@@ -305,6 +323,12 @@ export function CruceTerceroTab({
     () => new Map(cruceTercero.emparejamientos.filter((e) => e.tipo === "separacion").map((e) => [e.claveModulo, e])),
     [cruceTercero.emparejamientos],
   );
+  // Terceros de la contabilidad sumados a otro renglón: la clave de la contabilidad va en `claveModulo`.
+  const inclusionContablePorClave = useMemo(
+    () => new Map(cruceTercero.emparejamientos.filter((e) => e.tipo === "union_contable").map((e) => [e.claveModulo, e])),
+    [cruceTercero.emparejamientos],
+  );
+  const filaPorClave = useMemo(() => new Map((resumen?.filas ?? []).map((f) => [f.clave, f])), [resumen]);
 
   const quitarMarca = (fila: FilaCruceTerceroMarcada) => {
     startAccion(async () => {
@@ -393,12 +417,39 @@ export function CruceTerceroTab({
         deshabilitada: ocupado,
       });
     });
-    if (fila.estado === "solo_modulo") {
+    fila.incluyeContable.forEach((claveContable) => {
+      const inclusion = inclusionContablePorClave.get(claveContable);
+      if (!inclusion) return;
+      acciones.push({
+        id: `deshacer-contable-${claveContable}`,
+        icono: "x",
+        etiqueta: `Deshacer inclusión de ${claveContable} (contabilidad)`,
+        descripcion: `Sumado desde la contabilidad por ${inclusion.creadoPor ?? "—"} · ${inclusion.creadoEn} · ${inclusion.periodo ? `solo ${inclusion.periodo}` : "todos los períodos"}${inclusion.nota ? ` · ${inclusion.nota}` : ""}`,
+        ejecutar: () => deshacerEmparejamiento(inclusion),
+        deshabilitada: ocupado,
+      });
+    });
+    if (fila.estado === "solo_modulo" || fila.estado === "solo_contable") {
       acciones.push({
         id: "emparejar",
         icono: "link",
         etiqueta: "Emparejar…",
-        ejecutar: () => setEmparejando(fila),
+        descripcion: fila.estado === "solo_contable"
+          ? "Es el mismo tercero que otro del auxiliar, registrado con otro NIT en la contabilidad: su saldo se suma a ese renglón."
+          : "Es el mismo tercero que otro de la contabilidad, registrado con otra identificación en el auxiliar.",
+        ejecutar: () => setEmparejando({ fila, destino: null }),
+      });
+    }
+    // Renglón con diferencia que un tercero suelto explica al centavo: se incluye desde aquí.
+    const compensa = fila.estado === "descuadre" && fila.explicaDiferencia?.rol === "suelto" ? fila.explicaDiferencia : null;
+    const suelto = compensa ? filaPorClave.get(compensa.clave) : undefined;
+    if (compensa && suelto) {
+      acciones.push({
+        id: `incluir-${compensa.clave}`,
+        icono: "link",
+        etiqueta: `Incluir ${compensa.clave} ${compensa.ladoSuelto === "contable" ? "de la contabilidad" : "del auxiliar"}…`,
+        descripcion: `Su saldo (${fmtContable(compensa.importe)}) es exactamente la diferencia de este renglón: probablemente es el mismo tercero con otro NIT.`,
+        ejecutar: () => setEmparejando({ fila: suelto, destino: fila.clave }),
       });
     }
     return acciones;
@@ -454,6 +505,17 @@ export function CruceTerceroTab({
   const sinTercero = resumen.contableSinTercero;
   const contableGrupo = totales.contable + fuera.total + sinTercero.total;
   const columnas = 7 + (mostrarCuentas ? cuentas.length : 0);
+  const encabezado = (label: string, columna: ColumnaCruceTercero, alineacion: "left" | "right" = "left", title?: string) => (
+    <HeaderOrdenable
+      label={label}
+      columna={columna}
+      activa={orden?.columna ?? null}
+      direccion={orden?.direccion ?? "desc"}
+      onOrdenar={ordenar}
+      alineacion={alineacion}
+      title={title ?? "Ordenar por esta columna. Tercer clic: vuelve al orden del sistema."}
+    />
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -589,17 +651,19 @@ export function CruceTerceroTab({
           <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaClave}</th>
-                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaNombre}</th>
+                <th className="px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaClave, "clave")}</th>
+                <th className="min-w-[10rem] px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaNombre, "nombre")}</th>
                 {mostrarCuentas && cuentas.map((c) => (
                   <th key={c} className="px-3 py-2 text-right font-semibold" title={delPeriodo.has(c) ? `Fuera de la cédula: vale solo para ${cruceTercero.periodo}` : undefined}>
-                    {c}
+                    {encabezado(c, `c:${c}`, "right")}
                     {delPeriodo.has(c) && <span className="block text-[10px] font-semibold uppercase tracking-wide text-warn-700">solo {cruceTercero.periodo}</span>}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-                <th className="px-3 py-2 text-right font-semibold">Auxiliar (módulo)</th>
-                <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+                <th className="px-3 py-2 text-right font-semibold">{encabezado("Contabilidad", "contable", "right")}</th>
+                <th className="px-3 py-2 text-right font-semibold">{encabezado("Auxiliar (módulo)", "modulo", "right")}</th>
+                <th className="px-3 py-2 text-right font-semibold">
+                  {encabezado("Diferencia", "diferencia", "right", "Ordena por el tamaño de la diferencia, sin importar el signo. Tercer clic: vuelve al orden del sistema.")}
+                </th>
                 <th className="px-3 py-2 font-semibold">Estado</th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
@@ -685,6 +749,19 @@ export function CruceTerceroTab({
                               : undefined}
                           >
                             <Chip label={`Incluye ${nombre}`} tone="blue" />
+                          </span>
+                        );
+                      })}
+                      {f.incluyeContable.map((claveContable) => {
+                        const inclusion = inclusionContablePorClave.get(claveContable);
+                        return (
+                          <span
+                            key={`c-${claveContable}`}
+                            title={`${claveContable} de la contabilidad se suma a este renglón${inclusion
+                              ? ` · por ${inclusion.creadoPor ?? "—"} · ${inclusion.creadoEn} · ${inclusion.periodo ? `solo ${inclusion.periodo}` : "todos los períodos"}${inclusion.nota ? ` · ${inclusion.nota}` : ""}`
+                              : ""}`}
+                          >
+                            <Chip label={`Suma ${claveContable} (contab.)`} tone="blue" />
                           </span>
                         );
                       })}
@@ -811,8 +888,9 @@ export function CruceTerceroTab({
       )}
       {emparejando && (
         <ModalEmparejarTercero
-          fila={emparejando}
-          candidatos={candidatosBalance}
+          fila={emparejando.fila}
+          destinoInicial={emparejando.destino}
+          candidatos={emparejando.fila.estado === "solo_contable" ? candidatosAuxiliar : candidatosBalance}
           encabezadoId={encabezadoId}
           onClose={() => setEmparejando(null)}
           onGuardado={() => {

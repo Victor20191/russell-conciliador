@@ -115,7 +115,7 @@ import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/mo
 import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
-import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import { validarEmparejamientoContable, validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { ETIQUETA_SENAL, notaDeSugerencia, type SugerenciaEmparejamiento } from "@/lib/modulos/cartera/coherencia-tercero";
 import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
 import {
@@ -3297,6 +3297,10 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
 // (el servidor recalcula el cruce y solo acepta pares que él mismo propone: la evidencia no se
 // confía al navegador) y la SEPARACIÓN de un par que el cruce unió solo por DV o por núcleo
 // (`tipo = separacion`: no se vuelve a unir ni a proponer, hasta que el auditor la retire).
+//
+// Y el espejo, desde un renglón «solo en contabilidad»: «el tercero X de la contabilidad es el Y
+// del auxiliar» (`tipo = union_contable`, `claveModulo` = X). Cuando Y solo está en el auxiliar,
+// se guarda como la unión de siempre (Y del auxiliar → X del balance), que es la forma canónica.
 // ============================================================
 
 const OrigenEmparejamiento = z.enum(["manual", "sugerido_nombre", "sugerido_coherencia"]);
@@ -3305,6 +3309,15 @@ const EmparejarTerceroSchema = z.object({
   encabezadoId: z.coerce.number().int().positive(),
   claveModulo: z.string(),
   claveBalance: z.string(),
+  alcance: z.enum(["todos", "periodo"]),
+  origen: OrigenEmparejamiento,
+  nota: z.string().optional(),
+});
+
+const EmparejarContableSchema = z.object({
+  encabezadoId: z.coerce.number().int().positive(),
+  claveContable: z.string(),
+  claveDestino: z.string(),
   alcance: z.enum(["todos", "periodo"]),
   origen: OrigenEmparejamiento,
   nota: z.string().optional(),
@@ -3363,7 +3376,7 @@ type DatosEmparejamiento = {
   claveBalance: string;
   nombreModulo: string | null;
   nombreBalance: string | null;
-  tipo: "union" | "separacion";
+  tipo: "union" | "separacion" | "union_contable";
   origen: string;
   nota: string | null;
   creadoPor: string | null;
@@ -3395,6 +3408,29 @@ function upsertEmparejamiento(
 
 const describirTercero = (clave: string, nombre: string | null) => `${clave}${nombre ? ` (${nombre})` : ""}`;
 
+/**
+ * La llave única es (cliente, módulo, período, `claveModulo`) sin importar el lado: en una
+ * `union_contable` esa columna lleva un NIT de la contabilidad. Si el mismo NIT ya se usa en el
+ * alcance del OTRO lado, el upsert lo pisaría en silencio; aquí se detecta para rechazarlo.
+ */
+async function choqueEntreLados(
+  encabezado: { clienteId: number; moduloCodigo: string },
+  periodo: string,
+  claveModulo: string,
+  contable: boolean,
+): Promise<string | null> {
+  const previo = await prisma.emparejamientoTerceroModulo.findUnique({
+    where: {
+      clienteId_moduloCodigo_periodo_claveModulo: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo, claveModulo },
+    },
+    select: { tipo: true, claveBalance: true },
+  });
+  if (!previo || (previo.tipo === "union_contable") === contable) return null;
+  return previo.tipo === "union_contable"
+    ? `${claveModulo} ya está sumado desde la contabilidad a ${previo.claveBalance}: deshaz esa inclusión primero.`
+    : `${claveModulo} ya tiene un emparejamiento del auxiliar con ${previo.claveBalance}: deshazlo primero.`;
+}
+
 /** Empareja un tercero que solo está en el auxiliar con uno del balance (N:1). */
 export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerceroSchema>): Promise<ActionState> {
   const parsed = EmparejarTerceroSchema.safeParse(input);
@@ -3417,6 +3453,8 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
     if (!vigente.ok) return { ok: false, message: vigente.message };
     const valido = validarEmparejamientoTercero(vigente.resumen, claveModulo, claveBalance);
     if (!valido.ok) return { ok: false, message: valido.message };
+    const choque = await choqueEntreLados(encabezado, periodo, claveModulo, false);
+    if (choque) return { ok: false, message: choque };
     const nombreModulo = vigente.resumen.filas.find((f) => f.clave === claveModulo)?.nombre ?? null;
     const nombreBalance = vigente.resumen.filas.find((f) => f.clave === claveBalance)?.nombre ?? null;
 
@@ -3445,6 +3483,83 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
     return { ok: true, message: `Emparejado con ${nombreBalance ?? claveBalance}.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("emparejarTerceroCruce", e) };
+  }
+}
+
+/**
+ * Empareja un tercero que solo está en la CONTABILIDAD con un renglón que el auxiliar sí trae: el
+ * mismo tercero con otro NIT en el balance. Si el destino solo está en el auxiliar, se guarda como
+ * la unión de siempre (su clave del auxiliar se lee como la del balance); si no, se suma el NIT de
+ * la contabilidad al renglón (`union_contable`, N:1).
+ */
+export async function emparejarTerceroContable(input: z.input<typeof EmparejarContableSchema>): Promise<ActionState> {
+  const parsed = EmparejarContableSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos." };
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const claveContable = normalizarClaveTercero(parsed.data.claveContable);
+  const claveDestino = normalizarClaveTercero(parsed.data.claveDestino);
+  if (!claveContable || !claveDestino) return { ok: false, message: "Tercero inválido." };
+  const nota = (parsed.data.nota ?? "").trim();
+  if (nota.length > MAX_NOTA_MARCA) return { ok: false, message: `La nota no puede superar ${MAX_NOTA_MARCA} caracteres.` };
+
+  const { encabezado } = ctx;
+  const periodo = parsed.data.alcance === "todos" ? "" : encabezado.periodo;
+  try {
+    const bloqueo = await cierreQueImpideEmparejar(encabezado, periodo);
+    if (bloqueo) return { ok: false, message: bloqueo };
+
+    const vigente = await cruceTerceroVigente(encabezado.id);
+    if (!vigente.ok) return { ok: false, message: vigente.message };
+    const valido = validarEmparejamientoContable(vigente.resumen, claveContable, claveDestino);
+    if (!valido.ok) return { ok: false, message: valido.message };
+    const nombreContable = vigente.resumen.filas.find((f) => f.clave === claveContable)?.nombre ?? null;
+    const nombreDestino = vigente.resumen.filas.find((f) => f.clave === claveDestino)?.nombre ?? null;
+
+    // Destino solo en el auxiliar: la forma canónica es la unión del auxiliar (Y → X del balance).
+    const delAuxiliar = valido.destinoSoloModulo;
+    const claveModulo = delAuxiliar ? claveDestino : claveContable;
+    const choque = await choqueEntreLados(encabezado, periodo, claveModulo, !delAuxiliar);
+    if (choque) return { ok: false, message: choque };
+
+    const user = await getCurrentUser();
+    await upsertEmparejamiento(prisma, encabezado, periodo, claveModulo, delAuxiliar
+      ? {
+          claveBalance: claveContable,
+          nombreModulo: nombreDestino,
+          nombreBalance: nombreContable,
+          tipo: "union",
+          origen: parsed.data.origen,
+          nota: nota || null,
+          creadoPor: user?.name ?? null,
+          creadoPorId: ctx.userId,
+          creadoEn: new Date(),
+        }
+      : {
+          claveBalance: claveDestino,
+          nombreModulo: nombreContable,
+          nombreBalance: nombreDestino,
+          tipo: "union_contable",
+          origen: parsed.data.origen,
+          nota: nota || null,
+          creadoPor: user?.name ?? null,
+          creadoPorId: ctx.userId,
+          creadoEn: new Date(),
+        });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: delAuxiliar ? "EMPAREJÓ un tercero del cruce por tercero" : "SUMÓ un tercero de la contabilidad a otro en el cruce por tercero",
+      entity: encabezado.nombreCliente,
+      detail: delAuxiliar
+        ? `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveDestino, nombreDestino)} → ${describirTercero(claveContable, nombreContable)} (desde la contabilidad)${nota ? ` · ${nota}` : ""}`
+        : `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveContable, nombreContable)} de la contabilidad → ${describirTercero(claveDestino, nombreDestino)}${nota ? ` · ${nota}` : ""}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `Emparejado con ${nombreDestino ?? claveDestino}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("emparejarTerceroContable", e) };
   }
 }
 
@@ -3485,6 +3600,11 @@ export async function aplicarEmparejamientosSugeridos(input: z.input<typeof Apli
       const valido = validarEmparejamientoTercero(vigente.resumen, claveModulo, claveBalance);
       if (!valido.ok) {
         rechazados.push(`${claveModulo}: ${valido.message}`);
+        continue;
+      }
+      const choque = await choqueEntreLados(encabezado, periodo, claveModulo, false);
+      if (choque) {
+        rechazados.push(`${claveModulo}: ${choque}`);
         continue;
       }
       aceptados.push(propuesta);
@@ -3556,6 +3676,8 @@ export async function separarTerceroAutomatico(input: z.input<typeof SepararTerc
     const fila = vigente.resumen.filas.find((f) => f.clave === claveBalance);
     const como = fila?.claveModuloPorDv === claveModulo ? "DV" : fila?.claveModuloPorNucleo === claveModulo ? "núcleo" : null;
     if (!como) return { ok: false, message: "Ese par ya no está unido automáticamente. Recarga la pantalla." };
+    const choque = await choqueEntreLados(encabezado, periodo, claveModulo, false);
+    if (choque) return { ok: false, message: choque };
 
     const user = await getCurrentUser();
     await upsertEmparejamiento(prisma, encabezado, periodo, claveModulo, {
@@ -3608,12 +3730,13 @@ export async function quitarEmparejamientoTercero(input: { encabezadoId: number;
 
     await prisma.emparejamientoTerceroModulo.delete({ where: { id: emparejamientoId } });
     const esSeparacion = emparejamiento.tipo === "separacion";
+    const esContable = emparejamiento.tipo === "union_contable";
     const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",
       action: esSeparacion ? "RETIRÓ la separación de un tercero (vuelven a unirse solos)" : "DESHIZO el emparejamiento de un tercero",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo} ${esSeparacion ? "≠" : "→"} ${emparejamiento.claveBalance}`,
+      detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo}${esContable ? " de la contabilidad" : ""} ${esSeparacion ? "≠" : "→"} ${emparejamiento.claveBalance}`,
       clientId: encabezado.clienteId,
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);

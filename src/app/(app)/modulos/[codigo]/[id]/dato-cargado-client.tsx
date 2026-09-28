@@ -48,6 +48,14 @@ import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
 import { ValidacionArchivo } from "../validacion-archivo";
+import { HeaderOrdenable } from "../listado-compartido";
+import {
+  direccionInicialCruceContable,
+  ordenarCruceContable,
+  siguienteOrdenCruce,
+  type ColumnaCruceContable,
+  type OrdenCruce,
+} from "@/lib/modulos/orden-cruce";
 import {
   anclaCruce,
   anclaObservacionMarca,
@@ -1731,6 +1739,8 @@ function CruceContableTab({
       return siguiente;
     });
   const [quitando, startQuitar] = useTransition();
+  // Orden por columna elegido en el encabezado de la cédula (null = el del sistema).
+  const [orden, setOrden] = useState<OrdenCruce<ColumnaCruceContable>>(null);
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
@@ -1786,6 +1796,18 @@ function CruceContableTab({
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
   const conDiferencia = filasMarcadas.filter((f) => !f.cuadra).length;
+  const filasOrdenadas = ordenarCruceContable(filasMarcadas, orden);
+  const encabezado = (label: string, columna: ColumnaCruceContable, alineacion: "left" | "right", title: string) => (
+    <HeaderOrdenable
+      label={label}
+      columna={columna}
+      activa={orden?.columna ?? null}
+      direccion={orden?.direccion ?? "desc"}
+      onOrdenar={(c) => setOrden((actual) => siguienteOrdenCruce(actual, c, direccionInicialCruceContable(c)))}
+      alineacion={alineacion}
+      title={`${title} Tercer clic: vuelve al orden del sistema.`}
+    />
+  );
 
   const quitar = (fila: FilaCruceMarcada) => {
     startQuitar(async () => {
@@ -1857,12 +1879,18 @@ function CruceContableTab({
           <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">Cuenta</th>
-                <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-                <th className="px-3 py-2 text-right font-semibold">{moduloLabel} (archivos)</th>
-                <th className="px-3 py-2 text-right font-semibold" title="Diferencia sin descontar las cuentas no modulares.">Diferencia</th>
-                <th className="px-3 py-2 text-right font-semibold" title="Lo que no hace parte de la conciliación del módulo: cuentas del cliente (se restan de Contabilidad) o saldos sin cuenta (se restan del módulo). Muestra su efecto en la diferencia.">No modular</th>
-                <th className="px-3 py-2 text-right font-semibold" title="Diferencia después de restar las cuentas no modulares: es la que se concilia.">Dif. ajustada</th>
+                <th className="px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
+                <th className="px-3 py-2 text-right font-semibold">{encabezado("Contabilidad", "contable", "right", "Ordenar por el saldo contable.")}</th>
+                <th className="px-3 py-2 text-right font-semibold">{encabezado(`${moduloLabel} (archivos)`, "modulo", "right", "Ordenar por el saldo del módulo.")}</th>
+                <th className="px-3 py-2 text-right font-semibold">
+                  {encabezado("Diferencia", "diferenciaBruta", "right", "Diferencia sin descontar las cuentas no modulares. Ordena por su tamaño, sin importar el signo.")}
+                </th>
+                <th className="px-3 py-2 text-right font-semibold">
+                  {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación del módulo: cuentas del cliente (se restan de Contabilidad) o saldos sin cuenta (se restan del módulo). Ordena por el tamaño de su efecto.")}
+                </th>
+                <th className="px-3 py-2 text-right font-semibold">
+                  {encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}
+                </th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
             </thead>
@@ -1872,7 +1900,7 @@ function CruceContableTab({
                   <td colSpan={7} className="px-3 py-6 text-center text-ink-400">Sin cuentas para cruzar en este período.</td>
                 </tr>
               )}
-              {filasMarcadas.map((f) => {
+              {filasOrdenadas.map((f) => {
                 const sinCuenta = f.cuenta4 === CLAVE_SIN_CUENTA;
                 const hijos = sinCuenta ? [] : hijosDe(f.cuenta4);
                 const tieneDetalle = sinCuenta ? hijosSinCuenta.length > 0 : hijos.length > 0;

@@ -68,7 +68,7 @@ export function FiltroEstadoListado({
 }) {
   const total = ESTADOS_PERIODO_MODULO.reduce((suma, e) => suma + conteo[e.valor], 0);
   return (
-    <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+    <label className="flex shrink-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
       Estado
       <select
         value={estado ?? ""}
@@ -178,26 +178,32 @@ export function VersionCelda({
   );
 }
 
-/** Encabezado ordenable con las flechitas del listado de borradores. */
-export function HeaderOrdenable({
+/**
+ * Encabezado ordenable con las flechitas del listado de borradores. Genérico en la columna: lo usan
+ * también las tablas de los cruces (contable y por tercero) con sus propias columnas.
+ */
+export function HeaderOrdenable<C extends string = ColumnaOrdenModulo>({
   label,
   columna,
   activa,
   direccion,
   onOrdenar,
   alineacion = "left",
+  title,
 }: {
   label: string;
-  columna: ColumnaOrdenModulo;
-  activa: ColumnaOrdenModulo | null;
+  columna: C;
+  activa: C | null;
   direccion: DireccionOrden;
-  onOrdenar: (columna: ColumnaOrdenModulo) => void;
+  onOrdenar: (columna: C) => void;
   alineacion?: "left" | "right";
+  title?: string;
 }) {
   const activo = activa === columna;
   return (
     <button
       type="button"
+      title={title}
       onClick={() => onOrdenar(columna)}
       className={`inline-flex items-center gap-1 font-semibold transition hover:text-ink-800 ${
         alineacion === "right" ? "ml-auto" : ""

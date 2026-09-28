@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   construirCruceTerceroCartera,
   nombreComparable,
+  validarEmparejamientoContable,
   validarEmparejamientoTercero,
   type MovimientoContableTercero,
   type SaldoModuloTercero,
@@ -31,6 +32,7 @@ describe("construirCruceTerceroCartera", () => {
       sugerencia: null,
       explicaDiferencia: null,
       emparejadoDesde: [],
+      incluyeContable: [],
       separadoDe: [],
       contable: { porCuenta: { "130505": 1_000_000, "280505": -200_000 }, total: 800_000 },
       modulo: { nacional: 800_000, exterior: 0, sinOrigen: 0, total: 800_000 },
@@ -317,5 +319,72 @@ describe("diferencia explicada por un tercero suelto", () => {
       cuentasModulo: null,
     });
     expect(r.filas.every((f) => f.explicaDiferencia === null)).toBe(true);
+  });
+});
+
+describe("unión del lado contable (la contabilidad parte en dos NIT lo que el auxiliar trae bajo uno)", () => {
+  // BANCOLOMBIA en CxP 2025-12: el balance lo registra en 890903938 y en 860059294; el auxiliar, todo en 890903938.
+  const base = {
+    contable: [
+      contable("890903938", "210510", 204_097_359.67, "BANCOLOMBIA SA"),
+      contable("890903938", "220505", -14_329_514),
+      contable("860059294", "220505", 14_329_514),
+    ],
+    modulo: [modulo("890903938", 204_097_359.67, { nombre: "BANCOLOMBIA SA" })],
+    cuentasModulo: CXP.concat("210510"),
+  };
+
+  it("sin unir: BANCOLOMBIA descuadra y 860059294 queda solo en la contabilidad explicando la diferencia", () => {
+    const r = construirCruceTerceroCartera(base);
+    const banco = r.filas.find((f) => f.clave === "890903938")!;
+    const suelto = r.filas.find((f) => f.clave === "860059294")!;
+    expect(banco).toMatchObject({ estado: "descuadre", diferencia: -14_329_514 });
+    expect(suelto).toMatchObject({ estado: "solo_contable", incluyeContable: [] });
+    expect(suelto.explicaDiferencia).toMatchObject({ clave: "890903938", rol: "descuadre", ladoSuelto: "contable" });
+    expect(validarEmparejamientoContable(r, "860059294", "890903938")).toEqual({ ok: true, destinoSoloModulo: false });
+  });
+
+  it("unido: el renglón suma los dos NIT de la contabilidad, cuadra y conserva su nombre", () => {
+    const r = construirCruceTerceroCartera({ ...base, unionesContables: [{ claveContable: "860059294", claveDestino: "890903938" }] });
+    expect(r.filas.map((f) => f.clave)).toEqual(["890903938"]);
+    expect(r.filas[0]).toMatchObject({
+      nombre: "BANCOLOMBIA SA",
+      estado: "cuadra",
+      diferencia: 0,
+      incluyeContable: ["860059294"],
+      contable: { porCuenta: { "210510": 204_097_359.67, "220505": 0 }, total: 204_097_359.67 },
+    });
+    expect(r.totales.diferencia).toBe(0);
+  });
+
+  it("admite varios NIT de la contabilidad hacia el mismo renglón (N:1)", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("890903938", "220505", 100), contable("860059294", "220505", 20), contable("860059295", "220505", 30)],
+      modulo: [modulo("890903938", 150)],
+      cuentasModulo: CXP,
+      unionesContables: [
+        { claveContable: "860059294", claveDestino: "890903938" },
+        { claveContable: "860059295", claveDestino: "890903938" },
+      ],
+    });
+    expect(r.filas).toHaveLength(1);
+    expect(r.filas[0]).toMatchObject({ estado: "cuadra", incluyeContable: ["860059294", "860059295"] });
+  });
+
+  it("valida: el origen debe estar solo en la contabilidad y el destino tener saldo en el auxiliar", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("800000001", "220505", 50), contable("800000002", "220505", 70), contable("800000003", "220505", 10)],
+      modulo: [modulo("800000002", 70), modulo("900000009", 10)],
+      cuentasModulo: CXP,
+    });
+    expect(validarEmparejamientoContable(r, "800000001", "800000001")).toMatchObject({ ok: false });
+    // El destino cuadra pero no deja de ser válido: el auditor decide.
+    expect(validarEmparejamientoContable(r, "800000001", "800000002")).toEqual({ ok: true, destinoSoloModulo: false });
+    // Destino sin saldo en el auxiliar.
+    expect(validarEmparejamientoContable(r, "800000001", "800000003")).toMatchObject({ ok: false, message: expect.stringContaining("auxiliar") });
+    // Origen que no está solo en la contabilidad.
+    expect(validarEmparejamientoContable(r, "800000002", "900000009")).toMatchObject({ ok: false, message: expect.stringContaining("solo en la contabilidad") });
+    // Destino solo en el auxiliar: se informa para emparejar desde el lado del auxiliar.
+    expect(validarEmparejamientoContable(r, "800000003", "900000009")).toEqual({ ok: true, destinoSoloModulo: true });
   });
 });
