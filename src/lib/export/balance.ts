@@ -9,6 +9,7 @@
 import ExcelJS from "exceljs";
 import type { NodoBalance, RussellGroup } from "@/lib/balance/calcular";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
+import { fmtDateTime } from "@/lib/format";
 
 export type TipoExportBalance = "homologado" | "comparativo" | "prevalidador";
 export type MetaExportBalance = { cliente: string; periodo: string; version: string | number; generadoEn: Date };
@@ -19,7 +20,18 @@ export type RevisionPrevalidadorExport = {
   actor: string | null;
   creadoEn: string | null;
   huella: string | null;
+  /** Catálogo con que se aprobó, cuando la aprobación vigente lo conserva (null = catálogo vigente). */
+  catalogoCongelado?: { desde: string; origen: string; difiereDelVigente: boolean } | null;
 };
+
+function textoCatalogoInforme(revision: RevisionPrevalidadorExport | undefined): string {
+  const congelado = revision?.catalogoCongelado;
+  if (!congelado) return "Catálogo vigente";
+  const desde = fmtDateTime(congelado.desde);
+  return congelado.difiereDelVigente
+    ? `El de la aprobación (vigente el ${desde}); el catálogo cambió después`
+    : `El de la aprobación (vigente el ${desde}); coincide con el catálogo actual`;
+}
 
 const NUM_FMT = "#,##0.00;-#,##0.00";
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF1F5" } };
@@ -309,6 +321,7 @@ function hojaTrazabilidadPrevalidador(
     ["Fecha de revisión", revision?.creadoEn ?? "—"],
     ["Justificación", revision?.justificacion ?? "—"],
     ["Huella SHA-256", revision?.huella ?? "—"],
+    ["Catálogo del informe", textoCatalogoInforme(revision)],
   ];
   for (const [etiqueta, valor] of filas) {
     const row = ws.addRow([etiqueta, valor]);

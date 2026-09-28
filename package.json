@@ -29,7 +29,8 @@
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
     "db:importar:erps-clientes": "tsx scripts/importar-erps-clientes-por-nit.ts",
     "db:migrar:patrones": "tsx scripts/migrar-patrones-desde-perfiles.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:prevalidador:base-saldo": "tsx scripts/prevalidador-base-saldo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

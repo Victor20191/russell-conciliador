@@ -1814,9 +1814,9 @@ model PrevalidadorCuenta {
   cuentaRussell  String   @map("cuenta_russell")
   // Nombre legible; solo apoya la lectura (el informe muestra el código).
   etiqueta       String?  @map("etiqueta")
-  // saldo = Σ saldo_final (clases 1-3) · movimiento = Σ (debitos − creditos)
-  // (clases 4-7, para no arrastrar el saldo inicial acumulado). El defecto sale de
-  // la clase, pero es editable: el criterio contable lo fija Russell, no el código.
+  // saldo = Σ saldo_final · movimiento = Σ (debitos − creditos). Desde el 28/Sep/2026
+  // todas las filas van por saldo (los módulos se concilian contra el saldo final); es
+  // editable, y un cambio no invalida los balances ya aprobados (catálogo congelado).
   baseCalculo    String   @default("saldo") @map("base_calculo")
   orden          Int      @default(0) @map("orden")
   activa         Boolean  @default(true) @map("activa")
@@ -1905,10 +1905,31 @@ model PrevalidadorRevisionBalance {
   actor         String                  @map("actor")
   actorId       Int?                    @map("actor_id") // FK lógica a User.id
   creadoEn      DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  /// Catálogo con que se aprobó (solo revisiones «aprobada»). Ver `PrevalidadorCatalogoRevision`.
+  catalogoCongelado PrevalidadorCatalogoRevision?
 
   @@index([balanceId, creadoEn])
   @@index([huella])
   @@map("prevalidador_revisiones_balance")
+}
+
+// Catálogo del prevalidador con que se APROBÓ una revisión (28/Sep/2026). Mientras la
+// aprobación siga vigente, el balance se calcula con ESTE catálogo y no con el vigente: un
+// cambio posterior del catálogo (la base de Ingresos y Nómina, una etiqueta, una cuenta nueva)
+// ya no invalida las aprobaciones de todos los balances. `catalogo` guarda las filas CRUDAS tal
+// como las lee el cargador (`FilaCatalogoCruda`), para que pasen por el mismo mapeo que el
+// vigente. `origen`: «aprobacion» (lo guardó la aprobación) o «respaldo» (lo reconstruyó
+// `scripts/prevalidador-base-saldo.ts` para una aprobación anterior, verificando su huella).
+// Append-only por trigger, como el historial de revisiones.
+model PrevalidadorCatalogoRevision {
+  id         Int                         @id @default(autoincrement()) @map("id")
+  revision   PrevalidadorRevisionBalance @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  revisionId Int                         @unique @map("revision_id")
+  catalogo   Json                        @map("catalogo")
+  origen     String                      @default("aprobacion") @map("origen") // aprobacion | respaldo
+  creadoEn   DateTime                    @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("prevalidador_catalogos_revision")
 }
 
 // ===== Impuestos · DIAN =====

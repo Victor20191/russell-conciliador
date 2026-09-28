@@ -420,11 +420,15 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         // se ignora como siempre.
         const adicional = cedula.adicionales.has(russell6) || esCuentaDelPeriodo(cedula, russell6, sub4);
         if (!codigosModulo.has(sub4) || (!adicional && !cuenta4DelModulo(sub4, prefijosModulo))) continue;
+        // Las reglas del cruce salen del catálogo VIGENTE, como en el cruce por tercero, y no del
+        // congelado de la aprobación del balance (`contexto.ts`): ese rige solo el informe del
+        // prevalidador. Si no, una cuenta agregada después de aprobar quedaría «sin regla» y
+        // bloquearía el cruce. La base de cálculo no interviene aquí: se lee siempre el saldo final.
         const calculo = calcularValorContableModulo({
           moduloCodigo,
           cuentaRussell: d.cuenta6Russell,
           fila: filaContable,
-          catalogo: contextoBalance.catalogo,
+          catalogo: catalogoPrevalidador,
           naturaleza: descriptor.crucePorTercero.naturaleza,
           adicional,
           naturalezaCuenta: cedula.abiertos.get(sub4),
@@ -459,7 +463,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         (detalleContablePorCuenta[clave] ??= []).push({ cuenta8, nombre: d.nombreCuenta, valor: calculo.valor, noModular });
         if (noModular) noModularPorCuenta[clave] = (noModularPorCuenta[clave] ?? 0) + calculo.valor;
       } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
-        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: contextoBalance.catalogo, naturaleza: descriptor.crucePorTercero.naturaleza, naturalezaCuenta: cedula.abiertos.get(cuenta4) });
+        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: catalogoPrevalidador, naturaleza: descriptor.crucePorTercero.naturaleza, naturalezaCuenta: cedula.abiertos.get(cuenta4) });
         if (!calculo) {
           sinReglaContableFilas += 1;
           continue;

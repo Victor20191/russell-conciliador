@@ -204,6 +204,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         creadoEn: null,
         huella: null,
         instantaneaDisponible: false,
+        catalogoCongelado: null,
       };
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;

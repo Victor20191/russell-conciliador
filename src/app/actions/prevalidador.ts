@@ -437,6 +437,27 @@ export async function eliminarFilaPrevalidador(_prev: ActionState, formData: For
         select: { cuentaRussell: true, module: { select: { name: true } }, _count: { select: { overrides: true } } },
       });
       if (!fila) throw new ErrorDominioPrevalidador("Esa fila del prevalidador ya no existe.");
+      // Las cuentas alternativas por balance se borran en cascada con la fila, y son parte de la
+      // huella: borrarlas dejaría desactualizadas las aprobaciones de esos balances, aunque su
+      // catálogo esté congelado. Una fila sin ellas sí se puede borrar: el congelado la conserva.
+      if (fila._count.overrides > 0) {
+        const [afectados] = await tx.$queryRaw<{ balances: number }[]>`
+          SELECT COUNT(DISTINCT o."balance_id")::int AS balances
+          FROM "prevalidador_cuentas_balance" o
+          JOIN LATERAL (
+            SELECT r."estado" FROM "prevalidador_revisiones_balance" r
+            WHERE r."balance_id" = o."balance_id"
+            ORDER BY r."creado_en" DESC, r."id" DESC
+            LIMIT 1
+          ) u ON TRUE
+          WHERE o."catalogo_id" = ${id} AND u."estado" = 'aprobada'`;
+        const balances = afectados?.balances ?? 0;
+        if (balances > 0) {
+          throw new ErrorDominioPrevalidador(
+            `Tiene cuenta alternativa en ${balances} balance(s) con el prevalidador aprobado; eliminarla invalidaría esas aprobaciones. Inactívala o revoca primero esas aprobaciones.`,
+          );
+        }
+      }
       await tx.prevalidadorCuenta.delete({ where: { id } });
       return { fila, arrastradas: fila._count.overrides };
     });
@@ -516,6 +537,12 @@ async function registrarRevisionPrevalidador(
           instantanea: contexto.prevalidador as Prisma.InputJsonValue,
           actor: user.name,
           actorId: user.id,
+          // La aprobación congela el catálogo con que se calculó: un cambio posterior del catálogo
+          // ya no la invalida (`contexto.ts`). Aquí nunca es un congelado previo: una aprobación
+          // vigente ya salió arriba, así que el contexto se calculó con el catálogo vigente.
+          ...(estado === "aprobada"
+            ? { catalogoCongelado: { create: { catalogo: contexto.catalogoCrudo as Prisma.InputJsonValue, origen: "aprobacion" } } }
+            : {}),
         },
       });
       return { balance, huella: contexto.huella, creada: true };

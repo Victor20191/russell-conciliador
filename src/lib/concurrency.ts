@@ -1,25 +1,23 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+
+// Los candados viven en `candados.ts` (sin server-only) para que los scripts de mantenimiento
+// tomen exactamente la misma llave que la app.
+export { tomarCandadoTransaccion } from "@/lib/candados";
 
 export type TransactionClient = Omit<
   PrismaClient,
   "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends"
 >;
 
-const LOCK_NAMESPACE = 1_382_240_781;
 const DEFAULT_MAX_ATTEMPTS = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function advisoryKey(recurso: string): number {
-  return createHash("sha256").update(recurso).digest().readInt32BE(0);
 }
 
 function prismaCode(e: unknown): string | undefined {
@@ -33,18 +31,6 @@ function prismaCode(e: unknown): string | undefined {
 function esErrorConcurrencia(e: unknown): boolean {
   const code = prismaCode(e);
   return code === "P2002" || code === "P2034";
-}
-
-export async function tomarCandadoTransaccion(
-  tx: TransactionClient,
-  recurso: string,
-): Promise<void> {
-  const key = advisoryKey(recurso);
-  // `pg_advisory_xact_lock` devuelve `void`: con el driver adapter de Prisma 7
-  // (@prisma/adapter-pg) `$queryRaw` no sabe deserializar una columna `void` y
-  // lanza P2010. Usamos `$executeRaw` —no deserializa el resultado del SELECT,
-  // que aquí no necesitamos— para tomar el candado sin romper la transacción.
-  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${LOCK_NAMESPACE}, ${key})`);
 }
 
 export async function transaccionSerializable<T>(

@@ -20,10 +20,12 @@ import { limpiarCodigo } from "@/lib/balance/calcular";
 
 /**
  * Cómo se agrega el saldo de una fila del prevalidador.
- * - `saldo`      → Σ `saldo_final` (cuentas de balance: activo, pasivo, patrimonio).
- * - `movimiento` → Σ (`debitos` − `creditos`), el movimiento del período (cuentas de
- *   resultado: ingresos, gastos, costos). Evita que un saldo inicial acumulado
- *   contamine la comparación.
+ * - `saldo`      → Σ `saldo_final`. Desde el 28/Sep/2026 es la base de TODAS las filas:
+ *   los módulos se concilian contra el saldo final del balance al corte (21/Sep/2026), y
+ *   el prevalidador compara lo mismo que después se concilia.
+ * - `movimiento` → Σ (`debitos` − `creditos`), el movimiento del período. Fue la base de
+ *   Ingresos y Nómina hasta el 28/Sep/2026; los balances aprobados con ella la conservan
+ *   (ver `contexto.ts`: la aprobación congela el catálogo con que se aprobó).
  */
 export type BaseCalculo = "saldo" | "movimiento";
 
@@ -58,6 +60,32 @@ export type OverridePrevalidador = {
   cuentaCliente: string;
 };
 
+/**
+ * Fila del catálogo TAL COMO SALE DE LA BD (`SELECT_CATALOGO_PREVALIDADOR`). Es también la
+ * forma en que una aprobación congela su catálogo (`prevalidador_catalogos_revision`): así el
+ * catálogo congelado y el vigente pasan por el MISMO mapeo y dan la misma huella.
+ */
+export type FilaCatalogoCruda = {
+  id: number;
+  cuentaRussell: string;
+  etiqueta: string | null;
+  baseCalculo: string;
+  orden: number;
+  activa: boolean;
+  module: { code: string; name: string };
+};
+
+/** Lo que el cargador lee de `prevalidador_cuentas` (el orden lo fija la consulta). */
+export const SELECT_CATALOGO_PREVALIDADOR = {
+  id: true,
+  cuentaRussell: true,
+  etiqueta: true,
+  baseCalculo: true,
+  orden: true,
+  activa: true,
+  module: { select: { code: true, name: true } },
+} as const;
+
 /** Fila de fábrica (sin id): la usan la migración y el seed. */
 export type FilaFabricaPrevalidador = {
   moduloCodigo: string;
@@ -91,11 +119,12 @@ export function ordenModulo(codigo: string): number {
  * Las 11 filas que Russell definió por correo (grupos de 2 dígitos y cuentas de 4), más
  * la 7305 de Nómina (RF-NOM-05: el módulo concilia también la mano de obra indirecta,
  * 730505). La migración `20260801120000_prevalidador_homologacion` siembra las 11 y
- * `20260913160000_nomina_cruce_seis_digitos` la 7305, con estos mismos valores; a partir
- * de ahí manda la BD y esto queda como respaldo.
+ * `20260913160000_nomina_cruce_seis_digitos` la 7305; a partir de ahí manda la BD y esto
+ * queda como respaldo. Esas migraciones sembraron Ingresos y Nómina por MOVIMIENTO; desde
+ * el 28/Sep/2026 van por saldo final (`npm run db:prevalidador:base-saldo` cambió la BD).
  */
 export const PREVALIDADOR_CATALOGO_FABRICA: FilaFabricaPrevalidador[] = [
-  { moduloCodigo: "ING", cuentaRussell: "41", etiqueta: "Ingresos operacionales", baseCalculo: "movimiento", orden: 10 },
+  { moduloCodigo: "ING", cuentaRussell: "41", etiqueta: "Ingresos operacionales", baseCalculo: "saldo", orden: 10 },
   { moduloCodigo: "CAR", cuentaRussell: "13", etiqueta: "Deudores / clientes", baseCalculo: "saldo", orden: 10 },
   { moduloCodigo: "CAR", cuentaRussell: "2805", etiqueta: "Anticipos y avances recibidos", baseCalculo: "saldo", orden: 20 },
   { moduloCodigo: "INV", cuentaRussell: "14", etiqueta: "Inventarios", baseCalculo: "saldo", orden: 10 },
@@ -103,10 +132,10 @@ export const PREVALIDADOR_CATALOGO_FABRICA: FilaFabricaPrevalidador[] = [
   { moduloCodigo: "CXP", cuentaRussell: "22", etiqueta: "Proveedores", baseCalculo: "saldo", orden: 10 },
   { moduloCodigo: "CXP", cuentaRussell: "1330", etiqueta: "Anticipos y avances entregados", baseCalculo: "saldo", orden: 20 },
   { moduloCodigo: "CXP", cuentaRussell: "2335", etiqueta: "Costos y gastos por pagar", baseCalculo: "saldo", orden: 30 },
-  { moduloCodigo: "NOM", cuentaRussell: "5105", etiqueta: "Gastos de personal · administración", baseCalculo: "movimiento", orden: 10 },
-  { moduloCodigo: "NOM", cuentaRussell: "5205", etiqueta: "Gastos de personal · ventas", baseCalculo: "movimiento", orden: 20 },
-  { moduloCodigo: "NOM", cuentaRussell: "7205", etiqueta: "Mano de obra · producción", baseCalculo: "movimiento", orden: 30 },
-  { moduloCodigo: "NOM", cuentaRussell: "7305", etiqueta: "Mano de obra indirecta", baseCalculo: "movimiento", orden: 40 },
+  { moduloCodigo: "NOM", cuentaRussell: "5105", etiqueta: "Gastos de personal · administración", baseCalculo: "saldo", orden: 10 },
+  { moduloCodigo: "NOM", cuentaRussell: "5205", etiqueta: "Gastos de personal · ventas", baseCalculo: "saldo", orden: 20 },
+  { moduloCodigo: "NOM", cuentaRussell: "7205", etiqueta: "Mano de obra · producción", baseCalculo: "saldo", orden: 30 },
+  { moduloCodigo: "NOM", cuentaRussell: "7305", etiqueta: "Mano de obra indirecta", baseCalculo: "saldo", orden: 40 },
 ];
 
 /** Nombres de los módulos para construir fixtures de fábrica sin BD. */
@@ -142,14 +171,14 @@ export function catalogoPrevalidadorDeFabrica(): FilaCatalogoPrevalidador[] {
 }
 
 /**
- * Base de cálculo que le corresponde a un código por su clase (primer dígito):
- * clases 1-3 son cuentas de balance (saldo), 4-9 son de resultado (movimiento del
- * período). Es solo el DEFECTO: la columna `base_calculo` puede sobreescribirlo sin
- * tocar código si Russell decide otra cosa.
+ * Base de cálculo con que nace una fila nueva del catálogo. Hasta el 28/Sep/2026 dependía de
+ * la clase (1-3 saldo, 4-9 movimiento); desde entonces es SALDO FINAL para todas, porque los
+ * módulos se concilian contra el saldo final del balance al corte y el prevalidador debe
+ * comparar lo mismo. Es solo el defecto: la columna `base_calculo` sigue siendo editable.
  */
 export function baseCalculoPorDefecto(codigo: string): BaseCalculo {
-  const c = (codigo ?? "").charAt(0);
-  return c === "1" || c === "2" || c === "3" ? "saldo" : c >= "4" && c <= "9" ? "movimiento" : "saldo";
+  void codigo;
+  return "saldo";
 }
 
 export function esBaseCalculo(v: unknown): v is BaseCalculo {
@@ -163,4 +192,33 @@ export function esBaseCalculo(v: unknown): v is BaseCalculo {
  */
 export function normalizarPrefijo(codigo: string | null | undefined): string {
   return limpiarCodigo(codigo ?? "");
+}
+
+/**
+ * De la fila cruda de la BD a la del cálculo. Es el ÚNICO mapeo del cargador: lo usan el
+ * catálogo vigente y el congelado de una aprobación, así los dos dan exactamente la misma forma
+ * (y la misma huella) cuando son el mismo catálogo. Falla cerrado ante una fila inválida.
+ */
+export function mapearCatalogoPrevalidador(filas: readonly FilaCatalogoCruda[]): FilaCatalogoPrevalidador[] {
+  return filas.map((fila) => {
+    const cuentaRussell = normalizarPrefijo(fila.cuentaRussell);
+    if (!esBaseCalculo(fila.baseCalculo)) throw new Error(`La cuenta ${cuentaRussell} tiene una base de cálculo inválida.`);
+    if (!PREVALIDADOR_MODULOS_ORDEN.includes(fila.module.code)) {
+      throw new Error(`El módulo ${fila.module.code} no pertenece al alcance aprobado del prevalidador.`);
+    }
+    if (cuentaRussell.length !== 2 && cuentaRussell.length !== 4) {
+      throw new Error(`La cuenta ${cuentaRussell} no tiene nivel 2 o 4.`);
+    }
+    return {
+      id: fila.id,
+      moduloCodigo: fila.module.code,
+      moduloNombre: fila.module.name,
+      moduloOrden: ordenModulo(fila.module.code),
+      cuentaRussell,
+      etiqueta: fila.etiqueta,
+      baseCalculo: fila.baseCalculo,
+      orden: fila.orden,
+      activa: fila.activa,
+    };
+  });
 }
