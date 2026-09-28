@@ -4,7 +4,8 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { fmtDate, fmtHora12 } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
+import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
 import { agruparCargasModuloPorCliente } from "@/lib/modulos/versiones";
 import ModulosDatosClient, { type GrupoClienteRow } from "./modulos-datos-client";
 import { PestanasModulo } from "./pestanas-modulo";
@@ -56,10 +57,16 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   // Conteo de comentarios por dato cargado (encabezado), más los alcances de la
   // eliminación: perfiles de formato aprendidos y marcas del cruce que caerían con
   // el período o con el cliente. Solo alimentan los conteos del modal.
-  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar, autorizacionCrear, autorizacionPatrones] = await Promise.all([
+  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, cierresEnFirme, autorizacionEliminar, autorizacionCrear, autorizacionPatrones] = await Promise.all([
     prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_datos", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),
     prisma.perfilCargaModulo.groupBy({ by: ["clienteId"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
     prisma.marcaCruceModulo.groupBy({ by: ["clienteId", "periodo"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
+    // Conciliación en firme del (cliente, módulo, período): el cierre es del PERÍODO,
+    // no de una versión, así que vale para la vigente aunque se cargara después.
+    prisma.conciliacionModuloCierre.findMany({
+      where: { moduloCodigo, estado: ESTADO_CIERRE_FIRME, ...filtroCliente },
+      select: { clienteId: true, periodo: true, moduloDatoEncabezadoId: true, cerradoPor: true, cerradoEn: true },
+    }),
     // `modulos_datos:eliminar` es SOLO_ADMIN (alcance global): basta el permiso de rol
     // para pintar el botón; la acción revalida permiso Y alcance sobre el cliente.
     authorizePermiso("modulos_datos:eliminar"),
@@ -71,6 +78,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   const comentPorEnc = new Map(comentCargados.map((g) => [g.entityId, g._count._all]));
   const perfilesPorClienteId = new Map(perfilesPorCliente.map((g) => [g.clienteId, g._count._all]));
   const marcasPorClientePeriodo = new Map(marcasPorPeriodo.map((g) => [`${g.clienteId}|${g.periodo}`, g._count._all]));
+  const cierrePorClientePeriodo = new Map(cierresEnFirme.map((c) => [`${c.clienteId}|${c.periodo}`, c]));
   const marcasPorClienteId = new Map<number, number>();
   for (const g of marcasPorPeriodo) {
     marcasPorClienteId.set(g.clienteId, (marcasPorClienteId.get(g.clienteId) ?? 0) + g._count._all);
@@ -129,6 +137,12 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       fecha: p.ultimaCarga ? fmtDate(p.ultimaCarga) : "—",
       hora: p.ultimaCarga ? fmtHora12(p.ultimaCarga) : null,
       comentarios: p.comentarios,
+      conciliacionCerrada: (() => {
+        const cierre = cierrePorClientePeriodo.get(`${grupo.clienteId}|${p.periodo}`);
+        return cierre
+          ? { cerradoPor: cierre.cerradoPor, cerradoEn: fmtDateTime(cierre.cerradoEn), encabezadoId: cierre.moduloDatoEncabezadoId }
+          : null;
+      })(),
     })),
   }));
 

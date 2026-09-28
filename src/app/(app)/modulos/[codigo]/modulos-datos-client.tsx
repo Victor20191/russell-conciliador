@@ -44,6 +44,8 @@ export type PeriodoModuloRow = {
   comentarios: number;
   /** Marcas de auditoría del cruce ancladas al período (caen al borrarlo). */
   marcasPeriodo: number;
+  /** Conciliación del período cerrada (en firme); null si no se ha cerrado o se desbloqueó. */
+  conciliacionCerrada: { cerradoPor: string; cerradoEn: string; encabezadoId: number } | null;
 };
 
 /** Una tarjeta del listado de cargados: el cliente y sus períodos. */
@@ -373,7 +375,21 @@ function CargadosPorCliente({
                       {fmtContable(p.total)}
                     </td>
                     <td className="px-4 py-2.5">
-                      {p.estaCongelado ? (
+                      {/* La conciliación cerrada manda sobre el estado de la versión: es lo
+                          que el equipo necesita saber del período (la versión ya se ve en
+                          «Versión vigente»). El cierre es del período y puede venir de otra
+                          versión: el título dice de cuál. */}
+                      {p.conciliacionCerrada ? (
+                        <span
+                          title={`Conciliación en firme · cargue #${p.conciliacionCerrada.encabezadoId} · cerró ${p.conciliacionCerrada.cerradoPor} · ${p.conciliacionCerrada.cerradoEn}`}
+                          className="flex flex-col items-start gap-0.5"
+                        >
+                          <span className="inline-flex items-center gap-1 rounded-full bg-navy-700 px-2 py-0.5 text-[11px] font-semibold text-white">
+                            <Icon name="check" size={10} /> Cerrado
+                          </span>
+                          <span className="whitespace-nowrap text-[10px] text-ink-400">por {p.conciliacionCerrada.cerradoPor}</span>
+                        </span>
+                      ) : p.estaCongelado ? (
                         <Chip label="Congelado" tone="blue" />
                       ) : p.esOficial ? (
                         <Chip label="Vigente" tone="ok" />
