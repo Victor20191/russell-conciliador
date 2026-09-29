@@ -733,3 +733,129 @@ describe("NOM · signo de la columna de deducción (24/Sep/2026)", () => {
     ])).toEqual([1000, -19236, -19236]);
   });
 });
+
+describe("transformarModulo (ING) · qué trae el archivo: facturas o notas crédito", () => {
+  const ING = MODULOS_IMPORT.ING;
+  const ENC_ING: CeldaCruda[] = ["Concepto", "Documento", "Valor"];
+  const SPEC_ING: SpecModulo = { hoja: "Ingresos", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 1, documento: 2, valor: 3 } };
+  const hojaIng = (filas: CeldaCruda[][]): GridHoja => ({ nombre: "Ingresos", filas: [ENC_ING, ...filas] });
+  const imputables = (filas: ReturnType<typeof transformarModulo>["filas"]) => filas.filter((f) => f.tipoFila === "movimiento");
+  const control = (r: ReturnType<typeof transformarModulo>) =>
+    controlSubtotales(r.filas, (f) => f.tipoFila === "movimiento" && f.omitida !== true && f.valor !== 0);
+
+  it("solo notas crédito en POSITIVO: invierte el archivo, rotula sus renglones y el total sigue cuadrando", () => {
+    const grid = hojaIng([
+      ["Ventas nacionales", "NC-1", 50],
+      ["Ventas nacionales", "NC-2", 30],
+      ["Exportaciones", "NC-3", 20],
+      ["Total", null, 100],
+    ]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito" }, grid);
+    expect(r.contenido).toEqual({ contenido: "notas_credito", invertido: true, positivos: 3, negativos: 0 });
+    expect(imputables(r.filas).map((f) => [f.clasificador, f.valor])).toEqual([
+      ["Notas crédito · Ventas nacionales", -50],
+      ["Notas crédito · Ventas nacionales", -30],
+      ["Notas crédito · Exportaciones", -20],
+    ]);
+    expect(r.filas[0].datos.concepto).toBe("Notas crédito · Ventas nacionales");
+    expect(r.filas[0]).toMatchObject({ contenido: "notas_credito", signoInvertido: true });
+    // La fila del total también se invierte: el control del archivo cuadra y el gran total no se rotula.
+    const total = r.filas.find((f) => f.tipoFila === "total")!;
+    expect(total).toMatchObject({ valor: -100, clasificador: null });
+    expect(control(r).granTotal).toMatchObject({ subtotalArchivo: -100, sumaMovimientos: -100, estado: "cuadra" });
+  });
+
+  it("la celda del total que ubicó el usuario cuenta como total, no como nota crédito, y queda en negativo", () => {
+    const grid = hojaIng([
+      ["Ventas", "NC-1", 50],
+      ["Ventas", "NC-2", 30],
+      [null, null, 80],
+    ]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito", subtotalesColumna: 3, subtotalesFila: 4 }, grid);
+    expect(r.contenido).toMatchObject({ invertido: true, positivos: 2 });
+    const total = r.filas.find((f) => f.filaNum === 4)!;
+    expect(total).toMatchObject({ tipoFila: "total", valor: -80 });
+    expect(total.motivo?.startsWith("gran_total:marca_manual")).toBe(true);
+  });
+
+  it("notas crédito que YA vienen en negativo: se dejan con su signo (solo se rotulan)", () => {
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito" }, hojaIng([
+      ["Ventas", "NC-1", -50],
+      ["Ventas", "NC-2", -30],
+    ]));
+    expect(r.contenido).toEqual({ contenido: "notas_credito", invertido: false, positivos: 0, negativos: 2 });
+    expect(imputables(r.filas).map((f) => [f.clasificador, f.valor])).toEqual([["Notas crédito · Ventas", -50], ["Notas crédito · Ventas", -30]]);
+    expect(r.filas[0].signoInvertido).toBeUndefined();
+  });
+
+  it("una reversa en negativo dentro de un archivo en positivo termina sumando", () => {
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito" }, hojaIng([
+      ["Ventas", "NC-1", 50],
+      ["Ventas", "NC-2", 30],
+      ["Ventas", "REV-1", -10],
+    ]));
+    expect(imputables(r.filas).map((f) => f.valor)).toEqual([-50, -30, 10]);
+    expect(r.contenido).toMatchObject({ invertido: true, positivos: 2, negativos: 1 });
+  });
+
+  it("con el valor por FÓRMULA decide el valor de la fila e invierte cada término", () => {
+    const grid: GridHoja = {
+      nombre: "Ingresos",
+      filas: [
+        ["Clase", "Documento", "Total sin Descuento", "Total Fletes"],
+        ["Nota Crédito", "NC-1", 1_000, 50],
+        ["Nota Crédito", "NC-2", 400, null],
+      ],
+    };
+    const spec: SpecModulo = {
+      hoja: "Ingresos", filaEncabezado: 1, primeraFilaDatos: 2,
+      columnas: { concepto: 1, documento: 2, valor: 0 },
+      valorFormula: [{ columna: 3, signo: "+" }, { columna: 4, signo: "+" }],
+      contenidoArchivo: "notas_credito",
+    };
+    const r = transformarModulo(ING, spec, grid);
+    expect(r.contenido).toMatchObject({ invertido: true, positivos: 2 });
+    // El concepto ya nombra una nota crédito: el renglón conserva su nombre (y su cuenta guardada).
+    expect(r.filas.map((f) => [f.clasificador, f.valor])).toEqual([["Nota Crédito", -1050], ["Nota Crédito", -400]]);
+    expect(r.filas[0].terminosFormula).toEqual({ "C · Total sin Descuento": -1000, "D · Total Fletes": -50 });
+  });
+
+  it("un subtotal por concepto sigue reconociéndose y se rotula junto con su bloque", () => {
+    const filas: CeldaCruda[][] = [
+      ["Ventas nacionales", "NC-1", 50],
+      ["Ventas nacionales", "NC-2", 30],
+      ["Total Ventas nacionales", null, 80],
+      ["Exportaciones", "NC-3", 20],
+      ["Exportaciones", "NC-4", 10],
+      ["Total Exportaciones", null, 30],
+    ];
+    const comoFacturas = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "facturas" }, hojaIng(filas));
+    const comoNotas = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito" }, hojaIng(filas));
+    // Misma lectura (qué filas son total y por qué), solo cambian signo y renglón.
+    expect(comoNotas.filas.map((f) => [f.filaNum, f.tipoFila, f.motivo])).toEqual(comoFacturas.filas.map((f) => [f.filaNum, f.tipoFila, f.motivo]));
+    const subtotal = comoNotas.filas.find((f) => f.filaNum === 4)!;
+    expect(subtotal).toMatchObject({ tipoFila: "total", valor: -80, clasificador: "Notas crédito · Ventas nacionales" });
+    const grupos = control(comoNotas).grupos;
+    expect(grupos.map((g) => [g.clasificador, g.subtotalArchivo, g.sumaMovimientos])).toEqual([
+      ["Notas crédito · Ventas nacionales", -80, -80],
+      ["Notas crédito · Exportaciones", -30, -30],
+    ]);
+  });
+
+  it("facturas y archivo mixto se leen exactamente como antes", () => {
+    const grid = hojaIng([["Ventas", "F-1", 1_000], ["Ventas", "NC-1", -80], ["Total", null, 920]]);
+    const antes = transformarModulo(ING, SPEC_ING, grid);
+    for (const contenidoArchivo of ["facturas", "mixto"] as const) {
+      const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo }, grid);
+      expect(r.filas).toEqual(antes.filas);
+      expect(r.contenido).toMatchObject({ contenido: contenidoArchivo, invertido: false, positivos: 1, negativos: 1 });
+    }
+    expect(antes.contenido).toBeUndefined();
+  });
+
+  it("un módulo que no pregunta el contenido lo ignora", () => {
+    const grid = hoja([ENC, ["Materia prima", "REF-1", "Tornillo", 10, 100, 1000]]);
+    const conCampo = transformarModulo(INV, { ...SPEC, contenidoArchivo: "notas_credito" }, grid);
+    expect(conCampo).toEqual(transformarModulo(INV, SPEC, grid));
+  });
+});

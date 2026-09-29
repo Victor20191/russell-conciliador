@@ -12,6 +12,13 @@ const cargue = (p: Partial<CargueValidable> = {}): CargueValidable => ({
 });
 
 describe("validacionDelCargue", () => {
+  it("facturas + un anexo de notas crédito invertidas: el declarado acumulado 1.200 + (−80) cuadra con lo cargado", () => {
+    // La lectura invierte también la fila del total del archivo de notas crédito, así que su total
+    // declarado llega en −80 y se acumula igual que lo cargado.
+    const v = validacionDelCargue(cargue({ total: 1_120, filas: 14, totalDeclarado: 1_200 + -80, filaTotalDeclarado: null, archivosDelCargue: 2, archivosConTotal: 2 }))!;
+    expect(v.control.granTotal).toMatchObject({ subtotalArchivo: 1_120, sumaMovimientos: 1_120, estado: "cuadra" });
+  });
+
   it("un archivo cuyo total declarado iguala lo cargado: cuadra", () => {
     const v = validacionDelCargue(cargue())!;
     expect(v.control.granTotal).toMatchObject({

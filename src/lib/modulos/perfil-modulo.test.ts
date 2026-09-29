@@ -283,10 +283,20 @@ describe("regresión: los módulos sin familias no cambian", () => {
         nivel: "documento",
         origenCartera: "exterior",
         invertirSigno: true,
+        contenidoArchivo: "notas_credito",
       });
       expect(JSON.stringify(contaminado)).toBe(JSON.stringify(limpio));
     });
   }
+
+  it("ING: qué trae el archivo vale para ESTE cargue y nunca llega al perfil ni al patrón", () => {
+    const ING = MODULOS_IMPORT.ING;
+    const conContenido = { ...specDe("ING"), contenidoArchivo: "notas_credito" as const };
+    expect(normalizarSpecModuloArchivo(ING, conContenido).contenidoArchivo).toBe("notas_credito");
+    expect(normalizarSpecModulo(ING, conContenido).contenidoArchivo).toBeUndefined();
+    // Otro módulo no lo conserva ni en el lote.
+    expect(normalizarSpecModuloArchivo(MODULOS_IMPORT.INV, { ...specDe("INV"), contenidoArchivo: "notas_credito" }).contenidoArchivo).toBeUndefined();
+  });
 
   it("Cuentas por Pagar traduce su perfil anterior y conserva los campos del detalle por tercero", () => {
     const CXP = MODULOS_IMPORT.CXP;

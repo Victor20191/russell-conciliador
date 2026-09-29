@@ -14,6 +14,7 @@ import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
+import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
 import BorradorModuloClient from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -95,13 +96,13 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   // ese cargue ya tiene — avisar, no bloquear: la llave (clasificador, referencia) depende
   // del mapeo de columnas y un falso positivo dejaría sin salida a un anexo legítimo.
   const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
-  let anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null = null;
+  let anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean; totalActual: number } | null = null;
   // Agrupadores del cargue al que se suma el anexo: se ofrecen como nombre para las filas sin él.
   let nombresDestino: { version: number; nombres: string[] } | null = null;
   if (lote.anexoEncabezadoId != null) {
     const destino = await prisma.moduloDatoEncabezado.findUnique({
       where: { id: lote.anexoEncabezadoId },
-      select: { id: true, version: true, periodo: true, esOficial: true, detalles: { select: { clasificador: true, datos: true } } },
+      select: { id: true, version: true, periodo: true, esOficial: true, total: true, detalles: { select: { clasificador: true, datos: true } } },
     });
     if (destino) {
       if (destino.esOficial) {
@@ -123,6 +124,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         periodo: destino.periodo,
         repetidos: itemsRepetidos(nuevas, existentes),
         vigente: destino.esOficial,
+        totalActual: Number(destino.total),
       };
     }
   }
@@ -200,6 +202,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         resumen={resumen}
         reconciliacion={reconciliacion}
         anexo={anexo}
+        contenido={descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null}
         sinNombre={[...gruposSinNombre].map(([grupo, g]) => ({ grupo, filas: g.filas, total: Math.round(g.total * 100) / 100 }))}
         opcionesNombre={opcionesNombre}
         version={versionActual}

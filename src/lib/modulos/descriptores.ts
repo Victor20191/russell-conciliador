@@ -218,6 +218,13 @@ export type DescriptorModulo = {
    */
   confirmarAgrupadorEnCarga?: boolean;
   /**
+   * La carga pregunta SIEMPRE qué trae el archivo —facturas y notas crédito, solo facturas o solo
+   * notas crédito— (Ingresos). Con «solo notas crédito» el motor invierte el signo del archivo si
+   * viene en positivo y lleva sus filas a renglones propios del Consolidado. Vale solo para ese
+   * cargue (`aplicarContenidoDeCarga`, `ingresos/contenido-archivo.ts`).
+   */
+  confirmarContenidoEnCarga?: boolean;
+  /**
    * El valor se concilia contra cuentas SIN impuestos (Ingresos → la 41). Cuando la columna o la
    * fórmula del valor lleva «total» en el rótulo, el editor pregunta UNA vez —al mapear— si
    * excluye el IVA, y la firma de lo confirmado viaja en el spec (`valor-sin-impuestos.ts`).
@@ -619,6 +626,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // respuestas que guardaron). La confirmación de que el valor excluye el IVA se hace UNA vez, al
     // mapear la columna o la fórmula del valor, y queda en el patrón o en el perfil del cliente.
     confirmarValorSinImpuestos: true,
+    // Facturas y notas crédito pueden venir juntas o en archivos aparte (29/Sep/2026): cada carga
+    // declara qué trae, y un archivo de solo notas crédito en positivo se invierte para que reste.
+    confirmarContenidoEnCarga: true,
   },
 
   // ===== Nómina (NOM) → gasto y costo de personal a SEIS dígitos =====

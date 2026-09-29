@@ -47,7 +47,17 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import {
+  agregarContenidoArchivo,
+  detalleAuditoriaContenido,
+  esContenidoArchivo,
+  INFO_CONTENIDO_ARCHIVO,
+  leerContenidoArchivos,
+  leerContenidoDeLote,
+  type ContenidoArchivoCargue,
+  type VigentePeriodoModulo,
+} from "@/lib/modulos/ingresos/contenido-archivo";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
@@ -351,7 +361,45 @@ export type AnalisisModulo = {
    * con filas y valor de cada uno. Muestra qué entra al corte que declara el usuario.
    */
   periodosDetectados?: ResumenPeriodo[];
+  /**
+   * Ingresos: el cargue vigente del período elegido, si existe. Con él el modal ofrece agregar un
+   * archivo de notas crédito a ese cargue en vez de crear una versión nueva que lo reemplace.
+   */
+  vigentePeriodo?: VigentePeriodoModulo | null;
 };
+
+/**
+ * El cargue vigente (oficial) de un período, para la oferta de agregar al cargar
+ * (`confirmarContenidoEnCarga`). Misma llave que la promoción: cliente, módulo, período y oficial.
+ */
+async function vigenteDelPeriodo(
+  descriptor: NonNullable<ReturnType<typeof descriptorModulo>>,
+  clienteId: number,
+  periodo: string,
+): Promise<VigentePeriodoModulo | null> {
+  if (!descriptor.confirmarContenidoEnCarga || !/^\d{4}-\d{2}$/.test(periodo)) return null;
+  const [vigente, cierre] = await Promise.all([
+    prisma.moduloDatoEncabezado.findFirst({
+      where: { clienteId, moduloCodigo: descriptor.codigo, periodo, esOficial: true },
+      select: { id: true, version: true, periodo: true, total: true, filas: true, estaCongelado: true, contenidoArchivos: true },
+    }),
+    prisma.conciliacionModuloCierre.findFirst({
+      where: { clienteId, moduloCodigo: descriptor.codigo, periodo, estado: ESTADO_CIERRE_FIRME },
+      select: { id: true },
+    }),
+  ]);
+  if (!vigente) return null;
+  return {
+    encabezadoId: vigente.id,
+    version: vigente.version,
+    periodo: vigente.periodo,
+    total: Number(vigente.total),
+    filas: vigente.filas,
+    congelado: vigente.estaCongelado,
+    enFirme: cierre != null,
+    contenidos: leerContenidoArchivos(vigente.contenidoArchivos)?.map((c) => c.contenido) ?? null,
+  };
+}
 
 async function specPerfilModulo(
   clienteId: number,
@@ -648,6 +696,9 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     if (!hoja) return noProcesable("El archivo no tiene hojas legibles.");
 
     const aplicativoVm = { id: aplicativo.id, nombre: aplicativo.name, manual: aplicativo.manual };
+    // Período que eligió el analista («YYYY-MM»): solo para ubicar el cargue vigente al que se
+    // podría agregar este archivo. No se confía para nada más; la promoción lo vuelve a validar.
+    const periodoAnalisis = String(formData.get("periodo") ?? "").trim();
 
     // ARCHIVO MANUAL: el analista mapea las columnas y el mapeo se memoriza por cliente (perfil
     // por huella). Es el único camino que usa la memoria por cliente.
@@ -658,6 +709,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
       const spec = perfilSpec ? normalizarSpecModulo(descriptor, perfilSpec) : sugerirSpec(descriptor, hoja);
       const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
+      const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
       revalidarListadosModulo(moduloCodigo);
       return {
         ok: true,
@@ -667,6 +719,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         ...vistaAnalisisHoja(descriptor, ingesta.hojas, hoja, spec, seleccionHoja),
         spec,
         origen,
+        ...(vigentePeriodo ? { vigentePeriodo } : {}),
       };
     }
 
@@ -683,6 +736,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       // Un valor de «total» ya no saca al archivo de su patrón: el administrador confirmó al
       // crearlo que excluye el IVA (la firma viaja en el spec) y la carga solo lo informa.
       const aplicado = aplicarPatronASpec(descriptor, ubicacion, hojaPatron);
+      const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
       revalidarListadosModulo(moduloCodigo);
       return {
         ok: true,
@@ -692,6 +746,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         aplicativo: aplicativoVm,
         ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaPatron, aplicado.spec, seleccionHoja),
         spec: aplicado.spec,
+        ...(vigentePeriodo ? { vigentePeriodo } : {}),
         coincidencia: {
           versionId: ubicacion.version.id,
           version: ubicacion.version.version,
@@ -906,6 +961,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   const anexoPedido = typeof anexoCrudo === "string" && anexoCrudo.trim() ? Number(anexoCrudo) : null;
   if (anexoPedido != null && (!Number.isInteger(anexoPedido) || anexoPedido <= 0)) {
     return { ok: false, message: "El cargue al que se quiere agregar el archivo no es válido." };
+  }
+  // Ingresos: qué trae el archivo se declara en cada carga. Se valida antes de registrar nada: es
+  // una respuesta que falta en el modal, no un problema del archivo.
+  const contenidoRespuesta = String(formData.get("contenidoArchivo") ?? "").trim();
+  if (descriptor.confirmarContenidoEnCarga && !esContenidoArchivo(contenidoRespuesta)) {
+    return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
 
   let loteOriginalRecibido: string | null = null;
@@ -1248,6 +1309,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor.
     spec = normalizarSpecModuloArchivo(descriptor, spec);
+    // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
+    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta);
+    if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
+    spec = contenidoCarga.spec;
     // Ingresos: el valor puede venir de una columna (o fórmula) de «total», pero solo con la
     // confirmación de que excluye el IVA. Es una omisión del mapeo que se corrige en el mismo
     // modal, así que el original NO se marca como no procesable (como «Faltan columnas»).
@@ -1343,10 +1408,14 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // para que el borrador pueda avisarlo. El perfil reutilizable (`perfilCargaModulo`) NO
     // lleva esta marca: es información de ESTE archivo, no del layout que se memoriza.
     const reconciliacion = resultadoAReconciliacion(resultado);
+    // Ingresos: lo que declaró el analista y lo que la lectura hizo con el signo. El borrador lo
+    // cuenta y la promoción lo congela por archivo en el cargue.
+    const signoContenido = resultado.contenido ?? null;
     const specConReconciliacion = {
       ...spec,
       ...(reconciliacion ? { reconciliacion } : {}),
       ...(detalleValor ? { detalleValor } : {}),
+      ...(signoContenido ? { signoContenido } : {}),
     };
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
@@ -1429,7 +1498,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleAuditoriaContenido(signoContenido)}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);
@@ -1744,6 +1813,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     if (!scope.ok) return { ok: false, message: scope.message };
     const descriptor = descriptorModulo(lote.moduloCodigo);
     if (!descriptor) return { ok: false, message: "Módulo no soportado." };
+    // Ingresos: qué traía el archivo y si su signo se invirtió (lo dejó la lectura en el lote).
+    const signoContenidoLote = descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null;
 
     // Checklist de verificación (novedades): TODAS las preguntas del descriptor deben venir
     // respondidas (si | no | na). Se guarda id → { respuesta, nota }.
@@ -1914,6 +1985,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           trmCierre: true,
           fechaCorte: true,
           formatosCartera: true,
+          contenidoArchivos: true,
+          archivoNombre: true,
+          loteId: true,
         },
       });
       // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
@@ -1954,6 +2028,17 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         clavesNuevas,
         clavesExistentes,
       });
+      // Ingresos: qué trae ESTE archivo, para la lista por archivo del cargue.
+      const entradaContenido: ContenidoArchivoCargue | null = descriptor.confirmarContenidoEnCarga
+        ? {
+            loteId,
+            archivo: loteActual.archivoNombre,
+            contenido: signoContenidoLote?.contenido ?? null,
+            signoInvertido: signoContenidoLote?.invertido === true,
+            filas: promocion.filas,
+            total: promocion.total,
+          }
+        : null;
 
       if (decision.modo === "agregar" && vigente) {
         // Todo el período se convierte con UNA TRM de cierre: un anexo con otra tasa dejaría pesos
@@ -1992,7 +2077,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         // No toca `hoja` del encabezado (es la del archivo principal); la del anexo
         // queda en la propia línea de observaciones, junto al resto de la evidencia.
         const hojaTxt = hojaLote ? ` · hoja: ${hojaLote}` : "";
-        const linea = `Anexo: ${loteActual.archivoNombre}${hojaTxt} (+${promocion.filas} ítems) · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
+        // El contenido va DESPUÉS de «(+N ítems)», que es el ancla con que se leen estas líneas.
+        const contenidoTxt = signoContenidoLote ? ` · ${INFO_CONTENIDO_ARCHIVO[signoContenidoLote.contenido].rotulo}` : "";
+        const linea = `Anexo: ${loteActual.archivoNombre}${hojaTxt} (+${promocion.filas} ítems)${contenidoTxt} · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
         const observacionesFinal = vigente.observaciones ? `${vigente.observaciones}\n${linea}` : linea;
 
         // El declarado se ACUMULA archivo a archivo (no se puede usar `increment`: sobre una
@@ -2026,6 +2113,15 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             // Un cargue anterior (sin formatos) sigue sin ellos: su primer archivo es desconocido.
             ...(cartera && leerFormatosCartera(vigente.formatosCartera)
               ? { formatosCartera: [...leerFormatosCartera(vigente.formatosCartera)!, cartera.formato] as Prisma.InputJsonValue }
+              : {}),
+            ...(entradaContenido
+              ? {
+                  contenidoArchivos: agregarContenidoArchivo(
+                    leerContenidoArchivos(vigente.contenidoArchivos),
+                    { loteId: vigente.loteId, archivo: vigente.archivoNombre, filas: vigente.filas, total: Number(vigente.total) },
+                    entradaContenido,
+                  ) as unknown as Prisma.InputJsonValue,
+                }
               : {}),
           },
         });
@@ -2120,6 +2216,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
               formatosCartera: [cartera.formato] as Prisma.InputJsonValue,
             }
             : {}),
+          ...(entradaContenido ? { contenidoArchivos: [entradaContenido] as unknown as Prisma.InputJsonValue } : {}),
           cargadoPor: user?.name ?? null,
           cargadoPorId: user?.id ?? null,
           ultimaCarga: ahora,
@@ -2179,8 +2276,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         action: resultado.modo === "agregar" ? `AGREGÓ ítems a ${descriptor.label}` : `CARGÓ ${descriptor.label}`,
         entity: cliente.name,
         detail: resultado.modo === "agregar"
-          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleValorLote}`
-          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleValorLote}`,
+          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}`
+          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}`,
         clientId: lote.clienteId,
       });
     }

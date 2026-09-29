@@ -4,7 +4,7 @@ import type { SpecModulo } from "../extraccion/esquema";
 import type { CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { transformarModulo } from "../extraccion/transformar";
 import { consolidarPorClasificador } from "../promocion";
-import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
+import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
 import { coincidenciaPatron } from "./coincidencia";
 import type { UbicacionPatron, VersionCandidata } from "./mejor-version";
 
@@ -407,5 +407,31 @@ describe("aplicarPatronASpec con el valor como FÓRMULA", () => {
     const { spec, advertencias } = aplicarPatronASpec(ING, ubicarSap(["Clase de Documento", "Documento", "Total sin Descuento", "Otra"]));
     expect(spec.valorFormula).toBeUndefined();
     expect(advertencias).toEqual(["No se encontraron todas las columnas de la fórmula de «Ingreso neto sin impuestos» («Total Fletes»): no se leerá."]);
+  });
+});
+
+describe("aplicarContenidoDeCarga (Ingresos: qué trae el archivo)", () => {
+  const ING = descriptorModulo("ING")!;
+  const INV = descriptorModulo("INV")!;
+  const specIng: SpecModulo = { hoja: "Ventas", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 1, valor: 3 } };
+
+  it("fija la respuesta del formulario y pisa lo que trajera el spec", () => {
+    const r = aplicarContenidoDeCarga(ING, { ...specIng, contenidoArchivo: "facturas" }, "notas_credito");
+    expect(r).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "notas_credito" }, contenido: "notas_credito" });
+  });
+
+  it("sin respuesta válida, pide que se indique", () => {
+    for (const respuesta of [null, "", "devoluciones"]) {
+      const r = aplicarContenidoDeCarga(ING, specIng, respuesta);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toMatch(/Indica qué trae este archivo/);
+    }
+  });
+
+  it("un módulo que no lo pregunta retira el campo", () => {
+    const specInv: SpecModulo = { hoja: "Inv", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1 }, contenidoArchivo: "notas_credito" };
+    const r = aplicarContenidoDeCarga(INV, specInv, "notas_credito");
+    expect(r.ok && r.contenido).toBeNull();
+    expect(r.ok && r.spec.contenidoArchivo).toBeUndefined();
   });
 });

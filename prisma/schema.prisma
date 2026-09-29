@@ -1369,6 +1369,10 @@ model ModuloDatoEncabezado {
   /// podían validar: `[{ loteId, archivo, tipo, declarado, conColumnaTotal }]`. Los anexos
   /// agregan el suyo. Null = cargue anterior (el tipo se deduce de las filas).
   formatosCartera    Json?               @map("formatos_cartera")
+  /// Qué trae cada archivo del cargue (Ingresos: facturas, notas crédito o ambas) y si la lectura
+  /// invirtió su signo: `[{ loteId, archivo, contenido, signoInvertido, filas, total, previo? }]`.
+  /// Los anexos agregan el suyo. Null = cargue anterior o módulo que no lo pregunta.
+  contenidoArchivos  Json?               @map("contenido_archivos")
   /// TRM de cierre con la que se convirtió a pesos la cartera en divisa (130510).
   trmCierre          Decimal?            @map("trm_cierre") @db.Decimal(12, 4)
   cargadoPor         String?             @map("cargado_por")

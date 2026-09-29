@@ -10,6 +10,7 @@ import { detectarFamilias } from "../extraccion/sugerir";
 import { tieneValorFormula, type TerminoFormula } from "../extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
+import { esContenidoArchivo, type ContenidoArchivo } from "../ingresos/contenido-archivo";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 
 export type SpecAplicado = { spec: SpecModulo; advertencias: string[] };
@@ -313,6 +314,30 @@ export function aplicarAgrupadorDeCarga(
   const columnas = { ...spec.columnas };
   delete columnas[ROL_AGRUPADOR_CARGA];
   return { ok: true, spec: normalizarSpecModuloArchivo(descriptor, { ...spec, columnas }), separado: false };
+}
+
+export type ContenidoDeCarga =
+  | { ok: true; spec: SpecModulo; contenido: ContenidoArchivo | null }
+  | { ok: false; message: string };
+
+/**
+ * Aplica al spec de ESTE archivo la respuesta a «¿Qué trae este archivo?» (Ingresos,
+ * `confirmarContenidoEnCarga`). Se pregunta en TODA carga —con patrón y con archivo manual—, así
+ * que la respuesta del formulario manda siempre sobre lo que traiga el spec. Sin la bandera el
+ * campo se retira: ningún otro módulo lo interpreta.
+ */
+export function aplicarContenidoDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  respuesta: unknown,
+): ContenidoDeCarga {
+  const { contenidoArchivo: _previo, ...sinContenido } = spec;
+  void _previo;
+  if (!descriptor.confirmarContenidoEnCarga) return { ok: true, spec: sinContenido, contenido: null };
+  if (!esContenidoArchivo(respuesta)) {
+    return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
+  }
+  return { ok: true, spec: { ...sinContenido, contenidoArchivo: respuesta }, contenido: respuesta };
 }
 
 /** Respuesta a «¿El archivo trae el valor total?» al cargar con patrón (`confirmarTotalEnCarga`). */

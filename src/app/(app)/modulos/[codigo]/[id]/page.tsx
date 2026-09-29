@@ -37,6 +37,7 @@ import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nom
 import { columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
 import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 
 export default async function DatoModuloPage({
   params,
@@ -204,6 +205,8 @@ export default async function DatoModuloPage({
     negativos: negativos.map((n) => ({ filaNum: n.filaNum, etiqueta: n.etiqueta, referencia: n.referencia, valor: n.valor })),
     descuadres: descuadres.map((d) => ({ filaNum: d.filaNum, referencia: d.referencia, etiqueta: d.resultadoEtiqueta, declarado: d.declarado, esperado: d.esperado })),
     observaciones: encabezado.observaciones ?? null,
+    // Ingresos: qué trae cada archivo del cargue (facturas / notas crédito) y si se invirtió.
+    archivosCargue: leerContenidoArchivos(encabezado.contenidoArchivos),
     verificaciones: (descriptor.verificaciones ?? []).map((v) => ({ texto: v.texto, respuesta: verifGuardadas[v.id]?.respuesta ?? null, nota: verifGuardadas[v.id]?.nota ?? null })),
     // Único control que NO se recalcula del detalle: el total que declaró el archivo vive en
     // una fila no imputable y el staging que la traía se purga al promover, así que se lee de

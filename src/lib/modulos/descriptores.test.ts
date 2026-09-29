@@ -136,6 +136,12 @@ describe("descriptores de módulos", () => {
       expect(d.confirmarValorSinImpuestos === true, d.codigo).toBe(d.codigo === "ING");
     }
   });
+
+  it("solo Ingresos pregunta al cargar qué trae el archivo (facturas / notas crédito)", () => {
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      expect(d.confirmarContenidoEnCarga === true, d.codigo).toBe(d.codigo === "ING");
+    }
+  });
 });
 
 describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => {

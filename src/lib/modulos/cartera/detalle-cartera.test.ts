@@ -9,6 +9,17 @@ import {
   rotulosDeEdades,
 } from "./detalle-cartera";
 
+describe("datosConExtrasCartera · notas crédito de Ingresos", () => {
+  it("marca la fila de un archivo de notas crédito y si se invirtió su signo", () => {
+    expect(datosConExtrasCartera({ concepto: "Notas crédito · Ventas", valor: -50 }, { contenido: "notas_credito", signoInvertido: true }))
+      .toEqual({ concepto: "Notas crédito · Ventas", valor: -50, _contenido: "notas_credito", _signoInvertido: true });
+    expect(datosConExtrasCartera({ valor: -50 }, { contenido: "notas_credito", signoInvertido: false }))
+      .toEqual({ valor: -50, _contenido: "notas_credito" });
+    const datos = { valor: 10 };
+    expect(datosConExtrasCartera(datos, {})).toBe(datos);
+  });
+});
+
 describe("datosConExtrasCartera", () => {
   it("un módulo sin nada que añadir escribe el JSON de siempre", () => {
     // Identidad por referencia: INV/AFI/NOM no pagan ni una copia por esto.

@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
+import { INFO_CONTENIDO_ARCHIVO, type ContenidoArchivoCargue } from "@/lib/modulos/ingresos/contenido-archivo";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
@@ -152,6 +153,8 @@ export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
   observaciones: string | null;
+  /** Ingresos: qué trae cada archivo del cargue; null en cargues anteriores o en otros módulos. */
+  archivosCargue?: ContenidoArchivoCargue[] | null;
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
   /** Cartera y CxP: validaciones del auxiliar por tercero (reemplazan las de existencias). */
   tercero?: ValidacionesTercero | null;
@@ -3294,6 +3297,53 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
         )}
       </Card>
         </>
+      )}
+
+      {novedades.archivosCargue && novedades.archivosCargue.length > 0 && (
+        <Card className="p-4">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Archivos del cargue</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead className="bg-ink-50 text-left text-ink-500">
+                <tr>
+                  <th className="px-2.5 py-1.5 font-semibold">Archivo</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Contenido</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {novedades.archivosCargue.map((a, i) => (
+                  <tr key={`${a.loteId ?? a.archivo}-${i}`} className="border-t border-ink-100">
+                    <td className="max-w-[320px] break-words px-2.5 py-1.5 text-ink-700">{a.archivo}</td>
+                    <td className="px-2.5 py-1.5 text-ink-600">
+                      {a.previo
+                        ? "Cargado antes de registrar el contenido"
+                        : a.contenido
+                          ? `${INFO_CONTENIDO_ARCHIVO[a.contenido].rotulo}${a.contenido === "notas_credito" ? (a.signoInvertido ? " · venían en positivo, se cambiaron a negativo" : " · ya venían en negativo") : ""}`
+                          : "No declarado"}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{a.filas.toLocaleString("es-CO")}</td>
+                    <td className={`whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums ${a.total < 0 ? "text-err-700" : "text-ink-700"}`}>{fmtContable(a.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {novedades.archivosCargue.length > 1 && (
+                <tfoot>
+                  <tr className="border-t border-ink-200 font-semibold">
+                    <td className="px-2.5 py-1.5 text-ink-700" colSpan={2}>Total del cargue</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-700">
+                      {novedades.archivosCargue.reduce((s, a) => s + a.filas, 0).toLocaleString("es-CO")}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-800">
+                      {fmtContable(Math.round(novedades.archivosCargue.reduce((s, a) => s + a.total, 0) * 100) / 100)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Módulos sin verificaciones (Cartera, Nómina): la tarjeta solo aparece con observaciones. */}
