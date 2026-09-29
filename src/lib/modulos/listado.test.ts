@@ -3,6 +3,7 @@ import {
   coincideBusquedaModulo,
   contarPeriodosPorEstado,
   direccionInicialColumnaModulo,
+  ESTADOS_PERIODO_MODULO,
   estadoPeriodoModulo,
   filtrarGruposCargaModulo,
   filtrarGruposPorEstado,
@@ -171,15 +172,17 @@ describe("estado del período en el listado de cargados", () => {
     { clienteNombre: "C", periodos: [periodo("2026-01", {})] },
   ];
 
-  it("la conciliación cerrada manda sobre congelado y vigente; sin nada es histórica", () => {
+  it("solo hay dos estados: cerrado si la conciliación está en firme y, si no, vigente", () => {
+    expect(ESTADOS_PERIODO_MODULO.map((e) => e.etiqueta)).toEqual(["Vigente", "Cerrado"]);
     expect(estadoPeriodoModulo(periodo("x", { conciliacionCerrada: cierre, estaCongelado: true, esOficial: true }))).toBe("cerrado");
-    expect(estadoPeriodoModulo(periodo("x", { estaCongelado: true, esOficial: true }))).toBe("congelado");
     expect(estadoPeriodoModulo(periodo("x", { esOficial: true }))).toBe("vigente");
-    expect(estadoPeriodoModulo(periodo("x", {}))).toBe("historica");
+    // Ni el congelado (ningún cargue de módulo se congela) ni una versión no oficial son otro estado.
+    expect(estadoPeriodoModulo(periodo("x", { estaCongelado: true, esOficial: true }))).toBe("vigente");
+    expect(estadoPeriodoModulo(periodo("x", {}))).toBe("vigente");
   });
 
   it("cuenta los períodos de cada estado", () => {
-    expect(contarPeriodosPorEstado(grupos)).toEqual({ vigente: 1, cerrado: 1, congelado: 1, historica: 1 });
+    expect(contarPeriodosPorEstado(grupos)).toEqual({ vigente: 3, cerrado: 1 });
   });
 
   it("sin estado devuelve todo; con estado deja solo esos períodos y descarta la tarjeta vacía", () => {

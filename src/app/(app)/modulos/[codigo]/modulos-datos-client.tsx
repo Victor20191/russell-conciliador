@@ -459,12 +459,8 @@ function CargadosPorCliente({
                           </span>
                           <span className="whitespace-nowrap text-[10px] text-ink-400">por {p.conciliacionCerrada.cerradoPor}</span>
                         </span>
-                      ) : estadoPeriodoModulo(p) === "congelado" ? (
-                        <Chip label="Congelado" tone="blue" />
-                      ) : estadoPeriodoModulo(p) === "vigente" ? (
-                        <Chip label="Vigente" tone="ok" />
                       ) : (
-                        <Chip label="Histórica" tone="ink" />
+                        <Chip label="Vigente" tone="ok" />
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-[11px] text-ink-500">
