@@ -5,7 +5,8 @@
  * período, las cuentas ORIGINALES del cliente (cuenta_8) que pertenecen al módulo
  * quedan bloqueadas para ese período. Este archivo decide:
  *
- *  - qué cuentas del balance se bloquean (`cuentasBloqueoDelModulo`);
+ *  - qué deja en firme el cierre (`alcanceDelCierre`: prevalidador + cédula + cuentas del período)
+ *    y qué cuentas del balance se bloquean con eso (`cuentasBloqueoDelModulo`);
  *  - si el cruce está en condiciones de cerrarse (`evaluarCierreConciliacion`);
  *  - si una versión NUEVA del balance altera lo conciliado (`evaluarCambiosBloqueados`).
  *
@@ -32,8 +33,23 @@ export type FilaDetalleBloqueo = {
   saldoFinal: number;
 };
 
-/** Snapshot que se congela por cuenta bloqueada. */
+/**
+ * Snapshot que se guarda por cuenta bloqueada. Lo que queda EN FIRME es su saldo final y su
+ * homologación (29/Sep/2026: los módulos se concilian contra el saldo final). El saldo inicial y los
+ * movimientos se conservan como referencia del balance conciliado, pero no se comparan.
+ */
 export type CuentaBloqueada = FilaDetalleBloqueo;
+
+/**
+ * Mes de corte («YYYY-MM») de un balance: el de su FECHA FINAL. Un cierre en firme protege a todo
+ * balance que termine en ese mes, sin importar desde cuándo arranca ni cómo se llame su período:
+ * «Enero 2025 – Diciembre 2025» y «Diciembre 2025» terminan en el mismo corte y sus saldos finales
+ * son comparables. Es el mismo criterio con que el cruce elige el balance (`balanceTerminaEnPeriodo`)
+ * y coincide con el período del módulo que guarda el cierre.
+ */
+export function mesDeCorteBalance(periodoFin: Date): string {
+  return `${periodoFin.getUTCFullYear()}-${String(periodoFin.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
 /** Cuenta Russell de 4 dígitos a la que homologa una fila, o null si no está homologada. */
 export function cuenta4Russell(cuenta6Russell: string | null | undefined): string | null {
@@ -78,34 +94,65 @@ export function alcanceExplicitoDelCruce(
 }
 
 /**
- * Lo que un conjunto de cierres deja en firme: por cuenta Russell de 6 dígitos cuando el cierre
- * las declara (módulos que concilian por tercero), por cuenta de 4 en los demás y en los cierres
- * anteriores a esa distinción.
+ * Alcance que guarda el cierre de CUALQUIER módulo desde el 29/Sep/2026 (`cuentas_russell_6`): lo que
+ * el módulo tiene configurado en ese momento,
+ *  - las reglas activas del prevalidador (grupos de 2 dígitos o subgrupos de 4);
+ *  - sus cuentas propias (la cédula): la lista de 6 con las adicionales, o los subgrupos de 4 con los
+ *    abiertos;
+ *  - las cuentas que el usuario agregó solo para esa conciliación (`cedulaDelPeriodo`);
+ * más lo que ya quedaba en firme por tener renglón en el cruce. Cartera deja en firme toda la 13 de
+ * su regla (también la 130515), no solo sus tres cuentas. Los cierres anteriores conservan el alcance
+ * con que se cerraron.
  */
-export type AlcanceCierres = { cuentas4: ReadonlySet<string>; cuentas6: ReadonlySet<string> };
+export function alcanceDelCierre(
+  cedula: Pick<CedulaModulo, "nivel" | "prefijos" | "lista6" | "lista4" | "adicionales" | "abiertos"> & { delPeriodo?: ReadonlySet<string> },
+  cruce: Pick<ResumenCruceContable, "filas">,
+): string[] {
+  const conRenglon = alcanceExplicitoDelCruce(cedula, cruce) ?? cuentasRussellDelCruce(cruce);
+  const todas = [
+    ...cedula.prefijos,
+    ...(cedula.lista6 ?? []),
+    ...cedula.adicionales.keys(),
+    ...(cedula.lista4 ?? []),
+    ...cedula.abiertos.keys(),
+    ...(cedula.delPeriodo?.keys() ?? []),
+    ...conRenglon,
+  ].map((c) => String(c).replace(/\D/g, ""));
+  return [...new Set(todas.filter((c) => c.length === 2 || c.length === 4 || c.length === 6))].sort();
+}
+
+/**
+ * Lo que un conjunto de cierres deja en firme: lo que el cierre declara en su alcance explícito
+ * (grupos de 2 dígitos, subgrupos de 4 y cuentas de 6) o, en los cierres anteriores a esa
+ * distinción, sus cuentas de 4.
+ */
+export type AlcanceCierres = { cuentas2: ReadonlySet<string>; cuentas4: ReadonlySet<string>; cuentas6: ReadonlySet<string> };
 
 export function alcanceDeCierres(
   cierres: readonly { cuentasRussell: readonly string[]; cuentasRussell6?: readonly string[] | null }[],
 ): AlcanceCierres {
+  const cuentas2 = new Set<string>();
   const cuentas4 = new Set<string>();
   const cuentas6 = new Set<string>();
   for (const c of cierres) {
-    if (c.cuentasRussell6?.length) agregarAlcanceExplicito(c.cuentasRussell6, cuentas4, cuentas6);
+    if (c.cuentasRussell6?.length) agregarAlcanceExplicito(c.cuentasRussell6, cuentas2, cuentas4, cuentas6);
     else for (const cuenta of c.cuentasRussell) cuentas4.add(cuenta);
   }
-  return { cuentas4, cuentas6 };
+  return { cuentas2, cuentas4, cuentas6 };
 }
 
 /**
- * El alcance EXPLÍCITO de un cierre (`cuentas_russell_6`). Los cierres de Cartera y CxP solo traen
- * cuentas de 6. Una cédula mixta (Activos fijos con la 1592 abierta, Ingresos con la 422005) guarda
- * ahí también sus subgrupos de 4, que quedan en firme enteros; así no hace falta otra columna y los
- * cierres anteriores se leen igual.
+ * El alcance EXPLÍCITO de un cierre (`cuentas_russell_6`). Los cierres de Cartera y CxP anteriores
+ * solo traen cuentas de 6. Una cédula mixta (Activos fijos con la 1592 abierta, Ingresos con la
+ * 422005) guarda ahí también sus subgrupos de 4, que quedan en firme enteros; así no hace falta otra
+ * columna y los cierres anteriores se leen igual. Desde el 29/Sep/2026 trae además las reglas del
+ * prevalidador del módulo (`alcanceDelCierre`), que pueden ser grupos de 2 dígitos.
  */
-function agregarAlcanceExplicito(lista: readonly string[], cuentas4: Set<string>, cuentas6: Set<string>): void {
+function agregarAlcanceExplicito(lista: readonly string[], cuentas2: Set<string>, cuentas4: Set<string>, cuentas6: Set<string>): void {
   for (const cuenta of lista) {
     const digitos = String(cuenta).replace(/\D/g, "");
-    if (digitos.length === 4) cuentas4.add(digitos);
+    if (digitos.length === 2) cuentas2.add(digitos);
+    else if (digitos.length === 4) cuentas4.add(digitos);
     else if (digitos.length >= 6) cuentas6.add(digitos.slice(0, 6));
   }
 }
@@ -115,14 +162,16 @@ export function entraEnAlcance(cuenta6Russell: string | null | undefined, alcanc
   const digitos = (cuenta6Russell ?? "").replace(/\D/g, "");
   if (digitos.length >= 6 && alcance.cuentas6.has(digitos.slice(0, 6))) return true;
   const c4 = cuenta4Russell(cuenta6Russell);
-  return c4 != null && alcance.cuentas4.has(c4);
+  if (c4 == null) return false;
+  return alcance.cuentas4.has(c4) || alcance.cuentas2.has(c4.slice(0, 2));
 }
 
 /**
- * Cuentas del balance que se bloquean: las filas homologadas a una cuenta Russell
- * del módulo. Las filas sin homologación no forman parte del cruce y no se bloquean.
- * Con las cuentas de 6 dígitos del módulo (Cartera, CxP) se bloquean solo esas: una
- * 130515 de trabajadores no queda en firme aunque su cuenta de 4 esté en la cédula.
+ * Cuentas del balance que se bloquean: las filas homologadas a una cuenta Russell del
+ * alcance del cierre. Las filas sin homologación no forman parte del cruce y no se bloquean.
+ * Con un alcance explícito (`cuentasRussell6`) se bloquea exactamente lo que declara: los
+ * cierres anteriores de Cartera y CxP solo sus cuentas de 6 (una 130515 no quedaba en firme);
+ * los nuevos, además, todo lo que cae bajo las reglas del prevalidador (`alcanceDelCierre`).
  * Cubre indistintamente `balance_prueba_detalle` y `balance_tercero_detalle`
  * (mismos códigos); las repetidas (tercero) se colapsan por cuenta_8.
  */
@@ -133,7 +182,7 @@ export function cuentasBloqueoDelModulo(
 ): CuentaBloqueada[] {
   const alcance: AlcanceCierres = cuentasRussell6?.length
     ? alcanceDeCierres([{ cuentasRussell: [], cuentasRussell6 }])
-    : { cuentas4: cuentasRussellModulo instanceof Set ? cuentasRussellModulo : new Set(cuentasRussellModulo), cuentas6: new Set() };
+    : { cuentas2: new Set(), cuentas4: cuentasRussellModulo instanceof Set ? cuentasRussellModulo : new Set(cuentasRussellModulo), cuentas6: new Set() };
   const porCuenta = new Map<string, CuentaBloqueada>();
   for (const fila of detalle) {
     if (!entraEnAlcance(fila.cuenta6Russell, alcance)) continue;
@@ -226,10 +275,15 @@ export type ViolacionBloqueo = {
 
 /**
  * ¿Una versión nueva del balance altera lo conciliado? Compara cada cuenta bloqueada
- * contra la fila equivalente de la versión nueva (importes y homologación); una cuenta
- * bloqueada que desaparece también altera el cruce. Además, una cuenta NO bloqueada que
+ * contra la fila equivalente de la versión nueva: su SALDO FINAL y su homologación. El saldo
+ * inicial y los movimientos no se comparan (29/Sep/2026): los módulos concilian contra el saldo
+ * final, así que una versión con otros movimientos y el mismo saldo no altera nada. Una cuenta
+ * bloqueada que desaparece también altera el cruce, salvo que su saldo final en firme sea 0: un
+ * balance de otro rango de fechas (solo diciembre en vez de enero a diciembre) no trae las cuentas
+ * sin saldo ni movimiento, y no venir equivale a saldo 0. Además, una cuenta NO bloqueada que
  * llega homologada a una cuenta Russell del módulo cerrado entraría al cruce sin haber
- * sido conciliada (regla: no homologar cuentas nuevas a cuentas bloqueadas).
+ * sido conciliada (regla: no homologar cuentas nuevas a cuentas bloqueadas); con saldo final 0
+ * no cambia ninguna cifra y se admite.
  */
 export function evaluarCambiosBloqueados(
   bloqueadas: readonly CuentaBloqueada[],
@@ -239,7 +293,7 @@ export function evaluarCambiosBloqueados(
 ): ViolacionBloqueo[] {
   const alcance: AlcanceCierres = "cuentas4" in cuentasRussellCerradas
     ? cuentasRussellCerradas
-    : { cuentas4: cuentasRussellCerradas, cuentas6: new Set() };
+    : { cuentas2: new Set(), cuentas4: cuentasRussellCerradas, cuentas6: new Set() };
   const violaciones: ViolacionBloqueo[] = [];
   const nuevasPorCuenta = new Map<string, FilaDetalleBloqueo>();
   for (const n of nuevas) {
@@ -248,19 +302,23 @@ export function evaluarCambiosBloqueados(
   }
   const bloqueadasSet = new Set(bloqueadas.map((b) => b.cuenta8));
 
+  // Dos cierres pueden tener en firme la misma cuenta (la regla 13 de Cartera cubre la 1330 de
+  // Cuentas por pagar): se evalúa una vez.
+  const evaluadas = new Set<string>();
   for (const b of bloqueadas) {
+    const huella = `${b.cuenta8}|${b.saldoFinal}|${b.cuenta6Russell ?? ""}`;
+    if (evaluadas.has(huella)) continue;
+    evaluadas.add(huella);
     const n = nuevasPorCuenta.get(b.cuenta8);
     if (!n) {
-      violaciones.push({ cuenta8: b.cuenta8, motivo: "ausente", detalle: `${b.cuenta8} no viene en la versión nueva` });
+      // No venir equivale a saldo final 0: solo altera lo conciliado si la cuenta tenía saldo.
+      if (redondear(b.saldoFinal) !== 0) {
+        violaciones.push({ cuenta8: b.cuenta8, motivo: "ausente", detalle: `${b.cuenta8} no viene en la versión nueva` });
+      }
       continue;
     }
-    const cambios: string[] = [];
-    if (redondear(n.saldoInicial) !== b.saldoInicial) cambios.push("saldo inicial");
-    if (redondear(n.debitos) !== b.debitos) cambios.push("débitos");
-    if (redondear(n.creditos) !== b.creditos) cambios.push("créditos");
-    if (redondear(n.saldoFinal) !== b.saldoFinal) cambios.push("saldo final");
-    if (cambios.length > 0) {
-      violaciones.push({ cuenta8: b.cuenta8, motivo: "valores", detalle: `${b.cuenta8} cambia ${cambios.join(", ")}` });
+    if (redondear(n.saldoFinal) !== b.saldoFinal) {
+      violaciones.push({ cuenta8: b.cuenta8, motivo: "valores", detalle: `${b.cuenta8} cambia saldo final` });
     }
     if ((n.cuenta6Russell ?? null) !== (b.cuenta6Russell ?? null)) {
       violaciones.push({
@@ -273,6 +331,8 @@ export function evaluarCambiosBloqueados(
 
   for (const [cuenta8, n] of nuevasPorCuenta) {
     if (bloqueadasSet.has(cuenta8)) continue;
+    // Una cuenta nueva con saldo final 0 no cambia ninguna cifra conciliada.
+    if (redondear(n.saldoFinal) === 0) continue;
     if (entraEnAlcance(n.cuenta6Russell, alcance)) {
       violaciones.push({
         cuenta8,
@@ -332,7 +392,8 @@ export type DecisionCongelar =
  * aplica el mismo predicado a las dos operaciones:
  *
  *  - sin cierres, o todos apuntando ya a este balance → se congela como siempre;
- *  - algún cierre apunta a OTRO balance y las cuentas en firme son idénticas →
+ *  - algún cierre apunta a OTRO balance y las cuentas en firme son idénticas (saldo final y
+ *    homologación) →
  *    `traslado`: se puede congelar y ese cierre debe pasar a esta versión (la foto por
  *    cuenta no cambia: es idéntica por definición del predicado);
  *  - alguna cuenta en firme cambia → `bloqueado`, con el detalle de qué cambió.
@@ -353,7 +414,8 @@ export function decidirCongelarConCierres(p: {
   const violaciones = evaluarCambiosBloqueados(p.bloqueadas, p.filasNuevas, cerradas);
   if (violaciones.length > 0) return { tipo: "bloqueado", cierres: ajenos, violaciones };
   const ajenosIds = new Set(ajenos.map((c) => c.id));
-  const cuentasEnFirme = p.bloqueadas.filter((b) => b.cierreId == null || ajenosIds.has(b.cierreId)).length;
+  // Cuentas distintas: la misma puede estar en firme por dos cierres.
+  const cuentasEnFirme = new Set(p.bloqueadas.filter((b) => b.cierreId == null || ajenosIds.has(b.cierreId)).map((b) => b.cuenta8)).size;
   return { tipo: "traslado", cierres: ajenos, cuentasEnFirme };
 }
 
@@ -366,7 +428,7 @@ export function mensajeTrasladoCierre(
     .map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId}, cerró ${c.cerradoPor})`)
     .join("; ");
   const plural = cuentasEnFirme === 1 ? "cuenta en firme idéntica" : "cuentas en firme idénticas";
-  return `Esta versión conserva ${cuentasEnFirme} ${plural} en importes y homologación. Al congelarla como oficial, el cierre de ${lista} pasará a esta versión.`;
+  return `Esta versión conserva ${cuentasEnFirme} ${plural} en saldo final y homologación. Al congelarla como oficial, el cierre de ${lista} pasará a esta versión.`;
 }
 
 /** Validación de la justificación del desbloqueo (obligatoria). */

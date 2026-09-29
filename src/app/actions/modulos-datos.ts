@@ -120,7 +120,7 @@ import {
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { resolverDescriptorVigente, type ContextoCuentasConciliacion } from "@/lib/parametros/cuentas-conciliacion";
-import { cuentasConciliacionDe } from "@/lib/modulos/cuentas-conciliacion";
+import { cuentasConciliacionDe, subgruposConciliacionDe } from "@/lib/modulos/cuentas-conciliacion";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
@@ -130,7 +130,7 @@ import { validarEmparejamientoContable, validarEmparejamientoTercero } from "@/l
 import { ETIQUETA_SENAL, notaDeSugerencia, type SugerenciaEmparejamiento } from "@/lib/modulos/cartera/coherencia-tercero";
 import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
 import {
-  alcanceExplicitoDelCruce,
+  alcanceDelCierre,
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
   ESTADO_CIERRE_DESBLOQUEADO,
@@ -2415,13 +2415,15 @@ async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], ced
   const fuera = cuentas.find((c) => !cuentaAsignableCedula(cedula, c));
   if (fuera) {
     const adicionales = [...cedula.adicionales.keys()];
-    const listado = cedula.nivel === 6 && cedula.lista6
-      ? [...new Set([...cedula.lista6, ...adicionales])].join(", ")
+    // Con lista (6 dígitos, o los subgrupos de 4 sin los abiertos) se ofrecen esas cuentas; sin ella, los prefijos.
+    const lista = cedula.nivel === 6 ? cedula.lista6 : cedula.lista4 && [...cedula.lista4].filter((s) => !cedula.abiertos.has(s));
+    const listado = lista
+      ? [...new Set([...lista, ...adicionales])].sort().join(", ")
       : [...new Set([...cedula.prefijos, ...adicionales])].join(", ") || "—";
     const abierto = cedula.abiertos.has(fuera.slice(0, 4))
       ? ` Las cuentas de ${fuera.slice(0, 4)} no se asignan: salen de la relación con el activo.`
       : "";
-    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de ${cedula.nivel === 6 && cedula.lista6 ? "estas" : "estos prefijos o cuentas"}: ${listado}.${abierto}` };
+    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de ${lista ? "estas" : "estos prefijos o cuentas"}: ${listado}.${abierto}` };
   }
   const seis = cuentas.filter((c) => c.length === 6);
   if (seis.length > 0) {
@@ -4100,16 +4102,17 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 
     const cuentasRussell = cuentasRussellDelCruce(cruce.cruceContable);
-    // Con las cuentas de 6 dígitos del módulo, el bloqueo se limita a ellas (130515 no). Una
-    // cédula mixta guarda ahí sus claves de 4 y de 6 (la 422005 en firme, no toda la 4220).
-    // Es la cédula DEL PERÍODO: las cuentas asignadas solo para este período también quedan en firme.
+    // Alcance del cierre, igual en los seis módulos: lo que el módulo tiene configurado AHORA como
+    // cuentas del prevalidador + sus cuentas propias (la cédula) + las que se agregaron solo para
+    // esta conciliación (la cédula DEL PERÍODO). De esas cuentas queda en firme el saldo final.
     const cuentasRussell6 = descriptor
-      ? alcanceExplicitoDelCruce(cedulaDelCargue(descriptor, encabezado.moduloCodigo, insumos.catalogoPrevalidador, insumos.asignacionesPeriodo).cedula, cruce.cruceContable)
+      ? alcanceDelCierre(cedulaDelCargue(descriptor, encabezado.moduloCodigo, insumos.catalogoPrevalidador, insumos.asignacionesPeriodo).cedula, cruce.cruceContable)
       : null;
     const evidenciaTercero = tercero?.resumen ? evidenciaCruceTercero(tercero.resumen, tercero.resumenMarcas) : null;
-    // Copia de las cuentas que concilia el módulo: mientras el cierre esté en firme el cruce se
-    // sigue calculando con ellas aunque cambien en /config/prevalidador.
+    // Copia de las cuentas (6 dígitos) o de los subgrupos (4) que concilia el módulo: mientras el
+    // cierre esté en firme el cruce se sigue calculando con ellos aunque cambien en /config/prevalidador.
     const cuentasConciliacion = cuentasConciliacionDe(descriptor);
+    const subgruposConciliacion = subgruposConciliacionDe(descriptor);
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
@@ -4178,6 +4181,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         cuentasRussell6: cuentasRussell6 ?? Prisma.DbNull,
         resumenCruceTercero: evidenciaTercero ? (evidenciaTercero as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         cuentasConciliacion: cuentasConciliacion ? (cuentasConciliacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        subgruposConciliacion: subgruposConciliacion ?? Prisma.DbNull,
         estado: ESTADO_CIERRE_FIRME,
         cerradoPorId: authz.userId,
         cerradoPor: actor,
@@ -4226,7 +4230,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     revalidatePath(`/balance/${balance.id}`);
     revalidatePath("/balance");
-    return { ok: true, message: `Conciliación en firme: ${resultado.cuentas} cuenta(s) del balance ${balance.periodo} quedaron bloqueadas.` };
+    return { ok: true, message: `Conciliación en firme: quedó bloqueado el saldo final de ${resultado.cuentas} cuenta(s) del balance ${balance.periodo}.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("cerrarConciliacionModulo", e) };
   }

@@ -21,12 +21,30 @@ import {
   esResponsableSeniorOGerente,
   evaluarCambiosBloqueados,
   mensajeConciliacionEnFirme,
+  mesDeCorteBalance,
   type CuentaBloqueada,
   type FilaDetalleBloqueo,
   type ViolacionBloqueo,
 } from "./cuentas-bloqueo";
 
 type Db = TransactionClient | typeof prisma;
+
+/**
+ * El balance sobre el que se opera: su período (texto) y su fecha final. Los cierres que lo protegen
+ * son los de su MES DE CORTE (`mesDeCorteBalance`): un balance «Diciembre 2025» queda protegido por
+ * la conciliación cerrada contra «Enero 2025 – Diciembre 2025», porque terminan en la misma fecha y
+ * sus saldos finales son los mismos. Se conserva además la coincidencia por el texto del período,
+ * que era el único criterio hasta el 29/Sep/2026.
+ */
+export type BalanceDelCorte = { periodo: string; periodoFin: Date };
+
+/** Cierres en firme que protegen al balance: los de su mes de corte o los de su mismo período. */
+function cierresDelCorte(balance: BalanceDelCorte) {
+  return {
+    estado: ESTADO_CIERRE_FIRME,
+    OR: [{ periodo: mesDeCorteBalance(balance.periodoFin) }, { balancePeriodo: balance.periodo }],
+  };
+}
 
 export type CierreFirme = {
   id: number;
@@ -95,10 +113,10 @@ const SELECT_CIERRE = {
   cuentasRussell6: true,
 } as const;
 
-/** Cierres EN FIRME de un cliente; con `balancePeriodo` se acota al período del balance. */
-export async function cierresFirmes(clienteId: number, balancePeriodo?: string, db: Db = prisma): Promise<CierreFirme[]> {
+/** Cierres EN FIRME de un cliente; con `balance` se acota a los de su mes de corte (misma fecha fin). */
+export async function cierresFirmes(clienteId: number, balance?: BalanceDelCorte, db: Db = prisma): Promise<CierreFirme[]> {
   const rows = await db.conciliacionModuloCierre.findMany({
-    where: { clienteId, estado: ESTADO_CIERRE_FIRME, ...(balancePeriodo ? { balancePeriodo } : {}) },
+    where: { clienteId, ...(balance ? cierresDelCorte(balance) : { estado: ESTADO_CIERRE_FIRME }) },
     select: SELECT_CIERRE,
     orderBy: { id: "asc" },
   });
@@ -117,12 +135,12 @@ export async function cierresFirmesDeBalance(balanceIds: number[], db: Db = pris
 }
 
 /**
- * Cuentas bloqueadas de un (cliente, período del balance), con su cierre. Con
- * `filtro` se acota a cuentas exactas o a un prefijo (grupo de 6 díg.).
+ * Cuentas bloqueadas que protegen a un balance del cliente (las de los cierres de su mes de
+ * corte), con su cierre. Con `filtro` se acota a cuentas exactas o a un prefijo (grupo de 6 díg.).
  */
 export async function cuentasBloqueadas(
   clienteId: number,
-  balancePeriodo: string,
+  balance: BalanceDelCorte,
   filtro?: { cuentas?: string[]; prefijo?: string },
   db: Db = prisma,
 ): Promise<CuentaBloqueadaConCierre[]> {
@@ -130,8 +148,7 @@ export async function cuentasBloqueadas(
   const rows = await db.cuentaBloqueadaConciliacion.findMany({
     where: {
       clienteId,
-      periodo: balancePeriodo,
-      cierre: { estado: ESTADO_CIERRE_FIRME },
+      cierre: cierresDelCorte(balance),
       ...(filtro?.cuentas ? { cuenta: { in: filtro.cuentas } } : {}),
       ...(filtro?.prefijo ? { cuenta: { startsWith: filtro.prefijo } } : {}),
     },
@@ -200,19 +217,20 @@ function cierresUnicos(filas: readonly CuentaBloqueadaConCierre[]): CierreFirme[
 }
 
 /**
- * Enforcement para una VERSIÓN NUEVA del balance: si el período tiene cuentas en firme
- * y el cargue las altera (importes, homologación, ausencia) o mete cuentas nuevas al
- * módulo cerrado, lanza `ErrorConciliacionEnFirme`. Sin cierres → no-op.
+ * Enforcement para un balance NUEVO: si su mes de corte (su fecha fin) tiene cuentas en firme
+ * y el cargue las altera (saldo final, homologación, ausencia con saldo) o mete cuentas nuevas
+ * con saldo al módulo cerrado, lanza `ErrorConciliacionEnFirme`. No tiene que ser el mismo
+ * período: basta con que termine en la misma fecha. Sin cierres → no-op.
  */
 export async function exigirCargueCompatibleConCierres(
   clienteId: number,
-  balancePeriodo: string,
+  balance: BalanceDelCorte,
   filasNuevas: readonly FilaDetalleBloqueo[],
   db: Db = prisma,
 ): Promise<void> {
-  const cierres = await cierresFirmes(clienteId, balancePeriodo, db);
+  const cierres = await cierresFirmes(clienteId, balance, db);
   if (cierres.length === 0) return;
-  const bloqueadas = await cuentasBloqueadas(clienteId, balancePeriodo, undefined, db);
+  const bloqueadas = await cuentasBloqueadas(clienteId, balance, undefined, db);
   const cerradas = alcanceDeCierres(cierres);
   const violaciones = evaluarCambiosBloqueados(bloqueadas, filasNuevas, cerradas);
   if (violaciones.length > 0) throw new ErrorConciliacionEnFirme(cierres, violaciones);
@@ -227,7 +245,8 @@ export async function exigirCargueCompatibleConCierres(
 export async function bloqueoHomologacionBalance(
   p: {
     clienteId: number;
-    balancePeriodo: string;
+    /** El balance que se edita: lo protegen los cierres de su mes de corte. */
+    balance: BalanceDelCorte;
     cuenta8: string;
     cuenta6: string;
     alcanceGrupo: boolean;
@@ -238,7 +257,7 @@ export async function bloqueoHomologacionBalance(
 ): Promise<{ message: string; cierres: CierreFirme[] } | null> {
   const bloqueadas = await cuentasBloqueadas(
     p.clienteId,
-    p.balancePeriodo,
+    p.balance,
     p.alcanceGrupo ? { prefijo: p.cuenta6 } : { cuentas: [p.cuenta8] },
     db,
   );
@@ -253,7 +272,7 @@ export async function bloqueoHomologacionBalance(
     };
   }
   if (p.codigoDestino) {
-    const cierres = (await cierresFirmes(p.clienteId, p.balancePeriodo, db))
+    const cierres = (await cierresFirmes(p.clienteId, p.balance, db))
       .filter((c) => entraEnAlcance(p.codigoDestino, alcanceDeCierres([c])));
     if (cierres.length > 0) {
       return {

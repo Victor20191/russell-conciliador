@@ -20,7 +20,7 @@ import {
   cuenta4DelModulo,
   cuentas6ACargarCedula,
   entradasValorRelacionado,
-  esCuentaDelPeriodo,
+  esAdicionalCedula,
   fueraDeListaCedula,
   ordenClaveCedula,
   subgruposCedula,
@@ -295,8 +295,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     ...subgrupos.map((s) => [s.codigo, s.nombre] as const),
     ...(cuentasEstandar ?? []).map((c) => [c.codigo, c.nombre] as const),
   ]);
-  // Subgrupos cuyas cuentas homologadas pueden entrar: los del prevalidador más los de las
-  // cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
+  // Subgrupos cuyas cuentas homologadas pueden entrar: los de la lista del módulo (cédula a 4) o los
+  // del prevalidador, más los de las cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
   const codigosModulo = subgruposCedula(cedula, subgrupos);
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
 
@@ -415,10 +415,11 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         const digitos = d.cuenta6Russell.replace(/\D/g, "");
         const sub4 = digitos.slice(0, 4);
         const russell6 = digitos.length >= 6 ? digitos.slice(0, 6) : "";
-        // Una cuenta adicional (o del período) entra aunque su subgrupo no sea del prevalidador y
-        // hace de su propia regla; el resto de ese subgrupo (422010 en Ingresos) no es del módulo y
-        // se ignora como siempre.
-        const adicional = cedula.adicionales.has(russell6) || esCuentaDelPeriodo(cedula, russell6, sub4);
+        // Una cuenta adicional (o del período, o un subgrupo de la lista fuera de las reglas) entra
+        // aunque su subgrupo no sea del prevalidador y hace de su propia regla; el resto de ese
+        // subgrupo (422010 en Ingresos) no es del módulo y se ignora como siempre. A 4 dígitos manda
+        // la lista del módulo: un subgrupo que no está en ella no entra aunque esté bajo la regla.
+        const adicional = esAdicionalCedula(cedula, russell6, sub4);
         if (!codigosModulo.has(sub4) || (!adicional && !cuenta4DelModulo(sub4, prefijosModulo))) continue;
         // Las reglas del cruce salen del catálogo VIGENTE, como en el cruce por tercero, y no del
         // congelado de la aprobación del balance (`contexto.ts`): ese rige solo el informe del
@@ -462,8 +463,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         const noModular = excluidas.has(cuenta8);
         (detalleContablePorCuenta[clave] ??= []).push({ cuenta8, nombre: d.nombreCuenta, valor: calculo.valor, noModular });
         if (noModular) noModularPorCuenta[clave] = (noModularPorCuenta[clave] ?? 0) + calculo.valor;
-      } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
-        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: catalogoPrevalidador, naturaleza: descriptor.crucePorTercero.naturaleza, naturalezaCuenta: cedula.abiertos.get(cuenta4) });
+      } else if (cuenta4DelModulo(cuenta4, prefijosModulo) || cedula.lista4?.has(cuenta4)) {
+        // Sin homologar: se avisa si la cuenta del cliente cae bajo la regla del prevalidador O en la
+        // lista del módulo. Es solo un aviso (no suma a «Contabilidad» ni bloquea el cierre). La que
+        // cae solo por la lista no tiene regla: se lee como adicional, con el signo de su clase.
+        const soloPorLista = !cuenta4DelModulo(cuenta4, prefijosModulo);
+        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: catalogoPrevalidador, naturaleza: descriptor.crucePorTercero.naturaleza, adicional: soloPorLista, naturalezaCuenta: cedula.abiertos.get(cuenta4) });
         if (!calculo) {
           sinReglaContableFilas += 1;
           continue;

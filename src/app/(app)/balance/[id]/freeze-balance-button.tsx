@@ -32,7 +32,7 @@ export function ContenidoTrasladoCierre({ traslado }: { traslado: TrasladoCierre
         ))}
       </ul>
       <p className="text-ink-500">
-        {traslado.cuentasEnFirme} cuenta(s) en firme conservan sus importes y su homologación. El cierre no se desbloquea ni se vuelve a cerrar: solo pasa a apuntar a esta versión, y queda registrado en la bitácora.
+        {traslado.cuentasEnFirme} cuenta(s) en firme conservan su saldo final y su homologación. El cierre no se desbloquea ni se vuelve a cerrar: solo pasa a apuntar a esta versión, y queda registrado en la bitácora.
       </p>
     </div>
   );

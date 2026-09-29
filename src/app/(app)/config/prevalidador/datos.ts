@@ -2,7 +2,12 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { moduloConCuentasConciliacion, moduloConOrigenPorCuenta } from "@/lib/modulos/cuentas-conciliacion";
+import {
+  moduloConCuentasConciliacion,
+  moduloConOrigenPorCuenta,
+  moduloConSubgruposConciliacion,
+  subgruposFijosDe,
+} from "@/lib/modulos/cuentas-conciliacion";
 
 /** Módulo del prevalidador por el segmento de la ruta (`cxp` → `CXP`), o `null` si no es uno de los seis. */
 export function moduloDeRuta(segmento: string | null | undefined): string | null {
@@ -17,6 +22,10 @@ export function configuracionModulo(codigo: string) {
   return {
     /** Concilia contra una lista de cuentas de 6 dígitos (Ingresos, Cartera, CxP, Nómina). */
     conCuentas6: moduloConCuentasConciliacion(descriptor),
+    /** Concilia contra una lista de subgrupos de 4 dígitos (Inventarios, Activos fijos). */
+    conSubgrupos4: moduloConSubgruposConciliacion(descriptor),
+    /** Subgrupos fijos en código que siempre concilian (la 1592 de Activos fijos). */
+    subgruposFijos: subgruposFijosDe(descriptor),
     /** Sus cuentas deciden el origen nacional/exterior del saldo (Cartera y CxP). */
     conOrigen: moduloConOrigenPorCuenta(descriptor),
     conCrucePorTercero: descriptor?.crucePorTercero.habilitado === true,
@@ -24,6 +33,12 @@ export function configuracionModulo(codigo: string) {
     subgruposAbiertos: (cedula?.subgruposAbiertos ?? []).map((s) => s.subgrupo),
     paresRelacionados: (cedula?.valorRelacionado?.pares ?? []).map((p) => ({ subgrupo: p.subgrupo, cuenta6: p.cuenta6 })),
   };
+}
+
+/** Subgrupos de 4 dígitos del plan estándar Russell (buscador y nombres). */
+export async function cargarPlan4(): Promise<{ codigo: string; nombre: string }[]> {
+  const plan = await prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } });
+  return plan.filter((s) => /^\d{4}$/.test(s.codigo));
 }
 
 /** Cuentas de 6 dígitos del plan estándar Russell (buscador y nombres). */

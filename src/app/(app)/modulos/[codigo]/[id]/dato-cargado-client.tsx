@@ -2757,7 +2757,7 @@ function ConciliacionEnFirmePanel({
         >
           <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
             <p>
-              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar una versión nueva, congelar otra versión y cambiar su homologación. La justificación queda en la bitácora de auditoría.
+              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar o congelar un balance con la misma fecha fin que cambie su saldo final y cambiar su homologación. La justificación queda en la bitácora de auditoría.
             </p>
             <label className="flex flex-col gap-1">
               <span className="text-[11.5px] font-semibold text-ink-600">Justificación (obligatoria, mínimo {MIN_JUSTIFICACION_DESBLOQUEO} caracteres)</span>
@@ -2820,7 +2820,7 @@ function ConciliacionEnFirmePanel({
       >
         <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
           <p>
-            Las cuentas del balance homologadas a las cuentas de <b>{moduloLabel}</b> quedarán <b>en firme</b> para este período: no se podrá cargar una versión del balance que las modifique, congelar otra versión ni cambiar su homologación.
+            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
           </p>
           <p className="text-ink-500">Solo el senior o gerente asignado al cliente podrá desbloquearla, con una justificación que queda en la bitácora.</p>
         </div>

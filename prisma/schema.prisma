@@ -1877,6 +1877,27 @@ model CuentaConciliacionModulo {
   @@map("cuentas_conciliacion_modulo")
 }
 
+// Subgrupos Russell de CUATRO dígitos que concilia cada módulo con cédula a ese nivel
+// (Inventarios, Activos fijos). Son las cuentas PROPIAS del módulo: deciden qué entra al cruce
+// contable, independientes de las reglas del prevalidador (que solo validan el balance). Un
+// subgrupo fuera de esas reglas se concilia igual, por su saldo final. La 1592 de Activos fijos
+// no se guarda aquí: es fija en código (abierta a 6 dígitos con la depreciación relacionada). Se
+// administra en /config/prevalidador/{inv,afi} (permiso `parametros:administrar`); la migración
+// sembró lo que cada módulo conciliaba por su regla al 29/Sep/2026. Un cambio rige para todos los
+// cargues salvo los períodos conciliados en firme, que conservan la copia guardada en
+// `conciliacion_modulo_cierre.subgrupos_conciliacion`.
+model SubgrupoConciliacionModulo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  moduloCodigo   String   @map("modulo_codigo")
+  subgrupo       String   @map("subgrupo")
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([moduloCodigo, subgrupo])
+  @@map("subgrupos_conciliacion_modulo")
+}
+
 // Archivo de solo conservación creado al migrar los antiguos overrides globales
 // por cliente. No participa en el cálculo; evita perder excepciones que no pudieron
 // asociarse a un balance existente o que tenían un prefijo legado inválido.
@@ -2466,9 +2487,10 @@ model ConciliacionModuloCierre {
   moduloDatoEncabezadoId  Int                           @map("modulo_dato_encabezado_id") // FK suave a modulo_dato_encabezado
   balanceEncabezadoId     Int                           @map("balance_encabezado_id") // FK suave: balance conciliado
   cuentasRussell          Json                          @map("cuentas_russell") // cuentas Russell (4 díg.) del módulo conciliadas
-  /// Alcance explícito del bloqueo. Cartera, CxP y Nómina guardan sus cuentas Russell de 6 dígitos. Una
-  /// cédula mixta (Activos fijos, Ingresos) guarda también subgrupos de 4, que quedan en firme enteros.
-  /// Null en los cierres anteriores, que siguen bloqueando por cuenta de 4.
+  /// Alcance explícito del bloqueo. Desde el 29/Sep/2026, en los seis módulos: las reglas del prevalidador
+  /// del módulo (grupos de 2 dígitos o subgrupos de 4), sus cuentas propias (de 6, o subgrupos de 4) y
+  /// las agregadas solo para esa conciliación. Antes: Cartera, CxP y Nómina, sus cuentas de 6; una cédula
+  /// mixta, también subgrupos de 4. Null en los cierres más antiguos, que bloquean por cuenta de 4.
   cuentasRussell6         Json?                         @map("cuentas_russell_6")
   /// Evidencia del cruce por tercero al cerrar: totales, conteos y huella SHA-256 de clave → diferencia.
   resumenCruceTercero     Json?                         @map("resumen_cruce_tercero")
@@ -2476,6 +2498,10 @@ model ConciliacionModuloCierre {
   /// cierre esté en firme el cruce usa esta copia y no la configuración vigente de
   /// /config/prevalidador. Null en los cierres anteriores: usan los valores de fábrica del descriptor.
   cuentasConciliacion     Json?                         @map("cuentas_conciliacion")
+  /// Subgrupos de 4 dígitos que conciliaba el módulo al cerrar (`["1405", …]`; Inventarios y Activos
+  /// fijos). Mientras el cierre esté en firme el cruce usa esta copia. Null en los cierres anteriores:
+  /// usan los subgrupos que quedaron en firme en ese cierre (`cuentas_russell`).
+  subgruposConciliacion   Json?                         @map("subgrupos_conciliacion")
   estado                  String                        @default("firme") @map("estado") // firme | desbloqueado
   cerradoPorId            Int?                          @map("cerrado_por_id")
   cerradoPor              String                        @map("cerrado_por")
@@ -2493,9 +2519,10 @@ model ConciliacionModuloCierre {
 }
 
 /// Una fila por cuenta ORIGINAL del cliente (cuenta_8) bloqueada por un cierre en
-/// firme. Congela la homologación y los cuatro importes que se conciliaron: la
-/// verificación de una versión nueva compara contra este snapshot. Al desbloquear se
-/// borran (la comprobación es «existe fila»); caen en cascada con el cierre.
+/// firme. Lo que queda en firme es la homologación y el SALDO FINAL: la verificación de
+/// una versión nueva compara solo eso contra este snapshot (29/Sep/2026). El saldo
+/// inicial y los movimientos se guardan como referencia del balance conciliado. Al
+/// desbloquear se borran (la comprobación es «existe fila»); caen en cascada con el cierre.
 model CuentaBloqueadaConciliacion {
   id                     Int                      @id @default(autoincrement()) @map("id")
   cierreId               Int                      @map("cierre_id")

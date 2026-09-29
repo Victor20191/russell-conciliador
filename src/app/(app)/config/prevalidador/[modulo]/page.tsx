@@ -4,16 +4,19 @@ import { Icon } from "@/components/icons";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { getCatalogoPrevalidadorVista } from "@/lib/parametros/prevalidador";
-import { getCuentasConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
+import { getCuentasConciliacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
+import { prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import PrevalidadorConfigClient from "../prevalidador-client";
 import CuentasConciliacionPanel, { type ModuloCuentasVm } from "../cuentas-conciliacion-panel";
-import { cargarPlan6, configuracionModulo, moduloDeRuta } from "../datos";
+import SubgruposConciliacionPanel from "../subgrupos-conciliacion-panel";
+import { cargarPlan4, cargarPlan6, configuracionModulo, moduloDeRuta } from "../datos";
 
 /**
  * Configuración › Filtros de cuentas › **un módulo** (`/config/prevalidador/ing`, `/car`, `/inv`, `/afi`,
- * `/cxp`, `/nom`): la misma vista de «Cuentas del prevalidador» con solo las cuentas del módulo y,
- * en los que concilian a 6 dígitos, las cuentas Russell que concilian. Entrada del submenú.
+ * `/cxp`, `/nom`): la misma vista de «Cuentas del prevalidador» con solo las cuentas del módulo y
+ * las cuentas propias que concilia: las de 6 dígitos (Ingresos, Cartera, CxP, Nómina) o los subgrupos
+ * de 4 (Inventarios, Activos fijos). Son independientes del prevalidador. Entrada del submenú.
  */
 /**
  * `?volver=` trae de regreso a la pestaña Cruce por tercero de un cargue (panel «Cuentas en este
@@ -37,7 +40,7 @@ export default async function PrevalidadorModuloPage({
   const volverAlCruce = typeof volver === "string" && RUTA_VOLVER.test(volver) ? volver : null;
 
   const config = configuracionModulo(codigo);
-  const [catalogo, modulos, cuentas, plan6] = await Promise.all([
+  const [catalogo, modulos, cuentas, plan6, subgrupos, plan4] = await Promise.all([
     getCatalogoPrevalidadorVista(),
     prisma.module.findMany({
       where: { code: { in: [...PREVALIDADOR_MODULOS_ORDEN] } },
@@ -46,6 +49,10 @@ export default async function PrevalidadorModuloPage({
     }),
     config.conCuentas6 ? getCuentasConciliacionVista() : Promise.resolve([]),
     config.conCuentas6 ? cargarPlan6() : Promise.resolve([]),
+    // Los módulos a 4 dígitos (Inventarios, Activos fijos) concilian su propia lista de subgrupos,
+    // independiente de la regla del prevalidador.
+    config.conSubgrupos4 ? getSubgruposConciliacionVista(codigo) : Promise.resolve([]),
+    config.conSubgrupos4 ? cargarPlan4() : Promise.resolve([]),
   ]);
   const modulo = modulos.find((m) => m.code === codigo);
   if (!modulo) notFound();
@@ -73,6 +80,17 @@ export default async function PrevalidadorModuloPage({
             cuentas={cuentas.filter((c) => c.moduloCodigo === codigo)}
             catalogo={catalogo}
             plan6={plan6}
+          />
+        )}
+
+        {config.conSubgrupos4 && (
+          <SubgruposConciliacionPanel
+            modulo={{ code: modulo.code, name: modulo.name }}
+            subgrupos={subgrupos}
+            plan4={plan4}
+            // Solo marca los que quedan fuera de la regla: la lista no depende de ella.
+            prefijos={prefijosCuentaModulo(codigo, catalogo)}
+            fijos={config.subgruposFijos}
           />
         )}
 

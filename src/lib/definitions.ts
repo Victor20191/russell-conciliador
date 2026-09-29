@@ -460,6 +460,15 @@ export const CuentaConciliacionSchema = z.object({
   origen: OrigenCuentaConciliacionSchema,
 });
 
+// Subgrupo de 4 dígitos que concilia un módulo con cédula a ese nivel (Inventarios, Activos fijos).
+export const SubgrupoConciliacionSchema = z.object({
+  moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Selecciona el módulo." }).max(10),
+  subgrupo: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[\s.]/g, "") : v),
+    z.string().regex(/^\d{4}$/, { error: "El subgrupo debe ser un subgrupo Russell de 4 dígitos." }),
+  ),
+});
+
 // Aprobación/revocación append-only del informe. La huella y el actor se calculan
 // exclusivamente en servidor; el navegador solo aporta balance y justificación.
 export const RevisionPrevalidadorSchema = z.object({

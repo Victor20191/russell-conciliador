@@ -8,7 +8,7 @@ vi.mock("@/app/actions/balance", () => ({ freezeBalance: vi.fn() }));
 vi.stubGlobal("React", React);
 
 const traslado: TrasladoCierreVm = {
-  mensaje: "Esta versión conserva 3 cuentas en firme idénticas en importes y homologación. Al congelarla como oficial, el cierre de INV · 2025-12 (cargue #38, cerró Camilo Perez Rojo) pasará a esta versión.",
+  mensaje: "Esta versión conserva 3 cuentas en firme idénticas en saldo final y homologación. Al congelarla como oficial, el cierre de INV · 2025-12 (cargue #38, cerró Camilo Perez Rojo) pasará a esta versión.",
   cierres: [{ modulo: "INV", periodo: "2025-12", cargue: 38, cerradoPor: "Camilo Perez Rojo" }],
   cuentasEnFirme: 3,
 };
