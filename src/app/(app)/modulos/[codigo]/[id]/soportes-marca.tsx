@@ -189,9 +189,12 @@ export type ReferenciaMarcaVm = MarcaPeriodo & {
 export function ReferenciaMarca({
   referencia,
   onQuitar,
+  onEditar,
   ocupado = false,
 }: {
   referencia: ReferenciaMarcaVm;
+  /** Pasar la marca sin renglón al renglón que hoy contiene sus cuentas, y editarla ahí. */
+  onEditar?: () => void;
   /**
    * Retirar una marca cuyo renglón ya no aparece (se agruparon sus cuentas, cambió el mapeo).
    * Sin esto no había cómo soltar las cuentas no modulares que dejó: seguían tachadas y no
@@ -224,7 +227,9 @@ export function ReferenciaMarca({
           <p className="text-[11px] leading-snug text-ink-500">
             <span className="font-semibold text-ink-600">Deja fuera de la conciliación:</span>{" "}
             {noModulares.map((c) => `${c.cuenta8}${c.nombre ? ` ${c.nombre}` : ""}`).join(" · ")}.
-            {!destino && " Retira la marca para que vuelvan a contar."}
+            {!destino && (onEditar
+              ? " Edítala para pasarla al renglón actual, o retírala para que vuelvan a contar."
+              : " Retira la marca para que vuelvan a contar.")}
           </p>
         )}
         <span className="text-[10.5px] text-ink-400">
@@ -232,8 +237,21 @@ export function ReferenciaMarca({
           {referencia.soportes > 0 ? ` · ${referencia.soportes} soporte${referencia.soportes === 1 ? "" : "s"}` : ""}
         </span>
       </div>
-      {onQuitar && (
-        <div className="flex shrink-0 items-start">
+      {(onQuitar || onEditar) && (
+        <div className="flex shrink-0 items-start gap-1">
+          {onEditar && (
+            <button
+              type="button"
+              onClick={onEditar}
+              disabled={ocupado}
+              title="Editar la marca: pasa al renglón que hoy contiene sus cuentas"
+              aria-label="Editar la marca"
+              className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-50"
+            >
+              <Icon name="edit" size={13} />
+            </button>
+          )}
+          {onQuitar && (
           <button
             type="button"
             onClick={onQuitar}
@@ -244,6 +262,7 @@ export function ReferenciaMarca({
           >
             <Icon name="trash" size={13} />
           </button>
+          )}
         </div>
       )}
     </li>

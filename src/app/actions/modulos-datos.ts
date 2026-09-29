@@ -91,6 +91,7 @@ import {
   normalizarClaveTercero,
   siguienteNumeroMarca,
   type DimensionMarca,
+  motivoNoPasarMarca,
   validarNoModulares,
   validarClasificadoresNoModulares,
   validarNotaMarca,
@@ -3014,6 +3015,10 @@ async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
  * `diferencia` se congela para poder avisar después si el monto cambió. El número se
  * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su
  * lugar en las observaciones.
+ *
+ * Con `cuenta4Origen`, PASA una marca cuyo renglón ya no aparece en el cruce (sus cuentas se
+ * agruparon de otra forma) al renglón `cuenta4`, que tiene que contener alguna de sus cuentas y
+ * no tener marca propia. Conserva número y soportes; nota y no modulares se guardan como siempre.
  */
 export async function guardarMarcaCruce(formData: FormData): Promise<ActionState> {
   const encabezadoId = Number(formData.get("encabezadoId"));
@@ -3025,6 +3030,11 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   const clave = dimension === "tercero" ? normalizarClaveTercero(formData.get("clave")) : null;
   if (dimension === "cuenta4" && !cuenta4) return { ok: false, message: "Cuenta inválida." };
   if (dimension === "tercero" && !clave) return { ok: false, message: "Tercero inválido." };
+  // Pasar una marca sin renglón a este renglón (solo en la cédula contable).
+  const origenCrudo = dimension === "cuenta4" ? String(formData.get("cuenta4Origen") ?? "").trim() : "";
+  const cuenta4Origen = origenCrudo ? cuentaMarcable(origenCrudo) : null;
+  if (origenCrudo && !cuenta4Origen) return { ok: false, message: "La marca que se quiere pasar no es válida." };
+  const pasarDesde = cuenta4Origen && cuenta4Origen !== cuenta4 ? cuenta4Origen : null;
   const nota = validarNotaMarca(String(formData.get("nota") ?? ""));
   if (!nota.ok) return { ok: false, message: nota.message };
   const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
@@ -3065,6 +3075,10 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     if (!filaVigente) {
       return { ok: false, message: cuenta4 === CLAVE_SIN_CUENTA ? "Ya no hay saldo sin cuenta en el cruce. Recarga la pantalla." : "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
     }
+    if (pasarDesde) {
+      const motivo = motivoNoPasarMarca(pasarDesde, cuenta4, new Set(cruceVigente.cruceContable.filas.map((f) => f.cuenta4)));
+      if (motivo) return { ok: false, message: motivo };
+    }
     if (cuenta4 === CLAVE_SIN_CUENTA) {
       const hijos = cruceVigente.detalleSinCuenta;
       const noModulares = validarClasificadoresNoModulares(seleccionNoModular, hijos);
@@ -3101,10 +3115,27 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         moduloCodigo: encabezado.moduloCodigo,
         periodo: encabezado.periodo,
         dimension: llaveMarca.dimension,
-        ...(llaveMarca.dimension === "cuenta4" ? { cuenta4: llaveMarca.cuenta4 } : { clave: llaveMarca.clave }),
+        // Al pasar una marca sin renglón, la que se edita es la del renglón que se perdió.
+        ...(llaveMarca.dimension === "cuenta4" ? { cuenta4: pasarDesde ?? llaveMarca.cuenta4 } : { clave: llaveMarca.clave }),
       },
       select: { id: true, numero: true, _count: { select: { adjuntos: true } } },
     });
+    if (pasarDesde) {
+      if (!existente) return { ok: false, message: "Esa marca ya no existe. Recarga la pantalla." };
+      const ocupada = await prisma.marcaCruceModulo.findFirst({
+        where: {
+          clienteId: encabezado.clienteId,
+          moduloCodigo: encabezado.moduloCodigo,
+          periodo: encabezado.periodo,
+          dimension: "cuenta4",
+          cuenta4,
+        },
+        select: { numero: true },
+      });
+      if (ocupada) {
+        return { ok: false, message: `Ese renglón ya tiene la marca ${ocupada.numero}: edítala a ella o retira una de las dos.` };
+      }
+    }
 
     const preparados = await prepararSoportesMarca(soportesDelFormulario(formData), existente?._count.adjuntos ?? 0);
     if (!preparados.ok) return { ok: false, message: preparados.message };
@@ -3137,7 +3168,8 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       const guardada = existente
         ? await tx.marcaCruceModulo.update({
             where: { id: existente.id },
-            data: datosComunes,
+            // Pasar la marca = cambiar la clave de su renglón; número y soportes se conservan.
+            data: { ...datosComunes, ...(pasarDesde && cuenta4 ? { cuenta4 } : {}) },
             select: { id: true, numero: true },
           })
         : await (async () => {
@@ -3184,14 +3216,18 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
     await auditarMarcaCruce(
       encabezado,
-      existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
+      pasarDesde
+        ? "PASÓ a otro renglón la marca del cruce contable"
+        : existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
       objetivo,
-      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ""}`,
+      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
       ok: true,
-      message: existente ? `Marca ${marca.numero} actualizada.` : `Marca ${marca.numero} registrada.`,
+      message: pasarDesde
+        ? `Marca ${marca.numero} pasada al renglón actual.`
+        : existente ? `Marca ${marca.numero} actualizada.` : `Marca ${marca.numero} registrada.`,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarMarcaCruce", e) };

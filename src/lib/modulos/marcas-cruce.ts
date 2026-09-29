@@ -15,7 +15,7 @@
  * versiones, se congela el que se marcó: si la diferencia actual ya no coincide, la fila
  * queda `desactualizada` para que alguien la revise en vez de darla por explicada.
  */
-import type { FilaCruceContable, HijoContableCruce } from "./cruce-contable";
+import { CLAVE_SIN_CUENTA, cuentasDeClaveCruce, type FilaCruceContable, type HijoContableCruce } from "./cruce-contable";
 import type { FilaCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
 
 /** Tolerancia por defecto del cruce (la misma de `construirCruceContable`). */
@@ -416,4 +416,33 @@ export function intercalarObservaciones<T, M extends MarcaPeriodo>(
       .map((marca) => ({ tipo: "referencia" as const, numero: marca.numero, marca })),
   ];
   return entradas.sort((a, b) => a.numero - b.numero || (a.tipo === b.tipo ? 0 : a.tipo === "propia" ? -1 : 1));
+}
+
+// ===== Marca cuyo renglón ya no aparece en el cruce =====
+// La marca se guarda por la CLAVE de su renglón. Si las cuentas se agrupan de otra forma (el
+// Consolidado asigna un concepto a una cuenta más, o una versión nueva trae otros conceptos), la
+// clave del renglón cambia y la marca queda citada sin renglón. Se puede PASAR al renglón que hoy
+// contiene alguna de sus cuentas: conserva número, nota, soportes y cuentas no modulares.
+
+/** Renglones del cruce que hoy contienen alguna cuenta de la marca: a los que puede pasar. */
+export function destinosMarcaSinRenglon<F extends { cuenta4: string }>(llave: string, filas: readonly F[]): F[] {
+  if (!llave || llave === CLAVE_SIN_CUENTA) return [];
+  const propias = new Set(cuentasDeClaveCruce(llave));
+  return filas.filter((f) => f.cuenta4 !== CLAVE_SIN_CUENTA && f.cuenta4 !== llave && cuentasDeClaveCruce(f.cuenta4).some((c) => propias.has(c)));
+}
+
+/**
+ * ¿Se puede pasar la marca de `origen` (sin renglón) al renglón `destino`? null = sí; si no, el
+ * motivo. `clavesVigentes` son las claves de los renglones del cruce de hoy.
+ */
+export function motivoNoPasarMarca(origen: string, destino: string, clavesVigentes: ReadonlySet<string>): string | null {
+  if (origen === CLAVE_SIN_CUENTA || destino === CLAVE_SIN_CUENTA) return "La marca del saldo sin cuenta no se puede pasar a otro renglón.";
+  if (origen === destino) return "La marca ya está en ese renglón.";
+  if (clavesVigentes.has(origen)) return "Esa marca todavía tiene su renglón en el cruce: edítala ahí.";
+  if (!clavesVigentes.has(destino)) return "Ese renglón ya no aparece en el cruce. Recarga la pantalla.";
+  const propias = new Set(cuentasDeClaveCruce(origen));
+  if (!cuentasDeClaveCruce(destino).some((c) => propias.has(c))) {
+    return "La marca solo puede pasar a un renglón que contenga alguna de sus cuentas.";
+  }
+  return null;
 }

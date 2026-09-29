@@ -384,6 +384,10 @@ export default async function DatoModuloPage({
         }
       : null,
     filasMarcadas: cruce.filasMarcadas,
+    // Marcas de cuenta del período cuyo renglón ya no aparece: se pueden pasar al renglón actual.
+    marcasSinRenglon: cruce.cruceContable
+      ? cruce.marcas.filter((m) => !cruce.filasMarcadas.some((f) => f.cuenta4 === m.cuenta4))
+      : [],
     resumenMarcas: cruce.resumenMarcas,
     detalleContablePorCuenta: cruce.detalleContablePorCuenta,
     detalleSinCuenta: cruce.detalleSinCuenta,
