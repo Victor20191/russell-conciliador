@@ -17,6 +17,7 @@ import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import {
   evaluarAdopcion,
+  soloFuncionalidadesNuevas,
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
@@ -214,7 +215,7 @@ export default async function ReportesEjecutivosPage() {
   }
 
   const adopcion = evaluarAdopcion({
-    cambios: planos,
+    cambios: soloFuncionalidadesNuevas(planos),
     conteosPorFamilia: conteosPorFamiliaCanon(eventos, usuariosRegistrados),
   });
 

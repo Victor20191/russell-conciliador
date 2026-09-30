@@ -16,7 +16,7 @@ export function claveAlcanceReporte(desde: Date, hasta: Date, versiones: number[
   return createHash("sha256").update(JSON.stringify({
     formato: "instantanea-gerencia-v1",
     desde: desde.toISOString(), hasta: hasta.toISOString(),
-    versiones: versiones?.length ? [...new Set(versiones)].sort((a, b) => a - b) : "publicadas",
+    versiones: !versiones ? "publicadas" : versiones.length ? [...new Set(versiones)].sort((a, b) => a - b) : "ninguna",
   })).digest("hex");
 }
 

@@ -125,3 +125,12 @@ describe("evaluarAdopcion", () => {
     expect(resumen.porcentajeAdopcion).toBe(100);
   });
 });
+
+describe("funcionalidades nuevas", () => {
+  test("solo el tipo «nueva» cuenta para la adopción", async () => {
+    const { esFuncionalidadNueva, soloFuncionalidadesNuevas } = await import("./adopcion");
+    expect(esFuncionalidadNueva(" Nueva ")).toBe(true);
+    for (const tipo of ["mejora", "correccion", "seguridad", "", null]) expect(esFuncionalidadNueva(tipo)).toBe(false);
+    expect(soloFuncionalidadesNuevas([{ tipo: "nueva" }, { tipo: "mejora" }, { tipo: "correccion" }])).toEqual([{ tipo: "nueva" }]);
+  });
+});

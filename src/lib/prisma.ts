@@ -1,15 +1,20 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { ZONA_HORARIA_COLOMBIA } from "@/lib/fecha-hora";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function buildClient() {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL!,
-    // Fuerza CURRENT_DATE, CURRENT_TIMESTAMP y cualquier SQL de negocio a la
-    // zona colombiana aunque el proveedor PostgreSQL tenga otro valor global.
-    options: `-c timezone=${ZONA_HORARIA_COLOMBIA}`,
+    // Sin `-c timezone`: la sesión HEREDA la zona por defecto de la base. El
+    // adaptador escribe cada `Date` como texto sin zona (reloj UTC) y al leer un
+    // TIMESTAMPTZ descarta la zona, así que solo es correcto con la sesión en UTC;
+    // con America/Bogota cada instante se guardaba 5 h después del real.
+    // scripts/corregir-desfase-zona-horaria.ts corrige los datos y pone la base
+    // en UTC en la MISMA transacción: heredar la zona hace que este código cambie
+    // de comportamiento justo en ese instante (antes, igual que siempre), sin
+    // depender de desplegar a la vez. La hora de Colombia se aplica al PRESENTAR
+    // (`src/lib/fecha-hora.ts`), no aquí.
     // keepAlive detecta sockets muertos (p. ej. tras un cambio de red/VPN)
     // en vez de entregarlos colgados desde el pool de conexiones.
     keepAlive: true,

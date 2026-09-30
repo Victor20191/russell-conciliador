@@ -7,6 +7,7 @@ import Topbar, { type NotificationDTO } from "@/components/topbar";
 import { ActionToaster } from "@/components/action-toaster";
 import AccessTracker from "@/components/access-tracker";
 import { Icon } from "@/components/icons";
+import { guardarNavColapsada } from "@/lib/ui/nav-colapsada";
 
 /**
  * Cascarón de la app (cliente) que coordina el estado compartido entre el
@@ -21,6 +22,7 @@ export default function AppShell({
   modulosEnDesarrollo,
   notifications,
   appVersion,
+  navColapsadaInicial = false,
   children,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
@@ -30,12 +32,14 @@ export default function AppShell({
   notifications: NotificationDTO[];
   /** Última versión publicada (o package.json). Visible en el sidebar. */
   appVersion: { number: string; title: string | null } | null;
+  /** Preferencia guardada en cookie, leída en el servidor: evita el destello del menú abierto al recargar. */
+  navColapsadaInicial?: boolean;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Estado FIJADO por el usuario (botón de colapsar/expandir): persiste hasta
-  // el próximo clic, independiente del mouse.
-  const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(false);
+  // el próximo clic, independiente del mouse, y sobrevive a recargas (cookie).
+  const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(navColapsadaInicial);
   // Expansión TEMPORAL por hover: solo tiene efecto cuando el sidebar está
   // fijado colapsado; si fue fijado abierto, el hover no altera nada.
   const [desktopNavHovered, setDesktopNavHovered] = useState(false);
@@ -49,6 +53,13 @@ export default function AppShell({
     if (mobileNavOpen) setMobileNavOpen(false);
   }
 
+  // Única puerta para cambiar el estado fijado: solo la decisión explícita
+  // (botón o clic sobre el menú colapsado) se guarda; el hover nunca.
+  const fijarNavColapsada = (colapsada: boolean) => {
+    setDesktopNavCollapsed(colapsada);
+    guardarNavColapsada(colapsada);
+  };
+
   return (
     <div className="flex h-dvh min-h-dvh overflow-hidden overscroll-none">
       <Sidebar
@@ -60,7 +71,7 @@ export default function AppShell({
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
         desktopCollapsed={desktopNavVisuallyCollapsed}
-        onExpandDesktop={() => setDesktopNavCollapsed(false)}
+        onExpandDesktop={() => fijarNavColapsada(false)}
         onDesktopHoverChange={setDesktopNavHovered}
       />
       <button
@@ -69,7 +80,7 @@ export default function AppShell({
         title={desktopNavCollapsed ? "Expandir barra de navegación" : "Contraer barra de navegación"}
         aria-controls="app-sidebar"
         aria-expanded={!desktopNavCollapsed}
-        onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}
+        onClick={() => fijarNavColapsada(!desktopNavCollapsed)}
         className={`sidebar-motion fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-[left,width,height,background-color,color] duration-200 hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
           desktopNavVisuallyCollapsed ? "left-0 h-7 w-14 border-t border-t-white/10" : "left-[212px] h-[57px] w-5 border-t border-t-white/10"
         }`}

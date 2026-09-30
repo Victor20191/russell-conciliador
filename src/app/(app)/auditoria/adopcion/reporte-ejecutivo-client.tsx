@@ -266,9 +266,9 @@ export function ReporteEjecutivoClient({
 
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
-  const [modoVersiones, setModoVersiones] = useState<"nuevas" | "publicadas" | "seleccion">(
-    pendiente.sinNovedadesNuevas ? "publicadas" : "nuevas",
-  );
+  // Siempre arranca en «solo lo nuevo»: si no hay nada pendiente el reporte sale
+  // sin avances en vez de repetir los ya comunicados.
+  const [modoVersiones, setModoVersiones] = useState<"nuevas" | "publicadas" | "seleccion">("nuevas");
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
   const [envioPendiente, setEnvioPendiente] = useState(false);
   const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
@@ -299,13 +299,6 @@ export function ReporteEjecutivoClient({
 
     if (modoVersiones === "seleccion" && (!versionIds || versionIds.length === 0)) {
       setError("Selecciona al menos una versión de Novedades.");
-      return;
-    }
-
-    if (modoVersiones === "nuevas" && (!versionIds || versionIds.length === 0)) {
-      setError(
-        "No hay novedades sin enviar. Elige otro alcance o publica una versión nueva en Novedades.",
-      );
       return;
     }
 
@@ -370,7 +363,7 @@ export function ReporteEjecutivoClient({
     !generando &&
     Boolean(desde && hasta) &&
     (modoVersiones === "publicadas" ||
-      (modoVersiones === "nuevas" && pendiente.versionIds.length > 0) ||
+      modoVersiones === "nuevas" ||
       cambiosSeleccionados > 0 ||
       seleccion.size > 0);
 
@@ -446,7 +439,9 @@ export function ReporteEjecutivoClient({
       setEnvioRegistrado(res.envio);
       notifySuccess(
         "Envío registrado",
-        `Estas ${res.envio.versionIds.length} versiones no se volverán a proponer en el próximo reporte.`,
+        res.envio.versionIds.length === 0
+          ? "Quedó registrado el envío de este reporte sin avances nuevos."
+          : `Estas ${res.envio.versionIds.length} versiones no se volverán a proponer en el próximo reporte.`,
       );
     });
   };
@@ -839,19 +834,16 @@ export function ReporteEjecutivoClient({
             </p>
             <div className="flex flex-col gap-2.5">
               <label
-                className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                  pendiente.versionIds.length === 0
-                    ? "cursor-not-allowed border-ink-150 bg-ink-50/60 opacity-70"
-                    : modoVersiones === "nuevas"
-                      ? "cursor-pointer border-navy-600 bg-navy-700/5"
-                      : "cursor-pointer border-ink-150 hover:bg-ink-50"
+                className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
+                  modoVersiones === "nuevas"
+                    ? "border-navy-600 bg-navy-700/5"
+                    : "border-ink-150 hover:bg-ink-50"
                 }`}
               >
                 <input
                   type="radio"
                   name="alcance-novedades"
                   checked={modoVersiones === "nuevas"}
-                  disabled={pendiente.versionIds.length === 0}
                   onChange={() => setModoVersiones("nuevas")}
                   className="mt-0.5 accent-navy-700"
                 />
@@ -861,7 +853,9 @@ export function ReporteEjecutivoClient({
                   </span>
                   <span className="block text-[11.5px] text-ink-500">
                     {pendiente.versionIds.length === 0
-                      ? "Ya enviaste todas las versiones publicadas: no hay avances nuevos que contar."
+                      ? `Ya enviaste todas las versiones publicadas${
+                          pendiente.ultimoEnvioEn ? ` (último envío ${fmtDate(pendiente.ultimoEnvioEn)})` : ""
+                        }: el reporte saldrá sin avances. Publica en Novedades lo que falte comunicar.`
                       : `${pendiente.totalVersiones} ${
                           pendiente.totalVersiones === 1 ? "versión" : "versiones"
                         } · ${pendiente.totalCambios} cambios · ${

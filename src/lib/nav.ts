@@ -43,7 +43,7 @@ export const workNav: NavItem[] = [
   {
     label: "Conciliaciones",
     href: "/conciliacion/nueva",
-    icon: "play",
+    icon: "reconcile",
     permiso: "conciliaciones:ver",
     modulo: "conciliaciones",
     children: [
@@ -70,7 +70,7 @@ export const workNav: NavItem[] = [
       modulo: "modulos_datos",
     })),
   },
-  { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
+  { label: "Impuestos · DIAN", href: "/dian", icon: "tax", count: 2, permiso: "dian:ver", modulo: "dian" },
   {
     label: "Auditoría",
     href: "/auditoria",
@@ -90,27 +90,29 @@ export const workNav: NavItem[] = [
   },
 ];
 
+// Cada entrada principal tiene un símbolo propio: en la barra colapsada es
+// la única referencia visual antes de consultar su etiqueta o expandirla.
 export const configNav: NavItem[] = [
-  { label: "Reportes para gerencia", href: "/config/reportes-ejecutivos", icon: "doc", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
+  { label: "Reportes para gerencia", href: "/config/reportes-ejecutivos", icon: "chart", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
   { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
-  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
-  { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },
-  { label: "Maestros", href: "/config/maestros", icon: "box", permiso: "maestros:ver", modulo: "maestros" },
-  { label: "Mapeo plan estándar", href: "/config/mapeo", icon: "settings", permiso: "mapeo:ver", modulo: "mapeo" },
+  { label: "Módulos y campos", href: "/config/modulos", icon: "grid", permiso: "modulos:ver", modulo: "modulos" },
+  { label: "Clientes", href: "/config/clientes", icon: "building", permiso: "clientes:configurar", modulo: "clientes" },
+  { label: "Maestros", href: "/config/maestros", icon: "database", permiso: "maestros:ver", modulo: "maestros" },
+  { label: "Mapeo plan estándar", href: "/config/mapeo", icon: "move-tree", permiso: "mapeo:ver", modulo: "mapeo" },
   // Homologación del PUC de cada cliente. Vivía como pestaña de «Mapeo plan
   // estándar»; se separó porque es trabajo por cliente y no configuración del
   // plan Russell. Comparte permiso y módulo con aquella pantalla.
-  { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "settings", permiso: "mapeo:ver", modulo: "mapeo" },
+  { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "account-link", permiso: "mapeo:ver", modulo: "mapeo" },
   // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
   // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
-  { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "box", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
-  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
+  { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
+  { label: "Mapeos DIAN", href: "/config/dian", icon: "file-check", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
   { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
-  { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },
-  { label: "Estructura", href: "/estructura", icon: "users", permiso: "estructura:ver", modulo: "estructura" },
+  { label: "Permisos por rol", href: "/config/permisos", icon: "shield", permiso: "roles:configurar", modulo: "roles" },
+  { label: "Estructura", href: "/estructura", icon: "hierarchy", permiso: "estructura:ver", modulo: "estructura" },
   { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
   { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
-  { label: "Parámetros de alertas", href: "/config/parametros", icon: "settings", permiso: "parametros:administrar", modulo: "parametros" },
+  { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:administrar", modulo: "parametros" },
   { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
   {
     // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
@@ -119,7 +121,7 @@ export const configNav: NavItem[] = [
     // con sus prefijos y las cuentas que concilia, en el orden del informe del prevalidador.
     label: "Filtros de cuentas",
     href: "/config/prevalidador",
-    icon: "chart",
+    icon: "filter",
     permiso: "parametros:administrar",
     modulo: "parametros",
     children: [
@@ -138,7 +140,7 @@ export const configNav: NavItem[] = [
     // se derivan del catálogo de descriptores, igual que «Módulos de conciliación».
     label: "Perfiles de carga",
     href: "/config/perfiles-carga",
-    icon: "ai",
+    icon: "upload",
     permiso: "perfiles_carga:administrar",
     modulo: "perfiles_carga",
     children: [

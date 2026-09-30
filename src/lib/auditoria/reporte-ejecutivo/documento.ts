@@ -1,11 +1,13 @@
 import { z } from "zod";
-import type { ResumenAdopcion } from "./adopcion";
+import { esFuncionalidadNueva, type ResumenAdopcion } from "./adopcion";
+import { MODULOS_PLATAFORMA } from "@/lib/rbac/modulos-plataforma";
 import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
 import { alertasComparativo, soloFecha, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
 import { hayConsumoIA, type CostosIA } from "./costos-ia";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import type { ReporteEjecutivoUso } from "./reportes";
+import { aFecha, fechaColombiaISO } from "@/lib/fecha-hora";
 
 // Vocabulario editorial cerrado: la IA puede seleccionar orientaciones, pero no
 // introducir personas, cifras o afirmaciones nuevas en el documento factual.
@@ -65,6 +67,75 @@ export function elegirLecturaConsistente({ uso, adopcion }: Contexto): LecturaCo
     recomendaciones.push(RECOMENDACIONES[2]);
   }
   return { lectura, recomendaciones };
+}
+
+/**
+ * Un reporte sin versiones nuevas NO repite lo ya comunicado: antes, sin nada
+ * pendiente, el formulario caía a «todas las publicadas» y dos reportes seguidos
+ * traían los mismos avances (y la adopción se medía sobre funcionalidades viejas).
+ */
+export const SIN_AVANCES_NUEVOS = "No hay avances nuevos en este reporte: lo publicado ya se comunicó en reportes anteriores.";
+/** Cada sección tiene su propio vacío: un período puede traer mejoras y ningún módulo nuevo. */
+export const SIN_FUNCIONALIDADES_NUEVAS = "No se publicaron funcionalidades nuevas en el alcance de este reporte.";
+export const SIN_MEJORAS = "No se publicaron mejoras ni correcciones en el alcance de este reporte.";
+
+const ETIQUETA_TIPO_MEJORA: Record<string, string> = {
+  mejora: "Mejora",
+  correccion: "Corrección",
+  seguridad: "Seguridad",
+};
+const ETIQUETA_MODULO = new Map<string, string>(MODULOS_PLATAFORMA.map((m) => [m.key, m.label]));
+const ORDEN_MODULO = new Map<string, number>(MODULOS_PLATAFORMA.map((m, i) => [m.key, i]));
+
+type CambioDocumento = NovedadReporteEjecutivoContexto["cambios"][number] & { version: string };
+
+/**
+ * Los avances en DOS secciones: lo que antes no existía (funcionalidades nuevas,
+ * con su descripción completa) y lo que mejoró o se corrigió sobre lo existente
+ * (agrupado por módulo). Mezclados en una sola tabla, una corrección pesaba lo
+ * mismo que un módulo nuevo y el lector no distinguía una cosa de la otra.
+ */
+export function separarAvances(novedades: readonly NovedadReporteEjecutivoContexto[]): {
+  nuevas: CambioDocumento[];
+  mejoras: CambioDocumento[];
+} {
+  const cambios = novedades.flatMap((version) => version.cambios.map((cambio) => ({ version: version.numero, ...cambio })));
+  return {
+    nuevas: cambios.filter((c) => esFuncionalidadNueva(c.tipo)),
+    mejoras: cambios.filter((c) => !esFuncionalidadNueva(c.tipo)),
+  };
+}
+
+function seccionesAvances(nuevas: CambioDocumento[], mejoras: CambioDocumento[]): string {
+  const filasNuevas = nuevas
+    .map((c) => `<tr><td>${escapeHtml(c.version)}</td><td>${escapeHtml(c.titulo)}</td><td>${escapeHtml(c.descripcion)}</td></tr>`)
+    .join("");
+
+  // Agrupadas por módulo, en el orden del menú; dentro, en el orden recibido.
+  const porModulo = new Map<string, CambioDocumento[]>();
+  for (const c of mejoras) {
+    const clave = c.modulo?.trim().toLowerCase() ?? "";
+    porModulo.set(clave, [...(porModulo.get(clave) ?? []), c]);
+  }
+  const filasMejoras = [...porModulo.entries()]
+    .sort(([a], [b]) => (ORDEN_MODULO.get(a) ?? 999) - (ORDEN_MODULO.get(b) ?? 999) || a.localeCompare(b, "es"))
+    .map(([clave, cambios]) =>
+      `<tr><th colspan="4" style="text-align:left;background:#f7f8fa">${escapeHtml(ETIQUETA_MODULO.get(clave) ?? "Plataforma")}</th></tr>${cambios
+        .map((c) => `<tr><td>${escapeHtml(c.version)}</td><td>${escapeHtml(ETIQUETA_TIPO_MEJORA[c.tipo.trim().toLowerCase()] ?? "Mejora")}</td><td>${escapeHtml(c.titulo)}</td><td>${escapeHtml(c.descripcion)}</td></tr>`)
+        .join("")}`)
+    .join("");
+
+  if (!filasNuevas && !filasMejoras) {
+    return `<section id="nuevas-funcionalidades"><h2>Nuevas funcionalidades</h2><p>${SIN_AVANCES_NUEVOS}</p></section>`;
+  }
+  return `<section id="nuevas-funcionalidades"><h2>Nuevas funcionalidades</h2><p class="nota">Módulos, pantallas y flujos que antes no existían.</p>${filasNuevas ? `<table><thead><tr><th>Versión</th><th>Funcionalidad</th><th>Descripción</th></tr></thead><tbody>${filasNuevas}</tbody></table>` : `<p>${SIN_FUNCIONALIDADES_NUEVAS}</p>`}</section>
+<section id="mejoras"><h2>Mejoras y correcciones</h2><p class="nota">Ajustes sobre lo que ya estaba en uso, agrupados por módulo.</p>${filasMejoras ? `<table><thead><tr><th>Versión</th><th>Tipo</th><th>Cambio</th><th>Descripción</th></tr></thead><tbody>${filasMejoras}</tbody></table>` : `<p>${SIN_MEJORAS}</p>`}</section>`;
+}
+
+/** Solo la fecha, en el calendario de Colombia: la hora exacta del corte no le dice nada a gerencia. */
+function fechaDeCorte(corte: string): string {
+  const fecha = aFecha(corte);
+  return fecha ? fechaColombiaISO(fecha) : corte;
 }
 
 function escapeHtml(valor: string): string {
@@ -209,8 +280,16 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
 }): ReporteEjecutivoUso {
   const titulo = "Resumen de uso y avances";
   const lectura = LecturaSchema.safeParse(elegirLecturaConsistente({ uso, adopcion, novedades }));
-  const cambios = novedades.flatMap((version) => version.cambios.map((cambio) => ({ version: version.numero, ...cambio })));
-  const filas = cambios.map((cambio) => `<tr><td>${escapeHtml(cambio.version)}</td><td>${escapeHtml(cambio.titulo)}</td><td>${escapeHtml(cambio.descripcion)}</td></tr>`).join("");
+  const { nuevas, mejoras } = separarAvances(novedades);
+  // «Lo más importante»: la adopción habla de lo nuevo; las mejoras se cuentan aparte.
+  const resumenAvances = [
+    adopcion.totalCambios > 0
+      ? `<li>Funcionalidades nuevas con actividad relacionada: <strong>${numero(adopcion.usadas)}</strong>; sin actividad relacionada: <strong>${numero(adopcion.sinEvidencia)}</strong>.</li>`
+      : nuevas.length > 0
+        ? `<li>Funcionalidades nuevas en este reporte: <strong>${numero(nuevas.length)}</strong>.</li>`
+        : "",
+    mejoras.length > 0 ? `<li>Mejoras y correcciones en este reporte: <strong>${numero(mejoras.length)}</strong>.</li>` : "",
+  ].join("") || `<li>${SIN_AVANCES_NUEVOS}</li>`;
   const decision = adopcion.sinEvidencia > 0
     ? `Hay ${numero(adopcion.sinEvidencia)} funcionalidades sin actividad relacionada. Conviene revisar su contexto operativo antes de concluir que no se utilizan.`
     : "No se identificaron asuntos críticos con la información disponible. Los registros de actividad no permiten evaluar por sí solos la calidad del trabajo.";
@@ -221,11 +300,11 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     titulo,
     html: `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
 @page{size:letter;margin:16mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#1a2330;font:13px/1.55 'Helvetica Neue',Helvetica,Arial,sans-serif}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid #142b4a;padding-bottom:16px;margin-bottom:24px}.marca{font-size:11px;letter-spacing:2px;color:#142b4a;font-weight:bold}h1,h2{font-family:Georgia,'Times New Roman',serif;color:#142b4a}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid #dbe2ea;overflow-wrap:anywhere}th{background:#eef2f6}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:#566273;font-size:11px}footer{border-top:1px solid #dbe2ea;margin-top:24px;padding-top:10px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
-</style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p><p class="nota">Alcance temporal UTC: ${escapeHtml(uso.periodoDesde)} → ${escapeHtml(uso.periodoHasta)}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(corte)}</p>` : ""}</header>
-<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li><li>Funcionalidades con actividad relacionada: <strong>${numero(adopcion.usadas)}</strong>; sin actividad relacionada: <strong>${numero(adopcion.sinEvidencia)}</strong>.</li>${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
+</style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaDeCorte(corte))}</p>` : ""}</header>
+<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
-<section id="avances"><h2>Avances publicados</h2>${filas ? `<table><thead><tr><th>Versión</th><th>Avance</th><th>Descripción</th></tr></thead><tbody>${filas}</tbody></table>` : "<p>No hay avances publicados en el alcance seleccionado.</p>"}</section>
+${seccionesAvances(nuevas, mejoras)}
 <section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer></main></body></html>`,
   };
 }

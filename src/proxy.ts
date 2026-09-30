@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { getEncodedSessionSecret } from "@/lib/session-secret";
+import { COOKIE_NAV_COLAPSADA } from "@/lib/ui/nav-colapsada";
 
 function isPublicRoute(path: string): boolean {
   return path === "/" || path === "/login" || path === "/soporte" || path.startsWith("/soporte/");
@@ -28,6 +29,7 @@ export default async function proxy(req: NextRequest) {
     const res = NextResponse.redirect(new URL("/login", req.nextUrl));
     // Si venía una cookie pero su firma no es válida (expirada/corrupta), limpiarla.
     if (token) res.cookies.delete("session");
+    res.cookies.delete(COOKIE_NAV_COLAPSADA);
     return res;
   }
 

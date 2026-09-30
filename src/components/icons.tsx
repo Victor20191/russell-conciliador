@@ -6,7 +6,9 @@ export type IconName =
   | "x" | "warn" | "ai" | "doc" | "box" | "wallet" | "chip" | "chart"
   | "filter" | "more" | "msg" | "calendar" | "log" | "send" | "link" | "logout"
   | "eye" | "eye-off" | "menu" | "info" | "help" | "move-tree" | "trash" | "edit"
-  | "maximize" | "minimize";
+  | "maximize" | "minimize"
+  | "reconcile" | "tax" | "grid" | "building" | "database" | "account-link"
+  | "file-check" | "shield" | "hierarchy" | "sliders";
 
 export function Icon({
   name,
@@ -74,6 +76,16 @@ export function Icon({
     case "move-tree": return <svg {...props}><circle cx="5" cy="5" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 5h3a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h1M5 7v10M13 12H7" /></svg>;
     case "maximize": return <svg {...props}><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /><path d="M3 8l6-6M21 8l-6-6M3 16l6 6M21 16l-6 6" /></svg>;
     case "minimize": return <svg {...props}><path d="M9 9H4M9 9V4M15 9h5M15 9V4M9 15H4M9 15v5M15 15h5M15 15v5" /><path d="M9 9 3 3M15 9l6-6M9 15l-6 6M15 15l6 6" /></svg>;
+    case "reconcile": return <svg {...props}><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4" /></svg>;
+    case "tax": return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="m8 16 8-8" /><circle cx="8" cy="8" r="1.5" /><circle cx="16" cy="16" r="1.5" /></svg>;
+    case "grid": return <svg {...props}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
+    case "building": return <svg {...props}><path d="M5 21V5l14-3v19M3 21h18M10 21v-5h4v5M9 7h1m4-1h1M9 11h1m4-1h1" /></svg>;
+    case "database": return <svg {...props}><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></svg>;
+    case "account-link": return <svg {...props}><rect x="2" y="4" width="7" height="16" rx="1" /><rect x="15" y="4" width="7" height="16" rx="1" /><path d="M5 8h1M5 16h1M18 8h1M18 16h1M7 12h10m-3-3 3 3-3 3" /></svg>;
+    case "file-check": return <svg {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6" /><path d="m8 15 3 3 5-6" /></svg>;
+    case "shield": return <svg {...props}><path d="m12 2 8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z" /><path d="m8 12 3 3 5-6" /></svg>;
+    case "hierarchy": return <svg {...props}><rect x="9" y="2" width="6" height="5" rx="1" /><rect x="2" y="17" width="6" height="5" rx="1" /><rect x="16" y="17" width="6" height="5" rx="1" /><path d="M12 7v5M5 17v-5h14v5" /></svg>;
+    case "sliders": return <svg {...props}><path d="M5 3v4m0 4v10M12 3v10m0 4v4M19 3v4m0 4v10" /><circle cx="5" cy="9" r="2" /><circle cx="12" cy="15" r="2" /><circle cx="19" cy="9" r="2" /></svg>;
     default: return null;
   }
 }

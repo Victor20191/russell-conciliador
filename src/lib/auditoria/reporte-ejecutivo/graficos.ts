@@ -154,7 +154,7 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
     return `
 <section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
   <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de nuevas funcionalidades</h3>
-  <p style="margin:0;font-size:12.5px;color:#566273;">No hay funcionalidades publicadas en el alcance para revisar su actividad relacionada.</p>
+  <p style="margin:0;font-size:12.5px;color:#566273;">No hay funcionalidades nuevas en este reporte cuya actividad relacionada revisar. Las mejoras y correcciones no se miden como adopción.</p>
 </section>`;
   }
 

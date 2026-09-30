@@ -1,6 +1,8 @@
 import AppShell from "@/components/app-shell";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { verifySession } from "@/lib/dal";
+import { COOKIE_NAV_COLAPSADA, navColapsadaDesdeCookie } from "@/lib/ui/nav-colapsada";
 import { getMatriz } from "@/lib/rbac/contexto";
 import { moduloPublicadoParaRol } from "@/lib/rbac/modulos-plataforma";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
@@ -20,7 +22,7 @@ export default async function AppLayout({
   // El DAL ya devolvió los datos del usuario junto con la verificación de la
   // sesión. No hace falta atravesar de nuevo getCurrentUser(). Las lecturas de
   // configuración, versión y notificaciones tampoco dependen entre sí.
-  const [matriz, publicacionModulos, notifications, versionApp] = await Promise.all([
+  const [matriz, publicacionModulos, notifications, versionApp, cookieStore] = await Promise.all([
     getMatriz(),
     getPublicacionModulos(),
     prisma.notification.findMany({
@@ -38,8 +40,14 @@ export default async function AppLayout({
       },
     }),
     getVersionApp(),
+    cookies(),
   ]);
   const permisos = matriz[session.role] ?? [];
+  // Preferencia de menú colapsado/abierto (cookie escrita por el AppShell): se
+  // resuelve aquí para que el primer HTML ya salga en su estado final.
+  const navColapsadaInicial = navColapsadaDesdeCookie(
+    cookieStore.get(COOKIE_NAV_COLAPSADA)?.value,
+  );
   // Usuario para el cascarón: incluye la URL de la foto (o null → iniciales).
   const shellUser = {
     name: session.name,
@@ -64,6 +72,7 @@ export default async function AppLayout({
       modulosVisibles={modulosVisibles}
       modulosEnDesarrollo={modulosEnDesarrollo}
       appVersion={{ number: versionApp.number, title: versionApp.title }}
+      navColapsadaInicial={navColapsadaInicial}
       notifications={notifications.map((n) => ({
         id: n.id,
         kind: n.kind,

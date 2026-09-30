@@ -57,6 +57,21 @@ const ETIQUETA_ESTADO: Record<EstadoAdopcion, string> = {
   no_medible: "No se puede medir",
 };
 
+/**
+ * Una FUNCIONALIDAD NUEVA (módulo, pantalla o flujo que antes no existía) frente
+ * a una mejora, corrección o ajuste de seguridad sobre algo que ya estaba. El
+ * reporte las presenta en secciones distintas y solo mide adopción de las
+ * nuevas: no tiene sentido preguntar si alguien «adoptó» una corrección.
+ */
+export function esFuncionalidadNueva(tipo: string | null | undefined): boolean {
+  return (tipo ?? "").trim().toLowerCase() === "nueva";
+}
+
+/** Los cambios sobre los que se mide la adopción: solo las funcionalidades nuevas. */
+export function soloFuncionalidadesNuevas<T extends { tipo: string }>(cambios: readonly T[]): T[] {
+  return cambios.filter((c) => esFuncionalidadNueva(c.tipo));
+}
+
 export function evaluarAdopcion(params: {
   cambios: CambioNovedadContexto[];
   conteosPorFamilia: Record<FamiliaProceso, number>;

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { calcularResumenUso, conteosPorFamiliaCanon } from "./metricas";
 import { evaluarAdopcion } from "./adopcion";
-import { construirDocumentoConsistente, elegirLecturaConsistente } from "./documento";
+import {
+  construirDocumentoConsistente, elegirLecturaConsistente, separarAvances,
+  SIN_AVANCES_NUEVOS, SIN_FUNCIONALIDADES_NUEVAS, SIN_MEJORAS,
+} from "./documento";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import { compararUso } from "./comparativo";
 
@@ -20,14 +23,63 @@ describe("documento consistente", () => {
   test("repite exactamente el documento y mantiene el orden de sus secciones", () => {
     const a = construirDocumentoConsistente(contexto);
     expect(a).toEqual(construirDocumentoConsistente(contexto));
-    const ids = ["lo-mas-importante", "decisiones", "indicadores", "avances", "proximos-pasos"];
+    const ids = ["lo-mas-importante", "decisiones", "indicadores", "nuevas-funcionalidades", "mejoras", "proximos-pasos"];
     const posiciones = ids.map((id) => a.html.indexOf(`id="${id}"`));
     expect(posiciones.every((posicion) => posicion >= 0)).toBe(true);
     expect(posiciones).toEqual([...posiciones].sort((x, y) => x - y));
     expect(a.html).toContain("Operaciones registradas: <strong>1</strong>");
     expect(a.html).toContain("Usuarios con operaciones: <strong>1</strong>");
-    expect(a.html).toContain("2026-09-01T00:00:00.000Z");
+    // El encabezado muestra solo fechas de calendario, sin la hora UTC.
+    expect(a.html).toContain("Período: 2026-09-01 → 2026-09-07");
+    expect(a.html).not.toContain("T00:00:00");
+    expect(a.html).not.toContain("T23:59:59");
+    // El corte también va sin hora, en la fecha de Colombia (02:00 UTC del 8 = 7 de sep. en Bogotá).
+    const conCorte = construirDocumentoConsistente({ ...contexto, corte: "2026-09-08T02:00:00.000Z" }).html;
+    expect(conCorte).toContain("Fecha de corte: 2026-09-07</p>");
+    expect(conCorte).not.toContain("T02:00");
     expect(a.html).toContain('id="rd-graficos-uso"');
+  });
+
+  test("sin avances nuevos lo dice y no mide adopción sobre lo ya comunicado", () => {
+    const html = construirDocumentoConsistente({ ...contexto, novedades: [] }).html;
+    expect(html).toContain(SIN_AVANCES_NUEVOS);
+    expect(html).not.toContain("con actividad relacionada:");
+    expect(html).not.toContain("<th>Versión</th>");
+    expect(html).not.toContain('id="mejoras"');
+  });
+
+  test("separa las funcionalidades nuevas de las mejoras y correcciones", () => {
+    const base = novedades[0].cambios[0];
+    const mixtas: NovedadReporteEjecutivoContexto[] = [{
+      ...novedades[0],
+      numero: "2.3.0",
+      cambios: [
+        { ...base, tipo: "nueva", titulo: "Probar el mapeo", modulo: "modulos_datos" },
+        { ...base, tipo: "mejora", titulo: "Lectura más rápida", modulo: "modulos_datos" },
+        { ...base, tipo: "correccion", titulo: "Signo de deducciones", modulo: "modulos_datos" },
+        { ...base, tipo: "mejora", titulo: "Filtro de alertas", modulo: "balance" },
+      ],
+    }];
+    expect(separarAvances(mixtas).nuevas.map((c) => c.titulo)).toEqual(["Probar el mapeo"]);
+    const html = construirDocumentoConsistente({ ...contexto, novedades: mixtas }).html;
+    const nuevas = html.slice(html.indexOf('id="nuevas-funcionalidades"'), html.indexOf('id="mejoras"'));
+    const mejoras = html.slice(html.indexOf('id="mejoras"'), html.indexOf('id="proximos-pasos"'));
+    expect(nuevas).toContain("Probar el mapeo");
+    expect(nuevas).not.toContain("Lectura más rápida");
+    expect(mejoras).toContain("<td>Corrección</td><td>Signo de deducciones</td>");
+    expect(mejoras).not.toContain("Probar el mapeo");
+    // Agrupadas por módulo, en el orden del menú: Balance antes que los módulos.
+    expect(mejoras.indexOf("Balance de comprobación")).toBeLessThan(mejoras.indexOf("Módulos de conciliación"));
+    expect(mejoras.indexOf("Filtro de alertas")).toBeLessThan(mejoras.indexOf("Lectura más rápida"));
+    expect(html).toContain("Mejoras y correcciones en este reporte: <strong>3</strong>");
+  });
+
+  test("con mejoras y sin funcionalidades nuevas, cada sección dice lo suyo", () => {
+    const soloMejoras = [{ ...novedades[0], cambios: [{ ...novedades[0].cambios[0], tipo: "mejora" }] }];
+    const html = construirDocumentoConsistente({ ...contexto, novedades: soloMejoras }).html;
+    expect(html).toContain(SIN_FUNCIONALIDADES_NUEVAS);
+    expect(html).not.toContain(SIN_AVANCES_NUEVOS);
+    expect(html).not.toContain(SIN_MEJORAS);
   });
 
   test("escapa los textos de datos y conserva todos los avances recibidos", () => {

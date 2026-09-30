@@ -674,7 +674,8 @@ export type ReporteNovedadesScope = z.infer<typeof ReporteNovedadesScopeSchema>;
 
 // Alcance del reporte ejecutivo de uso y adopción (Auditoría).
 // `desde`/`hasta` en ISO (fecha o datetime); se normalizan en la Server Action.
-// `versionIds` vacío o ausente → todas las versiones publicadas de Novedades.
+// `versionIds` ausente → todas las versiones publicadas de Novedades; vacío →
+// ninguna (reporte sin avances nuevos: no repite lo ya enviado).
 export const ReporteEjecutivoUsoScopeSchema = z
   .object({
     actualizar: z.boolean().optional(),

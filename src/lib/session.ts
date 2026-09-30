@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { encrypt } from "@/lib/jwt";
+import { COOKIE_NAV_COLAPSADA } from "@/lib/ui/nav-colapsada";
 
 const COOKIE = "session";
 
@@ -45,4 +46,11 @@ export async function createSession(
 export async function deleteSession() {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE);
+  cookieStore.delete(COOKIE_NAV_COLAPSADA);
+}
+
+/** Solo al iniciar sesión: renovar el JWT por cambio de contraseña conserva el menú. */
+export async function limpiarPreferenciaNavegacion() {
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAV_COLAPSADA);
 }

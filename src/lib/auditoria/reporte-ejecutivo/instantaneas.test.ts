@@ -19,7 +19,8 @@ beforeEach(() => vi.resetAllMocks());
 describe("instantáneas de reportes", () => {
   test("misma clave por período y selección, sin importar orden o duplicados", () => {
     expect(claveAlcanceReporte(desde, hasta, [2, 1, 2])).toBe(claveAlcanceReporte(desde, hasta, [1, 2]));
-    expect(claveAlcanceReporte(desde, hasta, null)).toBe(claveAlcanceReporte(desde, hasta, []));
+    // null = todas las publicadas; [] = ninguna (sin avances nuevos): alcances distintos.
+    expect(claveAlcanceReporte(desde, hasta, null)).not.toBe(claveAlcanceReporte(desde, hasta, []));
     expect(claveAlcanceReporte(desde, hasta, null)).not.toBe(claveAlcanceReporte(desde, hasta, [1, 2]));
     expect(claveAlcanceReporte(desde, hasta, [1])).not.toBe(claveAlcanceReporte(hasta, hasta, [1]));
   });

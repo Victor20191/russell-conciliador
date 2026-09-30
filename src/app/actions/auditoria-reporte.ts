@@ -8,6 +8,7 @@ import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { mensajeErrorOpenCode } from "@/lib/opencode";
 import {
   evaluarAdopcion,
+  soloFuncionalidadesNuevas,
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import {
@@ -314,7 +315,9 @@ export async function generarReporteEjecutivoUso(
     };
   }
 
-  const versionIds = parsed.data.versionIds?.length
+  // Ausente → todas las publicadas; lista vacía → ninguna (no hay avances nuevos
+  // desde el último envío y el reporte NO debe repetir los ya comunicados).
+  const versionIds = parsed.data.versionIds
     ? Array.from(new Set(parsed.data.versionIds)).sort((a, b) => a - b)
     : null;
 
@@ -464,7 +467,9 @@ export async function generarReporteEjecutivoUso(
     } = crearContextoNovedades(versiones, filtro);
 
     const conteos = conteosPorFamiliaCanon(eventos, usuariosRegistrados);
-    const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
+    // La adopción se mide solo sobre funcionalidades NUEVAS; las mejoras y
+    // correcciones se cuentan en su propia sección del documento.
+    const adopcion = evaluarAdopcion({ cambios: soloFuncionalidadesNuevas(planos), conteosPorFamilia: conteos });
 
     // El documento se arma ENTERO en código —cifras y lectura editorial—, así
     // que dos generaciones del mismo período son idénticas. Antes la frase
@@ -611,7 +616,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     });
     const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({
-      cambios: planos,
+      cambios: soloFuncionalidadesNuevas(planos),
       conteosPorFamilia: conteosPorFamiliaCanon(eventos, nombresDelReporte(usuarios)),
     });
     const comparativo = await construirComparativoUso({

@@ -9,7 +9,7 @@ import {
   type LoginState,
   type ActionState,
 } from "@/lib/definitions";
-import { createSession, deleteSession } from "@/lib/session";
+import { createSession, deleteSession, limpiarPreferenciaNavegacion } from "@/lib/session";
 import { verifySession, getCurrentUser } from "@/lib/dal";
 import { getClientIp, getUserAgent } from "@/lib/request";
 import { registrarAcceso } from "@/lib/access-log";
@@ -84,6 +84,7 @@ export async function login(
       },
     });
     await createSession(user.id, user.role, user.sessionVersion);
+    await limpiarPreferenciaNavegacion();
 
     // Registro de acceso (ingreso). Best-effort: registrarAcceso nunca lanza.
     await registrarAcceso({
@@ -108,8 +109,8 @@ export async function login(
 }
 
 export async function logout() {
-  // El cierre de sesión debe ser resiliente: si deleteSession falla, se registra
-  // y se continúa al login igualmente. El redirect() va fuera del try.
+  // Limpiar la sesión y su preferencia incluso si falla el registro de salida.
+  // Si deleteSession falla, se registra y se continúa al login igualmente.
   try {
     // Capturar quién cierra ANTES de borrar la cookie (después no hay sesión).
     const user = await getCurrentUser();
@@ -124,6 +125,10 @@ export async function logout() {
         userAgent: await getUserAgent(),
       });
     }
+  } catch (e) {
+    registrarError("logout", e);
+  }
+  try {
     await deleteSession();
   } catch (e) {
     registrarError("logout", e);

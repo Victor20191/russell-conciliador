@@ -13,7 +13,7 @@
 export const MODELO_REPORTE_DETERMINISTA = "determinista";
 
 export const MODELO_REPORTE_EJECUTIVO_USO =
-  process.env.OPENCODE_MODEL?.trim() || "kimi-k3";
+  process.env.OPENCODE_MODEL?.trim() || "qwen3.8-max";
 const TEMPERATURA_ENV = Number(process.env.OPENCODE_TEMPERATURE ?? "0");
 export const TEMPERATURA_REPORTE_EJECUTIVO_USO =
   Number.isFinite(TEMPERATURA_ENV) && TEMPERATURA_ENV >= 0 && TEMPERATURA_ENV <= 2
