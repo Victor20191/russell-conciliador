@@ -21,11 +21,12 @@ const renglon = (codigo: string, total: number, s: Partial<RenglonConsolidadoNom
   clasificador: agrupador ? `${codigo} ∥ ${agrupador}` : codigo,
   codigo,
   agrupador,
+  cuentaArchivo: null,
   descripcion: null,
   total,
   filas: 1,
   cuentas: [],
-  sugerencia: { cuentas: [], via: "sin_cuenta", motivo: "", destino: "gasto", grupo: null, subcuentaPuc: null, cuentaCliente: null, clase: null, ...s },
+  sugerencia: { cuentas: [], via: "sin_cuenta", motivo: "", destino: "gasto", grupo: null, subcuentaPuc: null, cuentaCliente: null, clase: null, origenCuentaArchivo: null, memoriaDistinta: null, cuentaArchivoReemplazada: null, ...s },
 });
 
 const PREFIJOS = ["5105", "5205", "7205", "7305"];
@@ -276,5 +277,29 @@ describe("cargue SIN centro: la propuesta de los centros y su reparto", () => {
     expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "10" }, cuentas, repartos)).toBeNull();
     expect(pesosRepartoDeCentros({ codigo: "29", agrupador: "" }, cuentas, repartos)).toBeNull();
     expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "" }, ["730506"], repartos)).toBeNull();
+  });
+
+  it("con cuenta del archivo, los pesos de los centros solo toman los repartos de esa cuenta", () => {
+    const repartos = [
+      { clasificador: "1 ∥ 1 # 51050601", valores: { "510506": 600, "720505": 400 } },
+      { clasificador: "1 ∥ 1 # 72050601", valores: { "510506": 5, "720505": 95 } },
+      { clasificador: "1 ∥ 10", valores: { "510506": 10, "720505": 90 } }, // sin cuenta: vale para todas
+    ];
+    const cuentas = ["510506", "720505"];
+    expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "", cuentaArchivo: "51050601" }, cuentas, repartos)).toEqual({ "510506": 610, "720505": 490 });
+    expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "" }, cuentas, repartos)).toEqual({ "510506": 615, "720505": 585 });
+  });
+});
+
+describe("renglones partidos por cuenta del archivo", () => {
+  it("cada renglón entra a la cédula con su cuenta y su valor real", () => {
+    const partidos = [
+      { ...renglon("1", 900, { via: "archivo", cuentas: ["510506"] }, "GYA"), clasificador: "1 ∥ GYA # 51050601", cuentaArchivo: "51050601" },
+      { ...renglon("1", 300, { via: "archivo", cuentas: ["720505"] }, "GYA"), clasificador: "1 ∥ GYA # 72050601", cuentaArchivo: "72050601" },
+    ];
+    expect(entradasCruceFormalNomina(partidos, []).entradas).toEqual([
+      { clasificador: "1 ∥ GYA # 51050601", total: 900, cuentas4: ["510506"] },
+      { clasificador: "1 ∥ GYA # 72050601", total: 300, cuentas4: ["720505"] },
+    ]);
   });
 });

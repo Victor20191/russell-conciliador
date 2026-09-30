@@ -240,6 +240,7 @@ export default async function DatoModuloPage({
         clasificador: c.clasificador,
         codigo: c.codigo,
         agrupador: c.agrupador,
+        cuentaArchivo: c.cuentaArchivo,
         descripcion: c.descripcion,
         total: c.total,
         filas: c.filas,

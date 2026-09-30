@@ -26,7 +26,7 @@ import {
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
 import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
-import type { SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
+import { resumenCuentaArchivo, type SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import type { RepartoAplicadoVm, RepartoPendienteVm, ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
@@ -86,6 +86,8 @@ export type ConsolidadoVm = {
   /** El código del concepto a secas y el centro de costo / clase del archivo. */
   codigo?: string;
   agrupador?: string;
+  /** Cuenta contable del cliente que trae el archivo para el renglón (parte el concepto por cuenta). */
+  cuentaArchivo?: string | null;
   /** Homologación sugerida cuando no hay memoria exacta (o la misma memoria, ya guardada). */
   sugerencia?: SugerenciaConsolidado;
   /** Sus cuentas valen solo para el período del cargue (llevan una cuenta fuera de la cédula). */
@@ -494,8 +496,23 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
         </>
       )}
       {s.via === "multi" && <span className="text-ink-500"> — la porción de cada una la define el auditor en el cruce.</span>}
+      {s.via === "archivo" && s.origenCuentaArchivo === "estructura" && (
+        <span className="ml-1 rounded border border-warn-500 bg-warn-100/40 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
+          sin homologar en el balance
+        </span>
+      )}
       {" "}<span title={s.motivo}>{s.motivo}</span>
       {meta && <span className="text-ink-400"> · {meta}</span>}
+      {s.memoriaDistinta && s.memoriaDistinta.length > 0 && (
+        <span className="block text-ink-600">
+          La memoria del cliente dice {s.memoriaDistinta.join(", ")}: no rige mientras el archivo traiga la cuenta. Para cambiarla en este período, asígnala solo para el período.
+        </span>
+      )}
+      {s.cuentaArchivoReemplazada && (
+        <span className="block text-ink-600">
+          Reemplaza la cuenta {s.cuentaArchivoReemplazada} del archivo solo para este período (aplica a todas las cuentas del archivo de este concepto y centro).
+        </span>
+      )}
       {onUsar && distinta && s.via !== "multi" && (
         <button type="button" onClick={() => onUsar(s.cuentas)} className="ml-1 font-semibold text-blue-700 hover:underline">Usar</button>
       )}
@@ -734,10 +751,22 @@ function ConsolidadoTab({
     autosave.programar(clasificador, cuentas4);
   };
 
+  // Nómina: el archivo trae la cuenta contable del cliente (banner arriba de la tabla).
+  const resumenArchivo = useMemo(() => resumenCuentaArchivo(consolidado), [consolidado]);
+  // Nómina: renglones que ya cruzan por la cuenta contable del archivo. No son propuestas: se ven
+  // resueltos y no piden «Guardar» (guardarlos en la memoria es opcional).
+  const resueltosPorArchivo = useMemo(
+    () => Object.fromEntries(
+      consolidado
+        .filter((c) => c.sugerencia?.via === "archivo" && c.sugerencia.destino === "gasto" && c.sugerencia.cuentas.length === 1)
+        .map((c) => [c.clasificador, c.sugerencia!.cuentas]),
+    ) as Record<string, string[]>,
+    [consolidado],
+  );
   // Lo que se ve y no está grabado: propuestas (sin tocar) y ediciones en camino o con error.
   const pendientes = useMemo(
-    () => renglonesSinGuardar({ clasificadores: consolidado.map((c) => c.clasificador), valores, guardados, tocados }),
-    [consolidado, valores, guardados, tocados],
+    () => renglonesSinGuardar({ clasificadores: consolidado.map((c) => c.clasificador), valores, guardados, tocados, resueltos: resueltosPorArchivo }),
+    [consolidado, valores, guardados, tocados, resueltosPorArchivo],
   );
   const propuestas = useMemo(() => pendientes.filter((p) => p.origen === "propuesta"), [pendientes]);
   // El modal hace falta cuando algo NO se va a grabar solo: una propuesta o un autoguardado que
@@ -902,6 +931,19 @@ function ConsolidadoTab({
   // con las barras arriba y la tabla como lo único que scrollea.
   return (
     <div role="region" aria-label="Consolidado del cargue" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+      {resumenArchivo && (
+        <div className="shrink-0 border-b border-ink-100 bg-ok-100/30 px-3 py-2 text-[11.5px] leading-snug text-ink-700">
+          <b className="text-ok-700">Este archivo trae la cuenta contable del cliente.</b>{" "}
+          {resumenArchivo.porArchivo} {resumenArchivo.porArchivo === 1 ? "renglón cruza" : "renglones cruzan"} por ella y no {resumenArchivo.porArchivo === 1 ? "necesita" : "necesitan"} el catálogo de conceptos
+          {resumenArchivo.control > 0 ? `; ${resumenArchivo.control} van al control de deducciones o quedan fuera del módulo por su cuenta` : ""}
+          {resumenArchivo.reemplazadas > 0 ? `; ${resumenArchivo.reemplazadas} con una cuenta asignada solo para ${periodo}` : ""}
+          {resumenArchivo.sinResolver > 0 ? `; ${resumenArchivo.sinResolver} con una cuenta que no se pudo homologar (revísalos abajo)` : ""}
+          {resumenArchivo.sinCuenta > 0 ? `; ${resumenArchivo.sinCuenta} sin cuenta válida en el archivo siguen por la memoria del cliente` : ""}.
+          {resumenArchivo.porEstructura > 0 && (
+            <span className="text-warn-700"> {resumenArchivo.porEstructura} {resumenArchivo.porEstructura === 1 ? "cuenta no está homologada" : "cuentas no están homologadas"} en el balance (ver Novedades).</span>
+          )}
+        </div>
+      )}
       {agrupadores.length > 0 && (
         // En la vista completa el panel de clases (Nómina) no puede comerse la tabla: se acota.
         <div className={pantallaCompleta ? "max-h-[35vh] shrink-0 overflow-y-auto" : undefined}>
@@ -949,7 +991,7 @@ function ConsolidadoTab({
             <>
               <EstadoGuardado estado={autosave.snapshot.estado} mensaje={autosave.snapshot.mensaje ?? undefined} onReintentar={autosave.reintentar} />
               {propuestas.length > 0 && (
-                <p className="text-[11.5px] text-warn-700" title="Cuentas que el sistema propuso al abrir (por el código del renglón). Se graban cuando las confirmas.">
+                <p className="text-[11.5px] text-warn-700" title="Cuentas que el sistema propuso al abrir (por el código del renglón o, en Nómina, por la memoria o el nombre del concepto). Se graban cuando las confirmas.">
                   {propuestas.length === 1 ? "1 propuesta sin guardar" : `${propuestas.length} propuestas sin guardar`}
                 </p>
               )}
@@ -1011,6 +1053,9 @@ function ConsolidadoTab({
             {consolidadoVisible.map((c) => {
               const asignadas = valores[c.clasificador] ?? [];
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
+              // Nómina: la cuenta ya viene resuelta por el archivo; guardarla en la memoria es opcional.
+              const porArchivo = resueltosPorArchivo[c.clasificador];
+              const resueltaPorArchivo = sucia && !!porArchivo && !tocados.has(c.clasificador) && claveSet(asignadas) === claveSet(porArchivo);
               const guardandoEsta = guardandoClave === c.clasificador;
               const marcada = seleccion.has(c.clasificador);
               const conCuentaDelPeriodo = asignadas.some((cod) => codigosExtra.has(cod));
@@ -1032,6 +1077,10 @@ function ConsolidadoTab({
                     {/* Nómina: centro de costo / clase del archivo al que pertenece el renglón. */}
                     {c.agrupador && (
                       <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 text-[10.5px] font-semibold text-ink-600" title="Centro de costo / clase del archivo">{c.agrupador}</span>
+                    )}
+                    {/* Nómina: cuenta contable del cliente que trae el archivo (un renglón por cuenta). */}
+                    {c.cuentaArchivo && (
+                      <span className="ml-1.5 rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono text-[10.5px] font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo para este concepto">{c.cuentaArchivo}</span>
                     )}
                     {/* Nombre del concepto cuando el clasificador es un código (Nómina). */}
                     {c.descripcion && (
@@ -1120,13 +1169,23 @@ function ConsolidadoTab({
                             <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">pendiente…</span>
                           ) : (
                             <>
-                              <button type="button" disabled={ocupado || !sucia} onClick={() => guardar(c.clasificador)} className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50">
+                              <button
+                                type="button"
+                                disabled={ocupado || !sucia}
+                                onClick={() => guardar(c.clasificador)}
+                                title={resueltaPorArchivo ? "Opcional: deja esta cuenta en la memoria del cliente para los archivos que no traigan la cuenta contable." : undefined}
+                                className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
                                 {/* Gris sin cambios pendientes: si la fila tiene cuentas, dice que YA están
                                     guardadas (TKT-75: «Guardar» apagado se leía como «no se guardó»). */}
-                                {guardandoEsta ? "…" : !sucia && asignadas.length > 0 ? "✓ Guardado" : "Guardar"}
+                                {guardandoEsta ? "…" : !sucia && asignadas.length > 0 ? "✓ Guardado" : resueltaPorArchivo ? "Guardar en memoria" : "Guardar"}
                               </button>
-                              {sucia && (
-                                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700" title="La propuso el sistema al abrir, por el código del renglón. Se graba cuando la confirmas con «Guardar».">
+                              {resueltaPorArchivo ? (
+                                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ok-700" title="La cuenta sale de la cuenta contable que trae el archivo: ya cruza sin guardarla.">
+                                  cuenta del archivo
+                                </span>
+                              ) : sucia && (
+                                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700" title="La propuso el sistema al abrir (por el código del renglón o, en Nómina, por la memoria o el nombre del concepto). Se graba cuando la confirmas con «Guardar».">
                                   propuesta · sin guardar
                                 </span>
                               )}
@@ -2630,6 +2689,18 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
           {v.multi.length > 0 && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800">
               <b>{v.multi.length}</b> concepto(s) cruzan contra varias cuentas y necesitan reparto (pestaña Cruce contable): {v.multi.slice(0, 12).map((c) => `${c.clasificador} → ${c.cuentas.join("/")}`).join("  ·  ")}{v.multi.length > 12 ? " …" : ""}.
+            </div>
+          )}
+          {(v.cuentaArchivoPorEstructura ?? []).length > 0 && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-warn-700">
+              <b>{v.cuentaArchivoPorEstructura.length}</b> concepto(s) cruzan por una cuenta del archivo que el balance no tiene homologada: la cuenta Russell se derivó por su estructura PUC.{" "}
+              {v.cuentaArchivoPorEstructura.slice(0, 12).map((c) => `${c.clasificador}${c.descripcion ? ` ${c.descripcion}` : ""}: ${c.cuentaCliente} → ${c.cuenta6} (${fmtContable(c.total)})`).join("  ·  ")}
+              {v.cuentaArchivoPorEstructura.length > 12 ? " …" : ""}. Homológalas en el balance para que no dependan de la estructura.
+            </div>
+          )}
+          {(v.memoriaDistinta ?? 0) > 0 && (
+            <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-ink-700">
+              <b>{v.memoriaDistinta}</b> concepto(s) tienen en la memoria del cliente otra cuenta que la del archivo: cruzan por la del archivo (el detalle está en cada renglón del Consolidado).
             </div>
           )}
           {v.control.conceptos > 0 && (

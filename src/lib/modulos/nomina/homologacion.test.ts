@@ -4,6 +4,7 @@ import { cuentasCedula6 } from "../cuentas-modulo";
 import {
   claseDeCuentaCliente,
   codigoConceptoCanonico,
+  cuentaArchivoValida,
   cuentaPorGrupo,
   cuentaRussellPorEstructura,
   destinoDeCuentaCliente,
@@ -407,5 +408,64 @@ describe("cargue SIN centro con lo asignado en los centros (Kakaraka, 22/Sep/202
   it("sin la asignación del período, la cuenta de fuera de la cédula no se propone", () => {
     const otroMes: ContextoHomologacion = { ...ctx, cuentasRussell6: cuentasCedula6(MODULOS_IMPORT.NOM) };
     expect(resolverCuentaConcepto({ clasificador: "8" }, otroMes).via).not.toBe("memoria_centros");
+  });
+});
+
+describe("cuenta contable del archivo: origen, precedencia y avisos", () => {
+  const conBalance = { ...ctxVacio, mapeoCliente: new Map([["51050601", "510506"]]) };
+
+  it("cuentaArchivoValida: al menos 6 dígitos y no comodín", () => {
+    expect(cuentaArchivoValida("5105.06.01")).toBe("51050601");
+    expect(cuentaArchivoValida("12345")).toBeNull();
+    expect(cuentaArchivoValida("000000")).toBeNull();
+    expect(cuentaArchivoValida("99999999")).toBeNull();
+    expect(cuentaArchivoValida(null)).toBeNull();
+  });
+
+  it("dice si la cuenta estaba homologada en el balance o se derivó por estructura", () => {
+    expect(resolverCuentaConcepto({ clasificador: "1", cuentaArchivo: "51050601" }, conBalance).origenCuentaArchivo).toBe("balance");
+    const porEstructura = resolverCuentaConcepto({ clasificador: "23", cuentaArchivo: "51052703" }, ctxVacio);
+    expect(porEstructura).toMatchObject({ via: "archivo", origenCuentaArchivo: "estructura", cuentas: ["510595"] });
+    expect(porEstructura.motivo).toMatch(/no la tiene homologada/);
+  });
+
+  it("la memoria general distinta se avisa, pero manda el archivo", () => {
+    const r = resolverCuentaConcepto(
+      { clasificador: "1", agrupador: "GYA", cuentaArchivo: "51050601" },
+      { ...conBalance, memoria: [{ clasificador: "1", agrupador: "GYA", cuenta6: "510530" }] },
+    );
+    expect(r).toMatchObject({ via: "archivo", cuentas: ["510506"], memoriaDistinta: ["510530"] });
+  });
+
+  it("la memoria igual o guardada para OTRA cuenta del archivo no es distinta", () => {
+    const igual = resolverCuentaConcepto(
+      { clasificador: "1", cuentaArchivo: "51050601" },
+      { ...conBalance, memoria: [{ clasificador: "1", agrupador: "", cuenta6: "510506" }] },
+    );
+    expect(igual.memoriaDistinta).toBeNull();
+    const deOtraCuenta = resolverCuentaConcepto(
+      { clasificador: "1", cuentaArchivo: "51050601" },
+      { ...conBalance, memoria: [{ clasificador: "1", agrupador: "", cuenta6: "720505", cuentaCliente: "72050601" }] },
+    );
+    expect(deOtraCuenta.memoriaDistinta).toBeNull();
+  });
+
+  it("una asignación «Solo {período}» reemplaza la cuenta del archivo en ese cargue", () => {
+    const r = resolverCuentaConcepto(
+      { clasificador: "8", agrupador: "10", cuentaArchivo: "51050601" },
+      { ...conBalance, memoria: [{ clasificador: "8", agrupador: "10", cuenta6: "519505", soloPeriodo: true }] },
+    );
+    expect(r).toMatchObject({ via: "memoria_exacta", cuentas: ["519505"], cuentaArchivoReemplazada: "51050601", cuentaCliente: "51050601", subcuentaPuc: "06" });
+    // La memoria general (sin «Solo período») no la reemplaza.
+    const general = resolverCuentaConcepto(
+      { clasificador: "8", agrupador: "10", cuentaArchivo: "51050601" },
+      { ...conBalance, memoria: [{ clasificador: "8", agrupador: "10", cuenta6: "519505" }] },
+    );
+    expect(general).toMatchObject({ via: "archivo", cuentas: ["510506"], cuentaArchivoReemplazada: null });
+  });
+
+  it("sin cuenta del archivo las vías de memoria no traen campos de la vía archivo", () => {
+    const r = resolverCuentaConcepto({ clasificador: "1" }, { ...ctxVacio, memoria: [{ clasificador: "1", agrupador: "", cuenta6: "510506" }] });
+    expect(r).toMatchObject({ via: "memoria_exacta", origenCuentaArchivo: null, memoriaDistinta: null, cuentaArchivoReemplazada: null });
   });
 });

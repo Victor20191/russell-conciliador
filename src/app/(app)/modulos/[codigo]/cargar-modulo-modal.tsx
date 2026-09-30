@@ -72,6 +72,11 @@ type PropsCarga = {
   confirmarTotal: { rolValor: string } | null;
   /** Con patrón que lee el centro de costo, pregunta si el cargue se separa por centro (Nómina). */
   confirmarAgrupador: boolean;
+  /**
+   * Nómina: con un patrón que lee la cuenta contable del cliente, avisa que los conceptos cruzarán por
+   * esa cuenta y el catálogo de conceptos no hace falta para el cargue.
+   */
+  avisaCuentaArchivo: boolean;
   /** El rol del valor del descriptor: admite una fórmula de varias columnas. */
   rolValor: string;
   /** Ingresos: el valor de una columna de «total» se confirma sin IVA al mapear. */
@@ -256,6 +261,32 @@ function ConfirmarCentroCarga({
   );
 }
 
+/** Rol de la cuenta contable del cliente en el descriptor de Nómina. */
+const ROL_CUENTA = "cuenta";
+
+/**
+ * Nómina: el patrón lee la cuenta contable del cliente. Solo informa: los conceptos cruzarán por esa
+ * cuenta (homologada en el balance o por su estructura PUC) y el catálogo de conceptos de
+ * /config/conceptos-nomina no hace falta para este cargue, salvo en las filas sin cuenta válida.
+ */
+function AvisoCuentaArchivo({ analisis, columna }: { analisis: AnalisisModulo; columna: number }) {
+  const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-ok-500/60 bg-ok-100/30 px-3 py-2.5 text-[11px] leading-snug text-ink-600">
+      <span className="font-medium text-ok-700">
+        El patrón lee la cuenta contable del cliente en la columna {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}.
+      </span>
+      <span>
+        Los conceptos cruzarán por esa cuenta y el catálogo de conceptos no hace falta para este cargue (salvo en las filas sin
+        cuenta válida). Si un concepto trae varias cuentas, queda un renglón por cuenta.
+      </span>
+      {valores.length > 0 && (
+        <span className="min-w-0 break-words text-ink-500">En las primeras filas: {valores.slice(0, 5).join(" · ")}{valores.length > 5 ? " …" : ""}</span>
+      )}
+    </div>
+  );
+}
+
 /** ¿Agregar el archivo al cargue vigente o crear una versión nueva? (solo cuando se ofrece). */
 type DestinoCarga = "agregar" | "nueva";
 
@@ -403,6 +434,7 @@ function CargarModal({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
   confirmarContenido,
@@ -1112,6 +1144,9 @@ function CargarModal({
               respuesta={separarCentro}
               onResponder={setSepararCentro}
             />
+          )}
+          {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
+            <AvisoCuentaArchivo analisis={analisis} columna={spec.columnas[ROL_CUENTA] ?? 0} />
           )}
           {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
           {confirmarTotal ? (

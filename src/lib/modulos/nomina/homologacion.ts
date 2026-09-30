@@ -7,6 +7,10 @@
 //  1. `archivo`         la fila trae la cuenta contable del cliente (rol `cuenta`, o la columna
 //                       de la clase del agrupador en Buk) y esa cuenta ya está homologada en el
 //                       balance (`cuentas_cliente`, RF-NOM-10) o su estructura PUC la resuelve.
+//                       Manda sobre la memoria general (si la memoria dice otra cuenta, se avisa
+//                       en `memoriaDistinta`), pero una asignación «Solo {período}» la reemplaza
+//                       para ese cargue (`cuentaArchivoReemplazada`). Con ella el catálogo de
+//                       conceptos no hace falta (30/Sep/2026).
 //  2. `memoria_exacta`  la memoria del cliente tiene el par (concepto, agrupador).
 //  3. `memoria_clase`   la memoria tiene el concepto sin agrupador y una REGLA DE CLASE del
 //                       agrupador (GYA → 51, MOD → 72): la cuenta base se transpone a esa clase.
@@ -200,6 +204,8 @@ export type FilaHomologacion = {
   cuentaCliente?: string | null;
   grupo?: string | null;
   subcuentaPuc?: string | null;
+  /** La fila es una asignación SOLO para el período del cargue (`asignacion_periodo_modulo`). */
+  soloPeriodo?: boolean;
 };
 
 export type EntradaConcepto = {
@@ -241,7 +247,29 @@ export type ResolucionConcepto = {
   cuentaCliente: string | null;
   /** Explicación corta para la UI. */
   motivo: string;
+  /**
+   * Vía `archivo` resuelta: la cuenta del cliente estaba homologada en el balance, o se derivó
+   * por su estructura PUC (cruza igual, pero Novedades la lista para revisarla).
+   */
+  origenCuentaArchivo: "balance" | "estructura" | null;
+  /**
+   * Vía `archivo`: lo que diría la memoria general del cliente cuando no coincide con la cuenta
+   * del archivo. Solo informa: el renglón cruza por el archivo.
+   */
+  memoriaDistinta: string[] | null;
+  /** Cuenta del archivo que una asignación «Solo {período}» reemplazó en este cargue. */
+  cuentaArchivoReemplazada: string | null;
 };
+
+/**
+ * Cuenta contable que trae una fila del archivo, si sirve para homologar: sus dígitos cuando son
+ * al menos 6 y no es un comodín («000000»). `null` si no. Es la misma regla con que el GROUP BY
+ * del cargue (`gruposNominaDelCargue`) parte el renglón por cuenta.
+ */
+export function cuentaArchivoValida(v: unknown): string | null {
+  const d = digitosCuenta(v);
+  return d.length >= 6 && !esCuentaComodin(d) ? d : null;
+}
 
 function claveMemoria(clasificador: string, agrupador: string): string {
   return `${codigoConceptoCanonico(clasificador)}|${agrupador.trim().toUpperCase()}`;
@@ -300,6 +328,9 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
     subcuentaPuc: null,
     cuentaCliente: null,
     motivo: "",
+    origenCuentaArchivo: null,
+    memoriaDistinta: null,
+    cuentaArchivoReemplazada: null,
     ...over,
   });
 
@@ -310,6 +341,24 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
     const sub = subcuentaPucDe(d);
     const grupo = grupoPorSubcuentaPuc(sub) ?? sugerirGrupoConcepto(entrada.nombre);
     const destino = destinoDeCuentaCliente(d);
+    // Una asignación «Solo {período}» del par (concepto, centro) reemplaza la cuenta del archivo en
+    // ESTE cargue: es la corrección explícita del auditor. Rige para todas las cuentas del archivo
+    // del par (la asignación del período no distingue cuenta).
+    const delPeriodo = (idx.get(claveMemoria(clasificador, agrupador)) ?? []).filter((f) => f.soloPeriodo);
+    const cuentasPeriodo = [...new Set(delPeriodo.map((f) => digitosCuenta(f.cuenta6)).filter((c) => c.length === 6))];
+    if (cuentasPeriodo.length > 0) {
+      return base({
+        cuentas: cuentasPeriodo,
+        via: cuentasPeriodo.length > 1 ? "multi" : "memoria_exacta",
+        destino: "gasto",
+        clase: cuentasPeriodo.length === 1 ? claseDeCuentaRussell(cuentasPeriodo[0]) : claseRegla,
+        grupo,
+        subcuentaPuc: sub,
+        cuentaCliente: d,
+        cuentaArchivoReemplazada: d,
+        motivo: `Asignación solo para el período: reemplaza la cuenta ${d} del archivo.`,
+      });
+    }
     const r = resolverCuentaClienteARussell(d, ctx.mapeoCliente);
     // Un pasivo que la cédula SÍ concilia (cesantías 251010, homologada en el balance) cruza como
     // cualquier cuenta del módulo; el resto de pasivos va al control de deducciones.
@@ -325,7 +374,11 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
         grupo,
         subcuentaPuc: sub,
         cuentaCliente: d,
-        motivo: r.origen === "balance" ? `Cuenta ${d} del archivo, homologada en el balance a ${r.cuenta6}.` : `Cuenta ${d} del archivo, derivada por su estructura PUC a ${r.cuenta6}.`,
+        origenCuentaArchivo: r.origen,
+        memoriaDistinta: memoriaDistintaDelArchivo(ctx, clasificador, agrupador, claseRegla, d, r.cuenta6, entrada.nombre, base),
+        motivo: r.origen === "balance"
+          ? `Cuenta ${d} del archivo, homologada en el balance a ${r.cuenta6}.`
+          : `Cuenta ${d} del archivo, derivada por su estructura PUC a ${r.cuenta6}: el balance no la tiene homologada.`,
       });
     }
     // Clase «00» (SIIGO) o cuenta sin homologar: se sigue con la memoria, guardando la subcuenta.
@@ -346,6 +399,35 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
   }
 
   return resolverDesdeMemoria(clasificador, agrupador, claseRegla, idx, ctx, entrada.nombre, base);
+}
+
+/**
+ * Lo que diría la memoria GENERAL del cliente para el renglón, cuando no coincide con la cuenta que
+ * resolvió el archivo. Solo cuentan las filas que aplican a esta cuenta del archivo: sin cuenta del
+ * cliente (asignación a mano) o con la misma; una fila guardada para OTRA cuenta del archivo es de
+ * otro renglón. Las propuestas (memoria de los centros, sugerencia por nombre) no cuentan. `null`
+ * si la memoria no dice nada distinto.
+ */
+function memoriaDistintaDelArchivo(
+  ctx: ContextoHomologacion,
+  clasificador: string,
+  agrupador: string,
+  claseRegla: ClaseNomina | null,
+  cuentaArchivo: string,
+  cuentaResuelta: string,
+  nombre: string | null | undefined,
+  base: (o: Partial<ResolucionConcepto>) => ResolucionConcepto,
+): string[] | null {
+  const aplicables = ctx.memoria.filter((f) => {
+    if (f.soloPeriodo || codigoConceptoCanonico(f.clasificador) !== clasificador) return false;
+    const cliente = digitosCuenta(f.cuentaCliente);
+    return cliente === "" || cliente === cuentaArchivo;
+  });
+  if (aplicables.length === 0) return null;
+  const r = resolverDesdeMemoria(clasificador, agrupador, claseRegla, indexarMemoria(aplicables), ctx, nombre, base);
+  if (r.destino !== "gasto" || !["memoria_exacta", "memoria_clase", "multi"].includes(r.via)) return null;
+  const cuentas = [...new Set(r.cuentas)].sort();
+  return cuentas.length > 0 && !(cuentas.length === 1 && cuentas[0] === cuentaResuelta) ? cuentas : null;
 }
 
 function resolverDesdeMemoria(

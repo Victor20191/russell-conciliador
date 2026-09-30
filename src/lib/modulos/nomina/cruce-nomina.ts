@@ -35,7 +35,15 @@ export type FilaBalanceNomina = {
 };
 
 export type CuentaSubcuenta = { cuenta8: string; nombre: string; clase: string; valor: number };
-export type ConceptoSubcuenta = { clasificador: string; codigo: string; agrupador: string; descripcion: string | null; total: number };
+export type ConceptoSubcuenta = {
+  clasificador: string;
+  codigo: string;
+  agrupador: string;
+  /** Cuenta contable del cliente que trae el archivo para el renglón (distingue renglones hermanos). */
+  cuentaArchivo?: string | null;
+  descripcion: string | null;
+  total: number;
+};
 
 export type FilaSubcuentaNomina = {
   subcuenta: string;
@@ -95,6 +103,7 @@ const conceptoDe = (r: RenglonConsolidadoNomina): ConceptoSubcuenta => ({
   clasificador: r.clasificador,
   codigo: r.codigo,
   agrupador: r.agrupador,
+  cuentaArchivo: r.cuentaArchivo,
   descripcion: r.descripcion,
   total: r.total,
 });
@@ -226,6 +235,7 @@ export type RepartoPendienteVm = {
   clasificador: string;
   codigo: string;
   agrupador: string;
+  cuentaArchivo?: string | null;
   descripcion: string | null;
   total: number;
   cuentas: string[];
@@ -241,6 +251,7 @@ export type RepartoAplicadoVm = {
   clasificador: string;
   codigo: string;
   agrupador: string;
+  cuentaArchivo?: string | null;
   descripcion: string | null;
   total: number;
   cuentas: string[];
@@ -273,6 +284,7 @@ export function repartosAplicadosNomina(
       clasificador: r.clasificador,
       codigo: r.codigo,
       agrupador: r.agrupador,
+      cuentaArchivo: r.cuentaArchivo,
       descripcion: r.descripcion,
       total: r.total,
       cuentas: [...r.sugerencia.cuentas],
@@ -311,10 +323,11 @@ export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4
  * sus centros en el mismo período (claves «código ∥ centro»): Σ por cuenta candidata. Un cargue
  * que no se separa por centro vuelve a pedir el reparto del concepto entero; así se propone el
  * mismo que decidió por centro (`sugerirReparto` lo ajusta en proporción si el total cambió).
- * null si el renglón tiene centro o ningún reparto por centro toca sus cuentas.
+ * null si el renglón tiene centro o ningún reparto por centro toca sus cuentas. Un renglón con cuenta
+ * del archivo solo toma los repartos de esa misma cuenta (o de renglones sin cuenta).
  */
 export function pesosRepartoDeCentros(
-  renglon: { codigo: string; agrupador: string },
+  renglon: { codigo: string; agrupador: string; cuentaArchivo?: string | null },
   cuentas: readonly string[],
   repartos: readonly RepartoConcepto[],
 ): Record<string, number> | null {
@@ -323,8 +336,9 @@ export function pesosRepartoDeCentros(
   const candidatas = new Set(cuentas);
   const pesos: Record<string, number> = Object.fromEntries(cuentas.map((c) => [c, 0]));
   for (const rep of repartos) {
-    const { clasificador, agrupador } = partirClaveConsolidado(rep.clasificador);
+    const { clasificador, agrupador, cuentaArchivo } = partirClaveConsolidado(rep.clasificador);
     if (!agrupador || codigoConceptoCanonico(clasificador) !== codigo) continue;
+    if (renglon.cuentaArchivo && cuentaArchivo && cuentaArchivo !== renglon.cuentaArchivo) continue;
     for (const [cuenta, valor] of Object.entries(rep.valores)) {
       if (candidatas.has(cuenta) && Number.isFinite(valor)) pesos[cuenta] = redondear(pesos[cuenta] + valor);
     }

@@ -142,3 +142,27 @@ describe("crearExportacionModulo · cruce por tercero", () => {
     expect([ws.getCell("A7").value, ws.getCell("E7").value, ws.getCell("H7").value, ws.getCell("I7").value]).toEqual(["Totales", 850, 750, 100]);
   });
 });
+
+describe("crearExportacionModulo · Nómina con la cuenta contable en el archivo", () => {
+  it("la hoja Consolidado añade «Cuenta del archivo» y «Origen» solo cuando vienen", async () => {
+    const base = { columnas: COLUMNAS, clasificadorEtiqueta: "Código del concepto", detalle: [], meta: { ...META, modulo: "Nómina" } };
+    const wb = await abrir(await crearExportacionModulo({
+      ...base,
+      consolidado: [
+        { clasificador: "1 ∥ GYA # 51050601", descripcion: "SUELDO", total: 900, filas: 3, cuentas4: [{ codigo: "510506", nombre: "Sueldos" }], cuentaArchivo: "51050601", origen: "Cuenta del archivo" },
+        { clasificador: "23", descripcion: "TRANSPORTE", total: 10, filas: 1, cuentas4: [], cuentaArchivo: null, origen: "Propuesta sin confirmar" },
+      ],
+    }));
+    const con = wb.getWorksheet("Consolidado")!;
+    expect(con.getCell("F4").value).toBe("Cuenta del archivo");
+    expect(con.getCell("G4").value).toBe("Origen");
+    expect(con.getCell("F5").value).toBe("51050601");
+    expect(con.getCell("G5").value).toBe("Cuenta del archivo");
+    expect(con.getCell("E6").value).toBe("Sin asignar");
+    // La fórmula del total sigue en la columna D.
+    expect(formula(con, "D7")).toBe("SUM(D5:D6)");
+
+    const sinCuenta = await abrir(await crearExportacionModulo({ ...base, consolidado: [{ clasificador: "1", total: 5, filas: 1, cuentas4: [] }] }));
+    expect(sinCuenta.getWorksheet("Consolidado")!.getCell("F4").value).toBeNull();
+  });
+});

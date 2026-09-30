@@ -521,6 +521,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
             clasificador: r.clasificador,
             codigo: r.codigo,
             agrupador: r.agrupador,
+            cuentaArchivo: r.cuentaArchivo,
             descripcion: r.descripcion,
             total: r.total,
             cuentas: [...r.sugerencia.cuentas],

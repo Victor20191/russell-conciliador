@@ -47,18 +47,21 @@ const aFila = (f: FilaCruda): FilaDetalleCargue => ({
 });
 
 /**
- * El consolidado de Nómina sin leer el detalle: un renglón por (concepto, centro) con sus cifras
- * y el valor más repetido de los roles que la homologación necesita. `mode()` de PostgreSQL es
- * exactamente la `moda` que hacía el código con las filas en memoria.
+ * El consolidado de Nómina sin leer el detalle: un renglón por (concepto, centro, cuenta del
+ * archivo) con sus cifras y el valor más repetido de los roles que la homologación necesita.
+ * `mode()` de PostgreSQL es exactamente la `moda` que hacía el código con las filas en memoria, y
+ * la cuenta del archivo se normaliza con la misma regla de `cuentaArchivoValida` (solo dígitos, al
+ * menos 6 y que no sea un comodín como «000000»): un concepto registrado en dos cuentas son dos
+ * renglones, cada uno con su valor real. Es la especificación de `agruparDetalleNomina`.
  */
 export async function gruposNominaDelCargue(encabezadoId: number): Promise<GrupoNominaAgregado[]> {
   const { rows } = await poolLectura().query<{
     clasificador: string | null;
     agrupador: string | null;
+    cuenta: string;
     filas: string;
     total: string;
     concepto: string | null;
-    cuenta: string | null;
     cuenta_admin: string | null;
     cuenta_ventas: string | null;
     cuenta_mod: string | null;
@@ -66,30 +69,34 @@ export async function gruposNominaDelCargue(encabezadoId: number): Promise<Grupo
   }>(
     `SELECT clasificador,
             COALESCE(btrim(datos->>'agrupador'), '') AS agrupador,
+            CASE WHEN c.d ~ '^[0-9]{6,}$' AND c.d !~ '^([0-9])\\1+$' THEN c.d ELSE '' END AS cuenta,
             count(*)::text AS filas,
             sum(valor)::text AS total,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'concepto'), '')) AS concepto,
-            mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuenta'), '')) AS cuenta,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaAdmin'), '')) AS cuenta_admin,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaVentas'), '')) AS cuenta_ventas,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaMOD'), '')) AS cuenta_mod,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaMOI'), '')) AS cuenta_moi
        FROM modulo_dato_detalle
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN datos ? 'cuenta' THEN regexp_replace(COALESCE(datos->>'cuenta', ''), '[^0-9]', '', 'g') ELSE '' END AS d
+      ) c
       WHERE encabezado_id = $1 AND imputable
-      GROUP BY 1, 2`,
+      GROUP BY 1, 2, 3`,
     [encabezadoId],
   );
   return rows.map((r) => {
     const codigo = r.clasificador?.trim() || "(sin clasificar)";
     const agrupador = r.agrupador?.trim() ?? "";
+    const cuenta = r.cuenta || null;
     return {
-      clasificador: claveConsolidado(codigo, agrupador),
+      clasificador: claveConsolidado(codigo, agrupador, cuenta),
       codigo,
       agrupador,
       filas: Number(r.filas),
       total: Math.round(Number(r.total) * 100) / 100,
       concepto: r.concepto,
-      cuenta: r.cuenta,
+      cuenta,
       cuentaAdmin: r.cuenta_admin,
       cuentaVentas: r.cuenta_ventas,
       cuentaMOD: r.cuenta_mod,
@@ -220,4 +227,23 @@ export async function paginaDetalleCargue(input: {
   const filtradas = filtrarFilasDetalleModulo(rows.map(aFila), [...columnas], input.filtros, (fila, columna) =>
     columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna));
   return { filas: filtradas.slice(desde, desde + limite), total: filtradas.length };
+}
+
+/**
+ * Nombre de cada concepto en un cargue de Nómina (el más repetido de sus filas). Al guardar un
+ * renglón que cruza por la cuenta del archivo, el cliente puede no tener catálogo de conceptos: la
+ * memoria no sabe el nombre y se toma de aquí. Lee solo esos códigos del cargue.
+ */
+export async function nombresConceptoDelCargue(encabezadoId: number, codigos: readonly string[]): Promise<Map<string, string>> {
+  const unicos = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
+  if (unicos.length === 0) return new Map();
+  const { rows } = await poolLectura().query<{ clasificador: string; concepto: string | null }>(
+    `SELECT btrim(clasificador) AS clasificador,
+            mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'concepto'), '')) AS concepto
+       FROM modulo_dato_detalle
+      WHERE encabezado_id = $1 AND imputable AND btrim(clasificador) = ANY($2::text[])
+      GROUP BY 1`,
+    [encabezadoId, unicos],
+  );
+  return new Map(rows.filter((r) => r.concepto).map((r) => [r.clasificador, r.concepto as string]));
 }
