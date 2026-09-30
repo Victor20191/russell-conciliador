@@ -14,7 +14,8 @@ import { PageSizeSelect, PaginationControls, usePagination } from "@/components/
 import { Card, Chip, EmptyState } from "@/components/ui";
 import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import { fmtContable } from "@/lib/format";
-import { archivosDeVersion } from "@/lib/modulos/archivos-carga";
+import { archivosRotuladosDeVersion } from "@/lib/modulos/archivos-carga";
+import { INFO_CONTENIDO_ARCHIVO, type ContenidoArchivo, type ContenidoArchivoCargue } from "@/lib/modulos/ingresos/contenido-archivo";
 import {
   contarPeriodosPorEstado,
   ESTADOS_PERIODO_MODULO,
@@ -51,6 +52,10 @@ export type PeriodoModuloRow = {
   hoja: string | null;
   /** De aquí se derivan los anexos por fraccionamiento (ver `archivosDeVersion`). */
   observaciones: string | null;
+  /** Lote del archivo principal: empareja su contenido declarado. */
+  loteId: string | null;
+  /** Qué trae cada archivo del cargue (Ingresos); null en cargues anteriores o en otros módulos. */
+  contenidoArchivos: ContenidoArchivoCargue[] | null;
   origen: string | null;
   cargadoPor: string | null;
   fecha: string;
@@ -61,6 +66,23 @@ export type PeriodoModuloRow = {
   /** Conciliación del período cerrada (en firme); null si no se ha cerrado o se desbloqueó. */
   conciliacionCerrada: { cerradoPor: string; cerradoEn: string; encabezadoId: number } | null;
 };
+
+/** Qué trae un archivo del cargue (Ingresos): «Facturas», «Notas crédito» o ambas. */
+function RotuloContenido({ contenido, invertido }: { contenido: ContenidoArchivo; invertido: boolean }) {
+  const notas = contenido === "notas_credito";
+  return (
+    <span
+      className={`rounded px-1 text-[9.5px] font-medium uppercase tracking-wide ${notas ? "bg-warn-100 text-warn-700" : "bg-blue-50 text-navy-700"}`}
+      title={notas
+        ? invertido
+          ? "Archivo de notas crédito: venía en positivo y se cambió a negativo para que reste."
+          : "Archivo de notas crédito: ya venía en negativo y se dejó con su signo."
+        : `Archivo declarado como «${INFO_CONTENIDO_ARCHIVO[contenido].rotulo}» al cargarlo.`}
+    >
+      {INFO_CONTENIDO_ARCHIVO[contenido].rotulo}
+    </span>
+  );
+}
 
 /** Una tarjeta del listado de cargados: el cliente y sus períodos. */
 export type GrupoClienteRow = {
@@ -93,6 +115,7 @@ export default function ModulosDatosClient({
   confirmarAgrupador,
   rolValor,
   confirmarValorSinImpuestos,
+  confirmarContenido,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -100,6 +123,7 @@ export default function ModulosDatosClient({
   clasificadorRol: string;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  confirmarContenido: boolean;
   /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
   conNivelCartera: boolean;
   clientes: ClienteModulo[];
@@ -136,6 +160,7 @@ export default function ModulosDatosClient({
             confirmarAgrupador={confirmarAgrupador}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            confirmarContenido={confirmarContenido}
           />
         )}
       </div>
@@ -168,6 +193,7 @@ export default function ModulosDatosClient({
         confirmarAgrupador={confirmarAgrupador}
         rolValor={rolValor}
         confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+        confirmarContenido={confirmarContenido}
       />
     </div>
   );
@@ -192,6 +218,7 @@ function CargadosPorCliente({
   confirmarAgrupador,
   rolValor,
   confirmarValorSinImpuestos,
+  confirmarContenido,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -211,6 +238,7 @@ function CargadosPorCliente({
   confirmarAgrupador: boolean;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  confirmarContenido: boolean;
 }) {
   const [estado, setEstado] = useState<EstadoPeriodoModulo | null>(null);
   const conteoEstados = useMemo(() => contarPeriodosPorEstado(grupos), [grupos]);
@@ -303,7 +331,8 @@ function CargadosPorCliente({
                 {grupo.periodos.map((p) => {
                   // Archivos que componen la versión vigente: el principal + los anexados
                   // por fraccionamiento. Más de uno = carga fraccionada (se avisa con chip).
-                  const archivos = archivosDeVersion(p.archivoNombre, p.hoja, p.observaciones);
+                  const archivos = archivosRotuladosDeVersion(p.archivoNombre, p.hoja, p.observaciones, p.contenidoArchivos, p.loteId);
+                  const principal = archivos.find((a) => !a.esAnexo) ?? null;
                   const anexos = archivos.filter((a) => a.esAnexo);
                   // El principal SIEMPRE existe aunque el cargue legado no guardara su
                   // nombre (por eso 1 + anexos, no `archivos.length`: ahí faltaría uno).
@@ -357,6 +386,7 @@ function CargadosPorCliente({
                             · hoja «{p.hoja}»
                           </span>
                         )}
+                        {principal?.contenido && <RotuloContenido contenido={principal.contenido} invertido={principal.signoInvertido} />}
                         {/* AVISO de carga fraccionada: el período no salió de un solo
                             archivo, sino del principal más N anexos. Se destaca aquí
                             porque el detalle de abajo es fácil de pasar por alto. */}
@@ -402,6 +432,7 @@ function CargadosPorCliente({
                           {anexo.hoja && (
                             <span className="text-[10.5px] text-ink-400">· hoja «{anexo.hoja}»</span>
                           )}
+                          {anexo.contenido && <RotuloContenido contenido={anexo.contenido} invertido={anexo.signoInvertido} />}
                         </span>
                       ))}
                       <span className="block text-[10.5px] text-ink-400">{etiquetaOrigen(p.origen)}</span>
@@ -428,12 +459,8 @@ function CargadosPorCliente({
                           </span>
                           <span className="whitespace-nowrap text-[10px] text-ink-400">por {p.conciliacionCerrada.cerradoPor}</span>
                         </span>
-                      ) : estadoPeriodoModulo(p) === "congelado" ? (
-                        <Chip label="Congelado" tone="blue" />
-                      ) : estadoPeriodoModulo(p) === "vigente" ? (
-                        <Chip label="Vigente" tone="ok" />
                       ) : (
-                        <Chip label="Histórica" tone="ink" />
+                        <Chip label="Vigente" tone="ok" />
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-[11px] text-ink-500">
@@ -472,6 +499,7 @@ function CargadosPorCliente({
                             confirmarAgrupador={confirmarAgrupador}
                             rolValor={rolValor}
                             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+                            confirmarContenido={confirmarContenido}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

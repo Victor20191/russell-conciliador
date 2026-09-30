@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  cedulaDelPeriodo,
   cedulaMixta,
   cedulaModulo,
   claveCedula,
@@ -10,6 +11,8 @@ import {
   cuentas6ACargarCedula,
   cuentasCedula6,
   entradasValorRelacionado,
+  esAdicionalCedula,
+  esCuentaExtraPosible,
   filtrarCuentasEstandarPorModulo,
   filtrarSubgruposPorModulo,
   fueraDeListaCedula,
@@ -17,6 +20,7 @@ import {
   opcionesCedula,
   ordenClaveCedula,
   prefijosCuentaModulo,
+  subgrupoDeLaCedula,
   subgruposCedula,
 } from "./cuentas-modulo";
 import { MODULOS_IMPORT } from "./descriptores";
@@ -238,5 +242,79 @@ describe("cédula contable con ampliaciones del descriptor", () => {
     const claves = ["1520", "159205", "1516", "159210", "159299", "1504"];
     const ordenadas = [...claves].sort((a, b) => (ordenClaveCedula(afi, a) < ordenClaveCedula(afi, b) ? -1 : 1));
     expect(ordenadas).toEqual(["1504", "1516", "159205", "1520", "159210", "159299"]);
+  });
+});
+
+describe("cédula a 4 con lista de subgrupos (Inventarios, Activos fijos)", () => {
+  const conLista = (codigo: "INV" | "AFI", subgrupos4: string[]) => ({
+    ...MODULOS_IMPORT[codigo],
+    cedula: { ...MODULOS_IMPORT[codigo].cedula, subgrupos4 },
+  });
+
+  test("sin lista toma los subgrupos de los prefijos, como antes", () => {
+    const inv = cedulaModulo(MODULOS_IMPORT.INV, ["14"]);
+    expect(inv.lista4).toBeNull();
+    expect(subgrupoDeLaCedula(inv, "1435")).toBe(true);
+    expect([...subgruposCedula(inv, subgrupos)].sort()).toEqual(["1405", "1435"]);
+  });
+
+  test("la lista manda: un subgrupo quitado deja de entrar aunque esté bajo la regla", () => {
+    const inv = cedulaModulo(conLista("INV", ["1405"]), ["14"]);
+    expect([...subgruposCedula(inv, subgrupos)]).toEqual(["1405"]);
+    expect(cuentaAsignableCedula(inv, "1405")).toBe(true);
+    expect(cuentaAsignableCedula(inv, "1435")).toBe(false);
+    expect(opcionesCedula(inv, subgrupos, []).map((s) => s.codigo)).toEqual(["1405"]);
+    // Sigue teniendo clave: una asignación legada conserva su renglón, contra un contable en cero.
+    expect(claveCedula(inv, "143505")).toBe("1435");
+  });
+
+  test("un subgrupo de la lista fuera de la regla entra como adicional", () => {
+    const inv = cedulaModulo(conLista("INV", ["1330", "1405"]), ["14"]);
+    expect([...inv.adicionales4]).toEqual(["1330"]);
+    expect(subgruposCedula(inv, subgrupos).has("1330")).toBe(true);
+    expect(cuentaAsignableCedula(inv, "1330")).toBe(true);
+    expect(esAdicionalCedula(inv, "133005", "1330")).toBe(true);
+    expect(esAdicionalCedula(inv, "140505", "1405")).toBe(false);
+    // Sigue siendo una cédula de 4: los subgrupos adicionales no la vuelven mixta.
+    expect(cedulaMixta(inv)).toBe(false);
+    expect([...longitudesCedula(inv)]).toEqual([4]);
+  });
+
+  test("cambiar la regla del prevalidador no cambia qué concilia el módulo", () => {
+    const descriptor = conLista("INV", ["1405", "1435"]);
+    const conGrupo = cedulaModulo(descriptor, ["14"]);
+    const partida = cedulaModulo(descriptor, ["1405"]);
+    const sinRegla = cedulaModulo(descriptor, prefijosCuentaModulo("INV", [{ moduloCodigo: "INV", cuentaRussell: "14", activa: false }]));
+    for (const cedula of [conGrupo, partida, sinRegla]) {
+      expect([...subgruposCedula(cedula, subgrupos)].sort()).toEqual(["1405", "1435"]);
+      expect(opcionesCedula(cedula, subgrupos, []).map((s) => s.codigo)).toEqual(["1405", "1435"]);
+    }
+    // Lo único que cambia es por dónde se valora: con la regla o como adicional (mismo signo de clase).
+    expect([...partida.adicionales4]).toEqual(["1435"]);
+  });
+
+  test("lo quitado de la lista se puede asignar solo para el período", () => {
+    const inv = cedulaModulo(conLista("INV", ["1405"]), ["14"]);
+    expect(esCuentaExtraPosible(inv, "1435")).toBe(true);
+    const delPeriodo = cedulaDelPeriodo(inv, ["1435"]);
+    expect(subgruposCedula(delPeriodo, subgrupos).has("1435")).toBe(true);
+    expect(esAdicionalCedula(delPeriodo, "143505", "1435")).toBe(true);
+    // La lista del módulo no cambia.
+    expect([...delPeriodo.lista4 ?? []]).toEqual(["1405"]);
+  });
+
+  test("Activos fijos: la 1592 abierta siempre concilia y no se asigna", () => {
+    const afi = cedulaModulo(conLista("AFI", ["1520"]), ["15"]);
+    expect([...afi.lista4 ?? []].sort()).toEqual(["1520", "1592"]);
+    expect(claveCedula(afi, "159210")).toBe("159210");
+    expect(cuentaAsignableCedula(afi, "1592")).toBe(false);
+    expect(cuentaAsignableCedula(afi, "1520")).toBe(true);
+    expect(cuentaAsignableCedula(afi, "1516")).toBe(false);
+  });
+
+  test("una lista vacía no acota (como la de 6 dígitos) y a 6 dígitos no aplica", () => {
+    expect(cedulaModulo(conLista("INV", []), ["14"]).lista4).toBeNull();
+    const nom = cedulaModulo({ ...MODULOS_IMPORT.NOM, cedula: { ...MODULOS_IMPORT.NOM.cedula, subgrupos4: ["5105"] } }, ["5105"]);
+    expect(nom.lista4).toBeNull();
   });
 });

@@ -3,6 +3,7 @@
 // 0 = «no existe») tiene cada rol del módulo, más la hoja y las filas de encabezado/datos.
 // Es lo que el wizard edita, el perfil guarda por huella, y el transform aplica.
 import * as z from "zod";
+import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
 
 /**
  * Mapeo de columnas de un módulo. `columnas` se llavea por el `nombre` interno del
@@ -106,6 +107,11 @@ export const SpecModuloSchema = z.object({
   // no del formato, así que nunca se guardan en el perfil del cliente.
   trmCierre: z.number().positive().optional(),
   fechaCorte: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Qué trae ESTE archivo (Ingresos): facturas, notas crédito o ambas. Lo declara el analista en
+  // cada carga (`confirmarContenidoEnCarga`); es del cargue, no del formato, así que nunca se
+  // guarda en el perfil ni en el patrón. Con «notas_credito» el motor decide el signo del archivo
+  // entero y rotula sus renglones (`ingresos/contenido-archivo.ts`).
+  contenidoArchivo: z.enum(CONTENIDOS_ARCHIVO).optional(),
   // Fila ROTULADA de tercero (SEVEN): «PROVEEDOR | NIT | nombre» en columnas de otros roles, con
   // los documentos debajo. El identificador solo existe en esas filas.
   filaTercero: z.object({

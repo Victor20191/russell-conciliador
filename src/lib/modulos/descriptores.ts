@@ -157,8 +157,9 @@ export type ValorRelacionadoCedula = {
 
 /**
  * Lo que la cédula contable concilia además de los prefijos del prevalidador. `cuentas6` y
- * `cuentasAdicionales` son valores de FÁBRICA: los vigentes se administran en /config/prevalidador
- * (`resolverDescriptorVigente`); los subgrupos abiertos y el valor relacionado siguen aquí.
+ * `cuentasAdicionales` son valores de FÁBRICA y `subgrupos4` no tiene: los vigentes se administran en
+ * /config/prevalidador (`resolverDescriptorVigente`); los subgrupos abiertos y el valor relacionado
+ * siguen aquí.
  */
 export interface ConfiguracionCedula {
   /**
@@ -166,6 +167,13 @@ export interface ConfiguracionCedula {
    * sobre `crucePorTercero.cuentasRussell6` para la cédula y deja intacto el cruce por tercero.
    */
   cuentas6?: readonly string[];
+  /**
+   * Subgrupos de 4 que concilia una cédula a 4 (Inventarios, Activos fijos): las cuentas PROPIAS del
+   * módulo, independientes de las reglas del prevalidador. SIN valor de fábrica: ausente = todos los
+   * subgrupos bajo los prefijos (cómo se concilió hasta el 29/Sep/2026). La pone
+   * `resolverDescriptorVigente` desde /config/prevalidador o desde el cierre en firme.
+   */
+  subgrupos4?: readonly string[];
   cuentasAdicionales?: readonly CuentaAdicionalCedula[];
   subgruposAbiertos?: readonly SubgrupoAbiertoCedula[];
   valorRelacionado?: ValorRelacionadoCedula;
@@ -217,6 +225,13 @@ export type DescriptorModulo = {
    * solo por concepto; vale solo para ese cargue (`aplicarAgrupadorDeCarga`).
    */
   confirmarAgrupadorEnCarga?: boolean;
+  /**
+   * La carga pregunta SIEMPRE qué trae el archivo —facturas y notas crédito, solo facturas o solo
+   * notas crédito— (Ingresos). Con «solo notas crédito» el motor invierte el signo del archivo si
+   * viene en positivo y lleva sus filas a renglones propios del Consolidado. Vale solo para ese
+   * cargue (`aplicarContenidoDeCarga`, `ingresos/contenido-archivo.ts`).
+   */
+  confirmarContenidoEnCarga?: boolean;
   /**
    * El valor se concilia contra cuentas SIN impuestos (Ingresos → la 41). Cuando la columna o la
    * fórmula del valor lleva «total» en el rótulo, el editor pregunta UNA vez —al mapear— si
@@ -619,6 +634,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // respuestas que guardaron). La confirmación de que el valor excluye el IVA se hace UNA vez, al
     // mapear la columna o la fórmula del valor, y queda en el patrón o en el perfil del cliente.
     confirmarValorSinImpuestos: true,
+    // Facturas y notas crédito pueden venir juntas o en archivos aparte (29/Sep/2026): cada carga
+    // declara qué trae, y un archivo de solo notas crédito en positivo se invierte para que reste.
+    confirmarContenidoEnCarga: true,
   },
 
   // ===== Nómina (NOM) → gasto y costo de personal a SEIS dígitos =====

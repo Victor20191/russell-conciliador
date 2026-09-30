@@ -1187,7 +1187,9 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       // cuentas en firme son idénticas, se congela y el cierre se traslada a esta versión
       // —con confirmación explícita del usuario—; si alguna cambia, se rechaza con el
       // detalle. La decisión se toma aquí dentro, en la transacción; la UI solo anticipa.
-      const cierresPeriodo = await cierresFirmes(balance.clienteId, balance.periodo, tx);
+      // Los cierres son los del MES DE CORTE del balance (su fecha fin), no solo los de su período:
+      // congelar «Diciembre 2025» se juzga contra lo conciliado con «Enero – Diciembre 2025».
+      const cierresPeriodo = await cierresFirmes(balance.clienteId, balance, tx);
       const cierresAjenos = cierresPeriodo.filter((c) => c.balanceEncabezadoId !== id);
       let traslado: { cierres: typeof cierresAjenos; cuentasEnFirme: number } | null = null;
       if (cierresAjenos.length > 0) {
@@ -1196,7 +1198,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           await tomarCandadoTransaccion(tx, `conciliacion-cierre:${balance.clienteId}:${c.moduloCodigo}:${c.periodo}`);
         }
         const [bloqueadas, filasNuevas] = await Promise.all([
-          cuentasBloqueadas(balance.clienteId, balance.periodo, undefined, tx),
+          cuentasBloqueadas(balance.clienteId, balance, undefined, tx),
           tx.balancePruebaDetalle.findMany({
             where: { encabezadoId: id },
             select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
@@ -1288,9 +1290,16 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       // cuenta no cambia (idéntica por el predicado); la protección contra eliminar el
       // balance conciliado y el enlace «Ver balance» del módulo siguen al nuevo oficial.
       if (traslado) {
+        // El cierre puede venir de un balance con otro período y la misma fecha fin: pasa a nombrar
+        // el de esta versión, igual que sus cuentas en firme.
+        const cierreIds = traslado.cierres.map((c) => c.id);
         await tx.conciliacionModuloCierre.updateMany({
-          where: { id: { in: traslado.cierres.map((c) => c.id) } },
-          data: { balanceEncabezadoId: id },
+          where: { id: { in: cierreIds } },
+          data: { balanceEncabezadoId: id, balancePeriodo: balance.periodo },
+        });
+        await tx.cuentaBloqueadaConciliacion.updateMany({
+          where: { cierreId: { in: cierreIds } },
+          data: { periodo: balance.periodo },
         });
       }
 
@@ -1434,6 +1443,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
               nombreCliente: true,
               nit: true,
               periodo: true,
+              periodoFin: true,
               estaCongelado: true,
             },
           },
@@ -1458,7 +1468,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       // nueva hacia las cuentas Russell de un módulo cerrado en este período.
       const bloqueoFirme = await bloqueoHomologacionBalance({
         clienteId: filaActual.encabezado.clienteId,
-        balancePeriodo: filaActual.encabezado.periodo,
+        balance: { periodo: filaActual.encabezado.periodo, periodoFin: filaActual.encabezado.periodoFin },
         cuenta8: filaActual.cuenta8,
         cuenta6: filaActual.cuenta6,
         alcanceGrupo: alcanceMapeo === "grupo",
@@ -1622,7 +1632,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
           cuenta8: true,
           nombreCuenta: true,
           encabezado: {
-            select: { id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, estaCongelado: true },
+            select: { id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, periodoFin: true, estaCongelado: true },
           },
         },
       });
@@ -1644,7 +1654,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       // Conciliación EN FIRME: dejar pendiente retira la homologación de la cuenta.
       const bloqueoFirme = await bloqueoHomologacionBalance({
         clienteId: filaActual.encabezado.clienteId,
-        balancePeriodo: filaActual.encabezado.periodo,
+        balance: { periodo: filaActual.encabezado.periodo, periodoFin: filaActual.encabezado.periodoFin },
         cuenta8: filaActual.cuenta8,
         cuenta6: filaActual.cuenta6,
         alcanceGrupo: alcanceMapeo === "grupo",
@@ -1858,7 +1868,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
 
     const encabezado = await tx.balancePruebaEncabezado.findUnique({
       where: { id },
-      select: { clienteId: true, periodo: true, estaCongelado: true },
+      select: { clienteId: true, periodo: true, periodoFin: true, estaCongelado: true },
     });
     if (!encabezado) return { ok: false as const, message: "Balance inexistente." };
     if (encabezado.clienteId !== referencia.clienteId || encabezado.periodo !== referencia.periodo) {
@@ -1917,7 +1927,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
 
     // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas.
     const cuentasQueCambian = [...porDestino.values()].flatMap((g) => g.cuentas);
-    const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado.periodo, { cuentas: cuentasQueCambian }, tx);
+    const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado, { cuentas: cuentasQueCambian }, tx);
     if (enFirme.length > 0) {
       const cierres = [...new Map(enFirme.map((b) => [b.cierre.id, b.cierre])).values()];
       await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres, detalle: enFirme.slice(0, 5).map((b) => b.cuenta8).join(", ") });
@@ -2591,10 +2601,16 @@ async function persistirCargue(p: {
 
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
 
-    // Conciliación EN FIRME: si un módulo cerró su cruce contra este período, la
-    // versión nueva no puede alterar las cuentas conciliadas (importes, homologación,
-    // ausencia) ni meter cuentas nuevas al módulo. Lanza y revierte todo el commit.
-    await exigirCargueCompatibleConCierres(p.clientId, p.period, filasDet, tx);
+    // Conciliación EN FIRME: si un módulo cerró su cruce contra un balance que termina en la
+    // MISMA FECHA (no tiene que ser el mismo período: enero a diciembre protege a diciembre), el
+    // balance nuevo no puede alterar las cuentas conciliadas (saldo final, homologación, ausencia
+    // con saldo) ni meter cuentas nuevas con saldo al módulo. Lanza y revierte todo el commit.
+    await exigirCargueCompatibleConCierres(
+      p.clientId,
+      { periodo: p.period, periodoFin: fechaCalendarioPrisma(p.periodos.final) },
+      filasDet,
+      tx,
+    );
 
     // Versionado correlativo por (cliente, período). El candado evita que dos
     // cargues simultáneos calculen la misma versión antes de insertar.
@@ -5511,7 +5527,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
           cuenta8: true,
           nombreCuenta: true,
           encabezado: {
-            select: { id: true, clienteId: true, periodo: true, estaCongelado: true },
+            select: { id: true, clienteId: true, periodo: true, periodoFin: true, estaCongelado: true },
           },
         },
       });
@@ -5533,7 +5549,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
       // Conciliación EN FIRME: una cuenta conciliada no se elimina de ninguna versión del período.
       const bloqueoFirme = await bloqueoHomologacionBalance({
         clienteId: filaActual.encabezado.clienteId,
-        balancePeriodo: filaActual.encabezado.periodo,
+        balance: { periodo: filaActual.encabezado.periodo, periodoFin: filaActual.encabezado.periodoFin },
         cuenta8: filaActual.cuenta8,
         cuenta6: filaActual.cuenta8.slice(0, 6),
         alcanceGrupo: false,

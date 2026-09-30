@@ -29,6 +29,14 @@ import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import { tieneValorFormula, validarValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { confirmacionValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
+import { fmt } from "@/lib/format";
+import {
+  CONTENIDOS_ARCHIVO,
+  INFO_CONTENIDO_ARCHIVO,
+  ofertaAnexo,
+  type ContenidoArchivo,
+  type VigentePeriodoModulo,
+} from "@/lib/modulos/ingresos/contenido-archivo";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -68,6 +76,8 @@ type PropsCarga = {
   rolValor: string;
   /** Ingresos: el valor de una columna de «total» se confirma sin IVA al mapear. */
   confirmarValorSinImpuestos: boolean;
+  /** Ingresos: cada carga declara si el archivo trae facturas, notas crédito o ambas. */
+  confirmarContenido: boolean;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -246,6 +256,72 @@ function ConfirmarCentroCarga({
   );
 }
 
+/** ¿Agregar el archivo al cargue vigente o crear una versión nueva? (solo cuando se ofrece). */
+type DestinoCarga = "agregar" | "nueva";
+
+/**
+ * «¿Qué trae este archivo?» (Ingresos): facturas y notas crédito, solo facturas o solo notas
+ * crédito. Vale solo para este cargue. Si el período ya tiene un cargue y este archivo lo
+ * complementa (notas crédito sobre facturas, o al revés), ofrece agregarlo en vez de crear una
+ * versión nueva que lo reemplace.
+ */
+function ConfirmarContenidoCarga({
+  contenido,
+  onContenido,
+  vigente,
+  destino,
+  onDestino,
+}: {
+  contenido: ContenidoArchivo | null;
+  onContenido: (valor: ContenidoArchivo) => void;
+  /** Cargue vigente del período; null en «Agregar archivo» o si el período no tiene cargue. */
+  vigente: VigentePeriodoModulo | null;
+  destino: DestinoCarga | null;
+  onDestino: (valor: DestinoCarga) => void;
+}) {
+  const oferta = ofertaAnexo(contenido, vigente);
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        ¿Qué trae este archivo? <span className="text-err-600">*</span>
+      </span>
+      <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Qué trae este archivo?">
+        {CONTENIDOS_ARCHIVO.map((c) => (
+          <label key={c} className="inline-flex items-center gap-1.5">
+            <input type="radio" name="contenido-archivo" checked={contenido === c} onChange={() => onContenido(c)} />
+            {INFO_CONTENIDO_ARCHIVO[c].opcion}
+          </label>
+        ))}
+      </div>
+      {contenido && (
+        <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ARCHIVO[contenido].ayuda}</span>
+      )}
+      {oferta.ofrecer && vigente && (
+        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+          <span className="text-[11px] font-medium text-ink-700">
+            {vigente.periodo} ya tiene la v{vigente.version} cargada ({vigente.filas.toLocaleString("es-CO")} filas · total {fmt(vigente.total)}).
+            ¿Este archivo es parte de ese cargue? <span className="text-err-600">*</span>
+          </span>
+          <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Agregar al cargue existente?">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga" checked={destino === "agregar"} onChange={() => onDestino("agregar")} />
+              Sí, agregarlo a la v{vigente.version} (se suma a lo cargado)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga" checked={destino === "nueva"} onChange={() => onDestino("nueva")} />
+              No, crear una versión nueva que reemplace a la v{vigente.version}
+            </label>
+          </div>
+        </div>
+      )}
+      {oferta.aviso && (
+        <span className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
+      )}
+      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón y el mapeo guardado no se modifican.</span>
+    </div>
+  );
+}
+
 const formatoNumeroMarca = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 6 });
 const celdaTxtVisible = (v: CeldaMuestra): string => (
   typeof v === "number" ? formatoNumeroMarca.format(v) : celdaTxt(v)
@@ -329,6 +405,7 @@ function CargarModal({
   confirmarAgrupador,
   rolValor,
   confirmarValorSinImpuestos,
+  confirmarContenido,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -366,6 +443,9 @@ function CargarModal({
   const [totalArchivo, setTotalArchivo] = useState<"si" | "no" | null>(null);
   // «¿Separar por centro de costo?» (solo este cargue, Nómina): sin respuesta hasta que el analista elija.
   const [separarCentro, setSepararCentro] = useState<"si" | "no" | null>(null);
+  // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
+  const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
+  const [destinoCarga, setDestinoCarga] = useState<DestinoCarga | null>(null);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -387,6 +467,8 @@ function CargarModal({
     setClasificadorConfirmado(false);
     setTotalArchivo(null);
     setSepararCentro(null);
+    setContenido(null);
+    setDestinoCarga(null);
     setFase("archivo");
   };
 
@@ -497,6 +579,8 @@ function CargarModal({
         if (hojaArg) fd.set("hoja", hojaArg);
         if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
         fd.set("softwareOrigen", aplicativo.nombre);
+        // Solo para ubicar el cargue vigente del período (oferta de agregar un archivo de notas crédito).
+        if (!anexo && /^\d{4}-\d{2}$/.test(mes)) fd.set("periodo", mes);
         fd.set("archivo", archivoRef.current!);
         const r = await analizarArchivoModulo(fd);
         if (r.recepcionLoteId) setRecepcionLoteId(r.recepcionLoteId);
@@ -518,6 +602,8 @@ function CargarModal({
         setClasificadorConfirmado(false);
         setTotalArchivo(null);
         setSepararCentro(null);
+        setContenido(null);
+        setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
@@ -569,6 +655,11 @@ function CargarModal({
     const celdaTotalLista = (spec.subtotalesColumna ?? 0) >= 1 && marcaManualLista && Number.isInteger(filaManual) && spec.subtotalesFila === filaManual;
     const pedirCentro = porPatron && confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1;
     if (pedirCentro && separarCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
+    // Ingresos: qué trae el archivo, y si complementa el cargue del período, a dónde va.
+    const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
+    const oferta = ofertaAnexo(contenido, vigentePeriodo);
+    if (confirmarContenido && contenido == null) { notifyError("Indica qué trae este archivo."); return; }
+    if (oferta.ofrecer && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
     if (pedirTotal) {
       if (totalArchivo == null) { notifyError("Indica si el archivo trae el valor total."); return; }
@@ -607,7 +698,9 @@ function CargarModal({
       fd.set("periodoFin", `${mes}-01`);
       fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
+      if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
+      else if (oferta.ofrecer && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await leerDatosModulo(undefined, fd);
@@ -622,6 +715,21 @@ function CargarModal({
       }
     });
   };
+
+  /** Al elegir qué trae el archivo, agregar al cargue vigente queda propuesto cuando se ofrece. */
+  const elegirContenido = (valor: ContenidoArchivo) => {
+    setContenido(valor);
+    setDestinoCarga(ofertaAnexo(valor, anexo ? null : analisis?.vigentePeriodo ?? null).ofrecer ? "agregar" : null);
+  };
+  const preguntaContenido = confirmarContenido && analisis ? (
+    <ConfirmarContenidoCarga
+      contenido={contenido}
+      onContenido={elegirContenido}
+      vigente={anexo ? null : analisis.vigentePeriodo ?? null}
+      destino={destinoCarga}
+      onDestino={setDestinoCarga}
+    />
+  ) : null;
 
   const cambiarFilaMarcaTotales = (fila: string) => {
     solicitudCeldaRef.current += 1;
@@ -984,6 +1092,7 @@ function CargarModal({
               {analisis.periodosDetectados.length > 1 && ` Entran las filas de ${mes.slice(0, 4)} hasta ${mes}; las posteriores y las de años anteriores quedan fuera (se concilia contra el saldo final del balance a ese corte).`}
             </p>
           )}
+          {preguntaContenido}
           {confirmarClasificador && clasificadorPatron && (
             <ConfirmarClasificadorCarga
               analisis={analisis}
@@ -1064,6 +1173,7 @@ function CargarModal({
             Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
             {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
           </p>
+          {preguntaContenido}
           <EditorMapeoModulo
             analisis={analisis}
             spec={spec}

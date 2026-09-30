@@ -3,6 +3,7 @@ import {
   baseCalculoPorDefecto,
   catalogoPrevalidadorDeFabrica,
   esBaseCalculo,
+  mapearCatalogoPrevalidador,
   normalizarPrefijo,
   ordenModulo,
   PREVALIDADOR_CATALOGO_FABRICA,
@@ -23,21 +24,17 @@ describe("catálogo de fábrica del prevalidador", () => {
     expect([...usados].sort()).toEqual(["AFI", "CAR", "CXP", "ING", "INV", "NOM"]);
   });
 
-  it("cada fila de fábrica lleva la base de cálculo que le toca por su clase", () => {
-    // Cazaría una siembra incoherente (p. ej. la 7205 marcada como "saldo").
+  it("todas las filas de fábrica van por saldo final, también Ingresos y Nómina (28/Sep/2026)", () => {
     for (const f of PREVALIDADOR_CATALOGO_FABRICA) {
-      expect(f.baseCalculo, `fila ${f.cuentaRussell}`).toBe(baseCalculoPorDefecto(f.cuentaRussell));
+      expect(f.baseCalculo, `fila ${f.moduloCodigo} ${f.cuentaRussell}`).toBe("saldo");
+      expect(f.baseCalculo).toBe(baseCalculoPorDefecto(f.cuentaRussell));
     }
   });
 
-  it("las cuentas de balance van por saldo y las de resultado por movimiento", () => {
-    expect(baseCalculoPorDefecto("13")).toBe("saldo");
-    expect(baseCalculoPorDefecto("22")).toBe("saldo");
-    expect(baseCalculoPorDefecto("3105")).toBe("saldo");
-    expect(baseCalculoPorDefecto("41")).toBe("movimiento");
-    expect(baseCalculoPorDefecto("5105")).toBe("movimiento");
-    expect(baseCalculoPorDefecto("7205")).toBe("movimiento");
-    expect(baseCalculoPorDefecto("")).toBe("saldo");
+  it("una fila nueva nace en saldo final sin importar la clase", () => {
+    for (const codigo of ["13", "22", "3105", "41", "5105", "7205", "7305", ""]) {
+      expect(baseCalculoPorDefecto(codigo), codigo).toBe("saldo");
+    }
   });
 
   it("reconoce las bases de cálculo válidas", () => {
@@ -58,6 +55,32 @@ describe("catálogo de fábrica del prevalidador", () => {
     expect(ordenModulo("ING")).toBe(0);
     expect(ordenModulo("NOM")).toBe(5);
     expect(ordenModulo("XXX")).toBe(999);
+  });
+
+  it("mapea las filas crudas de la consulta (vigente o congelada) con las mismas reglas", () => {
+    const cruda = {
+      id: 4,
+      cuentaRussell: " 51.05 ",
+      etiqueta: null,
+      baseCalculo: "movimiento",
+      orden: 50,
+      activa: true,
+      module: { code: "NOM", name: "Nómina" },
+    };
+    expect(mapearCatalogoPrevalidador([cruda])).toEqual([{
+      id: 4,
+      moduloCodigo: "NOM",
+      moduloNombre: "Nómina",
+      moduloOrden: 5,
+      cuentaRussell: "5105",
+      etiqueta: null,
+      baseCalculo: "movimiento",
+      orden: 50,
+      activa: true,
+    }]);
+    expect(() => mapearCatalogoPrevalidador([{ ...cruda, baseCalculo: "promedio" }])).toThrow(/base de cálculo inválida/);
+    expect(() => mapearCatalogoPrevalidador([{ ...cruda, module: { code: "DIAN", name: "DIAN" } }])).toThrow(/alcance aprobado/);
+    expect(() => mapearCatalogoPrevalidador([{ ...cruda, cuentaRussell: "510" }])).toThrow(/nivel 2 o 4/);
   });
 
   it("el fixture de fábrica usa id 0 y resuelve el nombre del módulo", () => {

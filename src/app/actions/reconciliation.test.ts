@@ -134,6 +134,7 @@ function contextoListo(): ContextoPrueba {
       creadoEn: "2026-08-01T12:00:00.000Z",
       huella: "a".repeat(64),
       instantaneaDisponible: true,
+      catalogoCongelado: null,
     },
   };
 }

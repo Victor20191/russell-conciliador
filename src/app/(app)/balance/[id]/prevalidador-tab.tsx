@@ -317,9 +317,17 @@ function RevisionPrevalidador({
             {estaCongelado && <Chip label="Balance congelado" tone="blue" />}
           </div>
           <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-ink-600">
-            La conciliación exige una aprobación vigente de este informe. Cualquier cambio en saldos, homologación,
-            catálogo o cuenta alternativa cambia la huella e invalida automáticamente la revisión anterior.
+            La conciliación exige una aprobación vigente de este informe. Cualquier cambio en saldos, homologación o
+            cuenta alternativa invalida la aprobación. Los cambios posteriores del catálogo no la afectan: el balance
+            conserva el catálogo con que se aprobó.
           </p>
+          {revision.catalogoCongelado?.difiereDelVigente && (
+            <p className="mt-1.5 max-w-3xl rounded-md border border-blue-100 bg-blue-50/60 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-ink-600">
+              Aprobado con el catálogo vigente el {fmtDateTime(revision.catalogoCongelado.desde)}. El catálogo cambió
+              después; este informe se muestra con el de la aprobación. Si revocas la aprobación, se recalcula con el
+              catálogo vigente y hay que aprobarlo otra vez.
+            </p>
+          )}
           {revision.actor && revision.creadoEn && (
             <p className="mt-1.5 text-[11.5px] text-ink-500">
               Última revisión: <span className="font-medium text-ink-700">{revision.actor}</span> · {fmtDateTime(revision.creadoEn)}

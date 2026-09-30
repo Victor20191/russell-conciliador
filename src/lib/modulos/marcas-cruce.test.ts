@@ -10,7 +10,9 @@ import {
   anotarCruceConMarcas,
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
+  destinosMarcaSinRenglon,
   diferenciaAjustadaModulo,
+  motivoNoPasarMarca,
   etiquetaMarca,
   intercalarObservaciones,
   normalizarCuenta4,
@@ -320,5 +322,34 @@ describe("no modulares del saldo sin cuenta (lado del módulo)", () => {
     expect(diferenciaAjustadaModulo(fila, hijos, [])).toBe(-407_648_000);
     expect(diferenciaAjustadaModulo(fila, hijos, ["212020"])).toBe(-320_648_000);
     expect(diferenciaAjustadaModulo(fila, hijos, ["241205", "212020"])).toBe(0);
+  });
+});
+
+describe("marca cuyo renglón ya no aparece: a dónde puede pasar", () => {
+  // La marca era del grupo de seis cuentas; hoy el Consolidado encadenó una cuenta más.
+  const ORIGEN = "410505+417505+420505+421005+422005+425005";
+  const filas = [
+    { cuenta4: "410505+417505+420505+421005+422005+425005+425050" },
+    { cuenta4: "410510" },
+    { cuenta4: "SIN_CUENTA" },
+  ];
+
+  it("propone los renglones que contienen alguna de sus cuentas", () => {
+    expect(destinosMarcaSinRenglon(ORIGEN, filas).map((f) => f.cuenta4)).toEqual([filas[0].cuenta4]);
+    // Si el grupo se partió, cualquiera de las partes es candidata.
+    expect(destinosMarcaSinRenglon(ORIGEN, [{ cuenta4: "410505" }, { cuenta4: "417505+420505" }, { cuenta4: "410510" }]).map((f) => f.cuenta4))
+      .toEqual(["410505", "417505+420505"]);
+    expect(destinosMarcaSinRenglon("SIN_CUENTA", filas)).toEqual([]);
+    expect(destinosMarcaSinRenglon("413505", filas)).toEqual([]);
+  });
+
+  it("solo pasa una marca sin renglón a un renglón vigente que comparta cuentas", () => {
+    const vigentes = new Set(filas.map((f) => f.cuenta4));
+    expect(motivoNoPasarMarca(ORIGEN, filas[0].cuenta4, vigentes)).toBeNull();
+    expect(motivoNoPasarMarca(ORIGEN, "410510", vigentes)).toMatch(/alguna de sus cuentas/);
+    expect(motivoNoPasarMarca(ORIGEN, "499999", vigentes)).toMatch(/ya no aparece/);
+    expect(motivoNoPasarMarca("410510", filas[0].cuenta4, vigentes)).toMatch(/todavía tiene su renglón/);
+    expect(motivoNoPasarMarca("SIN_CUENTA", filas[0].cuenta4, vigentes)).toMatch(/saldo sin cuenta/);
+    expect(motivoNoPasarMarca(ORIGEN, ORIGEN, vigentes)).toMatch(/ya está en ese renglón/);
   });
 });

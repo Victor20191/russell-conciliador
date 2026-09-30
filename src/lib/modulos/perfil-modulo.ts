@@ -12,6 +12,7 @@ export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from
 import { descripcionModoSubtotales } from "./subtotales";
 import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
+import { esContenidoArchivo } from "./ingresos/contenido-archivo";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -154,6 +155,10 @@ function normalizarSpecModuloInterno(
       if (spec.trmCierre != null && spec.trmCierre > 0) normalizado.trmCierre = spec.trmCierre;
       if (spec.fechaCorte) normalizado.fechaCorte = spec.fechaCorte;
     }
+  }
+  // Qué trae ESTE archivo (Ingresos: facturas / notas crédito): es del cargue, nunca del perfil.
+  if (descriptor.confirmarContenidoEnCarga && conservarCoordenadaArchivo && esContenidoArchivo(spec.contenidoArchivo)) {
+    normalizado.contenidoArchivo = spec.contenidoArchivo;
   }
   // El rango de meses del cargue de nómina es de ESTE archivo (el perfil es del formato).
   if (descriptor.nomina?.periodoPorFila && conservarCoordenadaArchivo) {

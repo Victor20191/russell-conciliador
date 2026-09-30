@@ -56,7 +56,7 @@ export function BuscadorListado({ busqueda, setBusqueda }: { busqueda: string; s
   );
 }
 
-/** Filtro por estado del período (Vigente, Cerrado, Congelado, Histórica), con cuántos hay de cada uno. */
+/** Filtro por estado del período (Vigente, Cerrado), con cuántos hay de cada uno. */
 export function FiltroEstadoListado({
   estado,
   setEstado,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crearHuellaPrevalidador } from "./huella";
+import { catalogoCanonico, crearHuellaPrevalidador } from "./huella";
 import type { PrevalidadorVM } from "./calcular";
 
 const balance = {
@@ -49,6 +49,14 @@ describe("crearHuellaPrevalidador", () => {
     const b = crearHuellaPrevalidador({ balance, filas: [otraFila, filas[0]], catalogo, overrides: [...overrides].reverse(), prevalidador });
     expect(a).toBe(b);
     expect(a).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("no depende del orden del catálogo: el congelado y el vigente pueden venir ordenados distinto", () => {
+    const otra = { ...catalogo[0], id: 1, moduloCodigo: "ING", moduloNombre: "Ingresos", moduloOrden: 0, cuentaRussell: "41", orden: 5 };
+    const a = crearHuellaPrevalidador({ balance, filas, catalogo: [catalogo[0], otra], overrides: [], prevalidador });
+    const b = crearHuellaPrevalidador({ balance, filas, catalogo: [otra, catalogo[0]], overrides: [], prevalidador });
+    expect(a).toBe(b);
+    expect(catalogoCanonico([catalogo[0], otra]).map((f) => f.id)).toEqual([1, 2]);
   });
 
   it("cambia ante saldos, homologación, catálogo u override diferentes", () => {

@@ -30,6 +30,14 @@ import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 import { letraColumnaModulo } from "../perfil-modulo";
 import { claveTerminoFormula, evaluarValorFormula, tieneValorFormula } from "./valor-formula";
+import {
+  clasificadorNotaCredito,
+  contarSignos,
+  esContenidoArchivo,
+  invertirNotasCredito,
+  type ContenidoArchivo,
+  type SignoContenido,
+} from "../ingresos/contenido-archivo";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -65,6 +73,9 @@ export type FilaModulo = {
   saldoDivisa?: number;
   moneda?: string;
   trm?: number;
+  /** Ingresos: la fila vino de un archivo declarado «solo notas crédito» (y si se invirtió su signo). */
+  contenido?: ContenidoArchivo;
+  signoInvertido?: boolean;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -85,6 +96,8 @@ export type ResultadoTransformModulo = {
   omitidasMuestra: FilaOmitidaModulo[]; // hasta 8 referencias (filaNum + valor) para el mensaje
   /** Baldes de saldo a favor que el archivo imprime como desglose y NO suman (`saldoFavorRedundante`). */
   edadesNoSumadas?: string[];
+  /** Ingresos: qué declaró el analista que trae el archivo y qué se hizo con su signo. */
+  contenido?: SignoContenido;
 };
 
 /**
@@ -200,7 +213,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // en positivo. Se aplica a los importes al leerlos, así el valor, las edades, el saldo
   // declarado y los controles quedan todos en la misma convención.
   const conDetalleTercero = descriptor.crucePorTercero.detalleTercero === true;
-  const factorSigno = spec.invertirSigno === true && conDetalleTercero ? -1 : 1;
+  // `let`: un archivo de solo notas crédito en positivo (Ingresos) lo invierte más abajo, antes de leer.
+  let factorSigno = spec.invertirSigno === true && conDetalleTercero ? -1 : 1;
   const conSigno = (v: number | null): number | null => (v == null || v === 0 ? v : v * factorSigno);
 
   // Cuando el archivo NO trae la columna del descriptor (ILIMITADA no publica total) pero sí
@@ -381,6 +395,40 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     if (conDivisa === null) avisoSinTrm(filaNum, claveTermino(columna), String(raw));
     return conDivisa !== undefined ? (conDivisa?.valor ?? null) : conSigno(aNumero(raw));
   };
+
+  // ===== INGRESOS: qué trae el archivo (`spec.contenidoArchivo`, declarado en cada carga) =====
+  // Con «solo notas crédito» el SIGNO se decide mirando el archivo entero antes de leer las filas,
+  // como la deducción de nómina: si la mayoría viene en positivo, el archivo se invierte por la
+  // misma vía que la convención de signo (`conSigno`). Así el valor, los términos de la fórmula y
+  // la fila del total quedan en la misma convención y el control de totales sigue cuadrando. Se
+  // cuentan las filas de datos: sin pie del ERP, encabezados repetidos, rótulos «Total…», la celda
+  // del total ubicada por el usuario ni negritas.
+  const contenidoArchivo = descriptor.confirmarContenidoEnCarga && esContenidoArchivo(spec.contenidoArchivo)
+    ? spec.contenidoArchivo
+    : null;
+  let signoContenido: SignoContenido | undefined;
+  if (contenidoArchivo) {
+    const colValor = spec.columnas[descriptor.valor] ?? 0;
+    const crudos: (number | null)[] = [];
+    for (let r = inicio; r < hoja.filas.length; r++) {
+      const fila = hoja.filas[r] ?? [];
+      if (esPieDeReporte(fila) || esFilaDeEncabezado(fila)) continue;
+      if ((spec.subtotalesColumna ?? 0) >= 1 && spec.subtotalesFila === filaFisicaDe(r)) continue;
+      if (esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor)) continue;
+      const rotulo = clasCol >= 1 ? aTexto(celda(fila, clasCol)) : null;
+      if (rotulo != null && esTotal(rotulo)) continue;
+      if (formulaValor) {
+        const evaluado = evaluarValorFormula(formulaValor, (columna) => aNumero(celda(fila, columna)), claveTermino);
+        crudos.push(evaluado.algunDato ? evaluado.valor : null);
+      } else {
+        crudos.push(colValor >= 1 ? aNumero(celda(fila, colValor)) : null);
+      }
+    }
+    const conteo = contarSignos(crudos);
+    const invertido = contenidoArchivo === "notas_credito" && invertirNotasCredito(conteo);
+    if (invertido) factorSigno = -factorSigno;
+    signoContenido = { contenido: contenidoArchivo, invertido, positivos: conteo.positivos, negativos: conteo.negativos };
+  }
 
   // ===== NÓMINA (ver `ConfiguracionNomina`) =====
   const nomina = descriptor.nomina ?? null;
@@ -1002,6 +1050,26 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     filas[i] = { ...sinDeclarado, tipoFila: "agrupadora", ...(motivo ? { motivo } : {}) };
   }
 
+  // INGRESOS · las filas de un archivo de SOLO notas crédito van a renglones PROPIOS del
+  // Consolidado («Notas crédito · <concepto>»), para asignarlas a la 417505 o a la cuenta de la
+  // venta. Se rotula al final, después de detectar subtotales —que comparan «Total <grupo>» con el
+  // clasificador del bloque—, y el subtotal de cada grupo junto con sus filas, así el control
+  // del archivo sigue emparejándolos. El gran total no es de ningún grupo y no se rotula.
+  if (signoContenido?.contenido === "notas_credito") {
+    for (let i = 0; i < filas.length; i++) {
+      const f = filas[i];
+      if (f.tipoFila !== "movimiento" && f.clasificador == null) continue;
+      const rotulado = clasificadorNotaCredito(f.clasificador);
+      filas[i] = {
+        ...f,
+        clasificador: rotulado,
+        datos: { ...f.datos, [descriptor.clasificador]: rotulado },
+        contenido: "notas_credito",
+        ...(signoContenido.invertido ? { signoInvertido: true } : {}),
+      };
+    }
+  }
+
   // PARTE B — RECONCILIACIÓN (red de seguridad): ¿queda alguna fila con valor real por
   // ENCIMA del inicio efectivo que la Parte A no arrastró (p. ej. separada del bloque por
   // un blanco/encabezado intermedio)? Con la Parte A el caso típico ya no pierde nada, pero
@@ -1021,5 +1089,14 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     }
   }
 
-  return { filas, filasLeidas, filasExcluidas, excepciones, filasOmitidasArriba, omitidasMuestra, ...(edadesNoSumadas.length > 0 ? { edadesNoSumadas } : {}) };
+  return {
+    filas,
+    filasLeidas,
+    filasExcluidas,
+    excepciones,
+    filasOmitidasArriba,
+    omitidasMuestra,
+    ...(edadesNoSumadas.length > 0 ? { edadesNoSumadas } : {}),
+    ...(signoContenido ? { contenido: signoContenido } : {}),
+  };
 }

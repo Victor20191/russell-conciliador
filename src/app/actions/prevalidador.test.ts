@@ -11,6 +11,11 @@ const VM_LISTO = {
   modulosConDiferencia: 0,
 };
 
+// Filas crudas del catálogo con que se calculó el informe: son las que congela la aprobación.
+const CATALOGO_CRUDO = [
+  { id: 1, cuentaRussell: "41", etiqueta: null, baseCalculo: "saldo", orden: 10, activa: true, module: { code: "ING", name: "Ingresos" } },
+];
+
 const REVISION_PENDIENTE = {
   estado: "pendiente" as const,
   vigente: false,
@@ -26,6 +31,8 @@ const mocks = vi.hoisted(() => {
   const txBalanceFindUnique = vi.fn();
   const catalogoFindUnique = vi.fn();
   const catalogoFindMany = vi.fn();
+  const catalogoDelete = vi.fn();
+  const queryRaw = vi.fn();
   const detalleCount = vi.fn();
   const overrideFindUnique = vi.fn();
   const overrideFindMany = vi.fn();
@@ -37,9 +44,10 @@ const mocks = vi.hoisted(() => {
   const revisionDeleteMany = vi.fn();
 
   const tx = {
+    $queryRaw: queryRaw,
     balancePruebaEncabezado: { findUnique: txBalanceFindUnique },
     balancePruebaDetalle: { count: detalleCount },
-    prevalidadorCuenta: { findUnique: catalogoFindUnique, findMany: catalogoFindMany },
+    prevalidadorCuenta: { findUnique: catalogoFindUnique, findMany: catalogoFindMany, delete: catalogoDelete },
     prevalidadorCuentaBalance: {
       findUnique: overrideFindUnique,
       findMany: overrideFindMany,
@@ -60,6 +68,8 @@ const mocks = vi.hoisted(() => {
     txBalanceFindUnique,
     catalogoFindUnique,
     catalogoFindMany,
+    catalogoDelete,
+    queryRaw,
     detalleCount,
     overrideFindUnique,
     overrideFindMany,
@@ -127,6 +137,7 @@ vi.mock("@/lib/balance/prevalidador/servidor", () => ({
 
 import {
   aprobarPrevalidadorBalance,
+  eliminarFilaPrevalidador,
   guardarCuentaClientePrevalidador,
   revocarAprobacionPrevalidadorBalance,
 } from "./prevalidador";
@@ -151,6 +162,7 @@ function contexto(prevalidador: unknown = VM_LISTO, revision: unknown = REVISION
     prevalidador,
     revision,
     huella: HUELLA,
+    catalogoCrudo: CATALOGO_CRUDO,
   };
 }
 
@@ -358,7 +370,7 @@ describe("Server Actions del prevalidador", () => {
     expect(mocks.logAudit).not.toHaveBeenCalled();
   });
 
-  it("aprueba únicamente el VM listo y persiste su instantánea con la huella", async () => {
+  it("aprueba únicamente el VM listo y persiste su instantánea, la huella y el catálogo con que se calculó", async () => {
     const resultado = await aprobarPrevalidadorBalance(
       {},
       formRevision("Diferencias revisadas y justificadas"),
@@ -375,6 +387,7 @@ describe("Server Actions del prevalidador", () => {
         instantanea: VM_LISTO,
         actor: "Ana Auditora",
         actorId: 9,
+        catalogoCongelado: { create: { catalogo: CATALOGO_CRUDO, origen: "aprobacion" } },
       },
     });
     expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -426,5 +439,59 @@ describe("Server Actions del prevalidador", () => {
       action: "REVOCÓ APROBACIÓN DEL PREVALIDADOR",
       detail: expect.stringContaining("justificación Se detectó una reclasificación pendiente"),
     }));
+  });
+
+  describe("eliminar una fila del catálogo", () => {
+    function formEliminar(id = "11") {
+      const form = new FormData();
+      form.set("id", id);
+      return form;
+    }
+
+    it("rechaza borrar una fila con cuenta alternativa en balances con el prevalidador aprobado", async () => {
+      mocks.catalogoFindUnique.mockResolvedValue({
+        cuentaRussell: "41",
+        module: { name: "Ingresos" },
+        _count: { overrides: 3 },
+      });
+      mocks.queryRaw.mockResolvedValue([{ balances: 2 }]);
+
+      const resultado = await eliminarFilaPrevalidador({}, formEliminar());
+
+      expect(resultado.ok).toBe(false);
+      expect(resultado.message).toContain("Tiene cuenta alternativa en 2 balance(s) con el prevalidador aprobado");
+      expect(mocks.tomarCandadoTransaccion).toHaveBeenCalledWith(mocks.tx, "prevalidador-catalogo");
+      expect(mocks.catalogoDelete).not.toHaveBeenCalled();
+      expect(mocks.logAudit).not.toHaveBeenCalled();
+    });
+
+    it("borra la fila si sus cuentas alternativas son solo de balances sin aprobación", async () => {
+      mocks.catalogoFindUnique.mockResolvedValue({
+        cuentaRussell: "41",
+        module: { name: "Ingresos" },
+        _count: { overrides: 1 },
+      });
+      mocks.queryRaw.mockResolvedValue([{ balances: 0 }]);
+
+      const resultado = await eliminarFilaPrevalidador({}, formEliminar());
+
+      expect(resultado).toEqual({ ok: true, message: "Cuenta eliminada junto con 1 override(s) de balance." });
+      expect(mocks.catalogoDelete).toHaveBeenCalledWith({ where: { id: 11 } });
+    });
+
+    it("una fila sin cuentas alternativas se borra sin consultar las aprobaciones: el catálogo congelado la conserva", async () => {
+      mocks.catalogoFindUnique.mockResolvedValue({
+        cuentaRussell: "5105",
+        module: { name: "Nómina" },
+        _count: { overrides: 0 },
+      });
+
+      const resultado = await eliminarFilaPrevalidador({}, formEliminar());
+
+      expect(resultado).toEqual({ ok: true, message: "Cuenta eliminada del prevalidador." });
+      expect(mocks.queryRaw).not.toHaveBeenCalled();
+      expect(mocks.catalogoDelete).toHaveBeenCalledWith({ where: { id: 11 } });
+      expect(mocks.updateTag).toHaveBeenCalledWith("prevalidador-catalogo");
+    });
   });
 });

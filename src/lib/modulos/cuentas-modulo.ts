@@ -122,6 +122,14 @@ export type CedulaModulo = {
   lista6: ReadonlySet<string> | null;
   /** Cuentas de 6 adicionales (fuera de los prefijos del prevalidador). */
   adicionales: ReadonlySet<string>;
+  /**
+   * Subgrupos de 4 que concilia una cédula a 4 (`cedula.subgrupos4` más los abiertos, fijos en código):
+   * las cuentas propias del módulo, independientes de las reglas del prevalidador. `null` = sin lista
+   * (el descriptor estático): todos los subgrupos de los prefijos, como antes del 29/Sep/2026.
+   */
+  lista4: ReadonlySet<string> | null;
+  /** Subgrupos de la lista fuera de los prefijos del prevalidador: se concilian como adicionales. */
+  adicionales4: ReadonlySet<string>;
   /** Subgrupo abierto a 6 → naturaleza de presentación de sus cuentas. */
   abiertos: ReadonlyMap<string, "D" | "C">;
   /** Subgrupo del activo → cuenta de 6 donde cruza el valor relacionado. */
@@ -159,12 +167,22 @@ export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, pr
   if (prefijos.length > 0) {
     for (const c of lista) if (c.length === 6 && !cuenta4DelModulo(c.slice(0, 4), prefijos)) adicionales.add(c);
   }
+  const nivel: NivelCruce = descriptor?.nivelCruce === 6 ? 6 : 4;
+  const abiertos = new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza] as const));
+  // A 4, la lista de subgrupos (/config/prevalidador) decide qué entra; los abiertos son fijos en
+  // código. Los de la lista fuera de los prefijos entran como adicionales, igual que a 6. Una lista
+  // vacía no acota (como la de 6 dígitos).
+  const subgrupos4 = nivel === 4 ? (cfg?.subgrupos4 ?? []).map((s) => normalizarPrefijo(s)).filter((s) => s.length === 4) : [];
+  const lista4 = subgrupos4.length > 0 ? new Set([...subgrupos4, ...abiertos.keys()]) : null;
+  const adicionales4 = new Set(lista4 && prefijos.length > 0 ? [...lista4].filter((s) => !cuenta4DelModulo(s, prefijos)) : []);
   return {
-    nivel: descriptor?.nivelCruce === 6 ? 6 : 4,
+    nivel,
     prefijos,
     lista6: lista.length ? new Set(lista) : null,
     adicionales,
-    abiertos: new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza])),
+    lista4,
+    adicionales4,
+    abiertos,
     relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
     rolRelacionado: cfg?.valorRelacionado?.rol ?? null,
     delPeriodo: new Set(),
@@ -203,6 +221,24 @@ export function cuentasDelPeriodo(cedula: CedulaModulo): string[] {
 /** ¿Es una cuenta del período? Por su código de 6 o, en las cédulas a 4, por su subgrupo. */
 export function esCuentaDelPeriodo(cedula: CedulaModulo, cuenta6: string, sub4: string): boolean {
   return cedula.delPeriodo.has(cuenta6) || (cedula.nivel === 4 && cedula.delPeriodo.has(sub4));
+}
+
+/**
+ * ¿La cuenta entra a la cédula sin regla del prevalidador? Una adicional de 6, un subgrupo de la lista
+ * fuera de los prefijos o una cuenta del período: la cuenta misma hace de regla (por saldo final, con
+ * el signo de su clase).
+ */
+export function esAdicionalCedula(cedula: CedulaModulo, cuenta6: string, sub4: string): boolean {
+  return cedula.adicionales.has(cuenta6) || cedula.adicionales4.has(sub4) || esCuentaDelPeriodo(cedula, cuenta6, sub4);
+}
+
+/**
+ * ¿El subgrupo es de la cédula? Con lista (cédula a 4 resuelta) manda la lista, esté o no bajo las
+ * reglas del prevalidador; sin ella, los prefijos.
+ */
+export function subgrupoDeLaCedula(cedula: Pick<CedulaModulo, "lista4" | "prefijos">, sub4: string): boolean {
+  const s = normalizarPrefijo(sub4).slice(0, 4);
+  return cedula.lista4 ? cedula.lista4.has(s) : cuenta4DelModulo(s, cedula.prefijos);
 }
 
 /**
@@ -262,7 +298,7 @@ function cuentaAsignableBase(cedula: CedulaModulo, c: string): boolean {
   if (c.length === 6 && cedula.adicionales.has(c)) return true;
   if (c.length !== cedula.nivel) return false;
   const sub = c.slice(0, 4);
-  if (!cuenta4DelModulo(sub, cedula.prefijos)) return false;
+  if (!subgrupoDeLaCedula(cedula, sub)) return false;
   if (cedula.nivel === 4) return !cedula.abiertos.has(sub);
   return !cedula.lista6 || cedula.lista6.has(c);
 }
@@ -273,11 +309,11 @@ export function longitudesCedula(cedula: CedulaModulo): ReadonlySet<number> {
 }
 
 /**
- * Subgrupos de 4 cuyas cuentas homologadas pueden entrar a la cédula: los de los prefijos más los
- * de las cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
+ * Subgrupos de 4 cuyas cuentas homologadas pueden entrar a la cédula: los de la lista (cédula a 4) o
+ * los de los prefijos, más los de las cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
  */
 export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly SubgrupoOpcion[]): Set<string> {
-  const codigos = new Set(filtrarSubgruposPorModulo(subgrupos, cedula.prefijos).map((s) => s.codigo));
+  const codigos = new Set(cedula.lista4 ?? filtrarSubgruposPorModulo(subgrupos, cedula.prefijos).map((s) => s.codigo));
   for (const c of cedula.adicionales.keys()) codigos.add(c.slice(0, 4));
   for (const c of cedula.delPeriodo.keys()) codigos.add(c.slice(0, 4));
   return codigos;

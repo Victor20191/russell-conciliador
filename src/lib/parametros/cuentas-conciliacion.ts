@@ -1,21 +1,28 @@
-// Cuentas de 6 dígitos que concilia cada módulo (`cuentas_conciliacion_modulo`), administradas en
-// /config/prevalidador. Mismo criterio que el catálogo del prevalidador: se cachea en el Data
-// Cache de Next (tag `CUENTAS_CONCILIACION_CACHE_TAG`, invalidado por la Server Action) y falla
-// CERRADO: un error de BD se propaga, nunca se reemplaza la configuración por la de fábrica.
+// Cuentas de 6 dígitos (`cuentas_conciliacion_modulo`) y subgrupos de 4 (`subgrupos_conciliacion_modulo`)
+// que concilia cada módulo, administrados en /config/prevalidador. Mismo criterio que el catálogo del
+// prevalidador: se cachean en el Data Cache de Next (tag `CUENTAS_CONCILIACION_CACHE_TAG`, invalidado
+// por la Server Action) y fallan CERRADO: un error de BD se propaga, nunca se reemplaza la
+// configuración por la de fábrica. La de fábrica solo cubre un módulo SIN filas o un cierre ilegible.
 //
 // Un cambio rige para todos los cargues, salvo el período con la conciliación en firme: ahí manda
 // la copia que guardó el cierre (o la de fábrica, en los cierres anteriores a esta configuración).
 import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
-import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import { descriptorModulo, MODULOS_IMPORT, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import {
   aplicarCuentasConciliacion,
+  aplicarSubgruposConciliacion,
   cuentasConciliacionDe,
   esOrigenCuentaConciliacion,
   leerCuentasConciliacionGuardadas,
+  leerSubgruposConciliacionGuardados,
   moduloConCuentasConciliacion,
+  moduloConSubgruposConciliacion,
   normalizarCuentaConciliacion,
+  normalizarSubgrupoConciliacion,
+  subgruposConciliacionDeFabrica,
+  subgruposDeCuentasRussellCierre,
   type CuentaConciliacion,
 } from "@/lib/modulos/cuentas-conciliacion";
 import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
@@ -69,15 +76,90 @@ export async function cuentasConciliacionModulo(
   return (await getCuentasConciliacion())[descriptor.codigo] ?? [];
 }
 
+// ===== Subgrupos de 4 dígitos (Inventarios, Activos fijos) =====
+
+type SubgruposPorModulo = {
+  /** Los configurados en /config/prevalidador o, si el módulo no tiene filas, los de fábrica. */
+  vigentes: Record<string, string[]>;
+  /** Los de fábrica: el plan bajo los prefijos de fábrica (respaldo de un cierre ilegible). */
+  fabrica: Record<string, string[]>;
+};
+
+async function leerSubgruposVigentes(): Promise<SubgruposPorModulo> {
+  const [filas, plan] = await Promise.all([
+    prisma.subgrupoConciliacionModulo.findMany({
+      select: { moduloCodigo: true, subgrupo: true },
+      orderBy: [{ moduloCodigo: "asc" }, { subgrupo: "asc" }],
+    }),
+    prisma.subgrupoEstandar.findMany({ select: { codigo: true }, orderBy: { codigo: "asc" } }),
+  ]);
+  const configurados: Record<string, string[]> = {};
+  for (const f of filas) {
+    const subgrupo = normalizarSubgrupoConciliacion(f.subgrupo);
+    if (!subgrupo) throw new Error(`El subgrupo ${f.subgrupo || "vacío"} de ${f.moduloCodigo} no es un subgrupo Russell de 4 dígitos.`);
+    (configurados[f.moduloCodigo] ??= []).push(subgrupo);
+  }
+  const vigentes: Record<string, string[]> = {};
+  const fabrica: Record<string, string[]> = {};
+  for (const descriptor of Object.values(MODULOS_IMPORT)) {
+    const deFabrica = subgruposConciliacionDeFabrica(descriptor, plan);
+    if (!deFabrica) continue;
+    fabrica[descriptor.codigo] = deFabrica;
+    vigentes[descriptor.codigo] = configurados[descriptor.codigo] ?? deFabrica;
+  }
+  return { vigentes, fabrica };
+}
+
+// Mismo tag que las cuentas de 6: un cambio en cualquiera de las dos listas invalida ambas.
+const subgruposCacheados = unstable_cache(leerSubgruposVigentes, ["subgrupos-conciliacion-vigentes"], {
+  tags: [CUENTAS_CONCILIACION_CACHE_TAG],
+});
+
+/** Subgrupos vigentes por código de módulo (solo los que concilian a 4 dígitos). */
+export async function getSubgruposConciliacion(): Promise<Record<string, string[]>> {
+  return (await subgruposCacheados()).vigentes;
+}
+
 /**
- * El descriptor con las cuentas que concilia hoy (o las del cierre en firme del período). Todo el
- * que arme la cédula, el cruce por tercero o el Consolidado de un cargue debe pasar por aquí en
+ * Los subgrupos con que se concilia el módulo: los vigentes o, si el período del cargue tiene la
+ * conciliación en firme, los que guardó el cierre. Un cierre anterior a la lista usa los subgrupos
+ * que quedaron en firme en él (`cuentas_russell`), nunca las reglas vivas del prevalidador. `null` si
+ * el módulo no concilia a 4 dígitos.
+ */
+export async function subgruposConciliacionModulo(
+  descriptor: DescriptorModulo,
+  contexto?: ContextoCuentasConciliacion | null,
+): Promise<string[] | null> {
+  if (!moduloConSubgruposConciliacion(descriptor)) return null;
+  const cache = await subgruposCacheados();
+  if (contexto) {
+    const cierre = await prisma.conciliacionModuloCierre.findUnique({
+      where: { clienteId_moduloCodigo_periodo: { clienteId: contexto.clienteId, moduloCodigo: descriptor.codigo, periodo: contexto.periodo } },
+      select: { estado: true, subgruposConciliacion: true, cuentasRussell: true },
+    });
+    if (cierre?.estado === ESTADO_CIERRE_FIRME) {
+      return leerSubgruposConciliacionGuardados(cierre.subgruposConciliacion)
+        ?? subgruposDeCuentasRussellCierre(cierre.cuentasRussell)
+        ?? cache.fabrica[descriptor.codigo]
+        ?? [];
+    }
+  }
+  return cache.vigentes[descriptor.codigo] ?? [];
+}
+
+/**
+ * El descriptor con las cuentas que concilia hoy (o las del cierre en firme del período): las de 6
+ * dígitos en Ingresos, Cartera, CxP y Nómina; los subgrupos de 4 en Inventarios y Activos fijos. Todo
+ * el que arme la cédula, el cruce por tercero o el Consolidado de un cargue debe pasar por aquí en
  * vez de usar el descriptor estático, que solo trae los valores de fábrica.
  */
 export async function resolverDescriptorVigente(
   descriptor: DescriptorModulo,
   contexto?: ContextoCuentasConciliacion | null,
 ): Promise<DescriptorModulo> {
+  if (moduloConSubgruposConciliacion(descriptor)) {
+    return aplicarSubgruposConciliacion(descriptor, await subgruposConciliacionModulo(descriptor, contexto));
+  }
   return aplicarCuentasConciliacion(descriptor, await cuentasConciliacionModulo(descriptor, contexto));
 }
 
@@ -111,4 +193,22 @@ export async function getCuentasConciliacionVista(): Promise<CuentaConciliacionV
     actualizadoPor: f.actualizadoPor,
     actualizadoEn: f.actualizadoEn.toISOString(),
   }));
+}
+
+export type SubgrupoConciliacionVista = {
+  id: number;
+  moduloCodigo: string;
+  subgrupo: string;
+  actualizadoPor: string | null;
+  actualizadoEn: string; // ISO
+};
+
+/** Subgrupos configurados de un módulo para /config/prevalidador (sin caché, como la del catálogo). */
+export async function getSubgruposConciliacionVista(moduloCodigo: string): Promise<SubgrupoConciliacionVista[]> {
+  const filas = await prisma.subgrupoConciliacionModulo.findMany({
+    where: { moduloCodigo },
+    select: { id: true, moduloCodigo: true, subgrupo: true, actualizadoPor: true, actualizadoEn: true },
+    orderBy: { subgrupo: "asc" },
+  });
+  return filas.map((f) => ({ ...f, actualizadoEn: f.actualizadoEn.toISOString() }));
 }

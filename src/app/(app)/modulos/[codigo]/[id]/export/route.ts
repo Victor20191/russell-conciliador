@@ -13,6 +13,7 @@ import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
+import { INFO_CONTENIDO_ARCHIVO, leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,7 +118,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
         cliente: encabezado.nombreCliente,
         periodo: encabezado.periodo,
         version: encabezado.version,
-        archivo: encabezado.archivoNombre,
+        // Ingresos: cada archivo del cargue con lo que traía («Facturas», «Notas crédito»).
+        archivo: leerContenidoArchivos(encabezado.contenidoArchivos)
+          ?.map((a) => (a.contenido ? `${a.archivo} (${INFO_CONTENIDO_ARCHIVO[a.contenido].rotulo})` : a.archivo))
+          .join(" + ") ?? encabezado.archivoNombre,
         generadoEn,
       },
     });

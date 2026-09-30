@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
+import { INFO_CONTENIDO_ARCHIVO, type ContenidoArchivoCargue } from "@/lib/modulos/ingresos/contenido-archivo";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
@@ -64,6 +65,8 @@ import {
   MAX_REFERENCIA_ANEXO,
   observacionesDeMarcas,
   intercalarObservaciones,
+  destinosMarcaSinRenglon,
+  type MarcaCruce,
   type MarcaPeriodo,
   type FilaCruceMarcada,
   type HijoModuloSinCuenta,
@@ -114,6 +117,8 @@ export type CruceContableVm = {
   sinReglaContableFilas: number;
   /** Las filas del cruce con su marca de auditoría pegada (vacío si no hay balance). */
   filasMarcadas: FilaCruceMarcada[];
+  /** Marcas de cuenta del período cuyo renglón ya no aparece en el cruce. */
+  marcasSinRenglon?: MarcaCruce[];
   resumenMarcas: ResumenMarcas | null;
   /** Cuentas del cliente que componen cada fila: el desglose que se ve al expandirla. */
   detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
@@ -152,6 +157,8 @@ export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
   observaciones: string | null;
+  /** Ingresos: qué trae cada archivo del cargue; null en cargues anteriores o en otros módulos. */
+  archivosCargue?: ContenidoArchivoCargue[] | null;
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
   /** Cartera y CxP: validaciones del auxiliar por tercero (reemplazan las de existencias). */
   tercero?: ValidacionesTercero | null;
@@ -1750,6 +1757,10 @@ function CruceContableTab({
   const router = useRouter();
   // Fila que se está marcando en el modal (null = modal cerrado).
   const [marcando, setMarcando] = useState<FilaCruceMarcada | null>(null);
+  // Marca sin renglón que se pasa a un renglón actual: el editor se abre sobre ese renglón con
+  // lo que ya tenía la marca; si sus cuentas quedaron en varios renglones, primero se elige cuál.
+  const [pasando, setPasando] = useState<{ origen: MarcaCruce; fila: FilaCruceMarcada } | null>(null);
+  const [eligiendoDestino, setEligiendoDestino] = useState<{ origen: MarcaCruce; destinos: FilaCruceMarcada[] } | null>(null);
   // Filas con el desglose de cuentas del cliente desplegado.
   const [expandidas, setExpandidas] = useState<Set<string>>(() => new Set());
   const alternarFila = (cuenta4: string) =>
@@ -1839,8 +1850,20 @@ function CruceContableTab({
     });
   };
 
-  // Marca del período cuyo renglón ya no aparece (sus cuentas se agruparon, cambió el mapeo):
-  // se retira desde las observaciones, que es donde se sigue viendo.
+  // Marca del período cuyo renglón ya no aparece (sus cuentas se agruparon, cambió el mapeo): se
+  // edita pasándola al renglón que hoy contiene sus cuentas, o se retira.
+  const marcasSinRenglon = cruceContable.marcasSinRenglon ?? [];
+  const destinosDe = (llave: string) => destinosMarcaSinRenglon(llave, filasMarcadas);
+  const puedePasar = (marca: ReferenciaMarcaVm) =>
+    marca.dimension === "cuenta4" && marcasSinRenglon.some((m) => m.cuenta4 === marca.llave) && destinosDe(marca.llave).length > 0;
+  const editarHuerfana = (marca: ReferenciaMarcaVm) => {
+    const origen = marcasSinRenglon.find((m) => m.cuenta4 === marca.llave);
+    if (!origen) return;
+    const destinos = destinosDe(marca.llave);
+    const libres = destinos.filter((f) => !f.marca);
+    if (destinos.length === 1 && libres.length === 1) setPasando({ origen, fila: libres[0] });
+    else setEligiendoDestino({ origen, destinos });
+  };
   const quitarHuerfana = (marca: ReferenciaMarcaVm) => {
     startQuitar(async () => {
       const r = await quitarMarcaCruce({ encabezadoId, cuenta4: marca.llave });
@@ -2114,6 +2137,8 @@ function CruceContableTab({
         ocupado={quitando}
         dimensionPropia="cuenta4"
         onQuitarHuerfana={quitarHuerfana}
+        onEditarHuerfana={editarHuerfana}
+        puedeEditarHuerfana={puedePasar}
         onEditar={(fila) => setMarcando(fila)}
         onQuitar={quitar}
       />
@@ -2163,6 +2188,31 @@ function CruceContableTab({
           onClose={() => setMarcando(null)}
           onGuardado={() => {
             setMarcando(null);
+            router.refresh();
+          }}
+        />
+      )}
+      {eligiendoDestino && (
+        <ModalElegirRenglonMarca
+          origen={eligiendoDestino.origen}
+          destinos={eligiendoDestino.destinos}
+          onClose={() => setEligiendoDestino(null)}
+          onElegir={(fila) => {
+            setPasando({ origen: eligiendoDestino.origen, fila });
+            setEligiendoDestino(null);
+          }}
+        />
+      )}
+      {pasando && (
+        <ModalMarca
+          moduloLabel={moduloLabel}
+          fila={pasando.fila}
+          origen={pasando.origen}
+          hijos={hijosDe(pasando.fila.cuenta4)}
+          encabezadoId={encabezadoId}
+          onClose={() => setPasando(null)}
+          onGuardado={() => {
+            setPasando(null);
             router.refresh();
           }}
         />
@@ -2707,7 +2757,7 @@ function ConciliacionEnFirmePanel({
         >
           <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
             <p>
-              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar una versión nueva, congelar otra versión y cambiar su homologación. La justificación queda en la bitácora de auditoría.
+              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar o congelar un balance con la misma fecha fin que cambie su saldo final y cambiar su homologación. La justificación queda en la bitácora de auditoría.
             </p>
             <label className="flex flex-col gap-1">
               <span className="text-[11.5px] font-semibold text-ink-600">Justificación (obligatoria, mínimo {MIN_JUSTIFICACION_DESBLOQUEO} caracteres)</span>
@@ -2770,7 +2820,7 @@ function ConciliacionEnFirmePanel({
       >
         <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
           <p>
-            Las cuentas del balance homologadas a las cuentas de <b>{moduloLabel}</b> quedarán <b>en firme</b> para este período: no se podrá cargar una versión del balance que las modifique, congelar otra versión ni cambiar su homologación.
+            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
           </p>
           <p className="text-ink-500">Solo el senior o gerente asignado al cliente podrá desbloquearla, con una justificación que queda en la bitácora.</p>
         </div>
@@ -2885,6 +2935,8 @@ function ObservacionesMarcas({
   ocupado,
   dimensionPropia,
   onQuitarHuerfana,
+  onEditarHuerfana,
+  puedeEditarHuerfana,
   onEditar,
   onQuitar,
 }: {
@@ -2902,6 +2954,9 @@ function ObservacionesMarcas({
    */
   dimensionPropia?: "cuenta4" | "tercero";
   onQuitarHuerfana?: (marca: ReferenciaMarcaVm) => void;
+  /** Pasar una marca sin renglón al renglón que hoy contiene sus cuentas (solo si se puede). */
+  onEditarHuerfana?: (marca: ReferenciaMarcaVm) => void;
+  puedeEditarHuerfana?: (marca: ReferenciaMarcaVm) => boolean;
   onEditar: (fila: FilaCruceMarcada) => void;
   onQuitar: (fila: FilaCruceMarcada) => void;
 }) {
@@ -2932,6 +2987,12 @@ function ObservacionesMarcas({
               onQuitar={
                 puedeEditar && onQuitarHuerfana && !entrada.marca.destino && entrada.marca.dimension === dimensionPropia
                   ? () => onQuitarHuerfana(entrada.marca)
+                  : undefined
+              }
+              onEditar={
+                puedeEditar && onEditarHuerfana && !entrada.marca.destino && entrada.marca.dimension === dimensionPropia
+                  && (puedeEditarHuerfana?.(entrada.marca) ?? false)
+                  ? () => onEditarHuerfana(entrada.marca)
                   : undefined
               }
             />
@@ -3051,10 +3112,62 @@ function ObservacionMarca({
   );
 }
 
+/**
+ * Las cuentas de una marca sin renglón quedaron repartidas en varios renglones (o el único ya tiene
+ * su propia marca): se elige a cuál pasa. Un renglón con marca no la recibe.
+ */
+function ModalElegirRenglonMarca({
+  origen,
+  destinos,
+  onClose,
+  onElegir,
+}: {
+  origen: MarcaCruce;
+  destinos: FilaCruceMarcada[];
+  onClose: () => void;
+  onElegir: (fila: FilaCruceMarcada) => void;
+}) {
+  const propias = new Set(origen.cuenta4.split("+"));
+  return (
+    <Modal open onClose={onClose} title={`¿A qué renglón pasa la ${etiquetaMarca(origen.numero).toLowerCase()}?`} size="lg">
+      <div className="flex flex-col gap-2.5 text-[12.5px]">
+        <p className="text-ink-600">
+          La marca era de <b>{origen.cuenta4.split("+").map((c) => `R - ${c}`).join(" + ")}</b>. Hoy sus cuentas están en estos renglones del cruce:
+        </p>
+        <ul className="flex flex-col gap-1.5">
+          {destinos.map((f) => (
+            <li key={f.cuenta4} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink-150 px-3 py-2">
+              <div className="min-w-0">
+                <div className="break-words font-semibold text-ink-800">{etiquetaFilaCruce(f)}</div>
+                <div className="text-[11px] text-ink-500">
+                  Comparte {(f.cuentas ?? [f.cuenta4]).filter((c) => propias.has(c)).join(", ")} · diferencia{" "}
+                  <span className="tabular-nums">{fmtContable(f.diferencia)}</span>
+                </div>
+              </div>
+              {f.marca ? (
+                <span className="text-[11px] text-ink-500">Ya tiene la {etiquetaMarca(f.marca.numero).toLowerCase()}</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onElegir(f)}
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800"
+                >
+                  Pasar aquí
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Modal>
+  );
+}
+
 /** Modal para poner (o reescribir) la marca de una diferencia y adjuntarle soportes. */
 function ModalMarca({
   moduloLabel,
   fila,
+  origen,
   hijos,
   hijosSinCuenta,
   encabezadoId,
@@ -3063,6 +3176,11 @@ function ModalMarca({
 }: {
   moduloLabel: string;
   fila: FilaCruceMarcada;
+  /**
+   * Marca cuyo renglón ya no aparece y que se PASA a `fila`: el editor arranca con lo que ya
+   * tenía (nota, anexo, soportes) y al guardar queda anclada a este renglón con su mismo número.
+   */
+  origen?: MarcaCruce;
   hijos: HijoContableCruce[];
   /** Solo el renglón del saldo sin cuenta: lo que se excluye son clasificadores del lado módulo. */
   hijosSinCuenta?: HijoModuloSinCuenta[];
@@ -3071,8 +3189,10 @@ function ModalMarca({
   onGuardado: () => void;
 }) {
   const ladoModulo = hijosSinCuenta != null;
-  const [nota, setNota] = useState(fila.marca?.nota ?? "");
-  const [anexo, setAnexo] = useState(fila.marca?.referenciaAnexo ?? "");
+  // La marca que se edita: la del renglón, o la que se está pasando a él.
+  const marcaBase = origen ?? fila.marca;
+  const [nota, setNota] = useState(marcaBase?.nota ?? "");
+  const [anexo, setAnexo] = useState(marcaBase?.referenciaAnexo ?? "");
   const [nuevos, setNuevos] = useState<File[]>([]);
   // Cuentas marcadas como no modulares: se parte de las que ya están excluidas.
   const [noModulares, setNoModulares] = useState<Set<string>>(
@@ -3104,6 +3224,7 @@ function ModalMarca({
       const datos = new FormData();
       datos.set("encabezadoId", String(encabezadoId));
       datos.set("cuenta4", fila.cuenta4);
+      if (origen) datos.set("cuenta4Origen", origen.cuenta4);
       datos.set("nota", texto);
       datos.set("referenciaAnexo", anexo.trim());
       // La diferencia la recalcula el servidor sobre el cruce vigente; esto solo declara
@@ -3121,9 +3242,15 @@ function ModalMarca({
     });
   };
 
-  const titulo = fila.marca
-    ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaFilaCruce(fila)}`
-    : `Nueva marca · ${etiquetaFilaCruce(fila)}`;
+  const titulo = origen
+    ? `Pasar la ${etiquetaMarca(origen.numero).toLowerCase()} · ${etiquetaFilaCruce(fila)}`
+    : fila.marca
+      ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaFilaCruce(fila)}`
+      : `Nueva marca · ${etiquetaFilaCruce(fila)}`;
+  // Al pasar la marca, sus cuentas no modulares que no están en este renglón vuelven a contar.
+  const noModularesQueSeLiberan = origen
+    ? origen.noModulares.filter((n) => !hijos.some((h) => h.cuenta8 === n.cuenta8))
+    : [];
 
   return (
     <Modal
@@ -3138,11 +3265,23 @@ function ModalMarca({
           disabled={!nota.trim() || guardando}
           className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {guardando ? "Guardando…" : fila.marca ? "Guardar cambios" : "Poner marca"}
+          {guardando ? "Guardando…" : origen ? "Pasar la marca" : fila.marca ? "Guardar cambios" : "Poner marca"}
         </button>
       }
     >
       <div className="flex flex-col gap-3">
+        {origen && (
+          <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800">
+            Esta marca era de <b>{origen.cuenta4.split("+").map((c) => `R - ${c}`).join(" + ")}</b> y ese renglón ya no aparece en el
+            cruce (sus cuentas se agruparon de otra forma). Al guardar pasa a este renglón con su mismo número, su detalle,
+            sus soportes y las cuentas no modulares que marques abajo.
+            {noModularesQueSeLiberan.length > 0 && (
+              <span className="mt-1 block font-medium text-warn-700">
+                No están en este renglón y vuelven a contar: {noModularesQueSeLiberan.map((n) => `${n.cuenta8}${n.nombre ? ` ${n.nombre}` : ""}`).join(" · ")}.
+              </span>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] sm:grid-cols-4">
           <div>
             <div className="text-ink-500">Contabilidad</div>
@@ -3182,7 +3321,7 @@ function ModalMarca({
           </div>
         )}
 
-        {fila.desactualizada && fila.marca && (
+        {!origen && fila.desactualizada && fila.marca && (
           <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
             La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
           </div>
@@ -3215,7 +3354,7 @@ function ModalMarca({
           <span className="text-[10.5px] text-ink-400">Dónde queda el soporte en el archivo del papel de trabajo.</span>
         </label>
 
-        <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={fila.marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
+        <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={marcaBase?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
           La marca queda numerada en la cédula y su detalle en observaciones. La numeración es la misma del cruce por tercero. Se conserva al cargar versiones nuevas de este período.
@@ -3294,6 +3433,53 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
         )}
       </Card>
         </>
+      )}
+
+      {novedades.archivosCargue && novedades.archivosCargue.length > 0 && (
+        <Card className="p-4">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Archivos del cargue</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead className="bg-ink-50 text-left text-ink-500">
+                <tr>
+                  <th className="px-2.5 py-1.5 font-semibold">Archivo</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Contenido</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {novedades.archivosCargue.map((a, i) => (
+                  <tr key={`${a.loteId ?? a.archivo}-${i}`} className="border-t border-ink-100">
+                    <td className="max-w-[320px] break-words px-2.5 py-1.5 text-ink-700">{a.archivo}</td>
+                    <td className="px-2.5 py-1.5 text-ink-600">
+                      {a.previo
+                        ? "Cargado antes de registrar el contenido"
+                        : a.contenido
+                          ? `${INFO_CONTENIDO_ARCHIVO[a.contenido].rotulo}${a.contenido === "notas_credito" ? (a.signoInvertido ? " · venían en positivo, se cambiaron a negativo" : " · ya venían en negativo") : ""}`
+                          : "No declarado"}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{a.filas.toLocaleString("es-CO")}</td>
+                    <td className={`whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums ${a.total < 0 ? "text-err-700" : "text-ink-700"}`}>{fmtContable(a.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {novedades.archivosCargue.length > 1 && (
+                <tfoot>
+                  <tr className="border-t border-ink-200 font-semibold">
+                    <td className="px-2.5 py-1.5 text-ink-700" colSpan={2}>Total del cargue</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-700">
+                      {novedades.archivosCargue.reduce((s, a) => s + a.filas, 0).toLocaleString("es-CO")}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-800">
+                      {fmtContable(Math.round(novedades.archivosCargue.reduce((s, a) => s + a.total, 0) * 100) / 100)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Módulos sin verificaciones (Cartera, Nómina): la tarjeta solo aparece con observaciones. */}

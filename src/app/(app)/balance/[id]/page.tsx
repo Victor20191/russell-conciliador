@@ -116,9 +116,10 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       select: { code: true },
     }),
     cargarEstadoCrucesAperturas(id, clientId),
-    // Conciliación EN FIRME del período (cualquier módulo): cierres + cuentas bloqueadas.
-    cierresFirmes(clientId, balance.periodo),
-    cuentasBloqueadas(clientId, balance.periodo),
+    // Conciliación EN FIRME del mes de corte del balance (cualquier módulo, aunque se haya
+    // conciliado contra un balance de otro período con la misma fecha fin): cierres + cuentas.
+    cierresFirmes(clientId, balance),
+    cuentasBloqueadas(clientId, balance),
     // Captura por tercero LIGADA a este cargue (misma llave `loteId` que usa la
     // promoción y el visor). Un cargue con apertura «tercero» pero sin captura
     // (archivo sin detalle reconocible, evento «SIN DETALLE POR TERCERO») no
@@ -204,6 +205,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         creadoEn: null,
         huella: null,
         instantaneaDisponible: false,
+        catalogoCongelado: null,
       };
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;

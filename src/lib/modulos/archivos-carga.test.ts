@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archivosDeVersion, parsearAnexos } from "./archivos-carga";
+import { archivosDeVersion, archivosRotuladosDeVersion, parsearAnexos, parsearAnexosConLote } from "./archivos-carga";
 
 describe("parsearAnexos", () => {
   it("sin observaciones o sin anexos devuelve lista vacía", () => {
@@ -45,6 +45,39 @@ describe("parsearAnexos", () => {
   it("conserva la observación libre pegada a la línea sin romper el parseo", () => {
     const obs = "Anexo: kardex.xlsx · hoja: Kardex (+2 ítems) · 2026-08-25 — revisar con el cliente [lote:x]";
     expect(parsearAnexos(obs)).toEqual([{ archivo: "kardex.xlsx", hoja: "Kardex" }]);
+  });
+});
+
+describe("archivosRotuladosDeVersion", () => {
+  const OBS = [
+    "Anexo: notas.xlsx · hoja: NC (+4 ítems) · Notas crédito · 2026-09-29 [lote:nc-1]",
+    "Anexo: viejo.xlsx (+2 ítems) · 2026-01-01 [lote:viejo]",
+  ].join("\n");
+
+  it("la línea con el contenido sigue leyéndose como antes", () => {
+    expect(parsearAnexos(OBS)).toEqual([{ archivo: "notas.xlsx", hoja: "NC" }, { archivo: "viejo.xlsx", hoja: null }]);
+    expect(parsearAnexosConLote(OBS).map((a) => a.loteId)).toEqual(["nc-1", "viejo"]);
+  });
+
+  it("empareja el principal por su lote y cada anexo por su marca", () => {
+    const lista = archivosRotuladosDeVersion("facturas.xlsx", "Ventas", OBS, [
+      { loteId: "f-1", archivo: "facturas.xlsx", contenido: "facturas", signoInvertido: false, filas: 10, total: 1200 },
+      { loteId: "nc-1", archivo: "notas.xlsx", contenido: "notas_credito", signoInvertido: true, filas: 4, total: -80 },
+    ], "f-1");
+    expect(lista.map((a) => [a.archivo, a.esAnexo, a.contenido, a.signoInvertido])).toEqual([
+      ["facturas.xlsx", false, "facturas", false],
+      ["notas.xlsx", true, "notas_credito", true],
+      ["viejo.xlsx", true, null, false],
+    ]);
+  });
+
+  it("un cargue anterior (sin lista) queda sin rótulos; la entrada «previo» no rotula a nadie", () => {
+    expect(archivosRotuladosDeVersion("a.xlsx", null, null, null, "x").map((a) => a.contenido)).toEqual([null]);
+    const conPrevio = archivosRotuladosDeVersion("a.xlsx", null, OBS, [
+      { loteId: "x", archivo: "a.xlsx", contenido: null, signoInvertido: false, filas: 10, total: 1200, previo: true },
+      { loteId: "nc-1", archivo: "notas.xlsx", contenido: "notas_credito", signoInvertido: true, filas: 4, total: -80 },
+    ], "x");
+    expect(conPrevio.map((a) => a.contenido)).toEqual([null, "notas_credito", null]);
   });
 });
 

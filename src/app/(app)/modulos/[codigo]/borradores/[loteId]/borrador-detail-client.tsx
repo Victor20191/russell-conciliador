@@ -21,6 +21,7 @@ import { NotasCargaModulo } from "../../notas-carga-modulo";
 import { ValidacionArchivo } from "../../validacion-archivo";
 import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
 import { NombreAgrupador, type GrupoSinNombreVm } from "./nombre-agrupador";
+import { avisosContenido, INFO_CONTENIDO_ARCHIVO, type SignoContenido } from "@/lib/modulos/ingresos/contenido-archivo";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -112,6 +113,7 @@ export default function BorradorModuloClient({
   resumen,
   reconciliacion,
   anexo,
+  contenido = null,
   sinNombre = [],
   opcionesNombre = [],
   version,
@@ -132,8 +134,10 @@ export default function BorradorModuloClient({
   /** Agregados del archivo COMPLETO, calculados en el servidor: las filas se piden por grupo. */
   resumen: ResumenBorrador;
   reconciliacion: ReconciliacionModulo | null;
-  /** Anexo declarado con «Agregar archivo»: a qué cargue se suma y qué ítems repite. */
-  anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null;
+  /** Anexo declarado con «Agregar archivo»: a qué cargue se suma, su total y qué ítems repite. */
+  anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean; totalActual: number } | null;
+  /** Ingresos: qué declaró el analista que trae el archivo y qué se hizo con el signo. */
+  contenido?: SignoContenido | null;
   /** Filas «(sin clasificar)» y «GLOBAL» (nombradas por el sistema), a las que se les puede poner nombre. */
   sinNombre?: GrupoSinNombreVm[];
   /** Nombres que se ofrecen: los del cargue destino del anexo y los de la memoria del cliente. */
@@ -507,6 +511,22 @@ export default function BorradorModuloClient({
             ) : (
               <span className="ml-1">No repite ningún ítem ya cargado: se suma limpio a lo que existe.</span>
             )}
+            {anexo.vigente && (
+              <span className="mt-1 block tabular-nums">
+                Total del cargue al confirmar: v{anexo.version} {fmtContable(anexo.totalActual)} + este archivo {fmtContable(total)} ={" "}
+                <span className="font-semibold">{fmtContable(Math.round((anexo.totalActual + total) * 100) / 100)}</span>
+              </span>
+            )}
+          </div>
+        )}
+        {contenido && (
+          <div className="flex flex-col gap-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+            <span>
+              <span className="font-semibold">Contenido declarado:</span> {INFO_CONTENIDO_ARCHIVO[contenido.contenido].rotulo}.
+            </span>
+            {avisosContenido(contenido).map((a) => (
+              <span key={a.texto} className={a.tono === "aviso" ? "font-medium text-warn-700" : undefined}>{a.texto}</span>
+            ))}
           </div>
         )}
         {totalizadoras.length > 0 && (

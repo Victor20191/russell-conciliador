@@ -158,28 +158,21 @@ export function filtrarGruposCargaModulo<
 }
 
 /**
- * Estado con que el listado de cargados rotula un período. La conciliación en firme manda sobre
- * el estado de la versión, luego el congelado, luego la oficial («Vigente») y, si ninguna aplica,
- * la versión es «Histórica». Es la ÚNICA regla: la celda «Estado» y el filtro la comparten.
+ * Estado con que el listado de cargados rotula un período: «Cerrado» si su conciliación está en
+ * firme y, si no, «Vigente» (la fila siempre muestra la versión que representa al período). Es la
+ * ÚNICA regla: la celda «Estado» y el filtro la comparten. Hasta el 29/Sep/2026 había además
+ * «Congelado» e «Histórica», que nunca se daban: ningún cargue de módulo se congela y las versiones
+ * reemplazadas no son filas del listado (se ven en «Versiones»).
  */
-export type EstadoPeriodoModulo = "cerrado" | "congelado" | "vigente" | "historica";
+export type EstadoPeriodoModulo = "cerrado" | "vigente";
 
 export const ESTADOS_PERIODO_MODULO: readonly { valor: EstadoPeriodoModulo; etiqueta: string }[] = [
   { valor: "vigente", etiqueta: "Vigente" },
   { valor: "cerrado", etiqueta: "Cerrado" },
-  { valor: "congelado", etiqueta: "Congelado" },
-  { valor: "historica", etiqueta: "Histórica" },
 ];
 
-export function estadoPeriodoModulo(periodo: {
-  conciliacionCerrada: unknown | null;
-  estaCongelado: boolean;
-  esOficial: boolean;
-}): EstadoPeriodoModulo {
-  if (periodo.conciliacionCerrada) return "cerrado";
-  if (periodo.estaCongelado) return "congelado";
-  if (periodo.esOficial) return "vigente";
-  return "historica";
+export function estadoPeriodoModulo(periodo: { conciliacionCerrada: unknown | null }): EstadoPeriodoModulo {
+  return periodo.conciliacionCerrada ? "cerrado" : "vigente";
 }
 
 type PeriodoConEstado = Parameters<typeof estadoPeriodoModulo>[0];
@@ -188,7 +181,7 @@ type PeriodoConEstado = Parameters<typeof estadoPeriodoModulo>[0];
 export function contarPeriodosPorEstado<G extends { periodos: PeriodoConEstado[] }>(
   grupos: readonly G[],
 ): Record<EstadoPeriodoModulo, number> {
-  const conteo: Record<EstadoPeriodoModulo, number> = { vigente: 0, cerrado: 0, congelado: 0, historica: 0 };
+  const conteo: Record<EstadoPeriodoModulo, number> = { vigente: 0, cerrado: 0 };
   for (const grupo of grupos) for (const periodo of grupo.periodos) conteo[estadoPeriodoModulo(periodo)] += 1;
   return conteo;
 }

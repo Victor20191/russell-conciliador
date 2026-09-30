@@ -11,6 +11,8 @@
  * parsear esas líneas y ensamblar la lista sin duplicar la lógica en la UI.
  */
 
+import type { ContenidoArchivo, ContenidoArchivoCargue } from "./ingresos/contenido-archivo";
+
 /** Un archivo de la versión, con su hoja (si se registró) y si es un anexo. */
 export type ArchivoCarga = { archivo: string; hoja: string | null; esAnexo: boolean };
 
@@ -51,6 +53,54 @@ export function archivosDeVersion(
   if (archivoNombre) lista.push({ archivo: archivoNombre, hoja: hoja ?? null, esAnexo: false });
   for (const anexo of parsearAnexos(observaciones)) {
     lista.push({ archivo: anexo.archivo, hoja: anexo.hoja, esAnexo: true });
+  }
+  return lista;
+}
+
+// ===== Con lo que traía cada archivo (Ingresos: facturas / notas crédito) =====
+
+const RE_MARCA_LOTE = /\[lote:([^\]]+)\]/;
+
+/** Como `parsearAnexos`, más el lote de cada anexo (la marca `[lote:<id>]` de su línea). */
+export function parsearAnexosConLote(
+  observaciones: string | null,
+): { archivo: string; hoja: string | null; loteId: string | null }[] {
+  if (!observaciones) return [];
+  const resultado: { archivo: string; hoja: string | null; loteId: string | null }[] = [];
+  for (const linea of observaciones.split("\n")) {
+    const texto = linea.trim();
+    const m = RE_LINEA_ANEXO.exec(texto);
+    if (!m) continue;
+    resultado.push({ archivo: m[1].trim(), hoja: m[2]?.trim() || null, loteId: RE_MARCA_LOTE.exec(texto)?.[1] ?? null });
+  }
+  return resultado;
+}
+
+/** Un archivo de la versión con lo que traía; `contenido` null = no se registró (cargue anterior). */
+export type ArchivoCargaRotulado = ArchivoCarga & { contenido: ContenidoArchivo | null; signoInvertido: boolean };
+
+/**
+ * `archivosDeVersion` con lo que traía cada archivo (`modulo_dato_encabezado.contenido_archivos`).
+ * El principal se empareja por el lote del encabezado (o por la entrada «previo», que resume lo
+ * cargado antes de registrar el contenido) y cada anexo por su marca de lote.
+ */
+export function archivosRotuladosDeVersion(
+  archivoNombre: string | null,
+  hoja: string | null,
+  observaciones: string | null,
+  contenidos: readonly ContenidoArchivoCargue[] | null,
+  loteIdPrincipal: string | null,
+): ArchivoCargaRotulado[] {
+  const porLote = new Map<string, ContenidoArchivoCargue>();
+  for (const c of contenidos ?? []) if (c.loteId && !c.previo) porLote.set(c.loteId, c);
+  const rotulo = (c: ContenidoArchivoCargue | undefined) => ({ contenido: c?.contenido ?? null, signoInvertido: c?.signoInvertido === true });
+  const lista: ArchivoCargaRotulado[] = [];
+  if (archivoNombre) {
+    const principal = (loteIdPrincipal ? porLote.get(loteIdPrincipal) : undefined) ?? contenidos?.find((c) => c.previo);
+    lista.push({ archivo: archivoNombre, hoja: hoja ?? null, esAnexo: false, ...rotulo(principal) });
+  }
+  for (const anexo of parsearAnexosConLote(observaciones)) {
+    lista.push({ archivo: anexo.archivo, hoja: anexo.hoja, esAnexo: true, ...rotulo(anexo.loteId ? porLote.get(anexo.loteId) : undefined) });
   }
   return lista;
 }

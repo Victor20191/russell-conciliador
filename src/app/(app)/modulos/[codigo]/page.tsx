@@ -7,6 +7,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
 import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
 import { agruparCargasModuloPorCliente } from "@/lib/modulos/versiones";
+import { leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 import ModulosDatosClient, { type GrupoClienteRow } from "./modulos-datos-client";
 import { PestanasModulo } from "./pestanas-modulo";
 
@@ -49,9 +50,13 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         origenExtraccion: true,
         ultimaCarga: true,
         cargadoPor: true,
+        loteId: true,
+        contenidoArchivos: true,
       },
     }),
   ]);
+  // Qué trae cada archivo del cargue (Ingresos): se rotula en la lista de archivos del período.
+  const contenidoPorEncabezado = new Map(cargados.map((c) => [c.id, { loteId: c.loteId, contenidos: leerContenidoArchivos(c.contenidoArchivos) }]));
   const clientePorId = new Map(clientes.map((c) => [c.id, c]));
 
   // Conteo de comentarios por dato cargado (encabezado), más los alcances de la
@@ -132,6 +137,8 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       archivoNombre: p.archivoNombre,
       hoja: p.hoja,
       observaciones: p.observaciones,
+      loteId: contenidoPorEncabezado.get(p.id)?.loteId ?? null,
+      contenidoArchivos: contenidoPorEncabezado.get(p.id)?.contenidos ?? null,
       origen: p.origen,
       cargadoPor: p.cargadoPor,
       fecha: p.ultimaCarga ? fmtDate(p.ultimaCarga) : "—",
@@ -176,6 +183,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         confirmarAgrupador={descriptor.confirmarAgrupadorEnCarga === true}
         rolValor={descriptor.valor}
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
+        confirmarContenido={descriptor.confirmarContenidoEnCarga === true}
       />
     </div>
   );

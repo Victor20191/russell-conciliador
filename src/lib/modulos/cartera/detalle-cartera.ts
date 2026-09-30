@@ -28,6 +28,9 @@ export const CLAVE_MONEDA = "_moneda";
 export const CLAVE_TRM = "_trm";
 /** Valor por FÓRMULA (cualquier módulo): el aporte de cada término, «M · Total sin Descuento» → importe. */
 export const CLAVE_FORMULA = "_formula";
+/** Ingresos: la fila vino de un archivo declarado «solo notas crédito», y si se le invirtió el signo. */
+export const CLAVE_CONTENIDO = "_contenido";
+export const CLAVE_SIGNO_INVERTIDO = "_signoInvertido";
 
 export const CLAVES_CARTERA = [
   CLAVE_EDADES,
@@ -39,6 +42,8 @@ export const CLAVES_CARTERA = [
   CLAVE_MONEDA,
   CLAVE_TRM,
   CLAVE_FORMULA,
+  CLAVE_CONTENIDO,
+  CLAVE_SIGNO_INVERTIDO,
 ] as const;
 
 /** Lo que el transform produce además de los roles. */
@@ -52,6 +57,8 @@ export type ExtrasCartera = {
   saldoDivisa?: number;
   moneda?: string;
   trm?: number;
+  contenido?: string;
+  signoInvertido?: boolean;
 };
 
 /**
@@ -70,7 +77,8 @@ export function datosConExtrasCartera(
     || extras.origenValor != null
     || extras.saldoDeclarado != null
     || extras.saldoDivisa != null
-    || extras.terminosFormula != null;
+    || extras.terminosFormula != null
+    || extras.contenido != null;
   if (!hayAlgo) return datos;
 
   const salida: Record<string, unknown> = { ...datos };
@@ -80,6 +88,10 @@ export function datosConExtrasCartera(
   if (extras.origenValor != null) salida[CLAVE_ORIGEN_VALOR] = extras.origenValor;
   if (extras.saldoDeclarado != null) salida[CLAVE_SALDO_DECLARADO] = extras.saldoDeclarado;
   if (extras.terminosFormula != null) salida[CLAVE_FORMULA] = extras.terminosFormula;
+  if (extras.contenido != null) {
+    salida[CLAVE_CONTENIDO] = extras.contenido;
+    if (extras.signoInvertido === true) salida[CLAVE_SIGNO_INVERTIDO] = true;
+  }
   if (extras.saldoDivisa != null) {
     salida[CLAVE_SALDO_DIVISA] = extras.saldoDivisa;
     if (extras.moneda) salida[CLAVE_MONEDA] = extras.moneda;

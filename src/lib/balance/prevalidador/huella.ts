@@ -1,5 +1,5 @@
-import "server-only";
-
+// Sin `server-only`: solo usa `node:crypto`, y la comparten el cargador y el script de
+// mantenimiento `scripts/prevalidador-base-saldo.ts`, que corre fuera de Next.
 import { createHash } from "node:crypto";
 import type { FilaCatalogoPrevalidador, OverridePrevalidador } from "./catalogo";
 import type { PrevalidadorVM } from "./calcular";
@@ -60,9 +60,31 @@ function centavos(valor: MontoHuella): string {
 }
 
 /**
+ * El catálogo en su forma canónica: la proyección y el orden con que entra a la huella. Sirve
+ * también para saber si dos catálogos son el mismo (el congelado de una aprobación y el vigente).
+ */
+export function catalogoCanonico(catalogo: readonly FilaCatalogoPrevalidador[]) {
+  return catalogo
+    .map((fila) => ({
+      id: fila.id,
+      moduloCodigo: fila.moduloCodigo,
+      moduloNombre: fila.moduloNombre,
+      moduloOrden: fila.moduloOrden,
+      cuentaRussell: fila.cuentaRussell,
+      etiqueta: fila.etiqueta,
+      baseCalculo: fila.baseCalculo,
+      orden: fila.orden,
+      activa: fila.activa,
+    }))
+    .sort((a, b) => a.id - b.id || a.moduloCodigo.localeCompare(b.moduloCodigo) || a.cuentaRussell.localeCompare(b.cuentaRussell));
+}
+
+/**
  * Huella determinista de todo lo que puede cambiar el resultado. La aprobación no
  * confía en un booleano persistido: vuelve a calcular esta huella y solo permanece
- * vigente mientras balance, homologación, catálogo y cuentas alternativas coincidan.
+ * vigente mientras balance, homologación, catálogo y cuentas alternativas coincidan. El
+ * catálogo de un balance aprobado es el que la aprobación CONGELÓ (`contexto.ts`), así que
+ * un cambio posterior del catálogo no la invalida; uno del propio balance, sí.
  */
 export function crearHuellaPrevalidador(input: {
   balance: IdentidadBalancePrevalidador;
@@ -82,19 +104,7 @@ export function crearHuellaPrevalidador(input: {
       saldoFinal: centavos(fila.saldoFinal),
     }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  const catalogo = input.catalogo
-    .map((fila) => ({
-      id: fila.id,
-      moduloCodigo: fila.moduloCodigo,
-      moduloNombre: fila.moduloNombre,
-      moduloOrden: fila.moduloOrden,
-      cuentaRussell: fila.cuentaRussell,
-      etiqueta: fila.etiqueta,
-      baseCalculo: fila.baseCalculo,
-      orden: fila.orden,
-      activa: fila.activa,
-    }))
-    .sort((a, b) => a.id - b.id || a.moduloCodigo.localeCompare(b.moduloCodigo) || a.cuentaRussell.localeCompare(b.cuentaRussell));
+  const catalogo = catalogoCanonico(input.catalogo);
   const overrides = input.overrides
     .map((fila) => ({ catalogoId: fila.catalogoId, cuentaCliente: fila.cuentaCliente }))
     .sort((a, b) => a.catalogoId - b.catalogoId || a.cuentaCliente.localeCompare(b.cuentaCliente));

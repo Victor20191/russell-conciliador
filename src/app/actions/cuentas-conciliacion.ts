@@ -1,7 +1,8 @@
 "use server";
 
-// Cuentas Russell de 6 dígitos que concilia cada módulo (`cuentas_conciliacion_modulo`),
-// administradas en /config/prevalidador junto con los prefijos del prevalidador. Un cambio rige
+// Cuentas Russell de 6 dígitos (`cuentas_conciliacion_modulo`) y subgrupos de 4
+// (`subgrupos_conciliacion_modulo`) que concilia cada módulo, administrados en /config/prevalidador
+// junto con los prefijos del prevalidador, pero independientes de ellos. Un cambio rige
 // de inmediato para todos los cargues (el cruce se recalcula al leer), salvo los períodos con la
 // conciliación en firme, que conservan la copia guardada en su cierre.
 
@@ -11,9 +12,14 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
-import { CuentaConciliacionSchema, type ActionState } from "@/lib/definitions";
+import { CuentaConciliacionSchema, SubgrupoConciliacionSchema, type ActionState } from "@/lib/definitions";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { moduloConCuentasConciliacion, moduloConOrigenPorCuenta } from "@/lib/modulos/cuentas-conciliacion";
+import {
+  moduloConCuentasConciliacion,
+  moduloConOrigenPorCuenta,
+  moduloConSubgruposConciliacion,
+  subgruposFijosDe,
+} from "@/lib/modulos/cuentas-conciliacion";
 import { CUENTAS_CONCILIACION_CACHE_TAG } from "@/lib/parametros/cuentas-conciliacion";
 
 const PERMISO = "parametros:administrar";
@@ -36,7 +42,7 @@ function validarModulo(moduloCodigo: string, origen: string | null): string {
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) throw new ErrorDominio("Módulo no soportado.");
   if (!moduloConCuentasConciliacion(descriptor)) {
-    throw new ErrorDominio(`${descriptor.label} concilia por subgrupo de 4 dígitos: su filtro son los prefijos del prevalidador.`);
+    throw new ErrorDominio(`${descriptor.label} concilia por subgrupo de 4 dígitos: agrega subgrupos, no cuentas.`);
   }
   if (origen && !moduloConOrigenPorCuenta(descriptor)) {
     throw new ErrorDominio(`${descriptor.label} no distingue cuentas nacionales y del exterior.`);
@@ -146,5 +152,97 @@ export async function quitarCuentaConciliacion(_prev: ActionState, formData: For
   } catch (e) {
     if (e instanceof ErrorDominio) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD("quitarCuentaConciliacion", e) };
+  }
+}
+
+// ===== Subgrupos de 4 dígitos (Inventarios, Activos fijos) =====
+// Las cuentas PROPIAS de un módulo con cédula a 4: deciden qué entra al cruce contable, sin tocar las
+// reglas del prevalidador (que solo validan el balance). La 1592 de Activos fijos es fija en código.
+
+/** El módulo tiene que conciliar a 4 dígitos; devuelve su descriptor. */
+function validarModuloSubgrupos(moduloCodigo: string) {
+  const descriptor = descriptorModulo(moduloCodigo);
+  if (!descriptor) throw new ErrorDominio("Módulo no soportado.");
+  if (!moduloConSubgruposConciliacion(descriptor)) {
+    throw new ErrorDominio(`${descriptor.label} concilia por cuenta de 6 dígitos: agrega cuentas, no subgrupos.`);
+  }
+  return descriptor;
+}
+
+/** Agrega un subgrupo del plan estándar a los que concilia un módulo a 4 dígitos. */
+export async function agregarSubgrupoConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const parsed = SubgrupoConciliacionSchema.safeParse({
+    moduloCodigo: formData.get("moduloCodigo"),
+    subgrupo: formData.get("subgrupo"),
+  });
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { moduloCodigo, subgrupo } = parsed.data;
+
+  try {
+    const descriptor = validarModuloSubgrupos(moduloCodigo);
+    if (subgruposFijosDe(descriptor).includes(subgrupo)) {
+      throw new ErrorDominio(`${subgrupo} es fijo en ${descriptor.label}: siempre concilia (a 6 dígitos, con la depreciación relacionada).`);
+    }
+    const user = await getCurrentUser();
+    const nombre = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${moduloCodigo}`);
+      const [plan, duplicado] = await Promise.all([
+        tx.subgrupoEstandar.findUnique({ where: { codigo: subgrupo }, select: { nombre: true } }),
+        tx.subgrupoConciliacionModulo.findUnique({ where: { moduloCodigo_subgrupo: { moduloCodigo, subgrupo } }, select: { id: true } }),
+      ]);
+      if (!plan) throw new ErrorDominio(`El subgrupo ${subgrupo} no existe en el plan estándar Russell.`);
+      if (duplicado) throw new ErrorDominio(`${descriptor.label} ya concilia el subgrupo ${subgrupo}.`);
+      await tx.subgrupoConciliacionModulo.create({ data: { moduloCodigo, subgrupo, actualizadoPor: user?.name ?? null } });
+      return plan.nombre;
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "AGREGÓ SUBGRUPO DE CONCILIACIÓN",
+      entity: `${descriptor.label} · ${subgrupo}`,
+      detail: `${nombre}. Entra al cruce contable de los cargues abiertos; los períodos en firme conservan sus subgrupos.`,
+    });
+    invalidar();
+    return { ok: true, message: `Subgrupo ${subgrupo} agregado a ${descriptor.label}.` };
+  } catch (e) {
+    if (e instanceof ErrorDominio) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("agregarSubgrupoConciliacion", e) };
+  }
+}
+
+/** Quita un subgrupo de los que concilia un módulo. El módulo conserva al menos uno. */
+export async function quitarSubgrupoConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = Number(formData.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Subgrupo inválido." };
+
+  try {
+    const user = await getCurrentUser();
+    const fila = await transaccionSerializable(async (tx) => {
+      const actual = await tx.subgrupoConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, subgrupo: true } });
+      if (!actual) throw new ErrorDominio("Ese subgrupo ya no está configurado.");
+      await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${actual.moduloCodigo}`);
+      // Sin ningún subgrupo la cédula volvería a los de fábrica: el módulo conserva al menos uno.
+      const restantes = await tx.subgrupoConciliacionModulo.count({ where: { moduloCodigo: actual.moduloCodigo } });
+      if (restantes <= 1) throw new ErrorDominio("El módulo debe conciliar al menos un subgrupo: agrega otro antes de quitar este.");
+      await tx.subgrupoConciliacionModulo.delete({ where: { id } });
+      return actual;
+    });
+    const etiquetaModulo = descriptorModulo(fila.moduloCodigo)?.label ?? fila.moduloCodigo;
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "QUITÓ SUBGRUPO DE CONCILIACIÓN",
+      entity: `${etiquetaModulo} · ${fila.subgrupo}`,
+      detail: "Deja de conciliarse en los cargues abiertos; los períodos en firme conservan sus subgrupos.",
+    });
+    invalidar();
+    return { ok: true, message: `Subgrupo ${fila.subgrupo} retirado de ${etiquetaModulo}.` };
+  } catch (e) {
+    if (e instanceof ErrorDominio) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("quitarSubgrupoConciliacion", e) };
   }
 }

@@ -3,12 +3,14 @@
 // (`crucePorTercero.cuentasRussell6`, `cedula.cuentas6`, `cedula.cuentasAdicionales`,
 // `cuentasNacional`/`cuentasExterior`); ahora se administran en /config/prevalidador y el
 // descriptor conserva esos valores solo como FÁBRICA (siembra y cierres anteriores al cambio).
+// Inventarios y Activos fijos (cédula a 4) tienen su lista de subgrupos al final del archivo.
 //
 // Puro (sin BD ni `server-only`): la resolución contra la BD vive en
 // `src/lib/parametros/cuentas-conciliacion.ts`.
 
-import { normalizarPrefijo } from "@/lib/balance/prevalidador/catalogo";
+import { normalizarPrefijo, PREVALIDADOR_CATALOGO_FABRICA } from "@/lib/balance/prevalidador/catalogo";
 import { nivelCruceModulo, type DescriptorModulo } from "./descriptores";
+import { filtrarSubgruposPorModulo } from "./cuentas-modulo";
 
 export type OrigenCuentaConciliacion = "nacional" | "exterior";
 
@@ -106,4 +108,96 @@ export function leerCuentasConciliacionGuardadas(valor: unknown): CuentaConcilia
     salida.push({ cuenta: c, origen: esOrigenCuentaConciliacion(origen) ? origen : null });
   }
   return salida;
+}
+
+// ===== Subgrupos de CUATRO dígitos (Inventarios, Activos fijos) =====
+// Desde el 29/Sep/2026 las cédulas a 4 también tienen lista propia (`subgrupos_conciliacion_modulo`):
+// las cuentas PROPIAS del módulo, que deciden qué entra al cruce contable. Las reglas del prevalidador
+// quedan solo para validar el balance; cambiarlas no cambia esta lista. Los subgrupos abiertos (la
+// 1592 de Activos fijos) son fijos en código: siempre concilian y no se administran aquí.
+
+/** ¿El módulo concilia contra una lista de subgrupos de 4 dígitos? (cédula a 4). */
+export function moduloConSubgruposConciliacion(descriptor: Pick<DescriptorModulo, "nivelCruce"> | null | undefined): boolean {
+  return descriptor != null && nivelCruceModulo(descriptor) === 4;
+}
+
+/** Un subgrupo Russell de 4 dígitos (sin puntos ni espacios), o `null` si no lo es. */
+export function normalizarSubgrupoConciliacion(v: string | null | undefined): string | null {
+  const c = normalizarPrefijo(v);
+  return /^\d{4}$/.test(c) ? c : null;
+}
+
+/** Subgrupos fijos en código (abiertos a 6 dígitos): siempre concilian y no se agregan ni se quitan. */
+export function subgruposFijosDe(descriptor: Pick<DescriptorModulo, "cedula"> | null | undefined): string[] {
+  return [...new Set((descriptor?.cedula?.subgruposAbiertos ?? []).map((s) => normalizarPrefijo(s.subgrupo)))].sort();
+}
+
+/** Lista limpia: subgrupos de 4 dígitos válidos, sin repetir y en orden. */
+function listaSubgrupos(valores: readonly (string | null | undefined)[]): string[] {
+  return [...new Set(valores.map((v) => normalizarSubgrupoConciliacion(v)).filter((c): c is string => c != null))].sort();
+}
+
+/**
+ * Subgrupos de FÁBRICA del módulo: los del plan bajo sus prefijos de fábrica del prevalidador
+ * (constantes del código, nunca el catálogo vivo), sin los fijos. Es el respaldo cuando el módulo no
+ * tiene filas en la configuración o un cierre no se puede leer. `null` si el módulo no concilia a 4.
+ */
+export function subgruposConciliacionDeFabrica(
+  descriptor: DescriptorModulo | null | undefined,
+  plan: readonly { codigo: string; nombre?: string }[],
+): string[] | null {
+  if (!descriptor || !moduloConSubgruposConciliacion(descriptor)) return null;
+  const prefijos = PREVALIDADOR_CATALOGO_FABRICA
+    .filter((f) => f.moduloCodigo === descriptor.codigo)
+    .map((f) => normalizarPrefijo(f.cuentaRussell));
+  const fijos = new Set(subgruposFijosDe(descriptor));
+  const plan4 = plan.map((s) => ({ codigo: s.codigo, nombre: s.nombre ?? "" }));
+  return listaSubgrupos(filtrarSubgruposPorModulo(plan4, prefijos).map((s) => s.codigo)).filter((c) => !fijos.has(c));
+}
+
+/**
+ * Los subgrupos que concilia el descriptor, sin los fijos. Sobre uno ya resuelto son los vigentes
+ * (lo que se congela en el cierre); sobre el estático, `null`: sin lista, la cédula toma los prefijos.
+ */
+export function subgruposConciliacionDe(descriptor: DescriptorModulo | null | undefined): string[] | null {
+  if (!descriptor || !moduloConSubgruposConciliacion(descriptor)) return null;
+  const lista = descriptor.cedula?.subgrupos4;
+  if (!lista) return null;
+  const fijos = new Set(subgruposFijosDe(descriptor));
+  return listaSubgrupos(lista).filter((c) => !fijos.has(c));
+}
+
+/**
+ * El descriptor con los subgrupos configurados en `cedula.subgrupos4` (la cédula suma sola los fijos y
+ * separa los que quedan fuera de los prefijos: `cedulaModulo`). Un módulo a 6 dígitos o `subgrupos`
+ * null quedan intactos.
+ */
+export function aplicarSubgruposConciliacion(
+  descriptor: DescriptorModulo,
+  subgrupos: readonly string[] | null | undefined,
+): DescriptorModulo {
+  if (!subgrupos || !moduloConSubgruposConciliacion(descriptor)) return descriptor;
+  return { ...descriptor, cedula: { ...descriptor.cedula, subgrupos4: listaSubgrupos(subgrupos) } };
+}
+
+/** Lee la copia guardada en el cierre (`subgrupos_conciliacion`); `null` si no hay una válida. */
+export function leerSubgruposConciliacionGuardados(valor: unknown): string[] | null {
+  if (!Array.isArray(valor)) return null;
+  const salida: string[] = [];
+  for (const item of valor) {
+    const c = typeof item === "string" ? normalizarSubgrupoConciliacion(item) : null;
+    if (!c) return null;
+    salida.push(c);
+  }
+  return listaSubgrupos(salida);
+}
+
+/**
+ * Cierres anteriores a la lista (sin `subgrupos_conciliacion`): los subgrupos que quedaron en firme en
+ * ese cierre (`cuentas_russell`, las cuentas de 4 del cruce que se cerró). `null` si no se pueden leer.
+ */
+export function subgruposDeCuentasRussellCierre(valor: unknown): string[] | null {
+  if (!Array.isArray(valor)) return null;
+  const lista = listaSubgrupos(valor.map((v) => (typeof v === "string" ? normalizarPrefijo(v).slice(0, 4) : null)));
+  return lista.length > 0 ? lista : null;
 }

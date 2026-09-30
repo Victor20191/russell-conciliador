@@ -49,14 +49,14 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
             </Link>
             {c.balanceEncabezadoId !== balanceId && (
               <span className="text-warn-700">
-                (conciliada sobre <Link href={`/balance/${c.balanceEncabezadoId}`} className="font-semibold underline">otra versión</Link> del período)
+                (conciliada sobre <Link href={`/balance/${c.balanceEncabezadoId}`} className="font-semibold underline">otro balance</Link> con la misma fecha fin)
               </span>
             )}
           </li>
         ))}
       </ul>
       <p className="mt-1 text-[11.5px] text-ink-500">
-        Mientras esté en firme no se puede cargar una versión que altere esas cuentas, congelar otra versión ni cambiar su homologación. Desbloquea desde la pestaña Cruce contable del módulo (senior o gerente asignado).
+        Mientras esté en firme no se puede cargar ni congelar un balance con la misma fecha fin que cambie el saldo final de esas cuentas, aunque sea de otro período, ni cambiar su homologación; el saldo inicial y los movimientos no se bloquean. Desbloquea desde la pestaña Cruce contable del módulo (senior o gerente asignado).
       </p>
     </div>
   );

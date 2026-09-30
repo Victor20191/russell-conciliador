@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { CLAVE_SIN_CUENTA, construirCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { cedulaModulo } from "@/lib/modulos/cuentas-modulo";
+import { balanceTerminaEnPeriodo } from "@/lib/modulos/compuerta-cruce";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 import {
   alcanceDeCierres,
+  alcanceDelCierre,
   alcanceExplicitoDelCruce,
   entraEnAlcance,
   cuentasBloqueoDelModulo,
@@ -15,6 +17,7 @@ import {
   evaluarCierreConciliacion,
   mensajeConciliacionEnFirme,
   mensajeTrasladoCierre,
+  mesDeCorteBalance,
   validarJustificacionDesbloqueo,
   type CierreParaCongelar,
   type FilaDetalleBloqueo,
@@ -161,12 +164,12 @@ describe("evaluarCambiosBloqueados", () => {
     expect(evaluarCambiosBloqueados(bloqueadas, nueva, cerradas)).toEqual([]);
   });
 
-  it("detecta cambios de importes, homologación y cuentas ausentes", () => {
+  it("detecta cambios de saldo final, homologación y cuentas ausentes", () => {
     const nueva = detalle
       .filter((f) => f.cuenta8 !== "14050101")
       .map((f) =>
         f.cuenta8 === "14350501"
-          ? { ...f, debitos: 1 }
+          ? { ...f, saldoFinal: 101 }
           : f.cuenta8 === "14350502"
             ? { ...f, cuenta6Russell: "143510" }
             : f,
@@ -183,6 +186,31 @@ describe("evaluarCambiosBloqueados", () => {
     const nueva = [...detalle, fila("14350599", "143505", { saldoFinal: 1 })];
     const v = evaluarCambiosBloqueados(bloqueadas, nueva, cerradas);
     expect(v).toEqual([expect.objectContaining({ cuenta8: "14350599", motivo: "nueva_en_modulo" })]);
+  });
+
+  it("solo el saldo final queda en firme: el saldo inicial y los movimientos pueden cambiar", () => {
+    const nueva = detalle.map((f) => (f.cuenta8 === "14350501" ? { ...f, saldoInicial: 40, debitos: 75, creditos: 15 } : f));
+    expect(evaluarCambiosBloqueados(bloqueadas, nueva, cerradas)).toEqual([]);
+    // El mismo movimiento con otro saldo final sí altera lo conciliado.
+    const conOtroSaldo = nueva.map((f) => (f.cuenta8 === "14350501" ? { ...f, saldoFinal: 99.99 } : f));
+    expect(evaluarCambiosBloqueados(bloqueadas, conOtroSaldo, cerradas)).toEqual([
+      { cuenta8: "14350501", motivo: "valores", detalle: "14350501 cambia saldo final" },
+    ]);
+  });
+
+  it("con saldo final 0 admite que una cuenta en firme no venga y que llegue una nueva al módulo", () => {
+    const conCero = [...detalle, fila("14350503", "143505", { debitos: 80, creditos: 80 })];
+    const enFirme = cuentasBloqueoDelModulo(conCero, ["1435", "1405"]);
+    expect(enFirme.map((b) => b.cuenta8)).toContain("14350503");
+    // El balance de otro rango no trae la cuenta sin saldo y trae otra, también sin saldo.
+    const nueva = [...detalle, fila("14350599", "143505", { debitos: 5, creditos: 5 })];
+    expect(evaluarCambiosBloqueados(enFirme, nueva, cerradas)).toEqual([]);
+    // Con saldo, las dos alteran lo conciliado.
+    const conSaldo = [...detalle.filter((f) => f.cuenta8 !== "14050101"), fila("14350599", "143505", { saldoFinal: 0.01 })];
+    expect(evaluarCambiosBloqueados(enFirme, conSaldo, cerradas).map((v) => `${v.cuenta8}:${v.motivo}`).sort()).toEqual([
+      "14050101:ausente",
+      "14350599:nueva_en_modulo",
+    ]);
   });
 
   it("tolera diferencias por debajo del centavo", () => {
@@ -257,7 +285,7 @@ describe("mensajeTrasladoCierre", () => {
   it("nombra módulo, período, cargue, quién cerró y cuántas cuentas, con el plural correcto", () => {
     const cierres = [{ moduloCodigo: "INV", periodo: "2025-12", moduloDatoEncabezadoId: 38, cerradoPor: "Camilo Perez Rojo" }];
     const msg = mensajeTrasladoCierre(cierres, 3);
-    expect(msg).toContain("3 cuentas en firme idénticas");
+    expect(msg).toContain("3 cuentas en firme idénticas en saldo final y homologación");
     expect(msg).toContain("INV · 2025-12");
     expect(msg).toContain("cargue #38");
     expect(msg).toContain("Camilo Perez Rojo");
@@ -384,5 +412,111 @@ describe("alcance de una cédula mixta (Activos fijos, Ingresos)", () => {
     expect(alcanceNom).toHaveLength(29);
     expect(alcanceNom).toContain("251010");
     expect(alcanceExplicitoDelCruce(cedulaDe("INV", ["14"]), cruceCon(["1435"]))).toBeNull();
+  });
+});
+
+describe("alcance del cierre: prevalidador + cédula + cuentas del período (los seis módulos)", () => {
+  const cruceCon = (claves: string[]) => ({ filas: claves.map((cuenta4) => ({ cuenta4 })) }) as unknown as Parameters<typeof alcanceDelCierre>[1];
+  const conSubgrupos = (codigo: "INV" | "AFI", subgrupos4: string[]) => ({
+    ...MODULOS_IMPORT[codigo],
+    cedula: { ...MODULOS_IMPORT[codigo].cedula, subgrupos4 },
+  });
+  const bloqueadasCon = (filas: FilaDetalleBloqueo[], alcance: string[]) => cuentasBloqueoDelModulo(filas, [], alcance).map((b) => b.cuenta8);
+
+  it("Cartera deja en firme toda su regla del prevalidador, no solo sus tres cuentas", () => {
+    const alcance = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.CAR, ["13", "2805"]), cruceCon(["130505+280505"]));
+    expect(alcance).toEqual(["13", "130505", "130510", "2805", "280505"]);
+    const cartera = [
+      fila("13050501", "130505", { saldoFinal: 900 }),
+      fila("13051501", "130515", { saldoFinal: 40 }), // trabajadores: bajo la regla 13
+      fila("13300501", "133005", { saldoFinal: 12 }), // anticipos: bajo la regla 13
+      fila("28050501", "280505", { saldoFinal: -30 }),
+      fila("28101001", "281005", { saldoFinal: -5 }), // fuera de la regla 2805 y de la cédula
+      fila("22050501", "220505", { saldoFinal: -70 }),
+    ];
+    expect(bloqueadasCon(cartera, alcance)).toEqual(["13050501", "13051501", "13300501", "28050501"]);
+    const cerradas = alcanceDeCierres([{ cuentasRussell: ["1305", "2805"], cuentasRussell6: alcance }]);
+    expect(entraEnAlcance("138020", cerradas)).toBe(true);
+    expect(entraEnAlcance("281005", cerradas)).toBe(false);
+    expect(entraEnAlcance("220505", cerradas)).toBe(false);
+  });
+
+  it("una cuenta de la cédula fuera del prevalidador también queda en firme (Ingresos 422005, Nómina 25xx)", () => {
+    const ingresos = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.ING, ["41"]), cruceCon(["410505"]));
+    expect(ingresos).toContain("41");
+    expect(ingresos).toContain("422005");
+    const cerradas = alcanceDeCierres([{ cuentasRussell: ["4105"], cuentasRussell6: ingresos }]);
+    expect(entraEnAlcance("413505", cerradas)).toBe(true); // bajo la regla 41, aunque no esté en la lista
+    expect(entraEnAlcance("422005", cerradas)).toBe(true);
+    expect(entraEnAlcance("422010", cerradas)).toBe(false);
+
+    const nomina = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.NOM, ["5105", "5205", "7205", "7305"]), cruceCon(["510506"]));
+    expect(nomina).toEqual(expect.arrayContaining(["5105", "5205", "7205", "7305", "510506", "251010"]));
+    const cerradasNom = alcanceDeCierres([{ cuentasRussell: ["5105"], cuentasRussell6: nomina }]);
+    expect(entraEnAlcance("510548", cerradasNom)).toBe(true); // bajo la regla 5105
+    expect(entraEnAlcance("251010", cerradasNom)).toBe(true);
+    expect(entraEnAlcance("251015", cerradasNom)).toBe(false);
+  });
+
+  it("Inventarios: la regla, la lista del módulo (aunque quede fuera de la regla) y lo del período", () => {
+    // Regla partida a 1405/1435; la lista concilia además 1465, y se agregó 1330 solo para el período.
+    const base = cedulaModulo(conSubgrupos("INV", ["1405", "1465"]), ["1405", "1435"]);
+    const cedula = { ...base, delPeriodo: new Set(["1330"]) };
+    const alcance = alcanceDelCierre(cedula, cruceCon(["1405"]));
+    expect(alcance).toEqual(["1330", "1405", "1435", "1465"]);
+    const inventarios = [
+      fila("14050101", "140501", { saldoFinal: 20 }),
+      fila("14350501", "143505", { saldoFinal: 100 }), // del prevalidador, no de la lista
+      fila("14650501", "146505", { saldoFinal: 7 }), // de la lista, sin renglón en el cruce
+      fila("13300501", "133005", { saldoFinal: 3 }), // agregada solo para esta conciliación
+      fila("14550501", "145505", { saldoFinal: 9 }), // ni regla ni lista
+    ];
+    expect(bloqueadasCon(inventarios, alcance)).toEqual(["13300501", "14050101", "14350501", "14650501"]);
+  });
+
+  it("Activos fijos: toda la 15 de su regla, con la 1592; sin regla de grupo, sus subgrupos y la 1592", () => {
+    const conGrupo = alcanceDelCierre(cedulaModulo(conSubgrupos("AFI", ["1516", "1520"]), ["15"]), cruceCon(["1516", "159205"]));
+    expect(conGrupo).toEqual(["15", "1516", "1520", "1592", "159205"]);
+    const sinGrupo = alcanceDelCierre(cedulaModulo(conSubgrupos("AFI", ["1516", "1520"]), ["1516"]), cruceCon(["1516"]));
+    expect(sinGrupo).toEqual(["1516", "1520", "1592"]);
+    const cerradas = alcanceDeCierres([{ cuentasRussell: ["1516"], cuentasRussell6: sinGrupo }]);
+    expect(entraEnAlcance("159210", cerradas)).toBe(true);
+    expect(entraEnAlcance("152405", cerradas)).toBe(false);
+  });
+
+  it("conserva lo que ya quedaba en firme por tener renglón en el cruce", () => {
+    // Una asignación de la memoria fuera de la regla y de la lista tiene renglón: sigue en firme.
+    const alcance = alcanceDelCierre(cedulaModulo(conSubgrupos("INV", ["1405"]), ["14"]), cruceCon(["1405", "1710"]));
+    expect(alcance).toEqual(["14", "1405", "1710"]);
+  });
+
+  it("una cuenta en firme por dos cierres se evalúa y se cuenta una sola vez", () => {
+    // La regla 13 de Cartera cubre la 1330, que también concilia Cuentas por pagar.
+    const anticipo = fila("13300501", "133005", { saldoFinal: 12 });
+    const porDosCierres = [{ ...anticipo, cierreId: 1 }, { ...anticipo, cierreId: 2 }];
+    const cerradas = alcanceDeCierres([{ cuentasRussell: [], cuentasRussell6: ["13"] }, { cuentasRussell: [], cuentasRussell6: ["133005"] }]);
+    expect(evaluarCambiosBloqueados(porDosCierres, [{ ...anticipo, saldoFinal: 15 }], cerradas)).toHaveLength(1);
+    const cierre = (id: number, moduloCodigo: string): CierreParaCongelar => ({
+      id, moduloCodigo, periodo: "2026-03", balancePeriodo: "Marzo 2026", balanceEncabezadoId: 215,
+      moduloDatoEncabezadoId: 38, cerradoPor: "Camilo", cuentasRussell: [], cuentasRussell6: moduloCodigo === "CAR" ? ["13"] : ["133005"],
+    });
+    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre(1, "CAR"), cierre(2, "CXP")], bloqueadas: porDosCierres, filasNuevas: [anticipo] });
+    expect(d).toMatchObject({ tipo: "traslado", cuentasEnFirme: 1 });
+  });
+
+  it("los cierres anteriores conservan el alcance con que se cerraron", () => {
+    const anterior = alcanceDeCierres([{ cuentasRussell: ["1305", "2805"], cuentasRussell6: ["130505", "130510", "280505"] }]);
+    expect(anterior.cuentas2.size).toBe(0);
+    expect(entraEnAlcance("130515", anterior)).toBe(false);
+  });
+});
+
+describe("mesDeCorteBalance", () => {
+  it("es el mes de la fecha final, el mismo con que el cruce elige el balance", () => {
+    const fin = new Date("2025-12-31T00:00:00Z");
+    expect(mesDeCorteBalance(fin)).toBe("2025-12");
+    expect(mesDeCorteBalance(new Date("2026-03-01T00:00:00Z"))).toBe("2026-03");
+    expect(balanceTerminaEnPeriodo(fin, mesDeCorteBalance(fin))).toBe(true);
+    expect(balanceTerminaEnPeriodo(new Date("2026-01-31T00:00:00Z"), mesDeCorteBalance(fin))).toBe(false);
   });
 });

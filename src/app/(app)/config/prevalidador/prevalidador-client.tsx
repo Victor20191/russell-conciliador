@@ -9,7 +9,6 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { eliminarFilaPrevalidador, guardarFilaPrevalidador } from "@/app/actions/prevalidador";
 import type { ActionState } from "@/lib/definitions";
 import type { FilaCatalogoVista } from "@/lib/parametros/prevalidador";
-import { baseCalculoPorDefecto } from "@/lib/balance/prevalidador/catalogo";
 
 export type ModuloOpcion = { id: number; code: string; name: string };
 
@@ -40,8 +39,8 @@ export default function PrevalidadorConfigClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
-        Los cambios actualizan el cálculo vigente de los balances. Toda revisión aprobada conserva su instantánea y
-        queda marcada como desactualizada si el catálogo usado para aprobar ya no coincide.
+        Los cambios rigen para los balances sin aprobación vigente y para las aprobaciones nuevas. Un balance aprobado
+        conserva el catálogo con que se aprobó; para aplicarle el nuevo, revoca su aprobación y apruébalo otra vez.
       </div>
 
       <div className="flex items-center justify-between">
@@ -122,8 +121,6 @@ function FilaEditor({
     notifyActionState(borrarState, { success: "Cuenta eliminada.", error: "No se pudo eliminar la cuenta." });
   }, [borrarState]);
 
-  const sugerida = cuenta ? baseCalculoPorDefecto(cuenta.replace(/[\s.]/g, "")) : null;
-
   return (
     <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
       <form
@@ -169,7 +166,7 @@ function FilaEditor({
 
         <Campo
           etiqueta="Base de cálculo"
-          ayuda={`${sugerida ? `Por la clase le corresponde: ${sugerida === "saldo" ? "saldo final" : "movimiento"}. ` : ""}Rige solo el informe del prevalidador: el cruce de los módulos compara siempre saldos finales.`}
+          ayuda="Por defecto, saldo final. Rige solo el informe del prevalidador: el cruce de los módulos compara siempre saldos finales."
         >
           <select
             name="baseCalculo"
