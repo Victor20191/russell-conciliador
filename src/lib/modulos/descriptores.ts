@@ -340,13 +340,14 @@ const col =(nombre: string, etiqueta: string, tipo: TipoColumna, requerido = fal
 /**
  * Cuentas Russell de 6 dígitos del módulo de Nómina (RF-NOM-05, sin los pasivos laborales):
  * las ocho subcuentas de gasto de personal de administración (5105) y de ventas (5205), las
- * ocho de mano de obra directa (7205, que numera distinto: 720505 es «Salarios») y la mano
- * de obra indirecta (730505). Son las del PUC maestro Russell (`prisma/data`).
+ * ocho de mano de obra directa (7205, espejo de 5105 salvo 720505 «Salarios» y 720515 «Prima»;
+ * desde el 30/Sep/2026) y la mano de obra indirecta (730505). Son las del PUC maestro Russell
+ * (`prisma/data`).
  */
 export const CUENTAS_RUSSELL_NOMINA: readonly string[] = [
   "510506", "510530", "510536", "510539", "510568", "510569", "510570", "510595",
   "520506", "520530", "520536", "520539", "520568", "520569", "520570", "520595",
-  "720505", "720510", "720515", "720520", "720525", "720530", "720535", "720540",
+  "720505", "720515", "720530", "720539", "720568", "720569", "720570", "720595",
   "730505",
 ];
 

@@ -85,10 +85,11 @@ export function esCuentaComodin(cuentaCliente: unknown): boolean {
 }
 
 // ===== Transposición entre clases =====
-// 5105 y 5205 comparten subcuenta Russell; 7205 numera por posición: 06→05, 30→10, 36→15,
-// 39→20, 68→25, 69→30, 70→35, 95→40; 73 tiene una sola cuenta (730505).
+// 5105 y 5205 comparten subcuenta Russell; 7205 es espejo de 5105 (30, 39, 68, 69, 70, 95) salvo
+// 06→05 y 36→15, que conservan sus cuentas de antes (desde el 30/Sep/2026: 720510, 720520,
+// 720525, 720535 y 720540 salieron del plan); 73 tiene una sola cuenta (730505).
 const SUFIJO_51_A_72: Readonly<Record<string, string>> = {
-  "06": "05", "30": "10", "36": "15", "39": "20", "68": "25", "69": "30", "70": "35", "95": "40",
+  "06": "05", "30": "30", "36": "15", "39": "39", "68": "68", "69": "69", "70": "70", "95": "95",
 };
 const SUFIJO_72_A_51: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(SUFIJO_51_A_72).map(([a, b]) => [b, a]),
@@ -106,7 +107,7 @@ function sufijo51De(cuenta6: string): string | null {
 
 /**
  * La cuenta Russell de 6 dígitos equivalente en otra clase: `transponerClase("510506", "72")`
- * → «720505»; `("720510", "51")` → «510530»; `(*, "73")` → «730505». `null` si la cuenta no es
+ * → «720505»; `("720530", "51")` → «510530»; `(*, "73")` → «730505». `null` si la cuenta no es
  * del gasto de personal o la clase no la tiene (7205 no tiene «comisiones» aparte: cae en 05).
  */
 export function transponerClase(cuenta6: string, clase: ClaseNomina): string | null {
@@ -140,7 +141,7 @@ export function claseDeCuentaRussell(cuenta6: string | null | undefined): ClaseN
 
 /**
  * Cuenta Russell por defecto de un grupo RF-NOM-02 en una clase: `cuentaPorGrupo("cesantias",
- * "72")` → «720510». `null` si el grupo no existe.
+ * "72")` → «720530». `null` si el grupo no existe.
  */
 export function cuentaPorGrupo(grupoId: string, clase: ClaseNomina): string | null {
   const g = grupoConcepto(grupoId);

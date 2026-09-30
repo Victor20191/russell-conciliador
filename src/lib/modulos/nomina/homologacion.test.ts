@@ -60,18 +60,19 @@ describe("estructura de la cuenta del cliente", () => {
 });
 
 describe("transponerClase / cuentaPorGrupo", () => {
-  it("5105 ↔ 5205 comparten sufijo; 7205 numera por posición; 73 es una sola cuenta", () => {
+  it("5105 ↔ 5205 comparten sufijo; 7205 es espejo salvo 06→05 y 36→15; 73 es una sola cuenta", () => {
     expect(transponerClase("510506", "52")).toBe("520506");
     expect(transponerClase("510506", "72")).toBe("720505");
-    expect(transponerClase("510530", "72")).toBe("720510");
+    expect(transponerClase("510530", "72")).toBe("720530");
     expect(transponerClase("510536", "72")).toBe("720515");
-    expect(transponerClase("510539", "72")).toBe("720520");
-    expect(transponerClase("510568", "72")).toBe("720525");
-    expect(transponerClase("510569", "72")).toBe("720530");
-    expect(transponerClase("510570", "72")).toBe("720535");
-    expect(transponerClase("510595", "72")).toBe("720540");
-    expect(transponerClase("720510", "51")).toBe("510530");
-    expect(transponerClase("720540", "52")).toBe("520595");
+    expect(transponerClase("510539", "72")).toBe("720539");
+    expect(transponerClase("510568", "72")).toBe("720568");
+    expect(transponerClase("510569", "72")).toBe("720569");
+    expect(transponerClase("510570", "72")).toBe("720570");
+    expect(transponerClase("510595", "72")).toBe("720595");
+    expect(transponerClase("720530", "51")).toBe("510530");
+    expect(transponerClase("720595", "52")).toBe("520595");
+    expect(transponerClase("720515", "51")).toBe("510536");
     expect(transponerClase("520506", "73")).toBe("730505");
     expect(transponerClase("730505", "51")).toBe("510506");
   });
@@ -82,10 +83,10 @@ describe("transponerClase / cuentaPorGrupo", () => {
   it("cuentaPorGrupo con los sufijos del catálogo", () => {
     expect(cuentaPorGrupo("sueldos", "51")).toBe("510506");
     expect(cuentaPorGrupo("horas_extras", "52")).toBe("520506");
-    expect(cuentaPorGrupo("cesantias", "72")).toBe("720510");
+    expect(cuentaPorGrupo("cesantias", "72")).toBe("720530");
     expect(cuentaPorGrupo("prima", "51")).toBe("510536");
     expect(cuentaPorGrupo("vacaciones", "52")).toBe("520539");
-    expect(cuentaPorGrupo("aportes_eps", "72")).toBe("720530");
+    expect(cuentaPorGrupo("aportes_eps", "72")).toBe("720569");
     expect(cuentaPorGrupo("auxilio_transporte", "51")).toBe("510595");
     expect(cuentaPorGrupo("bonificaciones", "73")).toBe("730505");
     expect(cuentaPorGrupo("inexistente", "51")).toBeNull();
@@ -105,7 +106,7 @@ describe("cuentaRussellPorEstructura / resolverCuentaClienteARussell", () => {
     expect(cuentaRussellPorEstructura("72051501")).toBe("720505");
     expect(cuentaRussellPorEstructura("51053001")).toBe("510530");
     expect(cuentaRussellPorEstructura("51052703")).toBe("510595");
-    expect(cuentaRussellPorEstructura("72056901")).toBe("720530");
+    expect(cuentaRussellPorEstructura("72056901")).toBe("720569");
     expect(cuentaRussellPorEstructura("61050506")).toBeNull();
     expect(cuentaRussellPorEstructura("0005060000")).toBeNull();
     expect(cuentaRussellPorEstructura("23703001")).toBeNull();
@@ -209,7 +210,7 @@ describe("resolverCuentaConcepto", () => {
       memoria: [{ clasificador: "18", agrupador: "", cuenta6: "510539", grupo: "vacaciones" }],
       reglasClase: new Map([["CP", "72"], ["GV", "52"]]),
     };
-    expect(resolverCuentaConcepto({ clasificador: "018", agrupador: "CP" }, ctx)).toMatchObject({ cuentas: ["720520"], via: "memoria_clase", clase: "72", grupo: "vacaciones" });
+    expect(resolverCuentaConcepto({ clasificador: "018", agrupador: "CP" }, ctx)).toMatchObject({ cuentas: ["720539"], via: "memoria_clase", clase: "72", grupo: "vacaciones" });
     expect(resolverCuentaConcepto({ clasificador: "18", agrupador: "GV" }, ctx)).toMatchObject({ cuentas: ["520539"], via: "memoria_clase" });
     // Sin regla para el agrupador: la memoria base tal cual.
     expect(resolverCuentaConcepto({ clasificador: "18", agrupador: "XX" }, ctx)).toMatchObject({ cuentas: ["510539"], via: "memoria_exacta" });
@@ -253,7 +254,7 @@ describe("resolverCuentaConcepto", () => {
 
   it("vía 5: sugerencia por nombre, clase 51 por defecto o la de la regla", () => {
     expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Prima de servicios" }, ctxVacio)).toMatchObject({ cuentas: ["510536"], via: "sugerido_nombre", clase: "51", grupo: "prima" });
-    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Cesantías", agrupador: "MOD" }, { ...ctxVacio, reglasClase: new Map([["MOD", "72"]]) })).toMatchObject({ cuentas: ["720510"], via: "sugerido_nombre", clase: "72" });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Cesantías", agrupador: "MOD" }, { ...ctxVacio, reglasClase: new Map([["MOD", "72"]]) })).toMatchObject({ cuentas: ["720530"], via: "sugerido_nombre", clase: "72" });
   });
 
   it("sin nada → sin_cuenta", () => {
@@ -310,7 +311,7 @@ describe("destino «fuera» y memoria de otros centros", () => {
     // Una sola cuenta en otros centros: se usa.
     expect(resolverCuentaConcepto({ clasificador: "23", agrupador: "100101 - DIRECTORES" }, ctx)).toMatchObject({ cuentas: ["510595"], via: "memoria_clase" });
     // Con regla y sin cuenta de esa clase en la memoria: se transpone.
-    expect(resolverCuentaConcepto({ clasificador: "23", agrupador: "100602 - SELLADORES" }, ctx)).toMatchObject({ cuentas: ["720540"], via: "memoria_clase", clase: "72" });
+    expect(resolverCuentaConcepto({ clasificador: "23", agrupador: "100602 - SELLADORES" }, ctx)).toMatchObject({ cuentas: ["720595"], via: "memoria_clase", clase: "72" });
   });
 });
 
@@ -344,7 +345,7 @@ describe("pasivos laborales en la cédula de Nómina (16/Sep/2026)", () => {
     const r40 = resolverCuentaConcepto({ clasificador: "40", agrupador: "MOD" }, { ...ctx, memoria, reglasClase });
     expect(r40).toMatchObject({ cuentas: ["251010"], destino: "gasto" });
     const r41 = resolverCuentaConcepto({ clasificador: "41", agrupador: "MOD" }, { ...ctx, memoria, reglasClase });
-    expect(r41).toMatchObject({ cuentas: ["720510"], via: "memoria_clase" });
+    expect(r41).toMatchObject({ cuentas: ["720530"], via: "memoria_clase" });
   });
 
   it("la memoria de otros centros conserva el pasivo junto a la cuenta de la clase", () => {
@@ -353,7 +354,7 @@ describe("pasivos laborales en la cédula de Nómina (16/Sep/2026)", () => {
       { clasificador: "40", agrupador: "ADMON", cuenta6: "251010" },
     ];
     const r = resolverCuentaConcepto({ clasificador: "40", agrupador: "PLANTA" }, { ...ctx, memoria, reglasClase: new Map([["PLANTA", "72" as const]]) });
-    expect(r.cuentas.sort()).toEqual(["251010", "720510"]);
+    expect(r.cuentas.sort()).toEqual(["251010", "720530"]);
     expect(r.via).toBe("multi");
   });
 
@@ -382,7 +383,7 @@ describe("cargue SIN centro con lo asignado en los centros (Kakaraka, 22/Sep/202
       ...["1", "5", "10", "20"].map((centro) => ({ clasificador: "225", agrupador: centro, cuenta6: "237030" })),
       // Concepto con cuenta Russell guardada sin centro: manda esa.
       { clasificador: "2", agrupador: "", cuenta6: "510527" },
-      { clasificador: "2", agrupador: "1", cuenta6: "720540" },
+      { clasificador: "2", agrupador: "1", cuenta6: "720595" },
     ],
   };
 
