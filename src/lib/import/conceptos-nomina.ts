@@ -8,7 +8,8 @@
 //   código     → `clasificador` (la llave: en Nómina el clasificador ES el código)         *
 //   concepto   → `descripcion` (el nombre legible)                                          *
 //   cuenta     → cuenta contable DEL CLIENTE (6-10 dígitos: 51050601, 0005060000) o la     *
-//                Russell de 6 (510506). Una o varias separadas con «;». La Server Action la
+//                Russell de 6 (510506). Una o varias separadas con «;», o en filas repetidas del
+//                mismo concepto y centro (se unen). La Server Action la
 //                lleva a Russell por la homologación del balance (RF-NOM-10) o por su
 //                estructura PUC; aquí solo se exige que tenga al menos 6 dígitos.
 //   agrupador  → centro de costo / clase del archivo (opcional): permite que un mismo
@@ -71,7 +72,12 @@ export type FilaConceptoNomina = ConceptoCatalogoEntrada & {
   cliente: string;
 };
 
-export type ParseConceptosNomina = { filas: FilaConceptoNomina[]; errores: ErrorImport[] };
+export type ParseConceptosNomina = {
+  filas: FilaConceptoNomina[];
+  errores: ErrorImport[];
+  /** Avisos que no impiden la carga (conceptos que venían en varias filas y se unieron). */
+  avisos?: string[];
+};
 
 /** Estado que devuelve la Server Action `importarConceptosNomina`. */
 export type ImportConceptosNominaState = {
@@ -188,8 +194,11 @@ export async function parseConceptosNominaWorkbook(
   const errores: ErrorImport[] = [];
   const filas: FilaConceptoNomina[] = [];
   const val = (row: ExcelJS.Row, c?: number) => (c ? celdaTexto(row.getCell(c).value) : "");
-  // (cliente normalizado + código + agrupador) ya visto → fila donde apareció, para delatar duplicados.
+  // (cliente normalizado + código + agrupador) ya visto → su fila en `filas`. Una fila repetida del
+  // mismo concepto y centro SUMA sus cuentas a la primera: es como exportan el catálogo muchos ERP
+  // (una fila por cuenta: FAM, centro 314 → 51050601 y 72050601), y equivale a separarlas con «;».
   const vistos = new Map<string, number>();
+  const unidos = new Set<string>();
 
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
@@ -220,29 +229,30 @@ export async function parseConceptosNominaWorkbook(
       if (!grupo) errs.push(`Grupo de cuenta contable no reconocido: «${grupoRaw}». Usa uno de la hoja Referencias (Sueldos, Horas extras, Cesantías, Prima de servicios…) o déjalo vacío para que se sugiera.`);
     }
 
-    if (cliente && codigo) {
-      const clave = `${normalizar(cliente)}|${normalizar(codigo)}|${normalizar(agrupador)}`;
-      const previa = vistos.get(clave);
-      if (previa != null) {
-        errs.push(
-          agrupador
-            ? `El código «${codigo}» ya venía para este cliente y el centro «${agrupador}» en la fila ${previa}. Deja una sola fila por concepto y centro, y separa sus cuentas con «;».`
-            : `El código «${codigo}» ya venía para este cliente en la fila ${previa}. Deja una sola fila por concepto y separa sus cuentas con «;».`,
-        );
-      } else {
-        vistos.set(clave, r);
-      }
-    }
-
     if (errs.length > 0) {
       for (const m of errs) errores.push({ hoja: HOJA_CONCEPTOS, fila: r, mensaje: m });
       continue;
     }
 
+    // El mismo concepto y centro en otra fila: sus cuentas se suman a la primera (el nombre es el
+    // de la primera; el grupo, el primero que venga).
+    const clave = `${normalizar(cliente)}|${normalizar(codigo)}|${normalizar(agrupador)}`;
+    const previa = vistos.get(clave);
+    if (previa != null) {
+      const primera = filas[previa];
+      primera.cuentas = [...new Set([...primera.cuentas, ...cuentas])];
+      if (!primera.grupo && grupo) primera.grupo = grupo;
+      unidos.add(clave);
+      continue;
+    }
+    vistos.set(clave, filas.length);
     filas.push({ fila: r, cliente, codigo, concepto, grupo, agrupador, cuentas });
   }
 
-  return { filas, errores };
+  const avisos = unidos.size > 0
+    ? [`${unidos.size} concepto(s) venían en varias filas para el mismo cliente y centro: sus cuentas se unieron, como si vinieran en una fila separadas con «;».`]
+    : [];
+  return { filas, errores, avisos };
 }
 
 /** Una fila lista para `consolidacion_modulo_cliente` (ya resuelta la cuenta Russell). */
