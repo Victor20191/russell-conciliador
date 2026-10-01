@@ -13,7 +13,7 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { esImputable } from "@/lib/modulos/promocion";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
-import { controlSeccion, etiquetaRenglonNoSuma, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
+import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { GRUPO_SIN_CLASIFICAR, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo, filasBorradorModulo } from "@/app/actions/modulos-datos";
@@ -408,6 +408,9 @@ export default function BorradorModuloClient({
       const d = delta.porGrupo.get(g.clasificador) ?? { items: 0, subtotal: 0 };
       return {
         clasificador: g.clasificador,
+        descripcion: g.descripcion,
+        // Con ítems rescatados a mano el grupo deja de estar en cero: el aviso desaparece solo.
+        motivoSinItems: g.items + d.items === 0 ? g.motivoSinItems : null,
         items: g.items + d.items,
         subtotal: Math.round((g.subtotal + d.subtotal) * 100) / 100,
         declarado: g.declarado,
@@ -802,8 +805,17 @@ export default function BorradorModuloClient({
                       >
                         <Icon name={g.abierto ? "chev-d" : "chev-r"} size={12} />
                         {clasificadorEtiqueta}: {g.clasificador}
+                        {g.descripcion && <span className="ml-1.5 font-normal text-navy-700">· {g.descripcion}</span>}
                       </button>
                       <span className="ml-2 font-normal text-ink-500">· {g.items.toLocaleString("es-CO")} ítems · {(g.totalFiltrado ?? g.filasDelArchivo).toLocaleString("es-CO")} filas</span>
+                      {g.motivoSinItems && (
+                        <span
+                          className="ml-2 rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-warn-700"
+                          title={`Ninguna fila de este grupo suma al total. ${explicacionSinItems(g.motivoSinItems)} Ábrelo y usa «Incluir» en una fila si debe contar.`}
+                        >
+                          {etiquetaSinItems(g.motivoSinItems)}
+                        </span>
+                      )}
                       {g.novedades > 0 && <span className="ml-2 font-semibold text-err-700">· {g.novedades.toLocaleString("es-CO")} con novedad</span>}
                       {g.cargando && <span className="ml-2 font-normal text-ink-400">· trayendo el detalle…</span>}
                       {(() => {

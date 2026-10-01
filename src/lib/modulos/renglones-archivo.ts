@@ -20,7 +20,49 @@ export function etiquetaRenglonNoSuma(motivo: string | null | undefined): string
   if (motivo === "seccion_cuenta") return "cuenta del archivo · no suma";
   if (motivo?.startsWith("subtotal_tercero")) return "encabezado del tercero · no suma";
   if (motivo === "sin_identificador") return "sin identificación · no suma";
-  return "agrupadora · no suma";
+  return `${razonNoSuma(motivo) ?? "agrupadora"} · no suma`;
+}
+
+/**
+ * Rótulo del grupo cuyas filas NO suman ninguna (`GrupoBorrador.motivoSinItems`): se ve sin abrir
+ * el grupo, que era la única forma de enterarse de que estaba tachado por dentro.
+ */
+export function etiquetaSinItems(motivo: string | null | undefined): string {
+  if (motivo === "en_cero") return "todo en cero";
+  const razon = motivo === "omitidas" ? "omitido a mano" : razonNoSuma(motivo);
+  return `todo en cero · ${razon ?? "no suma"}`;
+}
+
+/** La misma razón, explicada para el tooltip del grupo. */
+export function explicacionSinItems(motivo: string | null | undefined): string {
+  if (motivo === "neto") return "El neto del empleado es devengos − deducciones: sumarlo contaría la plata dos veces.";
+  if (motivo === "omitidas") return "Sus filas se omitieron a mano.";
+  if (motivo === "en_cero") return "Sus filas vienen en cero.";
+  if (motivo === "fuera_de_periodo") return "Sus filas quedaron fuera del rango del cargue.";
+  if (motivo === "pie_repetido") return "Son el pie que el ERP repite en cada página.";
+  if (motivo === "sin_concepto") return "Sus filas no traen concepto.";
+  const razon = razonNoSuma(motivo);
+  return razon ? `El motor las leyó como ${razon}.` : "El motor las apartó del total.";
+}
+
+/**
+ * Por qué una fila quedó fuera del total, en palabras. `null` cuando el motivo no es uno de los
+ * conocidos (ahí el rótulo cae en «agrupadora»). Nómina aporta los cuatro primeros: el neto del
+ * empleado es el resultado de devengos − deducciones y sumarlo contaría la plata dos veces.
+ */
+export function razonNoSuma(motivo: string | null | undefined): string | null {
+  if (!motivo) return null;
+  if (motivo === "neto") return "neto del empleado";
+  if (motivo === "pie_repetido") return "pie del reporte";
+  if (motivo === "sin_concepto") return "fila sin concepto";
+  if (motivo === "fuera_de_periodo") return "fuera del período del cargue";
+  if (motivo === "seccion_cuenta") return "cuenta del archivo";
+  if (motivo === "sin_identificador") return "sin identificación";
+  if (motivo.startsWith("subtotal_tercero")) return "encabezado del tercero";
+  if (motivo.startsWith("gran_total")) return "total del archivo";
+  if (motivo.startsWith("subtotal")) return "subtotal del archivo";
+  if (motivo.startsWith("cola_control")) return "cuadro de cierre del archivo";
+  return null;
 }
 
 /**

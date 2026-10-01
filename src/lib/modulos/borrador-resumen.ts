@@ -45,6 +45,17 @@ export const GRUPO_SIN_CLASIFICAR = "(sin clasificar)";
 
 export type GrupoBorrador = {
   clasificador: string;
+  /**
+   * Nombre legible del grupo cuando el clasificador es un código (Nómina clasifica por el CÓDIGO
+   * del concepto y el nombre vive en otra columna). `null` si el módulo no tiene esa columna.
+   */
+  descripcion: string | null;
+  /**
+   * Por qué el grupo NO aporta ítems (`items === 0`): el motivo dominante de sus filas («neto»,
+   * «subtotal:rotulo», «fuera_de_periodo»…) o «omitidas» si todas se omitieron a mano. `null`
+   * cuando el grupo sí tiene ítems. Evita abrir el grupo para enterarse de que está en cero.
+   */
+  motivoSinItems: string | null;
   /** Filas del grupo que la tabla muestra (sin los renglones de estructura). */
   filas: number;
   /** Renglones de cuenta / sin identificación: ocultos salvo que se pidan. */
@@ -99,6 +110,8 @@ export type InsumosResumen = {
   imputablesEnCero: ReadonlySet<number>;
   /** Total que el archivo imprime en el renglón de cada cuenta (`seccion_cuenta`). */
   declaradoPorCuenta: ReadonlyMap<string, number>;
+  /** Nombre legible de cada grupo cuando el clasificador es un código (Nómina). */
+  descripcionPorGrupo?: ReadonlyMap<string, string>;
   /** Columnas que traen dato en alguna fila del archivo. */
   columnasConDatos: ReadonlySet<string>;
   negativos: { filaNum: number; etiqueta: string; valor: number }[];
@@ -131,20 +144,41 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
   // Grupos en el orden en que aparecen en el archivo.
   const orden: string[] = [];
   const porGrupo = new Map<string, GrupoBorrador>();
+  // Por qué no suma cada fila del grupo, para explicar los grupos que quedan en cero.
+  const motivosPorGrupo = new Map<string, Map<string, number>>();
   let renglonesEstructura = 0;
   for (const f of filas) {
     const k = claveGrupo(f.clasificador);
     let g = porGrupo.get(k);
     if (!g) {
-      g = { clasificador: k, filas: 0, estructura: 0, items: 0, subtotal: 0, declarado: declaradoPorCuenta.get(k) ?? null, novedades: 0 };
+      g = {
+        clasificador: k,
+        descripcion: input.descripcionPorGrupo?.get(k) ?? null,
+        motivoSinItems: null,
+        filas: 0,
+        estructura: 0,
+        items: 0,
+        subtotal: 0,
+        declarado: declaradoPorCuenta.get(k) ?? null,
+        novedades: 0,
+      };
       porGrupo.set(k, g);
       orden.push(k);
     }
     if (esRenglonEstructura(f)) { g.estructura += 1; renglonesEstructura += 1; } else g.filas += 1;
     if (esImputableFila(f)) { g.items += 1; g.subtotal += f.valor; }
+    else {
+      const motivo = motivoFilaSinItem(f);
+      const conteo = motivosPorGrupo.get(k) ?? new Map<string, number>();
+      conteo.set(motivo, (conteo.get(motivo) ?? 0) + 1);
+      motivosPorGrupo.set(k, conteo);
+    }
     if (novedades.has(f.filaNum)) g.novedades += 1;
   }
-  for (const g of porGrupo.values()) g.subtotal = redondear(g.subtotal);
+  for (const g of porGrupo.values()) {
+    g.subtotal = redondear(g.subtotal);
+    if (g.items === 0 && g.filas > 0) g.motivoSinItems = motivoDominante(motivosPorGrupo.get(g.clasificador));
+  }
 
   // Columnas visibles: la del valor y el clasificador siempre; el resto, si el archivo las trae
   // (lo dice `columnasConDatos`) y no son un rango que no suma al saldo.
@@ -176,6 +210,22 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
     control,
     controlesFormato: input.controlesFormato,
   };
+}
+
+/** Por qué una fila no aporta ítem: lo omitieron a mano, está en cero, o el motor la apartó. */
+function motivoFilaSinItem(f: FilaSlim): string {
+  if (f.omitida === true) return "omitidas";
+  if (f.tipoFila === "movimiento") return "en_cero";
+  return f.motivo || f.tipoFila;
+}
+
+/** El motivo que explica al grupo: el más repetido, y el primero en caso de empate. */
+function motivoDominante(conteo: ReadonlyMap<string, number> | undefined): string | null {
+  if (!conteo || conteo.size === 0) return null;
+  let mejor: string | null = null;
+  let n = 0;
+  for (const [motivo, veces] of conteo) if (veces > n) { mejor = motivo; n = veces; }
+  return mejor;
 }
 
 /** Llave con la que se pregunta si una columna trae dato: el rol, o el rango dentro de su familia. */
