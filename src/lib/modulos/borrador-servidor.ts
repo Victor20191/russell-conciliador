@@ -46,12 +46,30 @@ const aFila = (f: FilaCruda): FilaBorrador => ({
 
 const CAMPOS = "fila_num, clasificador, valor, tipo_fila, omitida, motivo_tipo_fila";
 
-/** Filas del lote CON sus datos, en el orden del archivo (para exportar o para Cartera). */
-export async function filasDelLote(loteId: string): Promise<FilaBorrador[]> {
-  const { rows } = await pool().query<FilaCruda>(
-    `SELECT ${CAMPOS}, datos FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
-    [loteId],
-  );
+/**
+ * Filas del lote CON sus datos, en el orden del archivo (para exportar o para Cartera). Con
+ * `roles`, `datos` trae SOLO esas claves (vacío = ninguna): la página del borrador solo necesita
+ * la llave del ítem y las columnas numéricas, y el JSON entero de un cargue de nómina pesa 50 MB
+ * (95.937 filas): leerlo completo tardaba 20-30 s y agotaba el pool de lectura al recargar.
+ */
+export async function filasDelLote(loteId: string, opciones: { roles?: readonly string[] } = {}): Promise<FilaBorrador[]> {
+  const roles = opciones.roles ? [...new Set(opciones.roles)] : null;
+  const { rows } = roles == null
+    ? await pool().query<FilaCruda>(
+        `SELECT ${CAMPOS}, datos FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+        [loteId],
+      )
+    : roles.length === 0
+      ? await pool().query<FilaCruda>(
+          `SELECT ${CAMPOS}, '{}'::jsonb AS datos FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+          [loteId],
+        )
+      : await pool().query<FilaCruda>(
+          `SELECT ${CAMPOS},
+                  (SELECT COALESCE(jsonb_object_agg(k, datos -> k), '{}'::jsonb) FROM unnest($2::text[]) AS k WHERE datos ? k) AS datos
+             FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+          [loteId, roles],
+        );
   return rows.map(aFila);
 }
 
@@ -192,32 +210,41 @@ async function novedadesDeColumnas(
   return { negativos, descuadres };
 }
 
-/** El resumen que la pantalla del borrador recibe en lugar de las filas. */
+/**
+ * El resumen que la pantalla del borrador recibe en lugar de las filas. Con `filas` (las que la
+ * página ya leyó con `filasDelLote`) no se vuelven a traer: la consulta tarda 0,2 s en la base,
+ * pero mover 95.937 filas hasta la aplicación son ~12 s por viaje.
+ */
 export async function cargarResumenBorrador(input: {
   loteId: string;
   descriptor: DescriptorModulo;
   columnas: readonly ColumnaDetalle[];
   nivelCartera: NivelCartera;
   formatoCartera: FormatoArchivoCartera | null;
+  filas?: readonly FilaSlim[];
 }): Promise<ResumenBorrador> {
   const { loteId, descriptor, columnas, formatoCartera } = input;
   const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
 
   const [slim, enCero, declarado, conDatos, novedades] = await Promise.all([
-    pool().query<FilaCruda>(`SELECT ${CAMPOS} FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
+    input.filas
+      ? Promise.resolve(null)
+      : pool().query<FilaCruda>(`SELECT ${CAMPOS} FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
     imputablesEnCero(loteId, columnasNumericas),
     declaradoPorCuenta(loteId, descriptor.valor),
     columnasConDatos(loteId, columnas),
     novedadesDeColumnas(loteId, descriptor, columnas),
   ]);
-  const filas: FilaSlim[] = slim.rows.map((f) => ({
-    filaNum: f.fila_num,
-    clasificador: f.clasificador,
-    valor: Number(f.valor),
-    tipoFila: f.tipo_fila,
-    omitida: f.omitida,
-    motivo: f.motivo_tipo_fila,
-  }));
+  const filas: FilaSlim[] = input.filas
+    ? input.filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivo }))
+    : (slim?.rows ?? []).map((f) => ({
+        filaNum: f.fila_num,
+        clasificador: f.clasificador,
+        valor: Number(f.valor),
+        tipoFila: f.tipo_fila,
+        omitida: f.omitida,
+        motivo: f.motivo_tipo_fila,
+      }));
 
   // Cartera y CxP: sus controles (documentos contra el total del cliente, edades contra el
   // total) sí necesitan `datos`, y son archivos de miles de filas, no de cientos de miles.
