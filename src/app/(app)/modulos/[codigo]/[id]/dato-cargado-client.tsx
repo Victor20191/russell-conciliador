@@ -458,13 +458,16 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelC
   return Object.fromEntries(consolidado.map((c) => {
     const guardadas = c.cuentas4.map((x) => x.codigo);
     if (guardadas.length) return [c.clasificador, guardadas];
-    // Nómina: la homologación sugerida (cuenta del archivo, memoria + clase, grupo por nombre)
-    // se propone cuando es UNA cuenta de gasto; «multi» y control no se proponen. Lo asignado en
-    // los centros (un cargue sin centro) se propone entero, con una o varias cuentas.
+    // Nómina: la homologación sugerida (cuenta del archivo, memoria + clase) se propone cuando es
+    // UNA cuenta de gasto; «multi» y control no se proponen. Lo asignado en los centros (un cargue
+    // sin centro) se propone entero, con una o varias cuentas. La sugerida POR NOMBRE no se
+    // pre-llena (1/Oct/2026): queda en el pie con «Usar». Pre-llenada, volvía cada vez que se
+    // abría la pestaña aunque el auditor la hubiera quitado (MOTO ZONE, 1061 → 510506).
     if (c.sugerencia) {
       const s = c.sugerencia;
       if (s.destino === "gasto" && s.via === "memoria_centros") return [c.clasificador, [...s.cuentas]];
-      return [c.clasificador, s.destino === "gasto" && s.via !== "multi" && s.cuentas.length === 1 ? [...s.cuentas] : []];
+      const propone = s.destino === "gasto" && s.via !== "multi" && s.via !== "sugerido_nombre" && s.cuentas.length === 1;
+      return [c.clasificador, propone ? [...s.cuentas] : []];
     }
     const digitos = c.clasificador.replace(/\D/g, "");
     const candidatas = [digitos.length >= 6 ? digitos.slice(0, 6) : "", digitos.length >= nivel ? digitos.slice(0, nivel) : ""]
