@@ -9,7 +9,8 @@
 // proveedor. Gemini no reporta esos campos en este pipeline, por lo que ambos
 // contadores permanecen en cero al registrar sus llamadas.
 // Si se cambia `ANTHROPIC_MODEL`, agrega aquí su fila; si falta, se usa
-// `TARIFA_DEFECTO` (la del modelo por defecto del proyecto, Opus 4.8).
+// `TARIFA_DEFECTO` (la del modelo por defecto del proyecto, Opus 5.5). Ojo: en
+// Opus 5.5 la lectura de caché vale 0,05× (no 0,1×).
 
 export type Tarifa = {
   entrada: number; // input_tokens
@@ -27,6 +28,8 @@ export type UsoTokens = {
 };
 
 export const TARIFAS_USD: Record<string, Tarifa> = {
+  "claude-opus-5-5": { entrada: 4, salida: 20, cacheCreacion: 5, cacheLectura: 0.2 },
+  "claude-sonnet-5-5": { entrada: 2, salida: 10, cacheCreacion: 2.5, cacheLectura: 0.2 },
   "claude-opus-4-8": { entrada: 5, salida: 25, cacheCreacion: 6.25, cacheLectura: 0.5 },
   "claude-opus-4-7": { entrada: 5, salida: 25, cacheCreacion: 6.25, cacheLectura: 0.5 },
   "claude-opus-4-6": { entrada: 5, salida: 25, cacheCreacion: 6.25, cacheLectura: 0.5 },
@@ -37,7 +40,7 @@ export const TARIFAS_USD: Record<string, Tarifa> = {
 };
 
 // Modelo por defecto del proyecto (ver src/lib/anthropic.ts → MODELO_EXTRACCION).
-export const TARIFA_DEFECTO: Tarifa = TARIFAS_USD["claude-opus-4-8"];
+export const TARIFA_DEFECTO: Tarifa = TARIFAS_USD["claude-opus-5-5"];
 export const TARIFA_GEMINI_DEFECTO: Tarifa = TARIFAS_USD["gemini-3.1-flash-lite"];
 
 /** Tarifa del modelo (con fallback a la del modelo por defecto). */

@@ -6,16 +6,17 @@ import { MODELO_EXTRACCION } from "@/lib/anthropic";
 // una variable de entorno, no reescribir el código de producción.
 //
 // La CASCADA del mapeo de cuentas al plan Russell escala por costo/dificultad:
-//   preclasif (Haiku 4.5) → barre las cuentas obvias a costo/latencia mínimos.
-//   estandar  (Sonnet 4.6) → reintenta las que Haiku no resolvió con confianza.
-//   complejo  (Opus 4.8)   → último recurso para las ambiguas/raras.
+//   preclasif (Haiku 4.5)  → barre las cuentas obvias a costo/latencia mínimos
+//                            (sigue siendo el Haiku más reciente).
+//   estandar  (Sonnet 5.5) → reintenta las que Haiku no resolvió con confianza.
+//   complejo  (Opus 5.5)   → último recurso para las ambiguas/raras.
 // La caché de reglas SQL (`cuentas_cliente`) resuelve las cuentas CONOCIDAS sin
 // IA, así que el costo de IA es proporcional SOLO a las cuentas NUEVAS del mes:
 // un cliente recurrente con catálogo estable tiende a costo de IA ≈ 0.
 export const MODELOS = {
   preclasif: process.env.ANTHROPIC_MODELO_PRECLASIF ?? "claude-haiku-4-5",
-  estandar: process.env.ANTHROPIC_MODELO_ESTANDAR ?? "claude-sonnet-4-6",
-  complejo: process.env.ANTHROPIC_MODELO_COMPLEJO ?? "claude-opus-4-8",
+  estandar: process.env.ANTHROPIC_MODELO_ESTANDAR ?? "claude-sonnet-5-5",
+  complejo: process.env.ANTHROPIC_MODELO_COMPLEJO ?? "claude-opus-5-5",
 } as const;
 
 // Umbrales de confianza (`coincidencia` 0..100) para escalar al siguiente tier.
@@ -36,12 +37,13 @@ export const CASCADA_MAPEO: { modelo: string; umbralEscalar: number }[] = [
 //
 // El modo ESTRUCTURA solo devuelve el mapa de columnas del archivo (~20 campos),
 // una tarea que un modelo medio resuelve casi siempre: se intenta primero con
-// Sonnet (además su mínimo de caché de 2048 tokens SÍ deja cachear el prompt de
-// sistema, ~2,5K tokens) y se escala a Opus solo si la confianza queda bajo el
-// umbral, el spec dice «no importable» o la transformación no cuadra. Los
+// Sonnet 5.5 (sin razonamiento previo; su mínimo de caché de 512 tokens deja
+// cachear el prompt de sistema, ~2,5K tokens) y se escala a Opus 5.5 solo si la
+// confianza queda bajo el umbral, el spec dice «no importable» o la
+// transformación no cuadra. Los
 // PERFILES guardados por cliente cortan ANTES de esta cascada (0 llamadas).
 // La extracción DIRECTA de PDF/texto no cascadea: siempre `MODELO_EXTRACCION`.
-export const MODELO_EXTRACCION_RAPIDA = process.env.ANTHROPIC_MODELO_EXTRACCION_RAPIDA ?? "claude-sonnet-4-6";
+export const MODELO_EXTRACCION_RAPIDA = process.env.ANTHROPIC_MODELO_EXTRACCION_RAPIDA ?? "claude-sonnet-5-5";
 
 // Umbral de `confianza` (0..1) del spec para aceptar el intento del tier rápido.
 export const UMBRAL_CONFIANZA_EXTRACCION = Number(process.env.ANTHROPIC_UMBRAL_EXTRACCION ?? 0.75);

@@ -54,3 +54,28 @@ describe("totalTokens", () => {
     expect(totalTokens({ input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10 })).toBe(160);
   });
 });
+
+describe("tarifas de la familia 5.5", () => {
+  it("Opus 5.5 cobra la lectura de caché a 0,05× y es la tarifa por defecto", () => {
+    const usage = {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+      cache_creation_input_tokens: 1_000_000,
+      cache_read_input_tokens: 1_000_000,
+    };
+    // 4 + 20 + 5 + 0,2 = 29,2 USD
+    expect(calcularCostoUsd("claude-opus-5-5", usage)).toBeCloseTo(29.2, 6);
+    expect(TARIFA_DEFECTO).toEqual(tarifaPara("claude-opus-5-5"));
+  });
+
+  it("aplica la tarifa específica de Sonnet 5.5", () => {
+    const usage = {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+      cache_creation_input_tokens: 1_000_000,
+      cache_read_input_tokens: 1_000_000,
+    };
+    // 2 + 10 + 2,5 + 0,2 = 14,7 USD
+    expect(calcularCostoUsd("claude-sonnet-5-5", usage)).toBeCloseTo(14.7, 6);
+  });
+});
