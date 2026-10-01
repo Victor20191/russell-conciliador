@@ -2,7 +2,8 @@
 //
 // Un reporte de nómina no trae «el valor» en una sola columna. Novasoft y SIESA separan
 // DEVENGOS y DEDUCCIONES; Ofimática las trae en «Percepcion»/«Deduccion» con la deducción
-// en negativo; Buk y Pure Nature traen un solo «Valor» sin signo y una columna de TIPO
+// en negativo; MOTO ZONE trae «Valor» (el devengo) y «Deducción» aparte, nunca las dos en la
+// misma fila; Buk y Pure Nature traen un solo «Valor» sin signo y una columna de TIPO
 // («Ganancias/Provisiones/Aportes/Deducciones», «Ingreso/Deducción»); SIIGO y LIBRA traen un
 // solo valor ya firmado; las interfaces contables (SIEVENSOFT, los asientos de SAP) traen
 // débito y crédito. Aquí se convierte cada forma a UNA convención: devengo positivo,
@@ -87,7 +88,9 @@ export function esConceptoNeto(codigo: unknown, concepto: unknown): boolean {
 /**
  * Valor y naturaleza de la fila según las columnas que el archivo trae (las mapeadas en el
  * spec). Orden: devengo/deducción en columnas aparte → débito/crédito → valor con columna de
- * tipo → valor firmado tal cual.
+ * tipo → valor firmado tal cual. Con «Deducción» y sin «Devengo», la columna «Valor» es el
+ * devengo (MOTO ZONE, 1/Oct/2026): antes se leía el devengo vacío y TODOS los devengos del
+ * archivo quedaban en cero, con solo las deducciones sumando.
  */
 export function valorFilaNomina(
   datos: DatosNomina,
@@ -96,7 +99,7 @@ export function valorFilaNomina(
 ): { valor: number; naturaleza: NaturalezaNomina | null } {
   const tiene = (rol: string) => mapeados.has(rol);
   if (tiene("devengo") || tiene("deduccion")) {
-    const devengo = num(datos.devengo) ?? 0;
+    const devengo = num(tiene("devengo") ? datos.devengo : tiene("valor") ? datos.valor : null) ?? 0;
     // Con «magnitud» el archivo firma todas sus deducciones en negativo (Ofimática) y el signo no
     // informa; con «firmado» una deducción negativa es una reversa y devuelve (SIESA, Novasoft).
     const crudo = num(datos.deduccion) ?? 0;

@@ -19,6 +19,16 @@ describe("valorFilaNomina", () => {
     expect(valorFilaNomina({ devengo: 1000, deduccion: 300 }, mapeados("devengo", "deduccion"))).toEqual({ valor: 700, naturaleza: "devengo" });
   });
 
+  it("MOTO ZONE: «Valor» es el devengo cuando hay «Deducción» y no «Devengo»", () => {
+    const roles = mapeados("valor", "deduccion");
+    expect(valorFilaNomina({ valor: 711750, deduccion: 0 }, roles, "firmado")).toEqual({ valor: 711750, naturaleza: "devengo" });
+    expect(valorFilaNomina({ valor: 0, deduccion: 51400 }, roles, "firmado")).toEqual({ valor: -51400, naturaleza: "deduccion" });
+    expect(valorFilaNomina({ valor: -951168, deduccion: 0 }, roles, "firmado")).toEqual({ valor: -951168, naturaleza: "devengo" }); // reversa de un devengo
+    expect(valorFilaNomina({ valor: 0, deduccion: -311747 }, roles, "firmado")).toEqual({ valor: 311747, naturaleza: "deduccion" }); // reversa de una deducción
+    // Con «Devengo» mapeado, «Valor» no se usa.
+    expect(valorFilaNomina({ valor: 999, devengo: 500, deduccion: 0 }, mapeados("valor", "devengo", "deduccion"))).toEqual({ valor: 500, naturaleza: "devengo" });
+  });
+
   it("Ofimática: la deducción viene en negativo y se toma su magnitud", () => {
     expect(valorFilaNomina({ devengo: 0, deduccion: -195917 }, mapeados("devengo", "deduccion"))).toEqual({ valor: -195917, naturaleza: "deduccion" });
   });
