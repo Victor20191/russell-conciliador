@@ -6,8 +6,10 @@ import {
   CUENTAS_PASIVO_NOMINA,
   CUENTAS_RUSSELL_INGRESOS,
   CUENTAS_RUSSELL_NOMINA,
+  CUENTAS_VISIBLES_NOMINA,
   MODULOS_IMPORT,
   RELACION_DEPRECIACION_AFI,
+  SUBCUENTAS_CONCILIA_NOMINA,
   descriptorModulo,
   modulosSoportados,
   nivelCruceModulo,
@@ -98,22 +100,31 @@ describe("descriptores de módulos", () => {
     expect(MODULOS_IMPORT.CXP.crucePorTercero.cuentasRussell6).toHaveLength(13);
   });
 
-  it("Nómina cruza a 6 dígitos contra las 25 cuentas de gasto y costo de personal (RF-NOM-05)", () => {
+  it("Nómina cruza a 6 dígitos: 60 cuentas de gasto y costo de personal concilian y 52 solo se ven (1/Oct/2026)", () => {
     expect(nivelCruceModulo(MODULOS_IMPORT.NOM)).toBe(6);
     // Nómina, Cartera, CxP e Ingresos concilian por cuenta Russell de 6 dígitos; los demás, por subgrupo.
     for (const d of Object.values(MODULOS_IMPORT)) {
       expect(nivelCruceModulo(d), d.codigo).toBe(["NOM", "CAR", "CXP", "ING"].includes(d.codigo) ? 6 : 4);
     }
-    expect(CUENTAS_RUSSELL_NOMINA).toHaveLength(25);
-    expect(new Set(CUENTAS_RUSSELL_NOMINA).size).toBe(25);
+    expect(CUENTAS_RUSSELL_NOMINA).toHaveLength(60);
+    expect(new Set(CUENTAS_RUSSELL_NOMINA).size).toBe(60);
+    expect(CUENTAS_VISIBLES_NOMINA).toHaveLength(52);
+    expect(new Set([...CUENTAS_RUSSELL_NOMINA, ...CUENTAS_VISIBLES_NOMINA]).size).toBe(112);
     expect(MODULOS_IMPORT.NOM.crucePorTercero.cuentasRussell6).toBe(CUENTAS_RUSSELL_NOMINA);
-    // Solo gasto y costo: ninguna cuenta de pasivo laboral (25xx) ni fuera de 5105/5205/7205/7305.
+    expect(MODULOS_IMPORT.NOM.cedula?.cuentasVisibles).toBe(CUENTAS_VISIBLES_NOMINA);
+    // Las que concilian: solo gasto y costo, en las cuatro clases y con la misma numeración.
     for (const cuenta of CUENTAS_RUSSELL_NOMINA) {
       expect(cuenta, cuenta).toMatch(/^(5105|5205|7205|7305)\d{2}$/);
+      expect(SUBCUENTAS_CONCILIA_NOMINA, cuenta).toContain(cuenta.slice(4));
     }
+    for (const sub of ["03", "06", "15", "27", "95"]) {
+      for (const clase of ["5105", "5205", "7205", "7305"]) expect(CUENTAS_RUSSELL_NOMINA).toContain(clase + sub);
+    }
+    // Las solo visibles: provisiones, aportes y gastos médicos de las cuatro clases, y los pasivos.
+    for (const cuenta of ["510530", "520536", "720569", "730584", "251010", "252505"]) expect(CUENTAS_VISIBLES_NOMINA).toContain(cuenta);
     // Y todas existen en el PUC maestro Russell.
     const codigos = new Set(PUC_MAESTRO.accounts.map((a) => a.code));
-    for (const cuenta of CUENTAS_RUSSELL_NOMINA) expect(codigos.has(cuenta), cuenta).toBe(true);
+    for (const cuenta of [...CUENTAS_RUSSELL_NOMINA, ...CUENTAS_VISIBLES_NOMINA]) expect(codigos.has(cuenta), cuenta).toBe(true);
   });
 
   it("ING exige ingreso neto y no sugiere automáticamente el total de factura", () => {
@@ -221,9 +232,10 @@ describe("ampliaciones de la cédula contable (16/Sep/2026)", () => {
   const codigosPuc = new Set(PUC_MAESTRO.accounts.map((a) => a.code));
   const subgrupos = new Set(SUBGRUPOS.subgrupos.map((s) => s.codigo));
 
-  it("Nómina suma los cuatro pasivos laborales (por saldo final), sin tocar las 25 de gasto", () => {
+  it("Nómina muestra los cuatro pasivos laborales sin conciliarlos (desde el 1/Oct/2026)", () => {
     expect(CUENTAS_PASIVO_NOMINA).toEqual(["251010", "251505", "252005", "252505"]);
-    expect(MODULOS_IMPORT.NOM.cedula?.cuentasAdicionales).toEqual(CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta })));
+    expect(MODULOS_IMPORT.NOM.cedula?.cuentasAdicionales).toBeUndefined();
+    for (const cuenta of CUENTAS_PASIVO_NOMINA) expect(CUENTAS_VISIBLES_NOMINA).toContain(cuenta);
     expect(MODULOS_IMPORT.NOM.crucePorTercero.cuentasRussell6).toBe(CUENTAS_RUSSELL_NOMINA);
     for (const cuenta of CUENTAS_PASIVO_NOMINA) expect(codigosPuc.has(cuenta), cuenta).toBe(true);
   });

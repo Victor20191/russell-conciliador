@@ -15,6 +15,7 @@ import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurre
 import { CuentaConciliacionSchema, SubgrupoConciliacionSchema, type ActionState } from "@/lib/definitions";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
+  moduloConCategoria,
   moduloConCuentasConciliacion,
   moduloConOrigenPorCuenta,
   moduloConSubgruposConciliacion,
@@ -28,6 +29,7 @@ const PATH_CONFIG = "/config/prevalidador";
 class ErrorDominio extends Error {}
 
 const ETIQUETA_ORIGEN = { nacional: "nacional", exterior: "del exterior" } as const;
+const ETIQUETA_CATEGORIA = { concilia: "concilia", visible: "solo visible" } as const;
 
 /** Tras un cambio: la caché de la configuración y las pantallas que la leen. */
 function invalidar() {
@@ -37,8 +39,11 @@ function invalidar() {
   revalidatePath("/config/conceptos-nomina");
 }
 
-/** El módulo tiene que conciliar a 6 dígitos y, para el origen, distinguir nacional/exterior. */
-function validarModulo(moduloCodigo: string, origen: string | null): string {
+/**
+ * El módulo tiene que conciliar a 6 dígitos; para el origen, distinguir nacional/exterior, y para una
+ * cuenta solo visible, admitir categoría (Nómina).
+ */
+function validarModulo(moduloCodigo: string, origen: string | null, categoria: "concilia" | "visible"): string {
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) throw new ErrorDominio("Módulo no soportado.");
   if (!moduloConCuentasConciliacion(descriptor)) {
@@ -47,8 +52,14 @@ function validarModulo(moduloCodigo: string, origen: string | null): string {
   if (origen && !moduloConOrigenPorCuenta(descriptor)) {
     throw new ErrorDominio(`${descriptor.label} no distingue cuentas nacionales y del exterior.`);
   }
+  if (categoria === "visible" && !moduloConCategoria(descriptor)) {
+    throw new ErrorDominio(`${descriptor.label} no tiene cuentas solo visibles: todas sus cuentas concilian.`);
+  }
   return descriptor.label;
 }
+
+/** Cuentas que CONCILIAN en el módulo (las solo visibles no acotan la cédula). */
+const QUE_CONCILIAN = { categoria: "concilia" } as const;
 
 /** Alta o edición de una cuenta de 6 dígitos que concilia un módulo (mismo flujo que los prefijos). */
 export async function guardarCuentaConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
@@ -59,16 +70,17 @@ export async function guardarCuentaConciliacion(_prev: ActionState, formData: Fo
     moduloCodigo: formData.get("moduloCodigo"),
     cuenta: formData.get("cuenta"),
     origen: formData.get("origen"),
+    categoria: formData.get("categoria"),
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { id, moduloCodigo, cuenta, origen } = parsed.data;
+  const { id, moduloCodigo, cuenta, origen, categoria } = parsed.data;
 
   try {
-    const etiquetaModulo = validarModulo(moduloCodigo, origen);
+    const etiquetaModulo = validarModulo(moduloCodigo, origen, categoria);
     const user = await getCurrentUser();
     const resultado = await transaccionSerializable(async (tx) => {
       const previa = id
-        ? await tx.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true, origen: true } })
+        ? await tx.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true, origen: true, categoria: true } })
         : null;
       if (id && !previa) throw new ErrorDominio("Esa cuenta ya no está configurada.");
       // Candado de los módulos que cambian (el de origen y el de destino, en orden fijo).
@@ -81,12 +93,17 @@ export async function guardarCuentaConciliacion(_prev: ActionState, formData: Fo
       ]);
       if (!plan) throw new ErrorDominio(`La cuenta ${cuenta} no existe en el plan estándar Russell.`);
       if (duplicada && duplicada.id !== id) throw new ErrorDominio(`${etiquetaModulo} ya concilia la cuenta ${cuenta}.`);
-      // Pasar la cuenta a otro módulo no puede dejar el de origen sin cuentas.
-      if (previa && previa.moduloCodigo !== moduloCodigo) {
-        const restantes = await tx.cuentaConciliacionModulo.count({ where: { moduloCodigo: previa.moduloCodigo } });
-        if (restantes <= 1) throw new ErrorDominio("El módulo de origen debe conciliar al menos una cuenta: agrégale otra antes de mover esta.");
+      // Pasar la cuenta a otro módulo, o volverla solo visible, no puede dejar un módulo sin
+      // cuentas que concilien (sin ninguna, la cédula dejaría de acotar).
+      if (previa && previa.categoria === "concilia" && (previa.moduloCodigo !== moduloCodigo || categoria !== "concilia")) {
+        const restantes = await tx.cuentaConciliacionModulo.count({ where: { moduloCodigo: previa.moduloCodigo, ...QUE_CONCILIAN } });
+        if (restantes <= 1) {
+          throw new ErrorDominio(previa.moduloCodigo !== moduloCodigo
+            ? "El módulo de origen debe conciliar al menos una cuenta: agrégale otra antes de mover esta."
+            : "El módulo debe conciliar al menos una cuenta: deja otra que concilie antes de volver esta solo visible.");
+        }
       }
-      const datos = { moduloCodigo, cuenta, origen, actualizadoPor: user?.name ?? null };
+      const datos = { moduloCodigo, cuenta, origen, categoria, actualizadoPor: user?.name ?? null };
       if (id) await tx.cuentaConciliacionModulo.update({ where: { id }, data: datos });
       else await tx.cuentaConciliacionModulo.create({ data: datos });
       return { nombre: plan.name, previa };
@@ -98,6 +115,7 @@ export async function guardarCuentaConciliacion(_prev: ActionState, formData: Fo
           previa.moduloCodigo !== moduloCodigo ? `módulo ${descriptorModulo(previa.moduloCodigo)?.label ?? previa.moduloCodigo} → ${etiquetaModulo}` : null,
           previa.cuenta !== cuenta ? `cuenta ${previa.cuenta} → ${cuenta}` : null,
           (previa.origen ?? null) !== origen ? `origen ${etiquetaOrigen(previa.origen)} → ${etiquetaOrigen(origen)}` : null,
+          previa.categoria !== categoria ? `categoría ${etiquetaCategoria(previa.categoria)} → ${ETIQUETA_CATEGORIA[categoria]}` : null,
         ].filter(Boolean)
       : [];
     await logAudit({
@@ -106,7 +124,7 @@ export async function guardarCuentaConciliacion(_prev: ActionState, formData: Fo
       entity: `${etiquetaModulo} · ${cuenta}`,
       detail: id
         ? cambios.join(" · ") || "Sin cambios"
-        : `${resultado.nombre}${origen ? ` · cuenta ${ETIQUETA_ORIGEN[origen]}` : ""}`,
+        : `${resultado.nombre}${origen ? ` · cuenta ${ETIQUETA_ORIGEN[origen]}` : ""}${categoria === "visible" ? " · solo visible" : ""}`,
     });
     invalidar();
     return { ok: true, message: id ? `Cuenta ${cuenta} actualizada.` : `Cuenta ${cuenta} agregada a ${etiquetaModulo}.` };
@@ -120,6 +138,10 @@ function etiquetaOrigen(origen: string | null | undefined): string {
   return origen === "nacional" || origen === "exterior" ? ETIQUETA_ORIGEN[origen] : "sin origen";
 }
 
+function etiquetaCategoria(categoria: string | null | undefined): string {
+  return categoria === "visible" ? ETIQUETA_CATEGORIA.visible : ETIQUETA_CATEGORIA.concilia;
+}
+
 /** Quita una cuenta del módulo. Un módulo a 6 dígitos conserva al menos una. */
 export async function quitarCuentaConciliacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso(PERMISO);
@@ -130,12 +152,15 @@ export async function quitarCuentaConciliacion(_prev: ActionState, formData: For
   try {
     const user = await getCurrentUser();
     const fila = await transaccionSerializable(async (tx) => {
-      const actual = await tx.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true } });
+      const actual = await tx.cuentaConciliacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, cuenta: true, categoria: true } });
       if (!actual) throw new ErrorDominio("Esa cuenta ya no está configurada.");
       await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${actual.moduloCodigo}`);
-      // Sin ninguna cuenta la cédula dejaría de acotar y conciliaría todas las de sus prefijos.
-      const restantes = await tx.cuentaConciliacionModulo.count({ where: { moduloCodigo: actual.moduloCodigo } });
-      if (restantes <= 1) throw new ErrorDominio("El módulo debe conciliar al menos una cuenta: agrega otra antes de quitar esta.");
+      // Sin ninguna cuenta que concilie la cédula dejaría de acotar y conciliaría todas las de sus
+      // prefijos. Una solo visible se quita sin esa condición.
+      if (actual.categoria === "concilia") {
+        const restantes = await tx.cuentaConciliacionModulo.count({ where: { moduloCodigo: actual.moduloCodigo, ...QUE_CONCILIAN } });
+        if (restantes <= 1) throw new ErrorDominio("El módulo debe conciliar al menos una cuenta: agrega otra antes de quitar esta.");
+      }
       await tx.cuentaConciliacionModulo.delete({ where: { id } });
       return actual;
     });
@@ -145,7 +170,9 @@ export async function quitarCuentaConciliacion(_prev: ActionState, formData: For
       user: user?.name ?? "Sistema",
       action: "QUITÓ CUENTA DE CONCILIACIÓN",
       entity: `${etiquetaModulo} · ${fila.cuenta}`,
-      detail: "Deja de conciliarse en los cargues abiertos; los períodos en firme conservan sus cuentas.",
+      detail: fila.categoria === "visible"
+        ? "Deja de mostrarse en los cargues abiertos (era solo visible)."
+        : "Deja de conciliarse en los cargues abiertos; los períodos en firme conservan sus cuentas.",
     });
     invalidar();
     return { ok: true, message: `Cuenta ${fila.cuenta} retirada de ${etiquetaModulo}.` };

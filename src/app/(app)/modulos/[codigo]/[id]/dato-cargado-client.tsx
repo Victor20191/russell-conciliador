@@ -129,6 +129,8 @@ export type CruceContableVm = {
   detalleSinCuenta?: HijoModuloSinCuenta[];
   /** Parte de «Contabilidad» que está en cuentas Russell de seis que el módulo no concilia. */
   fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
+  /** Cuentas solo visibles (Nómina): su cruce aparte, fuera de totales, marcas y cierre. */
+  soloVisibles?: ResumenCruceContable | null;
   /** Conciliación en firme del (cliente, módulo, período). */
   conciliacion: CierreConciliacionVm;
   /** Solo Nómina: rango, base contable, repartos, vista por subcuenta y control de deducciones. */
@@ -2201,6 +2203,10 @@ function CruceContableTab({
         </div>
       </div>
 
+      {cruceContable.soloVisibles && cruceContable.soloVisibles.filas.length > 0 && (
+        <CuentasSoloVisiblesCard resumen={cruceContable.soloVisibles} detalle={cruceContable.detalleContablePorCuenta} moduloLabel={moduloLabel} />
+      )}
+
       <ObservacionesMarcas
         observaciones={observaciones}
         referencias={referenciasMarcas}
@@ -2552,10 +2558,140 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
   );
 }
 
+/**
+ * Cuentas SOLO VISIBLES de Nómina (1/Oct/2026): su saldo final contra lo que el archivo les asigna, al
+ * final del cruce y cerradas al entrar. No suman a los totales de la cédula, no llevan marca y no
+ * pesan en el cierre; la diferencia se muestra solo como referencia.
+ */
+function CuentasSoloVisiblesCard({ resumen, detalle, moduloLabel }: { resumen: ResumenCruceContable; detalle: Record<string, HijoContableCruce[]>; moduloLabel: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const [expandidas, setExpandidas] = useState<Set<string>>(() => new Set());
+  const alternar = (clave: string) => setExpandidas((p) => { const n = new Set(p); if (n.has(clave)) n.delete(clave); else n.add(clave); return n; });
+  return (
+    <Card className="p-0">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left hover:bg-ink-50/60"
+      >
+        <Icon name={chevronDivulgacion(abierto)} size={13} className="shrink-0 text-ink-400" />
+        <span className="text-[12.5px] font-semibold text-ink-800">Cuentas solo visibles</span>
+        <span className="text-[11.5px] text-ink-500">{resumen.filas.length} · no cuentan para la conciliación</span>
+        <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
+          Contabilidad {fmtContable(resumen.totales.contable)} · {moduloLabel} {fmtContable(resumen.totales.inventario)}
+        </span>
+      </button>
+      {abierto && (
+        <div className="border-t border-ink-100">
+          <p className="px-3 py-2 text-[11px] text-ink-500">
+            Se ven para consulta, con su saldo final y lo que el archivo les asigna. No suman a los totales de la cédula, no llevan
+            marca y no pesan en el cierre. Se administran en Filtros de cuentas.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-ink-50 text-left text-ink-500">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Cuenta</th>
+                  <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
+                  <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
+                  <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.filas.map((f) => {
+                  const hijos = detalle[f.cuenta4] ?? [];
+                  const expandida = expandidas.has(f.cuenta4);
+                  return (
+                    <Fragment key={f.cuenta4}>
+                      <tr className="border-t border-ink-100">
+                        <td className="px-3 py-2 text-ink-800">
+                          <div className="flex items-center gap-1.5">
+                            {hijos.length > 0 ? (
+                              <button type="button" onClick={() => alternar(f.cuenta4)} aria-expanded={expandida} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver las cuentas del cliente">
+                                <Icon name={chevronDivulgacion(expandida)} size={13} />
+                              </button>
+                            ) : (
+                              <span className="inline-block w-[17px]" />
+                            )}
+                            <span className="min-w-0 break-words">{etiquetaFilaCruce(f)}</span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.inventario)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(f.diferencia)}</td>
+                      </tr>
+                      {expandida && hijos.map((h) => (
+                        <tr key={h.cuenta8} className="bg-ink-50/50 text-[11.5px] text-ink-600">
+                          <td className="py-1 pl-10 pr-3"><span className="font-mono">{h.cuenta8}</span> {h.nombre}</td>
+                          <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">{fmtContable(h.valor)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+type FilaSubcuentaNominaVm = NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>["filas"][number];
+
 /** Vista por subcuenta PUC del gasto de personal sumando clases: el papel del auditor. */
 function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>; moduloLabel: string }) {
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set());
   const alternar = (sub: string) => setAbiertas((p) => { const n = new Set(p); if (n.has(sub)) n.delete(sub); else n.add(sub); return n; });
+  // Las subcuentas solo visibles van al final, cerradas al entrar y fuera de los totales.
+  const [verVisibles, setVerVisibles] = useState(false);
+  const filasVisibles = vista.filasVisibles ?? [];
+  const renglones = (lista: readonly FilaSubcuentaNominaVm[], soloVisible: boolean) => lista.map((f) => {
+    const abierta = abiertas.has(f.subcuenta);
+    return (
+      <Fragment key={f.subcuenta}>
+        <tr className={`border-t border-ink-100 ${!soloVisible && f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+          <td className="px-3 py-2 font-medium text-ink-800">
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
+                <Icon name={chevronDivulgacion(abierta)} size={13} />
+              </button>
+              <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
+            </div>
+          </td>
+          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
+          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${soloVisible ? "text-ink-500" : `font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}`}>{fmtContable(f.diferencia)}</td>
+          <td className="px-3 py-2">
+            {soloVisible ? <Chip label="Solo visible" tone="ink" /> : <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} />}
+          </td>
+        </tr>
+        {abierta && (
+          <tr className="border-t border-ink-100 bg-ink-50/60">
+            <td colSpan={5} className="px-3 py-2.5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
+                  {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
+                    <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
+                  ))}
+                </div>
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
+                  {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
+                    <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
+                  ))}
+                </div>
+              </div>
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  });
   return (
     <Card className="p-0">
       <div className="border-b border-ink-100 px-3 py-2">
@@ -2575,49 +2711,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
               <th className="px-3 py-2 font-semibold">Estado</th>
             </tr>
           </thead>
-          <tbody>
-            {vista.filas.map((f) => {
-              const abierta = abiertas.has(f.subcuenta);
-              return (
-                <Fragment key={f.subcuenta}>
-                  <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
-                    <td className="px-3 py-2 font-medium text-ink-800">
-                      <div className="flex items-center gap-1.5">
-                        <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
-                          <Icon name={chevronDivulgacion(abierta)} size={13} />
-                        </button>
-                        <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
-                    <td className="px-3 py-2"><Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} /></td>
-                  </tr>
-                  {abierta && (
-                    <tr className="border-t border-ink-100 bg-ink-50/60">
-                      <td colSpan={5} className="px-3 py-2.5">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div>
-                            <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
-                            {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
-                              <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
-                            ))}
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
-                            {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
-                              <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
-                            ))}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
+          <tbody>{renglones(vista.filas, false)}</tbody>
           <tfoot>
             <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
               <td className="px-3 py-2">Totales</td>
@@ -2629,6 +2723,30 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
           </tfoot>
         </table>
       </div>
+      {filasVisibles.length > 0 && (
+        <div className="border-t border-ink-100">
+          <button
+            type="button"
+            onClick={() => setVerVisibles((v) => !v)}
+            aria-expanded={verVisibles}
+            className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left hover:bg-ink-50/60"
+          >
+            <Icon name={chevronDivulgacion(verVisibles)} size={13} className="shrink-0 text-ink-400" />
+            <span className="text-[12px] font-semibold text-ink-700">Subcuentas solo visibles</span>
+            <span className="text-[11.5px] text-ink-500">{filasVisibles.length} · no cuentan en los totales</span>
+            <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
+              Contabilidad {fmtContable(vista.totalesVisibles?.contable ?? 0)} · {moduloLabel} {fmtContable(vista.totalesVisibles?.modulo ?? 0)}
+            </span>
+          </button>
+          {verVisibles && (
+            <div className="overflow-x-auto border-t border-ink-100">
+              <table className="w-full text-[12.5px]">
+                <tbody>{renglones(filasVisibles, true)}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       {vista.sinSubcuenta.length > 0 && (
         <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
           Sin subcuenta conocida (sin cuenta del cliente ni una cuenta Russell asignada que la diga; no entran a esta vista): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.

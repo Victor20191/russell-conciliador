@@ -407,10 +407,12 @@ describe("alcance de una cédula mixta (Activos fijos, Ingresos)", () => {
     expect(alcanceAfi).toEqual(["1516", "1520", "1528", "159205", "159210", "159220"]);
   });
 
-  it("Nómina suma sus pasivos a la lista; un módulo sin ampliaciones cierra por cuenta de 4", () => {
+  it("Nómina deja en firme sus cuentas que concilian, no las solo visibles; un módulo sin ampliaciones cierra por cuenta de 4", () => {
     const alcanceNom = alcanceExplicitoDelCruce(cedulaDe("NOM", ["5105"]), cruceCon(["510506"]));
-    expect(alcanceNom).toHaveLength(29);
-    expect(alcanceNom).toContain("251010");
+    expect(alcanceNom).toHaveLength(60);
+    expect(alcanceNom).toContain("510506");
+    expect(alcanceNom).not.toContain("251010"); // pasivo solo visible desde el 1/Oct/2026
+    expect(alcanceNom).not.toContain("510530");
     expect(alcanceExplicitoDelCruce(cedulaDe("INV", ["14"]), cruceCon(["1435"]))).toBeNull();
   });
 });
@@ -441,7 +443,7 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
     expect(entraEnAlcance("220505", cerradas)).toBe(false);
   });
 
-  it("una cuenta de la cédula fuera del prevalidador también queda en firme (Ingresos 422005, Nómina 25xx)", () => {
+  it("una cuenta de la cédula fuera del prevalidador también queda en firme (Ingresos 422005); una solo visible fuera de él no (Nómina 25xx)", () => {
     const ingresos = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.ING, ["41"]), cruceCon(["410505"]));
     expect(ingresos).toContain("41");
     expect(ingresos).toContain("422005");
@@ -451,10 +453,12 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
     expect(entraEnAlcance("422010", cerradas)).toBe(false);
 
     const nomina = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.NOM, ["5105", "5205", "7205", "7305"]), cruceCon(["510506"]));
-    expect(nomina).toEqual(expect.arrayContaining(["5105", "5205", "7205", "7305", "510506", "251010"]));
+    expect(nomina).toEqual(expect.arrayContaining(["5105", "5205", "7205", "7305", "510506"]));
+    expect(nomina).not.toContain("251010");
     const cerradasNom = alcanceDeCierres([{ cuentasRussell: ["5105"], cuentasRussell6: nomina }]);
     expect(entraEnAlcance("510548", cerradasNom)).toBe(true); // bajo la regla 5105
-    expect(entraEnAlcance("251010", cerradasNom)).toBe(true);
+    expect(entraEnAlcance("510530", cerradasNom)).toBe(true); // solo visible, pero bajo la regla 5105
+    expect(entraEnAlcance("251010", cerradasNom)).toBe(false); // solo visible y fuera del prevalidador
     expect(entraEnAlcance("251015", cerradasNom)).toBe(false);
   });
 

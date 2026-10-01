@@ -142,6 +142,12 @@ export type CedulaModulo = {
    * descriptor; la amplía `cedulaDelPeriodo`. Como toda la cédula, se leen por saldo final.
    */
   delPeriodo: ReadonlySet<string>;
+  /**
+   * Cuentas de 6 SOLO VISIBLES (`cedula.cuentasVisibles`, Nómina desde el 1/Oct/2026): se asignan en
+   * el Consolidado y se muestran al final del cruce, pero no forman la cédula (no están en `lista6`
+   * ni en `adicionales`): no suman, no llevan marca y no entran al alcance del cierre.
+   */
+  visibles: ReadonlySet<string>;
 };
 
 /** Lo que `cedulaModulo` lee del descriptor (tipado estructural para no acoplar las pruebas). */
@@ -167,6 +173,10 @@ export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, pr
   if (prefijos.length > 0) {
     for (const c of lista) if (c.length === 6 && !cuenta4DelModulo(c.slice(0, 4), prefijos)) adicionales.add(c);
   }
+  const enLaLista = new Set(lista);
+  const visibles = new Set(
+    (cfg?.cuentasVisibles ?? []).map((c) => normalizarPrefijo(c)).filter((c) => c.length === 6 && !enLaLista.has(c) && !adicionales.has(c)),
+  );
   const nivel: NivelCruce = descriptor?.nivelCruce === 6 ? 6 : 4;
   const abiertos = new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza] as const));
   // A 4, la lista de subgrupos (/config/prevalidador) decide qué entra; los abiertos son fijos en
@@ -186,7 +196,14 @@ export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, pr
     relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
     rolRelacionado: cfg?.valorRelacionado?.rol ?? null,
     delPeriodo: new Set(),
+    visibles,
   };
+}
+
+/** ¿La cuenta de 6 es SOLO VISIBLE en la cédula? (se muestra sin conciliarse). */
+export function esVisibleCedula(cedula: Pick<CedulaModulo, "visibles">, cuenta6: string | null | undefined): boolean {
+  const c6 = seisDigitos(cuenta6);
+  return c6 !== "" && cedula.visibles.has(c6);
 }
 
 /**
@@ -243,13 +260,15 @@ export function subgrupoDeLaCedula(cedula: Pick<CedulaModulo, "lista4" | "prefij
 
 /**
  * Cuentas de 6 que la cédula concilia por lista (`cedula.cuentas6` o `cuentasRussell6`) más las
- * adicionales. Nómina lo usa para decidir si un concepto cruza (gasto 51/52/72/73 y pasivos 25xx).
+ * adicionales y las solo visibles. Nómina lo usa para decidir si un concepto cruza (gasto 51/52/72/73 y
+ * pasivos 25xx): uno asignado a una visible se muestra en su renglón visible, sin conciliarse.
  */
 export function cuentasCedula6(descriptor: DescriptorCedula | null | undefined, delPeriodo: readonly string[] = []): string[] {
   const lista = descriptor?.cedula?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6 ?? [];
   const adicionales = (descriptor?.cedula?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta));
+  const visibles = (descriptor?.cedula?.cuentasVisibles ?? []).map((c) => normalizarPrefijo(c));
   const extras = delPeriodo.map((c) => normalizarPrefijo(c)).filter((c) => c.length === 6);
-  return [...new Set([...lista, ...adicionales, ...extras])];
+  return [...new Set([...lista, ...adicionales, ...visibles, ...extras])];
 }
 
 /** ¿La cédula mezcla claves de 4 y de 6 dígitos? (módulo a 4 con cuentas de 6). */
@@ -280,7 +299,7 @@ export function claveCedula(cedula: CedulaModulo, cuenta6: string | null | undef
 export function fueraDeListaCedula(cedula: CedulaModulo, cuenta6: string | null | undefined): boolean {
   const c6 = seisDigitos(cuenta6);
   if (!cedula.lista6 || !c6) return false;
-  return !cedula.lista6.has(c6) && !cedula.adicionales.has(c6) && !cedula.delPeriodo.has(c6);
+  return !cedula.lista6.has(c6) && !cedula.adicionales.has(c6) && !cedula.delPeriodo.has(c6) && !cedula.visibles.has(c6);
 }
 
 /**
@@ -295,7 +314,7 @@ export function cuentaAsignableCedula(cedula: CedulaModulo, codigo: string): boo
 
 /** Lo que la cédula del descriptor admite, sin las cuentas del período. */
 function cuentaAsignableBase(cedula: CedulaModulo, c: string): boolean {
-  if (c.length === 6 && cedula.adicionales.has(c)) return true;
+  if (c.length === 6 && (cedula.adicionales.has(c) || cedula.visibles.has(c))) return true;
   if (c.length !== cedula.nivel) return false;
   const sub = c.slice(0, 4);
   if (!subgrupoDeLaCedula(cedula, sub)) return false;
@@ -315,6 +334,7 @@ export function longitudesCedula(cedula: CedulaModulo): ReadonlySet<number> {
 export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly SubgrupoOpcion[]): Set<string> {
   const codigos = new Set(cedula.lista4 ?? filtrarSubgruposPorModulo(subgrupos, cedula.prefijos).map((s) => s.codigo));
   for (const c of cedula.adicionales.keys()) codigos.add(c.slice(0, 4));
+  for (const c of cedula.visibles.keys()) codigos.add(c.slice(0, 4));
   for (const c of cedula.delPeriodo.keys()) codigos.add(c.slice(0, 4));
   return codigos;
 }
@@ -326,7 +346,7 @@ export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly Subgru
 export function cuentas6ACargarCedula(cedula: CedulaModulo): readonly string[] | null {
   if (cedula.abiertos.size > 0) return null;
   const delPeriodo6 = [...cedula.delPeriodo.keys()].filter((c) => c.length === 6);
-  if (cedula.nivel === 6) return cedula.lista6 ? [...new Set([...cedula.lista6, ...cedula.adicionales.keys(), ...delPeriodo6])] : null;
+  if (cedula.nivel === 6) return cedula.lista6 ? [...new Set([...cedula.lista6, ...cedula.adicionales.keys(), ...cedula.visibles.keys(), ...delPeriodo6])] : null;
   return [...new Set([...cedula.adicionales.keys(), ...delPeriodo6])];
 }
 
@@ -340,7 +360,7 @@ export function opcionesCedula<T extends SubgrupoOpcion>(cedula: CedulaModulo, s
     ? cuentasEstandar.filter((c) => cuentaAsignableBase(cedula, normalizarPrefijo(c.codigo)))
     : subgrupos.filter((s) => cuentaAsignableBase(cedula, normalizarPrefijo(s.codigo)));
   const vistos = new Set(base.map((c) => c.codigo));
-  const extra = cuentasEstandar.filter((c) => cedula.adicionales.has(c.codigo) && !vistos.has(c.codigo));
+  const extra = cuentasEstandar.filter((c) => (cedula.adicionales.has(c.codigo) || cedula.visibles.has(c.codigo)) && !vistos.has(c.codigo));
   return [...base, ...extra].sort((a, b) => (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0));
 }
 

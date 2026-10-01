@@ -14,6 +14,7 @@ import {
   aplicarCuentasConciliacion,
   aplicarSubgruposConciliacion,
   cuentasConciliacionDe,
+  esCategoriaCuentaConciliacion,
   esOrigenCuentaConciliacion,
   leerCuentasConciliacionGuardadas,
   leerSubgruposConciliacionGuardados,
@@ -34,19 +35,21 @@ export type ContextoCuentasConciliacion = { clienteId: number; periodo: string }
 
 async function leerCuentasVigentes(): Promise<Record<string, CuentaConciliacion[]>> {
   const filas = await prisma.cuentaConciliacionModulo.findMany({
-    select: { moduloCodigo: true, cuenta: true, origen: true },
+    select: { moduloCodigo: true, cuenta: true, origen: true, categoria: true },
     orderBy: [{ moduloCodigo: "asc" }, { cuenta: "asc" }],
   });
   const porModulo: Record<string, CuentaConciliacion[]> = {};
   for (const f of filas) {
     const cuenta = normalizarCuentaConciliacion(f.cuenta);
     if (!cuenta) throw new Error(`La cuenta ${f.cuenta || "vacía"} de ${f.moduloCodigo} no es una cuenta Russell de 6 dígitos.`);
-    (porModulo[f.moduloCodigo] ??= []).push({ cuenta, origen: esOrigenCuentaConciliacion(f.origen) ? f.origen : null });
+    if (!esCategoriaCuentaConciliacion(f.categoria)) throw new Error(`La cuenta ${cuenta} de ${f.moduloCodigo} tiene una categoría desconocida («${f.categoria}»).`);
+    (porModulo[f.moduloCodigo] ??= []).push({ cuenta, origen: esOrigenCuentaConciliacion(f.origen) ? f.origen : null, categoria: f.categoria });
   }
   return porModulo;
 }
 
-const cuentasCacheadas = unstable_cache(leerCuentasVigentes, ["cuentas-conciliacion-vigentes"], {
+// La clave lleva versión: una entrada guardada antes de la categoría (1/Oct/2026) no se reutiliza.
+const cuentasCacheadas = unstable_cache(leerCuentasVigentes, ["cuentas-conciliacion-vigentes-v2"], {
   tags: [CUENTAS_CONCILIACION_CACHE_TAG],
 });
 
@@ -182,7 +185,7 @@ export type CuentaConciliacionVista = CuentaConciliacion & {
 /** Vista completa para /config/prevalidador (sin caché, como la del catálogo). */
 export async function getCuentasConciliacionVista(): Promise<CuentaConciliacionVista[]> {
   const filas = await prisma.cuentaConciliacionModulo.findMany({
-    select: { id: true, moduloCodigo: true, cuenta: true, origen: true, actualizadoPor: true, actualizadoEn: true },
+    select: { id: true, moduloCodigo: true, cuenta: true, origen: true, categoria: true, actualizadoPor: true, actualizadoEn: true },
     orderBy: [{ moduloCodigo: "asc" }, { cuenta: "asc" }],
   });
   return filas.map((f) => ({
@@ -190,6 +193,7 @@ export async function getCuentasConciliacionVista(): Promise<CuentaConciliacionV
     moduloCodigo: f.moduloCodigo,
     cuenta: f.cuenta,
     origen: esOrigenCuentaConciliacion(f.origen) ? f.origen : null,
+    categoria: f.categoria === "visible" ? "visible" : "concilia",
     actualizadoPor: f.actualizadoPor,
     actualizadoEn: f.actualizadoEn.toISOString(),
   }));

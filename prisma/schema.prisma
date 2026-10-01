@@ -1860,15 +1860,17 @@ model PrevalidadorCuentaBalance {
 // Cartera, Cuentas por pagar, Nómina). Acota la cédula contable y el cruce por tercero dentro
 // de los prefijos del prevalidador; una cuenta fuera de ellos (422005, los pasivos 25xx de
 // Nómina) entra como cuenta adicional. `origen` dice qué cuenta es la nacional y cuál la del
-// exterior en Cartera y CxP. Se administra en /config/prevalidador (permiso
-// `parametros:administrar`); la migración siembra los valores que antes vivían en
-// `descriptores.ts`. Un cambio rige para todos los cargues salvo los períodos conciliados en
+// exterior en Cartera y CxP. `categoria` (1/Oct/2026, solo Nómina): `concilia` forma la cédula;
+// `visible` se ve al final del cruce, colapsada, sin sumar ni pesar en el cierre. Se administra en
+// /config/prevalidador (permiso `parametros:administrar`); la migración siembra los valores que antes
+// vivían en `descriptores.ts`. Un cambio rige para todos los cargues salvo los períodos conciliados en
 // firme, que conservan la copia guardada en `conciliacion_modulo_cierre.cuentas_conciliacion`.
 model CuentaConciliacionModulo {
   id             Int      @id @default(autoincrement()) @map("id")
   moduloCodigo   String   @map("modulo_codigo")
   cuenta         String   @map("cuenta")
   origen         String?  @map("origen") // nacional | exterior (solo Cartera y CxP)
+  categoria      String   @default("concilia") @map("categoria") // concilia | visible (CHECK en BD)
   actualizadoPor String?  @map("actualizado_por")
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)

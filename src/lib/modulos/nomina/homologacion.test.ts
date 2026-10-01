@@ -20,7 +20,9 @@ import {
   type ContextoHomologacion,
 } from "./homologacion";
 
-const ctxVacio: ContextoHomologacion = { memoria: [], cuentasRussell6: CUENTAS_RUSSELL_NOMINA };
+// Las cuentas a las que la homologación puede llevar un concepto: las que concilian y las solo visibles.
+const CUENTAS_MODULO_NOM = cuentasCedula6(MODULOS_IMPORT.NOM);
+const ctxVacio: ContextoHomologacion = { memoria: [], cuentasRussell6: CUENTAS_MODULO_NOM };
 
 describe("codigoConceptoCanonico", () => {
   it("quita espacios y ceros a la izquierda de los códigos numéricos", () => {
@@ -107,7 +109,7 @@ describe("transponerClase / cuentaPorGrupo", () => {
   it("todas las cuentas por grupo y clase pertenecen al módulo (D1)", () => {
     for (const grupo of ["sueldos", "cesantias", "prima", "vacaciones", "aportes_arl", "aportes_eps", "aportes_pension", "otros"]) {
       for (const clase of ["51", "52", "72", "73"] as const) {
-        expect(CUENTAS_RUSSELL_NOMINA, `${grupo}/${clase}`).toContain(cuentaPorGrupo(grupo, clase));
+        expect(CUENTAS_MODULO_NOM, `${grupo}/${clase}`).toContain(cuentaPorGrupo(grupo, clase));
       }
     }
   });
@@ -193,7 +195,7 @@ describe("resolverCuentaConcepto", () => {
   it("vía 2 con una cuenta solo del período: la subcuenta y el grupo salen de la fila base del concepto", () => {
     // Kakaraka: el concepto 8 (Comisiones) trae subcuenta 18 en la carga masiva (centro vacío) y el
     // auditor le asignó la 519505 solo para 2025-12 en el centro 1, fila que no guarda esos datos.
-    const cuentasRussell6 = [...CUENTAS_RUSSELL_NOMINA, "519505"];
+    const cuentasRussell6 = [...CUENTAS_MODULO_NOM, "519505"];
     const ctx: ContextoHomologacion = {
       memoria: [
         { clasificador: "8", agrupador: "", cuenta6: "", cuentaCliente: "0005180000", grupo: "comisiones", subcuentaPuc: "18" },

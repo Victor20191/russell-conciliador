@@ -458,6 +458,11 @@ export const CuentaConciliacionSchema = z.object({
     z.string().regex(/^\d{6}$/, { error: "La cuenta debe ser una cuenta Russell de 6 dígitos." }),
   ),
   origen: OrigenCuentaConciliacionSchema,
+  // concilia = forma la cédula; visible = se ve al final del cruce sin conciliarse (solo Nómina).
+  categoria: z.preprocess(
+    (v) => (v === "" || v == null ? "concilia" : v),
+    z.enum(["concilia", "visible"], { error: "Categoría inválida." }),
+  ),
 });
 
 // Subgrupo de 4 dígitos que concilia un módulo con cédula a ese nivel (Inventarios, Activos fijos).

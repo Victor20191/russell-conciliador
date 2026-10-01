@@ -32,7 +32,8 @@
     "db:migrar:patrones": "tsx scripts/migrar-patrones-desde-perfiles.ts",
     "db:studio": "prisma studio",
     "db:prevalidador:base-saldo": "tsx scripts/prevalidador-base-saldo.ts",
-    "db:plan:reasignar-30sep": "tsx scripts/reasignar-cuentas-plan-30sep.ts"
+    "db:plan:reasignar-30sep": "tsx scripts/reasignar-cuentas-plan-30sep.ts",
+    "db:nomina:categorias-1oct": "tsx scripts/nomina-cuentas-categorias-1oct.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

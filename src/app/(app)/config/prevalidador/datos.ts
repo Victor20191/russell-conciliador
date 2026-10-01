@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
+  moduloConCategoria,
   moduloConCuentasConciliacion,
   moduloConOrigenPorCuenta,
   moduloConSubgruposConciliacion,
@@ -28,6 +29,8 @@ export function configuracionModulo(codigo: string) {
     subgruposFijos: subgruposFijosDe(descriptor),
     /** Sus cuentas deciden el origen nacional/exterior del saldo (Cartera y CxP). */
     conOrigen: moduloConOrigenPorCuenta(descriptor),
+    /** Distingue cuentas que concilian de cuentas solo visibles (Nómina). */
+    conCategoria: moduloConCategoria(descriptor),
     conCrucePorTercero: descriptor?.crucePorTercero.habilitado === true,
     /** Activos fijos: subgrupos abiertos a 6 dígitos y pares activo → depreciación (fijos en código). */
     subgruposAbiertos: (cedula?.subgruposAbiertos ?? []).map((s) => s.subgrupo),
