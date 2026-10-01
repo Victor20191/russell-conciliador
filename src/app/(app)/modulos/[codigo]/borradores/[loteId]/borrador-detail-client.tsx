@@ -22,6 +22,8 @@ import { ValidacionArchivo } from "../../validacion-archivo";
 import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
 import { NombreAgrupador, type GrupoSinNombreVm } from "./nombre-agrupador";
 import { avisosContenido, INFO_CONTENIDO_ARCHIVO, type SignoContenido } from "@/lib/modulos/ingresos/contenido-archivo";
+import { mesActualColombia, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -162,6 +164,9 @@ export default function BorradorModuloClient({
   const [overrideClasif, setOverrideClasif] = useState<Record<number, string>>({});
   const [agrupadorManual, setAgrupadorManual] = useState("");
   const [periodo, setPeriodo] = useState(periodoSugerido);
+  // Un período distinto del que se eligió al cargar se confirma antes de guardarlo (se guarda
+  // QUÉ valor se confirmó: cambiarlo otra vez vuelve a preguntar) y nunca puede ser futuro.
+  const [periodoConfirmado, setPeriodoConfirmado] = useState<string | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>>({});
   const [observaciones, setObservaciones] = useState("");
   const [filtro, setFiltro] = useState<string | null>(null); // null = todos · FILTRO_NOVEDADES · o un clasificador
@@ -213,6 +218,9 @@ export default function BorradorModuloClient({
 
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
+  const periodoValido = /^\d{4}-\d{2}$/.test(periodo);
+  const errorPeriodo = periodoValido && anexo?.vigente !== true ? motivoPeriodoFuturo(periodo) : null;
+  const periodoSinConfirmar = periodoCambiado && periodoValido && !errorPeriodo && periodoConfirmado !== periodo;
   const hayCambios = hayCambiosFilas || periodoCambiado;
   useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar» antes de salir.");
   // MISMA regla que la promoción, llamando a la misma función: lo que el usuario aprueba
@@ -308,7 +316,9 @@ export default function BorradorModuloClient({
   const setResp = (id: string, respuesta: "si" | "no" | "na") => setRespuestas((p) => ({ ...p, [id]: { ...p[id], respuesta } }));
   const setNota = (id: string, nota: string) => setRespuestas((p) => ({ ...p, [id]: { respuesta: p[id]?.respuesta ?? "na", nota } }));
 
-  const guardar = () =>
+  const guardar = () => {
+    if (periodoCambiado && errorPeriodo) { notifyError(errorPeriodo); return; }
+    if (periodoSinConfirmar) { notifyError("Confirma el período antes de guardar."); return; }
     startGuardar(async () => {
       const m = new Map<number, { filaNum: number; omitida?: boolean; clasificador?: string; tipoFila?: string }>();
       for (const [fn, o] of Object.entries(overrideOmit)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, omitida: o });
@@ -323,10 +333,12 @@ export default function BorradorModuloClient({
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
+  };
 
   const confirmar = () => {
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
-    if (!/^\d{4}-\d{2}$/.test(periodo)) { notifyError("Indica el período (AAAA-MM)."); return; }
+    if (!periodoValido) { notifyError("Indica el período (AAAA-MM)."); return; }
+    if (errorPeriodo) { notifyError(errorPeriodo); return; }
     if (!verifCompletas) { notifyError("Responde todas las verificaciones antes de cargar."); return; }
     startCargar(async () => {
       const fd = new FormData();
@@ -934,7 +946,7 @@ export default function BorradorModuloClient({
       {/* Barra de acciones */}
       <Card className="flex flex-wrap items-end justify-between gap-3 p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <button type="button" disabled={!hayCambios || guardando} onClick={guardar} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
+          <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
           {descartando ? (
@@ -951,13 +963,25 @@ export default function BorradorModuloClient({
             <input
               type="month"
               value={periodo}
+              max={mesActualColombia()}
               onChange={(e) => setPeriodo(e.target.value)}
               disabled={anexo?.vigente === true}
               title={anexo?.vigente ? `Fijo: este archivo se agrega al cargue de ${anexo.periodo}` : undefined}
               className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:font-semibold"
             />
           </label>
-          <button type="button" disabled={cargando || hayCambios || !verifCompletas} onClick={confirmar} title={hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+          {periodoValido && (errorPeriodo || periodoCambiado) && (
+            <div className="w-full max-w-xs sm:w-auto">
+              <ConfirmacionFecha
+                error={errorPeriodo}
+                pregunta={<>Cambiaste el período a <b>{nombrePeriodo(periodo)}</b> ({rangoDelPeriodo(periodo)}).</>}
+                confirmada={periodoConfirmado === periodo}
+                confirmadaTexto={<>Período confirmado: {nombrePeriodo(periodo)}. Pulsa «Guardar cambios».</>}
+                onConfirmar={() => setPeriodoConfirmado(periodo)}
+              />
+            </div>
+          )}
+          <button type="button" disabled={cargando || hayCambios || !verifCompletas || !!errorPeriodo} onClick={confirmar} title={hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {cargando ? "Cargando…" : "Confirmar carga"}
           </button>
         </div>

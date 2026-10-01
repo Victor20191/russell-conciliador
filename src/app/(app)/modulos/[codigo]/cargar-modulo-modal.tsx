@@ -15,7 +15,7 @@ import { Icon } from "@/components/icons";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { fechaCorteSugeridaDe, mesActualColombia, motivoFechaFutura, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
 import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
 import { INFO_TIPO_FORMATO, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import {
@@ -43,6 +43,7 @@ import {
   type AplicativoOpcion,
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
 
 export type { RolModulo };
@@ -454,6 +455,10 @@ function CargarModal({
   const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
   const [mes, setMes] = useState(anexo?.periodo ?? "");
+  // El período y la fecha de corte se confirman al elegirlos: se guarda QUÉ valor se confirmó,
+  // así que cambiar la fecha vuelve a pedir la confirmación. En un anexo el período viene fijo.
+  const [mesConfirmado, setMesConfirmado] = useState<string | null>(anexo?.periodo ?? null);
+  const [corteConfirmado, setCorteConfirmado] = useState<string | null>(null);
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
   const [ubicandoCelda, startUbicarCelda] = useTransition();
@@ -570,7 +575,12 @@ function CargarModal({
   };
 
   const eleccionLista = eleccion !== "" && (eleccion !== OTRO || (otroElegido !== "" && (otroElegido !== NUEVO || nombreNuevo.trim().length >= 2)));
-  const periodoListo = anexo != null || /^\d{4}-\d{2}$/.test(mes);
+  const mesValido = /^\d{4}-\d{2}$/.test(mes);
+  // Ninguna fecha del cargue puede ser futura (calendario de Colombia; el mes en curso sí vale).
+  const errorMes = !anexo && mesValido ? motivoPeriodoFuturo(mes) : null;
+  const periodoListo = anexo != null || (mesValido && !errorMes && mesConfirmado === mes);
+  // Fin del período o, si es el mes en curso, hoy (su fin todavía no llega).
+  const fechaCorteSugerida = mes ? fechaCorteSugeridaDe(mes) ?? "" : "";
 
   /** El aplicativo elegido; si no estaba en la ficha del cliente, se agrega (o se crea) primero. */
   const resolverAplicativo = async (): Promise<AplicativoOpcion | null> => {
@@ -598,7 +608,9 @@ function CargarModal({
   const analizar = (hojaArg?: string) => {
     if (!archivoRef.current) { notifyError("Adjunta el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    if (!periodoListo) { notifyError("Selecciona el período del archivo."); return; }
+    if (!anexo && !mesValido) { notifyError("Selecciona el período del archivo."); return; }
+    if (errorMes) { notifyError(errorMes); return; }
+    if (!periodoListo) { notifyError("Confirma el período del archivo."); return; }
     if (!eleccionLista) { notifyError("Confirma de qué aplicativo es el archivo."); return; }
     startAnalizar(async () => {
       try {
@@ -648,7 +660,18 @@ function CargarModal({
     const aplicativo = analisis?.aplicativo;
     if (!archivoRef.current || !spec || !analisis || !aplicativo) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
+    if (!mesValido) { notifyError("Selecciona el período del archivo."); return; }
+    if (errorMes) { notifyError(errorMes); return; }
+    if (!periodoListo) { notifyError("Confirma el período del archivo."); return; }
+    if (conNivelCartera) {
+      const fechaCorte = spec.fechaCorte ?? fechaCorteSugerida;
+      const errorCorte = fechaCorte ? motivoFechaFutura(fechaCorte, "La fecha de corte") : null;
+      if (errorCorte) { notifyError(errorCorte); return; }
+      if (spec.fechaCorte && spec.fechaCorte !== fechaCorteSugerida && corteConfirmado !== spec.fechaCorte) {
+        notifyError("Confirma la fecha de corte.");
+        return;
+      }
+    }
     const porPatron = analisis.modo === "patron" && analisis.coincidencia != null;
     const pedirClasificador = porPatron && confirmarClasificador;
     const modoClasificadorCargue = modoClasificadorSpec(spec);
@@ -709,7 +732,7 @@ function CargarModal({
       if (porPatron) {
         // Con patrón el mapeo lo arma el servidor: solo viajan los datos de ESTE cargue.
         fd.set("patronVersionId", String(analisis.coincidencia!.versionId));
-        fd.set("fechaCorte", spec.fechaCorte ?? (finDePeriodo(mes) ?? ""));
+        fd.set("fechaCorte", spec.fechaCorte ?? fechaCorteSugerida);
         if (spec.trmCierre) fd.set("trmCierre", String(spec.trmCierre));
         if (pedirTotal) {
           fd.set("totalArchivo", totalArchivo!);
@@ -878,7 +901,6 @@ function CargarModal({
     </div>
   );
 
-  const fechaCorteSugerida = mes ? finDePeriodo(mes) ?? "" : "";
   const botonSecundario = "rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50";
   const botonPrimario = "rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
   const aplicativoAnalizado = analisis?.aplicativo;
@@ -998,10 +1020,21 @@ function CargarModal({
           </label>
 
           {!anexo && (
-            <label className="flex w-full max-w-xs flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Período de {moduloLabel.toLowerCase()} <span className="text-err-600">*</span></span>
-              <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
-            </label>
+            <div className="flex w-full max-w-md flex-col gap-1.5">
+              <label className="flex w-full max-w-xs flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">Período de {moduloLabel.toLowerCase()} <span className="text-err-600">*</span></span>
+                <input type="month" value={mes} max={mesActualColombia()} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
+              </label>
+              {mesValido && (
+                <ConfirmacionFecha
+                  error={errorMes}
+                  pregunta={<>Seleccionaste el período <b>{nombrePeriodo(mes)}</b> ({rangoDelPeriodo(mes)}).</>}
+                  confirmada={mesConfirmado === mes}
+                  confirmadaTexto={<>Período confirmado: {nombrePeriodo(mes)}.</>}
+                  onConfirmar={() => setMesConfirmado(mes)}
+                />
+              )}
+            </div>
           )}
 
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
@@ -1148,7 +1181,15 @@ function CargarModal({
           {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
             <AvisoCuentaArchivo analisis={analisis} columna={spec.columnas[ROL_CUENTA] ?? 0} />
           )}
-          {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
+          {conNivelCartera && (
+            <CamposCargueCartera
+              spec={spec}
+              setSpec={setSpec}
+              fechaCorteSugerida={fechaCorteSugerida}
+              corteConfirmado={corteConfirmado}
+              onConfirmarCorte={setCorteConfirmado}
+            />
+          )}
           {confirmarTotal ? (
             <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
               <span className="text-[11px] font-medium text-ink-600">
@@ -1221,6 +1262,8 @@ function CargarModal({
             modo="carga"
             onCambiarHoja={(hoja) => analizar(hoja)}
             fechaCorteSugerida={fechaCorteSugerida}
+            corteConfirmado={corteConfirmado}
+            onConfirmarCorte={setCorteConfirmado}
             onCambioMarcaTotales={reiniciarMarcaTotales}
             marcaTotalesCarga={marcaTotalesCarga}
           />

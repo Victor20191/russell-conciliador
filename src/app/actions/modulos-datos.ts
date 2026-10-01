@@ -76,7 +76,8 @@ import { nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue }
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
-import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { fechaISO as fechaDeCelda } from "@/lib/modulos/cartera/fecha-corte";
+import { fechaCorteSugeridaDe, motivoFechaFutura, motivoPeriodoFuturo } from "@/lib/fecha-cargue";
 import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
 import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { getTRM } from "@/lib/ia/trm";
@@ -1023,6 +1024,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const periodoArchivo = periodoFinal?.toISOString().slice(0, 7)
       ?? periodoInicial?.toISOString().slice(0, 7)
       ?? null;
+    // Ningún período del cargue puede ser futuro (el modal ya no deja elegirlo). Se rechaza antes
+    // de registrar el original: es un dato del formulario, no un problema del archivo.
+    const periodoFuturo = periodoArchivo ? motivoPeriodoFuturo(periodoArchivo) : null;
+    if (periodoFuturo) return { ok: false, message: periodoFuturo };
     const huellaOriginal = huellaSha256Archivo(contenidoOriginal);
     const recepcionPedida = String(formData.get("recepcionLoteId") ?? "").trim();
     const originalRecibido = recepcionPedida
@@ -1333,6 +1338,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       void _desde;
       spec = { ...resto, periodoHasta: periodoArchivo };
     }
+
+    // La fecha de corte tampoco puede ser futura. Es un dato del formulario: el original no se
+    // marca como no procesable (como la confirmación del IVA).
+    const corteFuturo = spec.fechaCorte ? motivoFechaFutura(spec.fechaCorte, "La fecha de corte") : null;
+    if (corteFuturo) return { ok: false, message: corteFuturo };
 
     // Importes en divisa: sin la TRM de cierre se leerían dólares como si fueran pesos.
     if (descriptor.crucePorTercero.detalleTercero && esMonedaExtranjera(spec.monedaArchivo) && !(spec.trmCierre != null && spec.trmCierre > 0)) {
@@ -1653,6 +1663,8 @@ export async function aplicarCambiosBorradorModulo(
     if (periodo !== undefined && !/^\d{4}-\d{2}$/.test(periodoNormalizado)) {
       return { ok: false, message: "Indica el período en formato AAAA-MM." };
     }
+    const periodoFuturo = periodo !== undefined ? motivoPeriodoFuturo(periodoNormalizado) : null;
+    if (periodoFuturo) return { ok: false, message: periodoFuturo };
     const descriptor = descriptorModulo(lote.moduloCodigo);
     const validos = cambios.filter((c) => Number.isInteger(c.filaNum));
     // Agrupador manual: reasigna el clasificador de las filas (vacío → sin clasificar), agrupado
@@ -1774,6 +1786,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
   if (!loteId) return { ok: false, message: "Borrador inválido." };
   const periodo = String(formData.get("periodo") ?? "").trim();
   if (!/^\d{4}-\d{2}$/.test(periodo)) return { ok: false, message: "Indica el período (p. ej. 2026-03)." };
+  const periodoFuturo = motivoPeriodoFuturo(periodo);
+  if (periodoFuturo) return { ok: false, message: periodoFuturo };
   const observaciones = String(formData.get("observaciones") ?? "").trim().slice(0, 4000) || null;
   try {
     // Reintento idempotente: si el navegador perdió la respuesta después del
@@ -1938,8 +1952,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           monedaArchivo: typeof specLote.monedaArchivo === "string" ? specLote.monedaArchivo : null,
         };
       })() : null;
-      // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período.
-      const fechaCorteCargue = cartera ? cartera.fechaCorte ?? finDePeriodo(periodo) : null;
+      // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período
+      // (hoy, si el período es el mes en curso: la fecha de corte nunca es futura).
+      const fechaCorteCargue = cartera ? cartera.fechaCorte ?? fechaCorteSugeridaDe(periodo) : null;
 
       /** Columnas propias de cartera para una fila del detalle. */
       const columnasCartera = (f: { datos: Record<string, unknown> }, imputable: boolean) => {
@@ -3435,6 +3450,8 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const fechaCorte = fechaDeCelda(input?.fechaCorte);
   if (!fechaCorte) return { ok: false, message: "Fecha de corte inválida." };
+  const corteFuturo = motivoFechaFutura(fechaCorte, "La fecha de corte");
+  if (corteFuturo) return { ok: false, message: corteFuturo };
   const { encabezado } = ctx;
   if (!descriptorModulo(encabezado.moduloCodigo)?.crucePorTercero.detalleTercero) {
     return { ok: false, message: "Este módulo no maneja fecha de corte." };

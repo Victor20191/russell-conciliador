@@ -117,6 +117,15 @@ import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
 import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
 import { detectarCuentasRepetidasEntrePartes, type ParteArchivoBalance } from "@/lib/balance/partes-archivo";
 import { AgregarParteBalance, CuentasRepetidasPartesAviso, PartesBalanceResumen } from "./partes-balance";
+import { hoyColombiaISO, motivoFechaFutura, nombreRangoFechas } from "@/lib/fecha-cargue";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
+
+/** Por qué el período del balance no vale (fecha futura u orden invertido), o null. */
+function motivoPeriodoBalance(desde: string, hasta: string): string | null {
+  const futura = (desde ? motivoFechaFutura(desde, "El período desde") : null) ?? (hasta ? motivoFechaFutura(hasta, "El período hasta") : null);
+  if (futura) return futura;
+  return desde && hasta && hasta < desde ? "El período hasta no puede ser anterior al período desde." : null;
+}
 
 /**
  * Fotografía de TODOS los cambios temporales de la pantalla (los que aún no se
@@ -677,6 +686,11 @@ export default function BorradorDetailClient({
   const perfilSoloHojas = clientes.find((cliente) => cliente.id === clienteSelId)?.imputarSoloHojas;
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
+  // El período (leído del archivo o elegido) se confirma antes de cargar y nunca es futuro. Se
+  // guarda QUÉ período se confirmó («desde|hasta»): cambiar una fecha vuelve a preguntar.
+  const [periodoConfirmado, setPeriodoConfirmado] = useState<string | null>(null);
+  const errorPeriodo = motivoPeriodoBalance(periodoIni, periodoFin);
+  const periodoListo = !!periodoIni && !!periodoFin && !errorPeriodo && periodoConfirmado === `${periodoIni}|${periodoFin}`;
   const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
   const guardadoPeriodo = useEstadoGuardado();
   const guardadoApertura = useEstadoGuardado();
@@ -843,7 +857,8 @@ export default function BorradorDetailClient({
   const faltaComentarioPromocion =
     advertenciaArchivoFuente && comentarioPromocion.trim().length === 0;
   const guardarPeriodo = (inicio = periodoIni, fin = periodoFin) => {
-    if (!inicio || !fin || fin < inicio) return;
+    // Una fecha futura no se guarda: el campo ya muestra por qué.
+    if (!inicio || !fin || motivoPeriodoBalance(inicio, fin)) return;
     startGuardarPeriodo(async () => {
       await guardadoPeriodo.ejecutar(
         () => actualizarPeriodoBorrador(loteId, inicio, fin),
@@ -1519,7 +1534,8 @@ export default function BorradorDetailClient({
           periodoIni={periodoIni}
           periodoFin={periodoFin}
           onConfirmar={(cid, ini, fin) => {
-            setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false);
+            // La compuerta ya pidió la confirmación del período: no se vuelve a preguntar.
+            setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setPeriodoConfirmado(`${ini}|${fin}`); setGateAbierto(false);
             guardarPeriodo(ini, fin);
             if (notasPendientes != null) { const t = notasPendientes; setNotasPendientes(null); guardarNotas(t, cid); }
             // Cliente confirmado a mano → se persiste en el lote y se re-aplican
@@ -1569,11 +1585,11 @@ export default function BorradorDetailClient({
             />
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
-              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => { setPeriodoIni(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoInicio" required max={hoyColombiaISO()} value={periodoIni} onChange={(e) => { setPeriodoIni(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
-              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => { setPeriodoFin(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoFin" required max={hoyColombiaISO()} value={periodoFin} onChange={(e) => { setPeriodoFin(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <div className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">
@@ -1588,6 +1604,17 @@ export default function BorradorDetailClient({
               />
             </div>
           </div>
+          {periodoIni && periodoFin && (
+            <div className="max-w-xl">
+              <ConfirmacionFecha
+                error={errorPeriodo}
+                pregunta={<>El balance queda con el período <b>{nombreRangoFechas(periodoIni, periodoFin)}</b>.</>}
+                confirmada={periodoConfirmado === `${periodoIni}|${periodoFin}`}
+                confirmadaTexto={<>Período confirmado: {nombreRangoFechas(periodoIni, periodoFin)}.</>}
+                onConfirmar={() => setPeriodoConfirmado(`${periodoIni}|${periodoFin}`)}
+              />
+            </div>
+          )}
           {/* La lectura del archivo ya tiene una sospecha (detección de terceros):
               se ofrece como sugerencia, pero la respuesta la da el analista. */}
           <p id="ayuda-tipo-balance" className="text-[11px] text-ink-500">
@@ -1611,7 +1638,7 @@ export default function BorradorDetailClient({
             )}
           </p>
           <p className="text-[11px] text-ink-500">
-            El cliente y el tipo de balance se guardan al elegirlos; el período, al salir del campo.
+            El cliente y el tipo de balance se guardan al elegirlos; el período, al salir del campo, y se confirma antes de cargar.
             Los cambios de la tabla requieren «Guardar cambios».
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -1658,10 +1685,14 @@ export default function BorradorDetailClient({
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={cargando || asignandoCliente || guardandoPeriodo || guardandoApertura || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || aperturaBalance == null || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
+              disabled={cargando || asignandoCliente || guardandoPeriodo || guardandoApertura || hayCambios || clienteSelId == null || !periodoListo || aperturaBalance == null || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
               title={
                 clienteSelId == null || !periodoIni || !periodoFin
                   ? "Falta el cliente o el período"
+                  : errorPeriodo
+                    ? errorPeriodo
+                  : !periodoListo
+                    ? "Confirma el período del balance"
                   : aperturaBalance == null
                     ? "Indica si el balance es por cuenta o por terceros"
                   : hayCambios
@@ -3832,7 +3863,10 @@ function GateClientePeriodo({
   const [sel, setSel] = useState(clienteSelId ? String(clienteSelId) : "");
   const [ini, setIni] = useState(periodoIni);
   const [fin, setFin] = useState(periodoFin);
-  const listo = !!sel && !!ini && !!fin && fin >= ini;
+  // Período sin fechas futuras y confirmado aquí mismo («desde|hasta»).
+  const [confirmado, setConfirmado] = useState<string | null>(null);
+  const errorPeriodo = motivoPeriodoBalance(ini, fin);
+  const listo = !!sel && !!ini && !!fin && !errorPeriodo && confirmado === `${ini}|${fin}`;
   return (
     <Modal
       open
@@ -3873,14 +3907,22 @@ function GateClientePeriodo({
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Período desde</span>
-            <input type="date" value={ini} onChange={(e) => setIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+            <input type="date" value={ini} max={hoyColombiaISO()} onChange={(e) => setIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Período hasta</span>
-            <input type="date" value={fin} onChange={(e) => setFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+            <input type="date" value={fin} max={hoyColombiaISO()} onChange={(e) => setFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
           </label>
         </div>
-        {!!ini && !!fin && fin < ini && <p className="text-[11.5px] font-medium text-err-700">El período hasta no puede ser anterior al período desde.</p>}
+        {!!ini && !!fin && (
+          <ConfirmacionFecha
+            error={errorPeriodo}
+            pregunta={<>Seleccionaste el período <b>{nombreRangoFechas(ini, fin)}</b>.</>}
+            confirmada={confirmado === `${ini}|${fin}`}
+            confirmadaTexto={<>Período confirmado: {nombreRangoFechas(ini, fin)}.</>}
+            onConfirmar={() => setConfirmado(`${ini}|${fin}`)}
+          />
+        )}
       </div>
     </Modal>
   );

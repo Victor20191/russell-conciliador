@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { actualizarFechaCorteModulo } from "@/app/actions/modulos-datos";
+import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-cargue";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 
 /** Fecha de corte y divisa de un cargue de Cartera o CxP. */
 export type ParametrosCargueVm = {
@@ -31,10 +33,15 @@ export function ParametrosCargue({
   const router = useRouter();
   const [editando, setEditando] = useState(false);
   const [fecha, setFecha] = useState(parametros.fechaCorte ?? "");
+  // La fecha nueva no puede ser futura y se confirma antes de guardarla (se guarda QUÉ valor
+  // se confirmó: cambiarla otra vez vuelve a preguntar).
+  const [fechaConfirmada, setFechaConfirmada] = useState<string | null>(null);
+  const errorFecha = fecha ? motivoFechaFutura(fecha, "La fecha de corte") : null;
+  const lista = !!fecha && !errorFecha && fechaConfirmada === fecha;
   const [guardando, start] = useTransition();
 
   const guardar = () => {
-    if (!fecha || guardando) return;
+    if (!lista || guardando) return;
     start(async () => {
       const r = await actualizarFechaCorteModulo({ encabezadoId, fechaCorte: fecha });
       if (r.ok) {
@@ -48,7 +55,8 @@ export function ParametrosCargue({
   };
 
   return (
-    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-500">
+    // `div`, no `p`: el modal va dentro y un párrafo no admite bloques (error de hidratación).
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-500">
       <span>
         Corte al <b className="text-ink-700">{parametros.fechaCorte ? fechaLegible(parametros.fechaCorte) : "—"}</b>
         {parametros.fechaCorteDeclarada ? "" : " (fin del período)"}
@@ -78,7 +86,8 @@ export function ParametrosCargue({
           <button
             type="button"
             onClick={guardar}
-            disabled={!fecha || guardando}
+            disabled={!lista || guardando}
+            title={fecha && !errorFecha && fechaConfirmada !== fecha ? "Confirma la fecha antes de guardar" : undefined}
             className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {guardando ? "Guardando…" : "Guardar"}
@@ -90,11 +99,21 @@ export function ParametrosCargue({
           <input
             type="date"
             value={fecha}
+            max={hoyColombiaISO()}
             onChange={(e) => setFecha(e.target.value)}
             className="w-48 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px]"
           />
+          {fecha && (
+            <ConfirmacionFecha
+              error={errorFecha}
+              pregunta={<>Seleccionaste el <b>{nombreFecha(fecha)}</b> como fecha de corte.</>}
+              confirmada={fechaConfirmada === fecha}
+              confirmadaTexto={<>Fecha confirmada: {nombreFecha(fecha)}. Pulsa «Guardar».</>}
+              onConfirmar={() => setFechaConfirmada(fecha)}
+            />
+          )}
         </div>
       </Modal>
-    </p>
+    </div>
   );
 }

@@ -2,6 +2,7 @@ import { test, expect } from "vitest";
 import {
   ActualizarUmbralSchema,
   ClientSchema,
+  ConfirmarBalanceSchema,
   CuentaClientePrevalidadorSchema,
   ModuleFieldSchema,
   PasswordSchema,
@@ -233,4 +234,13 @@ test("el override y la revisión validan balance, fila y justificación del serv
   const revision = RevisionPrevalidadorSchema.parse({ balanceId: "7", justificacion: "  Revisado con soporte  " });
   expect(revision).toEqual({ balanceId: 7, justificacion: "Revisado con soporte" });
   expect(RevisionPrevalidadorSchema.safeParse({ balanceId: 7, justificacion: "no" }).success).toBe(false);
+});
+
+test("ConfirmarBalanceSchema no acepta fechas futuras en el período del balance", () => {
+  expect(ConfirmarBalanceSchema.safeParse({ clientId: 1, periodoInicio: "2025-01-01", periodoFin: "2025-12-31" }).success).toBe(true);
+  const futura = ConfirmarBalanceSchema.safeParse({ clientId: 1, periodoInicio: "2025-01-01", periodoFin: "2999-12-31" });
+  expect(futura.success).toBe(false);
+  expect(futura.error?.issues[0]?.message).toContain("El período hasta 31 de diciembre de 2999 es posterior a hoy");
+  const desde = ConfirmarBalanceSchema.safeParse({ clientId: 1, periodoInicio: "2999-01-01", periodoFin: "2999-12-31" });
+  expect(desde.error?.issues.map((i) => i.message).join(" ")).toContain("El período desde 1 de enero de 2999");
 });
