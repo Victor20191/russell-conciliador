@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
+import { construirCruceContable } from "../cruce-contable";
 import {
   construirControlDeducciones,
   construirVistaSubcuenta,
@@ -300,6 +301,42 @@ describe("renglones partidos por cuenta del archivo", () => {
     expect(entradasCruceFormalNomina(partidos, []).entradas).toEqual([
       { clasificador: "1 ∥ GYA # 51050601", total: 900, cuentas4: ["510506"] },
       { clasificador: "1 ∥ GYA # 72050601", total: 300, cuentas4: ["720505"] },
+    ]);
+  });
+});
+
+describe("concepto con varias cuentas: renglón agrupado sin reparto (1/Oct/2026)", () => {
+  const renglones: RenglonConsolidadoNomina[] = [
+    renglon("1", 1000, { via: "multi", cuentas: ["510506", "520506", "720505"] }),
+    renglon("2", 50, { via: "memoria_exacta", cuentas: ["720505"] }),
+    renglon("3", 30, { via: "memoria_exacta", cuentas: ["510536"] }),
+  ];
+  const contablePorCuenta = { "510506": 300, "520506": 200, "720505": 550, "510536": 30 };
+  const cruzar = (repartos: Parameters<typeof entradasCruceFormalNomina>[1]) =>
+    construirCruceContable({
+      contablePorCuenta,
+      consolidado: entradasCruceFormalNomina(renglones, repartos).entradas,
+      nombrePorCuenta: () => null,
+      agruparMultiAsignados: true,
+    });
+
+  it("sin reparto cruza contra la SUMA de sus cuentas y absorbe los conceptos de una cuenta de ellas", () => {
+    const r = cruzar([]);
+    expect(r.multiAsignado).toEqual([]);
+    expect(r.filas.map((f) => [f.cuenta4, f.contable, f.inventario, f.cuadra])).toEqual([
+      ["510506+520506+720505", 1050, 1050, true],
+      ["510536", 30, 30, true],
+    ]);
+    expect(r.filas[0].clasificadores).toEqual(["1"]);
+  });
+
+  it("con reparto el concepto se separa y cada cuenta vuelve a su propio renglón", () => {
+    const r = cruzar([{ clasificador: "1", valores: { "510506": 300, "520506": 200, "720505": 500 } }]);
+    expect(r.filas.map((f) => [f.cuenta4, f.inventario, f.cuadra])).toEqual([
+      ["510506", 300, true],
+      ["510536", 30, true],
+      ["520506", 200, true],
+      ["720505", 550, true],
     ]);
   });
 });

@@ -29,6 +29,7 @@ import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import { resumenCuentaArchivo, type SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
+import { SEPARADOR_AGRUPADOR, SEPARADOR_CUENTA, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import type { RepartoAplicadoVm, RepartoPendienteVm, ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import type { ValidacionesNomina } from "@/lib/modulos/nomina/validaciones-nomina";
 import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-consolidacion";
@@ -210,12 +211,22 @@ export type ResolucionCliente = Record<string, { cuenta4: string; cuenta6?: stri
 // Etiqueta de una cuenta Russell: «R - 1435 · Mercancías no fabricadas».
 const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codigo}${nombre ? ` · ${nombre}` : ""}`;
 
+/**
+ * Clasificadores que originan una fila agrupada, para su etiqueta. Los de Nómina llegan como
+ * clave del Consolidado («1 ∥ GYA # 51050601»): se muestra el código del concepto, una vez.
+ */
+const clasificadoresDeGrupo = (clasificadores: readonly string[]): string[] => [
+  ...new Set(
+    clasificadores.map((c) => (c.includes(SEPARADOR_AGRUPADOR) || c.includes(SEPARADOR_CUENTA) ? partirClaveConsolidado(c).clasificador : c)),
+  ),
+];
+
 /** Etiqueta de una fila del cruce contable; la agrupada nombra sus cuentas y los clasificadores que la originan. */
 const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "cuentas" | "clasificadores">) =>
   fila.cuenta4 === CLAVE_SIN_CUENTA
     ? NOMBRE_SIN_CUENTA
     : fila.cuentas && fila.cuentas.length > 1
-    ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${fila.clasificadores.join(", ")}` : ""}`
+    ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${clasificadoresDeGrupo(fila.clasificadores).join(", ")}` : ""}`
     : etiquetaRussell(fila.cuenta4, fila.nombre);
 
 /** Distintivo de una cuenta que no es de la cédula y vale solo para el período del cargue. */
@@ -2364,7 +2375,7 @@ function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEdit
   const quitar = (p: RepartoAplicadoVm) => {
     start(async () => {
       const r = await guardarRepartoCruce({ encabezadoId, clasificador: p.clasificador, valores: {} });
-      if (r.ok) { notifySuccess(`Reparto de ${p.codigo}${p.agrupador ? ` · ${p.agrupador}` : ""} retirado: el concepto vuelve a pendientes.`); router.refresh(); } else notifyError(r.message ?? "No se pudo quitar el reparto.");
+      if (r.ok) { notifySuccess(`Reparto de ${p.codigo}${p.agrupador ? ` · ${p.agrupador}` : ""} retirado: el concepto vuelve al renglón agrupado de sus cuentas.`); router.refresh(); } else notifyError(r.message ?? "No se pudo quitar el reparto.");
     });
   };
   return (
@@ -2465,16 +2476,16 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
   };
   return (
     <Card className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-warn-100/30 px-3 py-2 text-[12px]">
-        <div className="text-warn-700">
-          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell y la porción de cada una la define el auditor (RF-NOM-12). Mientras tanto quedan fuera de la cédula por cuenta.{" "}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2 text-[12px]">
+        <div className="text-ink-600">
+          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).{" "}
           {pendientes.some((p) => p.origenSugerido === "centros")
             ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
             : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
         </div>
         {puedeEditar && (
-          <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-            {pending ? "Aplicando…" : "Aplicar el reparto sugerido a todos"}
+          <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:border-navy-700 hover:text-navy-700 disabled:opacity-60">
+            {pending ? "Aplicando…" : "Repartir todos con lo sugerido"}
           </button>
         )}
       </div>
@@ -2688,7 +2699,7 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
           )}
           {v.multi.length > 0 && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800">
-              <b>{v.multi.length}</b> concepto(s) cruzan contra varias cuentas y necesitan reparto (pestaña Cruce contable): {v.multi.slice(0, 12).map((c) => `${c.clasificador} → ${c.cuentas.join("/")}`).join("  ·  ")}{v.multi.length > 12 ? " …" : ""}.
+              <b>{v.multi.length}</b> concepto(s) cruzan contra varias cuentas: en el cruce contable van en un renglón agrupado contra la suma de ellas (repartirlos es opcional): {v.multi.slice(0, 12).map((c) => `${c.clasificador} → ${c.cuentas.join("/")}`).join("  ·  ")}{v.multi.length > 12 ? " …" : ""}.
             </div>
           )}
           {(v.cuentaArchivoPorEstructura ?? []).length > 0 && (

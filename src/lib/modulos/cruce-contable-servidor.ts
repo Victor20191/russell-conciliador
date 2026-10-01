@@ -490,9 +490,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           ],
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
       ordenCuenta: (clave) => ordenClaveCedula(cedula, clave),
-      // Nómina reparte sus conceptos multiasignados; los demás módulos los cruzan contra la
-      // suma de las cuentas en una fila agrupada.
-      agruparMultiAsignados: !formalNomina,
+      // Un clasificador asignado a varias cuentas cruza contra la suma de ellas en una fila
+      // agrupada. En Nómina también (1/Oct/2026): el reparto es opcional y, guardado, separa el
+      // concepto en entradas de una cuenta cada una, que ya no agrupan.
+      agruparMultiAsignados: true,
     });
     // El desglose de una fila agrupada son las cuentas del cliente de todas sus cuentas Russell.
     for (const fila of cruceContable.filas) {

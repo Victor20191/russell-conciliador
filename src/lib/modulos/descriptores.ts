@@ -659,7 +659,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   //  - RF-NOM-10 la cuenta Russell se deriva de la cuenta del cliente ya homologada en el
   //    balance (`cuentas_cliente`). RF-NOM-11 varios conceptos pueden ir a una cuenta.
   //  - RF-NOM-12 cuando una cuenta aparece en varias clases (51/52/72/73) la porción de cada
-  //    lado la define el auditor en la conciliación, no el sistema.
+  //    lado la define el auditor en la conciliación, no el sistema. Desde el 1/Oct/2026 un
+  //    concepto con varias cuentas cruza contra la SUMA de ellas en un renglón agrupado de la
+  //    cédula; repartirlo es opcional y solo separa ese renglón por cuenta.
   //  - RF-NOM-13 hay reportes con detalle por empleado y reportes con solo el total por
   //    concepto: la cédula no es requerida.
   // Clasifica por CÓDIGO del concepto, no por su texto: el código es lo estable entre
