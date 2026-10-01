@@ -110,6 +110,17 @@ function sufijo51De(cuenta6: string): string | null {
 }
 
 /**
+ * Subcuenta PUC (dígitos 5-6, numeración de 5105) de una cuenta Russell de gasto de personal:
+ * 5105xx/5205xx → su sufijo; 7205 se traduce (720505 «Salarios» → 06, 720515 «Prima» → 36).
+ * 7305 es UNA cuenta para toda la mano de obra indirecta: no dice la subcuenta → null.
+ */
+export function subcuentaPucDeCuentaRussell(cuenta6: string): string | null {
+  const c = digitosCuenta(cuenta6);
+  if (c.length !== 6 || c.startsWith("7305")) return null;
+  return sufijo51De(c);
+}
+
+/**
  * La cuenta Russell de 6 dígitos equivalente en otra clase: `transponerClase("510506", "72")`
  * → «720505»; `("720530", "51")` → «510530»; `(*, "73")` → «730505». `null` si la cuenta no es
  * del gasto de personal o la clase no la tiene (7205 no tiene «comisiones» aparte: cae en 05).

@@ -13,6 +13,7 @@ import {
   resolverCuentaConcepto,
   sinClaseDeGasto,
   subcuentaPucDe,
+  subcuentaPucDeCuentaRussell,
   sugerirClaseAgrupador,
   sugerirReparto,
   transponerClase,
@@ -76,6 +77,17 @@ describe("transponerClase / cuentaPorGrupo", () => {
     expect(transponerClase("720515", "51")).toBe("510536");
     expect(transponerClase("520506", "73")).toBe("730505");
     expect(transponerClase("730505", "51")).toBe("510506");
+  });
+  it("subcuentaPucDeCuentaRussell: la subcuenta PUC que dice una cuenta Russell de gasto", () => {
+    expect(subcuentaPucDeCuentaRussell("510506")).toBe("06");
+    expect(subcuentaPucDeCuentaRussell("520506")).toBe("06");
+    expect(subcuentaPucDeCuentaRussell("720505")).toBe("06"); // 7205 «Salarios»
+    expect(subcuentaPucDeCuentaRussell("720515")).toBe("36"); // 7205 «Prima»
+    expect(subcuentaPucDeCuentaRussell("720530")).toBe("30");
+    expect(subcuentaPucDeCuentaRussell("510595")).toBe("95");
+    expect(subcuentaPucDeCuentaRussell("730505")).toBeNull(); // una sola cuenta para toda la MOI
+    expect(subcuentaPucDeCuentaRussell("251010")).toBeNull(); // pasivo
+    expect(subcuentaPucDeCuentaRussell("5105")).toBeNull();
   });
   it("devuelve null fuera del gasto de personal", () => {
     expect(transponerClase("130505", "51")).toBeNull();

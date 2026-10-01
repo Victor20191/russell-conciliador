@@ -10,6 +10,7 @@ import {
   repartoQuedaViejo,
   repartosAplicadosNomina,
   repartoVigente,
+  subcuentaDelConcepto,
   valorConceptoEnCuenta,
   validarReparto,
   valorContableNomina,
@@ -338,5 +339,40 @@ describe("concepto con varias cuentas: renglón agrupado sin reparto (1/Oct/2026
       ["520506", 200, true],
       ["720505", 550, true],
     ]);
+  });
+});
+
+describe("vista por subcuenta: sin cuenta del cliente, la subcuenta sale de la cuenta Russell asignada (MOTO ZONE, 1/Oct/2026)", () => {
+  it("subcuentaDelConcepto: manda la del cliente; si no, la de las cuentas asignadas cuando coinciden", () => {
+    const s = (p: Partial<RenglonConsolidadoNomina["sugerencia"]>) => renglon("x", 1, p).sugerencia;
+    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510595"], subcuentaPuc: "27" }))).toBe("27");
+    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510536"] }))).toBe("36");
+    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "520506", "720505"] }))).toBe("06");
+    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "510595"] }))).toBeNull(); // no coinciden
+    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "730505"] }))).toBeNull(); // 7305 no la dice
+    expect(subcuentaDelConcepto(s({ via: "sugerido_nombre", cuentas: ["510506"] }))).toBeNull(); // sin confirmar
+    expect(subcuentaDelConcepto(s({ via: "sin_cuenta" }))).toBeNull();
+  });
+
+  it("los conceptos asignados suman en su subcuenta y los que no la tienen quedan aparte", () => {
+    const vista = construirVistaSubcuenta({
+      balance: [
+        bal("51050605", "SUELDOS", 0, 0, 113263780),
+        bal("52050605", "SUELDOS", 0, 0, 532891532),
+        bal("72050605", "SUELDOS", 0, 0, 24476000),
+        bal("51053605", "PRIMA DE SERVICIOS", 0, 0, 11502638),
+      ],
+      renglones: [
+        renglon("1050", 697905638, { via: "multi", cuentas: ["510506", "520506", "720505"] }),
+        renglon("1500", 94855262, { via: "memoria_exacta", cuentas: ["510536"] }),
+        renglon("1061", 485720, { via: "sugerido_nombre", cuentas: ["510506"] }),
+      ],
+      prefijos: PREFIJOS,
+    });
+    expect(vista.filas.map((f) => [f.subcuenta, f.contable, f.modulo])).toEqual([
+      ["06", 670631312, 697905638],
+      ["36", 11502638, 94855262],
+    ]);
+    expect(vista.sinSubcuenta.map((c) => c.codigo)).toEqual(["1061"]);
   });
 });

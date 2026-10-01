@@ -2561,7 +2561,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
       <div className="border-b border-ink-100 px-3 py-2">
         <div className="text-[12.5px] font-semibold text-ink-800">Cruce por subcuenta PUC sumando clases</div>
         <p className="text-[11px] text-ink-500">
-          Un renglón por subcuenta del gasto de personal (06 sueldos, 15 horas extras, 27 auxilio de transporte…): contabilidad = Σ de las cuentas del cliente con esa subcuenta en administración, ventas y producción; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos con esa subcuenta. Cuadra sin regla de clase ni reparto; no decide el cierre.
+          Un renglón por subcuenta del gasto de personal (06 sueldos, 15 horas extras, 27 auxilio de transporte…): contabilidad = Σ de las cuentas del cliente con esa subcuenta en administración, ventas y producción; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos con esa subcuenta: la de su cuenta del cliente o, si no la trae, la de la cuenta Russell asignada (510506, 520506 y 720505 → 06). Cuadra sin regla de clase ni reparto; no decide el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -2631,7 +2631,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
       </div>
       {vista.sinSubcuenta.length > 0 && (
         <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
-          Sin subcuenta conocida (no entran a esta vista): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
+          Sin subcuenta conocida (sin cuenta del cliente ni una cuenta Russell asignada que la diga; no entran a esta vista): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
         </div>
       )}
     </Card>
