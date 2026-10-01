@@ -11,6 +11,12 @@ async function main() {
   for (const account of pucMaster.accounts) {
     if (codes.has(account.code)) throw new Error(`Cuenta duplicada en maestro: ${account.code}`);
     codes.add(account.code);
+    // Marcador de una exportación que no expandió un valor largo (p. ej. «<TOAST:23152>»).
+    for (const [campo, valor] of Object.entries(account)) {
+      if (typeof valor === "string" && /<TOAST:\d+>/.test(valor)) {
+        throw new Error(`Texto sin expandir en el maestro: ${account.code}.${campo} = ${valor}`);
+      }
+    }
   }
 
   await prisma.$transaction([
