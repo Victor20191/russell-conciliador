@@ -340,13 +340,14 @@ const col =(nombre: string, etiqueta: string, tipo: TipoColumna, requerido = fal
 /**
  * Cuentas Russell de 6 dígitos del módulo de Nómina (RF-NOM-05, sin los pasivos laborales):
  * las ocho subcuentas de gasto de personal de administración (5105) y de ventas (5205), las
- * ocho de mano de obra directa (7205, que numera distinto: 720505 es «Salarios») y la mano
- * de obra indirecta (730505). Son las del PUC maestro Russell (`prisma/data`).
+ * ocho de mano de obra directa (7205, espejo de 5105 salvo 720505 «Salarios» y 720515 «Prima»;
+ * desde el 30/Sep/2026) y la mano de obra indirecta (730505). Son las del PUC maestro Russell
+ * (`prisma/data`).
  */
 export const CUENTAS_RUSSELL_NOMINA: readonly string[] = [
   "510506", "510530", "510536", "510539", "510568", "510569", "510570", "510595",
   "520506", "520530", "520536", "520539", "520568", "520569", "520570", "520595",
-  "720505", "720510", "720515", "720520", "720525", "720530", "720535", "720540",
+  "720505", "720515", "720530", "720539", "720568", "720569", "720570", "720595",
   "730505",
 ];
 
@@ -658,7 +659,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   //  - RF-NOM-10 la cuenta Russell se deriva de la cuenta del cliente ya homologada en el
   //    balance (`cuentas_cliente`). RF-NOM-11 varios conceptos pueden ir a una cuenta.
   //  - RF-NOM-12 cuando una cuenta aparece en varias clases (51/52/72/73) la porción de cada
-  //    lado la define el auditor en la conciliación, no el sistema.
+  //    lado la define el auditor en la conciliación, no el sistema. Desde el 1/Oct/2026 un
+  //    concepto con varias cuentas cruza contra la SUMA de ellas en un renglón agrupado de la
+  //    cédula; repartirlo es opcional y solo separa ese renglón por cuenta.
   //  - RF-NOM-13 hay reportes con detalle por empleado y reportes con solo el total por
   //    concepto: la cédula no es requerida.
   // Clasifica por CÓDIGO del concepto, no por su texto: el código es lo estable entre

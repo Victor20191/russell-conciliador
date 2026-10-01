@@ -11,7 +11,15 @@
 //    la asignación del período que tuviera;
 //  - renglón con alguna cuenta de fuera → TODAS sus cuentas van a la asignación del período y la
 //    memoria del cliente no se toca.
+//
+// Nómina con la cuenta contable en el archivo (30/Sep/2026): el renglón es (concepto, centro,
+// cuenta del cliente). Su memoria se reemplaza SOLO en las filas de esa cuenta del cliente —así
+// guardar un renglón hermano no pisa al otro— y guarda la cuenta, la subcuenta PUC y el grupo que
+// trae el archivo, para que un reporte posterior sin columna de cuenta los aproveche. La
+// asignación del período sigue siendo del par (concepto, centro).
 import { filasPeriodoDeCuentas } from "./asignacion-periodo";
+import { grupoPorSubcuentaPuc } from "./nomina/grupos-concepto";
+import { subcuentaPucDe } from "./nomina/homologacion";
 
 /** Lo descriptivo del concepto que se conserva al reemplazar sus cuentas. */
 export type MemoriaRenglon = {
@@ -32,13 +40,18 @@ export type RenglonAGuardar = {
   memoria?: MemoriaRenglon | null;
   /** ¿El renglón tenía una asignación del período antes de este guardado? */
   teniaPeriodo?: boolean;
+  /** Nómina: cuenta contable del cliente que trae el archivo para el renglón (parte la memoria). */
+  cuentaArchivo?: string | null;
 };
 
 export type LlaveRenglon = { clasificador: string; agrupador: string };
 
+/** Filas de la memoria que se borran: las del par o, con cuenta del archivo, solo las de esa cuenta. */
+export type LlaveMemoria = LlaveRenglon & { cuentaCliente?: string };
+
 export type PlanEscrituraConsolidacion = {
   /** Renglones cuya memoria se reemplaza (se borra y se vuelve a crear). */
-  memoriaBorrar: LlaveRenglon[];
+  memoriaBorrar: LlaveMemoria[];
   memoriaCrear: (LlaveRenglon & {
     cuenta4: string;
     cuenta6: string;
@@ -46,6 +59,8 @@ export type PlanEscrituraConsolidacion = {
     grupo: string | null;
     subcuentaPuc: string | null;
     cuentaCliente: string;
+    /** «archivo» cuando la fila guarda la cuenta que trajo el archivo; si no, lo decide el llamador. */
+    origen?: "archivo";
   })[];
   /** Renglones cuya asignación del período se borra (la reemplazan o la retiran). */
   periodoBorrar: LlaveRenglon[];
@@ -58,19 +73,23 @@ export type PlanEscrituraConsolidacion = {
  */
 export function planEscrituraConsolidacion(renglones: readonly RenglonAGuardar[]): PlanEscrituraConsolidacion {
   const plan: PlanEscrituraConsolidacion = { memoriaBorrar: [], memoriaCrear: [], periodoBorrar: [], periodoCrear: [] };
+  const periodoVisto = new Set<string>();
   for (const r of renglones) {
     const llave = { clasificador: r.clasificador, agrupador: r.agrupador };
     if (r.extras.length === 0) {
-      plan.memoriaBorrar.push(llave);
+      const cuentaArchivo = r.cuentaArchivo?.trim() || null;
+      const subArchivo = cuentaArchivo ? subcuentaPucDe(cuentaArchivo) : null;
+      plan.memoriaBorrar.push(cuentaArchivo ? { ...llave, cuentaCliente: cuentaArchivo } : llave);
       for (const cuenta of [...new Set(r.deCedula)]) {
         plan.memoriaCrear.push({
           ...llave,
           cuenta4: cuenta.slice(0, 4),
           cuenta6: cuenta.length === 6 ? cuenta : "",
           descripcion: r.memoria?.descripcion ?? null,
-          grupo: r.memoria?.grupo ?? null,
-          subcuentaPuc: r.memoria?.subcuentaPuc ?? null,
-          cuentaCliente: r.memoria?.cuentaCliente ?? "",
+          grupo: r.memoria?.grupo ?? (cuentaArchivo ? grupoPorSubcuentaPuc(subArchivo) : null),
+          subcuentaPuc: r.memoria?.subcuentaPuc ?? subArchivo,
+          cuentaCliente: cuentaArchivo ?? r.memoria?.cuentaCliente ?? "",
+          ...(cuentaArchivo ? { origen: "archivo" as const } : {}),
         });
       }
       // La memoria vuelve a regir: si el renglón tenía cuenta solo del período, se retira.
@@ -78,7 +97,14 @@ export function planEscrituraConsolidacion(renglones: readonly RenglonAGuardar[]
       continue;
     }
     plan.periodoBorrar.push(llave);
-    plan.periodoCrear.push(...filasPeriodoDeCuentas(r.clasificador, r.agrupador, [...r.deCedula, ...r.extras]));
+    // Dos renglones hermanos (mismo concepto y centro, otra cuenta del archivo) comparten la
+    // asignación del período: sus filas no se repiten.
+    for (const fila of filasPeriodoDeCuentas(r.clasificador, r.agrupador, [...r.deCedula, ...r.extras])) {
+      const k = [fila.clasificador, fila.agrupador, fila.cuenta4, fila.cuenta6].join("|");
+      if (periodoVisto.has(k)) continue;
+      periodoVisto.add(k);
+      plan.periodoCrear.push(fila);
+    }
   }
   return plan;
 }

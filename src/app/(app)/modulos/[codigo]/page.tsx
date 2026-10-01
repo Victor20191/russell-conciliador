@@ -181,6 +181,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         confirmarClasificador={descriptor.confirmarClasificadorEnCarga === true}
         confirmarTotal={descriptor.confirmarTotalEnCarga ? { rolValor: descriptor.valor } : null}
         confirmarAgrupador={descriptor.confirmarAgrupadorEnCarga === true}
+        avisaCuentaArchivo={descriptor.nomina != null}
         rolValor={descriptor.valor}
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
         confirmarContenido={descriptor.confirmarContenidoEnCarga === true}

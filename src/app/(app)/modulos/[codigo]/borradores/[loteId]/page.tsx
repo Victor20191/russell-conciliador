@@ -24,14 +24,19 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) notFound();
 
-  // Las filas se leen ENTERAS aquí para calcular los agregados, pero NO viajan al navegador:
-  // la tabla pide el detalle grupo por grupo con la accion filasBorradorModulo.
-  const [lote, filas] = await Promise.all([
-    prisma.moduloImportacionLote.findUnique({ where: { loteId } }),
-    filasDelLote(loteId),
-  ]);
-  if (!lote || lote.moduloCodigo !== moduloCodigo || filas.length === 0) notFound();
+  const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId } });
+  if (!lote || lote.moduloCodigo !== moduloCodigo) notFound();
   if (lote.clienteId == null) notFound();
+  // Las filas se leen aquí para los agregados, pero NO viajan al navegador (la tabla pide el
+  // detalle grupo por grupo con la acción filasBorradorModulo) y de `datos` solo se traen las
+  // claves que esta página usa: la llave del ítem (anexo) y las columnas numéricas que deciden
+  // si una fila en cero es imputable. Nómina sin anexo no necesita ninguna.
+  const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
+  const rolesDatos = lote.anexoEncabezadoId != null
+    ? [...rolesLlaveItemDe(descriptor), ...columnasNumericas]
+    : descriptor.nomina ? [] : columnasNumericas;
+  const filas = await filasDelLote(loteId, { roles: rolesDatos });
+  if (filas.length === 0) notFound();
   const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
   if (!scope.ok) notFound();
 
@@ -95,7 +100,6 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   // «Agregar archivo». Se resuelve aquí para avisar ANTES de confirmar si trae ítems que
   // ese cargue ya tiene — avisar, no bloquear: la llave (clasificador, referencia) depende
   // del mapeo de columnas y un falso positivo dejaría sin salida a un anexo legítimo.
-  const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
   let anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean; totalActual: number } | null = null;
   // Agrupadores del cargue al que se suma el anexo: se ofrecen como nombre para las filas sin él.
   let nombresDestino: { version: number; nombres: string[] } | null = null;
@@ -178,6 +182,8 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     columnas: columnasDelBorrador,
     nivelCartera: nivelDelLote,
     formatoCartera: formatoDelLote,
+    // Las mismas filas de arriba: no se vuelven a traer de la base.
+    filas,
   });
 
   return (

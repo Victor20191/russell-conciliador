@@ -10,6 +10,7 @@ import { cargarCuentasEstandarDeCedula, cargarInsumosCruceModulo, construirCruce
 import { cedulaModulo, claveCedula } from "@/lib/modulos/cuentas-modulo";
 import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
+import { cuentasEfectivasRenglon } from "@/lib/modulos/nomina/consolidado-nomina";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
@@ -69,25 +70,41 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       valor: Number(d.valor),
       datos: (d.datos ?? {}) as Record<string, string | number | null>,
     }));
-    const consolidado = consolidarPorClasificador(
-      detalle.map((d) => ({ ...d, agrupador: porAgrupador ? (d.datos.agrupador == null ? null : String(d.datos.agrupador)) : null })),
-      { porAgrupador },
-    ).map((c) => ({
-      clasificador: c.clasificador,
-      descripcion: descripcionPorClasificador.get(c.codigo ?? c.clasificador) ?? null,
-      total: c.total,
-      filas: c.filas,
-      cuentas4: [...new Set(cuentasPorClasificador.get(c.clasificador) ?? (c.agrupador ? cuentasPorClasificador.get(c.codigo ?? c.clasificador) : undefined) ?? [])].sort().map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
-    }));
+    // Nómina: el mismo cruce de la pestaña. De él salen la vista por subcuenta PUC, el control de
+    // deducciones y los renglones del Consolidado tal como cruzan: partidos por la cuenta contable
+    // del archivo y con las cuentas que de verdad entran al cruce (la del archivo aunque no esté
+    // guardada), con su origen.
+    const cruceDeNomina = descriptor.nomina
+      ? await cargarInsumosCruceModulo(encabezado.id).then((insumos) => (insumos ? construirCruceContableModulo(insumos) : null))
+      : null;
+    const renglonesNomina = cruceDeNomina?.nomina?.renglones ?? null;
+    const consolidado = renglonesNomina
+      ? renglonesNomina.map((r) => {
+          const efectivas = cuentasEfectivasRenglon(r);
+          return {
+            clasificador: r.clasificador,
+            descripcion: r.descripcion,
+            total: r.total,
+            filas: r.filas,
+            cuentas4: efectivas.cuentas.map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+            cuentaArchivo: r.cuentaArchivo,
+            origen: efectivas.origen,
+          };
+        })
+      : consolidarPorClasificador(
+          detalle.map((d) => ({ ...d, agrupador: porAgrupador ? (d.datos.agrupador == null ? null : String(d.datos.agrupador)) : null })),
+          { porAgrupador },
+        ).map((c) => ({
+          clasificador: c.clasificador,
+          descripcion: descripcionPorClasificador.get(c.codigo ?? c.clasificador) ?? null,
+          total: c.total,
+          filas: c.filas,
+          cuentas4: [...new Set(cuentasPorClasificador.get(c.clasificador) ?? (c.agrupador ? cuentasPorClasificador.get(c.codigo ?? c.clasificador) : undefined) ?? [])].sort().map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+        }));
 
-    // Nómina: vista por subcuenta PUC y control de deducciones, el mismo cálculo de la pestaña.
     let cruceNomina: CruceNominaExportModulo | undefined;
-    if (descriptor.nomina) {
-      const insumos = await cargarInsumosCruceModulo(encabezado.id);
-      const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
-      if (cruce?.nomina && (cruce.nomina.vistaSubcuenta || cruce.nomina.control)) {
-        cruceNomina = { vistaSubcuenta: cruce.nomina.vistaSubcuenta, control: cruce.nomina.control };
-      }
+    if (cruceDeNomina?.nomina && (cruceDeNomina.nomina.vistaSubcuenta || cruceDeNomina.nomina.control)) {
+      cruceNomina = { vistaSubcuenta: cruceDeNomina.nomina.vistaSubcuenta, control: cruceDeNomina.nomina.control };
     }
     // Cruce por tercero: el mismo cálculo de la pestaña, con sus marcas y emparejamientos.
     let cruceTercero: CruceTerceroExportModulo | undefined;

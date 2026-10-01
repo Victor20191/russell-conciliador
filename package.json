@@ -31,7 +31,8 @@
     "db:importar:erps-clientes": "tsx scripts/importar-erps-clientes-por-nit.ts",
     "db:migrar:patrones": "tsx scripts/migrar-patrones-desde-perfiles.ts",
     "db:studio": "prisma studio",
-    "db:prevalidador:base-saldo": "tsx scripts/prevalidador-base-saldo.ts"
+    "db:prevalidador:base-saldo": "tsx scripts/prevalidador-base-saldo.ts",
+    "db:plan:reasignar-30sep": "tsx scripts/reasignar-cuentas-plan-30sep.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

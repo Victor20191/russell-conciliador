@@ -26,17 +26,22 @@ export function mismasCuentas(a: readonly string[] | undefined, b: readonly stri
 /**
  * Los renglones cuyas cuentas en pantalla difieren de las grabadas, en el orden del Consolidado.
  * `tocados` son los clasificadores que el usuario editó: lo que no tocó y difiere es propuesta.
+ * `resueltos` son las cuentas que el renglón ya tiene por la cuenta contable del archivo (Nómina):
+ * cruzan sin guardarse, así que mostrarlas no deja nada pendiente mientras el usuario no las toque.
  */
 export function renglonesSinGuardar(input: {
   clasificadores: readonly string[];
   valores: Readonly<Record<string, readonly string[]>>;
   guardados: Readonly<Record<string, readonly string[]>>;
   tocados: ReadonlySet<string>;
+  resueltos?: Readonly<Record<string, readonly string[]>>;
 }): RenglonSinGuardar[] {
   const salida: RenglonSinGuardar[] = [];
   for (const clasificador of input.clasificadores) {
     const cuentas = input.valores[clasificador] ?? [];
     if (mismasCuentas(cuentas, input.guardados[clasificador])) continue;
+    const resuelto = input.resueltos?.[clasificador];
+    if (resuelto && !input.tocados.has(clasificador) && mismasCuentas(cuentas, resuelto)) continue;
     salida.push({ clasificador, cuentas: [...cuentas], origen: input.tocados.has(clasificador) ? "edicion" : "propuesta" });
   }
   return salida;

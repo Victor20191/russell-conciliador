@@ -37,3 +37,40 @@ describe("renglones del Consolidado sin grabar", () => {
     expect(mismasCuentas(["130505"], [])).toBe(false);
   });
 });
+
+describe("renglones resueltos por la cuenta contable del archivo (Nómina)", () => {
+  const claves = ["1 # 51050601", "23"];
+  it("lo que ya resolvió el archivo no es una propuesta pendiente", () => {
+    const r = renglonesSinGuardar({
+      clasificadores: claves,
+      valores: { "1 # 51050601": ["510506"], "23": ["510595"] },
+      guardados: {},
+      tocados: new Set(),
+      resueltos: { "1 # 51050601": ["510506"] },
+    });
+    // «23» sigue siendo propuesta (la sugirió el nombre, no el archivo).
+    expect(r.map((x) => `${x.clasificador}:${x.origen}`)).toEqual(["23:propuesta"]);
+  });
+
+  it("si el usuario lo toca, pasa a edición aunque deje la misma cuenta", () => {
+    const r = renglonesSinGuardar({
+      clasificadores: claves,
+      valores: { "1 # 51050601": ["510506"] },
+      guardados: {},
+      tocados: new Set(["1 # 51050601"]),
+      resueltos: { "1 # 51050601": ["510506"] },
+    });
+    expect(r.map((x) => `${x.clasificador}:${x.origen}`)).toEqual(["1 # 51050601:edicion"]);
+  });
+
+  it("si en pantalla hay otra cuenta que la del archivo, queda pendiente", () => {
+    const r = renglonesSinGuardar({
+      clasificadores: claves,
+      valores: { "1 # 51050601": ["510530"] },
+      guardados: {},
+      tocados: new Set(),
+      resueltos: { "1 # 51050601": ["510506"] },
+    });
+    expect(r.map((x) => `${x.clasificador}:${x.origen}`)).toEqual(["1 # 51050601:propuesta"]);
+  });
+});

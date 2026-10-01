@@ -72,7 +72,7 @@ import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
 import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
-import { paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
+import { nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
@@ -2446,7 +2446,10 @@ async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], ced
 type MemoriaConcepto = { descripcion: string | null; grupo: string | null; subcuentaPuc: string | null; cuentaCliente: string };
 // Lo ya guardado de cada clasificador (nombre, grupo, subcuenta, cuenta del cliente), para no
 // perderlo al reemplazar sus cuentas. Llave: la clave del consolidado («1» o «1 ∥ GYA»); las
-// filas con agrupador heredan el nombre y el grupo de la memoria base del concepto.
+// filas con agrupador heredan el nombre y el grupo de la memoria base del concepto. Una clave con
+// cuenta del archivo («1 ∥ GYA # 51050601») toma primero las filas de ESA cuenta del cliente, luego
+// las del par sin cuenta del cliente y luego la base del concepto; su cuenta del cliente es la del
+// archivo (la escribe el plan de escritura).
 async function memoriaGuardada(clienteId: number, moduloCodigo: string, claves: string[]): Promise<Map<string, MemoriaConcepto>> {
   const clasificadores = [...new Set(claves.map((k) => partirClaveConsolidado(k).clasificador))];
   const filas = await prisma.consolidacionModuloCliente.findMany({
@@ -2463,11 +2466,24 @@ async function memoriaGuardada(clienteId: number, moduloCodigo: string, claves: 
       cuentaCliente: previa.cuentaCliente || f.cuentaCliente,
     });
   };
+  // Claves con cuenta del archivo: sus filas, luego las del par sin cuenta del cliente. De las demás
+  // filas del concepto solo sirve el nombre: el grupo y la subcuenta de OTRA cuenta del cliente no
+  // aplican (el plan de escritura los deriva de la cuenta del archivo).
+  for (const clave of claves) {
+    const { clasificador, agrupador, cuentaArchivo } = partirClaveConsolidado(clave);
+    if (!cuentaArchivo) continue;
+    const delPar = filas.filter((f) => f.clasificador === clasificador && f.agrupador === agrupador);
+    for (const f of delPar) if (f.cuentaCliente.replace(/\D/g, "") === cuentaArchivo) fundir(clave, f);
+    for (const f of delPar) if (!f.cuentaCliente) fundir(clave, f);
+    const nombre = filas.find((f) => f.clasificador === clasificador && f.descripcion)?.descripcion ?? null;
+    const actual = mapa.get(clave) ?? { descripcion: null, grupo: null, subcuentaPuc: null, cuentaCliente: "" };
+    if (nombre && !actual.descripcion) mapa.set(clave, { ...actual, descripcion: nombre });
+  }
   // Primero la fila exacta, luego la base del concepto (sin agrupador) como respaldo.
   for (const f of filas) fundir(claveConsolidado(f.clasificador, f.agrupador), f);
   for (const clave of claves) {
-    const { clasificador, agrupador } = partirClaveConsolidado(clave);
-    if (!agrupador) continue;
+    const { clasificador, agrupador, cuentaArchivo } = partirClaveConsolidado(clave);
+    if (!agrupador || cuentaArchivo) continue;
     for (const f of filas) if (f.clasificador === clasificador && !f.agrupador) fundir(clave, { ...f, cuentaCliente: "" });
   }
   return mapa;
@@ -2520,7 +2536,14 @@ async function periodoDelCargue(
   return { ok: true, periodo: encabezado.periodo };
 }
 
-type FilaConsolidacionGuardar = { clave: string; clasificador: string; agrupador: string; cuentas: string[] };
+type FilaConsolidacionGuardar = {
+  clave: string;
+  clasificador: string;
+  agrupador: string;
+  /** Nómina: cuenta contable del cliente que trae el archivo para el renglón («… # 51050601»). */
+  cuentaArchivo?: string | null;
+  cuentas: string[];
+};
 
 /**
  * Guarda las cuentas de varios renglones del Consolidado. Por renglón:
@@ -2535,6 +2558,8 @@ async function guardarConsolidacion(args: {
   moduloCodigo: string;
   descriptor: DescriptorModulo;
   periodo: string | null;
+  /** El cargue desde el que se guarda: de ahí sale el nombre del concepto que la memoria aún no tiene. */
+  encabezadoId?: number | null;
   filas: FilaConsolidacionGuardar[];
   contexto: string;
 }): Promise<ActionState> {
@@ -2592,6 +2617,20 @@ async function guardarConsolidacion(args: {
     }
 
     const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave));
+    // Nómina con la cuenta en el archivo: el cliente puede no tener catálogo de conceptos, así que
+    // la memoria no sabe el nombre del concepto. Se toma del propio cargue.
+    if (descriptor.nomina && args.encabezadoId) {
+      const sinNombre = filas.filter((f) => f.cuentaArchivo && !memoria.get(f.clave)?.descripcion).map((f) => f.clasificador);
+      if (sinNombre.length > 0) {
+        const nombres = await nombresConceptoDelCargue(args.encabezadoId, sinNombre);
+        for (const f of filas) {
+          const nombre = f.cuentaArchivo ? nombres.get(f.clasificador) : undefined;
+          if (!nombre) continue;
+          const previa = memoria.get(f.clave) ?? { descripcion: null, grupo: null, subcuentaPuc: null, cuentaCliente: "" };
+          if (!previa.descripcion) memoria.set(f.clave, { ...previa, descripcion: nombre.slice(0, 200) });
+        }
+      }
+    }
     // Nómina: un reparto del período que ya no corresponde a las cuentas guardadas del renglón (se
     // le asignó una sola cuenta, u otras) se descarta; si no, seguía mandando en el cruce.
     const repartosPrevios = descriptor.nomina && periodo
@@ -2616,6 +2655,7 @@ async function guardarConsolidacion(args: {
         extras: f.extras,
         memoria: memoria.get(f.clave) ?? null,
         teniaPeriodo: previos.has(llaveAsignacion(f.clasificador, f.agrupador)),
+        cuentaArchivo: f.cuentaArchivo ?? null,
       })),
     );
     await prisma.$transaction(
@@ -2628,7 +2668,7 @@ async function guardarConsolidacion(args: {
         }
         if (plan.memoriaCrear.length > 0) {
           await tx.consolidacionModuloCliente.createMany({
-            data: plan.memoriaCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, actualizadoPor: actor, origen: "manual" })),
+            data: plan.memoriaCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, actualizadoPor: actor, origen: fila.origen ?? "manual" })),
           });
         }
         if (periodo && plan.periodoBorrar.length > 0) {
@@ -2679,7 +2719,7 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   const clave = String(input.clasificador ?? "").trim();
   // En Nómina la clave del renglón puede traer el agrupador («1 ∥ GYA»); en los demás módulos
   // el agrupador queda vacío y el clasificador es la clave entera.
-  const { clasificador, agrupador } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" };
+  const { clasificador, agrupador, cuentaArchivo } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "", cuentaArchivo: null };
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
   const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
   if (!periodo.ok) return periodo;
@@ -2688,7 +2728,8 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
     moduloCodigo,
     descriptor,
     periodo: periodo.periodo,
-    filas: [{ clave, clasificador, agrupador, cuentas: digitosCuentas(input.cuentas4) }],
+    encabezadoId: input.encabezadoId ?? null,
+    filas: [{ clave, clasificador, agrupador, cuentaArchivo, cuentas: digitosCuentas(input.cuentas4) }],
     contexto: "guardarConsolidacionModulo",
   });
 }
@@ -2706,7 +2747,7 @@ export async function guardarConsolidacionModuloLote(input: {
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" });
+  const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "", cuentaArchivo: null });
   const filas = (input.filas ?? [])
     .map((f) => {
       const clave = String(f.clasificador ?? "").trim();
@@ -2721,6 +2762,7 @@ export async function guardarConsolidacionModuloLote(input: {
     moduloCodigo,
     descriptor,
     periodo: periodo.periodo,
+    encabezadoId: input.encabezadoId ?? null,
     filas,
     contexto: "guardarConsolidacionModuloLote",
   });

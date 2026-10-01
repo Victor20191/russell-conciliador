@@ -1738,7 +1738,7 @@ model ConsolidacionModuloCliente {
   /// '' cuando la fila se creó a mano con la cuenta Russell. Entra en la llave única: dos
   /// cuentas del cliente homologadas a la misma Russell son dos filas.
   cuentaCliente  String   @default("") @map("cuenta_cliente")
-  /// carga_masiva | manual | sugerido_nombre | sugerido_balance
+  /// carga_masiva | manual | sugerido_nombre | sugerido_balance | archivo (Nómina: la cuenta la trajo el archivo)
   origen         String   @default("manual") @map("origen")
   actualizadoPor String?  @map("actualizado_por")
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)

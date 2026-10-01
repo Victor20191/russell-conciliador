@@ -113,6 +113,7 @@ export default function ModulosDatosClient({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
   confirmarContenido,
@@ -137,6 +138,8 @@ export default function ModulosDatosClient({
   confirmarClasificador: boolean;
   confirmarTotal: { rolValor: string } | null;
   confirmarAgrupador: boolean;
+  /** Nómina: la carga avisa cuando el patrón lee la cuenta contable del cliente. */
+  avisaCuentaArchivo: boolean;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
@@ -158,6 +161,7 @@ export default function ModulosDatosClient({
             confirmarClasificador={confirmarClasificador}
             confirmarTotal={confirmarTotal}
             confirmarAgrupador={confirmarAgrupador}
+            avisaCuentaArchivo={avisaCuentaArchivo}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
             confirmarContenido={confirmarContenido}
@@ -191,6 +195,7 @@ export default function ModulosDatosClient({
         confirmarClasificador={confirmarClasificador}
         confirmarTotal={confirmarTotal}
         confirmarAgrupador={confirmarAgrupador}
+        avisaCuentaArchivo={avisaCuentaArchivo}
         rolValor={rolValor}
         confirmarValorSinImpuestos={confirmarValorSinImpuestos}
         confirmarContenido={confirmarContenido}
@@ -216,6 +221,7 @@ function CargadosPorCliente({
   confirmarClasificador,
   confirmarTotal,
   confirmarAgrupador,
+  avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
   confirmarContenido,
@@ -236,6 +242,8 @@ function CargadosPorCliente({
   confirmarClasificador: boolean;
   confirmarTotal: { rolValor: string } | null;
   confirmarAgrupador: boolean;
+  /** Nómina: la carga avisa cuando el patrón lee la cuenta contable del cliente. */
+  avisaCuentaArchivo: boolean;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
   confirmarContenido: boolean;
@@ -497,6 +505,7 @@ function CargadosPorCliente({
                             confirmarClasificador={confirmarClasificador}
                             confirmarTotal={confirmarTotal}
                             confirmarAgrupador={confirmarAgrupador}
+                            avisaCuentaArchivo={avisaCuentaArchivo}
                             rolValor={rolValor}
                             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
                             confirmarContenido={confirmarContenido}

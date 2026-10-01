@@ -90,17 +90,30 @@ test("los cuatro campos requeridos siguen siéndolo; grupo y centro son opcional
   expect(errores[3].mensaje).toMatch(/cuenta/i);
 });
 
-test("delata el mismo código repetido para un cliente y el mismo centro", async () => {
+test("une las filas repetidas del mismo concepto y centro (una fila por cuenta) y avisa", async () => {
+  // Como exporta el catálogo FAM: el sueldo del centro 314 va a administración y a producción.
   const buf = await construir([
-    ["900", null, "001", "Sueldo básico", "510506"],
-    ["900", null, "1", "Sueldo básico", "720505"],
-    ["900", null, "001", "Sueldo básico", "720505", "MOD"],
+    ["900", null, "001", "Sueldo básico", "51050601", "314"],
+    ["900", "Sueldos", "1", "Sueldo básico (repetido)", "72050601", "314"],
+    ["900", null, "001", "Sueldo básico", "51050601", "314"], // la misma cuenta otra vez: no se duplica
+    ["900", null, "001", "Sueldo básico", "72050601", "MOD"], // otro centro: otra fila
   ]);
-  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
-  expect(filas).toHaveLength(2);
-  expect(errores).toHaveLength(1);
-  expect(errores[0].fila).toBe(3);
-  expect(errores[0].mensaje).toMatch(/ya venía para este cliente en la fila 2/);
+  const { filas, errores, avisos } = await parseConceptosNominaWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas.map((f) => [f.codigo, f.agrupador, f.cuentas, f.concepto, f.grupo])).toEqual([
+    ["1", "314", ["51050601", "72050601"], "Sueldo básico", "sueldos"],
+    ["1", "MOD", ["72050601"], "Sueldo básico", null],
+  ]);
+  expect(avisos).toEqual([expect.stringContaining("1 concepto(s) venían en varias filas")]);
+});
+
+test("una fila repetida con error no se une: se informa y no se importa nada", async () => {
+  const buf = await construir([
+    ["900", null, "001", "Sueldo básico", "51050601", "314"],
+    ["900", null, "001", "Sueldo básico", "5105", "314"], // cuenta de 4 dígitos
+  ]);
+  const { errores } = await parseConceptosNominaWorkbook(buf);
+  expect(errores.map((e) => e.fila)).toEqual([3]);
 });
 
 test("el mismo código en clientes distintos no es duplicado", async () => {

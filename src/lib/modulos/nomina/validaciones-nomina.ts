@@ -20,6 +20,13 @@ export type ValidacionesNomina = {
   sinCuenta: { clasificador: string; descripcion: string | null; total: number }[];
   /** Conceptos que cruzan por reparto o quedaron con varias cuentas. */
   multi: { clasificador: string; descripcion: string | null; total: number; cuentas: string[] }[];
+  /**
+   * Conceptos que cruzan por la cuenta del archivo, pero esa cuenta del cliente no está homologada
+   * en el balance: la cuenta Russell se derivó por su estructura PUC. Cruzan; se listan para revisar.
+   */
+  cuentaArchivoPorEstructura: { clasificador: string; descripcion: string | null; total: number; cuentaCliente: string; cuenta6: string }[];
+  /** Renglones cuya memoria del cliente dice otra cuenta que la del archivo (no rige). */
+  memoriaDistinta: number;
   /** Deducciones que van al control (Σ, negativa). */
   control: { conceptos: number; total: number };
   /** Cédulas normalizadas que aparecen con más de un nombre. */
@@ -91,12 +98,18 @@ export function validarNominaConNovedades(input: {
   const { netos, cedulas } = input.porFila;
   const sinCuenta: ValidacionesNomina["sinCuenta"] = [];
   const multi: ValidacionesNomina["multi"] = [];
+  const porEstructura: ValidacionesNomina["cuentaArchivoPorEstructura"] = [];
+  let memoriaDistinta = 0;
   let controlConceptos = 0;
   let controlTotal = 0;
   for (const r of input.renglones) {
     const s = r.sugerencia;
     if (s.destino === "control") { controlConceptos++; controlTotal += r.total; continue; }
     if (s.destino !== "gasto") continue;
+    if (s.memoriaDistinta?.length) memoriaDistinta++;
+    if (s.via === "archivo" && s.origenCuentaArchivo === "estructura" && s.cuentaCliente && s.cuentas.length === 1) {
+      porEstructura.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total, cuentaCliente: s.cuentaCliente, cuenta6: s.cuentas[0] });
+    }
     if (s.via === "multi") multi.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total, cuentas: [...s.cuentas] });
     else if (s.via === "sin_cuenta" || s.via === "sugerido_nombre" || s.via === "memoria_centros") sinCuenta.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total });
   }
@@ -104,9 +117,11 @@ export function validarNominaConNovedades(input: {
     netos,
     sinCuenta: sinCuenta.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)),
     multi: multi.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)),
+    cuentaArchivoPorEstructura: porEstructura.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)),
+    memoriaDistinta,
     control: { conceptos: controlConceptos, total: Math.round(controlTotal * 100) / 100 },
     cedulas,
     meses: input.porFila.meses,
-    total: netos.length + sinCuenta.length + cedulas.length,
+    total: netos.length + sinCuenta.length + cedulas.length + porEstructura.length,
   };
 }

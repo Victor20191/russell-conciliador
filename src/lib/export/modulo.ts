@@ -32,6 +32,10 @@ export type ConsolidadoExportModulo = {
   total: number;
   filas: number;
   cuentas4: { codigo: string; nombre: string | null }[];
+  /** Nómina: cuenta contable del cliente que trae el archivo para el renglón. */
+  cuentaArchivo?: string | null;
+  /** Nómina: de dónde salen las cuentas del renglón (cuenta del archivo, memoria, propuesta…). */
+  origen?: string | null;
 };
 export type MetaExportModulo = {
   modulo: string;
@@ -159,12 +163,17 @@ function hojaDetalle(
 
 function hojaConsolidado(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, consolidado: ConsolidadoExportModulo[], meta: MetaExportModulo) {
   const ws = wb.addWorksheet("Consolidado");
+  // Nómina con la cuenta en el archivo: dos columnas más al final (la fórmula del TOTAL sigue en D).
+  const conCuentaArchivo = consolidado.some((c) => c.cuentaArchivo);
+  const conOrigen = consolidado.some((c) => c.origen);
   ws.columns = [
     { header: clasificadorEtiqueta, key: "clasificador", width: 34 },
     { header: "Descripción", key: "descripcion", width: 34 },
     { header: "Ítems", key: "filas", width: 10 },
     { header: "Total", key: "total", width: 20 },
     { header: "Cuentas Russell", key: "cuentas", width: 48 },
+    ...(conCuentaArchivo ? [{ header: "Cuenta del archivo", key: "cuentaArchivo", width: 18 }] : []),
+    ...(conOrigen ? [{ header: "Origen", key: "origen", width: 34 }] : []),
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Consolidado`;
@@ -184,6 +193,8 @@ function hojaConsolidado(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, con
       filas: c.filas,
       total: c.total,
       cuentas: c.cuentas4.length > 0 ? c.cuentas4.map((x) => (x.nombre ? `${x.codigo} ${x.nombre}` : x.codigo)).join("; ") : "Sin asignar",
+      ...(conCuentaArchivo ? { cuentaArchivo: c.cuentaArchivo ?? null } : {}),
+      ...(conOrigen ? { origen: c.origen ?? null } : {}),
     });
     row.getCell("total").numFmt = NUM_FMT;
   }

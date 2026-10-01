@@ -269,7 +269,7 @@ export async function importarConceptosNomina(
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 12 MB." };
 
   try {
-    const { filas, errores } = await parseConceptosNominaWorkbook(await archivo.arrayBuffer());
+    const { filas, errores, avisos: avisosLectura = [] } = await parseConceptosNominaWorkbook(await archivo.arrayBuffer());
     if (errores.length > 0) {
       return { ok: false, message: `${errores.length} error(es) de formato. Corrige el archivo y reinténtalo.`, errores };
     }
@@ -300,7 +300,8 @@ export async function importarConceptosNomina(
     if (problemas.length > 0) {
       return { ok: false, message: `${problemas.length} problema(s) encontrados. No se importó nada.`, errores: problemas };
     }
-    return await cargarEntradas(entradas, "IMPORTÓ conceptos de nómina");
+    const resultado = await cargarEntradas(entradas, "IMPORTÓ conceptos de nómina");
+    return avisosLectura.length > 0 ? { ...resultado, avisos: [...avisosLectura, ...(resultado.avisos ?? [])] } : resultado;
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("importarConceptosNomina", e) };
   }

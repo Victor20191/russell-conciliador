@@ -28,13 +28,24 @@ const d = (codigo: string) => {
   return descriptor;
 };
 
-/** Lo que siembra la migración, leído del propio SQL: el código y la BD no pueden divergir. */
+/**
+ * Cuentas del plan que el 30/Sep/2026 pasaron a otra (`scripts/reasignar-cuentas-plan-30sep.ts`
+ * también reescribió la lista guardada de Nómina). Cada código se reemplaza una sola vez.
+ */
+const REASIGNADAS_30SEP: Readonly<Record<string, string>> = {
+  "720530": "720569", "720510": "720530", "720520": "720539", "720525": "720568", "720535": "720570", "720540": "720595",
+};
+
+/**
+ * Lo que siembra la migración, leído del propio SQL (con la reasignación del 30/Sep): el código
+ * y la BD no pueden divergir.
+ */
 function siembraMigracion(): Record<string, CuentaConciliacion[]> {
   const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260927120000_cuentas_conciliacion_modulo/migration.sql"), "utf8");
   const porModulo: Record<string, CuentaConciliacion[]> = {};
   for (const m of sql.matchAll(/\('([A-Z]{3})', '(\d{6})', (NULL|'nacional'|'exterior')\)/g)) {
     const origen = m[3] === "NULL" ? null : (m[3].replace(/'/g, "") as CuentaConciliacion["origen"]);
-    (porModulo[m[1]] ??= []).push({ cuenta: m[2], origen });
+    (porModulo[m[1]] ??= []).push({ cuenta: REASIGNADAS_30SEP[m[2]] ?? m[2], origen });
   }
   return porModulo;
 }

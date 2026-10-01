@@ -87,7 +87,8 @@ function ImportConceptosNominaModal({ onClose }: { onClose: () => void }) {
             <span className="font-semibold">cuenta contable del cliente</span> (o la Russell de 6): la
             plataforma la lleva a la cuenta Russell con la homologación del balance. Cliente, código,
             nombre y cuenta son obligatorios; el grupo y el centro de costo, opcionales. Varias
-            cuentas van en la misma fila separadas con «;». Cada concepto (y centro) reemplaza sus
+            cuentas van en la misma fila separadas con «;» o en filas repetidas del mismo concepto y
+            centro. Cada concepto (y centro) reemplaza sus
             cuentas anteriores; los que no vengan quedan intactos. No se importa nada si hay errores.
           </p>
           <a
