@@ -4,6 +4,7 @@ import {
   type UmbralesAlertas,
 } from "./umbrales-alertas";
 import { codigoEmpiezaPor } from "./busqueda-cuenta";
+import { coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
 
 export type FiltroValidacionDetalle =
   | "todas"
@@ -129,8 +130,9 @@ function coincideNodo(
   const cuenta = normalizarTexto(filtros.cuenta);
   if (cuenta && !normalizarTexto(nodo.name).includes(cuenta)) return false;
 
+  // La columna del mapeo también lleva códigos: el comodín de posición sirve igual que arriba.
   const mapeo = normalizarTexto(filtros.mapeo);
-  if (mapeo && !normalizarTexto(textoMapeo(nodo)).includes(mapeo)) return false;
+  if (mapeo && !(tieneComodin(mapeo) ? coincideComodin(textoMapeo(nodo), mapeo) : normalizarTexto(textoMapeo(nodo)).includes(mapeo))) return false;
 
   if (!coincideFiltroNumerico(nodo.prevBalance, filtros.saldoAnterior)) return false;
   if (!coincideFiltroNumerico(nodo.debe, filtros.debito)) return false;

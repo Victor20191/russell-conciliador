@@ -71,6 +71,7 @@ import {
   type FiltrosColumnasBorrador,
 } from "@/lib/balance/filtros-borrador";
 import { coincideBusquedaCuenta } from "@/lib/balance/busqueda-cuenta";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import {
   OPCIONES_FILTRO_VALIDACION,
   type FiltroValidacionDetalle,
@@ -3472,7 +3473,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
         <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
           <Icon name="search" size={13} />
-          <input value={q} onChange={(e) => { setQ(e.target.value); reiniciarRevelado(); }} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
+          <input value={q} onChange={(e) => { setQ(e.target.value); reiniciarRevelado(); }} placeholder="Buscar código o cuenta…" title={AYUDA_COMODIN} className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
           {nivelBtn(0, "Todos")}{nivelBtn(2, "N2")}{nivelBtn(4, "N4")}{nivelBtn(6, "N6")}{nivelBtn(8, "N8")}
@@ -3506,6 +3507,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                   value={filtrosColumnas.codigo}
                   onChange={(valor) => actualizarFiltroColumna("codigo", valor)}
                   placeholder="Buscar código"
+                  codigo
                 />
               </th>
               <th className="min-w-56 px-2 py-1.5 font-semibold">
@@ -3644,12 +3646,15 @@ function FiltroTextoColumnaBorrador({
   onChange,
   placeholder,
   numerico = false,
+  codigo = false,
 }: {
   ariaLabel: string;
   value: string;
   onChange: (valor: string) => void;
   placeholder: string;
   numerico?: boolean;
+  /** Columnas de CÓDIGO: el `title` cuenta el comodín de posición. */
+  codigo?: boolean;
 }) {
   return (
     <input
@@ -3659,6 +3664,7 @@ function FiltroTextoColumnaBorrador({
       onChange={(evento) => onChange(evento.target.value)}
       aria-label={ariaLabel}
       placeholder={placeholder}
+      title={codigo ? AYUDA_COMODIN : undefined}
       className={`${CLASE_FILTRO_COLUMNA_BORRADOR} ${numerico ? "text-right" : "text-left"}`}
     />
   );

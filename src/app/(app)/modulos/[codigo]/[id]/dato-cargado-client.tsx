@@ -40,6 +40,7 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
 import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
@@ -247,6 +248,7 @@ function FiltroConsolidado({ etiqueta, valor, onChange, numerico = false }: {
       onChange={(e) => onChange(e.target.value)}
       aria-label={`Filtrar por ${etiqueta}`}
       placeholder={numerico ? "> < = …" : "Filtrar…"}
+      title={numerico ? undefined : AYUDA_COMODIN}
       className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] font-normal text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${numerico ? "text-right" : ""}`}
     />
   );
@@ -1828,6 +1830,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                     value={filtros[c.nombre] ?? ""}
                     onChange={(e) => setFiltros((prev) => ({ ...prev, [c.nombre]: e.target.value }))}
                     placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                    title={esNum(c.tipo) ? undefined : AYUDA_COMODIN}
                     className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
                   />
                 </th>

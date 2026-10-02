@@ -1,6 +1,7 @@
 // Filtros por COLUMNA del detalle de un dato de módulo cargado (puro, sin BD ni UI).
-// Genérico sobre las columnas del descriptor: texto → subcadena normalizada;
-// numérico (cantidad/moneda) → operadores >, >=, <, <=, = (mismo criterio que el balance).
+// Genérico sobre las columnas del descriptor: texto → subcadena normalizada (o posición, con el
+// comodín `*`); numérico (cantidad/moneda) → operadores >, >=, <, <=, = (igual que el balance).
+import { coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
 
 /** nombre de columna del descriptor → texto del filtro (vacío = sin filtro). */
 export type FiltrosDetalleModulo = Record<string, string>;
@@ -75,17 +76,21 @@ export function coincideFilaDetalle<T extends FilaFiltrable>(
     const v = obtenerValor(fila, col);
     if (esNumerica(col.tipo)) {
       if (!coincideFiltroNumerico(v == null || v === "" ? null : Number(v), f)) return false;
-    } else if (!normalizarTexto(String(v ?? "")).includes(normalizarTexto(f))) {
+    } else if (!coincideFiltroTexto(v == null ? "" : String(v), f)) {
       return false;
     }
   }
   return true;
 }
 
-/** ¿El texto contiene el filtro, sin distinguir tildes ni mayúsculas? Filtro vacío → true. */
+/**
+ * ¿El texto contiene el filtro, sin distinguir tildes ni mayúsculas? Filtro vacío → true. Con un
+ * `*` (o `?`) manda la POSICIÓN y no la subcadena: «**25» casa con 112505 pero no con 110525.
+ */
 export function coincideFiltroTexto(valor: string | null | undefined, filtro: string | null | undefined): boolean {
   const buscado = normalizarTexto(filtro ?? "");
   if (!buscado) return true;
+  if (tieneComodin(buscado)) return coincideComodin(valor, buscado);
   return normalizarTexto(String(valor ?? "")).includes(buscado);
 }
 

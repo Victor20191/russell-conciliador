@@ -13,6 +13,7 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { esImputable } from "@/lib/modulos/promocion";
 import { coincideGrupoDetalle, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
@@ -815,6 +816,7 @@ export default function BorradorModuloClient({
                       onChange={(e) => { setFiltrosColumnas((actuales) => ({ ...actuales, [c.nombre]: e.target.value })); reiniciarDetalle(); }}
                       aria-label={`Filtrar la columna ${c.etiqueta}`}
                       placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                      title={esNum(c.tipo) ? undefined : AYUDA_COMODIN}
                       className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
                     />
                   </th>

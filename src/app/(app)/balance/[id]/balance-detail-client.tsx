@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { EncabezadoTablaBalance, CeldasImportesBalance } from "@/components/tabla-columnas-balance";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { Modal } from "@/components/modal";
 import {
   BotonPantallaCompleta,
@@ -394,6 +395,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar código o cuenta…"
+            title={AYUDA_COMODIN}
             className="w-48 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
           />
         </div>
