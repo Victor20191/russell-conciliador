@@ -344,15 +344,16 @@ describe("concepto con varias cuentas: renglón agrupado sin reparto (1/Oct/2026
   });
 });
 
-describe("vista por subcuenta: sin cuenta del cliente, la subcuenta sale de la cuenta Russell asignada (MOTO ZONE, 1/Oct/2026)", () => {
-  it("subcuentaDelConcepto: manda la del cliente; si no, la de las cuentas asignadas cuando coinciden", () => {
+describe("vista por subcuenta: la subcuenta sale SOLO de la cuenta del cliente (2/Oct/2026)", () => {
+  it("subcuentaDelConcepto: la del cliente o ninguna; la cuenta Russell no la decide", () => {
     const s = (p: Partial<RenglonConsolidadoNomina["sugerencia"]>) => renglon("x", 1, p).sugerencia;
     expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510595"], subcuentaPuc: "27" }))).toBe("27");
-    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510536"] }))).toBe("36");
-    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "520506", "720505"] }))).toBe("06");
-    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "510595"] }))).toBeNull(); // no coinciden
-    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "730505"] }))).toBeNull(); // 7305 no la dice
-    expect(subcuentaDelConcepto(s({ via: "sugerido_nombre", cuentas: ["510506"] }))).toBeNull(); // sin confirmar
+    expect(subcuentaDelConcepto(s({ via: "archivo", cuentas: ["510506"], subcuentaPuc: "06" }))).toBe("06");
+    // Sin cuenta del cliente no hay subcuenta, aunque la Russell asignada la diga: los dos lados de
+    // la tabla son cuentas del cliente.
+    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510536"] }))).toBeNull();
+    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "520506", "720505"] }))).toBeNull();
+    expect(subcuentaDelConcepto(s({ via: "sugerido_nombre", cuentas: ["510506"] }))).toBeNull();
     expect(subcuentaDelConcepto(s({ via: "sin_cuenta" }))).toBeNull();
   });
 
@@ -365,9 +366,10 @@ describe("vista por subcuenta: sin cuenta del cliente, la subcuenta sale de la c
         bal("51053605", "PRIMA DE SERVICIOS", 0, 0, 11502638),
       ],
       renglones: [
-        renglon("1050", 697905638, { via: "multi", cuentas: ["510506", "520506", "720505"] }),
-        renglon("1500", 94855262, { via: "memoria_exacta", cuentas: ["510536"] }),
-        renglon("1061", 485720, { via: "sugerido_nombre", cuentas: ["510506"] }),
+        renglon("1050", 697905638, { via: "multi", cuentas: ["510506", "520506", "720505"], subcuentaPuc: "06" }),
+        renglon("1500", 94855262, { via: "memoria_exacta", cuentas: ["510536"], subcuentaPuc: "36" }),
+        // Resuelto por la cuenta Russell pero sin cuenta del cliente: queda aparte.
+        renglon("1061", 485720, { via: "memoria_exacta", cuentas: ["510506"] }),
       ],
       prefijos: PREFIJOS,
     });
@@ -410,8 +412,8 @@ describe("cuentas solo visibles (1/Oct/2026)", () => {
     const vista = construirVistaSubcuenta({
       balance: [bal("51050605", "SUELDOS", 0, 0, 1000), bal("51053005", "CESANTÍAS", 0, 0, 80), bal("51051905", "OTRA", 0, 0, 5)],
       renglones: [
-        renglon("1", 1000, { via: "memoria_exacta", cuentas: ["510506"] }),
-        renglon("40", 70, { via: "memoria_exacta", cuentas: ["510530"] }),
+        renglon("1", 1000, { via: "memoria_exacta", cuentas: ["510506"], subcuentaPuc: "06" }),
+        renglon("40", 70, { via: "memoria_exacta", cuentas: ["510530"], subcuentaPuc: "30" }),
       ],
       prefijos: PREFIJOS,
       subcuentasVisibles: new Set(["30"]),

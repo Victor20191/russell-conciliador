@@ -24,7 +24,7 @@
 import { factorPresentacion } from "@/lib/balance/prevalidador/calcular";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
 import { partirClaveConsolidado } from "./clave-consolidado";
-import { codigoConceptoCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto, subcuentaPucDeCuentaRussell } from "./homologacion";
+import { codigoConceptoCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
@@ -107,19 +107,15 @@ function esCuentaGastoPersonal(cuenta8: string, prefijos: readonly string[]): bo
   return prefijos.some((p) => cuenta8.startsWith(p));
 }
 
-/** Vías en que la cuenta del concepto ya está decidida (no es una sugerencia por confirmar). */
-const VIAS_ASIGNADAS: ReadonlySet<RenglonConsolidadoNomina["sugerencia"]["via"]> = new Set(["archivo", "memoria_exacta", "memoria_clase", "multi"]);
-
 /**
- * Subcuenta PUC del concepto para la vista: la de su cuenta del cliente; si no la hay, la de sus
- * cuentas Russell ASIGNADAS cuando todas dicen la misma (las de 7305 o «xx95» mezcladas con otra
- * no la deciden). Una sugerencia por nombre sin confirmar no aporta subcuenta por su cuenta.
+ * Subcuenta del concepto para la vista: SOLO la de su cuenta del cliente (2/Oct/2026). Los dos
+ * lados de esta tabla hablan el mismo idioma —cuentas del cliente del balance contra cuentas del
+ * cliente del módulo—, así que un concepto sin cuenta del cliente no aporta subcuenta: se lista
+ * aparte. Antes se caía a la subcuenta de la cuenta Russell asignada y eso mezclaba los dos planes
+ * en la misma tabla, con filas que no tenían contraparte posible.
  */
 export function subcuentaDelConcepto(s: RenglonConsolidadoNomina["sugerencia"]): string | null {
-  if (s.subcuentaPuc) return s.subcuentaPuc;
-  if (!VIAS_ASIGNADAS.has(s.via) || s.cuentas.length === 0) return null;
-  const subcuentas = new Set(s.cuentas.map(subcuentaPucDeCuentaRussell));
-  return subcuentas.size === 1 ? [...subcuentas][0] : null;
+  return s.subcuentaPuc || null;
 }
 
 const conceptoDe = (r: RenglonConsolidadoNomina): ConceptoSubcuenta => ({

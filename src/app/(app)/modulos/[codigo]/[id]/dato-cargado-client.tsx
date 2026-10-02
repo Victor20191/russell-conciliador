@@ -3056,9 +3056,11 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
   return (
     <Card className="p-0">
       <div className="border-b border-ink-100 px-3 py-2">
-        <div className="text-[12.5px] font-semibold text-ink-800">Cruce por subcuenta PUC sumando clases</div>
+        <div className="text-[12.5px] font-semibold text-ink-800">
+          Cruce por subcuenta de la cuenta del CLIENTE · balance vs {moduloLabel.toLocaleLowerCase("es")}
+        </div>
         <p className="text-[11px] text-ink-500">
-          Un renglón por subcuenta del gasto de personal (06 sueldos, 15 horas extras, 27 auxilio de transporte…): contabilidad = Σ de las cuentas del cliente con esa subcuenta en administración, ventas y producción; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos con esa subcuenta: la de su cuenta del cliente o, si no la trae, la de la cuenta Russell asignada (510506, 520506 y 720505 → 06). Cuadra sin regla de clase ni reparto; no decide el cierre.
+          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase ni reparto; no decide el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -3132,7 +3134,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
       )}
       {vista.sinSubcuenta.length > 0 && (
         <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
-          Sin subcuenta conocida (sin cuenta del cliente ni una cuenta Russell asignada que la diga; no entran a esta vista): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
+          Sin cuenta del cliente que diga su subcuenta (no entran a esta vista; sí cruzan en la cédula): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
         </div>
       )}
     </Card>
