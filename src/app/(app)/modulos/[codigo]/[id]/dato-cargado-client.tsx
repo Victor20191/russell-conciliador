@@ -39,6 +39,7 @@ import { EstadoGuardado } from "@/components/estado-guardado";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
+import { agruparConsolidadoPorConcepto, resumirGrupoConcepto } from "@/lib/modulos/nomina/consolidado-por-concepto";
 import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
 import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
@@ -48,6 +49,79 @@ import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type Resum
 
 /** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
 const CLAVE_TOTAL_AGRUPADA = "__total_agrupada__";
+
+/**
+ * Renglón único de un concepto partido por cuenta: sus sumas y, a la derecha, qué cuenta del
+ * archivo va a qué cuenta Russell y por cuánto. Se despliega para editar cada una.
+ */
+function FilaConceptoAgrupado({ grupo, abierto, columnas, onAlternar, seleccionadas, onSeleccionar, cuentasDe, nombreDeCuenta }: {
+  grupo: { clave: string; filas: ConsolidadoVm[] };
+  abierto: boolean;
+  columnas: number;
+  onAlternar: () => void;
+  seleccionadas: number;
+  onSeleccionar?: (activar: boolean) => void;
+  cuentasDe: (clave: string) => string[];
+  nombreDeCuenta: (codigo: string) => string | null;
+}) {
+  const r = resumirGrupoConcepto(grupo, cuentasDe);
+  const todas = seleccionadas === grupo.filas.length;
+  return (
+    <tr className="border-t border-ink-100 bg-ink-50/40 align-top">
+      {onSeleccionar && (
+        <td className="px-3 py-2">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            aria-label={`Seleccionar las ${grupo.filas.length} cuentas de ${r.codigo}`}
+            checked={todas}
+            ref={(el) => { if (el) el.indeterminate = seleccionadas > 0 && !todas; }}
+            onChange={() => onSeleccionar(!todas)}
+          />
+        </td>
+      )}
+      <td className="px-3 py-2 font-medium text-ink-800">
+        <button type="button" onClick={onAlternar} aria-expanded={abierto} className="inline-flex items-center gap-1.5 font-medium hover:text-navy-700">
+          <Icon name={chevronDivulgacion(abierto)} size={13} />
+          {r.codigo}
+          {r.agrupador && (
+            <span className="rounded border border-ink-200 bg-white px-1 py-0.5 text-[10.5px] font-semibold text-ink-600" title="Centro de costo / clase del archivo">{r.agrupador}</span>
+          )}
+          <span className="rounded border border-ink-200 bg-white px-1 py-0.5 text-[10.5px] font-semibold text-ink-500">{grupo.filas.length} cuentas del archivo</span>
+        </button>
+        {r.descripcion && <div className="text-[11px] font-normal text-ink-500">{r.descripcion}</div>}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{r.filas}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(r.total)}</td>
+      <td className="px-3 py-2">
+        <ul className="flex flex-col gap-1">
+          {r.cuentas.map((c) => (
+            <li key={c.cuentaArchivo} className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+              <span className="rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo">{c.cuentaArchivo}</span>
+              <span className="text-ink-400">→</span>
+              {c.russell.length === 0 ? (
+                <span className="font-medium text-warn-700">sin cuenta</span>
+              ) : c.russell.map((cod) => (
+                <span key={cod} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-800" title={etiquetaRussell(cod, nombreDeCuenta(cod))}>
+                  <span className="font-semibold">R - {cod}</span>
+                  {nombreDeCuenta(cod) && <span className="max-w-[120px] truncate text-blue-600">{nombreDeCuenta(cod)}</span>}
+                </span>
+              ))}
+              <span className="ml-auto tabular-nums text-ink-600">{fmtContable(c.total)}</span>
+            </li>
+          ))}
+        </ul>
+        {!abierto && (
+          <button type="button" onClick={onAlternar} className="mt-1 text-[11px] font-semibold text-blue-700 hover:underline">
+            Ver y editar cada cuenta
+          </button>
+        )}
+      </td>
+      <td className="px-3 py-2" />
+      {columnas > 6 && <td />}
+    </tr>
+  );
+}
 
 /**
  * De dónde sale la columna del módulo en una fila del cruce: los clasificadores del archivo que
@@ -894,6 +968,10 @@ function ConsolidadoTab({
   useAvisoCierreNavegador(puedeEditar && pendientes.length > 0);
   const ocupado = guardandoClave != null || guardandoTodo;
 
+  // Un concepto que el archivo parte por cuenta (Nómina) se junta en un solo renglón: la vista
+  // agrupa, el cruce sigue con el valor exacto de cada cuenta.
+  const [conceptosAbiertos, setConceptosAbiertos] = useState<Set<string>>(() => new Set());
+  const gruposConsolidado = useMemo(() => agruparConsolidadoPorConcepto(consolidadoVisible), [consolidadoVisible]);
   const clasificadores = useMemo(() => consolidadoVisible.map((c) => c.clasificador), [consolidadoVisible]);
   // Intersección con la tabla actual: tras un refresh puede haber cambiado el consolidado.
   const seleccionados = useMemo(() => clasificadores.filter((k) => seleccion.has(k)), [clasificadores, seleccion]);
@@ -1192,7 +1270,33 @@ function ConsolidadoTab({
                 </td>
               </tr>
             )}
-            {consolidadoVisible.map((c) => {
+            {/* Un concepto que el archivo parte en varias cuentas se muestra en UN renglón con sus
+                cuentas al lado; al desplegarlo salen sus renglones por cuenta, que son los que se
+                editan y los que cruzan con su valor exacto. */}
+            {gruposConsolidado.flatMap((g) => {
+              const agrupa = g.filas.length > 1;
+              const abierto = conceptosAbiertos.has(g.clave);
+              const cabecera = agrupa
+                ? [(
+                    <FilaConceptoAgrupado
+                      key={`grupo:${g.clave}`}
+                      grupo={g}
+                      abierto={abierto}
+                      columnas={puedeEditar ? 6 : 5}
+                      onAlternar={() => setConceptosAbiertos((p) => { const s = new Set(p); if (s.has(g.clave)) s.delete(g.clave); else s.add(g.clave); return s; })}
+                      seleccionadas={g.filas.filter((f) => seleccion.has(f.clasificador)).length}
+                      onSeleccionar={puedeEditar ? (activar: boolean) => setSeleccion((p) => {
+                        const s = new Set(p);
+                        for (const f of g.filas) { if (activar) s.add(f.clasificador); else s.delete(f.clasificador); }
+                        return s;
+                      }) : undefined}
+                      cuentasDe={(clave: string) => valores[clave] ?? []}
+                      nombreDeCuenta={(cod: string) => nombrePorCuenta.get(cod) ?? null}
+                    />
+                  )]
+                : [];
+              const visibles = agrupa && !abierto ? [] : g.filas;
+              return [...cabecera, ...visibles.map((c) => {
               const asignadas = valores[c.clasificador] ?? [];
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               // Nómina: la cuenta ya viene resuelta por el archivo; guardarla en la memoria es opcional.
@@ -1342,6 +1446,7 @@ function ConsolidadoTab({
                   </td>
                 </tr>
               );
+              })];
             })}
           </tbody>
         </table>
