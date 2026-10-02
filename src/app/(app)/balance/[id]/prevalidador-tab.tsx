@@ -177,14 +177,18 @@ export default function PrevalidadorTab({
               <tr className="border-b border-ink-100 text-[11px] uppercase tracking-wider text-ink-500">
                 <th className="border-l border-ink-150 px-4 py-2 text-left font-semibold">Cuenta</th>
                 <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Valor comparado</th>
-                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
+                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total del módulo</th>
                 <th className="border-l border-ink-150 px-4 py-2 text-left font-semibold">Cuenta</th>
                 <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Valor comparado</th>
-                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
+                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total del módulo</th>
                 <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">
-                  Cliente − Russell
+                  Por cuenta
+                  <div className="text-[10px] font-normal normal-case tracking-normal text-ink-400">cliente − Russell</div>
                 </th>
-                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
+                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">
+                  Total del módulo
+                  <div className="text-[10px] font-normal normal-case tracking-normal text-ink-400">suma de sus cuentas</div>
+                </th>
               </tr>
             </thead>
             {modulos.map((m) => (
@@ -192,7 +196,7 @@ export default function PrevalidadorTab({
                 {m.filas.map((f, i) => (
                   <tr key={`${m.codigo}-${f.cuentaRussell}`} className="border-b border-ink-100 last:border-0">
                     {i === 0 && (
-                      <td rowSpan={m.filas.length} className="px-4 py-2.5 align-top font-medium text-ink-800">
+                      <td rowSpan={m.filas.length} className="px-4 py-2.5 align-middle font-medium text-ink-800">
                         {m.nombre}
                       </td>
                     )}
@@ -211,7 +215,7 @@ export default function PrevalidadorTab({
                     {i === 0 && (
                       <td
                         rowSpan={m.filas.length}
-                        className="whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-ink-800"
+                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle font-mono font-semibold text-ink-800"
                       >
                         {fmt(m.totalRussell)}
                       </td>
@@ -230,7 +234,7 @@ export default function PrevalidadorTab({
                     {i === 0 && (
                       <td
                         rowSpan={m.filas.length}
-                        className="whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-ink-800"
+                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle font-mono font-semibold text-ink-800"
                       >
                         {fmt(m.totalCliente)}
                       </td>
@@ -243,7 +247,7 @@ export default function PrevalidadorTab({
                       />
                     </td>
                     {i === 0 && (
-                      <td rowSpan={m.filas.length} className="whitespace-nowrap px-4 py-2.5 text-right align-top">
+                      <td rowSpan={m.filas.length} className="whitespace-nowrap px-4 py-2.5 text-right align-middle">
                         <Diferencia
                           valor={m.diferenciaTotal}
                           coincide={m.coincide}
