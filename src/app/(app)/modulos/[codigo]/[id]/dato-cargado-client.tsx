@@ -40,6 +40,7 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
 import { agruparConsolidadoPorConcepto, resumirGrupoConcepto } from "@/lib/modulos/nomina/consolidado-por-concepto";
+import { filtrarFilasCruce, hayFiltrosCruce, type FiltrosCruce } from "@/lib/modulos/filtros-cruce";
 import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
 import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
@@ -342,6 +343,26 @@ function valorColumnaConsolidado(fila: ConsolidadoVm & { cuentas?: { codigo: str
   if (columna === "total") return fila.total;
   if (columna === "cuentas") return (fila.cuentas ?? fila.cuentas4.map((c) => ({ codigo: c.codigo })))[0]?.codigo ?? "";
   return null;
+}
+
+/** Campo de filtro de una columna de las tablas del cruce (mismo aspecto que los del Detalle). */
+function FiltroColumnaCruce({ etiqueta, valor, onChange, numerico = false }: {
+  etiqueta: string;
+  valor: string | undefined;
+  onChange: (v: string) => void;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      value={valor ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={`Filtrar por ${etiqueta}`}
+      placeholder={numerico ? "> < = …" : "Filtrar…"}
+      title={numerico ? undefined : AYUDA_COMODIN}
+      className={`w-full min-w-[70px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] font-normal text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${numerico ? "text-right" : ""}`}
+    />
+  );
 }
 
 /** Campo de filtro de una columna del Consolidado (mismo aspecto que los del Detalle). */
@@ -2089,6 +2110,9 @@ function CruceContableTab({
   const [quitando, startQuitar] = useTransition();
   // Orden por columna elegido en el encabezado de la cédula (null = el del sistema).
   const [orden, setOrden] = useState<OrdenCruce<ColumnaCruceContable>>(null);
+  // Filtros por columna de la cédula (van aquí, antes de los retornos tempranos: el orden de los
+  // hooks no puede depender del estado del cruce).
+  const [filtrosCedula, setFiltrosCedula] = useState<FiltrosCruce>({});
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
@@ -2150,7 +2174,17 @@ function CruceContableTab({
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
   const conDiferencia = filasMarcadas.filter((f) => !f.cuadra).length;
-  const filasOrdenadas = ordenarCruceContable(filasMarcadas, orden);
+  // Filtros por columna de la cédula: la cuenta por texto y las cifras con >, <, =.
+  const columnasFiltroCedula = {
+    cuenta: { texto: (f: FilaCruceMarcada) => `${f.cuenta4} ${f.nombre ?? ""}` },
+    contable: { numero: (f: FilaCruceMarcada) => f.contable },
+    modulo: { numero: (f: FilaCruceMarcada) => f.inventario },
+    diferenciaBruta: { numero: (f: FilaCruceMarcada) => f.diferenciaBruta },
+    noModular: { numero: (f: FilaCruceMarcada) => f.noModular - f.noModularModulo },
+    diferencia: { numero: (f: FilaCruceMarcada) => f.diferencia },
+  };
+  const hayFiltrosCedula = hayFiltrosCruce(filtrosCedula);
+  const filasOrdenadas = ordenarCruceContable(filtrarFilasCruce(filasMarcadas, columnasFiltroCedula, filtrosCedula), orden);
   const encabezado = (label: string, columna: ColumnaCruceContable, alineacion: "left" | "right", title: string) => (
     <HeaderOrdenable
       label={label}
@@ -2238,7 +2272,13 @@ function CruceContableTab({
             {filasMarcadas.length > 0 && (conDiferencia > 0
               ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
               : <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
+            {hayFiltrosCedula && <> · <span className="font-semibold text-ink-700">{filasOrdenadas.length.toLocaleString("es-CO")}</span> con los filtros</>}
           </span>
+          {hayFiltrosCedula && (
+            <button type="button" onClick={() => setFiltrosCedula({})} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
+              Limpiar filtros
+            </button>
+          )}
           <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
         <div className={claseScrollTabla(pantallaCompleta, null)}>
@@ -2258,6 +2298,19 @@ function CruceContableTab({
                   {encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}
                 </th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
+              </tr>
+              <tr className="bg-ink-50">
+                {(["cuenta", "contable", "modulo", "diferenciaBruta", "noModular", "diferencia"] as const).map((columna) => (
+                  <th key={columna} className="px-1.5 pb-2 font-normal">
+                    <FiltroColumnaCruce
+                      etiqueta={columna === "cuenta" ? "Cuenta" : columna}
+                      valor={filtrosCedula[columna]}
+                      numerico={columna !== "cuenta"}
+                      onChange={(v) => setFiltrosCedula((p) => ({ ...p, [columna]: v }))}
+                    />
+                  </th>
+                ))}
+                <th className="px-1.5 pb-2" />
               </tr>
             </thead>
             <tbody>
@@ -2926,6 +2979,33 @@ type FilaSubcuentaNominaVm = NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>
 /** Vista por subcuenta PUC del gasto de personal sumando clases: el papel del auditor. */
 function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>; moduloLabel: string }) {
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set());
+  // Filtros y orden por columna: la tabla está entera aquí, se resuelve en el navegador.
+  const [filtros, setFiltros] = useState<FiltrosCruce>({});
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
+  const columnasFiltro = {
+    subcuenta: { texto: (f: FilaSubcuentaNominaVm) => `${f.subcuenta} ${f.etiqueta}` },
+    contable: { numero: (f: FilaSubcuentaNominaVm) => f.contable },
+    modulo: { numero: (f: FilaSubcuentaNominaVm) => f.modulo },
+    diferencia: { numero: (f: FilaSubcuentaNominaVm) => f.diferencia },
+    estado: { texto: (f: FilaSubcuentaNominaVm) => ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado },
+  };
+  const hayFiltros = hayFiltrosCruce(filtros);
+  const valorColumna = (f: FilaSubcuentaNominaVm, columna: string) =>
+    columna === "subcuenta" ? `${f.subcuenta} ${f.etiqueta}`
+      : columna === "estado" ? ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado
+        : columna === "contable" ? f.contable
+          : columna === "modulo" ? f.modulo
+            : f.diferencia;
+  const filasVista = ordenarFilas(
+    filtrarFilasCruce(vista.filas, columnasFiltro, filtros),
+    orden,
+    valorColumna,
+    (columna) => columna === "contable" || columna === "modulo" || columna === "diferencia",
+  );
+  const totalesVista = hayFiltros
+    ? filasVista.reduce((acc, f) => ({ contable: acc.contable + f.contable, modulo: acc.modulo + f.modulo, diferencia: acc.diferencia + f.diferencia }), { contable: 0, modulo: 0, diferencia: 0 })
+    : vista.totales;
   const alternar = (sub: string) => setAbiertas((p) => { const n = new Set(p); if (n.has(sub)) n.delete(sub); else n.add(sub); return n; });
   // Las subcuentas solo visibles van al final, cerradas al entrar y fuera de los totales.
   const [verVisibles, setVerVisibles] = useState(false);
@@ -2985,20 +3065,42 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
         <table className="w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
-              <th className="px-3 py-2 font-semibold">Subcuenta</th>
-              <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-              <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
-              <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
-              <th className="px-3 py-2 font-semibold">Estado</th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta="Subcuenta" columna="subcuenta" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Contabilidad" columna="contable" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta={moduloLabel} columna="modulo" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Diferencia" columna="diferencia" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta="Estado" columna="estado" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+            </tr>
+            <tr className="bg-ink-50">
+              {(["subcuenta", "contable", "modulo", "diferencia", "estado"] as const).map((columna) => (
+                <th key={columna} className="px-1.5 pb-2 font-normal">
+                  <FiltroColumnaCruce
+                    etiqueta={columna}
+                    valor={filtros[columna]}
+                    numerico={columna !== "subcuenta" && columna !== "estado"}
+                    onChange={(v) => setFiltros((p) => ({ ...p, [columna]: v }))}
+                  />
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody>{renglones(vista.filas, false)}</tbody>
+          <tbody>{renglones(filasVista, false)}</tbody>
           <tfoot>
             <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-              <td className="px-3 py-2">Totales</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.contable)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.modulo)}</td>
-              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(vista.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(vista.totales.diferencia)}</td>
+              <td className="px-3 py-2">{hayFiltros ? `Totales · ${filasVista.length} de ${vista.filas.length}` : "Totales"}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesVista.contable)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesVista.modulo)}</td>
+              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totalesVista.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totalesVista.diferencia)}</td>
               <td />
             </tr>
           </tfoot>
