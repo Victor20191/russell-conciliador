@@ -39,6 +39,8 @@ import { EstadoGuardado } from "@/components/estado-guardado";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
+import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
@@ -218,6 +220,19 @@ const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codig
  * Clasificadores que originan una fila agrupada, para su etiqueta. Los de Nómina llegan como
  * clave del Consolidado («1 ∥ GYA # 51050601»): se muestra el código del concepto, una vez.
  */
+/**
+ * Valor por el que se ordena cada columna del Consolidado: el clasificador ordena por su nombre
+ * cuando lo tiene (en Nómina el código es «1», «10»… y el auditor busca «Sueldos»), y las cuentas,
+ * por la primera que muestra la fila.
+ */
+function valorColumnaConsolidado(fila: ConsolidadoVm & { cuentas?: { codigo: string }[] }, columna: string): unknown {
+  if (columna === "clasificador") return fila.descripcion?.trim() || fila.clasificador;
+  if (columna === "filas") return fila.filas;
+  if (columna === "total") return fila.total;
+  if (columna === "cuentas") return (fila.cuentas ?? fila.cuentas4.map((c) => ({ codigo: c.codigo })))[0]?.codigo ?? "";
+  return null;
+}
+
 /** Campo de filtro de una columna del Consolidado (mismo aspecto que los del Detalle). */
 function FiltroConsolidado({ etiqueta, valor, onChange, numerico = false }: {
   etiqueta: string;
@@ -745,6 +760,9 @@ function ConsolidadoTab({
   // Filtros por columna de la tabla (clasificador y su nombre, filas, total, cuentas asignadas).
   const [filtros, setFiltros] = useState<FiltrosConsolidado>({});
   const hayFiltros = hayFiltrosConsolidado(filtros);
+  // Orden por columna (clic en el encabezado): la tabla la tenemos entera, se ordena aquí.
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
   const sinCuentaGuardada = useMemo(
     () => consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0).length,
     [consolidado, guardados],
@@ -753,16 +771,15 @@ function ConsolidadoTab({
     const base = esInventarios && filtroVista === "sinCuenta"
       ? consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0)
       : consolidado;
-    if (!hayFiltrosConsolidado(filtros)) return base;
-    // Las cuentas que se buscan son las que la fila MUESTRA (asignadas o propuestas), con su nombre.
-    return filtrarConsolidado(
-      base.map((c) => ({
-        ...c,
-        cuentas: (valores[c.clasificador] ?? c.cuentas4.map((x) => x.codigo)).map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? null })),
-      })),
-      filtros,
-    );
-  }, [consolidado, guardados, filtroVista, esInventarios, filtros, valores, nombrePorCuenta]);
+    // Las cuentas que se buscan (y por las que se ordena) son las que la fila MUESTRA: las
+    // asignadas o, mientras no se guarden, las propuestas.
+    const conCuentas = base.map((c) => ({
+      ...c,
+      cuentas: (valores[c.clasificador] ?? c.cuentas4.map((x) => x.codigo)).map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? null })),
+    }));
+    const filtradas = hayFiltrosConsolidado(filtros) ? filtrarConsolidado(conCuentas, filtros) : conCuentas;
+    return ordenarFilas(filtradas, orden, valorColumnaConsolidado, (c) => c === "filas" || c === "total");
+  }, [consolidado, guardados, filtroVista, esInventarios, filtros, valores, nombrePorCuenta, orden]);
 
   const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
     const aplicar = (prev: Record<string, string[]>) => {
@@ -1090,10 +1107,18 @@ function ConsolidadoTab({
                   />
                 </th>
               )}
-              <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
-              <th className="px-3 py-2 text-right font-semibold">Filas</th>
-              <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">Total</th>
-              <th className="px-3 py-2 font-semibold">Cuentas ({etiquetaNivel} díg) — una o varias</th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta={clasificadorEtiqueta} columna="clasificador" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Filas" columna="filas" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Total" columna="total" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta={`Cuentas (${etiquetaNivel} díg) — una o varias`} columna="cuentas" orden={orden} onOrdenar={ordenarPor} />
+              </th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
             <tr className="bg-ink-50">
@@ -1709,15 +1734,19 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   const idxValor = indiceColumnaValor(columnas);
   const [filtros, setFiltros] = useState<FiltrosDetalleModulo>({});
   const hayFiltros = hayFiltrosDetalleModulo(filtros);
+  // El detalle llega por páginas: ordenar es cosa del SERVIDOR (ordenar aquí solo movería las
+  // 500 filas traídas y mentiría sobre las demás).
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
   const [filas, setFilas] = useState<FilaDetalleVm[]>([]);
   const [total, setTotal] = useState(totalFilas);
   const [cargando, setCargando] = useState(true);
   const tablaRef = useRef<HTMLDivElement>(null);
 
-  const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo) => {
+  const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo, ordenPedido: OrdenTabla) => {
     setCargando(true);
     try {
-      const r = await filasDetalleCargue({ encabezadoId, desde, filtros: hayFiltrosDetalleModulo(filtrosPedidos) ? filtrosPedidos : undefined });
+      const r = await filasDetalleCargue({ encabezadoId, desde, filtros: hayFiltrosDetalleModulo(filtrosPedidos) ? filtrosPedidos : undefined, orden: ordenPedido });
       if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
       setFilas((previas) => (desde > 0 ? [...previas, ...r.filas] : r.filas));
       setTotal(r.total);
@@ -1732,10 +1761,10 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   useEffect(() => {
     const id = setTimeout(() => {
       tablaRef.current?.scrollTo({ top: 0 });
-      void traer(0, filtros);
+      void traer(0, filtros, orden);
     }, hayFiltrosDetalleModulo(filtros) ? 400 : 0);
     return () => clearTimeout(id);
-  }, [filtros, traer]);
+  }, [filtros, orden, traer]);
 
   const grupos = useMemo(() => {
     const orden: string[] = [];
@@ -1784,7 +1813,9 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
             <tr>
               <th className="px-2.5 py-2 font-semibold">#</th>
               {columnas.map((c) => (
-                <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
+                <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
+                  <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
+                </th>
               ))}
               <th className="px-2.5 py-2 text-center font-semibold">💬</th>
             </tr>
@@ -1842,7 +1873,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                   <button
                     type="button"
                     disabled={cargando}
-                    onClick={() => void traer(filas.length, filtros)}
+                    onClick={() => void traer(filas.length, filtros, orden)}
                     className="rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
                   >
                     {cargando ? "Trayendo…" : `Ver más filas (${filas.length.toLocaleString("es-CO")} de ${total.toLocaleString("es-CO")})`}

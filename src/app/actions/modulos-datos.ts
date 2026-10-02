@@ -68,9 +68,10 @@ import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modu
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { normalizarOrden, ordenarFilas } from "@/lib/modulos/orden-tabla";
 import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
-import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
+import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
 import { nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
@@ -1562,6 +1563,8 @@ export async function filasBorradorModulo(entrada: {
   verEstructura?: boolean;
   soloNovedades?: number[];
   filtros?: Record<string, string>;
+  /** Orden por columna de las filas del grupo; se valida contra las columnas del cargue. */
+  orden?: { columna: string; direccion: string } | null;
 }): Promise<PaginaFilasBorrador> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
@@ -1579,7 +1582,9 @@ export async function filasBorradorModulo(entrada: {
     const novedades = Array.isArray(entrada.soloNovedades) ? new Set(entrada.soloNovedades.filter(Number.isInteger)) : null;
     const filtros = entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null;
     const desde = Number.isInteger(entrada.desde) && entrada.desde! > 0 ? entrada.desde! : 0;
-    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null;
+    // Ordenar, como filtrar, exige ver el grupo entero: la página es una porción del total.
+    const ordenPedido = entrada.orden ?? null;
+    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null || ordenPedido != null;
 
     // Sin nada que recortar, la página se pide directamente a la base: un grupo de 23.000 filas
     // no viaja entero para mostrar 500. Con filtros hay que verlo completo, pero es UN grupo.
@@ -1596,9 +1601,18 @@ export async function filasBorradorModulo(entrada: {
     let visibles = await filasDelGrupo(id, grupo);
     if (entrada.verEstructura !== true) visibles = visibles.filter((f) => !esRenglonEstructura(f));
     if (novedades) visibles = visibles.filter((f) => novedades.has(f.filaNum));
-    if (filtros) {
-      visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, (fila, columna) =>
-        columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna));
+    const valorDe = (fila: FilaBorrador, columna: { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }) =>
+      columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna);
+    if (filtros) visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, valorDe);
+    const orden = normalizarOrden(ordenPedido, columnas.map((c) => c.nombre));
+    if (orden) {
+      const porColumna = new Map(columnas.map((c) => [c.nombre, c]));
+      visibles = ordenarFilas(
+        visibles,
+        orden,
+        (fila, columna) => { const c = porColumna.get(columna); return c ? valorDe(fila, c) : null; },
+        (columna) => { const t = porColumna.get(columna)?.tipo; return t === "moneda" || t === "numero"; },
+      );
     }
     return { ok: true, filas: visibles.slice(desde, desde + FILAS_POR_PAGINA_BORRADOR), total: visibles.length };
   } catch (e) {
@@ -1615,6 +1629,8 @@ export async function filasDetalleCargue(entrada: {
   encabezadoId: number;
   desde?: number;
   filtros?: Record<string, string>;
+  /** Orden por columna pedido desde la tabla; se valida contra las columnas del cargue. */
+  orden?: { columna: string; direccion: string } | null;
 }): Promise<{ ok: boolean; message?: string; filas: FilaDetalleCargue[]; total: number }> {
   const authz = await authorizePermiso("modulos_datos:ver");
   if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
@@ -1638,6 +1654,7 @@ export async function filasDetalleCargue(entrada: {
       desde: entrada.desde,
       limite: FILAS_POR_PAGINA_BORRADOR,
       filtros: entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null,
+      orden: normalizarOrden(entrada.orden, columnas.map((c) => c.nombre)),
     });
     return { ok: true, ...pagina };
   } catch (e) {

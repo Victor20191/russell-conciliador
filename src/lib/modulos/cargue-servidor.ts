@@ -16,6 +16,7 @@ import type { DescriptorModulo } from "./descriptores";
 import type { GrupoNominaAgregado } from "./nomina/consolidado-nomina";
 import { claveConsolidado } from "./nomina/clave-consolidado";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
+import { ordenarFilas, type OrdenTabla } from "./orden-tabla";
 import { valorColumnaDetalle } from "./celda-detalle-modulo";
 import type { ColumnaDetalle } from "./cartera/columnas-cartera";
 
@@ -207,10 +208,12 @@ export async function paginaDetalleCargue(input: {
   desde?: number;
   limite: number;
   filtros?: Record<string, string> | null;
+  /** Orden por columna. Como la página sale de una porción, ordenar exige ver el cargue entero. */
+  orden?: OrdenTabla;
 }): Promise<PaginaDetalleCargue> {
   const { encabezadoId, descriptor, columnas, limite } = input;
   const desde = Number.isInteger(input.desde) && input.desde! > 0 ? input.desde! : 0;
-  if (!input.filtros) {
+  if (!input.filtros && !input.orden) {
     const [pagina, total] = await Promise.all([
       poolLectura().query<FilaCruda>(
         `SELECT ${CAMPOS} FROM modulo_dato_detalle WHERE encabezado_id = $1 ORDER BY fila_num ASC LIMIT ${Number(limite)} OFFSET ${Number(desde)}`,
@@ -224,9 +227,19 @@ export async function paginaDetalleCargue(input: {
     `SELECT ${CAMPOS} FROM modulo_dato_detalle WHERE encabezado_id = $1 ORDER BY fila_num ASC`,
     [encabezadoId],
   );
-  const filtradas = filtrarFilasDetalleModulo(rows.map(aFila), [...columnas], input.filtros, (fila, columna) =>
-    columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna));
-  return { filas: filtradas.slice(desde, desde + limite), total: filtradas.length };
+  const valorDe = (fila: FilaDetalleCargue, columna: { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }) =>
+    columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna);
+  const filtradas = input.filtros
+    ? filtrarFilasDetalleModulo(rows.map(aFila), [...columnas], input.filtros, valorDe)
+    : rows.map(aFila);
+  const porColumna = new Map(columnas.map((c) => [c.nombre, c]));
+  const ordenadas = ordenarFilas(
+    filtradas,
+    input.orden ?? null,
+    (fila, columna) => { const c = porColumna.get(columna); return c ? valorDe(fila, c) : null; },
+    (columna) => { const t = porColumna.get(columna)?.tipo; return t === "moneda" || t === "numero"; },
+  );
+  return { filas: ordenadas.slice(desde, desde + limite), total: ordenadas.length };
 }
 
 /**

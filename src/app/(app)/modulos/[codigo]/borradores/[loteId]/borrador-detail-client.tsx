@@ -12,6 +12,8 @@ import ComentarioAncla from "@/components/comentario-ancla";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { esImputable } from "@/lib/modulos/promocion";
 import { coincideGrupoDetalle, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { GRUPO_SIN_CLASIFICAR, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
@@ -174,6 +176,9 @@ export default function BorradorModuloClient({
   const [observaciones, setObservaciones] = useState("");
   const [filtro, setFiltro] = useState<string | null>(null); // null = todos · FILTRO_NOVEDADES · o un clasificador
   const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosDetalleModulo>({});
+  // Orden por columna: ordena los GRUPOS por su clasificador o su nombre (aquí, que la lista ya
+  // está) y las filas de cada grupo (en el servidor: la página es una porción del grupo).
+  const [orden, setOrden] = useState<OrdenTabla>(null);
   const [guardando, startGuardar] = useTransition();
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
@@ -391,6 +396,7 @@ export default function BorradorModuloClient({
           verEstructura,
           filtros: hayFiltrosDetalleModulo(filtrosColumnas) ? filtrosColumnas : undefined,
           soloNovedades: filtro === FILTRO_NOVEDADES ? resumen.novedades : undefined,
+          orden,
         });
         if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
         setFilasPorGrupo((prev) => ({ ...prev, [clasificador]: desde > 0 ? [...(prev[clasificador] ?? []), ...r.filas] : r.filas }));
@@ -399,8 +405,14 @@ export default function BorradorModuloClient({
         setCargandoGrupos((prev) => { const n = new Set(prev); n.delete(clasificador); return n; });
       }
     },
-    [filtro, filtrosColumnas, loteId, resumen.novedades, verEstructura],
+    [filtro, filtrosColumnas, loteId, orden, resumen.novedades, verEstructura],
   );
+
+  /** Un clic en el encabezado reordena: las filas ya traídas se piden de nuevo, ya ordenadas. */
+  const ordenarPor = (columna: string) => {
+    setOrden((actual) => alternarOrden(actual, columna));
+    reiniciarDetalle();
+  };
 
   const alternarGrupo = (clasificador: string) => {
     setAbiertos((prev) => {
@@ -422,7 +434,15 @@ export default function BorradorModuloClient({
       // Los filtros del clasificador y de su nombre recortan la LISTA de grupos; los de las demás
       // columnas solo recortan las filas de cada grupo, que llegan al abrirlo.
       .filter((g) => coincideGrupoDetalle(g, { clasificador: clasificadorRol, descripcion: descripcionRol }, filtrosColumnas));
-    return base.map((g) => {
+    // La LISTA de grupos se ordena por las dos columnas que la identifican: el clasificador y su
+    // nombre. Por las demás columnas se ordenan las filas dentro de cada grupo, no los grupos.
+    const ordenados = ordenarFilas(
+      base,
+      orden && (orden.columna === clasificadorRol || orden.columna === descripcionRol) ? orden : null,
+      (g, columna) => (columna === descripcionRol ? g.descripcion ?? g.clasificador : g.clasificador),
+      () => false,
+    );
+    return ordenados.map((g) => {
       const d = delta.porGrupo.get(g.clasificador) ?? { items: 0, subtotal: 0 };
       return {
         clasificador: g.clasificador,
@@ -440,7 +460,7 @@ export default function BorradorModuloClient({
         cargando: cargandoGrupos.has(g.clasificador),
       };
     });
-  }, [abiertos, cargandoGrupos, clasificadorRol, delta.porGrupo, descripcionRol, filasPorGrupo, filtro, filtrosColumnas, resumen.grupos, totalPorGrupo, verEstructura]);
+  }, [abiertos, cargandoGrupos, clasificadorRol, delta.porGrupo, descripcionRol, filasPorGrupo, filtro, filtrosColumnas, orden, resumen.grupos, totalPorGrupo, verEstructura]);
 
   const filasVisibles = gruposVista.reduce((n, g) => n + (g.cargadas?.length ?? 0), 0);
   const filasDelArchivoVisibles = gruposVista.reduce((n, g) => n + (g.totalFiltrado ?? g.filasDelArchivo), 0);
@@ -778,7 +798,9 @@ export default function BorradorModuloClient({
                 </th>
                 <th className="px-2.5 py-2 font-semibold">#</th>
                 {columnas.map((c) => (
-                  <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
+                  <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
+                    <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
+                  </th>
                 ))}
                 <th className="px-2.5 py-2 text-center font-semibold">Acciones</th>
               </tr>
