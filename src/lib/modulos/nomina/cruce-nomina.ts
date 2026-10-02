@@ -471,8 +471,9 @@ export function repartoQuedaViejo(cuentasGuardadas: readonly string[], cuentasRe
 /**
  * Lo que entra a la cédula Russell 6 desde el consolidado de Nómina. Solo cuentan las vías
  * DETERMINISTAS (cuenta del archivo, memoria exacta, memoria + clase); una sugerencia por
- * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan por su REPARTO (RF-NOM-12)
- * y, sin reparto, quedan como «asignado a varias» (ambiguo). Un reparto que ya no rige
+ * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan en un renglón AGRUPADO contra
+ * la suma de sus cuentas, como en los demás módulos (1/Oct/2026); repartir es opcional y, donde hay
+ * reparto, manda: el concepto se parte en una entrada por cuenta, que ya no agrupa. Un reparto que ya no rige
  * (`repartoVigente`: el concepto tiene hoy una sola cuenta u otras candidatas) se ignora. Control
  * y fuera no entran.
  */

@@ -8,7 +8,7 @@ describe("construirCruceContable", () => {
     const consolidado: ClasificadorCruce[] = [{ clasificador: "MP", total: 1000, cuentas4: ["1435"] }];
     const r = construirCruceContable({ contablePorCuenta: { "1435": 1000 }, consolidado, nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 1000, inventario: 1000, noModular: 0, noModularModulo: 0, diferenciaBruta: 0, diferencia: 0, cuadra: true, estado: "cuadra" },
+      { cuenta4: "1435", nombre: "Mercancías no fabricadas", detalleModulo: [{ clasificador: "MP", total: 1000 }], contable: 1000, inventario: 1000, noModular: 0, noModularModulo: 0, diferenciaBruta: 0, diferencia: 0, cuadra: true, estado: "cuadra" },
     ]);
   });
 
@@ -29,7 +29,7 @@ describe("construirCruceContable", () => {
   it("solo_contable: saldo en el balance sin inventario en archivos", () => {
     const r = construirCruceContable({ contablePorCuenta: { "1435": 500 }, consolidado: [], nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 500, inventario: 0, noModular: 0, noModularModulo: 0, diferenciaBruta: 500, diferencia: 500, cuadra: false, estado: "solo_contable" },
+      { cuenta4: "1435", nombre: "Mercancías no fabricadas", detalleModulo: [], contable: 500, inventario: 0, noModular: 0, noModularModulo: 0, diferenciaBruta: 500, diferencia: 500, cuadra: false, estado: "solo_contable" },
     ]);
   });
 
@@ -37,7 +37,7 @@ describe("construirCruceContable", () => {
     const consolidado: ClasificadorCruce[] = [{ clasificador: "PT", total: 300, cuentas4: ["1430"] }];
     const r = construirCruceContable({ contablePorCuenta: {}, consolidado, nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1430", nombre: "Materias primas", contable: 0, inventario: 300, noModular: 0, noModularModulo: 0, diferenciaBruta: -300, diferencia: -300, cuadra: false, estado: "solo_inventario" },
+      { cuenta4: "1430", nombre: "Materias primas", detalleModulo: [{ clasificador: "PT", total: 300 }], contable: 0, inventario: 300, noModular: 0, noModularModulo: 0, diferenciaBruta: -300, diferencia: -300, cuadra: false, estado: "solo_inventario" },
     ]);
   });
 
@@ -75,6 +75,7 @@ describe("construirCruceContable", () => {
           nombre: "Clientes nacionales + Anticipos",
           cuentas: ["130505", "280505"],
           clasificadores: ["GLOBAL"],
+          detalleModulo: [{ clasificador: "GLOBAL", total: 5_187_695_453.24 }],
           desglose: [
             { cuenta: "130505", nombre: "Clientes nacionales", contable: 5_242_295_466.26, noModular: 0 },
             { cuenta: "280505", nombre: "Anticipos", contable: -55_478_114.75, noModular: 0 },
@@ -284,5 +285,45 @@ describe("renglón del saldo sin cuenta", () => {
   it("la clave del renglón se acepta como llave de marca", () => {
     expect(normalizarClaveCruce(CLAVE_SIN_CUENTA)).toBe(CLAVE_SIN_CUENTA);
     expect(normalizarClaveCruce("SIN_CUENTAS")).toBe("");
+  });
+});
+
+describe("detalleModulo: de donde sale el lado del modulo de cada fila", () => {
+  it("una fila simple lista sus clasificadores, de mayor a menor", () => {
+    const consolidado: ClasificadorCruce[] = [
+      { clasificador: "1061", total: 485_720, cuentas4: ["510506"] },
+      { clasificador: "1050", total: 697_905_638, cuentas4: ["510506"] },
+    ];
+    const r = construirCruceContable({ contablePorCuenta: { "510506": 700_000_000 }, consolidado, nombrePorCuenta });
+    expect(r.filas[0].detalleModulo).toEqual([
+      { clasificador: "1050", total: 697_905_638 },
+      { clasificador: "1061", total: 485_720 },
+    ]);
+    expect(r.filas[0].inventario).toBe(698_391_358);
+  });
+
+  it("una fila agrupada suma los conceptos de varias cuentas y los 1:1 de cualquiera de ellas", () => {
+    const consolidado: ClasificadorCruce[] = [
+      { clasificador: "1050", total: 600, cuentas4: ["510506", "520506", "720505"] },
+      { clasificador: "1061", total: 90, cuentas4: ["520506"] },
+      { clasificador: "9999", total: 7, cuentas4: ["510530"] },
+    ];
+    const r = construirCruceContable(
+      { contablePorCuenta: { "510506": 300, "520506": 300, "720505": 100, "510530": 7 }, consolidado, nombrePorCuenta, agruparMultiAsignados: true },
+    );
+    const agrupada = r.filas.find((f) => f.cuentas)!;
+    expect(agrupada.detalleModulo).toEqual([
+      { clasificador: "1050", total: 600 },
+      { clasificador: "1061", total: 90 },
+    ]);
+    // La suma del desglose es exactamente el lado modulo de la fila.
+    expect(agrupada.detalleModulo!.reduce((s, d) => s + d.total, 0)).toBe(agrupada.inventario);
+    // La fila 1:1 de otra cuenta conserva el suyo.
+    expect(r.filas.find((f) => f.cuenta4 === "510530")!.detalleModulo).toEqual([{ clasificador: "9999", total: 7 }]);
+  });
+
+  it("una fila solo contable no trae desglose del modulo", () => {
+    const r = construirCruceContable({ contablePorCuenta: { "1435": 500 }, consolidado: [], nombrePorCuenta });
+    expect(r.filas[0].detalleModulo).toEqual([]);
   });
 });

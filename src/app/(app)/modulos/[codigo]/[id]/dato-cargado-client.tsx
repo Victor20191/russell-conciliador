@@ -45,6 +45,42 @@ import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+
+/** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
+const CLAVE_TOTAL_AGRUPADA = "__total_agrupada__";
+
+/**
+ * De dónde sale la columna del módulo en una fila del cruce: los clasificadores del archivo que
+ * suman a ella, de mayor a menor. Va al lado de las cuentas del cliente, que explican el otro lado.
+ */
+function DetalleModuloFila({ detalle, etiqueta, descripcionDe }: {
+  detalle: readonly { clasificador: string; total: number }[];
+  etiqueta: string;
+  descripcionDe: (clasificador: string) => string | null;
+}) {
+  if (detalle.length === 0) {
+    return <p className="text-[11.5px] text-ink-400">Esta fila no tiene saldo del módulo que desglosar.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+        {etiqueta} · {detalle.length} {detalle.length === 1 ? "concepto" : "conceptos"}
+      </span>
+      <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+        {detalle.map((d) => {
+          const descripcion = descripcionDe(d.clasificador);
+          return (
+            <li key={d.clasificador} className="flex items-center gap-2 px-2.5 py-1.5">
+              <span className="shrink-0 font-mono text-[11.5px] text-ink-600 sm:w-[110px]">{d.clasificador}</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-700" title={descripcion ?? undefined}>{descripcion ?? ""}</span>
+              <span className="shrink-0 tabular-nums text-[12px] text-ink-800">{fmtContable(d.total)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ListaNoModulares, ListaSinCuentaNoModulares, ResumenClasificadoresNoModulares, ResumenNoModulares } from "../lista-no-modulares";
 import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
@@ -366,6 +402,12 @@ export default function DatoCargadoClient({
     if (tabActual.current === "consolidado") consolidadoGuardo.current = true;
     else router.refresh();
   };
+  // Nombre legible de cada clasificador, para que el desglose del cruce diga «1050 · Salario» y
+  // no solo el código.
+  const descripcionPorClasificador = useMemo(
+    () => Object.fromEntries(consolidado.filter((c) => c.descripcion?.trim()).map((c) => [c.clasificador, c.descripcion!.trim()])),
+    [consolidado],
+  );
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size + (novedades.tercero?.total ?? 0);
   const tabs: TabId[] = [
@@ -461,7 +503,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
       ) : tab === "cruceTercero" ? (
         <div className="flex flex-col gap-4">
           {cruceContable.balanceEncontrado && (
@@ -1909,6 +1951,7 @@ function CruceContableTab({
   encabezadoId,
   comentarios,
   puedeEditar,
+  descripcionPorClasificador = {},
 }: {
   /** Lleva a la pestaña Consolidado (para asignar cuenta al saldo sin cuenta). */
   onIrConsolidado?: () => void;
@@ -1919,6 +1962,8 @@ function CruceContableTab({
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
+  /** Nombre legible de cada clasificador (Nómina: el concepto detrás del código). */
+  descripcionPorClasificador?: Record<string, string>;
 }) {
   const router = useRouter();
   // Fila que se está marcando en el modal (null = modal cerrado).
@@ -1942,6 +1987,12 @@ function CruceContableTab({
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
+  // El clasificador del cruce puede traer el centro («1050 ∥ GYA») o la cuenta del reparto
+  // («1050 → 510506»): el nombre se busca por el concepto, que es lo que el usuario reconoce.
+  const descripcionDeClasificador = (clave: string): string | null => {
+    const base = clave.split(" → ")[0];
+    return descripcionPorClasificador[base] ?? descripcionPorClasificador[base.split(" ∥ ")[0]] ?? null;
+  };
   // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
   const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
 
@@ -2121,10 +2172,13 @@ function CruceContableTab({
                     {/* Una fila agrupada se pinta con un renglón por cuenta (su propio saldo contable y
                         no modular); archivos, diferencias y marca son del grupo y ocupan todos sus renglones. */}
                     {(f.desglose && f.desglose.length > 1
-                      ? f.desglose
+                      // La fila agrupada cierra con el TOTAL de sus cuentas: el saldo contra el que
+                      // se compara el módulo no estaba a la vista, había que sumarlo a ojo.
+                      ? [...f.desglose, { cuenta: CLAVE_TOTAL_AGRUPADA, nombre: null, contable: f.contable, noModular: f.noModular }]
                       : [{ cuenta: f.cuenta4, nombre: f.nombre, contable: f.contable, noModular: f.noModular }]
                     ).map((renglon, i, renglones) => {
                       const agrupada = renglones.length > 1;
+                      const esTotalGrupo = renglon.cuenta === CLAVE_TOTAL_AGRUPADA;
                       const primero = i === 0;
                       const alto = renglones.length;
                       return (
@@ -2149,21 +2203,25 @@ function CruceContableTab({
                               ) : (
                                 <span className="inline-block w-[18px]" />
                               )}
-                              {sinCuenta ? (
+                              {esTotalGrupo ? (
+                                <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                              ) : sinCuenta ? (
                                 <span title="Lo del módulo que no tiene cuenta asignada en el Consolidado: suma en la columna del módulo contra un contable en cero.">
                                   {NOMBRE_SIN_CUENTA}
                                 </span>
                               ) : etiquetaRussell(renglon.cuenta, renglon.nombre)}
                               {sinCuenta && <Chip label="Sin cuenta" tone="warn" />}
                               {cuentasPeriodo.has(renglon.cuenta) && <ChipSoloPeriodo periodo={cruceContable.periodo} />}
-                              {agrupada && (
+                              {agrupada && !esTotalGrupo && (
                                 <span title={`Agrupada: ${f.clasificadores?.join(", ") ?? "el clasificador"} está asignado a varias cuentas y se concilia contra la suma de ellas.`}>
                                   <Chip label={f.clasificadores?.length ? `Agrupada · ${f.clasificadores.join(", ")}` : "Agrupada"} tone="blue" />
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(renglon.contable)}</td>
+                          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${esTotalGrupo ? "border-t border-ink-200 font-semibold text-ink-800" : "text-ink-700"}`}>
+                            {fmtContable(renglon.contable)}
+                          </td>
                           {primero && (
                             <td rowSpan={alto} className={`whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-700 ${agrupada ? "border-x border-ink-100 font-semibold" : ""}`}>
                               {fmtContable(f.inventario)}
@@ -2174,7 +2232,7 @@ function CruceContableTab({
                           {(() => {
                             const efecto = sinCuenta ? f.noModularModulo : -renglon.noModular;
                             return (
-                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700">
+                              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700 ${esTotalGrupo ? "border-t border-ink-200 font-semibold" : ""}`}>
                                 {efecto === 0 ? <span className="text-ink-300">—</span> : fmtContable(efecto)}
                               </td>
                             );
@@ -2243,7 +2301,7 @@ function CruceContableTab({
                           <div className="flex flex-col gap-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="text-[11.5px] font-semibold text-ink-600">
-                                Cuentas del cliente en {etiquetaFilaCruce(f)}
+                                Qué compone {etiquetaFilaCruce(f)}
                               </span>
                               {puedeEditar && (
                                 <button
@@ -2256,7 +2314,16 @@ function CruceContableTab({
                                 </button>
                               )}
                             </div>
-                            <ListaNoModulares hijos={hijos} seleccion={excluidas} />
+                            {/* Dos lados: de dónde sale «Contabilidad» (cuentas del cliente) y de
+                                dónde sale la columna del módulo (los conceptos del archivo). */}
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              <ListaNoModulares hijos={hijos} seleccion={excluidas} />
+                              <DetalleModuloFila
+                                detalle={f.detalleModulo ?? []}
+                                etiqueta={`${moduloLabel} (archivos)`}
+                                descripcionDe={descripcionDeClasificador}
+                              />
+                            </div>
                             {excluidas.size > 0 && (
                               <p className="text-[11px] text-ink-500">
                                 Lo tachado no hace parte de la conciliación: se resta de «Contabilidad» para calcular la diferencia ajustada. El detalle está en la marca, al pie.
