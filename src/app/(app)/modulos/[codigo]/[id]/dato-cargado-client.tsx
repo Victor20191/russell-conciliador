@@ -2632,6 +2632,9 @@ function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEdit
 function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { pendientes: RepartoPendienteVm[]; encabezadoId: number; puedeEditar: boolean }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Repartir es opcional y la mayoría no lo usa: el panel llega COLAPSADO, con el resumen a la
+  // vista, y se despliega solo si se va a repartir.
+  const [desplegado, setDesplegado] = useState(false);
   const [pending, start] = useTransition();
   const total = pendientes.reduce((s, p) => s + Math.abs(p.total), 0);
   const editando = pendientes.find((p) => p.clasificador === abierto) ?? null;
@@ -2644,19 +2647,34 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2 text-[12px]">
-        <div className="text-ink-600">
-          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).{" "}
-          {pendientes.some((p) => p.origenSugerido === "centros")
-            ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
-            : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
-        </div>
-        {puedeEditar && (
+        <button
+          type="button"
+          onClick={() => setDesplegado((v) => !v)}
+          aria-expanded={desplegado}
+          className="flex min-w-0 flex-1 items-start gap-1.5 text-left text-ink-600 hover:text-ink-800"
+        >
+          <Icon name={chevronDivulgacion(desplegado)} size={13} className="mt-0.5 shrink-0" />
+          <span className="min-w-0">
+            <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Reparto por cuenta</span>
+            <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).
+            {desplegado && (
+              <>
+                {" "}
+                {pendientes.some((p) => p.origenSugerido === "centros")
+                  ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
+                  : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
+              </>
+            )}
+            {!desplegado && <span className="ml-1 font-semibold text-blue-700">Ver para repartir</span>}
+          </span>
+        </button>
+        {puedeEditar && desplegado && (
           <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:border-navy-700 hover:text-navy-700 disabled:opacity-60">
             {pending ? "Aplicando…" : "Repartir todos con lo sugerido"}
           </button>
         )}
       </div>
-      <div className="overflow-x-auto">
+      <div className={`overflow-x-auto ${desplegado ? "" : "hidden"}`}>
         <table className="w-full text-[12px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
