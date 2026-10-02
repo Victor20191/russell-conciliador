@@ -11,7 +11,7 @@ import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { esImputable } from "@/lib/modulos/promocion";
-import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { coincideGrupoDetalle, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { GRUPO_SIN_CLASIFICAR, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
@@ -109,6 +109,7 @@ export default function BorradorModuloClient({
   periodoSugerido,
   columnas: columnasDelCargue,
   clasificadorRol,
+  descripcionRol = null,
   noNegativos,
   productos,
   verificaciones,
@@ -130,6 +131,8 @@ export default function BorradorModuloClient({
   periodoSugerido: string;
   columnas: Columna[];
   clasificadorRol: string;
+  /** Columna con el NOMBRE del grupo cuando el clasificador es un código (Nómina). */
+  descripcionRol?: string | null;
   noNegativos: string[];
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
@@ -415,7 +418,10 @@ export default function BorradorModuloClient({
   const gruposVista = useMemo(() => {
     const base = resumen.grupos
       .filter((g) => (filtro === FILTRO_NOVEDADES ? g.novedades > 0 : filtro === null || g.clasificador === filtro))
-      .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0);
+      .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0)
+      // Los filtros del clasificador y de su nombre recortan la LISTA de grupos; los de las demás
+      // columnas solo recortan las filas de cada grupo, que llegan al abrirlo.
+      .filter((g) => coincideGrupoDetalle(g, { clasificador: clasificadorRol, descripcion: descripcionRol }, filtrosColumnas));
     return base.map((g) => {
       const d = delta.porGrupo.get(g.clasificador) ?? { items: 0, subtotal: 0 };
       return {
@@ -434,7 +440,7 @@ export default function BorradorModuloClient({
         cargando: cargandoGrupos.has(g.clasificador),
       };
     });
-  }, [abiertos, cargandoGrupos, delta.porGrupo, filasPorGrupo, filtro, resumen.grupos, totalPorGrupo, verEstructura]);
+  }, [abiertos, cargandoGrupos, clasificadorRol, delta.porGrupo, descripcionRol, filasPorGrupo, filtro, filtrosColumnas, resumen.grupos, totalPorGrupo, verEstructura]);
 
   const filasVisibles = gruposVista.reduce((n, g) => n + (g.cargadas?.length ?? 0), 0);
   const filasDelArchivoVisibles = gruposVista.reduce((n, g) => n + (g.totalFiltrado ?? g.filasDelArchivo), 0);

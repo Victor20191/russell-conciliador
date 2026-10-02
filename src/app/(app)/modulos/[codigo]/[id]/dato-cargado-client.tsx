@@ -38,6 +38,7 @@ import { ModalCuentasSinGuardar, useAvisoCierreNavegador, useInterceptarEnlaces 
 import { EstadoGuardado } from "@/components/estado-guardado";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
@@ -217,6 +218,25 @@ const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codig
  * Clasificadores que originan una fila agrupada, para su etiqueta. Los de Nómina llegan como
  * clave del Consolidado («1 ∥ GYA # 51050601»): se muestra el código del concepto, una vez.
  */
+/** Campo de filtro de una columna del Consolidado (mismo aspecto que los del Detalle). */
+function FiltroConsolidado({ etiqueta, valor, onChange, numerico = false }: {
+  etiqueta: string;
+  valor: string | undefined;
+  onChange: (v: string) => void;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      value={valor ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={`Filtrar por ${etiqueta}`}
+      placeholder={numerico ? "> < = …" : "Filtrar…"}
+      className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] font-normal text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${numerico ? "text-right" : ""}`}
+    />
+  );
+}
+
 const clasificadoresDeGrupo = (clasificadores: readonly string[]): string[] => [
   ...new Set(
     clasificadores.map((c) => (c.includes(SEPARADOR_AGRUPADOR) || c.includes(SEPARADOR_CUENTA) ? partirClaveConsolidado(c).clasificador : c)),
@@ -722,16 +742,27 @@ function ConsolidadoTab({
   // que trae `valores` — de lo contrario un clasificador con solo la propuesta automática
   // (aún sin persistir) se vería como «con cuenta» y no aparecería en el filtro.
   const [filtroVista, setFiltroVista] = useState<"todas" | "sinCuenta">("todas");
+  // Filtros por columna de la tabla (clasificador y su nombre, filas, total, cuentas asignadas).
+  const [filtros, setFiltros] = useState<FiltrosConsolidado>({});
+  const hayFiltros = hayFiltrosConsolidado(filtros);
   const sinCuentaGuardada = useMemo(
     () => consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0).length,
     [consolidado, guardados],
   );
-  const consolidadoVisible = useMemo(
-    () => (esInventarios && filtroVista === "sinCuenta"
+  const consolidadoVisible = useMemo(() => {
+    const base = esInventarios && filtroVista === "sinCuenta"
       ? consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0)
-      : consolidado),
-    [consolidado, guardados, filtroVista, esInventarios],
-  );
+      : consolidado;
+    if (!hayFiltrosConsolidado(filtros)) return base;
+    // Las cuentas que se buscan son las que la fila MUESTRA (asignadas o propuestas), con su nombre.
+    return filtrarConsolidado(
+      base.map((c) => ({
+        ...c,
+        cuentas: (valores[c.clasificador] ?? c.cuentas4.map((x) => x.codigo)).map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? null })),
+      })),
+      filtros,
+    );
+  }, [consolidado, guardados, filtroVista, esInventarios, filtros, valores, nombrePorCuenta]);
 
   const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
     const aplicar = (prev: Record<string, string[]>) => {
@@ -996,10 +1027,18 @@ function ConsolidadoTab({
             {nSel > 0 && (
               <button type="button" onClick={() => seleccionarTodos(false)} className="font-medium text-ink-500 hover:underline">Limpiar</button>
             )}
+            {hayFiltros && (
+              <>
+                <span className="text-ink-300">·</span>
+                <span>{consolidadoVisible.length.toLocaleString("es-CO")} de {consolidado.length.toLocaleString("es-CO")} con los filtros</span>
+                <button type="button" onClick={() => setFiltros({})} className="font-medium text-blue-700 hover:underline">Limpiar filtros</button>
+              </>
+            )}
           </div>
         ) : (
           <span className="text-[11.5px] text-ink-500">
-            <span className="font-semibold text-ink-700">{clasificadores.length.toLocaleString("es-CO")}</span> {clasificadores.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}
+            <span className="font-semibold text-ink-700">{clasificadores.length.toLocaleString("es-CO")}</span>
+            {hayFiltros ? ` de ${consolidado.length.toLocaleString("es-CO")}` : ""} {clasificadores.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}
           </span>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -1057,12 +1096,30 @@ function ConsolidadoTab({
               <th className="px-3 py-2 font-semibold">Cuentas ({etiquetaNivel} díg) — una o varias</th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
+            <tr className="bg-ink-50">
+              {puedeEditar && <th className="px-3 pb-2" />}
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta={clasificadorEtiqueta} valor={filtros.clasificador} onChange={(v) => setFiltros((p) => ({ ...p, clasificador: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Filas" numerico valor={filtros.filas} onChange={(v) => setFiltros((p) => ({ ...p, filas: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Total" numerico valor={filtros.total} onChange={(v) => setFiltros((p) => ({ ...p, total: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Cuentas" valor={filtros.cuentas} onChange={(v) => setFiltros((p) => ({ ...p, cuentas: v }))} />
+              </th>
+              <th className="px-3 pb-2" />
+            </tr>
           </thead>
           <tbody>
-            {esInventarios && filtroVista === "sinCuenta" && consolidadoVisible.length === 0 && (
+            {consolidadoVisible.length === 0 && (esInventarios && filtroVista === "sinCuenta" || hayFiltros) && (
               <tr>
                 <td colSpan={puedeEditar ? 6 : 5} className="px-3 py-6 text-center text-ink-400">
-                  Ningún grupo coincide con el filtro «Sin cuenta asignada».
+                  {hayFiltros
+                    ? `Ningún ${clasificadorEtiqueta.toLocaleLowerCase("es")} coincide con los filtros.`
+                    : "Ningún grupo coincide con el filtro «Sin cuenta asignada»."}
                 </td>
               </tr>
             )}
