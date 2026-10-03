@@ -52,7 +52,9 @@ export default async function NuevoPatronPage({
       </div>
       <PageHeader
         title={`Nuevo patrón · ${descriptor.label}`}
-        subtitle="Sube un archivo de muestra del aplicativo, indica cómo se lee y guarda la versión. Los archivos que coincidan en 80 % o más se cargarán sin configurar columnas."
+        subtitle={moduloCodigo === "INV"
+          ? "Elige el aplicativo y sube una muestra. La asistencia reconocerá el formato, te mostrará los productos y te pedirá aclaraciones si hacen falta. Revisa la lectura y guarda el patrón para reutilizarlo."
+          : "Sube un archivo de muestra del aplicativo, indica cómo se lee y guarda la versión. Los archivos que coincidan en 80 % o más se cargarán sin configurar columnas."}
       />
       <EditorPatronClient
         moduloCodigo={moduloCodigo}

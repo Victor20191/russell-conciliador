@@ -12,12 +12,15 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import {
   actualizarVersionPatron,
+  asistirMuestraPatronInventario,
+  type AsistenciaMuestraPatron,
   analizarMuestraDeVersion,
   analizarMuestraPatron,
   analizarOriginalParaPatron,
   crearVersionPatron,
   type AnalisisPatron,
 } from "@/app/actions/patrones-modulo";
+import { AsistenciaMuestraPanel } from "./asistencia-muestra-panel";
 import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
 import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
@@ -71,6 +74,13 @@ export default function EditorPatronClient({
   const [guardando, startGuardar] = useTransition();
   // Remonta el panel de la prueba al cambiar el archivo o la hoja (descarta su resultado).
   const [pruebaId, setPruebaId] = useState(0);
+  const esNuevoInventario = moduloCodigo === "INV" && !edicion;
+  const [hayMuestra, setHayMuestra] = useState(false);
+  const [asistencia, setAsistencia] = useState<AsistenciaMuestraPatron | null>(null);
+  const [asistenciaPendiente, setAsistenciaPendiente] = useState(false);
+  const [mapeoEditado, setMapeoEditado] = useState(false);
+  const [errorAsistencia, setErrorAsistencia] = useState("");
+  const secuencia = useRef(0);
 
   const aplicar = (r: AnalisisPatron, esMuestra: boolean) => {
     if (!r.ok || !r.spec) {
@@ -88,38 +98,68 @@ export default function EditorPatronClient({
   const idEdicion = edicion?.id ?? null;
   useEffect(() => {
     let vivo = true;
+    const peticion = ++secuencia.current;
     if (idEdicion != null) {
       startAnalizar(async () => {
         const r = await analizarMuestraDeVersion({ id: idEdicion });
-        if (vivo) aplicar(r, true);
+        if (vivo && secuencia.current === peticion) aplicar(r, true);
       });
     } else if (recepcionLoteId) {
       startAnalizar(async () => {
         const r = await analizarOriginalParaPatron({ recepcionLoteId, moduloCodigo });
-        if (vivo) aplicar(r, false);
+        if (vivo && secuencia.current === peticion) aplicar(r, false);
       });
     }
     return () => { vivo = false; };
   }, [idEdicion, recepcionLoteId, moduloCodigo]);
 
-  const analizarMuestra = (archivo: File, hoja?: string) => {
+  const analizarMuestra = (archivo: File, hoja?: string, opciones?: {
+    erp?: number | null; continuar?: boolean; instrucciones?: string; respuestas?: Record<string, string>;
+  }) => {
+    const peticion = ++secuencia.current;
+    const aplicativo = opciones?.erp ?? erpId;
+    setAsistenciaPendiente(esNuevoInventario);
+    setErrorAsistencia("");
     startAnalizar(async () => {
-      const fd = new FormData();
-      fd.set("moduloCodigo", moduloCodigo);
-      fd.set("archivo", archivo);
-      if (hoja) fd.set("hoja", hoja);
-      // El mapeo que ya hay (del archivo del cliente o de otra versión) se traslada por rótulo.
-      if (!hoja && analisis && spec && !muestraLista) {
-        fd.set("baseSpecJson", JSON.stringify(spec));
-        fd.set("baseEncabezadoJson", JSON.stringify(analisis.encabezado ?? []));
-      } else if (!hoja && base && !analisis) {
-        fd.set("baseSpecJson", base.specJson);
-        fd.set("baseEncabezadoJson", base.encabezadoJson);
-      }
-      const r = await analizarMuestraPatron(fd);
-      aplicar(r, true);
-      if (r.ok && r.coincidenciaBase != null) {
-        notifySuccess(`El mapeo de partida se trasladó a la muestra (${r.coincidenciaBase} % de coincidencia). Revísalo.`);
+      try {
+        const fd = new FormData();
+        fd.set("moduloCodigo", moduloCodigo);
+        fd.set("archivo", archivo);
+        if (hoja) fd.set("hoja", hoja);
+        if (!hoja && analisis && spec && !muestraLista) {
+          fd.set("baseSpecJson", JSON.stringify(spec));
+          fd.set("baseEncabezadoJson", JSON.stringify(analisis.encabezado ?? []));
+        } else if (!hoja && base && !analisis) {
+          fd.set("baseSpecJson", base.specJson);
+          fd.set("baseEncabezadoJson", base.encabezadoJson);
+        }
+        if (esNuevoInventario) {
+          if (aplicativo == null) { setErrorAsistencia("Elige el aplicativo para reconocer esta muestra."); return; }
+          fd.set("erpId", String(aplicativo));
+          if (opciones?.continuar && asistencia?.asistenciaJson) fd.set("asistenciaJson", asistencia.asistenciaJson);
+          if (opciones?.continuar && mapeoEditado && spec) fd.set("specManualJson", JSON.stringify(spec));
+          fd.set("instrucciones", opciones?.instrucciones ?? "");
+          fd.set("respuestasJson", JSON.stringify(opciones?.respuestas ?? {}));
+          const r = await asistirMuestraPatronInventario(fd);
+          if (secuencia.current !== peticion) return;
+          if (!r.ok) { setErrorAsistencia(r.message ?? "No se pudo interpretar la muestra. Puedes reintentar."); return; }
+          if (r.analisis) aplicar(r.analisis, true);
+          setAsistencia(r);
+          setAsistenciaPendiente(false);
+          setMapeoEditado(false);
+          return;
+        }
+        const r = await analizarMuestraPatron(fd);
+        if (secuencia.current !== peticion) return;
+        aplicar(r, true);
+        if (r.ok && r.coincidenciaBase != null) {
+          notifySuccess(`El mapeo de partida se trasladó a la muestra (${r.coincidenciaBase} % de coincidencia). Revísalo.`);
+        }
+      } catch {
+        if (secuencia.current !== peticion) return;
+        const mensaje = "No pudimos analizar la muestra. Conservamos el archivo seleccionado para que puedas reintentar.";
+        setErrorAsistencia(mensaje);
+        notifyError(mensaje);
       }
     });
   };
@@ -128,7 +168,25 @@ export default function EditorPatronClient({
     const archivo = e.target.files?.[0];
     if (!archivo) return;
     muestraRef.current = archivo;
+    setHayMuestra(true);
+    setAsistencia(null);
+    setMuestraLista(false);
+    setMapeoEditado(false);
+    if (esNuevoInventario) { setSpec(null); setAnalisis(null); }
     analizarMuestra(archivo);
+  };
+
+  const cambiarAplicativo = (valor: string) => {
+    const nuevo = valor ? Number(valor) : null;
+    setErpId(nuevo);
+    if (!esNuevoInventario) return;
+    ++secuencia.current;
+    setAsistencia(null);
+    setAsistenciaPendiente(true);
+    setMapeoEditado(false);
+    setSpec(null);
+    setAnalisis(null);
+    if (muestraRef.current && nuevo) analizarMuestra(muestraRef.current, undefined, { erp: nuevo });
   };
 
   const cambiarHoja = (hoja: string) => {
@@ -140,6 +198,8 @@ export default function EditorPatronClient({
       notifyError("Sube la muestra del aplicativo para elegir otra hoja.");
       return;
     }
+    setAsistencia(null);
+    setMapeoEditado(false);
     analizarMuestra(muestraRef.current, hoja);
   };
 
@@ -152,6 +212,10 @@ export default function EditorPatronClient({
 
   const guardar = (aprobar: boolean) => {
     if (!spec) return;
+    if (esNuevoInventario && (analizando || asistenciaPendiente || !asistencia?.lectura?.listoParaBorrador)) {
+      notifyError("Revisa la interpretación de la muestra antes de guardar el patrón.");
+      return;
+    }
     // Cartera y CxP: el tipo de formato decide qué se valida en cada cargue (el servidor también lo exige).
     if (conNivelCartera && !spec.tipoFormato) {
       avisarErrorGuardado(MENSAJE_TIPO_FORMATO_EDITOR);
@@ -173,6 +237,7 @@ export default function EditorPatronClient({
       fd.set("specJson", JSON.stringify(spec));
       fd.set("archivo", muestraRef.current);
       fd.set("nota", nota);
+      if (esNuevoInventario && asistencia?.asistenciaJson) fd.set("asistenciaJson", asistencia.asistenciaJson);
       if (aprobar) fd.set("aprobar", "1");
       const r = await crearVersionPatron(fd);
       if (!r.ok) { avisarErrorGuardado(r.message ?? "No se pudo guardar la versión."); return; }
@@ -202,12 +267,13 @@ export default function EditorPatronClient({
 
   const opcionesErp = useMemo(() => erps.map((e) => ({ value: String(e.id), label: e.nombre })), [erps]);
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
-  const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando;
+  const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando
+    && (!esNuevoInventario || (!asistenciaPendiente && asistencia?.lectura?.listoParaBorrador === true));
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-3 p-4 text-[12.5px]">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <fieldset disabled={analizando || guardando} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 disabled:opacity-60">
           <div className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Aplicativo <span className="text-err-600">*</span></span>
             {edicion ? (
@@ -216,7 +282,7 @@ export default function EditorPatronClient({
               <SelectBuscable
                 opciones={opcionesErp}
                 value={erpId == null ? "" : String(erpId)}
-                onChange={(valor) => setErpId(valor ? Number(valor) : null)}
+                onChange={cambiarAplicativo}
                 placeholder="Buscar aplicativo…"
                 sinResultados="No se encontraron aplicativos."
                 ariaLabel="Aplicativo"
@@ -237,7 +303,7 @@ export default function EditorPatronClient({
               </span>
             )}
           </label>
-        </div>
+        </fieldset>
         {analizando && <p className="text-[11.5px] text-ink-500">Analizando el archivo…</p>}
         {analisis?.referencia && !muestraLista && (
           <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
@@ -250,21 +316,46 @@ export default function EditorPatronClient({
             Se parte de la versión {base.version}. Sube la muestra del nuevo formato y su mapeo se trasladará a las columnas de la muestra.
           </p>
         )}
-        {!edicion && !analisis && !base && !recepcionLoteId && (
-          <p className="text-[11.5px] text-ink-500">Sube la muestra para ver sus columnas y configurar cómo se lee.</p>
+        {!edicion && !analisis && !base && !recepcionLoteId && !hayMuestra && (
+          <p className="text-[11.5px] text-ink-500">{esNuevoInventario ? "Elige el aplicativo y sube la muestra. Reconoceremos el formato y te mostraremos cómo se lee." : "Sube la muestra para ver sus columnas y configurar cómo se lee."}</p>
         )}
       </Card>
 
+      {esNuevoInventario && hayMuestra && (
+        <Card className="p-4">
+          <AsistenciaMuestraPanel
+            key={pruebaId}
+            lectura={asistencia?.lectura}
+            trabajando={analizando || guardando}
+            pendiente={asistenciaPendiente}
+            error={errorAsistencia}
+            onPendiente={() => setAsistenciaPendiente(true)}
+            onRevisar={(instrucciones, respuestas) => {
+              if (muestraRef.current) analizarMuestra(muestraRef.current, undefined, { continuar: true, instrucciones, respuestas });
+            }}
+            onReiniciar={() => {
+              setAsistencia(null);
+              setMapeoEditado(false);
+              if (muestraRef.current) analizarMuestra(muestraRef.current);
+            }}
+          />
+        </Card>
+      )}
+
       {analisis && spec && (
         <Card className="p-4 text-[12.5px]">
+          <fieldset disabled={analizando || guardando} className="min-w-0 disabled:opacity-60">
           {spec.lecturaEstructurada ? <>
             <ResumenLecturaEstructurada reglas={spec.lecturaEstructurada} />
-            <p className="mt-3 text-[11.5px] text-ink-500">Prueba estas reglas con la muestra antes de guardarlas. Para cambiar cómo se separan los datos, usa la asistencia de lectura al cargar el inventario; al confirmar se conservará una nueva versión.</p>
-          </> : <EditorMapeoModulo
+            <p className="mt-3 text-[11.5px] text-ink-500">Prueba estas reglas con la muestra antes de guardarlas. {esNuevoInventario ? "Para corregir cómo se separan los datos, explica el ajuste en la asistencia de esta pantalla." : "Para cambiar cómo se separan los datos, usa la asistencia de lectura al cargar el inventario; al confirmar se conservará una nueva versión."}</p>
+          </> : <details open={!esNuevoInventario}><summary className="mb-3 cursor-pointer font-medium text-ink-600">Ajustes de columnas y filas</summary><EditorMapeoModulo
             ref={editorRef}
             analisis={analisis}
             spec={spec}
-            setSpec={setSpec}
+            setSpec={(cambio) => {
+              setSpec(cambio);
+              if (esNuevoInventario) { setMapeoEditado(true); setAsistenciaPendiente(true); }
+            }}
             roles={roles}
             clasificadorRol={clasificadorRol}
             rolValor={rolValor}
@@ -272,11 +363,12 @@ export default function EditorPatronClient({
             conNivelCartera={conNivelCartera}
             modo="patron"
             onCambiarHoja={cambiarHoja}
-          />}
+          /></details>}
           <label className="mt-4 flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Nota (opcional)</span>
             <textarea value={nota} maxLength={2000} rows={3} onChange={(e) => setNota(e.target.value)} placeholder="Versión del ERP, informe del que sale el archivo, particularidades…" className={claseCampo} />
           </label>
+          </fieldset>
         </Card>
       )}
 

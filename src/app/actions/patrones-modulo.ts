@@ -43,6 +43,7 @@ import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } 
 import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import type { ActionState } from "@/lib/definitions";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
+import { asistenciaCoincideConSpec, firmarAsistenciaMuestra, leerAsistenciaMuestra, type LecturaMuestraInventario } from "@/lib/modulos/patrones/asistencia-muestra";
 
 const MAX_BYTES_MUESTRA = 30 * 1024 * 1024;
 const PERMISO = "perfiles_carga:administrar";
@@ -259,6 +260,106 @@ export async function analizarMuestraPatron(formData: FormData): Promise<Analisi
   }
 }
 
+export type AsistenciaMuestraPatron = {
+  ok: boolean;
+  message?: string;
+  analisis?: AnalisisPatron;
+  lectura?: LecturaMuestraInventario;
+  asistenciaJson?: string;
+};
+
+/** La muestra del administrador usa el motor de INV, sin recepción ni staging de cliente. */
+export async function asistirMuestraPatronInventario(formData: FormData): Promise<AsistenciaMuestraPatron> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  try {
+    const descriptor = descriptorDe(formData.get("moduloCodigo"));
+    if (descriptor.codigo !== "INV") throw new ErrorPatron("La asistencia de muestras está disponible para Inventarios.");
+    const user = await getCurrentUser();
+    if (!user) throw new ErrorPatron("La sesión ya no está disponible.");
+    const erp = await aplicativoDePatron(formData.get("erpId"));
+    const { archivo, bytes } = await bytesDeArchivo(formData.get("archivo"));
+    const contexto = { usuarioId: user.id, erpId: erp.id, sha256: huellaSha256Archivo(bytes) };
+    const previa = leerAsistenciaMuestra(formData.get("asistenciaJson"), contexto);
+    const entrada = z.object({
+      instrucciones: z.string().trim().max(4000),
+      respuestas: z.record(z.string().max(100), z.string().trim().max(1000)).refine((r) => Object.keys(r).length <= 12),
+      hoja: z.string().trim().max(120),
+    }).safeParse({
+      instrucciones: formData.get("instrucciones") ?? "",
+      respuestas: JSON.parse(String(formData.get("respuestasJson") ?? "{}")),
+      hoja: formData.get("hoja") ?? "",
+    });
+    if (!entrada.success) throw new ErrorPatron("Revisa las indicaciones y respuestas de la muestra.");
+    const hojas = await hojasDe(bytes, archivo.name);
+    const { instrucciones, hoja } = entrada.data;
+    const indicacionesNuevas = !!instrucciones && instrucciones !== previa?.instrucciones;
+    const respuestas = { ...previa?.respuestas };
+    const nuevas: Record<string, string> = {};
+    for (const pregunta of previa?.lectura.preguntas ?? []) {
+      const valor = entrada.data.respuestas[pregunta.id];
+      if (!valor || (pregunta.opciones?.length && !pregunta.opciones.some((o) => o.valor === valor))) continue;
+      respuestas[pregunta.id] = valor;
+      if (valor !== previa?.respuestas[pregunta.id]) nuevas[pregunta.id] = valor;
+    }
+    if (hoja) respuestas.hoja = hoja;
+    if (respuestas.hoja && !hojas.some((h) => h.nombre === respuestas.hoja)) throw new ErrorPatron("La hoja elegida no existe en esta muestra.");
+    const specBase = previa ? null : specDeFormulario(descriptor, formData.get("baseSpecJson"));
+    const encabezadoBase = specBase ? JSON.parse(String(formData.get("baseEncabezadoJson") ?? "null")) : null;
+    const base = specBase && Array.isArray(encabezadoBase) ? { spec: specBase, encabezado: encabezadoBase } : null;
+    const inicial = analisisDeHojas(descriptor, hojas, { hojaElegida: respuestas.hoja, base }).analisis;
+    let specManual: SpecModulo | undefined;
+    if (formData.get("specManualJson")) {
+      const parseado = SpecModuloSchema.safeParse(JSON.parse(String(formData.get("specManualJson"))));
+      if (!previa || !parseado.success || parseado.data.lecturaEstructurada) throw new ErrorPatron("Revisa los ajustes de columnas de la muestra.");
+      specManual = parseado.data;
+    }
+    if (specManual || indicacionesNuevas) {
+      // Las decisiones históricas no pisan una corrección manual ni las reglas
+      // que se proponen a partir de indicaciones nuevas. Los ejemplos se revisan otra vez.
+      for (const id of ["modo_tipo", "columna_tipo", "columna_valor", "total_archivo", "confirmar_lectura_estructurada"]) {
+        delete respuestas[id];
+        delete nuevas[id];
+      }
+    }
+    // Sin una elección de hoja se deja al motor detectar varias candidatas, no se
+    // impone la primera hoja del libro. La continuación procede sólo del sobre firmado.
+    const [{ resolverLecturaInventario }, { registrarConsumoIA }] = await Promise.all([
+      import("@/lib/modulos/asistencia/resolver"), import("@/lib/ia/uso"),
+    ]);
+    const resultado = await resolverLecturaInventario({
+      hojas, nombreArchivo: archivo.name, aplicativo: erp.name,
+      specBase: specManual ?? previa?.lectura.spec ?? (base || respuestas.hoja || hojas.filter((h) => !h.oculta).length === 1 ? inicial.spec : undefined),
+      origenBase: specManual ? "manual" : previa?.lectura.origen ?? "heuristica",
+      respuestas, respuestasNuevas: nuevas, preguntasPendientes: previa?.lectura.preguntas,
+      instrucciones: indicacionesNuevas ? instrucciones : previa?.lectura.errorProveedorIA ? previa.instrucciones : undefined,
+      forzarIA: indicacionesNuevas || previa?.lectura.errorProveedorIA === true,
+    });
+    const { usos, ...lectura } = resultado;
+    await registrarConsumoIA(usos, { modulo: "INV", usuarioId: user.id, usuarioNombre: user.name, archivoNombre: archivo.name });
+    if (lectura.spec && lectura.listoParaBorrador) {
+      // Un patrón no conserva coordenadas efímeras del archivo (p. ej. su fila
+      // exacta de total). Sólo anunciar listo si la regla REUTILIZABLE se puede guardar.
+      const revision = revisarMapeoMuestra(descriptor, hojas, lectura.spec, { exigirTipoFormato: true });
+      if (revision.impedimentos.length) {
+        lectura.listoParaBorrador = false;
+        lectura.errores.push(...revision.impedimentos);
+        lectura.advertencias.push("Para guardar un patrón necesitamos una regla reutilizable. Explica cómo distinguir los datos correctos en otros archivos con este formato.");
+      }
+    }
+    const spec = lectura.spec;
+    const elegida = hojas.find((h) => h.nombre === spec?.hoja);
+    const analisis: AnalisisPatron = spec && elegida
+      ? { ok: true, modo: "manual", ...vistaAnalisisHoja(descriptor, hojas, elegida, spec, null), spec }
+      : inicial;
+    return { ok: true, analisis, lectura, asistenciaJson: firmarAsistenciaMuestra({
+      ...contexto, lectura, respuestas, instrucciones: instrucciones || previa?.instrucciones || "",
+    }) };
+  } catch (e) {
+    return respuestaError("asistirMuestraPatronInventario", e);
+  }
+}
+
 export async function analizarMuestraDeVersion(input: { id: number; hoja?: string | null }): Promise<AnalisisPatron> {
   const permiso = await authorizePermiso(PERMISO);
   if (!permiso.ok) return { ok: false, message: permiso.message };
@@ -383,6 +484,13 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
     const hojas = await hojasDe(bytes, archivo.name);
     const { spec, hoja, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const user = await getCurrentUser();
+    if (descriptor.codigo === "INV" && (spec.lecturaEstructurada || formData.get("asistenciaJson"))) {
+      if (!user) throw new ErrorPatron("La sesión ya no está disponible.");
+      const asistencia = leerAsistenciaMuestra(formData.get("asistenciaJson"), { usuarioId: user.id, erpId: erp.id, sha256: huellaSha256Archivo(bytes) });
+      if (!asistencia || !asistenciaCoincideConSpec(asistencia, spec)) {
+        throw new ErrorPatron("Revisa y confirma la interpretación de esta muestra antes de guardar el patrón.");
+      }
+    }
 
     const creada = await transaccionSerializable(async (tx) => {
       await tomarCandadoTransaccion(tx, `patron-archivo:${erp.id}:${descriptor.codigo}`);
