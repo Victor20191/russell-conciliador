@@ -7,7 +7,9 @@
 //     subcuenta en TODAS las clases (510506 + 520506 + 720506) y el lado módulo la Σ de los
 //     conceptos cuya subcuenta coincide. No exige regla de clase ni reparto: cuadra aunque la
 //     clase la ponga el centro de costo (SIIGO «00»). Russell 6 no la puede reproducir porque
-//     colapsa esas subcuentas en «xx95 Otros».
+//     colapsa esas subcuentas en «xx95 Otros». La subcuenta del concepto es la de su cuenta del
+//     cliente (archivo, catálogo o memoria) y, si no la trae, la de la cuenta Russell que tiene
+//     ASIGNADA (510506, 520506 y 720505 → 06; 1/Oct/2026, MOTO ZONE sin cuenta en el archivo).
 //  2. CONTROL DE DEDUCCIONES — los conceptos cuya cuenta del cliente es de pasivo/activo/
 //     ingreso (libranzas 2370, retención 2365, embargos 237025, préstamos 1365, intereses
 //     4210): un renglón por cuenta del cliente con la Σ del módulo (negativa) contra el
@@ -60,6 +62,12 @@ export type FilaSubcuentaNomina = {
 export type VistaSubcuentaNomina = {
   filas: FilaSubcuentaNomina[];
   totales: { contable: number; modulo: number; diferencia: number };
+  /**
+   * Subcuentas SOLO VISIBLES (las de las cuentas solo visibles de Nómina, 1/Oct/2026): se muestran al
+   * final, colapsadas, y no suman a `totales`.
+   */
+  filasVisibles: FilaSubcuentaNomina[];
+  totalesVisibles: { contable: number; modulo: number; diferencia: number };
   /** Conceptos de gasto cuya subcuenta no se conoce (sin cuenta del cliente ni memoria). */
   sinSubcuenta: ConceptoSubcuenta[];
 };
@@ -99,6 +107,17 @@ function esCuentaGastoPersonal(cuenta8: string, prefijos: readonly string[]): bo
   return prefijos.some((p) => cuenta8.startsWith(p));
 }
 
+/**
+ * Subcuenta del concepto para la vista: SOLO la de su cuenta del cliente (2/Oct/2026). Los dos
+ * lados de esta tabla hablan el mismo idioma —cuentas del cliente del balance contra cuentas del
+ * cliente del módulo—, así que un concepto sin cuenta del cliente no aporta subcuenta: se lista
+ * aparte. Antes se caía a la subcuenta de la cuenta Russell asignada y eso mezclaba los dos planes
+ * en la misma tabla, con filas que no tenían contraparte posible.
+ */
+export function subcuentaDelConcepto(s: RenglonConsolidadoNomina["sugerencia"]): string | null {
+  return s.subcuentaPuc || null;
+}
+
 const conceptoDe = (r: RenglonConsolidadoNomina): ConceptoSubcuenta => ({
   clasificador: r.clasificador,
   codigo: r.codigo,
@@ -108,11 +127,27 @@ const conceptoDe = (r: RenglonConsolidadoNomina): ConceptoSubcuenta => ({
   total: r.total,
 });
 
+/**
+ * Subcuentas (dígitos 5-6) que SOLO tienen cuentas solo visibles en las clases del gasto de
+ * personal (51/52/72/73): 30 cesantías, 36 prima, 69 aportes EPS… Una subcuenta que también tiene
+ * una cuenta que concilia, o que no está en ninguna lista (la 19 de MOTO ZONE), queda arriba.
+ */
+export function subcuentasSoloVisibles(concilian: Iterable<string>, visibles: Iterable<string>): Set<string> {
+  const subcuenta = (c: string) => {
+    const d = digitosCuenta(c);
+    return d.length === 6 && esClaseNomina(d.slice(0, 2)) ? d.slice(4, 6) : null;
+  };
+  const deLasQueConcilian = new Set([...concilian].map(subcuenta).filter((s): s is string => s != null));
+  return new Set([...visibles].map(subcuenta).filter((s): s is string => s != null && !deLasQueConcilian.has(s)));
+}
+
 export function construirVistaSubcuenta(input: {
   balance: readonly FilaBalanceNomina[];
   renglones: readonly RenglonConsolidadoNomina[];
   /** Prefijos del módulo en el prevalidador (5105, 5205, 7205, 7305). */
   prefijos: readonly string[];
+  /** Subcuentas solo visibles (`subcuentasSoloVisibles`): van al final, fuera de los totales. */
+  subcuentasVisibles?: ReadonlySet<string>;
   tolerancia?: number;
 }): VistaSubcuentaNomina {
   const tolerancia = input.tolerancia ?? 0.01;
@@ -133,7 +168,7 @@ export function construirVistaSubcuenta(input: {
     // Los conceptos que cruzan contra un pasivo de la cédula (251010…) no son gasto de personal:
     // la vista por subcuenta es el papel del gasto y los dejaría en el balde equivocado.
     if (r.sugerencia.cuentas.length > 0 && r.sugerencia.cuentas.every(sinClaseDeGasto)) continue;
-    const sub = r.sugerencia.subcuentaPuc;
+    const sub = subcuentaDelConcepto(r.sugerencia);
     if (!sub) { sinSubcuenta.push(conceptoDe(r)); continue; }
     bucket(sub).conceptos.push(conceptoDe(r));
   }
@@ -160,13 +195,21 @@ export function construirVistaSubcuenta(input: {
         conceptos: b.conceptos.sort((x, y) => Math.abs(y.total) - Math.abs(x.total)),
       };
     });
-  const totales = filas.reduce(
-    (acc, f) => ({ contable: acc.contable + f.contable, modulo: acc.modulo + f.modulo, diferencia: acc.diferencia + f.diferencia }),
-    { contable: 0, modulo: 0, diferencia: 0 },
-  );
+  const sumar = (lista: readonly FilaSubcuentaNomina[]) => {
+    const t = lista.reduce(
+      (acc, f) => ({ contable: acc.contable + f.contable, modulo: acc.modulo + f.modulo, diferencia: acc.diferencia + f.diferencia }),
+      { contable: 0, modulo: 0, diferencia: 0 },
+    );
+    return { contable: redondear(t.contable), modulo: redondear(t.modulo), diferencia: redondear(t.diferencia) };
+  };
+  const visibles = input.subcuentasVisibles ?? new Set<string>();
+  const queConcilian = filas.filter((f) => !visibles.has(f.subcuenta));
+  const filasVisibles = filas.filter((f) => visibles.has(f.subcuenta));
   return {
-    filas,
-    totales: { contable: redondear(totales.contable), modulo: redondear(totales.modulo), diferencia: redondear(totales.diferencia) },
+    filas: queConcilian,
+    totales: sumar(queConcilian),
+    filasVisibles,
+    totalesVisibles: sumar(filasVisibles),
     sinSubcuenta,
   };
 }
@@ -319,6 +362,41 @@ export type RepartoConcepto = { clasificador: string; valores: Record<string, nu
 export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4: string[] };
 
 /**
+ * Separa las entradas del cruce formal entre la cédula y las cuentas SOLO VISIBLES (1/Oct/2026): una
+ * entrada cuyas cuentas son todas visibles se muestra en su renglón visible, sin conciliarse. Si una
+ * entrada mezcla una visible con una que concilia (un concepto con varias cuentas sin repartir), esa
+ * visible se concilia en este cargue (`promovidas`): entra al renglón agrupado con la otra, y con
+ * ella las entradas visibles que la comparten. Sin entradas sin cuenta en el lado visible: el saldo
+ * sin cuenta siempre se concilia.
+ */
+export function separarEntradasVisibles(
+  entradas: readonly EntradaCruceFormal[],
+  visibles: ReadonlySet<string>,
+): { concilian: EntradaCruceFormal[]; visibles: EntradaCruceFormal[]; promovidas: Set<string> } {
+  const promovidas = new Set<string>();
+  const esVisible = (e: EntradaCruceFormal) => e.cuentas4.length > 0 && e.cuentas4.every((c) => visibles.has(c) && !promovidas.has(c));
+  for (const e of entradas) {
+    if (e.cuentas4.some((c) => visibles.has(c)) && e.cuentas4.some((c) => !visibles.has(c))) {
+      for (const c of e.cuentas4) if (visibles.has(c)) promovidas.add(c);
+    }
+  }
+  // Una entrada visible que comparte una cuenta promovida también se concilia, y promueve las suyas.
+  let cambio = promovidas.size > 0;
+  while (cambio) {
+    cambio = false;
+    for (const e of entradas) {
+      if (e.cuentas4.length > 1 && e.cuentas4.some((c) => promovidas.has(c)) && e.cuentas4.some((c) => visibles.has(c) && !promovidas.has(c))) {
+        for (const c of e.cuentas4) if (visibles.has(c) && !promovidas.has(c)) { promovidas.add(c); cambio = true; }
+      }
+    }
+  }
+  const concilian: EntradaCruceFormal[] = [];
+  const lado: EntradaCruceFormal[] = [];
+  for (const e of entradas) (esVisible(e) ? lado : concilian).push(e);
+  return { concilian, visibles: lado, promovidas };
+}
+
+/**
  * Pesos para sugerir el reparto de un concepto SIN centro con lo que el auditor ya repartió en
  * sus centros en el mismo período (claves «código ∥ centro»): Σ por cuenta candidata. Un cargue
  * que no se separa por centro vuelve a pedir el reparto del concepto entero; así se propone el
@@ -389,8 +467,9 @@ export function repartoQuedaViejo(cuentasGuardadas: readonly string[], cuentasRe
 /**
  * Lo que entra a la cédula Russell 6 desde el consolidado de Nómina. Solo cuentan las vías
  * DETERMINISTAS (cuenta del archivo, memoria exacta, memoria + clase); una sugerencia por
- * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan por su REPARTO (RF-NOM-12)
- * y, sin reparto, quedan como «asignado a varias» (ambiguo). Un reparto que ya no rige
+ * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan en un renglón AGRUPADO contra
+ * la suma de sus cuentas, como en los demás módulos (1/Oct/2026); repartir es opcional y, donde hay
+ * reparto, manda: el concepto se parte en una entrada por cuenta, que ya no agrupa. Un reparto que ya no rige
  * (`repartoVigente`: el concepto tiene hoy una sola cuenta u otras candidatas) se ignora. Control
  * y fuera no entran.
  */

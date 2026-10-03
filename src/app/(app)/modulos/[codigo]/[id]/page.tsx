@@ -168,7 +168,9 @@ export default async function DatoModuloPage({
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
   // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx; Nómina → 510506…;
   // Ingresos → 41xx y 422005). La 1592xx de Activos fijos no se asigna: sale de la relación.
-  const cuentasModulo = opcionesCedula(cedula, subgrupos, cuentasEstandar);
+  // Las solo visibles (Nómina) se asignan igual; el nombre lo dice para que no se confundan.
+  const cuentasModulo = opcionesCedula(cedula, subgrupos, cuentasEstandar)
+    .map((c) => (cedula.visibles.has(c.codigo) ? { ...c, nombre: `${c.nombre} · solo visible` } : c));
   // Cuentas del plan Russell que el usuario agregó solo para este período, con su nombre.
   const cuentasPeriodoVm = cuentasPeriodo.map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? "" }));
   // Cuentas del CLIENTE homologadas a cada cuenta Russell del módulo (14XX → [143505 «…»]).
@@ -393,6 +395,7 @@ export default async function DatoModuloPage({
     detalleContablePorCuenta: cruce.detalleContablePorCuenta,
     detalleSinCuenta: cruce.detalleSinCuenta,
     fueraDelModulo: cruce.fueraDelModulo,
+    soloVisibles: cruce.soloVisibles,
     conciliacion: cierreVm,
     nomina: cruce.nomina,
     cuentasPeriodo: cruce.cuentasPeriodo,

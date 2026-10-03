@@ -1,6 +1,7 @@
 // Filtros por COLUMNA del detalle de un dato de módulo cargado (puro, sin BD ni UI).
-// Genérico sobre las columnas del descriptor: texto → subcadena normalizada;
-// numérico (cantidad/moneda) → operadores >, >=, <, <=, = (mismo criterio que el balance).
+// Genérico sobre las columnas del descriptor: texto → subcadena normalizada (o posición, con el
+// comodín `*`); numérico (cantidad/moneda) → operadores >, >=, <, <=, = (igual que el balance).
+import { coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
 
 /** nombre de columna del descriptor → texto del filtro (vacío = sin filtro). */
 export type FiltrosDetalleModulo = Record<string, string>;
@@ -75,11 +76,43 @@ export function coincideFilaDetalle<T extends FilaFiltrable>(
     const v = obtenerValor(fila, col);
     if (esNumerica(col.tipo)) {
       if (!coincideFiltroNumerico(v == null || v === "" ? null : Number(v), f)) return false;
-    } else if (!normalizarTexto(String(v ?? "")).includes(normalizarTexto(f))) {
+    } else if (!coincideFiltroTexto(v == null ? "" : String(v), f)) {
       return false;
     }
   }
   return true;
+}
+
+/**
+ * ¿El texto contiene el filtro, sin distinguir tildes ni mayúsculas? Filtro vacío → true. Con un
+ * `*` (o `?`) manda la POSICIÓN y no la subcadena: «**25» casa con 112505 pero no con 110525.
+ */
+export function coincideFiltroTexto(valor: string | null | undefined, filtro: string | null | undefined): boolean {
+  const buscado = normalizarTexto(filtro ?? "");
+  if (!buscado) return true;
+  if (tieneComodin(buscado)) return coincideComodin(valor, buscado);
+  return normalizarTexto(String(valor ?? "")).includes(buscado);
+}
+
+/** Grupo del borrador tal como lo ve el filtro: su clasificador y, si lo tiene, su nombre. */
+export type GrupoFiltrable = { clasificador: string; descripcion?: string | null };
+
+/**
+ * ¿El GRUPO sigue a la vista con los filtros puestos? La tabla del borrador lista grupos y solo
+ * trae las filas del que se abre, así que los filtros de las dos columnas que identifican al
+ * grupo —la del clasificador y la de su nombre— se resuelven aquí, sin pedir nada al servidor:
+ * escribir «cesantías» deja a la vista los grupos de cesantías en vez de la lista entera. Los
+ * filtros de las demás columnas no deciden: su dato vive en las filas, que aún no se han traído.
+ */
+export function coincideGrupoDetalle(
+  grupo: GrupoFiltrable,
+  roles: { clasificador: string; descripcion?: string | null },
+  filtros: FiltrosDetalleModulo,
+): boolean {
+  if (!coincideFiltroTexto(grupo.clasificador, filtros[roles.clasificador])) return false;
+  // Sin nombre propio, el del grupo es su clasificador (así se guarda cuando son iguales).
+  const nombre = roles.descripcion ? filtros[roles.descripcion] : "";
+  return coincideFiltroTexto(grupo.descripcion ?? grupo.clasificador, nombre);
 }
 
 /** Filtra las filas del detalle por los filtros de columna (sin filtros → mismas filas). */

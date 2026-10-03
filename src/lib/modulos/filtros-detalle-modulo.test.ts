@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { coincideFiltroNumerico, filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type ColumnaFiltro } from "./filtros-detalle-modulo";
+import { coincideFiltroNumerico, coincideGrupoDetalle, filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type ColumnaFiltro } from "./filtros-detalle-modulo";
 
 const COLS: ColumnaFiltro[] = [
   { nombre: "tipo", tipo: "texto" },
@@ -65,5 +65,40 @@ describe("filtros de detalle de módulo", () => {
   it("coincideFiltroNumerico: vacío pasa, null no", () => {
     expect(coincideFiltroNumerico(5, "")).toBe(true);
     expect(coincideFiltroNumerico(null, ">1")).toBe(false);
+  });
+});
+
+describe("coincideGrupoDetalle: qué grupos siguen a la vista con filtros puestos", () => {
+  const ROLES = { clasificador: "codigo", descripcion: "concepto" };
+  const grupos = [
+    { clasificador: "185", descripcion: "CESANTÍAS POR RETIRO" },
+    { clasificador: "186", descripcion: "INTERESES DE CESANTÍAS POR RETIRO" },
+    { clasificador: "1", descripcion: "SUELDO" },
+    { clasificador: "9995", descripcion: "NETO NÓMINA" },
+  ];
+  const visibles = (filtros: Record<string, string>) =>
+    grupos.filter((g) => coincideGrupoDetalle(g, ROLES, filtros)).map((g) => g.clasificador);
+
+  it("el filtro del nombre encuentra sin tildes ni mayúsculas", () => {
+    expect(visibles({ concepto: "cesantias" })).toEqual(["185", "186"]);
+    expect(visibles({ concepto: "NÓMINA" })).toEqual(["9995"]);
+  });
+
+  it("el filtro del código recorta por el clasificador", () => {
+    expect(visibles({ codigo: "18" })).toEqual(["185", "186"]);
+    expect(visibles({ codigo: "9995", concepto: "neto" })).toEqual(["9995"]);
+    expect(visibles({ codigo: "9995", concepto: "sueldo" })).toEqual([]);
+  });
+
+  it("los filtros de otras columnas no esconden grupos: deciden dentro de cada uno", () => {
+    expect(visibles({ empleado: "perez", valor: "> 100" })).toEqual(["185", "186", "1", "9995"]);
+    expect(visibles({})).toEqual(["185", "186", "1", "9995"]);
+  });
+
+  it("sin nombre propio manda el clasificador, y un módulo sin esa columna no filtra por ella", () => {
+    const sinNombre = { clasificador: "MERCANCÍA" };
+    expect(coincideGrupoDetalle(sinNombre, ROLES, { concepto: "mercancia" })).toBe(true);
+    expect(coincideGrupoDetalle(sinNombre, ROLES, { concepto: "otra" })).toBe(false);
+    expect(coincideGrupoDetalle(sinNombre, { clasificador: "tipo" }, { concepto: "lo que sea" })).toBe(true);
   });
 });

@@ -11,12 +11,21 @@ import type { ActionState } from "@/lib/definitions";
 import type { FilaCatalogoVista } from "@/lib/parametros/prevalidador";
 import type { CuentaConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { Campo, CONTROL_CLASS } from "./prevalidador-client";
 
 export type CuentaPlanVm = { codigo: string; nombre: string };
 
-/** Módulo que concilia a 6 dígitos; `conOrigen` = sus cuentas deciden nacional/exterior (Cartera y CxP). */
-export type ModuloCuentasVm = { code: string; name: string; conOrigen: boolean; conCrucePorTercero: boolean };
+/**
+ * Módulo que concilia a 6 dígitos; `conOrigen` = sus cuentas deciden nacional/exterior (Cartera y CxP);
+ * `conCategoria` = distingue las que concilian de las solo visibles (Nómina).
+ */
+export type ModuloCuentasVm = { code: string; name: string; conOrigen: boolean; conCategoria: boolean; conCrucePorTercero: boolean };
+
+const CATEGORIAS = [
+  { value: "concilia", label: "Concilia" },
+  { value: "visible", label: "Solo visible" },
+] as const;
 
 const ORIGENES = [
   { value: "", label: "Sin origen" },
@@ -25,7 +34,7 @@ const ORIGENES = [
 ] as const;
 
 // Mismo diseño de fila que los prefijos del prevalidador (`FilaEditor`); la columna del origen solo
-// existe en Cartera y CxP.
+// existe en Cartera y CxP, y la de la categoría en Nómina.
 const GRID_CON_ORIGEN =
   "grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(8.5rem,1fr)_7rem_minmax(13rem,2.6fr)_minmax(9rem,1fr)_auto] xl:items-start";
 const GRID_SIN_ORIGEN =
@@ -50,13 +59,17 @@ export default function CuentasConciliacionPanel({
   plan6: CuentaPlanVm[];
 }) {
   const [creando, setCreando] = useState(false);
+  // Las solo visibles van en su propia tarjeta, cerrada al entrar (como en el cruce).
+  const [verVisibles, setVerVisibles] = useState(false);
   const listaPlan = useId();
   const nombrePlan = useMemo(() => new Map(plan6.map((c) => [c.codigo, c.nombre])), [plan6]);
   // Una cuenta fuera de los prefijos ACTIVOS de su módulo se concilia como adicional (sin regla del
   // prevalidador). Mismo criterio que la cédula (`cedulaModulo`).
   const fueraDePrefijos = (moduloCodigo: string, cuenta: string) =>
     !cuenta4DelModulo(cuenta.slice(0, 4), prefijosCuentaModulo(moduloCodigo, catalogo));
-  const fuera = cuentas.filter((c) => fueraDePrefijos(c.moduloCodigo, c.cuenta)).length;
+  const concilian = modulo.conCategoria ? cuentas.filter((c) => c.categoria !== "visible") : cuentas;
+  const visibles = modulo.conCategoria ? cuentas.filter((c) => c.categoria === "visible") : [];
+  const fuera = concilian.filter((c) => fueraDePrefijos(c.moduloCodigo, c.cuenta)).length;
   const comunes = { modulo, modulosCuentas, nombrePlan, listaPlan, fueraDePrefijos };
 
   return (
@@ -71,8 +84,9 @@ export default function CuentasConciliacionPanel({
 
       <div className="flex items-center justify-between">
         <p className="text-[12px] text-ink-500">
-          {cuentas.length} cuenta(s) de 6 dígitos que concilia {modulo.name}
+          {concilian.length} cuenta(s) de 6 dígitos que concilia {modulo.name}
           {fuera > 0 ? ` · ${fuera} fuera de los prefijos` : ""}
+          {modulo.conCategoria ? ` · ${visibles.length} solo visible(s)` : ""}
         </p>
         {!creando && (
           <button
@@ -80,14 +94,14 @@ export default function CuentasConciliacionPanel({
             onClick={() => setCreando(true)}
             className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
           >
-            <Icon name="plus" size={13} /> Agregar cuenta que concilia
+            <Icon name="plus" size={13} /> {modulo.conCategoria ? "Agregar cuenta" : "Agregar cuenta que concilia"}
           </button>
         )}
       </div>
 
       {creando && (
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva cuenta que concilia</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">{modulo.conCategoria ? "Nueva cuenta" : "Nueva cuenta que concilia"}</h2>
           <CuentaEditor {...comunes} onListo={() => setCreando(false)} onCancelar={() => setCreando(false)} />
         </Card>
       )}
@@ -105,14 +119,47 @@ export default function CuentasConciliacionPanel({
           cambios rigen para los cargues abiertos; un período conciliado en firme conserva las cuentas con que se cerró.
         </p>
         <div className="flex flex-col gap-2">
-          {cuentas.map((c) => (
-            <CuentaEditor key={c.id} {...comunes} cuenta={c} unica={cuentas.length === 1} />
+          {concilian.map((c) => (
+            <CuentaEditor key={c.id} {...comunes} cuenta={c} unica={concilian.length === 1} />
           ))}
-          {cuentas.length === 0 && (
+          {concilian.length === 0 && (
             <p className="text-[11.5px] text-ink-400">Sin cuentas: el módulo concilia todas las cuentas de 6 dígitos de sus prefijos.</p>
           )}
         </div>
       </Card>
+
+      {modulo.conCategoria && (
+        <Card className="p-0">
+          <button
+            type="button"
+            onClick={() => setVerVisibles((v) => !v)}
+            aria-expanded={verVisibles}
+            className="flex w-full flex-wrap items-center gap-2 px-4 py-3 text-left hover:bg-ink-50/60"
+          >
+            <Icon name={chevronDivulgacion(verVisibles)} size={13} className="shrink-0 text-ink-400" />
+            <h2 className="text-[14px] font-semibold text-ink-900">Cuentas solo visibles</h2>
+            <span className="text-[11px] text-ink-400">{visibles.length}</span>
+            <span className="ml-auto text-[11.5px] font-semibold text-blue-700">{verVisibles ? "Ocultar" : "Ver cuentas"}</span>
+          </button>
+          {verVisibles && (
+            <div className="border-t border-ink-100 p-4">
+              <p className="mb-3 text-[11.5px] text-ink-500">
+                El cruce de {modulo.name} las muestra al final, colapsadas, con su saldo final y lo que el archivo les asigna,
+                pero no se concilian: no suman a los totales ni a la diferencia, no llevan marca y no pesan en el cierre. En el
+                Consolidado se pueden asignar como cualquier otra.
+              </p>
+              <div className="flex flex-col gap-2">
+                {visibles.map((c) => (
+                  <CuentaEditor key={c.id} {...comunes} cuenta={c} />
+                ))}
+                {visibles.length === 0 && (
+                  <p className="text-[11.5px] text-ink-400">Ninguna: todas las cuentas del módulo concilian.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -155,11 +202,14 @@ function CuentaEditor({
 
   const digitos = codigo.replace(/[\s.]/g, "");
   const nombre = nombrePlan.get(digitos) ?? null;
-  const conOrigen = modulosCuentas.find((m) => m.code === moduloSel)?.conOrigen ?? false;
+  const moduloElegido = modulosCuentas.find((m) => m.code === moduloSel);
+  const conOrigen = moduloElegido?.conOrigen ?? false;
+  const conCategoria = moduloElegido?.conCategoria ?? false;
+  const esVisible = cuenta?.categoria === "visible";
 
   return (
     <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
-      <form action={guardarAction} className={conOrigen ? GRID_CON_ORIGEN : GRID_SIN_ORIGEN}>
+      <form action={guardarAction} className={conOrigen || conCategoria ? GRID_CON_ORIGEN : GRID_SIN_ORIGEN}>
         {cuenta && <input type="hidden" name="id" value={cuenta.id} />}
         <Campo etiqueta="Módulo">
           <select name="moduloCodigo" value={moduloSel} onChange={(e) => setModuloSel(e.target.value)} className={CONTROL_CLASS}>
@@ -198,6 +248,18 @@ function CuentaEditor({
           <Campo etiqueta="Origen">
             <select name="origen" defaultValue={cuenta?.origen ?? ""} className={CONTROL_CLASS}>
               {ORIGENES.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+        )}
+
+        {conCategoria && (
+          <Campo etiqueta="Categoría">
+            <select name="categoria" defaultValue={cuenta?.categoria ?? "concilia"} className={CONTROL_CLASS}>
+              {CATEGORIAS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -252,7 +314,9 @@ function CuentaEditor({
       {cuenta && confirmarBorrado && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
-            ¿Quitar la cuenta {cuenta.cuenta}? Deja de conciliarse en los cargues abiertos: su saldo pasa a «fuera del módulo».
+            {esVisible
+              ? `¿Quitar la cuenta ${cuenta.cuenta}? Deja de mostrarse en el cruce de los cargues abiertos.`
+              : `¿Quitar la cuenta ${cuenta.cuenta}? Deja de conciliarse en los cargues abiertos: su saldo pasa a «fuera del módulo».`}
           </span>
           <button
             type="button"

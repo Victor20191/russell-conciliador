@@ -4,6 +4,8 @@ import {
   esEncabezadoTercero,
   esRenglonEstructura,
   etiquetaRenglonNoSuma,
+  etiquetaSinItems,
+  explicacionSinItems,
   indiceColumnaValor,
   totalesDeclaradosPorCuenta,
 } from "./renglones-archivo";
@@ -40,5 +42,25 @@ describe("renglones del archivo", () => {
     const sinValor: { nombre: string; esValor?: boolean }[] = [{ nombre: "cuenta" }];
     expect(indiceColumnaValor(conValor)).toBe(2);
     expect(indiceColumnaValor(sinValor)).toBe(-1);
+  });
+});
+
+describe("por qué una fila o un grupo no suma", () => {
+  it("el rótulo de la fila nombra el motivo de nómina en vez de decir agrupadora", () => {
+    expect(etiquetaRenglonNoSuma("neto")).toBe("neto del empleado · no suma");
+    expect(etiquetaRenglonNoSuma("fuera_de_periodo")).toBe("fuera del período del cargue · no suma");
+    expect(etiquetaRenglonNoSuma("subtotal:rotulo")).toBe("subtotal del archivo · no suma");
+    expect(etiquetaRenglonNoSuma("seccion_cuenta")).toBe("cuenta del archivo · no suma");
+    expect(etiquetaRenglonNoSuma(null)).toBe("agrupadora · no suma");
+  });
+
+  it("el grupo en cero se rotula y se explica sin abrirlo", () => {
+
+    expect(etiquetaSinItems("neto")).toBe("todo en cero · neto del empleado");
+    expect(etiquetaSinItems("omitidas")).toBe("todo en cero · omitido a mano");
+    expect(etiquetaSinItems("en_cero")).toBe("todo en cero");
+    expect(etiquetaSinItems("desconocido")).toBe("todo en cero · no suma");
+    expect(explicacionSinItems("neto")).toMatch(/dos veces/);
+    expect(explicacionSinItems("subtotal:rotulo")).toMatch(/subtotal del archivo/);
   });
 });

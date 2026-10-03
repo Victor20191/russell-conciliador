@@ -386,25 +386,40 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
   const num = ["contable", "modulo", "diferencia"];
   const estado: Record<string, string> = { cuadra: "Cuadra", descuadre: "Diferencia", solo_contable: "Solo contabilidad", solo_modulo: "Solo nómina" };
-  for (const f of vista.filas) {
-    const fila = ws.addRow({ subcuenta: f.subcuenta, etiqueta: f.etiqueta, contable: f.contable, modulo: f.modulo, diferencia: f.diferencia, estado: estado[f.estado] ?? f.estado });
-    fila.font = { bold: true, color: f.estado === "descuadre" ? { argb: "FFB91C1C" } : undefined };
-    for (const k of num) fila.getCell(k).numFmt = NUM_FMT;
-    for (const c of f.cuentas) {
-      const r = ws.addRow({ cuenta: c.cuenta8, nombre: `${c.nombre} (clase ${c.clase})`, contable: c.valor });
-      r.getCell("contable").numFmt = NUM_FMT;
-      r.outlineLevel = 1;
+  const agregarFilas = (filas: typeof vista.filas, soloVisible: boolean) => {
+    for (const f of filas) {
+      const fila = ws.addRow({ subcuenta: f.subcuenta, etiqueta: f.etiqueta, contable: f.contable, modulo: f.modulo, diferencia: f.diferencia, estado: soloVisible ? "Solo visible" : estado[f.estado] ?? f.estado });
+      fila.font = { bold: true, color: !soloVisible && f.estado === "descuadre" ? { argb: "FFB91C1C" } : undefined };
+      for (const k of num) fila.getCell(k).numFmt = NUM_FMT;
+      for (const c of f.cuentas) {
+        const r = ws.addRow({ cuenta: c.cuenta8, nombre: `${c.nombre} (clase ${c.clase})`, contable: c.valor });
+        r.getCell("contable").numFmt = NUM_FMT;
+        r.outlineLevel = 1;
+      }
+      for (const c of f.conceptos) {
+        const r = ws.addRow({ cuenta: c.codigo + (c.agrupador ? ` · ${c.agrupador}` : ""), nombre: c.descripcion ?? "", modulo: c.total });
+        r.getCell("modulo").numFmt = NUM_FMT;
+        r.outlineLevel = 1;
+      }
     }
-    for (const c of f.conceptos) {
-      const r = ws.addRow({ cuenta: c.codigo + (c.agrupador ? ` · ${c.agrupador}` : ""), nombre: c.descripcion ?? "", modulo: c.total });
-      r.getCell("modulo").numFmt = NUM_FMT;
-      r.outlineLevel = 1;
-    }
-  }
+  };
+  agregarFilas(vista.filas, false);
   const total = ws.addRow({ subcuenta: "Totales", contable: vista.totales.contable, modulo: vista.totales.modulo, diferencia: vista.totales.diferencia });
   total.font = { bold: true };
   total.fill = TOTAL_FILL;
   for (const k of num) total.getCell(k).numFmt = NUM_FMT;
+  // Subcuentas solo visibles (1/Oct/2026): se ven para consulta, fuera de los totales de arriba.
+  const visibles = vista.filasVisibles ?? [];
+  if (visibles.length > 0) {
+    ws.addRow({});
+    const titulo = ws.addRow({ subcuenta: "Solo visibles", etiqueta: "No cuentan para la conciliación" });
+    titulo.font = { bold: true, color: { argb: "FF6B7280" } };
+    agregarFilas(visibles, true);
+    const tv = vista.totalesVisibles ?? { contable: 0, modulo: 0, diferencia: 0 };
+    const totalVisibles = ws.addRow({ subcuenta: "Total solo visibles", contable: tv.contable, modulo: tv.modulo, diferencia: tv.diferencia });
+    totalVisibles.font = { bold: true, color: { argb: "FF6B7280" } };
+    for (const k of num) totalVisibles.getCell(k).numFmt = NUM_FMT;
+  }
   if (vista.sinSubcuenta.length > 0) {
     ws.addRow({});
     for (const c of vista.sinSubcuenta) {

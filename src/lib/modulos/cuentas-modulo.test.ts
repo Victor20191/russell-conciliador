@@ -13,6 +13,7 @@ import {
   entradasValorRelacionado,
   esAdicionalCedula,
   esCuentaExtraPosible,
+  esVisibleCedula,
   filtrarCuentasEstandarPorModulo,
   filtrarSubgruposPorModulo,
   fueraDeListaCedula,
@@ -170,14 +171,22 @@ describe("cédula contable con ampliaciones del descriptor", () => {
     expect(cuentasCedula6(MODULOS_IMPORT.ING)).toEqual(["410505", "410510", "410515", "410520", "410525", "410530", "417505", "422005"]);
   });
 
-  test("Nómina: los pasivos 25xx son claves de la cédula y no quedan fuera de la lista", () => {
+  test("Nómina: las solo visibles (pasivos 25xx, 510530…) se asignan, no quedan fuera ni forman la cédula", () => {
     expect(claveCedula(nom, "251010")).toBe("251010");
     expect(claveCedula(nom, "510506")).toBe("510506");
-    expect(fueraDeListaCedula(nom, "251010")).toBe(false);
-    expect(fueraDeListaCedula(nom, "510548")).toBe(true);
+    for (const visible of ["251010", "510530", "720569"]) {
+      expect(esVisibleCedula(nom, visible), visible).toBe(true);
+      expect(fueraDeListaCedula(nom, visible), visible).toBe(false);
+      expect(cuentaAsignableCedula(nom, visible), visible).toBe(true);
+      expect(nom.lista6?.has(visible), visible).toBe(false);
+      expect(nom.adicionales.has(visible), visible).toBe(false);
+    }
+    expect(esVisibleCedula(nom, "510506")).toBe(false);
     expect(cuentaAsignableCedula(nom, "252505")).toBe(true);
     expect(cuentaAsignableCedula(nom, "251005")).toBe(false);
-    expect(cuentasCedula6(MODULOS_IMPORT.NOM)).toHaveLength(29);
+    // Una cuenta del plan que no está en ninguna de las dos listas sí queda fuera.
+    expect(fueraDeListaCedula(nom, "510509")).toBe(true);
+    expect(cuentasCedula6(MODULOS_IMPORT.NOM)).toHaveLength(112);
     expect([...longitudesCedula(nom)]).toEqual([6]);
   });
 
@@ -192,7 +201,7 @@ describe("cédula contable con ampliaciones del descriptor", () => {
   test("qué cuentas de 6 se cargan para nombrar los renglones", () => {
     expect(cuentas6ACargarCedula(afi)).toBeNull();
     expect(cuentas6ACargarCedula(ing)).toEqual(["410505", "410510", "410515", "410520", "410525", "410530", "417505", "422005"]);
-    expect(cuentas6ACargarCedula(nom)).toHaveLength(29);
+    expect(cuentas6ACargarCedula(nom)).toHaveLength(112);
   });
 
   test("las opciones del Consolidado excluyen la 1592 y suman las adicionales", () => {

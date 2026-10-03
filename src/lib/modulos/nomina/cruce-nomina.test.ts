@@ -10,6 +10,9 @@ import {
   repartoQuedaViejo,
   repartosAplicadosNomina,
   repartoVigente,
+  separarEntradasVisibles,
+  subcuentaDelConcepto,
+  subcuentasSoloVisibles,
   valorConceptoEnCuenta,
   validarReparto,
   valorContableNomina,
@@ -338,5 +341,87 @@ describe("concepto con varias cuentas: renglón agrupado sin reparto (1/Oct/2026
       ["520506", 200, true],
       ["720505", 550, true],
     ]);
+  });
+});
+
+describe("vista por subcuenta: la subcuenta sale SOLO de la cuenta del cliente (2/Oct/2026)", () => {
+  it("subcuentaDelConcepto: la del cliente o ninguna; la cuenta Russell no la decide", () => {
+    const s = (p: Partial<RenglonConsolidadoNomina["sugerencia"]>) => renglon("x", 1, p).sugerencia;
+    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510595"], subcuentaPuc: "27" }))).toBe("27");
+    expect(subcuentaDelConcepto(s({ via: "archivo", cuentas: ["510506"], subcuentaPuc: "06" }))).toBe("06");
+    // Sin cuenta del cliente no hay subcuenta, aunque la Russell asignada la diga: los dos lados de
+    // la tabla son cuentas del cliente.
+    expect(subcuentaDelConcepto(s({ via: "memoria_exacta", cuentas: ["510536"] }))).toBeNull();
+    expect(subcuentaDelConcepto(s({ via: "multi", cuentas: ["510506", "520506", "720505"] }))).toBeNull();
+    expect(subcuentaDelConcepto(s({ via: "sugerido_nombre", cuentas: ["510506"] }))).toBeNull();
+    expect(subcuentaDelConcepto(s({ via: "sin_cuenta" }))).toBeNull();
+  });
+
+  it("los conceptos asignados suman en su subcuenta y los que no la tienen quedan aparte", () => {
+    const vista = construirVistaSubcuenta({
+      balance: [
+        bal("51050605", "SUELDOS", 0, 0, 113263780),
+        bal("52050605", "SUELDOS", 0, 0, 532891532),
+        bal("72050605", "SUELDOS", 0, 0, 24476000),
+        bal("51053605", "PRIMA DE SERVICIOS", 0, 0, 11502638),
+      ],
+      renglones: [
+        renglon("1050", 697905638, { via: "multi", cuentas: ["510506", "520506", "720505"], subcuentaPuc: "06" }),
+        renglon("1500", 94855262, { via: "memoria_exacta", cuentas: ["510536"], subcuentaPuc: "36" }),
+        // Resuelto por la cuenta Russell pero sin cuenta del cliente: queda aparte.
+        renglon("1061", 485720, { via: "memoria_exacta", cuentas: ["510506"] }),
+      ],
+      prefijos: PREFIJOS,
+    });
+    expect(vista.filas.map((f) => [f.subcuenta, f.contable, f.modulo])).toEqual([
+      ["06", 670631312, 697905638],
+      ["36", 11502638, 94855262],
+    ]);
+    expect(vista.sinSubcuenta.map((c) => c.codigo)).toEqual(["1061"]);
+  });
+});
+
+describe("cuentas solo visibles (1/Oct/2026)", () => {
+  const visibles = new Set(["510530", "520530", "510536", "251010"]);
+
+  it("separarEntradasVisibles: lo asignado solo a visibles va aparte; un concepto que mezcla promueve la visible", () => {
+    const r = separarEntradasVisibles([
+      { clasificador: "sueldo", total: 100, cuentas4: ["510506"] },
+      { clasificador: "cesantías", total: 30, cuentas4: ["510530"] },
+      { clasificador: "prima por clase", total: 20, cuentas4: ["510536", "720515"] }, // mezcla: 510536 se concilia
+      { clasificador: "prima ventas", total: 5, cuentas4: ["510536"] }, // comparte la promovida: se concilia
+      { clasificador: "sin cuenta", total: 7, cuentas4: [] },
+    ], visibles);
+    expect(r.visibles.map((e) => e.clasificador)).toEqual(["cesantías"]);
+    expect(r.concilian.map((e) => e.clasificador)).toEqual(["sueldo", "prima por clase", "prima ventas", "sin cuenta"]);
+    expect([...r.promovidas]).toEqual(["510536"]);
+  });
+
+  it("separarEntradasVisibles: un concepto entre dos visibles queda visible", () => {
+    const r = separarEntradasVisibles([{ clasificador: "cesantías", total: 30, cuentas4: ["510530", "520530"] }], visibles);
+    expect(r.visibles).toHaveLength(1);
+    expect(r.promovidas.size).toBe(0);
+  });
+
+  it("subcuentasSoloVisibles: las subcuentas que solo tienen cuentas visibles en 51/52/72/73", () => {
+    const sub = subcuentasSoloVisibles(["510506", "520506", "510595"], ["510530", "520530", "510536", "251010", "510595"]);
+    expect([...sub].sort()).toEqual(["30", "36"]); // 95 también concilia; 251010 no es de gasto
+  });
+
+  it("la vista por subcuenta deja las visibles al final y fuera de los totales", () => {
+    const vista = construirVistaSubcuenta({
+      balance: [bal("51050605", "SUELDOS", 0, 0, 1000), bal("51053005", "CESANTÍAS", 0, 0, 80), bal("51051905", "OTRA", 0, 0, 5)],
+      renglones: [
+        renglon("1", 1000, { via: "memoria_exacta", cuentas: ["510506"], subcuentaPuc: "06" }),
+        renglon("40", 70, { via: "memoria_exacta", cuentas: ["510530"], subcuentaPuc: "30" }),
+      ],
+      prefijos: PREFIJOS,
+      subcuentasVisibles: new Set(["30"]),
+    });
+    // La 19 no está en ninguna lista: queda arriba, con las que concilian.
+    expect(vista.filas.map((f) => f.subcuenta)).toEqual(["06", "19"]);
+    expect(vista.totales).toEqual({ contable: 1005, modulo: 1000, diferencia: 5 });
+    expect(vista.filasVisibles.map((f) => [f.subcuenta, f.contable, f.modulo])).toEqual([["30", 80, 70]]);
+    expect(vista.totalesVisibles).toEqual({ contable: 80, modulo: 70, diferencia: 10 });
   });
 });

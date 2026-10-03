@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CUENTAS_RUSSELL_NOMINA } from "../descriptores";
+import { MODULOS_IMPORT } from "../descriptores";
+import { cuentasCedula6 } from "../cuentas-modulo";
+
+// Las cuentas a las que la homologación puede llevar un concepto: las que concilian y las solo visibles.
+const CUENTAS_RUSSELL_NOMINA = cuentasCedula6(MODULOS_IMPORT.NOM);
 import { construirConsolidadoNomina, cuentasEfectivasRenglon, resumenCuentaArchivo } from "./consolidado-nomina";
 
 const fila = (codigo: string, valor: number, datos: Record<string, unknown> = {}) => ({ clasificador: codigo, valor, datos });

@@ -111,3 +111,42 @@ describe("resumirBorrador · lo que la pantalla ve sin recibir las filas", () =>
     expect(r.columnasOcultas.map(claveColumna)).toContain("cantidad");
   });
 });
+
+describe("grupos en cero: nombre del concepto y por qué no suman", () => {
+  it("cada grupo lleva su nombre legible cuando el clasificador es un código", () => {
+    const r = resumir(
+      [fila(2, "9995", 0, { tipoFila: "agrupadora", motivo: "neto" }), fila(3, "1", 500)],
+      { descripcionPorGrupo: new Map([["9995", "NETO NOMINA"], ["1", "SALARIO BASICO"]]) },
+    );
+    expect(r.grupos.map((g) => [g.clasificador, g.descripcion])).toEqual([
+      ["9995", "NETO NOMINA"],
+      ["1", "SALARIO BASICO"],
+    ]);
+  });
+
+  it("un grupo sin ítems trae el motivo dominante; uno con ítems no trae ninguno", () => {
+    const r = resumir([
+      fila(2, "9995", 0, { tipoFila: "agrupadora", motivo: "neto" }),
+      fila(3, "9995", 0, { tipoFila: "agrupadora", motivo: "neto" }),
+      fila(4, "9995", 0, { tipoFila: "agrupadora", motivo: "pie_repetido" }),
+      fila(5, "TOTALES", 0, { tipoFila: "total", motivo: "subtotal:rotulo" }),
+      fila(6, "OMITIDO", 300, { omitida: true }),
+      fila(7, "CERO", 0),
+      fila(8, "MERCANCIA", 900),
+      fila(9, "MERCANCIA", 0, { tipoFila: "agrupadora", motivo: "neto" }),
+    ]);
+    const motivos = Object.fromEntries(r.grupos.map((g) => [g.clasificador, g.motivoSinItems]));
+    expect(motivos).toEqual({
+      "9995": "neto",
+      TOTALES: "subtotal:rotulo",
+      OMITIDO: "omitidas",
+      CERO: "en_cero",
+      MERCANCIA: null,
+    });
+  });
+
+  it("sin nombres ni filas que sobren, el resumen es el de siempre", () => {
+    const r = resumir([fila(2, "MERCANCIA", 100)]);
+    expect(r.grupos[0]).toMatchObject({ descripcion: null, motivoSinItems: null, items: 1 });
+  });
+});

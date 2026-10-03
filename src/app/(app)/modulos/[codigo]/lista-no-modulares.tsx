@@ -136,14 +136,29 @@ export function ListaSinCuentaNoModulares({
   );
 }
 
-/** Los clasificadores sin cuenta que una marca ya excluyó, tal como quedaron registrados. */
-export function ResumenClasificadoresNoModulares({ clasificadores }: { clasificadores: readonly ClasificadorNoModular[] }) {
+/**
+ * Los conceptos del archivo que una marca ya excluyó del lado del módulo, tal como quedaron
+ * registrados. En el renglón del saldo sin cuenta son «saldos sin cuenta»; en cualquier otro
+ * renglón, conceptos que la contabilidad no registra en esa cuenta.
+ */
+export function ResumenClasificadoresNoModulares({
+  clasificadores,
+  sinCuenta = false,
+}: {
+  clasificadores: readonly ClasificadorNoModular[];
+  sinCuenta?: boolean;
+}) {
   if (clasificadores.length === 0) return null;
+  const titulo = sinCuenta
+    ? clasificadores.length === 1
+      ? "Saldo sin cuenta no modular restado"
+      : `${clasificadores.length} saldos sin cuenta no modulares restados`
+    : clasificadores.length === 1
+      ? "Concepto no contabilizado restado"
+      : `${clasificadores.length} conceptos no contabilizados restados`;
   return (
     <div className="flex flex-col gap-1 rounded-md border border-warn-500/40 bg-warn-100/20 px-2.5 py-1.5">
-      <span className="text-[11px] font-semibold text-warn-700">
-        {clasificadores.length === 1 ? "Saldo sin cuenta no modular restado" : `${clasificadores.length} saldos sin cuenta no modulares restados`}
-      </span>
+      <span className="text-[11px] font-semibold text-warn-700">{titulo}</span>
       <ul className="flex flex-col gap-0.5">
         {clasificadores.map((c) => (
           <li key={c.clasificador} className="flex items-baseline gap-2 text-[11.5px] text-ink-700">

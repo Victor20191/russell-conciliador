@@ -38,9 +38,145 @@ import { ModalCuentasSinGuardar, useAvisoCierreNavegador, useInterceptarEnlaces 
 import { EstadoGuardado } from "@/components/estado-guardado";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
+import { agruparConsolidadoPorConcepto, resumirGrupoConcepto } from "@/lib/modulos/nomina/consolidado-por-concepto";
+import { filtrarFilasCruce, hayFiltrosCruce, type FiltrosCruce } from "@/lib/modulos/filtros-cruce";
+import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
+import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+
+/** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
+const CLAVE_TOTAL_AGRUPADA = "__total_agrupada__";
+
+/**
+ * Renglón único de un concepto partido por cuenta: sus sumas y, a la derecha, qué cuenta del
+ * archivo va a qué cuenta Russell y por cuánto. Se despliega para editar cada una.
+ */
+function FilaConceptoAgrupado({ grupo, abierto, columnas, onAlternar, seleccionadas, onSeleccionar, cuentasDe, nombreDeCuenta }: {
+  grupo: { clave: string; filas: ConsolidadoVm[] };
+  abierto: boolean;
+  columnas: number;
+  onAlternar: () => void;
+  seleccionadas: number;
+  onSeleccionar?: (activar: boolean) => void;
+  cuentasDe: (clave: string) => string[];
+  nombreDeCuenta: (codigo: string) => string | null;
+}) {
+  const r = resumirGrupoConcepto(grupo, cuentasDe);
+  const todas = seleccionadas === grupo.filas.length;
+  return (
+    <tr className="border-t border-ink-100 bg-ink-50/40 align-top">
+      {onSeleccionar && (
+        <td className="px-3 py-2">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            aria-label={`Seleccionar las ${grupo.filas.length} cuentas de ${r.codigo}`}
+            checked={todas}
+            ref={(el) => { if (el) el.indeterminate = seleccionadas > 0 && !todas; }}
+            onChange={() => onSeleccionar(!todas)}
+          />
+        </td>
+      )}
+      <td className="px-3 py-2 font-medium text-ink-800">
+        <button type="button" onClick={onAlternar} aria-expanded={abierto} className="inline-flex items-center gap-1.5 font-medium hover:text-navy-700">
+          <Icon name={chevronDivulgacion(abierto)} size={13} />
+          {r.codigo}
+          {r.agrupador && (
+            <span className="rounded border border-ink-200 bg-white px-1 py-0.5 text-[10.5px] font-semibold text-ink-600" title="Centro de costo / clase del archivo">{r.agrupador}</span>
+          )}
+          <span className="rounded border border-ink-200 bg-white px-1 py-0.5 text-[10.5px] font-semibold text-ink-500">{grupo.filas.length} cuentas del archivo</span>
+        </button>
+        {r.descripcion && <div className="text-[11px] font-normal text-ink-500">{r.descripcion}</div>}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{r.filas}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(r.total)}</td>
+      <td className="px-3 py-2">
+        <ul className="flex flex-col gap-1">
+          {r.cuentas.map((c) => (
+            <li key={c.cuentaArchivo} className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+              <span className="rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo">{c.cuentaArchivo}</span>
+              <span className="text-ink-400">→</span>
+              {c.russell.length === 0 ? (
+                <span className="font-medium text-warn-700">sin cuenta</span>
+              ) : c.russell.map((cod) => (
+                <span key={cod} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-blue-800" title={etiquetaRussell(cod, nombreDeCuenta(cod))}>
+                  <span className="font-semibold">R - {cod}</span>
+                  {nombreDeCuenta(cod) && <span className="max-w-[120px] truncate text-blue-600">{nombreDeCuenta(cod)}</span>}
+                </span>
+              ))}
+              <span className="ml-auto tabular-nums text-ink-600">{fmtContable(c.total)}</span>
+            </li>
+          ))}
+        </ul>
+        {!abierto && (
+          <button type="button" onClick={onAlternar} className="mt-1 text-[11px] font-semibold text-blue-700 hover:underline">
+            Ver y editar cada cuenta
+          </button>
+        )}
+      </td>
+      <td className="px-3 py-2" />
+      {columnas > 6 && <td />}
+    </tr>
+  );
+}
+
+/**
+ * De dónde sale la columna del módulo en una fila del cruce: los clasificadores del archivo que
+ * suman a ella, de mayor a menor. Va al lado de las cuentas del cliente, que explican el otro lado.
+ */
+function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlternar }: {
+  detalle: readonly { clasificador: string; total: number }[];
+  etiqueta: string;
+  descripcionDe: (clasificador: string) => string | null;
+  /** Conceptos marcados NO CONTABILIZADOS: su total no cuenta del lado del módulo. */
+  excluidos?: ReadonlySet<string>;
+  /** Ausente → solo lectura (sin casillas): la selección se hace en la marca. */
+  onAlternar?: (clasificador: string) => void;
+}) {
+  if (detalle.length === 0) {
+    return <p className="text-[11.5px] text-ink-400">Esta fila no tiene saldo del módulo que desglosar.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+        {etiqueta} · {detalle.length} {detalle.length === 1 ? "concepto" : "conceptos"}
+      </span>
+      <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+        {detalle.map((d) => {
+          const descripcion = descripcionDe(d.clasificador);
+          const fuera = excluidos?.has(d.clasificador) === true;
+          const contenido = (
+            <>
+              <span className="shrink-0 font-mono text-[11.5px] text-ink-600 sm:w-[110px]">{d.clasificador}</span>
+              <span className={`min-w-0 flex-1 truncate text-[12px] ${fuera ? "text-ink-400" : "text-ink-700"}`} title={descripcion ?? undefined}>{descripcion ?? ""}</span>
+              <span className={`shrink-0 tabular-nums text-[12px] ${fuera ? "text-ink-400 line-through" : "text-ink-800"}`}>{fmtContable(d.total)}</span>
+            </>
+          );
+          if (!onAlternar) {
+            return (
+              <li key={d.clasificador} className="flex items-center gap-2 px-2.5 py-1.5">
+                {contenido}
+                {fuera && <Chip label="No contabilizado" tone="warn" />}
+              </li>
+            );
+          }
+          return (
+            <li key={d.clasificador}>
+              <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 transition hover:bg-ink-50">
+                <input type="checkbox" checked={fuera} onChange={() => onAlternar(d.clasificador)} className="size-3.5 shrink-0 accent-navy-700" />
+                {contenido}
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ListaNoModulares, ListaSinCuentaNoModulares, ResumenClasificadoresNoModulares, ResumenNoModulares } from "../lista-no-modulares";
 import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
@@ -129,6 +265,8 @@ export type CruceContableVm = {
   detalleSinCuenta?: HijoModuloSinCuenta[];
   /** Parte de «Contabilidad» que está en cuentas Russell de seis que el módulo no concilia. */
   fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
+  /** Cuentas solo visibles (Nómina): su cruce aparte, fuera de totales, marcas y cierre. */
+  soloVisibles?: ResumenCruceContable | null;
   /** Conciliación en firme del (cliente, módulo, período). */
   conciliacion: CierreConciliacionVm;
   /** Solo Nómina: rango, base contable, repartos, vista por subcuenta y control de deducciones. */
@@ -215,6 +353,59 @@ const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codig
  * Clasificadores que originan una fila agrupada, para su etiqueta. Los de Nómina llegan como
  * clave del Consolidado («1 ∥ GYA # 51050601»): se muestra el código del concepto, una vez.
  */
+/**
+ * Valor por el que se ordena cada columna del Consolidado: el clasificador ordena por su nombre
+ * cuando lo tiene (en Nómina el código es «1», «10»… y el auditor busca «Sueldos»), y las cuentas,
+ * por la primera que muestra la fila.
+ */
+function valorColumnaConsolidado(fila: ConsolidadoVm & { cuentas?: { codigo: string }[] }, columna: string): unknown {
+  if (columna === "clasificador") return fila.descripcion?.trim() || fila.clasificador;
+  if (columna === "filas") return fila.filas;
+  if (columna === "total") return fila.total;
+  if (columna === "cuentas") return (fila.cuentas ?? fila.cuentas4.map((c) => ({ codigo: c.codigo })))[0]?.codigo ?? "";
+  return null;
+}
+
+/** Campo de filtro de una columna de las tablas del cruce (mismo aspecto que los del Detalle). */
+function FiltroColumnaCruce({ etiqueta, valor, onChange, numerico = false }: {
+  etiqueta: string;
+  valor: string | undefined;
+  onChange: (v: string) => void;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      value={valor ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={`Filtrar por ${etiqueta}`}
+      placeholder={numerico ? "> < = …" : "Filtrar…"}
+      title={numerico ? undefined : AYUDA_COMODIN}
+      className={`w-full min-w-[70px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] font-normal text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${numerico ? "text-right" : ""}`}
+    />
+  );
+}
+
+/** Campo de filtro de una columna del Consolidado (mismo aspecto que los del Detalle). */
+function FiltroConsolidado({ etiqueta, valor, onChange, numerico = false }: {
+  etiqueta: string;
+  valor: string | undefined;
+  onChange: (v: string) => void;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      value={valor ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={`Filtrar por ${etiqueta}`}
+      placeholder={numerico ? "> < = …" : "Filtrar…"}
+      title={numerico ? undefined : AYUDA_COMODIN}
+      className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] font-normal text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${numerico ? "text-right" : ""}`}
+    />
+  );
+}
+
 const clasificadoresDeGrupo = (clasificadores: readonly string[]): string[] => [
   ...new Set(
     clasificadores.map((c) => (c.includes(SEPARADOR_AGRUPADOR) || c.includes(SEPARADOR_CUENTA) ? partirClaveConsolidado(c).clasificador : c)),
@@ -327,6 +518,12 @@ export default function DatoCargadoClient({
     if (tabActual.current === "consolidado") consolidadoGuardo.current = true;
     else router.refresh();
   };
+  // Nombre legible de cada clasificador, para que el desglose del cruce diga «1050 · Salario» y
+  // no solo el código.
+  const descripcionPorClasificador = useMemo(
+    () => Object.fromEntries(consolidado.filter((c) => c.descripcion?.trim()).map((c) => [c.clasificador, c.descripcion!.trim()])),
+    [consolidado],
+  );
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size + (novedades.tercero?.total ?? 0);
   const tabs: TabId[] = [
@@ -422,7 +619,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
       ) : tab === "cruceTercero" ? (
         <div className="flex flex-col gap-4">
           {cruceContable.balanceEncontrado && (
@@ -720,16 +917,29 @@ function ConsolidadoTab({
   // que trae `valores` — de lo contrario un clasificador con solo la propuesta automática
   // (aún sin persistir) se vería como «con cuenta» y no aparecería en el filtro.
   const [filtroVista, setFiltroVista] = useState<"todas" | "sinCuenta">("todas");
+  // Filtros por columna de la tabla (clasificador y su nombre, filas, total, cuentas asignadas).
+  const [filtros, setFiltros] = useState<FiltrosConsolidado>({});
+  const hayFiltros = hayFiltrosConsolidado(filtros);
+  // Orden por columna (clic en el encabezado): la tabla la tenemos entera, se ordena aquí.
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
   const sinCuentaGuardada = useMemo(
     () => consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0).length,
     [consolidado, guardados],
   );
-  const consolidadoVisible = useMemo(
-    () => (esInventarios && filtroVista === "sinCuenta"
+  const consolidadoVisible = useMemo(() => {
+    const base = esInventarios && filtroVista === "sinCuenta"
       ? consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0)
-      : consolidado),
-    [consolidado, guardados, filtroVista, esInventarios],
-  );
+      : consolidado;
+    // Las cuentas que se buscan (y por las que se ordena) son las que la fila MUESTRA: las
+    // asignadas o, mientras no se guarden, las propuestas.
+    const conCuentas = base.map((c) => ({
+      ...c,
+      cuentas: (valores[c.clasificador] ?? c.cuentas4.map((x) => x.codigo)).map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? null })),
+    }));
+    const filtradas = hayFiltrosConsolidado(filtros) ? filtrarConsolidado(conCuentas, filtros) : conCuentas;
+    return ordenarFilas(filtradas, orden, valorColumnaConsolidado, (c) => c === "filas" || c === "total");
+  }, [consolidado, guardados, filtroVista, esInventarios, filtros, valores, nombrePorCuenta, orden]);
 
   const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
     const aplicar = (prev: Record<string, string[]>) => {
@@ -800,6 +1010,10 @@ function ConsolidadoTab({
   useAvisoCierreNavegador(puedeEditar && pendientes.length > 0);
   const ocupado = guardandoClave != null || guardandoTodo;
 
+  // Un concepto que el archivo parte por cuenta (Nómina) se junta en un solo renglón: la vista
+  // agrupa, el cruce sigue con el valor exacto de cada cuenta.
+  const [conceptosAbiertos, setConceptosAbiertos] = useState<Set<string>>(() => new Set());
+  const gruposConsolidado = useMemo(() => agruparConsolidadoPorConcepto(consolidadoVisible), [consolidadoVisible]);
   const clasificadores = useMemo(() => consolidadoVisible.map((c) => c.clasificador), [consolidadoVisible]);
   // Intersección con la tabla actual: tras un refresh puede haber cambiado el consolidado.
   const seleccionados = useMemo(() => clasificadores.filter((k) => seleccion.has(k)), [clasificadores, seleccion]);
@@ -994,10 +1208,18 @@ function ConsolidadoTab({
             {nSel > 0 && (
               <button type="button" onClick={() => seleccionarTodos(false)} className="font-medium text-ink-500 hover:underline">Limpiar</button>
             )}
+            {hayFiltros && (
+              <>
+                <span className="text-ink-300">·</span>
+                <span>{consolidadoVisible.length.toLocaleString("es-CO")} de {consolidado.length.toLocaleString("es-CO")} con los filtros</span>
+                <button type="button" onClick={() => setFiltros({})} className="font-medium text-blue-700 hover:underline">Limpiar filtros</button>
+              </>
+            )}
           </div>
         ) : (
           <span className="text-[11.5px] text-ink-500">
-            <span className="font-semibold text-ink-700">{clasificadores.length.toLocaleString("es-CO")}</span> {clasificadores.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}
+            <span className="font-semibold text-ink-700">{clasificadores.length.toLocaleString("es-CO")}</span>
+            {hayFiltros ? ` de ${consolidado.length.toLocaleString("es-CO")}` : ""} {clasificadores.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}
           </span>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -1049,22 +1271,74 @@ function ConsolidadoTab({
                   />
                 </th>
               )}
-              <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
-              <th className="px-3 py-2 text-right font-semibold">Filas</th>
-              <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">Total</th>
-              <th className="px-3 py-2 font-semibold">Cuentas ({etiquetaNivel} díg) — una o varias</th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta={clasificadorEtiqueta} columna="clasificador" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Filas" columna="filas" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Total" columna="total" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta={`Cuentas (${etiquetaNivel} díg) — una o varias`} columna="cuentas" orden={orden} onOrdenar={ordenarPor} />
+              </th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
+            </tr>
+            <tr className="bg-ink-50">
+              {puedeEditar && <th className="px-3 pb-2" />}
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta={clasificadorEtiqueta} valor={filtros.clasificador} onChange={(v) => setFiltros((p) => ({ ...p, clasificador: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Filas" numerico valor={filtros.filas} onChange={(v) => setFiltros((p) => ({ ...p, filas: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Total" numerico valor={filtros.total} onChange={(v) => setFiltros((p) => ({ ...p, total: v }))} />
+              </th>
+              <th className="px-1.5 pb-2 font-normal">
+                <FiltroConsolidado etiqueta="Cuentas" valor={filtros.cuentas} onChange={(v) => setFiltros((p) => ({ ...p, cuentas: v }))} />
+              </th>
+              <th className="px-3 pb-2" />
             </tr>
           </thead>
           <tbody>
-            {esInventarios && filtroVista === "sinCuenta" && consolidadoVisible.length === 0 && (
+            {consolidadoVisible.length === 0 && (esInventarios && filtroVista === "sinCuenta" || hayFiltros) && (
               <tr>
                 <td colSpan={puedeEditar ? 6 : 5} className="px-3 py-6 text-center text-ink-400">
-                  Ningún grupo coincide con el filtro «Sin cuenta asignada».
+                  {hayFiltros
+                    ? `Ningún ${clasificadorEtiqueta.toLocaleLowerCase("es")} coincide con los filtros.`
+                    : "Ningún grupo coincide con el filtro «Sin cuenta asignada»."}
                 </td>
               </tr>
             )}
-            {consolidadoVisible.map((c) => {
+            {/* Un concepto que el archivo parte en varias cuentas se muestra en UN renglón con sus
+                cuentas al lado; al desplegarlo salen sus renglones por cuenta, que son los que se
+                editan y los que cruzan con su valor exacto. */}
+            {gruposConsolidado.flatMap((g) => {
+              const agrupa = g.filas.length > 1;
+              const abierto = conceptosAbiertos.has(g.clave);
+              const cabecera = agrupa
+                ? [(
+                    <FilaConceptoAgrupado
+                      key={`grupo:${g.clave}`}
+                      grupo={g}
+                      abierto={abierto}
+                      columnas={puedeEditar ? 6 : 5}
+                      onAlternar={() => setConceptosAbiertos((p) => { const s = new Set(p); if (s.has(g.clave)) s.delete(g.clave); else s.add(g.clave); return s; })}
+                      seleccionadas={g.filas.filter((f) => seleccion.has(f.clasificador)).length}
+                      onSeleccionar={puedeEditar ? (activar: boolean) => setSeleccion((p) => {
+                        const s = new Set(p);
+                        for (const f of g.filas) { if (activar) s.add(f.clasificador); else s.delete(f.clasificador); }
+                        return s;
+                      }) : undefined}
+                      cuentasDe={(clave: string) => valores[clave] ?? []}
+                      nombreDeCuenta={(cod: string) => nombrePorCuenta.get(cod) ?? null}
+                    />
+                  )]
+                : [];
+              const visibles = agrupa && !abierto ? [] : g.filas;
+              return [...cabecera, ...visibles.map((c) => {
               const asignadas = valores[c.clasificador] ?? [];
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               // Nómina: la cuenta ya viene resuelta por el archivo; guardarla en la memoria es opcional.
@@ -1214,6 +1488,7 @@ function ConsolidadoTab({
                   </td>
                 </tr>
               );
+              })];
             })}
           </tbody>
         </table>
@@ -1650,15 +1925,19 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   const idxValor = indiceColumnaValor(columnas);
   const [filtros, setFiltros] = useState<FiltrosDetalleModulo>({});
   const hayFiltros = hayFiltrosDetalleModulo(filtros);
+  // El detalle llega por páginas: ordenar es cosa del SERVIDOR (ordenar aquí solo movería las
+  // 500 filas traídas y mentiría sobre las demás).
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
   const [filas, setFilas] = useState<FilaDetalleVm[]>([]);
   const [total, setTotal] = useState(totalFilas);
   const [cargando, setCargando] = useState(true);
   const tablaRef = useRef<HTMLDivElement>(null);
 
-  const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo) => {
+  const traer = useCallback(async (desde: number, filtrosPedidos: FiltrosDetalleModulo, ordenPedido: OrdenTabla) => {
     setCargando(true);
     try {
-      const r = await filasDetalleCargue({ encabezadoId, desde, filtros: hayFiltrosDetalleModulo(filtrosPedidos) ? filtrosPedidos : undefined });
+      const r = await filasDetalleCargue({ encabezadoId, desde, filtros: hayFiltrosDetalleModulo(filtrosPedidos) ? filtrosPedidos : undefined, orden: ordenPedido });
       if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
       setFilas((previas) => (desde > 0 ? [...previas, ...r.filas] : r.filas));
       setTotal(r.total);
@@ -1673,10 +1952,10 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
   useEffect(() => {
     const id = setTimeout(() => {
       tablaRef.current?.scrollTo({ top: 0 });
-      void traer(0, filtros);
+      void traer(0, filtros, orden);
     }, hayFiltrosDetalleModulo(filtros) ? 400 : 0);
     return () => clearTimeout(id);
-  }, [filtros, traer]);
+  }, [filtros, orden, traer]);
 
   const grupos = useMemo(() => {
     const orden: string[] = [];
@@ -1725,7 +2004,9 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
             <tr>
               <th className="px-2.5 py-2 font-semibold">#</th>
               {columnas.map((c) => (
-                <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
+                <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
+                  <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
+                </th>
               ))}
               <th className="px-2.5 py-2 text-center font-semibold">💬</th>
             </tr>
@@ -1738,6 +2019,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                     value={filtros[c.nombre] ?? ""}
                     onChange={(e) => setFiltros((prev) => ({ ...prev, [c.nombre]: e.target.value }))}
                     placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                    title={esNum(c.tipo) ? undefined : AYUDA_COMODIN}
                     className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
                   />
                 </th>
@@ -1783,7 +2065,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                   <button
                     type="button"
                     disabled={cargando}
-                    onClick={() => void traer(filas.length, filtros)}
+                    onClick={() => void traer(filas.length, filtros, orden)}
                     className="rounded-md border border-ink-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
                   >
                     {cargando ? "Trayendo…" : `Ver más filas (${filas.length.toLocaleString("es-CO")} de ${total.toLocaleString("es-CO")})`}
@@ -1816,6 +2098,7 @@ function CruceContableTab({
   encabezadoId,
   comentarios,
   puedeEditar,
+  descripcionPorClasificador = {},
 }: {
   /** Lleva a la pestaña Consolidado (para asignar cuenta al saldo sin cuenta). */
   onIrConsolidado?: () => void;
@@ -1826,6 +2109,8 @@ function CruceContableTab({
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
+  /** Nombre legible de cada clasificador (Nómina: el concepto detrás del código). */
+  descripcionPorClasificador?: Record<string, string>;
 }) {
   const router = useRouter();
   // Fila que se está marcando en el modal (null = modal cerrado).
@@ -1846,9 +2131,18 @@ function CruceContableTab({
   const [quitando, startQuitar] = useTransition();
   // Orden por columna elegido en el encabezado de la cédula (null = el del sistema).
   const [orden, setOrden] = useState<OrdenCruce<ColumnaCruceContable>>(null);
+  // Filtros por columna de la cédula (van aquí, antes de los retornos tempranos: el orden de los
+  // hooks no puede depender del estado del cruce).
+  const [filtrosCedula, setFiltrosCedula] = useState<FiltrosCruce>({});
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
+  // El clasificador del cruce puede traer el centro («1050 ∥ GYA») o la cuenta del reparto
+  // («1050 → 510506»): el nombre se busca por el concepto, que es lo que el usuario reconoce.
+  const descripcionDeClasificador = (clave: string): string | null => {
+    const base = clave.split(" → ")[0];
+    return descripcionPorClasificador[base] ?? descripcionPorClasificador[base.split(" ∥ ")[0]] ?? null;
+  };
   // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
   const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
 
@@ -1901,7 +2195,17 @@ function CruceContableTab({
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
   const conDiferencia = filasMarcadas.filter((f) => !f.cuadra).length;
-  const filasOrdenadas = ordenarCruceContable(filasMarcadas, orden);
+  // Filtros por columna de la cédula: la cuenta por texto y las cifras con >, <, =.
+  const columnasFiltroCedula = {
+    cuenta: { texto: (f: FilaCruceMarcada) => `${f.cuenta4} ${f.nombre ?? ""}` },
+    contable: { numero: (f: FilaCruceMarcada) => f.contable },
+    modulo: { numero: (f: FilaCruceMarcada) => f.inventario },
+    diferenciaBruta: { numero: (f: FilaCruceMarcada) => f.diferenciaBruta },
+    noModular: { numero: (f: FilaCruceMarcada) => f.noModular - f.noModularModulo },
+    diferencia: { numero: (f: FilaCruceMarcada) => f.diferencia },
+  };
+  const hayFiltrosCedula = hayFiltrosCruce(filtrosCedula);
+  const filasOrdenadas = ordenarCruceContable(filtrarFilasCruce(filasMarcadas, columnasFiltroCedula, filtrosCedula), orden);
   const encabezado = (label: string, columna: ColumnaCruceContable, alineacion: "left" | "right", title: string) => (
     <HeaderOrdenable
       label={label}
@@ -1989,7 +2293,13 @@ function CruceContableTab({
             {filasMarcadas.length > 0 && (conDiferencia > 0
               ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
               : <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
+            {hayFiltrosCedula && <> · <span className="font-semibold text-ink-700">{filasOrdenadas.length.toLocaleString("es-CO")}</span> con los filtros</>}
           </span>
+          {hayFiltrosCedula && (
+            <button type="button" onClick={() => setFiltrosCedula({})} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
+              Limpiar filtros
+            </button>
+          )}
           <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
         <div className={claseScrollTabla(pantallaCompleta, null)}>
@@ -2003,12 +2313,25 @@ function CruceContableTab({
                   {encabezado("Diferencia", "diferenciaBruta", "right", "Diferencia sin descontar las cuentas no modulares. Ordena por su tamaño, sin importar el signo.")}
                 </th>
                 <th className="px-3 py-2 text-right font-semibold">
-                  {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación del módulo: cuentas del cliente (se restan de Contabilidad) o saldos sin cuenta (se restan del módulo). Ordena por el tamaño de su efecto.")}
+                  {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación: cuentas del cliente no modulares (se restan de Contabilidad) y conceptos del archivo no contabilizados (se restan del módulo). Ordena por el tamaño de su efecto.")}
                 </th>
                 <th className="px-3 py-2 text-right font-semibold">
                   {encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}
                 </th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
+              </tr>
+              <tr className="bg-ink-50">
+                {(["cuenta", "contable", "modulo", "diferenciaBruta", "noModular", "diferencia"] as const).map((columna) => (
+                  <th key={columna} className="px-1.5 pb-2 font-normal">
+                    <FiltroColumnaCruce
+                      etiqueta={columna === "cuenta" ? "Cuenta" : columna}
+                      valor={filtrosCedula[columna]}
+                      numerico={columna !== "cuenta"}
+                      onChange={(v) => setFiltrosCedula((p) => ({ ...p, [columna]: v }))}
+                    />
+                  </th>
+                ))}
+                <th className="px-1.5 pb-2" />
               </tr>
             </thead>
             <tbody>
@@ -2028,10 +2351,13 @@ function CruceContableTab({
                     {/* Una fila agrupada se pinta con un renglón por cuenta (su propio saldo contable y
                         no modular); archivos, diferencias y marca son del grupo y ocupan todos sus renglones. */}
                     {(f.desglose && f.desglose.length > 1
-                      ? f.desglose
+                      // La fila agrupada cierra con el TOTAL de sus cuentas: el saldo contra el que
+                      // se compara el módulo no estaba a la vista, había que sumarlo a ojo.
+                      ? [...f.desglose, { cuenta: CLAVE_TOTAL_AGRUPADA, nombre: null, contable: f.contable, noModular: f.noModular }]
                       : [{ cuenta: f.cuenta4, nombre: f.nombre, contable: f.contable, noModular: f.noModular }]
                     ).map((renglon, i, renglones) => {
                       const agrupada = renglones.length > 1;
+                      const esTotalGrupo = renglon.cuenta === CLAVE_TOTAL_AGRUPADA;
                       const primero = i === 0;
                       const alto = renglones.length;
                       return (
@@ -2056,21 +2382,25 @@ function CruceContableTab({
                               ) : (
                                 <span className="inline-block w-[18px]" />
                               )}
-                              {sinCuenta ? (
+                              {esTotalGrupo ? (
+                                <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                              ) : sinCuenta ? (
                                 <span title="Lo del módulo que no tiene cuenta asignada en el Consolidado: suma en la columna del módulo contra un contable en cero.">
                                   {NOMBRE_SIN_CUENTA}
                                 </span>
                               ) : etiquetaRussell(renglon.cuenta, renglon.nombre)}
                               {sinCuenta && <Chip label="Sin cuenta" tone="warn" />}
                               {cuentasPeriodo.has(renglon.cuenta) && <ChipSoloPeriodo periodo={cruceContable.periodo} />}
-                              {agrupada && (
+                              {agrupada && !esTotalGrupo && (
                                 <span title={`Agrupada: ${f.clasificadores?.join(", ") ?? "el clasificador"} está asignado a varias cuentas y se concilia contra la suma de ellas.`}>
                                   <Chip label={f.clasificadores?.length ? `Agrupada · ${f.clasificadores.join(", ")}` : "Agrupada"} tone="blue" />
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(renglon.contable)}</td>
+                          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${esTotalGrupo ? "border-t border-ink-200 font-semibold text-ink-800" : "text-ink-700"}`}>
+                            {fmtContable(renglon.contable)}
+                          </td>
                           {primero && (
                             <td rowSpan={alto} className={`whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-700 ${agrupada ? "border-x border-ink-100 font-semibold" : ""}`}>
                               {fmtContable(f.inventario)}
@@ -2079,9 +2409,10 @@ function CruceContableTab({
                           {primero && <td rowSpan={alto} className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>}
                           {/* Efecto en la diferencia: el contable excluido la baja; el módulo excluido la sube. */}
                           {(() => {
-                            const efecto = sinCuenta ? f.noModularModulo : -renglon.noModular;
+                            // En una fila agrupada el excluido del módulo es de la fila entera: va en su total.
+                            const efecto = (esTotalGrupo || !agrupada ? f.noModularModulo : 0) - renglon.noModular;
                             return (
-                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700">
+                              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700 ${esTotalGrupo ? "border-t border-ink-200 font-semibold" : ""}`}>
                                 {efecto === 0 ? <span className="text-ink-300">—</span> : fmtContable(efecto)}
                               </td>
                             );
@@ -2150,7 +2481,7 @@ function CruceContableTab({
                           <div className="flex flex-col gap-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="text-[11.5px] font-semibold text-ink-600">
-                                Cuentas del cliente en {etiquetaFilaCruce(f)}
+                                Qué compone {etiquetaFilaCruce(f)}
                               </span>
                               {puedeEditar && (
                                 <button
@@ -2163,7 +2494,17 @@ function CruceContableTab({
                                 </button>
                               )}
                             </div>
-                            <ListaNoModulares hijos={hijos} seleccion={excluidas} />
+                            {/* Dos lados: de dónde sale «Contabilidad» (cuentas del cliente) y de
+                                dónde sale la columna del módulo (los conceptos del archivo). */}
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              <ListaNoModulares hijos={hijos} seleccion={excluidas} />
+                              <DetalleModuloFila
+                                detalle={f.detalleModulo ?? []}
+                                etiqueta={`${moduloLabel} (archivos)`}
+                                descripcionDe={descripcionDeClasificador}
+                                excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
+                              />
+                            </div>
                             {excluidas.size > 0 && (
                               <p className="text-[11px] text-ink-500">
                                 Lo tachado no hace parte de la conciliación: se resta de «Contabilidad» para calcular la diferencia ajustada. El detalle está en la marca, al pie.
@@ -2200,6 +2541,10 @@ function CruceContableTab({
           </table>
         </div>
       </div>
+
+      {cruceContable.soloVisibles && cruceContable.soloVisibles.filas.length > 0 && (
+        <CuentasSoloVisiblesCard resumen={cruceContable.soloVisibles} detalle={cruceContable.detalleContablePorCuenta} moduloLabel={moduloLabel} />
+      )}
 
       <ObservacionesMarcas
         observaciones={observaciones}
@@ -2257,6 +2602,7 @@ function CruceContableTab({
           fila={marcando}
           hijos={hijosDe(marcando.cuenta4)}
           hijosSinCuenta={marcando.cuenta4 === CLAVE_SIN_CUENTA ? hijosSinCuenta : undefined}
+          descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
           onClose={() => setMarcando(null)}
           onGuardado={() => {
@@ -2282,6 +2628,7 @@ function CruceContableTab({
           fila={pasando.fila}
           origen={pasando.origen}
           hijos={hijosDe(pasando.fila.cuenta4)}
+          descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
           onClose={() => setPasando(null)}
           onGuardado={() => {
@@ -2468,6 +2815,9 @@ function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEdit
 function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { pendientes: RepartoPendienteVm[]; encabezadoId: number; puedeEditar: boolean }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Repartir es opcional y la mayoría no lo usa: el panel llega COLAPSADO, con el resumen a la
+  // vista, y se despliega solo si se va a repartir.
+  const [desplegado, setDesplegado] = useState(false);
   const [pending, start] = useTransition();
   const total = pendientes.reduce((s, p) => s + Math.abs(p.total), 0);
   const editando = pendientes.find((p) => p.clasificador === abierto) ?? null;
@@ -2480,19 +2830,34 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2 text-[12px]">
-        <div className="text-ink-600">
-          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).{" "}
-          {pendientes.some((p) => p.origenSugerido === "centros")
-            ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
-            : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
-        </div>
-        {puedeEditar && (
+        <button
+          type="button"
+          onClick={() => setDesplegado((v) => !v)}
+          aria-expanded={desplegado}
+          className="flex min-w-0 flex-1 items-start gap-1.5 text-left text-ink-600 hover:text-ink-800"
+        >
+          <Icon name={chevronDivulgacion(desplegado)} size={13} className="mt-0.5 shrink-0" />
+          <span className="min-w-0">
+            <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Reparto por cuenta</span>
+            <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).
+            {desplegado && (
+              <>
+                {" "}
+                {pendientes.some((p) => p.origenSugerido === "centros")
+                  ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
+                  : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
+              </>
+            )}
+            {!desplegado && <span className="ml-1 font-semibold text-blue-700">Ver para repartir</span>}
+          </span>
+        </button>
+        {puedeEditar && desplegado && (
           <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:border-navy-700 hover:text-navy-700 disabled:opacity-60">
             {pending ? "Aplicando…" : "Repartir todos con lo sugerido"}
           </button>
         )}
       </div>
-      <div className="overflow-x-auto">
+      <div className={`overflow-x-auto ${desplegado ? "" : "hidden"}`}>
         <table className="w-full text-[12px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
@@ -2552,86 +2917,249 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
   );
 }
 
+/**
+ * Cuentas SOLO VISIBLES de Nómina (1/Oct/2026): su saldo final contra lo que el archivo les asigna, al
+ * final del cruce y cerradas al entrar. No suman a los totales de la cédula, no llevan marca y no
+ * pesan en el cierre; la diferencia se muestra solo como referencia.
+ */
+function CuentasSoloVisiblesCard({ resumen, detalle, moduloLabel }: { resumen: ResumenCruceContable; detalle: Record<string, HijoContableCruce[]>; moduloLabel: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const [expandidas, setExpandidas] = useState<Set<string>>(() => new Set());
+  const alternar = (clave: string) => setExpandidas((p) => { const n = new Set(p); if (n.has(clave)) n.delete(clave); else n.add(clave); return n; });
+  return (
+    <Card className="p-0">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left hover:bg-ink-50/60"
+      >
+        <Icon name={chevronDivulgacion(abierto)} size={13} className="shrink-0 text-ink-400" />
+        <span className="text-[12.5px] font-semibold text-ink-800">Cuentas solo visibles</span>
+        <span className="text-[11.5px] text-ink-500">{resumen.filas.length} · no cuentan para la conciliación</span>
+        <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
+          Contabilidad {fmtContable(resumen.totales.contable)} · {moduloLabel} {fmtContable(resumen.totales.inventario)}
+        </span>
+      </button>
+      {abierto && (
+        <div className="border-t border-ink-100">
+          <p className="px-3 py-2 text-[11px] text-ink-500">
+            Se ven para consulta, con su saldo final y lo que el archivo les asigna. No suman a los totales de la cédula, no llevan
+            marca y no pesan en el cierre. Se administran en Filtros de cuentas.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-ink-50 text-left text-ink-500">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Cuenta</th>
+                  <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
+                  <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
+                  <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.filas.map((f) => {
+                  const hijos = detalle[f.cuenta4] ?? [];
+                  const expandida = expandidas.has(f.cuenta4);
+                  return (
+                    <Fragment key={f.cuenta4}>
+                      <tr className="border-t border-ink-100">
+                        <td className="px-3 py-2 text-ink-800">
+                          <div className="flex items-center gap-1.5">
+                            {hijos.length > 0 ? (
+                              <button type="button" onClick={() => alternar(f.cuenta4)} aria-expanded={expandida} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver las cuentas del cliente">
+                                <Icon name={chevronDivulgacion(expandida)} size={13} />
+                              </button>
+                            ) : (
+                              <span className="inline-block w-[17px]" />
+                            )}
+                            <span className="min-w-0 break-words">{etiquetaFilaCruce(f)}</span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.inventario)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(f.diferencia)}</td>
+                      </tr>
+                      {expandida && hijos.map((h) => (
+                        <tr key={h.cuenta8} className="bg-ink-50/50 text-[11.5px] text-ink-600">
+                          <td className="py-1 pl-10 pr-3"><span className="font-mono">{h.cuenta8}</span> {h.nombre}</td>
+                          <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">{fmtContable(h.valor)}</td>
+                          <td colSpan={2} />
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+type FilaSubcuentaNominaVm = NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>["filas"][number];
+
 /** Vista por subcuenta PUC del gasto de personal sumando clases: el papel del auditor. */
 function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<ResultadoCruceNomina["vistaSubcuenta"]>; moduloLabel: string }) {
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set());
+  // Filtros y orden por columna: la tabla está entera aquí, se resuelve en el navegador.
+  const [filtros, setFiltros] = useState<FiltrosCruce>({});
+  const [orden, setOrden] = useState<OrdenTabla>(null);
+  const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
+  const columnasFiltro = {
+    subcuenta: { texto: (f: FilaSubcuentaNominaVm) => `${f.subcuenta} ${f.etiqueta}` },
+    contable: { numero: (f: FilaSubcuentaNominaVm) => f.contable },
+    modulo: { numero: (f: FilaSubcuentaNominaVm) => f.modulo },
+    diferencia: { numero: (f: FilaSubcuentaNominaVm) => f.diferencia },
+    estado: { texto: (f: FilaSubcuentaNominaVm) => ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado },
+  };
+  const hayFiltros = hayFiltrosCruce(filtros);
+  const valorColumna = (f: FilaSubcuentaNominaVm, columna: string) =>
+    columna === "subcuenta" ? `${f.subcuenta} ${f.etiqueta}`
+      : columna === "estado" ? ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado
+        : columna === "contable" ? f.contable
+          : columna === "modulo" ? f.modulo
+            : f.diferencia;
+  const filasVista = ordenarFilas(
+    filtrarFilasCruce(vista.filas, columnasFiltro, filtros),
+    orden,
+    valorColumna,
+    (columna) => columna === "contable" || columna === "modulo" || columna === "diferencia",
+  );
+  const totalesVista = hayFiltros
+    ? filasVista.reduce((acc, f) => ({ contable: acc.contable + f.contable, modulo: acc.modulo + f.modulo, diferencia: acc.diferencia + f.diferencia }), { contable: 0, modulo: 0, diferencia: 0 })
+    : vista.totales;
   const alternar = (sub: string) => setAbiertas((p) => { const n = new Set(p); if (n.has(sub)) n.delete(sub); else n.add(sub); return n; });
+  // Las subcuentas solo visibles van al final, cerradas al entrar y fuera de los totales.
+  const [verVisibles, setVerVisibles] = useState(false);
+  const filasVisibles = vista.filasVisibles ?? [];
+  const renglones = (lista: readonly FilaSubcuentaNominaVm[], soloVisible: boolean) => lista.map((f) => {
+    const abierta = abiertas.has(f.subcuenta);
+    return (
+      <Fragment key={f.subcuenta}>
+        <tr className={`border-t border-ink-100 ${!soloVisible && f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+          <td className="px-3 py-2 font-medium text-ink-800">
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
+                <Icon name={chevronDivulgacion(abierta)} size={13} />
+              </button>
+              <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
+            </div>
+          </td>
+          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
+          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${soloVisible ? "text-ink-500" : `font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}`}>{fmtContable(f.diferencia)}</td>
+          <td className="px-3 py-2">
+            {soloVisible ? <Chip label="Solo visible" tone="ink" /> : <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} />}
+          </td>
+        </tr>
+        {abierta && (
+          <tr className="border-t border-ink-100 bg-ink-50/60">
+            <td colSpan={5} className="px-3 py-2.5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
+                  {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
+                    <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
+                  ))}
+                </div>
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
+                  {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
+                    <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
+                  ))}
+                </div>
+              </div>
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  });
   return (
     <Card className="p-0">
       <div className="border-b border-ink-100 px-3 py-2">
-        <div className="text-[12.5px] font-semibold text-ink-800">Cruce por subcuenta PUC sumando clases</div>
+        <div className="text-[12.5px] font-semibold text-ink-800">
+          Cruce por subcuenta de la cuenta del CLIENTE · balance vs {moduloLabel.toLocaleLowerCase("es")}
+        </div>
         <p className="text-[11px] text-ink-500">
-          Un renglón por subcuenta del gasto de personal (06 sueldos, 15 horas extras, 27 auxilio de transporte…): contabilidad = Σ de las cuentas del cliente con esa subcuenta en administración, ventas y producción; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos con esa subcuenta. Cuadra sin regla de clase ni reparto; no decide el cierre.
+          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase ni reparto; no decide el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
-              <th className="px-3 py-2 font-semibold">Subcuenta</th>
-              <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-              <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
-              <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
-              <th className="px-3 py-2 font-semibold">Estado</th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta="Subcuenta" columna="subcuenta" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Contabilidad" columna="contable" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta={moduloLabel} columna="modulo" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 text-right font-semibold">
+                <EncabezadoOrdenable etiqueta="Diferencia" columna="diferencia" orden={orden} onOrdenar={ordenarPor} numerica />
+              </th>
+              <th className="px-3 py-2 font-semibold">
+                <EncabezadoOrdenable etiqueta="Estado" columna="estado" orden={orden} onOrdenar={ordenarPor} />
+              </th>
+            </tr>
+            <tr className="bg-ink-50">
+              {(["subcuenta", "contable", "modulo", "diferencia", "estado"] as const).map((columna) => (
+                <th key={columna} className="px-1.5 pb-2 font-normal">
+                  <FiltroColumnaCruce
+                    etiqueta={columna}
+                    valor={filtros[columna]}
+                    numerico={columna !== "subcuenta" && columna !== "estado"}
+                    onChange={(v) => setFiltros((p) => ({ ...p, [columna]: v }))}
+                  />
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody>
-            {vista.filas.map((f) => {
-              const abierta = abiertas.has(f.subcuenta);
-              return (
-                <Fragment key={f.subcuenta}>
-                  <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
-                    <td className="px-3 py-2 font-medium text-ink-800">
-                      <div className="flex items-center gap-1.5">
-                        <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
-                          <Icon name={chevronDivulgacion(abierta)} size={13} />
-                        </button>
-                        <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                    <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
-                    <td className="px-3 py-2"><Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} /></td>
-                  </tr>
-                  {abierta && (
-                    <tr className="border-t border-ink-100 bg-ink-50/60">
-                      <td colSpan={5} className="px-3 py-2.5">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div>
-                            <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
-                            {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
-                              <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
-                            ))}
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
-                            {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
-                              <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
-                            ))}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
+          <tbody>{renglones(filasVista, false)}</tbody>
           <tfoot>
             <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-              <td className="px-3 py-2">Totales</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.contable)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(vista.totales.modulo)}</td>
-              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(vista.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(vista.totales.diferencia)}</td>
+              <td className="px-3 py-2">{hayFiltros ? `Totales · ${filasVista.length} de ${vista.filas.length}` : "Totales"}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesVista.contable)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesVista.modulo)}</td>
+              <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totalesVista.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totalesVista.diferencia)}</td>
               <td />
             </tr>
           </tfoot>
         </table>
       </div>
+      {filasVisibles.length > 0 && (
+        <div className="border-t border-ink-100">
+          <button
+            type="button"
+            onClick={() => setVerVisibles((v) => !v)}
+            aria-expanded={verVisibles}
+            className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left hover:bg-ink-50/60"
+          >
+            <Icon name={chevronDivulgacion(verVisibles)} size={13} className="shrink-0 text-ink-400" />
+            <span className="text-[12px] font-semibold text-ink-700">Subcuentas solo visibles</span>
+            <span className="text-[11.5px] text-ink-500">{filasVisibles.length} · no cuentan en los totales</span>
+            <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
+              Contabilidad {fmtContable(vista.totalesVisibles?.contable ?? 0)} · {moduloLabel} {fmtContable(vista.totalesVisibles?.modulo ?? 0)}
+            </span>
+          </button>
+          {verVisibles && (
+            <div className="overflow-x-auto border-t border-ink-100">
+              <table className="w-full text-[12.5px]">
+                <tbody>{renglones(filasVisibles, true)}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       {vista.sinSubcuenta.length > 0 && (
         <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
-          Sin subcuenta conocida (no entran a esta vista): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
+          Sin cuenta del cliente que diga su subcuenta (no entran a esta vista; sí cruzan en la cédula): {vista.sinSubcuenta.map((c) => `${c.codigo}${c.agrupador ? ` · ${c.agrupador}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}.
         </div>
       )}
     </Card>
@@ -3145,7 +3673,10 @@ function ObservacionMarca({
         <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>
 
         <ResumenNoModulares cuentas={marca.noModulares} />
-        <ResumenClasificadoresNoModulares clasificadores={marca.clasificadoresNoModulares ?? []} />
+        <ResumenClasificadoresNoModulares
+          clasificadores={marca.clasificadoresNoModulares ?? []}
+          sinCuenta={fila.cuenta4 === CLAVE_SIN_CUENTA}
+        />
 
         {marca.referenciaAnexo && (
           <p className="text-[11.5px] text-ink-600">
@@ -3255,6 +3786,7 @@ function ModalMarca({
   origen,
   hijos,
   hijosSinCuenta,
+  descripcionDeClasificador,
   encabezadoId,
   onClose,
   onGuardado,
@@ -3269,6 +3801,8 @@ function ModalMarca({
   hijos: HijoContableCruce[];
   /** Solo el renglón del saldo sin cuenta: lo que se excluye son clasificadores del lado módulo. */
   hijosSinCuenta?: HijoModuloSinCuenta[];
+  /** Nombre legible de un concepto del archivo, para la lista de no contabilizados. */
+  descripcionDeClasificador: (clasificador: string) => string | null;
   encabezadoId: number;
   onClose: () => void;
   onGuardado: () => void;
@@ -3292,15 +3826,28 @@ function ModalMarca({
       else siguiente.add(cuenta8);
       return siguiente;
     });
+  // Conceptos del archivo que la contabilidad no registra en esta cuenta: bajan el lado del módulo.
+  const conceptos = ladoModulo ? [] : fila.detalleModulo ?? [];
+  const [noContabilizados, setNoContabilizados] = useState<Set<string>>(
+    () => new Set((marcaBase?.clasificadoresNoModulares ?? []).map((c) => c.clasificador).filter((c) => conceptos.some((x) => x.clasificador === c))),
+  );
+  const alternarNoContabilizado = (clasificador: string) =>
+    setNoContabilizados((previos) => {
+      const siguiente = new Set(previos);
+      if (siguiente.has(clasificador)) siguiente.delete(clasificador);
+      else siguiente.add(clasificador);
+      return siguiente;
+    });
+  const totalNoContabilizado = conceptos.reduce((suma, c) => (noContabilizados.has(c.clasificador) ? suma + c.total : suma), 0);
   // Vista previa en vivo: lo que el servidor recalculará al guardar.
   // Del lado módulo (saldo sin cuenta) lo excluido se resta del módulo: la diferencia SUBE.
   const totalNoModular = hijosSinCuenta
     ? hijosSinCuenta.reduce((suma, h) => (noModulares.has(h.clasificador) ? suma + h.total : suma), 0)
     : hijos.reduce((suma, h) => (noModulares.has(h.cuenta8) ? suma + h.valor : suma), 0);
-  const efectoNoModular = ladoModulo ? totalNoModular : -totalNoModular;
+  const efectoNoModular = ladoModulo ? totalNoModular : totalNoContabilizado - totalNoModular;
   const difAjustada = ladoModulo
     ? fila.contable - fila.noModular - (fila.inventario - totalNoModular)
-    : fila.contable - totalNoModular - fila.inventario;
+    : fila.contable - totalNoModular - (fila.inventario - totalNoContabilizado);
   const [guardando, startGuardar] = useTransition();
   const guardar = () => {
     const texto = nota.trim();
@@ -3315,6 +3862,7 @@ function ModalMarca({
       // La diferencia la recalcula el servidor sobre el cruce vigente; esto solo declara
       // qué cuentas quedan fuera de la conciliación.
       datos.set("noModulares", JSON.stringify([...noModulares]));
+      if (!ladoModulo) datos.set("noContabilizados", JSON.stringify([...noContabilizados]));
       for (const archivo of nuevos) datos.append("soportes", archivo);
 
       const r = await guardarMarcaCruce(datos);
@@ -3335,6 +3883,10 @@ function ModalMarca({
   // Al pasar la marca, sus cuentas no modulares que no están en este renglón vuelven a contar.
   const noModularesQueSeLiberan = origen
     ? origen.noModulares.filter((n) => !hijos.some((h) => h.cuenta8 === n.cuenta8))
+    : [];
+  // Igual con los conceptos no contabilizados: los que este renglón no trae vuelven a sumar.
+  const noContabilizadosQueSeLiberan = origen
+    ? (origen.clasificadoresNoModulares ?? []).filter((c) => !conceptos.some((x) => x.clasificador === c.clasificador))
     : [];
 
   return (
@@ -3365,6 +3917,11 @@ function ModalMarca({
                 No están en este renglón y vuelven a contar: {noModularesQueSeLiberan.map((n) => `${n.cuenta8}${n.nombre ? ` ${n.nombre}` : ""}`).join(" · ")}.
               </span>
             )}
+            {noContabilizadosQueSeLiberan.length > 0 && (
+              <span className="mt-1 block font-medium text-warn-700">
+                Conceptos que este renglón no trae y vuelven a sumar: {noContabilizadosQueSeLiberan.map((c) => c.clasificador).join(" · ")}.
+              </span>
+            )}
           </div>
         )}
         <div className="grid grid-cols-2 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] sm:grid-cols-4">
@@ -3379,7 +3936,7 @@ function ModalMarca({
           <div>
             <div className="text-ink-500">No modular</div>
             <div className="tabular-nums font-semibold text-warn-700">
-              {totalNoModular === 0 ? "—" : fmtContable(efectoNoModular)}
+              {efectoNoModular === 0 ? "—" : fmtContable(efectoNoModular)}
             </div>
           </div>
           <div>
@@ -3398,11 +3955,27 @@ function ModalMarca({
             <ListaSinCuentaNoModulares hijos={hijosSinCuenta} seleccion={noModulares} onAlternar={alternarNoModular} />
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink-700">
-              Cuentas no modulares <span className="font-normal text-ink-400">(no hacen parte de la conciliación: su saldo se resta)</span>
-            </span>
-            <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-semibold text-ink-700">
+                Cuentas no modulares <span className="font-normal text-ink-400">(están en la contabilidad y no hacen parte de la conciliación: su saldo se resta de Contabilidad)</span>
+              </span>
+              <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} />
+            </div>
+            {conceptos.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-semibold text-ink-700">
+                  Conceptos no contabilizados <span className="font-normal text-ink-400">(vienen en el archivo y la contabilidad no los registra en esta cuenta: su valor se resta del lado de {moduloLabel.toLocaleLowerCase("es")})</span>
+                </span>
+                <DetalleModuloFila
+                  detalle={conceptos}
+                  etiqueta={`${moduloLabel} (archivos)`}
+                  descripcionDe={descripcionDeClasificador}
+                  excluidos={noContabilizados}
+                  onAlternar={alternarNoContabilizado}
+                />
+              </div>
+            )}
           </div>
         )}
 

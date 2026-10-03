@@ -60,7 +60,7 @@ export default async function PrevalidadorModuloPage({
   const modulosCuentas: ModuloCuentasVm[] = PREVALIDADOR_MODULOS_ORDEN.flatMap((code) => {
     const m = modulos.find((x) => x.code === code);
     const c = configuracionModulo(code);
-    return m && c.conCuentas6 ? [{ code, name: m.name, conOrigen: c.conOrigen, conCrucePorTercero: c.conCrucePorTercero }] : [];
+    return m && c.conCuentas6 ? [{ code, name: m.name, conOrigen: c.conOrigen, conCategoria: c.conCategoria, conCrucePorTercero: c.conCrucePorTercero }] : [];
   });
 
   return (
@@ -75,7 +75,7 @@ export default async function PrevalidadorModuloPage({
 
         {config.conCuentas6 && (
           <CuentasConciliacionPanel
-            modulo={{ code: modulo.code, name: modulo.name, conOrigen: config.conOrigen, conCrucePorTercero: config.conCrucePorTercero }}
+            modulo={{ code: modulo.code, name: modulo.name, conOrigen: config.conOrigen, conCategoria: config.conCategoria, conCrucePorTercero: config.conCrucePorTercero }}
             modulosCuentas={modulosCuentas}
             cuentas={cuentas.filter((c) => c.moduloCodigo === codigo)}
             catalogo={catalogo}

@@ -78,8 +78,10 @@ describe("ListaSinCuentaNoModulares y su resumen", () => {
   });
 
   it("el resumen de la marca nombra el saldo sin cuenta restado", () => {
-    const html = renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [{ clasificador: "COP", totalAlMarcar: 87_000_000 }] }));
+    const html = renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [{ clasificador: "COP", totalAlMarcar: 87_000_000 }], sinCuenta: true }));
     expect(html).toContain("Saldo sin cuenta no modular restado");
+    const enRenglon = renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [{ clasificador: "COP", totalAlMarcar: 87_000_000 }] }));
+    expect(enRenglon).toContain("Concepto no contabilizado restado");
     expect(renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [] }))).toBe("");
   });
 });

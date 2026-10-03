@@ -70,15 +70,17 @@ import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modu
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { normalizarOrden, ordenarFilas } from "@/lib/modulos/orden-tabla";
 import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
-import { type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
+import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
 import { nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
-import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { fechaISO as fechaDeCelda } from "@/lib/modulos/cartera/fecha-corte";
+import { fechaCorteSugeridaDe, motivoFechaFutura, motivoPeriodoFuturo } from "@/lib/fecha-cargue";
 import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
 import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { getTRM } from "@/lib/ia/trm";
@@ -95,6 +97,7 @@ import {
   type DimensionMarca,
   motivoNoPasarMarca,
   validarNoModulares,
+  totalNoContabilizado,
   validarClasificadoresNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
@@ -1025,6 +1028,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const periodoArchivo = periodoFinal?.toISOString().slice(0, 7)
       ?? periodoInicial?.toISOString().slice(0, 7)
       ?? null;
+    // Ningún período del cargue puede ser futuro (el modal ya no deja elegirlo). Se rechaza antes
+    // de registrar el original: es un dato del formulario, no un problema del archivo.
+    const periodoFuturo = periodoArchivo ? motivoPeriodoFuturo(periodoArchivo) : null;
+    if (periodoFuturo) return { ok: false, message: periodoFuturo };
     const huellaOriginal = huellaSha256Archivo(contenidoOriginal);
     const recepcionPedida = String(formData.get("recepcionLoteId") ?? "").trim();
     const originalRecibido = recepcionPedida
@@ -1339,6 +1346,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       spec = { ...resto, periodoHasta: periodoArchivo };
     }
 
+    // La fecha de corte tampoco puede ser futura. Es un dato del formulario: el original no se
+    // marca como no procesable (como la confirmación del IVA).
+    const corteFuturo = spec.fechaCorte ? motivoFechaFutura(spec.fechaCorte, "La fecha de corte") : null;
+    if (corteFuturo) return { ok: false, message: corteFuturo };
+
     // Importes en divisa: sin la TRM de cierre se leerían dólares como si fueran pesos.
     if (descriptor.crucePorTercero.detalleTercero && esMonedaExtranjera(spec.monedaArchivo) && !(spec.trmCierre != null && spec.trmCierre > 0)) {
       return marcarNoProcesable(`Los importes de esta hoja están en ${spec.monedaArchivo}: indica la TRM de cierre para convertirlos a pesos.`);
@@ -1558,6 +1570,8 @@ export async function filasBorradorModulo(entrada: {
   verEstructura?: boolean;
   soloNovedades?: number[];
   filtros?: Record<string, string>;
+  /** Orden por columna de las filas del grupo; se valida contra las columnas del cargue. */
+  orden?: { columna: string; direccion: string } | null;
 }): Promise<PaginaFilasBorrador> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
@@ -1575,7 +1589,9 @@ export async function filasBorradorModulo(entrada: {
     const novedades = Array.isArray(entrada.soloNovedades) ? new Set(entrada.soloNovedades.filter(Number.isInteger)) : null;
     const filtros = entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null;
     const desde = Number.isInteger(entrada.desde) && entrada.desde! > 0 ? entrada.desde! : 0;
-    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null;
+    // Ordenar, como filtrar, exige ver el grupo entero: la página es una porción del total.
+    const ordenPedido = entrada.orden ?? null;
+    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null || ordenPedido != null;
 
     // Sin nada que recortar, la página se pide directamente a la base: un grupo de 23.000 filas
     // no viaja entero para mostrar 500. Con filtros hay que verlo completo, pero es UN grupo.
@@ -1592,9 +1608,18 @@ export async function filasBorradorModulo(entrada: {
     let visibles = await filasDelGrupo(id, grupo);
     if (entrada.verEstructura !== true) visibles = visibles.filter((f) => !esRenglonEstructura(f));
     if (novedades) visibles = visibles.filter((f) => novedades.has(f.filaNum));
-    if (filtros) {
-      visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, (fila, columna) =>
-        columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna));
+    const valorDe = (fila: FilaBorrador, columna: { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }) =>
+      columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna);
+    if (filtros) visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, valorDe);
+    const orden = normalizarOrden(ordenPedido, columnas.map((c) => c.nombre));
+    if (orden) {
+      const porColumna = new Map(columnas.map((c) => [c.nombre, c]));
+      visibles = ordenarFilas(
+        visibles,
+        orden,
+        (fila, columna) => { const c = porColumna.get(columna); return c ? valorDe(fila, c) : null; },
+        (columna) => { const t = porColumna.get(columna)?.tipo; return t === "moneda" || t === "numero"; },
+      );
     }
     return { ok: true, filas: visibles.slice(desde, desde + FILAS_POR_PAGINA_BORRADOR), total: visibles.length };
   } catch (e) {
@@ -1611,6 +1636,8 @@ export async function filasDetalleCargue(entrada: {
   encabezadoId: number;
   desde?: number;
   filtros?: Record<string, string>;
+  /** Orden por columna pedido desde la tabla; se valida contra las columnas del cargue. */
+  orden?: { columna: string; direccion: string } | null;
 }): Promise<{ ok: boolean; message?: string; filas: FilaDetalleCargue[]; total: number }> {
   const authz = await authorizePermiso("modulos_datos:ver");
   if (!authz.ok) return { ok: false, message: authz.message, filas: [], total: 0 };
@@ -1634,6 +1661,7 @@ export async function filasDetalleCargue(entrada: {
       desde: entrada.desde,
       limite: FILAS_POR_PAGINA_BORRADOR,
       filtros: entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null,
+      orden: normalizarOrden(entrada.orden, columnas.map((c) => c.nombre)),
     });
     return { ok: true, ...pagina };
   } catch (e) {
@@ -1659,6 +1687,8 @@ export async function aplicarCambiosBorradorModulo(
     if (periodo !== undefined && !/^\d{4}-\d{2}$/.test(periodoNormalizado)) {
       return { ok: false, message: "Indica el período en formato AAAA-MM." };
     }
+    const periodoFuturo = periodo !== undefined ? motivoPeriodoFuturo(periodoNormalizado) : null;
+    if (periodoFuturo) return { ok: false, message: periodoFuturo };
     const descriptor = descriptorModulo(lote.moduloCodigo);
     const validos = cambios.filter((c) => Number.isInteger(c.filaNum));
     // Agrupador manual: reasigna el clasificador de las filas (vacío → sin clasificar), agrupado
@@ -1780,6 +1810,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
   if (!loteId) return { ok: false, message: "Borrador inválido." };
   const periodo = String(formData.get("periodo") ?? "").trim();
   if (!/^\d{4}-\d{2}$/.test(periodo)) return { ok: false, message: "Indica el período (p. ej. 2026-03)." };
+  const periodoFuturo = motivoPeriodoFuturo(periodo);
+  if (periodoFuturo) return { ok: false, message: periodoFuturo };
   const observaciones = String(formData.get("observaciones") ?? "").trim().slice(0, 4000) || null;
   try {
     // Reintento idempotente: si el navegador perdió la respuesta después del
@@ -1968,8 +2000,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           monedaArchivo: typeof specLote.monedaArchivo === "string" ? specLote.monedaArchivo : null,
         };
       })() : null;
-      // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período.
-      const fechaCorteCargue = cartera ? cartera.fechaCorte ?? finDePeriodo(periodo) : null;
+      // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período
+      // (hoy, si el período es el mes en curso: la fecha de corte nunca es futura).
+      const fechaCorteCargue = cartera ? cartera.fechaCorte ?? fechaCorteSugeridaDe(periodo) : null;
 
       /** Columnas propias de cartera para una fila del detalle. */
       const columnasCartera = (f: { datos: Record<string, unknown> }, imputable: boolean) => {
@@ -3133,6 +3166,21 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       return { ok: false, message: "Selección de cuentas no modulares inválida." };
     }
   }
+  // Conceptos NO CONTABILIZADOS: lo que el archivo del módulo trae y la contabilidad no registra
+  // en esa cuenta. Es el espejo de las cuentas no modulares y baja el lado del módulo.
+  let seleccionNoContabilizado: string[] = [];
+  if (cuenta4 && cuenta4 !== CLAVE_SIN_CUENTA) {
+    try {
+      const crudo = String(formData.get("noContabilizados") ?? "").trim();
+      if (crudo) {
+        const parseado: unknown = JSON.parse(crudo);
+        if (!Array.isArray(parseado)) return { ok: false, message: "Selección de conceptos no contabilizados inválida." };
+        seleccionNoContabilizado = parseado.map((c) => String(c));
+      }
+    } catch {
+      return { ok: false, message: "Selección de conceptos no contabilizados inválida." };
+    }
+  }
 
   // La diferencia (y en la cédula, las cuentas no modulares) NO se toma del formulario: se
   // recalcula sobre el cruce vigente, la misma función que pinta la pestaña. Entre abrir el
@@ -3167,7 +3215,13 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       const noModulares = validarNoModulares(seleccionNoModular, hijos);
       if (!noModulares.ok) return { ok: false, message: noModulares.message };
       excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
-      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+      // Los conceptos del archivo que alimentan el renglón: lo que se declare no contabilizado
+      // tiene que seguir siendo uno de ellos.
+      const conceptos = filaVigente.detalleModulo ?? [];
+      const noContabilizados = validarClasificadoresNoModulares(seleccionNoContabilizado, conceptos);
+      if (!noContabilizados.ok) return { ok: false, message: noContabilizados.message };
+      clasificadoresExcluidos = conceptos.filter((c) => noContabilizados.clasificadores.includes(c.clasificador));
+      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8, totalNoContabilizado(conceptos, noContabilizados.clasificadores));
     }
   } else {
     const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
@@ -3297,7 +3351,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         ? "PASÓ a otro renglón la marca del cruce contable"
         : existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
       objetivo,
-      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ""}`,
+      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? (cuenta4 === CLAVE_SIN_CUENTA ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ` · ${clasificadoresExcluidos.length} concepto(s) no contabilizado(s)`) : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
@@ -3387,7 +3441,11 @@ export async function quitarMarcaCruce(input: {
       clave ? "RETIRÓ la marca del cruce por tercero" : "RETIRÓ la marca del cruce contable",
       clave ? `tercero ${clave}` : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
       ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`
-        + (marca._count.clasificadoresNoModulares ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)` : ""),
+        + (marca._count.clasificadoresNoModulares
+          ? cuenta4 === CLAVE_SIN_CUENTA
+            ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)`
+            : ` · liberó ${marca._count.clasificadoresNoModulares} concepto(s) no contabilizado(s)`
+          : ""),
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Marca ${marca.numero} retirada.` };
@@ -3468,6 +3526,8 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const fechaCorte = fechaDeCelda(input?.fechaCorte);
   if (!fechaCorte) return { ok: false, message: "Fecha de corte inválida." };
+  const corteFuturo = motivoFechaFutura(fechaCorte, "La fecha de corte");
+  if (corteFuturo) return { ok: false, message: corteFuturo };
   const { encabezado } = ctx;
   if (!descriptorModulo(encabezado.moduloCodigo)?.crucePorTercero.detalleTercero) {
     return { ok: false, message: "Este módulo no maneja fecha de corte." };

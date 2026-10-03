@@ -11,9 +11,12 @@ import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { esImputable } from "@/lib/modulos/promocion";
-import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { coincideGrupoDetalle, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
+import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
-import { controlSeccion, etiquetaRenglonNoSuma, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
+import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { GRUPO_SIN_CLASIFICAR, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo, filasBorradorModulo } from "@/app/actions/modulos-datos";
@@ -25,6 +28,8 @@ import { avisosContenido, INFO_CONTENIDO_ARCHIVO, type SignoContenido } from "@/
 import { CorregirLecturaInventario } from "../../corregir-lectura-inventario";
 import type { RolModulo } from "../../editor-mapeo-modulo";
 import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
+import { mesActualColombia, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -110,6 +115,7 @@ export default function BorradorModuloClient({
   periodoSugerido,
   columnas: columnasDelCargue,
   clasificadorRol,
+  descripcionRol = null,
   noNegativos,
   productos,
   verificaciones,
@@ -133,6 +139,8 @@ export default function BorradorModuloClient({
   periodoSugerido: string;
   columnas: Columna[];
   clasificadorRol: string;
+  /** Columna con el NOMBRE del grupo cuando el clasificador es un código (Nómina). */
+  descripcionRol?: string | null;
   noNegativos: string[];
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
@@ -170,10 +178,16 @@ export default function BorradorModuloClient({
   const [overrideClasif, setOverrideClasif] = useState<Record<number, string>>({});
   const [agrupadorManual, setAgrupadorManual] = useState("");
   const [periodo, setPeriodo] = useState(periodoSugerido);
+  // Un período distinto del que se eligió al cargar se confirma antes de guardarlo (se guarda
+  // QUÉ valor se confirmó: cambiarlo otra vez vuelve a preguntar) y nunca puede ser futuro.
+  const [periodoConfirmado, setPeriodoConfirmado] = useState<string | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>>({});
   const [observaciones, setObservaciones] = useState("");
   const [filtro, setFiltro] = useState<string | null>(null); // null = todos · FILTRO_NOVEDADES · o un clasificador
   const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosDetalleModulo>({});
+  // Orden por columna: ordena los GRUPOS por su clasificador o su nombre (aquí, que la lista ya
+  // está) y las filas de cada grupo (en el servidor: la página es una porción del grupo).
+  const [orden, setOrden] = useState<OrdenTabla>(null);
   const [guardando, startGuardar] = useTransition();
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
@@ -221,6 +235,9 @@ export default function BorradorModuloClient({
 
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
+  const periodoValido = /^\d{4}-\d{2}$/.test(periodo);
+  const errorPeriodo = periodoValido && anexo?.vigente !== true ? motivoPeriodoFuturo(periodo) : null;
+  const periodoSinConfirmar = periodoCambiado && periodoValido && !errorPeriodo && periodoConfirmado !== periodo;
   const hayCambios = hayCambiosFilas || periodoCambiado;
   const asistenciaSinResolver = asistenciaInventario != null && asistenciaInventario.estado !== "borrador_preparado";
   useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar» antes de salir.");
@@ -317,7 +334,9 @@ export default function BorradorModuloClient({
   const setResp = (id: string, respuesta: "si" | "no" | "na") => setRespuestas((p) => ({ ...p, [id]: { ...p[id], respuesta } }));
   const setNota = (id: string, nota: string) => setRespuestas((p) => ({ ...p, [id]: { respuesta: p[id]?.respuesta ?? "na", nota } }));
 
-  const guardar = () =>
+  const guardar = () => {
+    if (periodoCambiado && errorPeriodo) { notifyError(errorPeriodo); return; }
+    if (periodoSinConfirmar) { notifyError("Confirma el período antes de guardar."); return; }
     startGuardar(async () => {
       const m = new Map<number, { filaNum: number; omitida?: boolean; clasificador?: string; tipoFila?: string }>();
       for (const [fn, o] of Object.entries(overrideOmit)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, omitida: o });
@@ -332,11 +351,13 @@ export default function BorradorModuloClient({
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
+  };
 
   const confirmar = () => {
     if (asistenciaSinResolver) { notifyError("Hay una lectura pendiente de resolver. Abre «Corregir lectura», revisa su resultado y aplica la propuesta antes de confirmar."); return; }
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
-    if (!/^\d{4}-\d{2}$/.test(periodo)) { notifyError("Indica el período (AAAA-MM)."); return; }
+    if (!periodoValido) { notifyError("Indica el período (AAAA-MM)."); return; }
+    if (errorPeriodo) { notifyError(errorPeriodo); return; }
     if (!verifCompletas) { notifyError("Responde todas las verificaciones antes de cargar."); return; }
     startCargar(async () => {
       const fd = new FormData();
@@ -387,6 +408,7 @@ export default function BorradorModuloClient({
           verEstructura,
           filtros: hayFiltrosDetalleModulo(filtrosColumnas) ? filtrosColumnas : undefined,
           soloNovedades: filtro === FILTRO_NOVEDADES ? resumen.novedades : undefined,
+          orden,
         });
         if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
         setFilasPorGrupo((prev) => ({ ...prev, [clasificador]: desde > 0 ? [...(prev[clasificador] ?? []), ...r.filas] : r.filas }));
@@ -395,8 +417,14 @@ export default function BorradorModuloClient({
         setCargandoGrupos((prev) => { const n = new Set(prev); n.delete(clasificador); return n; });
       }
     },
-    [filtro, filtrosColumnas, loteId, resumen.novedades, verEstructura],
+    [filtro, filtrosColumnas, loteId, orden, resumen.novedades, verEstructura],
   );
+
+  /** Un clic en el encabezado reordena: las filas ya traídas se piden de nuevo, ya ordenadas. */
+  const ordenarPor = (columna: string) => {
+    setOrden((actual) => alternarOrden(actual, columna));
+    reiniciarDetalle();
+  };
 
   const alternarGrupo = (clasificador: string) => {
     setAbiertos((prev) => {
@@ -414,11 +442,25 @@ export default function BorradorModuloClient({
   const gruposVista = useMemo(() => {
     const base = resumen.grupos
       .filter((g) => (filtro === FILTRO_NOVEDADES ? g.novedades > 0 : filtro === null || g.clasificador === filtro))
-      .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0);
-    return base.map((g) => {
+      .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0)
+      // Los filtros del clasificador y de su nombre recortan la LISTA de grupos; los de las demás
+      // columnas solo recortan las filas de cada grupo, que llegan al abrirlo.
+      .filter((g) => coincideGrupoDetalle(g, { clasificador: clasificadorRol, descripcion: descripcionRol }, filtrosColumnas));
+    // La LISTA de grupos se ordena por las dos columnas que la identifican: el clasificador y su
+    // nombre. Por las demás columnas se ordenan las filas dentro de cada grupo, no los grupos.
+    const ordenados = ordenarFilas(
+      base,
+      orden && (orden.columna === clasificadorRol || orden.columna === descripcionRol) ? orden : null,
+      (g, columna) => (columna === descripcionRol ? g.descripcion ?? g.clasificador : g.clasificador),
+      () => false,
+    );
+    return ordenados.map((g) => {
       const d = delta.porGrupo.get(g.clasificador) ?? { items: 0, subtotal: 0 };
       return {
         clasificador: g.clasificador,
+        descripcion: g.descripcion,
+        // Con ítems rescatados a mano el grupo deja de estar en cero: el aviso desaparece solo.
+        motivoSinItems: g.items + d.items === 0 ? g.motivoSinItems : null,
         items: g.items + d.items,
         subtotal: Math.round((g.subtotal + d.subtotal) * 100) / 100,
         declarado: g.declarado,
@@ -430,7 +472,7 @@ export default function BorradorModuloClient({
         cargando: cargandoGrupos.has(g.clasificador),
       };
     });
-  }, [abiertos, cargandoGrupos, delta.porGrupo, filasPorGrupo, filtro, resumen.grupos, totalPorGrupo, verEstructura]);
+  }, [abiertos, cargandoGrupos, clasificadorRol, delta.porGrupo, descripcionRol, filasPorGrupo, filtro, filtrosColumnas, orden, resumen.grupos, totalPorGrupo, verEstructura]);
 
   const filasVisibles = gruposVista.reduce((n, g) => n + (g.cargadas?.length ?? 0), 0);
   const filasDelArchivoVisibles = gruposVista.reduce((n, g) => n + (g.totalFiltrado ?? g.filasDelArchivo), 0);
@@ -770,7 +812,9 @@ export default function BorradorModuloClient({
                 </th>
                 <th className="px-2.5 py-2 font-semibold">#</th>
                 {columnas.map((c) => (
-                  <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
+                  <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
+                    <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
+                  </th>
                 ))}
                 <th className="px-2.5 py-2 text-center font-semibold">Acciones</th>
               </tr>
@@ -785,6 +829,7 @@ export default function BorradorModuloClient({
                       onChange={(e) => { setFiltrosColumnas((actuales) => ({ ...actuales, [c.nombre]: e.target.value })); reiniciarDetalle(); }}
                       aria-label={`Filtrar la columna ${c.etiqueta}`}
                       placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                      title={esNum(c.tipo) ? undefined : AYUDA_COMODIN}
                       className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
                     />
                   </th>
@@ -815,8 +860,17 @@ export default function BorradorModuloClient({
                       >
                         <Icon name={g.abierto ? "chev-d" : "chev-r"} size={12} />
                         {clasificadorEtiqueta}: {g.clasificador}
+                        {g.descripcion && <span className="ml-1.5 font-normal text-navy-700">· {g.descripcion}</span>}
                       </button>
                       <span className="ml-2 font-normal text-ink-500">· {g.items.toLocaleString("es-CO")} ítems · {(g.totalFiltrado ?? g.filasDelArchivo).toLocaleString("es-CO")} filas</span>
+                      {g.motivoSinItems && (
+                        <span
+                          className="ml-2 rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-warn-700"
+                          title={`Ninguna fila de este grupo suma al total. ${explicacionSinItems(g.motivoSinItems)} Ábrelo y usa «Incluir» en una fila si debe contar.`}
+                        >
+                          {etiquetaSinItems(g.motivoSinItems)}
+                        </span>
+                      )}
                       {g.novedades > 0 && <span className="ml-2 font-semibold text-err-700">· {g.novedades.toLocaleString("es-CO")} con novedad</span>}
                       {g.cargando && <span className="ml-2 font-normal text-ink-400">· trayendo el detalle…</span>}
                       {(() => {
@@ -935,7 +989,7 @@ export default function BorradorModuloClient({
       {/* Barra de acciones */}
       <Card className="flex flex-wrap items-end justify-between gap-3 p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <button type="button" disabled={!hayCambios || guardando} onClick={guardar} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
+          <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
           {descartando ? (
@@ -952,13 +1006,25 @@ export default function BorradorModuloClient({
             <input
               type="month"
               value={periodo}
+              max={mesActualColombia()}
               onChange={(e) => setPeriodo(e.target.value)}
               disabled={anexo?.vigente === true}
               title={anexo?.vigente ? `Fijo: este archivo se agrega al cargue de ${anexo.periodo}` : undefined}
               className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:font-semibold"
             />
           </label>
-          <button type="button" disabled={cargando || hayCambios || !verifCompletas || asistenciaSinResolver} onClick={confirmar} title={asistenciaSinResolver ? "Resuelve la lectura pendiente desde «Corregir lectura»" : hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+          {periodoValido && (errorPeriodo || periodoCambiado) && (
+            <div className="w-full max-w-xs sm:w-auto">
+              <ConfirmacionFecha
+                error={errorPeriodo}
+                pregunta={<>Cambiaste el período a <b>{nombrePeriodo(periodo)}</b> ({rangoDelPeriodo(periodo)}).</>}
+                confirmada={periodoConfirmado === periodo}
+                confirmadaTexto={<>Período confirmado: {nombrePeriodo(periodo)}. Pulsa «Guardar cambios».</>}
+                onConfirmar={() => setPeriodoConfirmado(periodo)}
+              />
+            </div>
+          )}
+          <button type="button" disabled={cargando || hayCambios || !verifCompletas || asistenciaSinResolver || !!errorPeriodo} onClick={confirmar} title={asistenciaSinResolver ? "Resuelve la lectura pendiente desde «Corregir lectura»" : hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {cargando ? "Cargando…" : "Confirmar carga"}
           </button>
         </div>

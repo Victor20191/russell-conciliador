@@ -45,7 +45,7 @@ function siembraMigracion(): Record<string, CuentaConciliacion[]> {
   const porModulo: Record<string, CuentaConciliacion[]> = {};
   for (const m of sql.matchAll(/\('([A-Z]{3})', '(\d{6})', (NULL|'nacional'|'exterior')\)/g)) {
     const origen = m[3] === "NULL" ? null : (m[3].replace(/'/g, "") as CuentaConciliacion["origen"]);
-    (porModulo[m[1]] ??= []).push({ cuenta: REASIGNADAS_30SEP[m[2]] ?? m[2], origen });
+    (porModulo[m[1]] ??= []).push({ cuenta: REASIGNADAS_30SEP[m[2]] ?? m[2], origen, categoria: "concilia" });
   }
   return porModulo;
 }
@@ -64,12 +64,21 @@ describe("cuentas de conciliación por módulo", () => {
   it("la siembra de la migración es exactamente la lista de fábrica de cada módulo", () => {
     const siembra = siembraMigracion();
     expect(Object.keys(siembra).sort()).toEqual(["CAR", "CXP", "ING", "NOM"]);
-    for (const codigo of Object.keys(siembra)) {
+    for (const codigo of ["CAR", "CXP", "ING"]) {
       expect(porCuenta(siembra[codigo]), codigo).toEqual(porCuenta(cuentasConciliacionDe(d(codigo))));
     }
+    // Nómina cambió de lista el 1/Oct/2026 (60 que concilian + 52 solo visibles): las 29 sembradas
+    // siguen en ella, unas que concilian y otras ahora solo visibles (los pasivos, 510530…).
+    const fabricaNom = cuentasConciliacionDe(d("NOM")) ?? [];
+    expect(fabricaNom.filter((c) => c.categoria === "concilia")).toHaveLength(60);
+    expect(fabricaNom.filter((c) => c.categoria === "visible")).toHaveLength(52);
+    const cuentasNom = new Set(fabricaNom.map((c) => c.cuenta));
+    for (const c of siembra.NOM) expect(cuentasNom.has(c.cuenta), c.cuenta).toBe(true);
+    expect(fabricaNom).toContainEqual({ cuenta: "251010", origen: null, categoria: "visible" });
+    expect(fabricaNom).toContainEqual({ cuenta: "510506", origen: null, categoria: "concilia" });
     expect(siembra.NOM).toHaveLength(29);
     expect(siembra.CXP).toHaveLength(13);
-    expect(siembra.CAR).toContainEqual({ cuenta: "130510", origen: "exterior" });
+    expect(siembra.CAR).toContainEqual({ cuenta: "130510", origen: "exterior", categoria: "concilia" });
   });
 
   it("con la lista de fábrica, la cédula y el cruce por tercero quedan igual que con el descriptor fijo", () => {
@@ -93,7 +102,7 @@ describe("cuentas de conciliación por módulo", () => {
 
   it("agregar y quitar cuentas cambia lo que concilia el módulo", () => {
     const cxp = d("CXP");
-    const lista = [...(cuentasConciliacionDe(cxp) ?? []).filter((c) => c.cuenta !== "233595"), { cuenta: "238030", origen: null }];
+    const lista = [...(cuentasConciliacionDe(cxp) ?? []).filter((c) => c.cuenta !== "233595"), { cuenta: "238030", origen: null, categoria: "concilia" as const }];
     const resuelto = aplicarCuentasConciliacion(cxp, lista);
     const cedula = cedulaModulo(resuelto, prefijos("CXP"));
     // Quitada: su saldo pasa a «fuera del módulo» y ya no se puede asignar.
@@ -109,30 +118,60 @@ describe("cuentas de conciliación por módulo", () => {
   it("el origen de cada cuenta reemplaza nacional/exterior en Cartera", () => {
     const car = d("CAR");
     const resuelto = aplicarCuentasConciliacion(car, [
-      { cuenta: "130505", origen: "nacional" },
-      { cuenta: "130510", origen: null },
-      { cuenta: "130515", origen: "exterior" },
+      { cuenta: "130505", origen: "nacional", categoria: "concilia" },
+      { cuenta: "130510", origen: null, categoria: "concilia" },
+      { cuenta: "130515", origen: "exterior", categoria: "concilia" },
     ]);
     expect(resuelto.crucePorTercero.cuentasNacional).toEqual(["130505"]);
     expect(resuelto.crucePorTercero.cuentasExterior).toEqual(["130515"]);
   });
 
+  it("Nómina: las solo visibles van aparte y no acotan la cédula; un módulo sin categoría las concilia", () => {
+    const nom = aplicarCuentasConciliacion(d("NOM"), [
+      { cuenta: "510506", origen: null, categoria: "concilia" },
+      { cuenta: "510530", origen: null, categoria: "visible" },
+      { cuenta: "251010", origen: null, categoria: "visible" },
+    ]);
+    expect(nom.cedula?.cuentas6).toEqual(["510506"]);
+    expect(nom.cedula?.cuentasVisibles).toEqual(["510530", "251010"]);
+    expect(nom.crucePorTercero.cuentasRussell6).toEqual(["510506"]);
+    const cedula = cedulaModulo(nom, prefijos("NOM"));
+    expect([...cedula.visibles]).toEqual(["510530", "251010"]);
+    expect(cedula.adicionales.has("251010")).toBe(false);
+    expect(cuentasConciliacionDe(nom)).toEqual([
+      { cuenta: "510506", origen: null, categoria: "concilia" },
+      { cuenta: "510530", origen: null, categoria: "visible" },
+      { cuenta: "251010", origen: null, categoria: "visible" },
+    ]);
+    // Sin visibles en la configuración, la de fábrica no se cuela.
+    expect(aplicarCuentasConciliacion(d("NOM"), [{ cuenta: "510506", origen: null, categoria: "concilia" }]).cedula?.cuentasVisibles).toBeUndefined();
+    // Cuentas por pagar no tiene categoría: una «visible» concilia.
+    const cxp = aplicarCuentasConciliacion(d("CXP"), [{ cuenta: "220505", origen: null, categoria: "visible" }]);
+    expect(cxp.cedula?.cuentas6).toEqual(["220505"]);
+    expect(cxp.cedula?.cuentasVisibles).toBeUndefined();
+  });
+
   it("un módulo a 4 dígitos o sin configuración no cambia", () => {
-    expect(aplicarCuentasConciliacion(d("INV"), [{ cuenta: "143505", origen: null }])).toBe(d("INV"));
+    expect(aplicarCuentasConciliacion(d("INV"), [{ cuenta: "143505", origen: null, categoria: "concilia" }])).toBe(d("INV"));
     expect(aplicarCuentasConciliacion(d("NOM"), null)).toBe(d("NOM"));
     // El descriptor estático no se muta.
-    aplicarCuentasConciliacion(d("NOM"), [{ cuenta: "510506", origen: null }]);
-    expect(d("NOM").crucePorTercero.cuentasRussell6).toHaveLength(25);
+    aplicarCuentasConciliacion(d("NOM"), [{ cuenta: "510506", origen: null, categoria: "concilia" }]);
+    expect(d("NOM").crucePorTercero.cuentasRussell6).toHaveLength(60);
+    expect(d("NOM").cedula?.cuentasVisibles).toHaveLength(52);
   });
 
   it("lee la copia del cierre y rechaza una mal formada", () => {
+    // Copias anteriores al 1/Oct/2026: sin categoría, todas conciliaban.
     expect(leerCuentasConciliacionGuardadas([{ cuenta: "130505", origen: "nacional" }, { cuenta: "280505", origen: null }])).toEqual([
-      { cuenta: "130505", origen: "nacional" },
-      { cuenta: "280505", origen: null },
+      { cuenta: "130505", origen: "nacional", categoria: "concilia" },
+      { cuenta: "280505", origen: null, categoria: "concilia" },
+    ]);
+    expect(leerCuentasConciliacionGuardadas([{ cuenta: "251010", origen: null, categoria: "visible" }])).toEqual([
+      { cuenta: "251010", origen: null, categoria: "visible" },
     ]);
     expect(leerCuentasConciliacionGuardadas(null)).toBeNull();
     expect(leerCuentasConciliacionGuardadas([{ cuenta: "1305" }])).toBeNull();
-    expect(leerCuentasConciliacionGuardadas([{ cuenta: "130505", origen: "otro" }])).toEqual([{ cuenta: "130505", origen: null }]);
+    expect(leerCuentasConciliacionGuardadas([{ cuenta: "130505", origen: "otro" }])).toEqual([{ cuenta: "130505", origen: null, categoria: "concilia" }]);
     expect(normalizarCuentaConciliacion("13.05.05")).toBe("130505");
     expect(normalizarCuentaConciliacion("1305")).toBeNull();
   });

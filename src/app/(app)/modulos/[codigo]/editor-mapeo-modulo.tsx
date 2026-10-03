@@ -45,6 +45,8 @@ import {
 
 // `cargar-modulo-modal` lo importa desde aquí; la regla vive junto a las demás de este campo.
 export { rolDerivado };
+import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-cargue";
+import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 
 export type RolModulo = {
   nombre: string;
@@ -92,13 +94,21 @@ export function CamposCargueCartera({
   spec,
   setSpec,
   fechaCorteSugerida,
+  corteConfirmado,
+  onConfirmarCorte,
 }: {
   spec: SpecModulo;
   setSpec: Dispatch<SetStateAction<SpecModulo | null>>;
   fechaCorteSugerida: string;
+  /** La fecha de corte que quien carga ya confirmó (la sugerida no se pregunta). */
+  corteConfirmado?: string | null;
+  onConfirmarCorte?: (fecha: string) => void;
 }) {
   const monedaArchivo = spec.monedaArchivo ?? "COP";
   const fechaCorte = spec.fechaCorte ?? fechaCorteSugerida;
+  // La fecha de corte no puede ser futura; si se cambió la sugerida, se confirma.
+  const errorCorte = fechaCorte ? motivoFechaFutura(fechaCorte, "La fecha de corte") : null;
+  const pedirConfirmacion = onConfirmarCorte != null && !!spec.fechaCorte && spec.fechaCorte !== fechaCorteSugerida;
   const [consultandoTrm, startConsultarTrm] = useTransition();
   const usarTrmOficial = () => {
     if (!fechaCorte) return;
@@ -138,10 +148,22 @@ export function CamposCargueCartera({
         <input
           type="date"
           value={fechaCorte}
+          max={hoyColombiaISO()}
           onChange={(e) => setSpec((s) => (s ? { ...s, fechaCorte: e.target.value || undefined } : s))}
           className={claseCampo}
         />
       </label>
+      {fechaCorte && (errorCorte || pedirConfirmacion) && (
+        <div className="sm:col-span-2">
+          <ConfirmacionFecha
+            error={errorCorte}
+            pregunta={<>Seleccionaste el <b>{nombreFecha(fechaCorte)}</b> como fecha de corte.</>}
+            confirmada={corteConfirmado === fechaCorte}
+            confirmadaTexto={<>Fecha de corte confirmada: {nombreFecha(fechaCorte)}.</>}
+            onConfirmar={() => onConfirmarCorte?.(fechaCorte)}
+          />
+        </div>
+      )}
       <span className="text-[11px] leading-snug text-ink-500 sm:col-span-2">
         {monedaArchivo !== "COP"
           ? `Los importes se leen en ${monedaArchivo} y se convierten a pesos con la TRM de cierre; la divisa queda en cada fila.`
@@ -166,6 +188,8 @@ export function EditorMapeoModulo({
   onCambioMarcaTotales,
   marcaTotalesCarga,
   ref,
+  corteConfirmado,
+  onConfirmarCorte,
 }: {
   analisis: AnalisisModulo;
   spec: SpecModulo;
@@ -187,6 +211,9 @@ export function EditorMapeoModulo({
   marcaTotalesCarga?: ReactNode;
   /** Opcional: para llevar el foco al campo que un error del servidor reclama. */
   ref?: Ref<EditorMapeoModuloHandle>;
+  /** Carga: la fecha de corte ya confirmada y cómo confirmarla (ver `CamposCargueCartera`). */
+  corteConfirmado?: string | null;
+  onConfirmarCorte?: (fecha: string) => void;
 }) {
   const esCarga = modoEditor === "carga";
 
@@ -469,7 +496,15 @@ export function EditorMapeoModulo({
               <option value="EUR">Euros (EUR)</option>
             </select>
           </label>
-          {esCarga && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
+          {esCarga && (
+            <CamposCargueCartera
+              spec={spec}
+              setSpec={setSpec}
+              fechaCorteSugerida={fechaCorteSugerida}
+              corteConfirmado={corteConfirmado}
+              onConfirmarCorte={onConfirmarCorte}
+            />
+          )}
           <div className="border-t border-ink-150 pt-2">
             <span className="text-[11px] font-medium text-ink-600">Rangos de vencimiento detectados</span>
             {rangosDetectados.length === 0 ? (

@@ -51,6 +51,8 @@ import {
   entradasCruceFormalNomina,
   pesosRepartoDeCentros,
   repartosAplicadosNomina,
+  separarEntradasVisibles,
+  subcuentasSoloVisibles,
   type RepartoConcepto,
   type ResultadoCruceNomina,
 } from "@/lib/modulos/nomina/cruce-nomina";
@@ -154,6 +156,13 @@ export type ResultadoCruceModulo = {
    * a 6 (Nómina) lo deja fuera de sus renglones y solo lo informa.
    */
   fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
+  /**
+   * Cuentas SOLO VISIBLES (Nómina, 1/Oct/2026): mismo cálculo que la cédula —saldo final contra lo
+   * que el módulo les asigna— en un resumen APARTE: no suma a los totales de `cruceContable`, no
+   * lleva marcas y no pesa en el cierre. Su desglose de cuentas del cliente va en
+   * `detalleContablePorCuenta` con su propia clave. `null` si no hay ninguna con saldo ni concepto.
+   */
+  soloVisibles: ResumenCruceContable | null;
   /** Solo Nómina: vista por subcuenta, control de deducciones y repartos. */
   nomina: ResultadoCruceNomina | null;
   /** Cuentas que el usuario agregó solo para este período (fuera de la cédula del módulo). */
@@ -314,6 +323,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       })
     : null;
   const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
+  // Cuentas solo visibles (Nómina): lo que el módulo les asigna va a su resumen aparte. Una visible
+  // que comparte un concepto sin repartir con una que concilia se concilia en este cargue.
+  const separadas = formalNomina && cedula.visibles.size > 0 ? separarEntradasVisibles(formalNomina.entradas, cedula.visibles) : null;
+  const visiblesDelCargue = new Set([...cedula.visibles].filter((c) => !separadas?.promovidas.has(c)));
   const consolidado = consolidarPorClasificador(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
   // Activos fijos: la depreciación del archivo cruza contra la 1592xx relacionada con el activo.
   const etiquetaRelacionado = descriptor.columnas.find((c) => c.nombre === cedula.rolRelacionado)?.etiqueta ?? cedula.rolRelacionado ?? "";
@@ -363,6 +376,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     : null;
 
   let cruceContable: ResumenCruceContable | null = null;
+  let soloVisibles: ResumenCruceContable | null = null;
   let sinMapeoContable: { total: number; filas: number } | null = null;
   let sinReglaContableFilas = 0;
   const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
@@ -395,12 +409,21 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   const excluidosSinCuenta = new Set(
     marcasPeriodo.filter((m) => m.cuenta4 === CLAVE_SIN_CUENTA).flatMap((m) => m.clasificadoresNoModulares.map((c) => c.clasificador)),
   );
+  // Conceptos NO CONTABILIZADOS por renglón: lo que el archivo trae y la contabilidad no registra
+  // en esa cuenta. Es el espejo de las cuentas no modulares, del lado del módulo.
+  const noContabilizadosPorFila = new Map<string, Set<string>>();
+  for (const m of marcasPeriodo) {
+    const clave = m.cuenta4 ?? "";
+    if (!clave || clave === CLAVE_SIN_CUENTA || m.clasificadoresNoModulares.length === 0) continue;
+    noContabilizadosPorFila.set(clave, new Set(m.clasificadoresNoModulares.map((c) => c.clasificador)));
+  }
 
   const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
   let nomina: ResultadoCruceNomina | null = null;
   if (emparejado && contextoBalance && !bloqueo) {
     const cuentasAgrupadoras = cuentasAgrupadorasExcluidas(contextoBalance.prevalidador);
     const contablePorCuenta: Record<string, number> = {};
+    const contableVisiblePorCuenta: Record<string, number> = {};
     const noModularPorCuenta: Record<string, number> = {};
     let sinMapeoTotal = 0;
     let sinMapeoFilas = 0;
@@ -419,7 +442,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         // aunque su subgrupo no sea del prevalidador y hace de su propia regla; el resto de ese
         // subgrupo (422010 en Ingresos) no es del módulo y se ignora como siempre. A 4 dígitos manda
         // la lista del módulo: un subgrupo que no está en ella no entra aunque esté bajo la regla.
-        const adicional = esAdicionalCedula(cedula, russell6, sub4);
+        // Una solo visible fuera de los prefijos (los pasivos 25xx de Nómina) se lee como adicional.
+        const visibleFueraDePrefijos = cedula.visibles.has(russell6) && !cuenta4DelModulo(sub4, prefijosModulo);
+        const adicional = esAdicionalCedula(cedula, russell6, sub4) || visibleFueraDePrefijos;
         if (!codigosModulo.has(sub4) || (!adicional && !cuenta4DelModulo(sub4, prefijosModulo))) continue;
         // Las reglas del cruce salen del catálogo VIGENTE, como en el cruce por tercero, y no del
         // congelado de la aprobación del balance (`contexto.ts`): ese rige solo el informe del
@@ -436,6 +461,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         });
         if (!calculo) {
           sinReglaContableFilas += 1;
+          continue;
+        }
+        // Solo visible: su propio resumen, sin no modulares (no se concilia).
+        if (visiblesDelCargue.has(russell6)) {
+          contableVisiblePorCuenta[russell6] = (contableVisiblePorCuenta[russell6] ?? 0) + calculo.valor;
+          (detalleContablePorCuenta[russell6] ??= []).push({ cuenta8, nombre: d.nombreCuenta, valor: calculo.valor, noModular: false });
           continue;
         }
         const fueraDeLaLista = fueraDeListaCedula(cedula, russell6);
@@ -482,8 +513,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       contablePorCuenta,
       noModularPorCuenta,
       noModularSinCuenta: excluidosSinCuenta,
+      noContabilizadosPorFila,
       consolidado: formalNomina
-        ? formalNomina.entradas
+        ? separadas?.concilian ?? formalNomina.entradas
         : [
             ...consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
             ...entradasRelacionadas,
@@ -495,13 +527,25 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       // concepto en entradas de una cuenta cada una, que ya no agrupan.
       agruparMultiAsignados: true,
     });
+    // Las solo visibles: el mismo cálculo, aparte (sin marcas ni no modulares).
+    if (Object.keys(contableVisiblePorCuenta).length > 0 || (separadas?.visibles.length ?? 0) > 0) {
+      soloVisibles = construirCruceContable({
+        contablePorCuenta: contableVisiblePorCuenta,
+        consolidado: separadas?.visibles ?? [],
+        nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
+        ordenCuenta: (clave) => ordenClaveCedula(cedula, clave),
+        agruparMultiAsignados: true,
+      });
+    }
     // El desglose de una fila agrupada son las cuentas del cliente de todas sus cuentas Russell.
-    for (const fila of cruceContable.filas) {
+    for (const fila of [...cruceContable.filas, ...(soloVisibles?.filas ?? [])]) {
       if (!fila.cuentas) continue;
       detalleContablePorCuenta[fila.cuenta4] = fila.cuentas
         .flatMap((c) => detalleContablePorCuenta[c] ?? [])
         .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
     }
+    // Pesos del reparto sugerido: el saldo de todas las candidatas, concilien o solo se vean.
+    const contableTodas = { ...contableVisiblePorCuenta, ...contablePorCuenta };
     // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
     // sugeridos: lo repartido en los centros del concepto en el período (un cargue sin centro) y,
     // si no hay, proporcionales al saldo contable de las cuentas candidatas (D4).
@@ -509,14 +553,19 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       const balanceNomina = contextoBalance.filas
         .filter((d) => !cuentasAgrupadoras.has(d.cuenta8.replace(/\D/g, "")))
         .map((d) => ({ cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, debitos: d.debitos, creditos: d.creditos, saldoFinal: d.saldoFinal }));
-      const repartosVm = repartosAplicadosNomina(consolidadoNomina.renglones, insumosNomina.repartos, contablePorCuenta);
+      const repartosVm = repartosAplicadosNomina(consolidadoNomina.renglones, insumosNomina.repartos, contableTodas);
       nomina = {
         repartosAplicados: repartosVm.aplicados,
         repartosIgnorados: repartosVm.ignorados,
-        vistaSubcuenta: construirVistaSubcuenta({ balance: balanceNomina, renglones: consolidadoNomina.renglones, prefijos: prefijosModulo }),
+        vistaSubcuenta: construirVistaSubcuenta({
+          balance: balanceNomina,
+          renglones: consolidadoNomina.renglones,
+          prefijos: prefijosModulo,
+          subcuentasVisibles: subcuentasSoloVisibles(cedula.lista6 ?? [], cedula.visibles),
+        }),
         control: construirControlDeducciones({ balance: balanceNomina, renglones: consolidadoNomina.renglones }),
         repartosPendientes: formalNomina.pendientesReparto.map((r) => {
-          const porCuenta = Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contablePorCuenta[c] ?? 0]));
+          const porCuenta = Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contableTodas[c] ?? 0]));
           const deCentros = pesosRepartoDeCentros(r, r.sugerencia.cuentas, insumosNomina.repartos);
           return {
             clasificador: r.clasificador,
@@ -540,6 +589,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     if (sinReglaContableFilas > 0) {
       bloqueo = `Se omitieron ${sinReglaContableFilas} fila(s) contable(s) porque no tienen una regla activa aplicable. Configura y aprueba nuevamente el prevalidador antes de conciliar.`;
       cruceContable = null;
+      soloVisibles = null;
       sinMapeoContable = null;
     }
   }
@@ -580,6 +630,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           porCuenta: Object.fromEntries(Object.entries(fuera.porCuenta).sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, Math.round(v * 100) / 100])),
         }
       : null,
+    soloVisibles: cruceContable ? soloVisibles : null,
     nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, repartosPendientes: [], repartosAplicados: [], repartosIgnorados: 0, repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
     cuentasPeriodo,
   };
@@ -600,6 +651,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     filasMarcadas: [],
     resumenMarcas: null,
     fueraDelModulo: null,
+    soloVisibles: null,
     nomina: null,
     cuentasPeriodo: [],
   };

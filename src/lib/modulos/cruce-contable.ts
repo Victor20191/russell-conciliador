@@ -18,6 +18,12 @@ export type FilaCruceContable = {
   clasificadores?: string[];
   /** Solo en filas agrupadas: el lado contable de cada cuenta, en el orden de `cuentas`. */
   desglose?: { cuenta: string; nombre: string | null; contable: number; noModular: number }[];
+  /**
+   * De qué se compone `inventario`: los clasificadores del archivo que suman a esta fila, de mayor
+   * a menor. En una fila agrupada van los de sus varias cuentas y los 1:1 de cualquiera de ellas,
+   * que es justo lo que no se podía ver al expandir («¿de dónde salen estos 698 millones?»).
+   */
+  detalleModulo?: { clasificador: string; total: number }[];
   contable: number; // saldo del balance de comprobación
   inventario: number; // suma de clasificadores con asignación 1:1 a esta cuenta
   /** Parte de `contable` que corresponde a cuentas marcadas NO MODULARES (no se concilia). */
@@ -83,6 +89,12 @@ export type InputCruceContable = {
   noModularPorCuenta?: Record<string, number>;
   /** Clasificadores sin cuenta marcados NO MODULARES: se descuentan del renglón `CLAVE_SIN_CUENTA`. */
   noModularSinCuenta?: ReadonlySet<string>;
+  /**
+   * Conceptos marcados NO CONTABILIZADOS por renglón (clave de la fila → clasificadores): lo que el
+   * archivo del módulo trae y la contabilidad no registra en esa cuenta. Su total se descuenta del
+   * lado del módulo, igual que una cuenta no modular se descuenta del contable.
+   */
+  noContabilizadosPorFila?: ReadonlyMap<string, ReadonlySet<string>>;
   consolidado: ClasificadorCruce[];
   nombrePorCuenta: (cod: string) => string | null;
   /**
@@ -170,6 +182,8 @@ export function construirCruceContable(
     return r;
   };
   const multiPorRaiz = new Map<string, ClasificadorCruce[]>();
+  // Qué clasificadores componen el lado módulo de cada cuenta (los de asignación 1:1).
+  const entradasPorCuenta = new Map<string, ClasificadorCruce[]>();
   const agrupar = input.agruparMultiAsignados === true;
 
   for (const c of input.consolidado) {
@@ -189,6 +203,7 @@ export function construirCruceContable(
     } else {
       const cuenta = c.cuentas4[0];
       inventarioPorCuenta.set(cuenta, (inventarioPorCuenta.get(cuenta) ?? 0) + c.total);
+      entradasPorCuenta.set(cuenta, [...(entradasPorCuenta.get(cuenta) ?? []), c]);
     }
   }
   if (agrupar) {
@@ -202,7 +217,7 @@ export function construirCruceContable(
   // Una fila a partir de sus cifras: la diferencia que se concilia descuenta lo no modular de
   // cada lado (cuentas del cliente del contable; clasificadores del módulo en el saldo sin cuenta).
   const filaDeCifras = (
-    base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose">,
+    base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "detalleModulo">,
     cifras: { contable: number; inventario: number; noModular: number; noModularModulo: number },
   ): FilaCruceContable => {
     const { contable, inventario, noModular, noModularModulo } = cifras;
@@ -215,13 +230,23 @@ export function construirCruceContable(
     else estado = cuadra ? "cuadra" : "descuadre";
     return { ...base, contable, inventario, noModular, noModularModulo, diferenciaBruta, diferencia, cuadra, estado };
   };
-  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose">, miembros: readonly string[], extraInventario: number): FilaCruceContable => {
+  /** Los clasificadores que suman a la fila: los 1:1 de sus cuentas y, si agrupa, los de varias. */
+  const detalleModuloDe = (miembros: readonly string[], multi: readonly ClasificadorCruce[]) =>
+    [...miembros.flatMap((c) => entradasPorCuenta.get(c) ?? []), ...multi]
+      .map((c) => ({ clasificador: c.clasificador, total: c.total }))
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
+
+  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "detalleModulo">, miembros: readonly string[], extraInventario: number, multi: readonly ClasificadorCruce[] = []): FilaCruceContable => {
     const sumar = (valorDe: (c: string) => number) => miembros.reduce((s, c) => s + valorDe(c), 0);
-    return filaDeCifras(base, {
+    const detalleModulo = detalleModuloDe(miembros, multi);
+    const noContabilizados = input.noContabilizadosPorFila?.get(base.cuenta4);
+    return filaDeCifras({ ...base, detalleModulo }, {
       contable: redondear(sumar((c) => input.contablePorCuenta[c] ?? 0)),
       inventario: redondear(sumar((c) => inventarioPorCuenta.get(c) ?? 0) + extraInventario),
       noModular: redondear(sumar((c) => input.noModularPorCuenta?.[c] ?? 0)),
-      noModularModulo: 0,
+      noModularModulo: noContabilizados
+        ? redondear(detalleModulo.reduce((s, d) => (noContabilizados.has(d.clasificador) ? s + d.total : s), 0))
+        : 0,
     });
   };
 
@@ -255,6 +280,7 @@ export function construirCruceContable(
         },
         miembros,
         clasificadores.reduce((s, c) => s + c.total, 0),
+        clasificadores,
       ),
     );
   }

@@ -175,6 +175,12 @@ export interface ConfiguracionCedula {
    */
   subgrupos4?: readonly string[];
   cuentasAdicionales?: readonly CuentaAdicionalCedula[];
+  /**
+   * Cuentas de 6 que se MUESTRAN sin conciliar (Nómina, 1/Oct/2026): al final del cruce, colapsadas,
+   * con su saldo y lo que el módulo les asigna, fuera de los totales, las marcas y el cierre. Se
+   * pueden asignar en el Consolidado. Valor de fábrica; los vigentes salen de /config/prevalidador.
+   */
+  cuentasVisibles?: readonly string[];
   subgruposAbiertos?: readonly SubgrupoAbiertoCedula[];
   valorRelacionado?: ValorRelacionadoCedula;
 }
@@ -337,26 +343,47 @@ export interface ConfiguracionNomina {
 
 const col =(nombre: string, etiqueta: string, tipo: TipoColumna, requerido = false, sinonimos?: string[]): RolColumna => ({ nombre, etiqueta, tipo, requerido, sinonimos });
 
-/**
- * Cuentas Russell de 6 dígitos del módulo de Nómina (RF-NOM-05, sin los pasivos laborales):
- * las ocho subcuentas de gasto de personal de administración (5105) y de ventas (5205), las
- * ocho de mano de obra directa (7205, espejo de 5105 salvo 720505 «Salarios» y 720515 «Prima»;
- * desde el 30/Sep/2026) y la mano de obra indirecta (730505). Son las del PUC maestro Russell
- * (`prisma/data`).
- */
-export const CUENTAS_RUSSELL_NOMINA: readonly string[] = [
-  "510506", "510530", "510536", "510539", "510568", "510569", "510570", "510595",
-  "520506", "520530", "520536", "520539", "520568", "520569", "520570", "520595",
-  "720505", "720515", "720530", "720539", "720568", "720569", "720570", "720595",
-  "730505",
-];
+/** Las cuatro clases del gasto y costo de personal con la misma numeración de subcuentas. */
+const CLASES_GASTO_PERSONAL = ["5105", "5205", "7205", "7305"] as const;
+const enLasCuatroClases = (subcuentas: readonly string[]): string[] =>
+  CLASES_GASTO_PERSONAL.flatMap((clase) => subcuentas.map((s) => `${clase}${s}`));
 
 /**
- * Pasivos laborales que Nómina concilia en la cédula por su saldo final (16/Sep/2026):
- * cesantías consolidadas, intereses sobre cesantías, prima de servicios y vacaciones consolidadas.
- * Están fuera de los prefijos del prevalidador (5105/5205/7205/7305), que no cambia.
+ * Subcuentas del gasto de personal que Nómina CONCILIA contra el archivo (1/Oct/2026, «cuentas
+ * nomina.xlsx» en verde): salario integral, apoyo de sostenimiento, sueldos, horas extras,
+ * comisiones, incapacidades, auxilio de transporte, primas extralegales, auxilios, bonificaciones,
+ * dotación, seguros, indemnizaciones, licencias y otros.
+ */
+export const SUBCUENTAS_CONCILIA_NOMINA: readonly string[] = ["03", "05", "06", "15", "18", "24", "27", "42", "45", "48", "51", "54", "60", "86", "95"];
+
+/**
+ * Subcuentas que el auditor quiere VER pero no se concilian con el archivo de nómina (en rojo):
+ * provisiones de prestaciones (cesantías, intereses, prima, vacaciones), capacitación, aportes
+ * parafiscales y de seguridad social, y gastos médicos.
+ */
+export const SUBCUENTAS_VISIBLES_NOMINA: readonly string[] = ["30", "33", "36", "39", "63", "68", "69", "70", "72", "75", "78", "84"];
+
+/**
+ * Cuentas Russell de 6 dígitos que Nómina CONCILIA (RF-NOM-05; 1/Oct/2026): las 15 subcuentas de
+ * `SUBCUENTAS_CONCILIA_NOMINA` en administración (5105), ventas (5205), mano de obra directa (7205)
+ * y mano de obra indirecta (7305), que comparten numeración. Son las del PUC maestro Russell
+ * (`prisma/data`). Hasta el 30/Sep eran 25 (las ocho de 5105, 5205 y 7205 y la 730505).
+ */
+export const CUENTAS_RUSSELL_NOMINA: readonly string[] = enLasCuatroClases(SUBCUENTAS_CONCILIA_NOMINA);
+
+/**
+ * Pasivos laborales de Nómina: cesantías consolidadas, intereses sobre cesantías, prima de servicios
+ * y vacaciones consolidadas. Conciliaron por saldo final del 16/Sep al 1/Oct/2026; desde entonces son
+ * SOLO VISIBLES (`CUENTAS_VISIBLES_NOMINA`). Fuera de los prefijos del prevalidador.
  */
 export const CUENTAS_PASIVO_NOMINA: readonly string[] = ["251010", "251505", "252005", "252505"];
+
+/**
+ * Cuentas que Nómina muestra SIN conciliar (1/Oct/2026): las 12 subcuentas de
+ * `SUBCUENTAS_VISIBLES_NOMINA` en las cuatro clases y los pasivos laborales. Van al final del cruce,
+ * colapsadas, con su saldo y lo que el archivo les asigna, sin sumar a los totales ni pesar en el cierre.
+ */
+export const CUENTAS_VISIBLES_NOMINA: readonly string[] = [...enLasCuatroClases(SUBCUENTAS_VISIBLES_NOMINA), ...CUENTAS_PASIVO_NOMINA];
 
 /**
  * Cuentas Russell de 6 dígitos de la 41 que concilia Ingresos (16/Sep/2026): los ingresos por
@@ -648,10 +675,11 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   //    auxilios y bonificaciones.
   //  - RF-NOM-03 la conciliación es POR CONCEPTO, no por tercero (el cruce por cédula queda
   //    apagado). RF-NOM-04 requiere el balance por cuenta.
-  //  - RF-NOM-05 el módulo se maneja a 6 dígitos: las ocho 5105xx, las ocho 5205xx, las ocho
-  //    7205xx y la 730505 (`CUENTAS_RUSSELL_NOMINA`). De los pasivos laborales 25xx entran,
-  //    por saldo final, 251010, 251505, 252005 y 252505 (`CUENTAS_PASIVO_NOMINA`, 16/Sep/2026); los
-  //    demás conceptos de pasivo (libranzas, retenciones) siguen en el control de deducciones.
+  //  - RF-NOM-05 el módulo se maneja a 6 dígitos. Desde el 1/Oct/2026 concilian 15 subcuentas en
+  //    5105, 5205, 7205 y 7305 (`CUENTAS_RUSSELL_NOMINA`, 60 cuentas) y otras 12 más los pasivos
+  //    251010, 251505, 252005 y 252505 son SOLO VISIBLES (`CUENTAS_VISIBLES_NOMINA`: se ven al final
+  //    del cruce sin conciliar). Los demás conceptos de pasivo (libranzas, retenciones) siguen en el
+  //    control de deducciones.
   //  - RF-NOM-06/07 el cliente trabaja con códigos de concepto propios y cada concepto tiene
   //    una cuenta contable del cliente; el cuadro de homologación lo entrega TI del cliente.
   //  - RF-NOM-08/09 carga masiva de la homologación (/config/conceptos-nomina), persistente,
@@ -722,7 +750,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Novasoft cierra cada empleado con «TOTALES» en negrita: es un subtotal, no un ítem.
     usarNegritaComoEstructura: true,
     nivelCruce: 6,
-    cedula: { cuentasAdicionales: CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta })) },
+    cedula: { cuentasVisibles: CUENTAS_VISIBLES_NOMINA },
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
     // Un mismo patrón sirve para cargar con o sin separar por centro de costo.
     confirmarAgrupadorEnCarga: true,

@@ -22,7 +22,7 @@ import { controlesFormatoCartera } from "./cartera/controles-formato";
 import type { FormatoArchivoCartera } from "./cartera/tipo-formato";
 import type { NivelCartera } from "./cartera/saldos-tercero";
 import type { ColumnaDetalle } from "./cartera/columnas-cartera";
-import { claveColumna, claveGrupo, resumirBorrador, type FilaBorrador, type FilaSlim, type ResumenBorrador } from "./borrador-resumen";
+import { claveColumna, claveGrupo, GRUPO_SIN_CLASIFICAR, resumirBorrador, type FilaBorrador, type FilaSlim, type ResumenBorrador } from "./borrador-resumen";
 
 type FilaCruda = {
   fila_num: number;
@@ -166,6 +166,32 @@ async function declaradoPorCuenta(loteId: string, valorRol: string): Promise<Map
   return salida;
 }
 
+/**
+ * Nombre legible de cada grupo cuando el clasificador es un CÓDIGO: Nómina clasifica por el código
+ * del concepto («9995») y su nombre («NETO NÓMINA») vive en el rol de respaldo. Gana el nombre que
+ * más se repite en el grupo —un mismo código puede venir escrito de dos formas— y la cuenta la
+ * hace la base: traer la columna `datos` de 125.000 filas para esto costaría medio minuto.
+ */
+async function descripcionPorGrupo(loteId: string, rol: string): Promise<Map<string, string>> {
+  const { rows } = await pool().query<{ clasificador: string | null; texto: string; n: string }>(
+    `SELECT clasificador, btrim(datos->>$2) AS texto, count(*)::text AS n
+       FROM modulo_importacion_staging
+      WHERE lote_id = $1 AND NULLIF(btrim(datos->>$2), '') IS NOT NULL
+      GROUP BY 1, 2`,
+    [loteId, rol],
+  );
+  const mejor = new Map<string, { texto: string; n: number }>();
+  for (const f of rows) {
+    const clave = f.clasificador?.trim() || GRUPO_SIN_CLASIFICAR;
+    const n = Number(f.n);
+    // Un grupo cuyo nombre es el mismo clasificador no aporta nada: no se guarda.
+    if (f.texto === clave) continue;
+    const previo = mejor.get(clave);
+    if (!previo || n > previo.n) mejor.set(clave, { texto: f.texto, n });
+  }
+  return new Map([...mejor].map(([clave, v]) => [clave, v.texto]));
+}
+
 /** Negativos y descuadres de cantidad × unitario, mirando SOLO las columnas que los definen. */
 async function novedadesDeColumnas(
   loteId: string,
@@ -226,7 +252,7 @@ export async function cargarResumenBorrador(input: {
   const { loteId, descriptor, columnas, formatoCartera } = input;
   const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
 
-  const [slim, enCero, declarado, conDatos, novedades] = await Promise.all([
+  const [slim, enCero, declarado, conDatos, novedades, descripciones] = await Promise.all([
     input.filas
       ? Promise.resolve(null)
       : pool().query<FilaCruda>(`SELECT ${CAMPOS} FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
@@ -234,6 +260,8 @@ export async function cargarResumenBorrador(input: {
     declaradoPorCuenta(loteId, descriptor.valor),
     columnasConDatos(loteId, columnas),
     novedadesDeColumnas(loteId, descriptor, columnas),
+    // El nombre del grupo solo hace falta donde el clasificador es un código y el nombre va aparte.
+    descriptor.clasificadorAlterno ? descripcionPorGrupo(loteId, descriptor.clasificadorAlterno) : Promise.resolve(new Map<string, string>()),
   ]);
   const filas: FilaSlim[] = input.filas
     ? input.filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivo }))
@@ -267,6 +295,7 @@ export async function cargarResumenBorrador(input: {
     columnas,
     imputablesEnCero: enCero,
     declaradoPorCuenta: declarado,
+    descripcionPorGrupo: descripciones,
     columnasConDatos: conDatos,
     negativos: novedades.negativos,
     descuadres: novedades.descuadres,

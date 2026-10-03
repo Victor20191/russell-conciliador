@@ -4,6 +4,7 @@ import { tieneDigitosNit } from "@/lib/nit";
 import { esUrlHttp } from "@/lib/soporte-estados";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
+import { motivoFechaFutura } from "@/lib/fecha-cargue";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -378,7 +379,12 @@ export const ConfirmarBalanceSchema = z
     periodoInicio: z.string().regex(ISO_FECHA, { error: "Indica el período desde (fecha)." }),
     periodoFin: z.string().regex(ISO_FECHA, { error: "Indica el período hasta (fecha)." }),
   })
-  .refine((d) => d.periodoFin >= d.periodoInicio, { error: "El período hasta no puede ser anterior al período desde.", path: ["periodoFin"] });
+  .refine((d) => d.periodoFin >= d.periodoInicio, { error: "El período hasta no puede ser anterior al período desde.", path: ["periodoFin"] })
+  // Ninguna fecha del balance puede ser futura (calendario de Colombia; `src/lib/fecha-cargue.ts`).
+  .superRefine((d, ctx) => {
+    const futura = motivoFechaFutura(d.periodoInicio, "El período desde") ?? motivoFechaFutura(d.periodoFin, "El período hasta");
+    if (futura) ctx.addIssue({ code: "custom", path: ["periodoFin"], message: futura });
+  });
 
 // Edición de un prompt de IA (Superadministrador). `clave` identifica el prompt
 // del catálogo (extraccion_balance | mapeo_balance); el contenido es libre.
@@ -458,6 +464,11 @@ export const CuentaConciliacionSchema = z.object({
     z.string().regex(/^\d{6}$/, { error: "La cuenta debe ser una cuenta Russell de 6 dígitos." }),
   ),
   origen: OrigenCuentaConciliacionSchema,
+  // concilia = forma la cédula; visible = se ve al final del cruce sin conciliarse (solo Nómina).
+  categoria: z.preprocess(
+    (v) => (v === "" || v == null ? "concilia" : v),
+    z.enum(["concilia", "visible"], { error: "Categoría inválida." }),
+  ),
 });
 
 // Subgrupo de 4 dígitos que concilia un módulo con cédula a ese nivel (Inventarios, Activos fijos).

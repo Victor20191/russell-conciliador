@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { fmt, fmtPct } from "@/lib/format";
 import { OPCIONES_FILTRO_VALIDACION, type FiltrosColumnasDetalle } from "@/lib/balance/filtros-detalle";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 
 /** Cabecera y columnas compartidas por balance oficial y visor por terceros. */
 export function EncabezadoTablaBalance<V extends string>({ filtros, onChange, opcionesValidacion = OPCIONES_FILTRO_VALIDACION }: {
@@ -20,6 +21,7 @@ export function EncabezadoTablaBalance<V extends string>({ filtros, onChange, op
                   value={filtros.codigo}
                   onChange={(valor) => onChange("codigo", valor)}
                   placeholder="Buscar código"
+                  codigo
                 />
               </th>
               <th className="min-w-56 px-4 py-2 font-semibold">
@@ -38,6 +40,7 @@ export function EncabezadoTablaBalance<V extends string>({ filtros, onChange, op
                   value={filtros.mapeo}
                   onChange={(valor) => onChange("mapeo", valor)}
                   placeholder="Código o sin mapeo"
+                  codigo
                 />
               </th>
               <th data-separador="true" className="min-w-40 whitespace-nowrap px-4 py-2 text-right font-semibold">
@@ -120,12 +123,15 @@ function FiltroTextoColumna({
   onChange,
   placeholder,
   numerico = false,
+  codigo = false,
 }: {
   ariaLabel: string;
   value: string;
   onChange: (valor: string) => void;
   placeholder: string;
   numerico?: boolean;
+  /** Columnas de CÓDIGO: el `title` cuenta el comodín de posición. */
+  codigo?: boolean;
 }) {
   return (
     <input
@@ -135,6 +141,7 @@ function FiltroTextoColumna({
       onChange={(evento) => onChange(evento.target.value)}
       aria-label={ariaLabel}
       placeholder={placeholder}
+      title={codigo ? AYUDA_COMODIN : undefined}
       className={`${CLASE_FILTRO_COLUMNA} ${numerico ? "text-right" : "text-left"}`}
     />
   );

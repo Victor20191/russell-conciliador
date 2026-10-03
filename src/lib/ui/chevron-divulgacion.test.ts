@@ -29,6 +29,7 @@ describe("convención cableada en UI de expandir/contraer", () => {
     "app/(app)/config/maestros/maestros-client.tsx",
     "app/(app)/config/mapeo/mapeo-client.tsx",
     "app/(app)/config/permisos/permisos-client.tsx",
+    "app/(app)/config/prevalidador/cuentas-conciliacion-panel.tsx",
     "app/(app)/config/usuarios/usuarios-client.tsx",
     "app/(app)/modulos/[codigo]/[id]/alcance-cuentas-tercero.tsx",
     "app/(app)/modulos/[codigo]/[id]/dato-cargado-client.tsx",
