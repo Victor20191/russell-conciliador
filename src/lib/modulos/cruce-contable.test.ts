@@ -180,6 +180,33 @@ describe("construirCruceContable", () => {
     expect(r.filas[0]).toMatchObject({ contable: 500, inventario: 300, noModular: 150, noModularModulo: 0, diferenciaBruta: 200, diferencia: 50 });
   });
 
+  // Conceptos NO CONTABILIZADOS: lo que el archivo trae y la contabilidad no registra en esa
+  // cuenta baja el lado del MÓDULO. Llega por renglón, con la misma llave que la marca.
+  it("resta del módulo los conceptos declarados no contabilizados", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1435": 300 },
+      noContabilizadosPorFila: new Map([["1435", new Set(["MERMA"])]]),
+      consolidado: [
+        { clasificador: "NO FABRICADAS", total: 300, cuentas4: ["1435"] },
+        { clasificador: "MERMA", total: 200, cuentas4: ["1435"] },
+      ],
+      nombrePorCuenta,
+    });
+    // El módulo trae 500 y 200 no se contabilizan: la fila cuadra contra los 300 del balance.
+    expect(r.filas[0]).toMatchObject({ contable: 300, inventario: 500, noModular: 0, noModularModulo: 200, diferenciaBruta: -200, diferencia: 0, cuadra: true });
+    expect(r.totales).toMatchObject({ noModularModulo: 200, diferencia: 0 });
+  });
+
+  it("un concepto no contabilizado de otro renglón no afecta a este", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1435": 500 },
+      noContabilizadosPorFila: new Map([["1430", new Set(["NO FABRICADAS"])]]),
+      consolidado: [{ clasificador: "NO FABRICADAS", total: 300, cuentas4: ["1435"] }],
+      nombrePorCuenta,
+    });
+    expect(r.filas[0]).toMatchObject({ inventario: 300, noModularModulo: 0, diferencia: 200 });
+  });
+
   it("una exclusión que explica toda la diferencia deja la fila cuadrada", () => {
     const r = construirCruceContable({
       contablePorCuenta: { "1465": 15_050_333 },

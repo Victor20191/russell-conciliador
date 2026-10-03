@@ -128,10 +128,14 @@ function FilaConceptoAgrupado({ grupo, abierto, columnas, onAlternar, selecciona
  * De dónde sale la columna del módulo en una fila del cruce: los clasificadores del archivo que
  * suman a ella, de mayor a menor. Va al lado de las cuentas del cliente, que explican el otro lado.
  */
-function DetalleModuloFila({ detalle, etiqueta, descripcionDe }: {
+function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlternar }: {
   detalle: readonly { clasificador: string; total: number }[];
   etiqueta: string;
   descripcionDe: (clasificador: string) => string | null;
+  /** Conceptos marcados NO CONTABILIZADOS: su total no cuenta del lado del módulo. */
+  excluidos?: ReadonlySet<string>;
+  /** Ausente → solo lectura (sin casillas): la selección se hace en la marca. */
+  onAlternar?: (clasificador: string) => void;
 }) {
   if (detalle.length === 0) {
     return <p className="text-[11.5px] text-ink-400">Esta fila no tiene saldo del módulo que desglosar.</p>;
@@ -144,11 +148,28 @@ function DetalleModuloFila({ detalle, etiqueta, descripcionDe }: {
       <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
         {detalle.map((d) => {
           const descripcion = descripcionDe(d.clasificador);
-          return (
-            <li key={d.clasificador} className="flex items-center gap-2 px-2.5 py-1.5">
+          const fuera = excluidos?.has(d.clasificador) === true;
+          const contenido = (
+            <>
               <span className="shrink-0 font-mono text-[11.5px] text-ink-600 sm:w-[110px]">{d.clasificador}</span>
-              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-700" title={descripcion ?? undefined}>{descripcion ?? ""}</span>
-              <span className="shrink-0 tabular-nums text-[12px] text-ink-800">{fmtContable(d.total)}</span>
+              <span className={`min-w-0 flex-1 truncate text-[12px] ${fuera ? "text-ink-400" : "text-ink-700"}`} title={descripcion ?? undefined}>{descripcion ?? ""}</span>
+              <span className={`shrink-0 tabular-nums text-[12px] ${fuera ? "text-ink-400 line-through" : "text-ink-800"}`}>{fmtContable(d.total)}</span>
+            </>
+          );
+          if (!onAlternar) {
+            return (
+              <li key={d.clasificador} className="flex items-center gap-2 px-2.5 py-1.5">
+                {contenido}
+                {fuera && <Chip label="No contabilizado" tone="warn" />}
+              </li>
+            );
+          }
+          return (
+            <li key={d.clasificador}>
+              <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 transition hover:bg-ink-50">
+                <input type="checkbox" checked={fuera} onChange={() => onAlternar(d.clasificador)} className="size-3.5 shrink-0 accent-navy-700" />
+                {contenido}
+              </label>
             </li>
           );
         })}
@@ -2292,7 +2313,7 @@ function CruceContableTab({
                   {encabezado("Diferencia", "diferenciaBruta", "right", "Diferencia sin descontar las cuentas no modulares. Ordena por su tamaño, sin importar el signo.")}
                 </th>
                 <th className="px-3 py-2 text-right font-semibold">
-                  {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación del módulo: cuentas del cliente (se restan de Contabilidad) o saldos sin cuenta (se restan del módulo). Ordena por el tamaño de su efecto.")}
+                  {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación: cuentas del cliente no modulares (se restan de Contabilidad) y conceptos del archivo no contabilizados (se restan del módulo). Ordena por el tamaño de su efecto.")}
                 </th>
                 <th className="px-3 py-2 text-right font-semibold">
                   {encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}
@@ -2388,7 +2409,8 @@ function CruceContableTab({
                           {primero && <td rowSpan={alto} className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>}
                           {/* Efecto en la diferencia: el contable excluido la baja; el módulo excluido la sube. */}
                           {(() => {
-                            const efecto = sinCuenta ? f.noModularModulo : -renglon.noModular;
+                            // En una fila agrupada el excluido del módulo es de la fila entera: va en su total.
+                            const efecto = (esTotalGrupo || !agrupada ? f.noModularModulo : 0) - renglon.noModular;
                             return (
                               <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums text-warn-700 ${esTotalGrupo ? "border-t border-ink-200 font-semibold" : ""}`}>
                                 {efecto === 0 ? <span className="text-ink-300">—</span> : fmtContable(efecto)}
@@ -2480,6 +2502,7 @@ function CruceContableTab({
                                 detalle={f.detalleModulo ?? []}
                                 etiqueta={`${moduloLabel} (archivos)`}
                                 descripcionDe={descripcionDeClasificador}
+                                excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
                               />
                             </div>
                             {excluidas.size > 0 && (
@@ -2579,6 +2602,7 @@ function CruceContableTab({
           fila={marcando}
           hijos={hijosDe(marcando.cuenta4)}
           hijosSinCuenta={marcando.cuenta4 === CLAVE_SIN_CUENTA ? hijosSinCuenta : undefined}
+          descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
           onClose={() => setMarcando(null)}
           onGuardado={() => {
@@ -2604,6 +2628,7 @@ function CruceContableTab({
           fila={pasando.fila}
           origen={pasando.origen}
           hijos={hijosDe(pasando.fila.cuenta4)}
+          descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
           onClose={() => setPasando(null)}
           onGuardado={() => {
@@ -3648,7 +3673,10 @@ function ObservacionMarca({
         <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>
 
         <ResumenNoModulares cuentas={marca.noModulares} />
-        <ResumenClasificadoresNoModulares clasificadores={marca.clasificadoresNoModulares ?? []} />
+        <ResumenClasificadoresNoModulares
+          clasificadores={marca.clasificadoresNoModulares ?? []}
+          sinCuenta={fila.cuenta4 === CLAVE_SIN_CUENTA}
+        />
 
         {marca.referenciaAnexo && (
           <p className="text-[11.5px] text-ink-600">
@@ -3758,6 +3786,7 @@ function ModalMarca({
   origen,
   hijos,
   hijosSinCuenta,
+  descripcionDeClasificador,
   encabezadoId,
   onClose,
   onGuardado,
@@ -3772,6 +3801,8 @@ function ModalMarca({
   hijos: HijoContableCruce[];
   /** Solo el renglón del saldo sin cuenta: lo que se excluye son clasificadores del lado módulo. */
   hijosSinCuenta?: HijoModuloSinCuenta[];
+  /** Nombre legible de un concepto del archivo, para la lista de no contabilizados. */
+  descripcionDeClasificador: (clasificador: string) => string | null;
   encabezadoId: number;
   onClose: () => void;
   onGuardado: () => void;
@@ -3795,15 +3826,28 @@ function ModalMarca({
       else siguiente.add(cuenta8);
       return siguiente;
     });
+  // Conceptos del archivo que la contabilidad no registra en esta cuenta: bajan el lado del módulo.
+  const conceptos = ladoModulo ? [] : fila.detalleModulo ?? [];
+  const [noContabilizados, setNoContabilizados] = useState<Set<string>>(
+    () => new Set((marcaBase?.clasificadoresNoModulares ?? []).map((c) => c.clasificador).filter((c) => conceptos.some((x) => x.clasificador === c))),
+  );
+  const alternarNoContabilizado = (clasificador: string) =>
+    setNoContabilizados((previos) => {
+      const siguiente = new Set(previos);
+      if (siguiente.has(clasificador)) siguiente.delete(clasificador);
+      else siguiente.add(clasificador);
+      return siguiente;
+    });
+  const totalNoContabilizado = conceptos.reduce((suma, c) => (noContabilizados.has(c.clasificador) ? suma + c.total : suma), 0);
   // Vista previa en vivo: lo que el servidor recalculará al guardar.
   // Del lado módulo (saldo sin cuenta) lo excluido se resta del módulo: la diferencia SUBE.
   const totalNoModular = hijosSinCuenta
     ? hijosSinCuenta.reduce((suma, h) => (noModulares.has(h.clasificador) ? suma + h.total : suma), 0)
     : hijos.reduce((suma, h) => (noModulares.has(h.cuenta8) ? suma + h.valor : suma), 0);
-  const efectoNoModular = ladoModulo ? totalNoModular : -totalNoModular;
+  const efectoNoModular = ladoModulo ? totalNoModular : totalNoContabilizado - totalNoModular;
   const difAjustada = ladoModulo
     ? fila.contable - fila.noModular - (fila.inventario - totalNoModular)
-    : fila.contable - totalNoModular - fila.inventario;
+    : fila.contable - totalNoModular - (fila.inventario - totalNoContabilizado);
   const [guardando, startGuardar] = useTransition();
   const guardar = () => {
     const texto = nota.trim();
@@ -3818,6 +3862,7 @@ function ModalMarca({
       // La diferencia la recalcula el servidor sobre el cruce vigente; esto solo declara
       // qué cuentas quedan fuera de la conciliación.
       datos.set("noModulares", JSON.stringify([...noModulares]));
+      if (!ladoModulo) datos.set("noContabilizados", JSON.stringify([...noContabilizados]));
       for (const archivo of nuevos) datos.append("soportes", archivo);
 
       const r = await guardarMarcaCruce(datos);
@@ -3838,6 +3883,10 @@ function ModalMarca({
   // Al pasar la marca, sus cuentas no modulares que no están en este renglón vuelven a contar.
   const noModularesQueSeLiberan = origen
     ? origen.noModulares.filter((n) => !hijos.some((h) => h.cuenta8 === n.cuenta8))
+    : [];
+  // Igual con los conceptos no contabilizados: los que este renglón no trae vuelven a sumar.
+  const noContabilizadosQueSeLiberan = origen
+    ? (origen.clasificadoresNoModulares ?? []).filter((c) => !conceptos.some((x) => x.clasificador === c.clasificador))
     : [];
 
   return (
@@ -3868,6 +3917,11 @@ function ModalMarca({
                 No están en este renglón y vuelven a contar: {noModularesQueSeLiberan.map((n) => `${n.cuenta8}${n.nombre ? ` ${n.nombre}` : ""}`).join(" · ")}.
               </span>
             )}
+            {noContabilizadosQueSeLiberan.length > 0 && (
+              <span className="mt-1 block font-medium text-warn-700">
+                Conceptos que este renglón no trae y vuelven a sumar: {noContabilizadosQueSeLiberan.map((c) => c.clasificador).join(" · ")}.
+              </span>
+            )}
           </div>
         )}
         <div className="grid grid-cols-2 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] sm:grid-cols-4">
@@ -3882,7 +3936,7 @@ function ModalMarca({
           <div>
             <div className="text-ink-500">No modular</div>
             <div className="tabular-nums font-semibold text-warn-700">
-              {totalNoModular === 0 ? "—" : fmtContable(efectoNoModular)}
+              {efectoNoModular === 0 ? "—" : fmtContable(efectoNoModular)}
             </div>
           </div>
           <div>
@@ -3901,11 +3955,27 @@ function ModalMarca({
             <ListaSinCuentaNoModulares hijos={hijosSinCuenta} seleccion={noModulares} onAlternar={alternarNoModular} />
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-semibold text-ink-700">
-              Cuentas no modulares <span className="font-normal text-ink-400">(no hacen parte de la conciliación: su saldo se resta)</span>
-            </span>
-            <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-semibold text-ink-700">
+                Cuentas no modulares <span className="font-normal text-ink-400">(están en la contabilidad y no hacen parte de la conciliación: su saldo se resta de Contabilidad)</span>
+              </span>
+              <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} />
+            </div>
+            {conceptos.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-semibold text-ink-700">
+                  Conceptos no contabilizados <span className="font-normal text-ink-400">(vienen en el archivo y la contabilidad no los registra en esta cuenta: su valor se resta del lado de {moduloLabel.toLocaleLowerCase("es")})</span>
+                </span>
+                <DetalleModuloFila
+                  detalle={conceptos}
+                  etiqueta={`${moduloLabel} (archivos)`}
+                  descripcionDe={descripcionDeClasificador}
+                  excluidos={noContabilizados}
+                  onAlternar={alternarNoContabilizado}
+                />
+              </div>
+            )}
           </div>
         )}
 

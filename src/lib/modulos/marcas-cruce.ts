@@ -224,10 +224,21 @@ export function diferenciaAjustada(
   fila: Pick<FilaCruceContable, "contable" | "inventario">,
   hijos: readonly HijoContableCruce[],
   seleccion: readonly string[],
+  /** Lo que además se excluye del lado del MÓDULO (conceptos no contabilizados). */
+  excluidoModulo = 0,
 ): number {
   const elegidas = new Set(seleccion);
   const excluido = hijos.reduce((suma, h) => (elegidas.has(h.cuenta8) ? suma + h.valor : suma), 0);
-  return redondear(fila.contable - excluido - fila.inventario);
+  return redondear(fila.contable - excluido - (fila.inventario - excluidoModulo));
+}
+
+/** Σ de los conceptos elegidos como NO CONTABILIZADOS en un renglón del cruce. */
+export function totalNoContabilizado(
+  conceptos: readonly { clasificador: string; total: number }[],
+  seleccion: readonly string[],
+): number {
+  const elegidos = new Set(seleccion);
+  return redondear(conceptos.reduce((suma, c) => (elegidos.has(c.clasificador) ? suma + c.total : suma), 0));
 }
 
 /**
@@ -245,7 +256,7 @@ export function validarClasificadoresNoModulares(
     const clasificador = String(crudo ?? "").trim();
     if (!clasificador) continue;
     if (!validos.has(clasificador)) {
-      return { ok: false, message: `«${clasificador}» ya no está sin cuenta en este cruce. Recarga la pantalla e inténtalo de nuevo.` };
+      return { ok: false, message: `«${clasificador}» ya no está en este renglón del cruce. Recarga la pantalla e inténtalo de nuevo.` };
     }
     elegidos.add(clasificador);
   }

@@ -89,6 +89,12 @@ export type InputCruceContable = {
   noModularPorCuenta?: Record<string, number>;
   /** Clasificadores sin cuenta marcados NO MODULARES: se descuentan del renglón `CLAVE_SIN_CUENTA`. */
   noModularSinCuenta?: ReadonlySet<string>;
+  /**
+   * Conceptos marcados NO CONTABILIZADOS por renglón (clave de la fila → clasificadores): lo que el
+   * archivo del módulo trae y la contabilidad no registra en esa cuenta. Su total se descuenta del
+   * lado del módulo, igual que una cuenta no modular se descuenta del contable.
+   */
+  noContabilizadosPorFila?: ReadonlyMap<string, ReadonlySet<string>>;
   consolidado: ClasificadorCruce[];
   nombrePorCuenta: (cod: string) => string | null;
   /**
@@ -232,11 +238,15 @@ export function construirCruceContable(
 
   const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "detalleModulo">, miembros: readonly string[], extraInventario: number, multi: readonly ClasificadorCruce[] = []): FilaCruceContable => {
     const sumar = (valorDe: (c: string) => number) => miembros.reduce((s, c) => s + valorDe(c), 0);
-    return filaDeCifras({ ...base, detalleModulo: detalleModuloDe(miembros, multi) }, {
+    const detalleModulo = detalleModuloDe(miembros, multi);
+    const noContabilizados = input.noContabilizadosPorFila?.get(base.cuenta4);
+    return filaDeCifras({ ...base, detalleModulo }, {
       contable: redondear(sumar((c) => input.contablePorCuenta[c] ?? 0)),
       inventario: redondear(sumar((c) => inventarioPorCuenta.get(c) ?? 0) + extraInventario),
       noModular: redondear(sumar((c) => input.noModularPorCuenta?.[c] ?? 0)),
-      noModularModulo: 0,
+      noModularModulo: noContabilizados
+        ? redondear(detalleModulo.reduce((s, d) => (noContabilizados.has(d.clasificador) ? s + d.total : s), 0))
+        : 0,
     });
   };
 

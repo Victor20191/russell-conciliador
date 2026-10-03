@@ -10,6 +10,7 @@ import {
   anotarCruceConMarcas,
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
+  totalNoContabilizado,
   destinosMarcaSinRenglon,
   diferenciaAjustadaModulo,
   motivoNoPasarMarca,
@@ -91,6 +92,39 @@ describe("diferenciaAjustada", () => {
   it("respeta el signo de una cuenta correctora negativa", () => {
     // Excluir −24.716 SUBE la diferencia: 500 − (−24.716) − 300.
     expect(diferenciaAjustada({ contable: 500, inventario: 300 }, hijos, ["145508"])).toBe(24_916);
+  });
+
+  // Conceptos NO CONTABILIZADOS: lo que el archivo trae y la contabilidad no registra en esa
+  // cuenta se resta del lado del MÓDULO, así que la diferencia SUBE.
+  it("resta del lado del módulo lo que se declara no contabilizado", () => {
+    expect(diferenciaAjustada({ contable: 500, inventario: 300 }, hijos, [], 120)).toBe(320);
+  });
+
+  it("una exclusión por cada lado deja la fila cuadrada", () => {
+    expect(diferenciaAjustada({ contable: 500, inventario: 300 }, [{ cuenta8: "14350501", nombre: "x", valor: 200, noModular: true }], ["14350501"], 0)).toBe(0);
+    expect(diferenciaAjustada({ contable: 500, inventario: 500 }, hijos, [], 0)).toBe(0);
+  });
+});
+
+describe("totalNoContabilizado", () => {
+  const conceptos = [
+    { clasificador: "MATERNIDAD", total: 5_694_500 },
+    { clasificador: "BONIFICACIÓN", total: 9_472_750 },
+    { clasificador: "AJUSTE", total: -1_000 },
+  ];
+
+  it("suma solo los conceptos elegidos", () => {
+    expect(totalNoContabilizado(conceptos, ["MATERNIDAD"])).toBe(5_694_500);
+    expect(totalNoContabilizado(conceptos, ["MATERNIDAD", "BONIFICACIÓN"])).toBe(15_167_250);
+  });
+
+  it("sin selección es cero y respeta el signo del concepto", () => {
+    expect(totalNoContabilizado(conceptos, [])).toBe(0);
+    expect(totalNoContabilizado(conceptos, ["AJUSTE"])).toBe(-1_000);
+  });
+
+  it("ignora un concepto que no está en el renglón", () => {
+    expect(totalNoContabilizado(conceptos, ["OTRO"])).toBe(0);
   });
 });
 

@@ -409,6 +409,14 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   const excluidosSinCuenta = new Set(
     marcasPeriodo.filter((m) => m.cuenta4 === CLAVE_SIN_CUENTA).flatMap((m) => m.clasificadoresNoModulares.map((c) => c.clasificador)),
   );
+  // Conceptos NO CONTABILIZADOS por renglón: lo que el archivo trae y la contabilidad no registra
+  // en esa cuenta. Es el espejo de las cuentas no modulares, del lado del módulo.
+  const noContabilizadosPorFila = new Map<string, Set<string>>();
+  for (const m of marcasPeriodo) {
+    const clave = m.cuenta4 ?? "";
+    if (!clave || clave === CLAVE_SIN_CUENTA || m.clasificadoresNoModulares.length === 0) continue;
+    noContabilizadosPorFila.set(clave, new Set(m.clasificadoresNoModulares.map((c) => c.clasificador)));
+  }
 
   const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
   let nomina: ResultadoCruceNomina | null = null;
@@ -505,6 +513,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       contablePorCuenta,
       noModularPorCuenta,
       noModularSinCuenta: excluidosSinCuenta,
+      noContabilizadosPorFila,
       consolidado: formalNomina
         ? separadas?.concilian ?? formalNomina.entradas
         : [

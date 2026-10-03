@@ -95,6 +95,7 @@ import {
   type DimensionMarca,
   motivoNoPasarMarca,
   validarNoModulares,
+  totalNoContabilizado,
   validarClasificadoresNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
@@ -3132,6 +3133,21 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       return { ok: false, message: "Selección de cuentas no modulares inválida." };
     }
   }
+  // Conceptos NO CONTABILIZADOS: lo que el archivo del módulo trae y la contabilidad no registra
+  // en esa cuenta. Es el espejo de las cuentas no modulares y baja el lado del módulo.
+  let seleccionNoContabilizado: string[] = [];
+  if (cuenta4 && cuenta4 !== CLAVE_SIN_CUENTA) {
+    try {
+      const crudo = String(formData.get("noContabilizados") ?? "").trim();
+      if (crudo) {
+        const parseado: unknown = JSON.parse(crudo);
+        if (!Array.isArray(parseado)) return { ok: false, message: "Selección de conceptos no contabilizados inválida." };
+        seleccionNoContabilizado = parseado.map((c) => String(c));
+      }
+    } catch {
+      return { ok: false, message: "Selección de conceptos no contabilizados inválida." };
+    }
+  }
 
   // La diferencia (y en la cédula, las cuentas no modulares) NO se toma del formulario: se
   // recalcula sobre el cruce vigente, la misma función que pinta la pestaña. Entre abrir el
@@ -3166,7 +3182,13 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       const noModulares = validarNoModulares(seleccionNoModular, hijos);
       if (!noModulares.ok) return { ok: false, message: noModulares.message };
       excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
-      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+      // Los conceptos del archivo que alimentan el renglón: lo que se declare no contabilizado
+      // tiene que seguir siendo uno de ellos.
+      const conceptos = filaVigente.detalleModulo ?? [];
+      const noContabilizados = validarClasificadoresNoModulares(seleccionNoContabilizado, conceptos);
+      if (!noContabilizados.ok) return { ok: false, message: noContabilizados.message };
+      clasificadoresExcluidos = conceptos.filter((c) => noContabilizados.clasificadores.includes(c.clasificador));
+      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8, totalNoContabilizado(conceptos, noContabilizados.clasificadores));
     }
   } else {
     const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
@@ -3296,7 +3318,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         ? "PASÓ a otro renglón la marca del cruce contable"
         : existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
       objetivo,
-      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ""}`,
+      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? (cuenta4 === CLAVE_SIN_CUENTA ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ` · ${clasificadoresExcluidos.length} concepto(s) no contabilizado(s)`) : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
@@ -3386,7 +3408,11 @@ export async function quitarMarcaCruce(input: {
       clave ? "RETIRÓ la marca del cruce por tercero" : "RETIRÓ la marca del cruce contable",
       clave ? `tercero ${clave}` : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
       ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`
-        + (marca._count.clasificadoresNoModulares ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)` : ""),
+        + (marca._count.clasificadoresNoModulares
+          ? cuenta4 === CLAVE_SIN_CUENTA
+            ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)`
+            : ` · liberó ${marca._count.clasificadoresNoModulares} concepto(s) no contabilizado(s)`
+          : ""),
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Marca ${marca.numero} retirada.` };
