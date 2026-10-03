@@ -84,3 +84,26 @@ scripts/.snapshots/
 # Datos de clientes y scripts temporales locales (no versionar)
 /outputs/
 /_tmp_*
+
+# PDF, texto e imágenes: nunca se versionan (capturas, manuales, muestras).
+# Variantes en mayúsculas porque el VPS (Linux) distingue mayúsculas.
+*.[pP][dD][fF]
+*.[tT][xX][tT]
+*.[pP][nN][gG]
+*.[jJ][pP][gG]
+*.[jJ][pP][eE][gG]
+*.[gG][iI][fF]
+*.[wW][eE][bB][pP]
+*.[bB][mM][pP]
+*.[tT][iI][fF]
+*.[tT][iI][fF][fF]
+*.[hH][eE][iI][cC]
+*.[aA][vV][iI][fF]
+*.[sS][vV][gG]
+*.[iI][cC][oO]
+# Excepciones: los íconos y estáticos que sirve la app sí se versionan.
+!/public/**
+!/src/app/favicon.ico
+!/src/app/**/icon.*
+!/src/app/**/apple-icon.*
+!/src/app/**/opengraph-image.*
