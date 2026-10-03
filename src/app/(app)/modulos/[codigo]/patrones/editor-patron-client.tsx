@@ -18,7 +18,8 @@ import {
   crearVersionPatron,
   type AnalisisPatron,
 } from "@/app/actions/patrones-modulo";
-import { EditorMapeoModulo, type RolModulo } from "../editor-mapeo-modulo";
+import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
+import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
 import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 
@@ -64,6 +65,8 @@ export default function EditorPatronClient({
   const [nota, setNota] = useState(edicion?.nota ?? "");
   const [muestraLista, setMuestraLista] = useState(edicion != null);
   const muestraRef = useRef<File | null>(null);
+  // El editor del mapeo de ESTA pantalla: a él se le pide llevar el foco al campo que un error reclama.
+  const editorRef = useRef<EditorMapeoModuloHandle>(null);
   const [analizando, startAnalizar] = useTransition();
   const [guardando, startGuardar] = useTransition();
   // Remonta el panel de la prueba al cambiar el archivo o la hoja (descarta su resultado).
@@ -140,17 +143,24 @@ export default function EditorPatronClient({
     analizarMuestra(muestraRef.current, hoja);
   };
 
+  // Un error de guardado: el toast de siempre y, si el mensaje reclama un campo del mapeo (una
+  // columna obligatoria, el tipo de formato), el foco va a ese campo. El editor decide si lo es.
+  const avisarErrorGuardado = (mensaje: string) => {
+    notifyError(mensaje);
+    editorRef.current?.enfocarError(mensaje);
+  };
+
   const guardar = (aprobar: boolean) => {
     if (!spec) return;
     // Cartera y CxP: el tipo de formato decide qué se valida en cada cargue (el servidor también lo exige).
     if (conNivelCartera && !spec.tipoFormato) {
-      notifyError("Elige el tipo de formato del archivo: por documento, por edades o por documento y edades.");
+      avisarErrorGuardado(MENSAJE_TIPO_FORMATO_EDITOR);
       return;
     }
     startGuardar(async () => {
       if (edicion) {
         const r = await actualizarVersionPatron({ id: edicion.id, actualizadoEn: edicion.actualizadoEn, specJson: JSON.stringify(spec), nota });
-        if (!r.ok) { notifyError(r.message ?? "No se pudo guardar la versión."); return; }
+        if (!r.ok) { avisarErrorGuardado(r.message ?? "No se pudo guardar la versión."); return; }
         notifySuccess(r.message ?? "Versión actualizada.");
         router.push(ruta);
         return;
@@ -165,7 +175,7 @@ export default function EditorPatronClient({
       fd.set("nota", nota);
       if (aprobar) fd.set("aprobar", "1");
       const r = await crearVersionPatron(fd);
-      if (!r.ok) { notifyError(r.message ?? "No se pudo guardar la versión."); return; }
+      if (!r.ok) { avisarErrorGuardado(r.message ?? "No se pudo guardar la versión."); return; }
       notifySuccess(r.message ?? "Versión guardada.");
       router.push(ruta);
     });
@@ -183,6 +193,12 @@ export default function EditorPatronClient({
           ? { tipo: "original", recepcionLoteId }
           : null
   );
+
+  // Lo que la prueba del mapeo devolvió (error o primer impedimento): igual que al guardar, pero
+  // sin toast, porque el panel de la prueba ya lo muestra. Se llama al terminar la prueba, nunca al pintar.
+  const enfocarErrorPrueba = (mensaje: string) => {
+    editorRef.current?.enfocarError(mensaje);
+  };
 
   const opcionesErp = useMemo(() => erps.map((e) => ({ value: String(e.id), label: e.nombre })), [erps]);
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
@@ -245,6 +261,7 @@ export default function EditorPatronClient({
             <ResumenLecturaEstructurada reglas={spec.lecturaEstructurada} />
             <p className="mt-3 text-[11.5px] text-ink-500">Prueba estas reglas con la muestra antes de guardarlas. Para cambiar cómo se separan los datos, usa la asistencia de lectura al cargar el inventario; al confirmar se conservará una nueva versión.</p>
           </> : <EditorMapeoModulo
+            ref={editorRef}
             analisis={analisis}
             spec={spec}
             setSpec={setSpec}
@@ -271,6 +288,7 @@ export default function EditorPatronClient({
           spec={spec}
           fuente={fuentePrueba}
           puedeProbar={muestraLista || edicion != null || recepcionLoteId != null}
+          onError={enfocarErrorPrueba}
         />
       )}
 

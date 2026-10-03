@@ -5,10 +5,17 @@ import { Card } from "@/components/ui";
 import { fmt, fmtNum } from "@/lib/format";
 import {
   alertasComparativo,
+  soloFecha,
   type ComparativoUso,
   type VariacionUso,
 } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { hayConsumoIA, type CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
+import {
+  desgloseTicketsAtendidos,
+  etiquetaEstadoAtendido,
+  type TicketsAtendidosVista,
+} from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
 
 export type BarraUso = {
   etiqueta: string;
@@ -416,6 +423,66 @@ export function CostosIACard({ costos }: { costos?: CostosIA | null }) {
   );
 }
 
+/** Cuántos tickets lista la tarjeta; el resto se lee en el documento. */
+const TICKETS_VISIBLES_TABLERO = 8;
+
+/**
+ * Tickets que el equipo reportó y que se atendieron en el período. Es la lista
+ * que lleva el documento, sin el texto de las soluciones: aquí se ve QUÉ se
+ * atendió; el CÓMO se leyó en el reporte.
+ */
+export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVista | null }) {
+  if (!tickets) return null;
+  const visibles = tickets.tickets.slice(0, TICKETS_VISIBLES_TABLERO);
+  const resto = tickets.tickets.length - visibles.length;
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-[13px] font-semibold text-ink-800">Tickets atendidos</h2>
+      <p className="mt-0.5 text-[11.5px] text-ink-500">
+        Tickets del equipo que pasaron a «Resuelto» o «Cerrado» entre {soloFecha(tickets.desde)} y{" "}
+        {soloFecha(tickets.hasta)}.
+      </p>
+
+      {tickets.total === 0 ? (
+        <p className="py-6 text-center text-[12.5px] text-ink-400">
+          No se atendieron tickets en este período.
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 flex items-baseline gap-2">
+            <p className="font-mono text-[17px] font-semibold tabular-nums text-navy-700">
+              {fmtNum(tickets.total)}
+            </p>
+            <p className="text-[11px] text-ink-500">{desgloseTicketsAtendidos(tickets)}</p>
+          </div>
+          <ul className="mt-3">
+            {visibles.map((t) => (
+              <li
+                key={t.codigo}
+                className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0"
+              >
+                <span className="min-w-0 truncate text-[12.5px] text-ink-800">
+                  <span className="font-mono font-semibold">{t.codigo}</span> · {t.asunto}
+                  {t.ubicacion && <span className="ml-1.5 text-[11px] text-ink-400">{t.ubicacion}</span>}
+                </span>
+                <span className="shrink-0 text-[11.5px] tabular-nums text-ink-500">
+                  {etiquetaEstadoAtendido(t.estado)} · {fechaColombiaISO(t.atendidoEn)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {resto > 0 && (
+            <p className="mt-1 text-[11px] text-ink-400">
+              y {fmtNum(resto)} más; la lista completa, con sus soluciones, va en el reporte.
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 /**
  * Panel permanente de indicadores de uso de la plataforma.
  * Siempre visible en Configuración › Reportes ejecutivos (con o sin reporte IA).
@@ -430,10 +497,12 @@ export function IndicadoresUso({
   adopcion,
   comparativo,
   costos,
+  tickets,
 }: {
   periodoLabel: string;
   comparativo?: ComparativoUso | null;
   costos?: CostosIA | null;
+  tickets?: TicketsAtendidosVista | null;
   porFamilia?: BarraUso[] | null;
   topUsuarios?: BarraUso[] | null;
   topAcciones?: BarraUso[] | null;
@@ -455,6 +524,7 @@ export function IndicadoresUso({
 
       <ComparativoUsoCard comparativo={comparativo} />
       <CostosIACard costos={costos} />
+      <TicketsAtendidosCard tickets={tickets} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <ListaBarras

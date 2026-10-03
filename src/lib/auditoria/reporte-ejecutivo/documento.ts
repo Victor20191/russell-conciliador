@@ -5,6 +5,12 @@ import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
 import { alertasComparativo, soloFecha, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
 import { hayConsumoIA, type CostosIA } from "./costos-ia";
+import {
+  desgloseTicketsAtendidos,
+  etiquetaEstadoAtendido,
+  type TicketAtendido,
+  type TicketsAtendidos,
+} from "./tickets-atendidos";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import type { ReporteEjecutivoUso } from "./reportes";
 import { aFecha, fechaColombiaISO } from "@/lib/fecha-hora";
@@ -35,6 +41,12 @@ type Contexto = {
   comparativo?: ComparativoUso | null;
   /** Gasto de IA del período; ausente cuando no hubo consumo. */
   costos?: CostosIA | null;
+  /**
+   * Tickets atendidos en el período. Ausente o null = no se pudo medir (la
+   * sección se omite); con `total: 0` el documento dice explícitamente que no
+   * hubo ninguno.
+   */
+  tickets?: TicketsAtendidos | null;
 };
 
 /**
@@ -78,6 +90,7 @@ export const SIN_AVANCES_NUEVOS = "No hay avances nuevos en este reporte: lo pub
 /** Cada sección tiene su propio vacío: un período puede traer mejoras y ningún módulo nuevo. */
 export const SIN_FUNCIONALIDADES_NUEVAS = "No se publicaron funcionalidades nuevas en el alcance de este reporte.";
 export const SIN_MEJORAS = "No se publicaron mejoras ni correcciones en el alcance de este reporte.";
+export const SIN_TICKETS_ATENDIDOS = "No se atendieron tickets reportados por el equipo en el período de este reporte.";
 
 const ETIQUETA_TIPO_MEJORA: Record<string, string> = {
   mejora: "Mejora",
@@ -132,10 +145,10 @@ function seccionesAvances(nuevas: CambioDocumento[], mejoras: CambioDocumento[])
 <section id="mejoras"><h2>Mejoras y correcciones</h2><p class="nota">Ajustes sobre lo que ya estaba en uso, agrupados por módulo.</p>${filasMejoras ? `<table><thead><tr><th>Versión</th><th>Tipo</th><th>Cambio</th><th>Descripción</th></tr></thead><tbody>${filasMejoras}</tbody></table>` : `<p>${SIN_MEJORAS}</p>`}</section>`;
 }
 
-/** Solo la fecha, en el calendario de Colombia: la hora exacta del corte no le dice nada a gerencia. */
-function fechaDeCorte(corte: string): string {
-  const fecha = aFecha(corte);
-  return fecha ? fechaColombiaISO(fecha) : corte;
+/** Solo la fecha, en el calendario de Colombia: la hora exacta no le dice nada a gerencia. */
+function fechaEnColombia(instante: string): string {
+  const fecha = aFecha(instante);
+  return fecha ? fechaColombiaISO(fecha) : instante;
 }
 
 function escapeHtml(valor: string): string {
@@ -275,7 +288,45 @@ ${resumen}${comparativo}${acumulado}${detalle}
 <p class="nota">Corresponde al consumo generado por los usuarios de la plataforma en el alcance de este reporte. El valor en pesos es el de cada operación al momento de ejecutarse, con la tasa de cambio oficial de ese día.</p></section>`;
 }
 
-export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, costos, corte }: Contexto & {
+/**
+ * Texto libre de personas (asuntos, respuestas, mensajes): se escapa SIEMPRE y
+ * conserva los saltos de línea, que en una respuesta separan los pasos.
+ */
+function conSaltosDeLinea(texto: string): string {
+  return escapeHtml(texto).replace(/\n{3,}/g, "\n\n").replace(/\n/g, "<br>");
+}
+
+function filaTicket(t: TicketAtendido): string {
+  // Sin respuesta documentada se dice en voz baja: es una ausencia, no un contenido.
+  const solucion = t.origenSolucion === "ninguna"
+    ? `<span class="nota">${escapeHtml(t.solucion)}</span>`
+    : conSaltosDeLinea(t.solucion);
+  const ubicacion = t.ubicacion ? `<br><span class="nota">${escapeHtml(t.ubicacion)}</span>` : "";
+  return `<tr><td><strong>${escapeHtml(t.codigo)}</strong><br><span class="nota">${escapeHtml(etiquetaEstadoAtendido(t.estado))}</span></td><td>${conSaltosDeLinea(t.asunto)}${ubicacion}</td><td>${escapeHtml(t.reportante)}</td><td>${escapeHtml(fechaEnColombia(t.atendidoEn))}</td><td>${solucion}</td></tr>`;
+}
+
+/**
+ * Sección «Tickets atendidos»: qué se le resolvió al equipo en el período y
+ * cómo. Va después de los avances —son dos formas de lo mismo: lo que cambió en
+ * la plataforma y lo que se corrigió a pedido de quien la usa—. Sin tickets lo
+ * dice; si no se pudo medir (`tickets` ausente) la sección no existe, porque
+ * afirmar «no hubo ninguno» sin haberlo comprobado sería falso.
+ */
+function seccionTicketsAtendidos(tickets?: TicketsAtendidos | null): string {
+  if (!tickets) return "";
+  const rango = `${escapeHtml(soloFecha(tickets.desde))} → ${escapeHtml(soloFecha(tickets.hasta))}`;
+  const nota = `<p class="nota">Tickets que el equipo de Russell reportó desde la plataforma y que pasaron a «Resuelto» o «Cerrado» dentro del período. Un ticket resuelto y luego cerrado aparece una sola vez, con su estado actual. La solución es la respuesta que se le dio a quien lo reportó.</p>`;
+  if (tickets.total === 0) {
+    return `\n<section id="tickets-atendidos"><h2>Tickets atendidos</h2><p>${SIN_TICKETS_ATENDIDOS}</p>${nota}</section>`;
+  }
+  const desglose = desgloseTicketsAtendidos(tickets);
+  const resumen = `<p>En el período ${rango} ${tickets.total === 1 ? "se atendió" : "se atendieron"} <strong>${numero(tickets.total)}</strong> ${tickets.total === 1 ? "ticket" : "tickets"} (${escapeHtml(desglose)}).</p>`;
+  return `\n<section id="tickets-atendidos"><h2>Tickets atendidos</h2>
+${resumen}<table><thead><tr><th style="width:11%">Ticket</th><th style="width:22%">Asunto y pantalla</th><th style="width:14%">Reportó</th><th style="width:11%">Atendido</th><th>Solución</th></tr></thead><tbody>${tickets.tickets.map(filaTicket).join("")}</tbody></table>
+${nota}</section>`;
+}
+
+export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, costos, tickets, corte }: Contexto & {
   corte?: string | null;
 }): ReporteEjecutivoUso {
   const titulo = "Resumen de uso y avances";
@@ -290,6 +341,9 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
         : "",
     mejoras.length > 0 ? `<li>Mejoras y correcciones en este reporte: <strong>${numero(mejoras.length)}</strong>.</li>` : "",
   ].join("") || `<li>${SIN_AVANCES_NUEVOS}</li>`;
+  const resumenTickets = tickets
+    ? `<li>Tickets atendidos: <strong>${numero(tickets.total)}</strong>${tickets.total > 0 ? ` (${escapeHtml(desgloseTicketsAtendidos(tickets))})` : ""}.</li>`
+    : "";
   const decision = adopcion.sinEvidencia > 0
     ? `Hay ${numero(adopcion.sinEvidencia)} funcionalidades sin actividad relacionada. Conviene revisar su contexto operativo antes de concluir que no se utilizan.`
     : "No se identificaron asuntos críticos con la información disponible. Los registros de actividad no permiten evaluar por sí solos la calidad del trabajo.";
@@ -300,11 +354,11 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     titulo,
     html: `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
 @page{size:letter;margin:16mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#1a2330;font:13px/1.55 'Helvetica Neue',Helvetica,Arial,sans-serif}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid #142b4a;padding-bottom:16px;margin-bottom:24px}.marca{font-size:11px;letter-spacing:2px;color:#142b4a;font-weight:bold}h1,h2{font-family:Georgia,'Times New Roman',serif;color:#142b4a}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid #dbe2ea;overflow-wrap:anywhere}th{background:#eef2f6}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:#566273;font-size:11px}footer{border-top:1px solid #dbe2ea;margin-top:24px;padding-top:10px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
-</style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaDeCorte(corte))}</p>` : ""}</header>
-<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
+</style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
+<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${resumenTickets}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
-${seccionesAvances(nuevas, mejoras)}
+${seccionesAvances(nuevas, mejoras)}${seccionTicketsAtendidos(tickets)}
 <section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer></main></body></html>`,
   };
 }

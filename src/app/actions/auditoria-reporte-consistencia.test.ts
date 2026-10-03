@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(), leer: vi.fn(), guardar: vi.fn(), ia: vi.fn(), audit: vi.fn(),
-  eventos: vi.fn(), conexiones: vi.fn(), versiones: vi.fn(), clientes: vi.fn(), usuarios: vi.fn(),
+  eventos: vi.fn(), conexiones: vi.fn(), versiones: vi.fn(), clientes: vi.fn(), usuarios: vi.fn(), tickets: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ default: {
   $transaction: (operacion: (tx: unknown) => Promise<unknown>) => operacion({
@@ -11,6 +11,7 @@ vi.mock("@/lib/prisma", () => ({ default: {
   }),
   auditEntry: { findMany: mocks.eventos }, accessLog: { groupBy: mocks.conexiones },
   platformVersion: { findMany: mocks.versiones }, client: { findMany: mocks.clientes }, user: { findMany: mocks.usuarios },
+  supportTicket: { findMany: mocks.tickets },
 } }));
 vi.mock("@/lib/rbac/reporte-ejecutivo", () => ({ authorizeReporteEjecutivo: mocks.auth }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ id: 1, name: "Ana" })) }));
@@ -98,5 +99,57 @@ describe("consistencia de generación del reporte", () => {
   test("fallo al guardar no se presenta como generación exitosa", async () => {
     mocks.guardar.mockRejectedValue(new Error("BD no disponible"));
     expect(await generarReporteEjecutivoUso({ ...scope, actualizar: true })).toMatchObject({ ok: false });
+  });
+
+  describe("tickets atendidos", () => {
+    const ticketCerrado = {
+      code: "TKT-56", subject: "Cierre de asignación", menuLabel: "Inventarios", routeLabel: "Módulos de conciliación",
+      reporterFirstName: "Ana", reporterLastName: "Pérez", createdById: 82, status: "cerrado",
+      solution: "Disponible desde la versión 2.3.0.", resolvedAt: null,
+      events: [{ previousStatus: "en_proceso", newStatus: "cerrado", createdAt: new Date("2026-09-03T11:14:00Z") }],
+      messages: [],
+    };
+
+    test("el documento y la fuente guardada llevan los tickets que reportó el equipo del cliente", async () => {
+      mocks.tickets.mockResolvedValue([
+        ticketCerrado,
+        { ...ticketCerrado, code: "TKT-57", createdById: 10 }, // cuenta de Xentria: fuera
+      ]);
+      mocks.usuarios.mockImplementation(async (args?: { where?: { id?: unknown } }) =>
+        args?.where?.id
+          ? [{ id: 82, email: "ana@russellbedford.com.co" }, { id: 10, email: "luisa@xentria.co" }]
+          : [],
+      );
+      await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+
+      // Solo la bandeja interna (los públicos se ven por token) y solo lo ya atendido.
+      expect(mocks.tickets).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ createdById: { not: null }, status: { in: ["resuelto", "cerrado"] } }),
+      }));
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.report.html).toContain('id="tickets-atendidos"');
+      expect(guardado.report.html).toContain("TKT-56");
+      expect(guardado.report.html).not.toContain("TKT-57");
+      expect(guardado.fuente.tickets).toMatchObject({ total: 1, cerrados: 1, resueltos: 0 });
+      expect(guardado.fuente.tickets.tickets[0]).toMatchObject({ codigo: "TKT-56", solucion: "Disponible desde la versión 2.3.0." });
+    });
+
+    test("si la consulta falla el reporte sale igual, sin la sección y sin decir que no hubo tickets", async () => {
+      mocks.tickets.mockRejectedValue(new Error("BD no disponible"));
+      const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+      expect(result).toMatchObject({ ok: true, desdeCache: false });
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.report.html).not.toContain("tickets-atendidos");
+      expect(guardado.report.html).not.toContain("No se atendieron tickets");
+      expect(guardado.fuente.tickets).toBeNull();
+    });
+
+    test("un período sin tickets lo dice y guarda la lista vacía", async () => {
+      mocks.tickets.mockResolvedValue([]);
+      await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.report.html).toContain("No se atendieron tickets reportados por el equipo");
+      expect(guardado.fuente.tickets).toMatchObject({ total: 0, tickets: [] });
+    });
   });
 });

@@ -44,6 +44,7 @@ export function PruebaMapeoPatron({
   spec,
   fuente,
   puedeProbar,
+  onError,
 }: {
   moduloCodigo: string;
   /** Cómo llama el módulo a lo que agrupa el archivo («Tipo de inventario», «Concepto»). */
@@ -56,6 +57,12 @@ export function PruebaMapeoPatron({
   fuente: () => FuentePrueba | null;
   /** ¿Ya hay algún archivo con el que probar? */
   puedeProbar: boolean;
+  /**
+   * Se llama con el error de la prueba o, si la lectura salió, con el PRIMER impedimento del
+   * mapeo: el editor decide si ese mensaje corresponde a un campo (y le lleva el foco). El panel
+   * sigue mostrando todos los impedimentos; esto solo avisa, no cambia lo que se pinta.
+   */
+  onError?: (mensaje: string) => void;
 }) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [specProbado, setSpecProbado] = useState<string | null>(null);
@@ -80,11 +87,15 @@ export function PruebaMapeoPatron({
       if (origen.tipo === "original") fd.set("recepcionLoteId", origen.recepcionLoteId);
       const r = await probarMapeoPatron(fd);
       if (!r.ok) {
-        notifyError(r.message ?? "No se pudo probar el mapeo.");
+        const mensaje = r.message ?? "No se pudo probar el mapeo.";
+        notifyError(mensaje);
+        onError?.(mensaje);
         return;
       }
       setResultado(r);
       setSpecProbado(actual);
+      const [primerImpedimento] = r.impedimentos;
+      if (primerImpedimento) onError?.(primerImpedimento);
     });
   };
 

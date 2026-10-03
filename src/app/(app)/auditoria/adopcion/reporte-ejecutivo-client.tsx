@@ -32,6 +32,7 @@ import {
 } from "./indicadores-uso";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
+import type { TicketsAtendidosVista } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 
 export type VersionOpcion = {
   id: number;
@@ -47,6 +48,8 @@ export type KpisIniciales = {
   comparativo?: ComparativoUso | null;
   /** Gasto de IA del período; null cuando no hubo consumo. */
   costos?: CostosIA | null;
+  /** Tickets atendidos en el período; null cuando no se pudieron leer. */
+  tickets?: TicketsAtendidosVista | null;
   totalAcciones: number;
   totalUsuarios: number;
   totalClientes: number;
@@ -532,6 +535,7 @@ export function ReporteEjecutivoClient({
         adopcion={kpis.adopcionBarras ?? []}
         comparativo={kpis.comparativo ?? null}
         costos={kpis.costos ?? null}
+        tickets={kpis.tickets ?? null}
       />
 
       <Card className="overflow-hidden">

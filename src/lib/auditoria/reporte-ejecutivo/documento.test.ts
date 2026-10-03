@@ -3,8 +3,9 @@ import { calcularResumenUso, conteosPorFamiliaCanon } from "./metricas";
 import { evaluarAdopcion } from "./adopcion";
 import {
   construirDocumentoConsistente, elegirLecturaConsistente, separarAvances,
-  SIN_AVANCES_NUEVOS, SIN_FUNCIONALIDADES_NUEVAS, SIN_MEJORAS,
+  SIN_AVANCES_NUEVOS, SIN_FUNCIONALIDADES_NUEVAS, SIN_MEJORAS, SIN_TICKETS_ATENDIDOS,
 } from "./documento";
+import { construirTicketsAtendidos, type TicketCandidato } from "./tickets-atendidos";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import { compararUso } from "./comparativo";
 
@@ -194,5 +195,115 @@ describe("encabezados del comparativo", () => {
     expect(html).toContain("Período anterior");
     expect(html).toContain("Período actual");
     expect(html).not.toContain("Reporte anterior");
+  });
+});
+
+describe("sección de tickets atendidos", () => {
+  const candidato = (p: Partial<TicketCandidato> = {}): TicketCandidato => ({
+    codigo: "TKT-56",
+    asunto: "Cierre de asignación de cuenta automático",
+    menuEtiqueta: "Inventarios",
+    rutaEtiqueta: "Módulos de conciliación",
+    reportante: "russell plataforma",
+    correoCreador: "russell@russellbedford.com.co",
+    estado: "cerrado",
+    solucion: "Disponible desde la versión 2.3.0.\nAl elegir una cuenta queda asignada.",
+    resueltoEn: null,
+    eventos: [{ estadoAnterior: "en_proceso", estadoNuevo: "cerrado", creadoEn: "2026-09-03T11:14:32.000Z" }],
+    ultimoMensajeXentria: null,
+    ...p,
+  });
+  const tickets = (candidatos: TicketCandidato[]) =>
+    construirTicketsAtendidos({ candidatos, desde: "2026-09-01T00:00:00.000Z", hasta: "2026-09-07T23:59:59.999Z" });
+
+  test("sin tickets medidos el documento no cambia (la sección no existe)", () => {
+    expect(construirDocumentoConsistente({ ...contexto, tickets: null })).toEqual(construirDocumentoConsistente(contexto));
+    expect(construirDocumentoConsistente(contexto).html).not.toContain("tickets-atendidos");
+    expect(construirDocumentoConsistente(contexto).html).not.toContain("Tickets atendidos");
+  });
+
+  test("con tickets agrega la sección, después de los avances y antes de los próximos pasos", () => {
+    const html = construirDocumentoConsistente({ ...contexto, tickets: tickets([candidato()]) }).html;
+    const ids = ["mejoras", "tickets-atendidos", "proximos-pasos"].map((id) => html.indexOf(`id="${id}"`));
+    expect(ids.every((i) => i >= 0)).toBe(true);
+    expect(ids).toEqual([...ids].sort((a, b) => a - b));
+    expect(html).toContain("<h2>Tickets atendidos</h2>");
+    expect(html).toContain("En el período 2026-09-01 → 2026-09-07 se atendió <strong>1</strong> ticket (1 cerrado).");
+  });
+
+  test("cada fila trae código, estado, asunto, pantalla, quién reportó, fecha y solución", () => {
+    const html = construirDocumentoConsistente({ ...contexto, tickets: tickets([candidato()]) }).html;
+    const seccion = html.slice(html.indexOf('id="tickets-atendidos"'), html.indexOf('id="proximos-pasos"'));
+    expect(seccion).toContain(
+      '<tr><td><strong>TKT-56</strong><br><span class="nota">Cerrado</span></td>' +
+      '<td>Cierre de asignación de cuenta automático<br><span class="nota">Módulos de conciliación · Inventarios</span></td>' +
+      "<td>russell plataforma</td><td>2026-09-03</td>" +
+      "<td>Disponible desde la versión 2.3.0.<br>Al elegir una cuenta queda asignada.</td></tr>",
+    );
+  });
+
+  test("la fecha es la del calendario de Colombia, no la del instante UTC", () => {
+    // 02:30 UTC del 4 de septiembre es todavía el 3 en Bogotá.
+    const t = tickets([candidato({ eventos: [{ estadoAnterior: "abierto", estadoNuevo: "cerrado", creadoEn: "2026-09-04T02:30:00.000Z" }] })]);
+    expect(construirDocumentoConsistente({ ...contexto, tickets: t }).html).toContain("<td>2026-09-03</td>");
+  });
+
+  test("escapa el texto libre de las personas y conserva los saltos de línea", () => {
+    const html = construirDocumentoConsistente({
+      ...contexto,
+      tickets: tickets([candidato({
+        codigo: "TKT-1<b>",
+        asunto: "Falla <img src=x onerror=alert(1)> & más",
+        reportante: "Ana <script>x</script>",
+        solucion: "Paso 1: abrir <b>Balance</b>\r\nPaso 2: \"guardar\"\n\n\n\nPaso 3: listo",
+      })]),
+    }).html;
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<b>Balance");
+    expect(html).toContain("TKT-1&lt;b&gt;");
+    expect(html).toContain("Falla &lt;img src=x onerror=alert(1)&gt; &amp; más");
+    expect(html).toContain("Ana &lt;script&gt;x&lt;/script&gt;");
+    // CRLF → una sola ruptura; cuatro saltos seguidos → un párrafo (dos rupturas).
+    expect(html).toContain("Paso 1: abrir &lt;b&gt;Balance&lt;/b&gt;<br>Paso 2: &quot;guardar&quot;<br><br>Paso 3: listo");
+  });
+
+  test("sin respuesta documentada lo dice en voz baja y usa el último mensaje cuando no hay oficial", () => {
+    const html = construirDocumentoConsistente({
+      ...contexto,
+      tickets: tickets([
+        candidato({ codigo: "TKT-2", solucion: null, ultimoMensajeXentria: "Se corrigió el archivo de SIESA." }),
+        candidato({ codigo: "TKT-3", solucion: null, ultimoMensajeXentria: null }),
+      ]),
+    }).html;
+    expect(html).toContain("<td>Se corrigió el archivo de SIESA.</td>");
+    expect(html).toContain('<td><span class="nota">Cerrado sin respuesta documentada</span></td>');
+  });
+
+  test("sin tickets en el período dice explícitamente que no hubo ninguno", () => {
+    const html = construirDocumentoConsistente({ ...contexto, tickets: tickets([]) }).html;
+    expect(html).toContain('id="tickets-atendidos"');
+    expect(html).toContain(SIN_TICKETS_ATENDIDOS);
+    expect(html).not.toContain("<th>Solución</th>");
+    expect(html).toContain("Tickets atendidos: <strong>0</strong>.</li>");
+  });
+
+  test("«Lo más importante» lleva el conteo con su desglose", () => {
+    const t = tickets([
+      candidato({ codigo: "TKT-1" }),
+      candidato({ codigo: "TKT-2" }),
+      candidato({ codigo: "TKT-3", estado: "resuelto", eventos: [{ estadoAnterior: "abierto", estadoNuevo: "resuelto", creadoEn: "2026-09-04T10:00:00.000Z" }] }),
+    ]);
+    const html = construirDocumentoConsistente({ ...contexto, tickets: t }).html;
+    expect(html).toContain("<li>Tickets atendidos: <strong>3</strong> (2 cerrados, 1 resuelto).</li>");
+    const resumen = html.slice(html.indexOf('id="lo-mas-importante"'), html.indexOf('id="decisiones"'));
+    expect(resumen).toContain("Tickets atendidos: <strong>3</strong>");
+  });
+
+  test("mismas entradas, mismo HTML", () => {
+    const t = tickets([candidato({ codigo: "TKT-2" }), candidato({ codigo: "TKT-1" })]);
+    expect(construirDocumentoConsistente({ ...contexto, tickets: t })).toEqual(
+      construirDocumentoConsistente({ ...contexto, tickets: structuredClone(t) }),
+    );
   });
 });

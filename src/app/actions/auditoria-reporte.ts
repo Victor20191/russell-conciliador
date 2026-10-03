@@ -26,6 +26,8 @@ import {
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
+import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
+import type { TicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
@@ -457,6 +459,14 @@ export async function generarReporteEjecutivoUso(
       usuariosRegistrados,
     });
 
+    // Tickets que el equipo de Russell reportó y que se atendieron en el
+    // período; null si no se pudieron leer (la sección se omite, no se inventa).
+    const tickets = await construirTicketsAtendidosReporte({
+      desde: rango.desde,
+      hasta: rango.hasta,
+      corte,
+    });
+
     const {
       contexto: novedades,
       totalChanges,
@@ -477,7 +487,7 @@ export async function generarReporteEjecutivoUso(
     // temperatura 0, cambiaba entre corridas sin que cambiaran los datos.
     signal?.throwIfAborted();
     const report = normalizarReporteHtml(construirDocumentoConsistente({
-      uso, adopcion, novedades, comparativo, costos,
+      uso, adopcion, novedades, comparativo, costos, tickets,
       corte: corte.toISOString(),
     }).html);
 
@@ -493,7 +503,7 @@ export async function generarReporteEjecutivoUso(
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
       versionIdsIncluidos, corte: corte.toISOString(),
-      fuente: { uso, adopcion, novedades, comparativo, costos }, userId: user?.id ?? null,
+      fuente: { uso, adopcion, novedades, comparativo, costos, tickets }, userId: user?.id ?? null,
     });
     signal?.throwIfAborted();
     await logAudit({
@@ -524,6 +534,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       adopcion: ReturnType<typeof evaluarAdopcion>;
       comparativo: ComparativoUso | null;
       costos: CostosIA | null;
+      tickets: TicketsAtendidos | null;
       totalVersionesPublicadas: number;
     }
   | { ok: false; message: string }
@@ -638,12 +649,19 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       usuariosRegistrados: nombresDelReporte(usuarios),
     });
 
+    const tickets = await construirTicketsAtendidosReporte({
+      desde: rango.desde,
+      hasta: rango.hasta,
+      corte: new Date(),
+    });
+
     return {
       ok: true,
       uso,
       adopcion,
       comparativo,
       costos,
+      tickets,
       totalVersionesPublicadas: versiones.length,
     };
   } catch {

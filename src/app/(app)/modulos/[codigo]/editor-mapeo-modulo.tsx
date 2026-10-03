@@ -3,7 +3,18 @@
 // Editor del MAPEO de columnas de un archivo de módulo. Lo comparten la carga con «Archivo
 // manual» (modo «carga») y la interfaz de patrones por aplicativo (modo «patron»). En modo patrón
 // no se piden los datos de un cargue (TRM, fecha de corte, fila del total): son de cada archivo.
-import { useTransition, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import {
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useTransition,
+  type Dispatch,
+  type ReactNode,
+  type Ref,
+  type SetStateAction,
+} from "react";
 import { notifyError } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
@@ -22,6 +33,18 @@ import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import { tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { retirarConfirmacionValor } from "@/lib/modulos/extraccion/valor-sin-impuestos";
 import { ConfirmacionIvaValor, EnlaceFormula, FormulaValor } from "./campo-valor-modulo";
+import {
+  campoDeErrorMapeo,
+  errorMapeoVigente,
+  idCampoMapeo,
+  idMensajeCampoMapeo,
+  rolDerivado,
+  type CampoErrorMapeo,
+  type ErrorCampoMapeo,
+} from "./campo-error-mapeo";
+
+// `cargar-modulo-modal` lo importa desde aquí; la regla vive junto a las demás de este campo.
+export { rolDerivado };
 
 export type RolModulo = {
   nombre: string;
@@ -35,14 +58,25 @@ export type RolModulo = {
   derivaDe?: string[];
 };
 
-/** ¿Este rol ya no hace falta porque el archivo trae las columnas de las que se deriva? */
-export const rolDerivado = (rc: RolModulo, columnas: Record<string, number>): boolean =>
-  (rc.derivaDe ?? []).some((rol) => (columnas[rol] ?? 0) >= 1);
+/** Lo que el editor expone a quien lo contiene (por `ref`). */
+export type EditorMapeoModuloHandle = {
+  /**
+   * Lleva el foco al selector que un error del servidor reclama (columna obligatoria sin mapear,
+   * tipo de formato), lo desplaza a la vista y lo resalta hasta que se corrija. Devuelve `false`
+   * —y no hace nada— si el mensaje no corresponde a un campo de este editor.
+   */
+  enfocarError: (mensaje: string) => boolean;
+};
+
 type ModoClasificador = "columna" | "arrastrar" | "seccion" | "global";
 
 export const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
 
-const claseCampo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400";
+const claseCampoBase = "w-full min-w-0 rounded-md border bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none";
+const claseCampo = `${claseCampoBase} border-ink-200 focus:border-blue-400`;
+// Mismo rojo (err-700) que el toast de error. Es una variante completa, no un añadido: dos
+// utilidades de borde en la misma clase no tienen un ganador garantizado.
+const claseCampoInvalido = `${claseCampoBase} border-err-700 ring-1 ring-err-700 focus:border-err-700`;
 
 /** Etiquetas de columna para los selectores: «C · Encabezado», con la letra real de Excel. */
 export function opcionesColumnaAnalisis(analisis: AnalisisModulo): { index1: number; label: string }[] {
@@ -131,6 +165,7 @@ export function EditorMapeoModulo({
   fechaCorteSugerida = "",
   onCambioMarcaTotales,
   marcaTotalesCarga,
+  ref,
 }: {
   analisis: AnalisisModulo;
   spec: SpecModulo;
@@ -150,8 +185,46 @@ export function EditorMapeoModulo({
   onCambioMarcaTotales?: () => void;
   /** Carga: número de fila + «Ubicar celda» del total manual. */
   marcaTotalesCarga?: ReactNode;
+  /** Opcional: para llevar el foco al campo que un error del servidor reclama. */
+  ref?: Ref<EditorMapeoModuloHandle>;
 }) {
   const esCarga = modoEditor === "carga";
+
+  // Error del servidor atribuido a un campo. El resaltado se DERIVA de este estado y del mapeo
+  // actual (`errorMapeoVigente`): al corregir el campo desaparece solo, sin efectos que lo limpien.
+  const uid = useId();
+  const raizRef = useRef<HTMLDivElement>(null);
+  const [errorCampo, setErrorCampo] = useState<ErrorCampoMapeo | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      enfocarError: (mensaje: string) => {
+        const campo = campoDeErrorMapeo(mensaje, roles);
+        if (!campo || !errorMapeoVigente(campo, { spec, roles, clasificadorRol, rolValor })) return false;
+        setErrorCampo({ campo, mensaje });
+        return true;
+      },
+    }),
+    [spec, roles, clasificadorRol, rolValor],
+  );
+  // Con el resaltado ya pintado, foco y desplazamiento. Solo lee el DOM de ESTE editor (el id es
+  // único por instancia y se comprueba que cuelgue de su raíz); no cambia estado.
+  useEffect(() => {
+    if (!errorCampo) return;
+    const control = document.getElementById(idCampoMapeo(uid, errorCampo.campo));
+    if (!control || !raizRef.current?.contains(control)) return;
+    control.focus({ preventScroll: true });
+    const reducirMovimiento = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    control.scrollIntoView({ block: "center", behavior: reducirMovimiento ? "auto" : "smooth" });
+  }, [errorCampo, uid]);
+  const errorActivo =
+    errorCampo && errorMapeoVigente(errorCampo.campo, { spec, roles, clasificadorRol, rolValor }) ? errorCampo : null;
+  const campoConError = errorActivo?.campo ?? null;
+  const rolConError = campoConError?.tipo === "rol" ? campoConError.rol : null;
+  const tipoFormatoConError = campoConError?.tipo === "tipoFormato";
+  const mensajeError = errorActivo?.mensaje ?? "";
+  const campoTipoFormato: CampoErrorMapeo = { tipo: "tipoFormato" };
+
   const setCol = (rol: string, col: number) => setSpec((s) => {
     if (!s) return s;
     const siguiente = { ...s, columnas: { ...s.columnas, [rol]: col } };
@@ -226,7 +299,7 @@ export function EditorMapeoModulo({
   const colSubtotales = spec.subtotalesColumna ?? 0;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={raizRef} className="flex flex-col gap-4">
       {analisis.advertenciaHojas && (
         <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
           {analisis.advertenciaHojas}
@@ -268,14 +341,17 @@ export function EditorMapeoModulo({
           {roles.map((rc) => {
             const muestras = preview(rc.nombre);
             const muestraTxt = muestras.filter(Boolean).slice(0, 2).join(" · ") || "—";
+            const campoRol: CampoErrorMapeo = { tipo: "rol", rol: rc.nombre };
+            const conFormula = rc.nombre === rolValor && tieneValorFormula(spec);
+            const invalido = rolConError === rc.nombre;
             return (
               <div key={rc.nombre} className="flex flex-col gap-1.5 px-3 py-2.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="text-[12px] font-medium leading-snug text-ink-700">
+                  <span className={`text-[12px] font-medium leading-snug ${invalido ? "text-err-700" : "text-ink-700"}`}>
                     {rc.etiqueta}
-                    {rc.requerido && !rolDerivado(rc, spec.columnas) && !(rc.nombre === rolValor && tieneValorFormula(spec)) && <span className="text-err-700"> *</span>}
+                    {rc.requerido && !rolDerivado(rc, spec.columnas) && !conFormula && <span className="text-err-700"> *</span>}
                   </span>
-                  {rc.nombre === rolValor && tieneValorFormula(spec) && (
+                  {conFormula && (
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">fórmula</span>
                   )}
                   {rolDerivado(rc, spec.columnas) && (
@@ -290,7 +366,7 @@ export function EditorMapeoModulo({
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">clasifica</span>
                   )}
                 </div>
-                {rc.nombre === rolValor && tieneValorFormula(spec) ? (
+                {conFormula ? (
                   <FormulaValor
                     spec={spec}
                     setSpec={setSpec}
@@ -302,9 +378,13 @@ export function EditorMapeoModulo({
                 ) : (
                 <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                   <select
+                    id={idCampoMapeo(uid, campoRol)}
+                    aria-label={rc.etiqueta}
+                    aria-invalid={invalido || undefined}
+                    aria-describedby={invalido ? idMensajeCampoMapeo(uid, campoRol) : undefined}
                     value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec.columnas[rc.nombre] ?? 0}
                     onChange={(e) => (rc.nombre === clasificadorRol ? onSelectClasificador(Number(e.target.value)) : setCol(rc.nombre, Number(e.target.value)))}
-                    className={`${claseCampo} flex-1`}
+                    className={`${invalido ? claseCampoInvalido : claseCampo} flex-1`}
                   >
                     <option value={0}>— sin mapear —</option>
                     {rc.nombre === clasificadorRol && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
@@ -316,6 +396,11 @@ export function EditorMapeoModulo({
                     {muestraTxt}
                   </span>
                 </div>
+                )}
+                {invalido && !conFormula && (
+                  <span id={idMensajeCampoMapeo(uid, campoRol)} className="text-[11px] font-medium leading-snug text-err-700">
+                    {mensajeError}
+                  </span>
                 )}
                 {rc.nombre === rolValor && (
                   <>
@@ -334,10 +419,18 @@ export function EditorMapeoModulo({
       {conNivelCartera && (
         <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
           <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">
+            <span className={`text-[11px] font-medium ${tipoFormatoConError ? "text-err-700" : "text-ink-600"}`}>
               Tipo de formato{modoEditor === "patron" && <span className="text-err-600"> *</span>}
             </span>
-            <select value={spec.tipoFormato ?? ""} onChange={(e) => setTipoFormato(e.target.value)} className={claseCampo}>
+            <select
+              id={idCampoMapeo(uid, campoTipoFormato)}
+              aria-label="Tipo de formato"
+              aria-invalid={tipoFormatoConError || undefined}
+              aria-describedby={tipoFormatoConError ? idMensajeCampoMapeo(uid, campoTipoFormato) : undefined}
+              value={spec.tipoFormato ?? ""}
+              onChange={(e) => setTipoFormato(e.target.value)}
+              className={tipoFormatoConError ? claseCampoInvalido : claseCampo}
+            >
               {!spec.tipoFormato && (
                 <option value="">
                   {modoEditor === "patron" ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
@@ -354,6 +447,11 @@ export function EditorMapeoModulo({
               {" "}Un período suma por UN solo nivel: si además cargas el otro, entra como control y se compara tercero por tercero.
             </span>
             {faltanTipo.length > 0 && <span className="text-[11px] font-medium leading-snug text-err-700">{faltanTipo.join(" ")}</span>}
+            {tipoFormatoConError && (
+              <span id={idMensajeCampoMapeo(uid, campoTipoFormato)} className="text-[11px] font-medium leading-snug text-err-700">
+                {mensajeError}
+              </span>
+            )}
           </label>
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">¿De dónde es esta cartera?</span>

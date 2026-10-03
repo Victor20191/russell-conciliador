@@ -24,6 +24,8 @@ import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/act
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
+import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
+import { vistaTicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import {
   explicarPeriodoSugerido,
   sugerirPeriodoReporte,
@@ -185,6 +187,12 @@ export default async function ReportesEjecutivosPage() {
     usuariosRegistrados,
   });
 
+  // Qué tickets del equipo se atendieron en la misma ventana. Solo se manda la
+  // lista corta: las soluciones completas se leen en el documento.
+  const tickets = vistaTicketsAtendidos(
+    await construirTicketsAtendidosReporte({ desde, hasta, corte: new Date() }),
+  );
+
   const cambiosPublicadosPorVersion = new Map<number, number>();
   const planos: CambioNovedadContexto[] = [];
   for (const v of versiones) {
@@ -237,6 +245,7 @@ export default async function ReportesEjecutivosPage() {
   const kpis: KpisIniciales = {
     comparativo,
     costos,
+    tickets,
     totalAcciones: uso.totalAcciones,
     totalUsuarios: uso.totalUsuarios,
     totalClientes: uso.totalClientes,
