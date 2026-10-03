@@ -21,6 +21,7 @@ export default async function EditarPatronPage({ params }: { params: Promise<{ c
     include: { erp: { select: { name: true } } },
   });
   if (!version) notFound();
+  if (version.clienteOrigenId != null) await requirePermiso("perfiles_carga:administrar", { clientId: version.clienteOrigenId, modo: "lectura" });
   const ruta = `/modulos/${codigo.toLowerCase()}/patrones`;
   const editable = esVersionEditable(version) && version.muestraClaveObjeto != null;
 

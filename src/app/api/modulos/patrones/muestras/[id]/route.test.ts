@@ -74,6 +74,16 @@ describe("GET /api/modulos/patrones/muestras/[id]", () => {
     expect(mocks.findUnique).not.toHaveBeenCalled();
   });
 
+  it("una muestra local exige alcance del cliente y nunca entrega el original privado", async () => {
+    mocks.findUnique.mockResolvedValueOnce(version({ estado: "validada_cliente", clienteOrigenId: 42 }));
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false });
+    expect((await llamar()).status).toBe(403);
+    expect(mocks.obtenerObjeto).not.toHaveBeenCalled();
+    mocks.findUnique.mockResolvedValueOnce(version({ estado: "validada_cliente", muestraClaveObjeto: null, archivoOrigenId: 50 }));
+    expect((await llamar()).status).toBe(404);
+    expect(mocks.obtenerObjeto).not.toHaveBeenCalled();
+  });
+
   it("404 si la versión no existe, no tiene muestra o el almacén no la tiene", async () => {
     mocks.findUnique.mockResolvedValueOnce(null);
     expect((await llamar()).status).toBe(404);

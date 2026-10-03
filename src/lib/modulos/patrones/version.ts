@@ -5,11 +5,12 @@
 // de muestra. Una aprobada no se edita: se crea otra versión. INACTIVA deja de ofrecerse. Una
 // pendiente o inactiva se puede BORRAR; la aprobada se desactiva primero.
 
-export const ESTADOS_PATRON = ["pendiente", "aprobada", "inactiva"] as const;
+export const ESTADOS_PATRON = ["pendiente", "validada_cliente", "aprobada", "inactiva"] as const;
 export type EstadoPatron = (typeof ESTADOS_PATRON)[number];
 
 export const ETIQUETA_ESTADO_PATRON: Record<EstadoPatron, string> = {
   pendiente: "Pendiente",
+  validada_cliente: "Validada para el cliente",
   aprobada: "Aprobada",
   inactiva: "Inactiva",
 };
@@ -40,8 +41,9 @@ export function motivoNoAprobable(version: VersionEstado): string | null {
 export function transicionPatronPermitida(actual: string, destino: EstadoPatron): boolean {
   if (actual === destino) return false;
   if (actual === "pendiente") return destino === "aprobada" || destino === "inactiva";
+  if (actual === "validada_cliente") return destino === "aprobada" || destino === "inactiva";
   if (actual === "aprobada") return destino === "inactiva";
-  if (actual === "inactiva") return destino === "aprobada";
+  if (actual === "inactiva") return destino === "aprobada" || destino === "validada_cliente";
   return false;
 }
 
@@ -56,6 +58,7 @@ export function esVersionEditable(version: { estado: string }): boolean {
  */
 export function motivoNoBorrable(version: { estado: string }): string | null {
   if (version.estado === "aprobada") return "Desactiva la versión antes de borrarla: mientras está aprobada se ofrece a todos los clientes del aplicativo.";
+  if (version.estado === "validada_cliente") return "Desactiva la versión antes de borrarla: se utiliza para las cargas de su cliente.";
   if (!esEstadoPatron(version.estado)) return "La versión tiene un estado desconocido.";
   return null;
 }

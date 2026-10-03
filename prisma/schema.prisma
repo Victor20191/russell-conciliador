@@ -1265,6 +1265,9 @@ model ArchivoOriginalModulo {
   reflejoContableEsperado String?  @map("reflejo_contable_esperado") @db.Text
   estado                  String   @default("recibido") @map("estado") // recibido | no_procesable | borrador | cargado | descartado | cargue_eliminado
   disponible              Boolean  @default(false) @map("disponible")
+  /// Propuesta privada y recuperable; nunca se ofrece como patrón antes de confirmar la carga.
+  asistenciaJson          Json?    @map("asistencia_json")
+  revisionAsistencia      Int      @default(0) @map("revision_asistencia")
   esAnexo                 Boolean  @default(false) @map("es_anexo")
   cargadoPor              String?  @map("cargado_por")
   cargadoPorId            Int?     @map("cargado_por_id")
@@ -1607,7 +1610,7 @@ model SaldoTerceroModulo {
 /// Versión de un PATRÓN DE ARCHIVO de un módulo para un aplicativo (ERP). El patrón es la pareja
 /// (erp, módulo); cada versión guarda el encabezado con que se reconoce el archivo, el mapeo
 /// reutilizable y la MUESTRA en el almacén. Numeración por (erp, módulo): máximo + 1.
-/// Estados: pendiente (solo sirve a `cliente_origen_id`, si lo tiene) | aprobada | inactiva.
+/// Estados: pendiente (legado local) | validada_cliente (inmutable) | aprobada | inactiva.
 /// Pendiente e inactiva se pueden borrar (con su muestra); la aprobada se desactiva primero.
 model VersionPatronArchivoModulo {
   id                  Int       @id @default(autoincrement()) @map("id")
@@ -1630,6 +1633,9 @@ model VersionPatronArchivoModulo {
   /// FK suave: solo las versiones migradas del perfil de un cliente.
   clienteOrigenId     Int?      @map("cliente_origen_id")
   clienteOrigenNombre String?   @map("cliente_origen_nombre")
+  /// Referencia privada al original confirmado. Nunca se publica como muestra compartida.
+  archivoOrigenId     Int?      @map("archivo_origen_id")
+  versionBaseId       Int?      @map("version_base_id")
   nota                String?   @map("nota") @db.Text
   vecesUsado          Int       @default(0) @map("veces_usado")
   ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)

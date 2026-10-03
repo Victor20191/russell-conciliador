@@ -41,6 +41,8 @@ import {
 } from "@/lib/modulos/asignacion-periodo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
+import { confirmarAprendizajeInventario } from "@/lib/modulos/asistencia-inventario-confirmacion";
+import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { confirmacionValor, detalleAuditoriaValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
 import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
@@ -340,7 +342,7 @@ export type AnalisisModulo = {
     versionId: number;
     version: number;
     porcentaje: number;
-    estado: "aprobada" | "pendiente";
+    estado: "aprobada" | "pendiente" | "validada_cliente";
     advertencias: string[];
   };
   sinPatron?: {
@@ -1306,6 +1308,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     if (typeof lectura === "string") return marcarNoProcesable(lectura);
     const { hoja, origen, patron } = lectura;
     let spec = lectura.spec;
+    // Las reglas que combinan celdas/filas necesitan la confirmación vinculada a
+    // su interpretación. El camino genérico no debe omitir esa compuerta.
+    if (spec.lecturaEstructurada) return { ok: false, message: "Este formato necesita la asistencia de lectura de Inventarios para revisar y confirmar su interpretación." };
 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor.
@@ -1365,6 +1370,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
 
     const resultado = transformarModulo(descriptor, spec, hoja);
+    if (resultado.erroresLectura?.length) return marcarNoProcesable(resultado.erroresLectura.join(" "));
     // Un saldo a favor que el archivo imprime como desglose de otro balde no suma: el lote lo
     // guarda así para que el borrador y cualquier reproceso lean lo mismo que esta lectura.
     const edadesNoSumadas = resultado.edadesNoSumadas ?? [];
@@ -1864,6 +1870,30 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         throw new ErrorCargueModulo("El borrador cambió durante la carga o ya no existe; no se creó ninguna versión.");
       }
 
+      if (loteActual.moduloCodigo === "INV") {
+        const original = await tx.archivoOriginalModulo.findUnique({
+          where: { loteId },
+          select: { clienteId: true, moduloCodigo: true, estado: true, asistenciaJson: true, revisionAsistencia: true },
+        });
+        const revisionLote = (loteActual.specJson as Record<string, unknown> | null)?.asistenciaRevision;
+        // El contrato de revisión se exige sólo al flujo asistido. Los lotes históricos y
+        // archivos manuales sin asistencia mantienen su confirmación existente.
+        const conAsistencia = original?.asistenciaJson != null || (original?.revisionAsistencia ?? 0) > 0 || revisionLote != null;
+        if (conAsistencia) {
+          const asistencia = leerAsistenciaInventario(original?.asistenciaJson);
+          if (!original || original.clienteId !== loteActual.clienteId || original.moduloCodigo !== "INV" || original.estado !== "borrador"
+            || asistencia?.estado !== "borrador_preparado" || !asistencia.aplicado) {
+            throw new ErrorCargueModulo("Hay una lectura pendiente de resolver. Revisa o descarta la propuesta antes de confirmar la carga.");
+          }
+          const revisionRecibida = String(formData.get("revisionAsistenciaEsperada") ?? "").trim();
+          const revisionEsperada = /^[1-9]\d*$/.test(revisionRecibida) ? Number(revisionRecibida) : NaN;
+          if (!Number.isSafeInteger(revisionEsperada) || revisionEsperada !== original.revisionAsistencia
+            || revisionEsperada !== revisionLote || revisionEsperada !== asistencia.aplicado.revision) {
+            throw new ErrorCargueModulo("La lectura cambió desde que abriste el borrador. Actualiza la página y revisa los datos antes de confirmar.");
+          }
+        }
+      }
+
       const filasBD = await tx.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
       if (filasBD.length === 0) throw new ErrorCargueModulo("El borrador no tiene filas.");
       const filas: FilaStagingModulo[] = filasBD.map((f) => ({
@@ -2155,6 +2185,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
         }
 
+        if (loteActual.moduloCodigo === "INV") await confirmarAprendizajeInventario(tx, { loteId, encabezadoId: vigente.id, usuario: { id: user?.id ?? null, nombre: user?.name ?? null } });
+
         const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
         if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
         const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
@@ -2260,6 +2292,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       if (originalActualizado.count !== 1) {
         throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
       }
+      if (loteActual.moduloCodigo === "INV") await confirmarAprendizajeInventario(tx, { loteId, encabezadoId: enc.id, usuario: { id: user?.id ?? null, nombre: user?.name ?? null } });
       const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
       if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
       const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });

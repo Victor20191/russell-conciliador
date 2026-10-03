@@ -13,6 +13,7 @@ import { descripcionModoSubtotales } from "./subtotales";
 import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
 import { esContenidoArchivo } from "./ingresos/contenido-archivo";
+import { LecturaEstructuradaSchema } from "./extraccion/lectura-estructurada";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -116,6 +117,11 @@ function normalizarSpecModuloInterno(
     columnas,
     clasificadorModo: modo,
   };
+  if (descriptor.codigo === "INV" && spec.lecturaEstructurada) {
+    // Conservar incluso una estructura inválida para que validarSpecModulo la rechace;
+    // eliminarla aquí convertiría una lectura fallida en un mapa tabular aparentemente válido.
+    normalizado.lecturaEstructurada = structuredClone(spec.lecturaEstructurada);
+  }
   if (modo === "seccion") {
     const rol = spec.seccionColumnaVaciaRol?.trim();
     if (rol) normalizado.seccionColumnaVaciaRol = rol;
@@ -235,12 +241,23 @@ export function rolRequeridoExento(
   spec: SpecModulo,
   rol: string,
 ): boolean {
+  if (descriptor.codigo === "INV" && spec.lecturaEstructurada) {
+    const reglas = spec.lecturaEstructurada;
+    if (reglas.campos.some((c) => c.rol === rol)) return true;
+    if (rol === "tipo" && reglas.seccion) return true;
+    if (rol === "valorTotal" && reglas.campos.some((c) => c.rol === "cantidad") && reglas.campos.some((c) => c.rol === "valorUnitario")) return true;
+  }
   if (rol === descriptor.clasificador && modoClasificadorDe(spec) === "global") return true;
   // El valor también puede venir como FÓRMULA de varias columnas (SAP: neto + fletes).
   return rol === descriptor.valor && (valorAlternoMapeado(descriptor, spec) || tieneValorFormula(spec));
 }
 
 export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
+  if (spec.lecturaEstructurada) {
+    if (descriptor.codigo !== "INV") return "La lectura de registros mezclados solo está habilitada para inventarios.";
+    const parseado = LecturaEstructuradaSchema.safeParse(spec.lecturaEstructurada);
+    if (!parseado.success) return `Revisa las reglas de lectura: ${parseado.error.issues[0]?.message ?? "estructura no válida"}`;
+  }
   if (spec.hoja.trim().length === 0) return "Indica el nombre exacto de la hoja del archivo.";
   if (spec.hoja.trim().length > 120) return "El nombre de la hoja es demasiado largo (máx. 120 caracteres).";
   if (!Number.isInteger(spec.filaEncabezado) || spec.filaEncabezado < 1) {
@@ -269,7 +286,7 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
       return "El texto que marca las filas de subtotal es demasiado largo (máx. 80 caracteres).";
     }
   }
-  if (modoClasificadorDe(spec) === "seccion") {
+  if (modoClasificadorDe(spec) === "seccion" && !spec.lecturaEstructurada?.seccion) {
     const rolSenal = spec.seccionColumnaVaciaRol ?? "";
     const definicion = descriptor.columnas.find((rc) => rc.nombre === rolSenal);
     if (!definicion || rolSenal === descriptor.clasificador) {

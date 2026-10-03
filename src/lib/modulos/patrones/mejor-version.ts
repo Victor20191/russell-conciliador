@@ -14,7 +14,7 @@ import { normalizarRotulo } from "./rotulos";
 /** Filas en que se busca el encabezado (SAP imprime un bloque técnico largo antes). */
 export const FILAS_BUSQUEDA_ENCABEZADO_PATRON = 60;
 
-export type EstadoVersionAplicable = "pendiente" | "aprobada";
+export type EstadoVersionAplicable = "pendiente" | "validada_cliente" | "aprobada";
 
 export type VersionCandidata = {
   id: number;
@@ -43,7 +43,7 @@ export function versionesAplicables<T extends { estado: string; clienteOrigenId:
   versiones: readonly T[],
   clienteId: number,
 ): T[] {
-  return versiones.filter((v) => v.estado === "aprobada" || (v.estado === "pendiente" && v.clienteOrigenId === clienteId));
+  return versiones.filter((v) => v.estado === "aprobada" || ((v.estado === "pendiente" || v.estado === "validada_cliente") && v.clienteOrigenId === clienteId));
 }
 
 const celdasConDato = (fila: readonly unknown[]): number =>
@@ -84,6 +84,7 @@ function mejorQue(a: UbicacionPatron, b: UbicacionPatron, hojaPropuesta: string 
     [Number(a.coincidencia.elegible), Number(b.coincidencia.elegible)],
     [pesoReconocido(a), pesoReconocido(b)],
     [a.coincidencia.porcentaje, b.coincidencia.porcentaje],
+    [Number(a.version.estado === "validada_cliente"), Number(b.version.estado === "validada_cliente")],
     [Number(a.version.estado === "aprobada"), Number(b.version.estado === "aprobada")],
     [Number(a.hoja === hojaPropuesta), Number(b.hoja === hojaPropuesta)],
     [
@@ -109,8 +110,12 @@ export function mejorVersion(
     const filas = hoja.filas.slice(0, limite);
     for (let i = 0; i < filas.length; i++) {
       const fila = filas[i] ?? [];
-      if (celdasConDato(fila) < 2) continue;
+      const celdas = celdasConDato(fila);
+      if (celdas < 1) continue;
       for (const version of versiones) {
+        // Reportes de impresión en una columna: la gramática completa se valida después,
+        // sobre todas las filas. Los patrones tabulares conservan su mínimo histórico.
+        if (celdas < 2 && !(descriptor.codigo === "INV" && version.spec.lecturaEstructurada)) continue;
         const candidata: UbicacionPatron = {
           version,
           hoja: hoja.nombre,

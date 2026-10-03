@@ -33,10 +33,11 @@ export default async function NuevoPatronPage({
     Number.isInteger(baseId) && baseId > 0
       ? prisma.versionPatronArchivoModulo.findFirst({
           where: { id: baseId, moduloCodigo },
-          select: { version: true, erpId: true, specJson: true, encabezadoJson: true },
+          select: { version: true, erpId: true, specJson: true, encabezadoJson: true, clienteOrigenId: true },
         })
       : Promise.resolve(null),
   ]);
+  if (baseFila?.clienteOrigenId != null) await requirePermiso("perfiles_carga:administrar", { clientId: baseFila.clienteOrigenId, modo: "lectura" });
   const erpPedido = Number(sp.erp);
   const erpInicial = Number.isInteger(erpPedido) && erps.some((e) => e.id === erpPedido) ? erpPedido : (baseFila?.erpId ?? null);
   const base: BasePatron | null = baseFila

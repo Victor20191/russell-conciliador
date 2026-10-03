@@ -40,6 +40,12 @@ const sub = (tipo: string | null, valor: number, texto: string | null, extra: Pa
 
 const reset = () => { n = 0; };
 
+it("el total declarado prevalece sobre un subtotal anterior que casualmente suma el detalle", () => {
+  reset();
+  const filas = [item("MP", "A", 20), item("PT", "B", 30), sub("MP", 50, "Total anterior", { tipoFila: "total", motivo: "subtotal:rotulo" }), sub(null, 60, "Total elegido", { tipoFila: "total", motivo: "gran_total:marca_manual" })];
+  expect(controlSubtotales(filas).granTotal).toMatchObject({ filaNum: 4, subtotalArchivo: 60, sumaMovimientos: 50, diferencia: 10, estado: "descuadre" });
+});
+
 describe("esRotuloTotal / columnasDetalle", () => {
   it("reconoce total, subtotal, gran total y totales", () => {
     for (const s of ["Total", "TOTAL Materia prima", "Subtotal", "Sub-total", "Gran total", "Totales"]) expect(esRotuloTotal(s)).toBe(true);

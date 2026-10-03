@@ -12,6 +12,7 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, va
 import type { UbicacionPatron } from "./mejor-version";
 import { esContenidoArchivo, type ContenidoArchivo } from "../ingresos/contenido-archivo";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
+import { trasladarLecturaEstructurada } from "../extraccion/lectura-estructurada";
 
 export type SpecAplicado = { spec: SpecModulo; advertencias: string[] };
 
@@ -179,6 +180,15 @@ export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: Ubic
   };
   delete spec.familias;
   delete spec.subtotalesFila;
+  if (descriptor.codigo === "INV" && base.lecturaEstructurada) {
+    const trasladada = trasladarLecturaEstructurada(base.lecturaEstructurada, mapa);
+    if (trasladada) spec.lecturaEstructurada = trasladada;
+    else {
+      // No volver a interpretar el original con coordenadas antiguas ni degradar a tabular.
+      spec.lecturaEstructurada = { ...base.lecturaEstructurada, registro: { ...base.lecturaEstructurada.registro, ancla: { ...base.lecturaEstructurada.registro.ancla, columna: 0 } } };
+      advertencias.push("No se ubicaron todas las columnas de los registros mezclados; la asistencia debe revisar la lectura antes de continuar.");
+    }
+  }
 
   // El valor por FÓRMULA se traslada término a término. Sin todos sus términos no se lee: un
   // ingreso sin uno de los fletes saldría corto y en silencio. (La confirmación del IVA viaja

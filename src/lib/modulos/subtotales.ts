@@ -622,6 +622,9 @@ export function controlSubtotales(
   const sumaTodo = redondear(imputables.reduce((s, f) => s + f.valor, 0));
   const grupos: ControlGrupo[] = [];
   let granTotal: ControlGranTotal | null = null;
+  // Una decisión explícita del motor/usuario tiene prioridad sobre un subtotal anterior
+  // cuyo importe casualmente equivale al detalle. El control debe respetar esa decisión.
+  const tieneGranTotalDeclarado = filas.some((f) => f.tipoFila === "total" && f.motivo?.startsWith("gran_total"));
   for (let i = 0; i < filas.length; i++) {
     const f = filas[i];
     if (!esTotal(i)) continue;
@@ -631,7 +634,7 @@ export function controlSubtotales(
     const cuadraTodo = imputables.length >= MINIMO_FILAS_BLOQUE && Math.abs(f.valor - sumaTodo) <= tol;
     // Gran total: vale la Σ de TODO y no la de un bloque parcial (con un solo grupo, el
     // bloque y el todo coinciden y se reporta como grupo).
-    const esGran = f.motivo?.startsWith("gran_total") || (cuadraTodo && !cuadraBloque);
+    const esGran = f.motivo?.startsWith("gran_total") || (!tieneGranTotalDeclarado && cuadraTodo && !cuadraBloque);
     if (esGran && granTotal == null) {
       const comparable = imputables.length >= MINIMO_FILAS_BLOQUE;
       const diferencia = comparable ? redondear(f.valor - sumaTodo) : null;

@@ -4,11 +4,13 @@
 // archivo (o elige otro, o «Archivo manual») y el período; el servidor compara el archivo con los
 // patrones de ese aplicativo:
 //  - coincide ≥ 80 %: confirmación breve (solo datos del cargue) y borrador, sin mapear columnas;
-//  - no coincide: la carga se detiene hasta que un administrador cree el patrón;
+//  - Inventarios: prepara el borrador automáticamente y pide ayuda solo ante ambigüedades;
+//  - otros módulos sin coincidencia: un administrador crea el patrón;
 //  - «Archivo manual»: mapeo de columnas a mano, memorizado por cliente.
 
 import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { unstable_isUnrecognizedActionError, useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Icon } from "@/components/icons";
@@ -44,6 +46,10 @@ import {
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
 import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
+import { prepararBorradorInventario } from "@/app/actions/asistencia-inventario";
+import type { ResultadoAsistenciaVista } from "./asistencia-inventario-panel";
+
+const AsistenciaInventarioPanel = dynamic(() => import("./asistencia-inventario-panel").then((m) => m.AsistenciaInventarioPanel));
 
 export type { RolModulo };
 export type ClienteModulo = { id: number; name: string; nit: string };
@@ -416,7 +422,7 @@ export function CargarModuloButton(props: PropsCarga) {
   );
 }
 
-type Fase = "archivo" | "patron" | "sin_patron" | "mapeo";
+type Fase = "archivo" | "patron" | "sin_patron" | "mapeo" | "asistencia";
 type AplicativosCliente = { campoNombre: string; delCliente: AplicativoOpcion[]; catalogo: AplicativoOpcion[] };
 type PrefsCarga = { hojaPreferida: string | null; observaciones: string | null };
 /** Elección del aplicativo: el id de uno del cliente, u «otro» (del catálogo o nuevo). */
@@ -448,11 +454,12 @@ function CargarModal({
   const archivoRef = useRef<File | null>(null);
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
-  const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? null);
+  const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? (moduloCodigo === "INV" && clientes.length === 1 ? clientes[0].id : null));
   const [fase, setFase] = useState<Fase>("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
+  const [asistencia, setAsistencia] = useState<ResultadoAsistenciaVista | null>(null);
   const [mes, setMes] = useState(anexo?.periodo ?? "");
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
@@ -494,6 +501,7 @@ function CargarModal({
     reiniciarMarcaTotales();
     setAnalisis(null);
     setSpec(null);
+    setAsistencia(null);
     setRecepcionLoteId(null);
     setClasificadorPatron(null);
     setClasificadorConfirmado(false);
@@ -519,6 +527,7 @@ function CargarModal({
         setAplicativos({ campoNombre: r.campoNombre ?? "", delCliente: r.delCliente, catalogo: r.catalogo });
         // Sin aplicativos registrados no hay nada que confirmar: se elige directamente.
         if (r.delCliente.length === 0) setEleccion(OTRO);
+        else if (moduloCodigo === "INV" && r.delCliente.length === 1) setEleccion(String(r.delCliente[0].id));
       })
       .catch((e) => {
         // Pestaña abierta con un build anterior al del servidor: la acción ya no existe con ese ID.
@@ -536,8 +545,8 @@ function CargarModal({
     pedirDatosCliente(id);
   };
 
-  // En «Agregar archivo» el cliente viene fijo: sus datos se piden al abrir.
-  const clienteAnexo = anexo?.clienteId ?? null;
+  // Cliente fijado por un anexo o único cliente disponible: sus datos se piden al abrir.
+  const clienteAnexo = anexo?.clienteId ?? (moduloCodigo === "INV" && clientes.length === 1 ? clientes[0].id : null);
   useEffect(() => {
     if (clienteAnexo != null) pedirDatosCliente(clienteAnexo);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir el modal
@@ -622,6 +631,27 @@ function CargarModal({
         }
         reiniciarMarcaTotales();
         setAnalisis(r);
+        if (moduloCodigo === "INV" && !aplicativo.manual && r.recepcionLoteId) {
+          setFase("asistencia");
+          setAsistencia(null);
+          try {
+            const preparada = await prepararBorradorInventario({
+              recepcionLoteId: r.recepcionLoteId,
+              periodo: mes,
+              erpId: aplicativo.id,
+              ...(hojaArg ? { hoja: hojaArg } : {}),
+              ...(anexo ? { anexoEncabezadoId: anexo.encabezadoId } : {}),
+            });
+            setAsistencia(preparada);
+            if (preparada.ok && preparada.estado === "borrador_preparado" && preparada.loteId) {
+              notifySuccess("Borrador preparado", "Revisa los datos y confirma la carga para finalizar.");
+              router.push(`/modulos/inv/borradores/${preparada.loteId}`);
+            }
+          } catch {
+            setAsistencia({ ok: false, estado: "error_recuperable", message: "El original quedó guardado. No se pudo completar la lectura; puedes reintentar sin volver a subir el archivo." });
+          }
+          return;
+        }
         if (r.modo === "sin_patron" || !r.spec) {
           setSpec(null);
           setFase("sin_patron");
@@ -886,17 +916,17 @@ function CargarModal({
 
   const footer = fase === "archivo" ? (
     <>
-      <button type="button" onClick={onClose} className={botonSecundario}>Cancelar</button>
+      <button type="button" disabled={analizando} onClick={onClose} className={botonSecundario}>Cancelar</button>
       <button
         type="button"
         disabled={!tieneArchivo || clienteId == null || !eleccionLista || !periodoListo || analizando}
         onClick={() => analizar()}
         className={botonPrimario}
       >
-        {analizando ? "Analizando…" : "Analizar archivo"}
+        {analizando ? "Preparando…" : moduloCodigo === "INV" ? "Preparar borrador" : "Analizar archivo"}
       </button>
     </>
-  ) : fase === "sin_patron" ? (
+  ) : fase === "asistencia" ? undefined : fase === "sin_patron" ? (
     <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
   ) : (
     <>
@@ -910,13 +940,13 @@ function CargarModal({
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={() => { if (!analizando) { if (fase === "asistencia") router.refresh(); onClose(); } }}
       title={anexo ? `Agregar archivo · ${moduloLabel.toLowerCase()} ${anexo.periodo}` : `Cargar ${moduloLabel.toLowerCase()}`}
-      size={fase === "mapeo" ? "2xl" : "lg"}
+      size={fase === "mapeo" || fase === "asistencia" ? "2xl" : "lg"}
       footer={footer}
     >
       {fase === "archivo" && (
-        <div className="flex flex-col gap-3.5 text-[12.5px]">
+        <fieldset disabled={analizando} className="flex min-w-0 flex-col gap-3.5 text-[12.5px]">
           {anexo ? (
             <div className="rounded-md border border-navy-600 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-navy-800">
               <span className="font-semibold">Este archivo se AGREGARÁ al cargue existente.</span>
@@ -1005,7 +1035,33 @@ function CargarModal({
           )}
 
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-        </div>
+        </fieldset>
+      )}
+
+      {fase === "asistencia" && recepcionLoteId && (
+        asistencia ? (
+          <>
+            <AsistenciaInventarioPanel
+              recepcionLoteId={recepcionLoteId}
+              periodo={mes}
+              erpId={analisis?.aplicativo?.id}
+              anexoEncabezadoId={anexo?.encabezadoId}
+              resultadoInicial={asistencia}
+              analisisInicial={analisis}
+              roles={roles}
+              onPreparado={(loteId) => {
+                notifySuccess("Borrador preparado", "Revisa los datos y confirma la carga para finalizar.");
+                router.push(`/modulos/inv/borradores/${loteId}`);
+              }}
+            />
+            <p className="mt-4 text-[11px] text-ink-500">Puedes retomar este archivo desde <Link href="/modulos/inv/borradores" onClick={onClose} className="font-medium text-blue-600 hover:underline">Borradores · Lecturas por completar</Link>.</p>
+          </>
+        ) : (
+          <div role="status" aria-live="polite" className="flex flex-col gap-2 border-l-2 border-navy-700 py-3 pl-4 text-[12px]">
+            <p className="font-semibold text-ink-800">Preparando el borrador de inventarios…</p>
+            <p className="leading-relaxed text-ink-500">Estamos reconociendo el formato y comprobando los registros y los totales. Si hace falta adaptar la lectura, la asistencia lo hará desde este mismo archivo.</p>
+          </div>
+        )
       )}
 
       {fase === "sin_patron" && analisis && (

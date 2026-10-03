@@ -4,6 +4,7 @@
 // Es lo que el wizard edita, el perfil guarda por huella, y el transform aplica.
 import * as z from "zod";
 import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
+import { LecturaEstructuradaSchema } from "./lectura-estructurada";
 
 /**
  * Mapeo de columnas de un módulo. `columnas` se llavea por el `nombre` interno del
@@ -15,6 +16,9 @@ export const SpecModuloSchema = z.object({
   filaEncabezado: z.number().int().min(1),
   primeraFilaDatos: z.number().int().min(1),
   columnas: z.record(z.string(), z.number().int().min(0)),
+  // INV: reglas reutilizables para campos mezclados en celdas o registros de varias filas.
+  // No contiene datos normalizados por IA: cada valor se extrae de su fuente verificable.
+  lecturaEstructurada: LecturaEstructuradaSchema.optional(),
   // Cómo llega el CLASIFICADOR (tipo):
   //  - "columna"  : en su propia columna, valor en cada fila (por defecto).
   //  - "arrastrar": AGRUPADO en su columna (celda combinada tipo SAP); aparece una vez

@@ -14,6 +14,7 @@ import type { SpecModulo } from "../extraccion/esquema";
 import { transformarModulo, type ResultadoTransformModulo } from "../extraccion/transformar";
 import { normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import { impedimentoValorSinConfirmar } from "../extraccion/valor-sin-impuestos";
+import { validarLecturaInventario } from "../asistencia/validar";
 import { encabezadoParaGuardar, normalizarRotulo } from "./rotulos";
 
 /** Mínimo de rótulos con texto para que el encabezado sirva de huella del formato. */
@@ -110,13 +111,21 @@ export function revisarMapeoMuestra(
   const encabezado = encabezadoParaGuardar(hoja.filas[spec.filaEncabezado - 1] ?? []);
   const lectura = transformarModulo(descriptor, normalizarSpecModuloArchivo(descriptor, spec), hoja);
   const impedimentos: string[] = [];
-  if (encabezado.filter((rotulo) => normalizarRotulo(rotulo) !== "").length < MINIMO_ROTULOS) {
+  const estructurada = descriptor.codigo === "INV" && spec.lecturaEstructurada != null;
+  if (encabezado.filter((rotulo) => normalizarRotulo(rotulo) !== "").length < (estructurada ? 1 : MINIMO_ROTULOS)) {
     impedimentos.push(MENSAJE_ENCABEZADO_POBRE);
+  }
+  // La aprobación comparte los controles de la carga asistida. Tener un movimiento
+  // no demuestra que el resto de la muestra esté cubierto ni que sus valores sean legibles.
+  impedimentos.push(...(lectura.erroresLectura ?? []));
+  if (estructurada) {
+    const validacion = validarLecturaInventario({ hojas: [hoja], spec, origen: "patron" });
+    impedimentos.push(...validacion.errores, ...validacion.preguntas.map((pregunta) => pregunta.etiqueta));
   }
   // Ingresos: una columna (o fórmula) de «total» como valor vale, pero solo con la confirmación
   // de que excluye el IVA. Antes se rechazaba sin más, y SAP rotula el neto «Total sin Descuento».
   const sinConfirmar = impedimentoValorSinConfirmar(descriptor, spec, hoja.filas[spec.filaEncabezado - 1] ?? []);
   if (sinConfirmar) impedimentos.push(sinConfirmar);
   if (!lectura.filas.some((f) => f.tipoFila === "movimiento")) impedimentos.push(MENSAJE_SIN_FILAS);
-  return { spec, hoja, encabezado, lectura, impedimentos, recorte };
+  return { spec, hoja, encabezado, lectura, impedimentos: [...new Set(impedimentos)], recorte };
 }

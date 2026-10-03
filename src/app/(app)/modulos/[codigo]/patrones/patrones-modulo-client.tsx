@@ -12,9 +12,18 @@ import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones
 import { ETIQUETA_ESTADO_PATRON, motivoNoBorrable } from "@/lib/modulos/patrones/version";
 import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
 import { Modal } from "@/components/modal";
+import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
-const TONO_ESTADO = { aprobada: "ok", pendiente: "warn", inactiva: "ink" } as const;
+const TONO_ESTADO = { aprobada: "ok", pendiente: "warn", validada_cliente: "blue", inactiva: "ink" } as const;
+
+const BANDEJAS = ["Por revisar", "En uso", "Inactivos"] as const;
+type Bandeja = typeof BANDEJAS[number];
+function pertenece(version: VersionPatronVm, bandeja: Bandeja) {
+  if (bandeja === "Por revisar") return version.estado === "pendiente" || version.estado === "validada_cliente";
+  if (bandeja === "En uso") return version.estado === "aprobada" || version.estado === "validada_cliente" || (version.estado === "pendiente" && version.clienteOrigenNombre != null);
+  return version.estado === "inactiva";
+}
 
 const botonAccion = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-45";
 
@@ -35,14 +44,16 @@ export default function PatronesModuloClient({
   puedeAdministrar: boolean;
 }) {
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
+  const [bandeja, setBandeja] = useState<Bandeja>(() => patrones.some((p) => p.versiones.some((v) => pertenece(v, "Por revisar"))) ? "Por revisar" : "En uso");
+  const visibles = patrones.map((p) => ({ ...p, versiones: p.versiones.filter((v) => pertenece(v, bandeja)) })).filter((p) => p.versiones.length > 0);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="min-w-0 max-w-3xl text-[12px] leading-relaxed text-ink-500">
-          Cada versión guarda cómo se lee el archivo de {moduloLabel.toLowerCase()} de un aplicativo: su encabezado, el mapeo de
-          columnas y un archivo de muestra. Una versión <b>pendiente</b> solo sirve al cliente del que salió; al <b>aprobarla</b> la usan
-          todos los clientes del aplicativo.
+          {moduloCodigo === "INV"
+            ? "Los formatos aprendidos al confirmar un inventario se reutilizan para ese cliente. Revisa la evidencia y aprueba una muestra compartible para usarlos en todo el aplicativo."
+            : `Cada versión define cómo se lee el archivo de ${moduloLabel.toLowerCase()}. Al aprobarla se ofrece a todos los clientes del aplicativo.`}
         </p>
         {puedeAdministrar && (
           <Link href={`${ruta}/nueva`} className="whitespace-nowrap rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
@@ -51,18 +62,23 @@ export default function PatronesModuloClient({
         )}
       </div>
 
-      {patrones.length === 0 ? (
+      <div className="flex flex-wrap gap-2 border-b border-ink-200 pb-3" role="tablist" aria-label="Estado de los patrones">
+        {BANDEJAS.map((nombre) => {
+          const cantidad = patrones.reduce((n, p) => n + p.versiones.filter((v) => pertenece(v, nombre)).length, 0);
+          return <button key={nombre} type="button" role="tab" aria-selected={bandeja === nombre} onClick={() => setBandeja(nombre)} className={`rounded-md px-3 py-2 text-[12px] font-semibold ${bandeja === nombre ? "bg-navy-700 text-white" : "bg-ink-50 text-ink-600 hover:bg-ink-100"}`}>{nombre}<span className="ml-2 tabular-nums opacity-75">{cantidad}</span></button>;
+        })}
+      </div>
+
+      {visibles.length === 0 ? (
         <Card>
           <EmptyState
             icon="doc"
-            title="Todavía no hay patrones para este módulo"
-            description={puedeAdministrar
-              ? "Crea el primero subiendo un archivo de muestra del aplicativo."
-              : "Un administrador debe crear el patrón del aplicativo antes de cargar sus archivos."}
+            title={patrones.length ? `Sin patrones ${bandeja.toLowerCase()}` : "Todavía no hay patrones para este módulo"}
+            description={moduloCodigo === "INV" ? "Carga un inventario: el formato se aprende cuando confirmas su borrador." : "Puedes crear un patrón a partir de una muestra del aplicativo."}
           />
         </Card>
       ) : (
-        patrones.map((patron) => (
+        visibles.map((patron) => (
           <GrupoAplicativo key={patron.erp.id} patron={patron} ruta={ruta} puedeAdministrar={puedeAdministrar} />
         ))
       )}
@@ -79,7 +95,7 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
         title={`${patron.erp.nombre}${patron.erp.activo ? "" : " (inactivo)"}`}
         right={
           <span className="min-w-0 text-right text-[11.5px] text-ink-500">
-            {patron.clientes} cliente{patron.clientes === 1 ? "" : "s"} · {patron.versiones.length} versión{patron.versiones.length === 1 ? "" : "es"} · {aprobadas} aprobada{aprobadas === 1 ? "" : "s"}
+            {patron.clientes} cliente{patron.clientes === 1 ? "" : "s"} · {patron.versiones.length} {patron.versiones.length === 1 ? "versión" : "versiones"} · {aprobadas} aprobada{aprobadas === 1 ? "" : "s"}
             {puedeAdministrar && patron.erp.activo && (
               <Link href={`${ruta}/nueva?erp=${patron.erp.id}`} className="ml-3 whitespace-nowrap font-semibold text-blue-700 hover:underline">Nueva versión</Link>
             )}
@@ -120,6 +136,10 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
                           : version.rotulos.map((r, i) => <span key={`${r}-${i}`} className="rounded border border-ink-200 bg-white px-1.5 py-0.5">{r}</span>)}
                       </div>
                       <div className="mt-2"><b>Totales:</b> {version.totales}</div>
+                      {version.lecturaEstructurada && <div className="mt-3 rounded-md border border-ink-200 bg-white p-3"><ResumenLecturaEstructurada reglas={version.lecturaEstructurada} /></div>}
+                      {version.evidencia && <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2"><b>Carga confirmada:</b> {version.evidencia.nombreArchivo} · {fmtDateTime(version.evidencia.confirmadoEn)}. El original permanece privado para el cliente.</div>}
+                      {version.versionBase != null && <div className="mt-2"><b>Comparada con v{version.versionBase}:</b> {version.diferencias.length ? version.diferencias.join(" · ") : "Sin cambios en las reglas de lectura."}</div>}
+                      {version.estado === "validada_cliente" && <div className="mt-1 text-blue-800">Ya se utiliza para este cliente. Para compartir el formato, sube una muestra sin información privada y apruébala.</div>}
                       {version.nota && <div className="mt-1 whitespace-pre-line"><b>Nota:</b> {version.nota}</div>}
                       {version.aprobadoPor && <div className="mt-1">Aprobada por {version.aprobadoPor} el {fmtDateTime(version.aprobadoEn)}.</div>}
                       {version.ultimoUsoEn && <div className="mt-1">Último uso: {fmtDateTime(version.ultimoUsoEn)}.</div>}
@@ -270,8 +290,10 @@ function FilaVersion({
   const archivoRef = useRef<HTMLInputElement>(null);
   const [declarando, setDeclarando] = useState(false);
   const [borrandoVersion, setBorrandoVersion] = useState(false);
+  const [muestraParaCompartir, setMuestraParaCompartir] = useState<File | null>(null);
+  const [compartibleConfirmada, setCompartibleConfirmada] = useState(false);
 
-  const cambiarEstado = (estado: "aprobada" | "inactiva") => {
+  const cambiarEstado = (estado: "aprobada" | "inactiva" | "validada_cliente") => {
     startAccion(async () => {
       const r = await cambiarEstadoVersionPatron({ id: version.id, estado });
       if (r.ok) notifySuccess(r.message ?? "Versión actualizada.");
@@ -279,11 +301,12 @@ function FilaVersion({
       router.refresh();
     });
   };
-  const subirMuestra = (archivo: File) => {
+  const subirMuestra = (archivo: File, compartible = false) => {
     startAccion(async () => {
       const fd = new FormData();
       fd.set("versionId", String(version.id));
       fd.set("archivo", archivo);
+      if (compartible) fd.set("muestraCompartible", "1");
       const r = await subirMuestraVersionPatron(fd);
       if (r.ok) notifySuccess(r.message ?? "Muestra guardada.");
       else notifyError(r.message ?? "No se pudo guardar la muestra.");
@@ -292,6 +315,8 @@ function FilaVersion({
   };
 
   const pendiente = version.estado === "pendiente";
+  const local = version.estado === "validada_cliente";
+  const reactivarLocal = version.estado === "inactiva" && version.evidencia != null && version.aprobadoEn == null;
   // Una pendiente cambia su tipo cuando quiera; las demás solo lo declaran si no lo tenían.
   const puedeDeclararTipo = version.formato != null && (pendiente || !version.formato.declarado);
   return (
@@ -301,7 +326,7 @@ function FilaVersion({
           <Icon name={abierta ? "chev-d" : "chev-r"} size={12} />v{version.version}
         </button>
         <div className="mt-1"><Chip label={ETIQUETA_ESTADO_PATRON[version.estado]} tone={TONO_ESTADO[version.estado]} /></div>
-        {version.clienteOrigenNombre && pendiente && (
+        {version.clienteOrigenNombre && (pendiente || local) && (
           <div className="mt-1 text-[10.5px] text-ink-400">Solo para {version.clienteOrigenNombre}</div>
         )}
       </td>
@@ -347,12 +372,12 @@ function FilaVersion({
             {version.estado !== "aprobada" && (
               <button
                 type="button"
-                disabled={ocupado || !version.muestra}
-                title={version.muestra ? undefined : "Sube la muestra antes de aprobar"}
-                onClick={() => cambiarEstado("aprobada")}
+                disabled={ocupado || (!reactivarLocal && !version.muestra)}
+                title={version.muestra || reactivarLocal ? undefined : "Sube la muestra antes de aprobar"}
+                onClick={() => cambiarEstado(reactivarLocal ? "validada_cliente" : "aprobada")}
                 className={`${botonAccion} border-ok-500 text-ok-700 hover:bg-ok-100/40`}
               >
-                <Icon name="check" size={11} />{version.estado === "inactiva" ? "Reactivar" : "Aprobar"}
+                <Icon name="check" size={11} />{reactivarLocal ? "Reactivar para cliente" : version.estado === "inactiva" ? "Reactivar" : "Aprobar"}
               </button>
             )}
             {puedeDeclararTipo && (
@@ -365,7 +390,7 @@ function FilaVersion({
                 <Icon name="edit" size={11} />Editar
               </Link>
             )}
-            {pendiente && (
+            {(pendiente || local) && (
               <>
                 <button type="button" disabled={ocupado} onClick={() => archivoRef.current?.click()} className={`${botonAccion} border-ink-200 text-ink-700 hover:bg-ink-50`}>
                   <Icon name="upload" size={11} />{version.muestra ? "Cambiar muestra" : "Subir muestra"}
@@ -378,12 +403,13 @@ function FilaVersion({
                   onChange={(e) => {
                     const archivo = e.target.files?.[0];
                     e.target.value = "";
-                    if (archivo) subirMuestra(archivo);
+                    if (archivo && local) { setCompartibleConfirmada(false); setMuestraParaCompartir(archivo); }
+                    else if (archivo) subirMuestra(archivo);
                   }}
                 />
               </>
             )}
-            {version.muestra && (
+            {(version.muestra || local) && (
               <Link href={`${ruta}/nueva?erp=${erpId}&base=${version.id}`} className={`${botonAccion} border-ink-200 text-ink-700 hover:bg-ink-50`}>
                 <Icon name="plus" size={11} />Nueva a partir de esta
               </Link>
@@ -404,6 +430,12 @@ function FilaVersion({
         )}
         {declarando && <DeclararTipoModal version={version} onClose={() => setDeclarando(false)} />}
         {borrandoVersion && <BorrarVersionModal version={version} erpNombre={erpNombre} onClose={() => setBorrandoVersion(false)} />}
+        {muestraParaCompartir && <Modal open title="Muestra para compartir el formato" onClose={() => setMuestraParaCompartir(null)} footer={<button type="button" disabled={!compartibleConfirmada || ocupado} className={`${botonAccion} bg-navy-700 text-white`} onClick={() => { const archivo = muestraParaCompartir; setMuestraParaCompartir(null); subirMuestra(archivo, true); }}>Probar y guardar muestra</button>}>
+          <div className="space-y-3 text-[12.5px] text-ink-600">
+            <p>Se probará <b>{muestraParaCompartir.name}</b> con la estructura confirmada. El original privado del cliente permanece separado.</p>
+            <label className="flex items-start gap-2"><input type="checkbox" checked={compartibleConfirmada} onChange={(e) => setCompartibleConfirmada(e.target.checked)} className="mt-0.5" /><span>Esta muestra no contiene información privada y puede compartirse con los usuarios del aplicativo al aprobar el patrón.</span></label>
+          </div>
+        </Modal>}
       </td>
     </tr>
   );

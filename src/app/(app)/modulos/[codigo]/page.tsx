@@ -21,7 +21,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   const alc = await alcanceLecturaUsuario();
   const filtroCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
 
-  const [clientes, borradoresPendientes, cargados] = await Promise.all([
+  const [clientes, borradoresPendientes, cargados, lecturasPendientes] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, name: true, nit: true },
@@ -54,6 +54,11 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         contenidoArchivos: true,
       },
     }),
+    moduloCodigo === "INV"
+      ? prisma.archivoOriginalModulo.count({
+          where: { moduloCodigo, ...filtroCliente, estado: { in: ["recibido", "no_procesable"] }, revisionAsistencia: { gt: 0 }, loteId: { not: null } },
+        })
+      : Promise.resolve(0),
   ]);
   // Qué trae cada archivo del cargue (Ingresos): se rotula en la lista de archivos del período.
   const contenidoPorEncabezado = new Map(cargados.map((c) => [c.id, { loteId: c.loteId, contenidos: leerContenidoArchivos(c.contenidoArchivos) }]));
@@ -159,12 +164,14 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         title={descriptor.label}
         subtitle={moduloCodigo === "ING"
           ? "Carga la facturación como ingreso neto sin IVA ni otros impuestos, conserva el original y consolida los conceptos contra las cuentas 41 de contabilidad."
-          : "Carga el archivo del cliente, mapea las columnas y consolida por su clasificador contra la cuenta estándar."}
+          : moduloCodigo === "INV"
+            ? "Carga el inventario y revisa el borrador preparado automáticamente. La asistencia te ayuda si cambió el formato."
+            : "Carga el archivo del cliente, mapea las columnas y consolida por su clasificador contra la cuenta estándar."}
       />
       <PestanasModulo
         moduloCodigo={moduloCodigo}
         activa="cargados"
-        borradoresPendientes={borradoresPendientes}
+        borradoresPendientes={borradoresPendientes + lecturasPendientes}
         puedeVerBorradores={autorizacionCrear.ok}
       />
       <ModulosDatosClient

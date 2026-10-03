@@ -16,6 +16,12 @@ describe("versiones de patrón", () => {
   });
 
   it("solo permite las transiciones del ciclo de vida", () => {
+    expect(transicionPatronPermitida("validada_cliente", "aprobada")).toBe(true);
+    expect(transicionPatronPermitida("validada_cliente", "inactiva")).toBe(true);
+    expect(transicionPatronPermitida("validada_cliente", "pendiente")).toBe(false);
+    expect(esVersionEditable({ estado: "validada_cliente" })).toBe(false);
+    expect(motivoNoAprobable({ estado: "validada_cliente", muestraClaveObjeto: null })).not.toBeNull();
+    expect(motivoNoBorrable({ estado: "validada_cliente" })).not.toBeNull();
     expect(transicionPatronPermitida("pendiente", "aprobada")).toBe(true);
     expect(transicionPatronPermitida("pendiente", "inactiva")).toBe(true);
     expect(transicionPatronPermitida("aprobada", "inactiva")).toBe(true);

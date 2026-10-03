@@ -4,6 +4,7 @@
 // que se lee el archivo de cada aplicativo. Ver `/modulos/[codigo]/patrones`. Todas exigen
 // `perfiles_carga:administrar` (Administrador): la lista se ve con el permiso de cargar módulos.
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "node:crypto";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
@@ -56,6 +57,12 @@ export type AnalisisPatron = AnalisisModulo & {
 };
 
 class ErrorPatron extends Error {}
+
+async function exigirAlcanceVersion(version: { clienteOrigenId?: number | null }) {
+  if (version.clienteOrigenId == null) return;
+  const alcance = await authorizePermiso(PERMISO, { clientId: version.clienteOrigenId, modo: "lectura" });
+  if (!alcance.ok) throw new ErrorPatron(alcance.message);
+}
 
 function descriptorDe(moduloCodigo: unknown): DescriptorModulo {
   const descriptor = descriptorModulo(String(moduloCodigo ?? "").trim().toUpperCase());
@@ -258,6 +265,7 @@ export async function analizarMuestraDeVersion(input: { id: number; hoja?: strin
   try {
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number(input.id) } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     const descriptor = descriptorDe(version.moduloCodigo);
     const hojas = await hojasDeMuestraVersion(version);
     const parsed = SpecModuloSchema.safeParse(version.specJson);
@@ -339,6 +347,7 @@ async function hojasParaProbar(
     const id = Number(formData.get("versionId"));
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number.isInteger(id) ? id : 0 } });
     if (!version || version.moduloCodigo !== descriptor.codigo) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     return {
       hojas: await hojasDeMuestraVersion(version),
       origen: { tipo: "version", nombre: version.muestraNombre ?? "la muestra de la versión" },
@@ -434,11 +443,15 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
   const permiso = await authorizePermiso(PERMISO);
   if (!permiso.ok) return { ok: false, message: permiso.message };
   if (!almacenamientoDisponible()) return { ok: false, message: "El almacenamiento de objetos no está configurado: no se puede guardar la muestra." };
+  let claveLocalSubida: string | null = null;
   try {
     const id = Number(formData.get("versionId"));
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id }, include: { erp: { select: { code: true, name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
-    if (!esVersionEditable(version)) throw new ErrorPatron("Solo se cambia la muestra de una versión pendiente. Para otro formato crea una versión nueva.");
+    await exigirAlcanceVersion(version);
+    const local = version.estado === "validada_cliente";
+    if (!esVersionEditable(version) && !local) throw new ErrorPatron("Solo se cambia la muestra de una versión pendiente o validada para un cliente. Para otro formato crea una versión nueva.");
+    if (local && formData.get("muestraCompartible") !== "1") throw new ErrorPatron("Confirma que la muestra se puede compartir con los usuarios del aplicativo. El original del cliente permanece privado.");
     const descriptor = descriptorDe(version.moduloCodigo);
     const { archivo, bytes } = await bytesDeArchivo(formData.get("archivo"));
     const hojas = await hojasDe(bytes, archivo.name);
@@ -450,16 +463,21 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
     }
     // Una versión migrada puede no declarar aún su tipo: se declara al editarla o al aprobarla.
     const { spec, hoja: hojaMuestra, encabezado } = prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec, { exigirTipoFormato: false });
-    const clave = claveMuestraPatronModulo({ moduloCodigo: version.moduloCodigo, erpCode: version.erp.code, version: version.version, nombreArchivo: archivo.name });
+    // Una subida concurrente nunca puede sobrescribir el objeto que acaba de aprobarse.
+    const clave = claveMuestraPatronModulo({ moduloCodigo: version.moduloCodigo, erpCode: version.erp.code, version: version.version, nombreArchivo: local ? `${randomUUID()}-${archivo.name}` : archivo.name });
     await subirObjeto({ key: clave, cuerpo: bytes, contentType: tipoContenidoArchivo(archivo.name, archivo.type) });
+    if (local) claveLocalSubida = clave;
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
-      where: { id, estado: "pendiente", actualizadoEn: version.actualizadoEn },
+      where: { id, estado: version.estado, actualizadoEn: version.actualizadoEn },
       data: {
-        hoja: spec.hoja,
-        filaEncabezado: spec.filaEncabezado,
-        primeraFilaDatos: spec.primeraFilaDatos,
-        encabezadoJson: encabezado,
-        specJson: spec as Prisma.InputJsonValue,
+        // Una versión local ya leyó una carga confirmada: su especificación es inmutable.
+        ...(!local ? {
+          hoja: spec.hoja,
+          filaEncabezado: spec.filaEncabezado,
+          primeraFilaDatos: spec.primeraFilaDatos,
+          encabezadoJson: encabezado,
+          specJson: spec as Prisma.InputJsonValue,
+        } : {}),
         muestraClaveObjeto: clave,
         muestraNombre: archivo.name,
         muestraTamanoBytes: bytes.byteLength,
@@ -467,6 +485,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
       },
     });
     if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió mientras se subía la muestra. Recarga la página.");
+    claveLocalSubida = null;
     if (version.muestraClaveObjeto && version.muestraClaveObjeto !== clave) {
       await eliminarObjeto(version.muestraClaveObjeto).catch((error) => registrarError("subirMuestraVersionPatron.limpiar", error));
     }
@@ -480,6 +499,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
     revalidatePath(rutaPatrones(version.moduloCodigo));
     return { ok: true, message: `Muestra guardada (${ubicacion.coincidencia.porcentaje} % de coincidencia).` };
   } catch (e) {
+    if (claveLocalSubida) await eliminarObjeto(claveLocalSubida).catch((error) => registrarError("subirMuestraVersionPatron.limpiarConflicto", error));
     return respuestaError("subirMuestraVersionPatron", e);
   }
 }
@@ -501,6 +521,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
     const datos = validacion.data;
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: datos.id }, include: { erp: { select: { name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     if (!esVersionEditable(version)) throw new ErrorPatron("Una versión aprobada no se edita: crea una versión nueva a partir de ella.");
     if (version.actualizadoEn.toISOString() !== datos.actualizadoEn) throw new ErrorPatron("La versión cambió desde que la abriste. Recarga la página.");
     if (!version.muestraClaveObjeto) throw new ErrorPatron("Sube primero la muestra de la versión.");
@@ -557,6 +578,7 @@ export async function declararTipoFormatoVersion(input: z.input<typeof DeclararT
     const datos = validacion.data;
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: datos.id }, include: { erp: { select: { name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     const descriptor = descriptorDe(version.moduloCodigo);
     if (!descriptor.crucePorTercero.detalleTercero) throw new ErrorPatron("El tipo de formato solo aplica a Cartera y Cuentas por pagar.");
     if (version.actualizadoEn.toISOString() !== datos.actualizadoEn) throw new ErrorPatron("La versión cambió desde que la abriste. Recarga la página.");
@@ -600,7 +622,7 @@ export async function declararTipoFormatoVersion(input: z.input<typeof DeclararT
 
 const EstadoSchema = z.object({
   id: z.number().int().positive(),
-  estado: z.enum(["aprobada", "inactiva"]),
+  estado: z.enum(["aprobada", "inactiva", "validada_cliente"]),
 });
 
 /** Aprueba (exige muestra), desactiva o reactiva una versión. */
@@ -613,12 +635,26 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
     const { id, estado } = validacion.data;
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id }, include: { erp: { select: { name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     if (!transicionPatronPermitida(version.estado, estado)) {
       throw new ErrorPatron(estado === "aprobada" ? "La versión ya está aprobada." : "La versión ya está inactiva.");
+    }
+    if (estado === "validada_cliente" && (version.archivoOrigenId == null || version.clienteOrigenId == null || version.aprobadoEn != null)) {
+      throw new ErrorPatron("Solo se puede reactivar para su cliente un formato aprendido de una carga confirmada y no aprobado globalmente.");
     }
     if (estado === "aprobada") {
       const motivo = motivoNoAprobable(version);
       if (motivo) throw new ErrorPatron(motivo);
+      if (version.archivoOrigenId != null) {
+        // La muestra compartida se comprueba otra vez al aprobar; jamás usamos el original privado.
+        const descriptor = descriptorDe(version.moduloCodigo);
+        const parsed = SpecModuloSchema.safeParse(version.specJson);
+        if (!parsed.success || !Array.isArray(version.encabezadoJson)) throw new ErrorPatron("El mapeo guardado no es válido.");
+        const hojas = await hojasDeMuestraVersion(version);
+        const ubicacion = mejorVersion(descriptor, hojas, [baseComparable(parsed.data, version.encabezadoJson)]);
+        if (!ubicacion?.coincidencia.elegible) throw new ErrorPatron("La muestra compartida ya no coincide con el patrón. Sube una muestra válida antes de aprobar.");
+        prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec, { exigirTipoFormato: true });
+      }
       if (descriptorDe(version.moduloCodigo).crucePorTercero.detalleTercero) {
         const spec = SpecModuloSchema.safeParse(version.specJson);
         if (version.estado === "pendiente" && (!spec.success || !spec.data.tipoFormato)) {
@@ -632,13 +668,13 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
     }
     const user = await getCurrentUser();
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
-      where: { id, estado: version.estado },
+      where: { id, estado: version.estado, actualizadoEn: version.actualizadoEn },
       data: estado === "aprobada"
         ? { estado, aprobadoPor: user?.name ?? null, aprobadoPorId: user?.id ?? null, aprobadoEn: new Date() }
         : { estado },
     });
     if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió mientras se actualizaba. Recarga la página.");
-    const accion = estado === "aprobada" ? (version.estado === "inactiva" ? "REACTIVÓ" : "APROBÓ") : "DESACTIVÓ";
+    const accion = estado === "aprobada" ? (version.estado === "inactiva" ? "REACTIVÓ" : "APROBÓ") : estado === "validada_cliente" ? "REACTIVÓ PARA CLIENTE" : "DESACTIVÓ";
     await logAudit({
       user: user?.name ?? "Sistema",
       action: `${accion} PATRÓN DE ARCHIVO`,
@@ -646,7 +682,7 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
       detail: `${version.estado} → ${estado}`,
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
-    return { ok: true, message: estado === "aprobada" ? `Versión ${version.version} aprobada.` : `Versión ${version.version} desactivada.` };
+    return { ok: true, message: estado === "aprobada" ? `Versión ${version.version} aprobada.` : estado === "validada_cliente" ? `Versión ${version.version} reactivada para su cliente.` : `Versión ${version.version} desactivada.` };
   } catch (e) {
     return respuestaError("cambiarEstadoVersionPatron", e);
   }
@@ -668,6 +704,7 @@ export async function borrarVersionPatron(input: z.input<typeof BorrarSchema>): 
     const { id } = validacion.data;
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id }, include: { erp: { select: { name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
     const motivo = motivoNoBorrable(version);
     if (motivo) throw new ErrorPatron(motivo);
     // Solo si sigue en el estado que se vio: si alguien la aprobó entretanto, no se borra.

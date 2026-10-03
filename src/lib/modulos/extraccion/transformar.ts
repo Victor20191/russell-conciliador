@@ -17,6 +17,7 @@ import { normalizarMonto } from "@/lib/balance/extraccion/transformar";
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
+import { origenInventarioDeTraza, prepararSpecLecturaEstructurada, type TrazaRegistroLectura } from "./lectura-estructurada";
 import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, prefijosCuentaDeCedula, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
@@ -98,6 +99,10 @@ export type ResultadoTransformModulo = {
   edadesNoSumadas?: string[];
   /** Ingresos: qué declaró el analista que trae el archivo y qué se hizo con su signo. */
   contenido?: SignoContenido;
+  /** Fuentes físicas de registros reconstruidos; la asistencia valida su cobertura completa. */
+  trazasLectura?: TrazaRegistroLectura[];
+  erroresLectura?: string[];
+  advertenciasLectura?: string[];
 };
 
 /**
@@ -146,6 +151,20 @@ function esAgrupadoraPorNegrita(negritaFila: boolean[] | undefined, spec: SpecMo
  * Aplica un spec a una hoja y devuelve las filas del módulo. Puro y determinista.
  */
 export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo, hoja: GridHoja): ResultadoTransformModulo {
+  if (descriptor.codigo === "INV" && spec.lecturaEstructurada) {
+    const preparado = prepararSpecLecturaEstructurada(spec, hoja);
+    const resultado = transformarModulo(descriptor, preparado.spec, preparado.hoja);
+    const trazas = new Map(preparado.trazas.map((t) => [t.filaAncla, t]));
+    for (const fila of resultado.filas) {
+      const traza = trazas.get(fila.filaNum);
+      if (traza) fila.datos.__origenInventario = origenInventarioDeTraza(traza);
+    }
+    const movimientos = new Set(resultado.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.filaNum));
+    for (const traza of preparado.trazas) {
+      if (traza.tipo === "registro" && !movimientos.has(traza.filaAncla)) preparado.errores.push(`El registro reconstruido de la fila ${traza.filaAncla} no produjo un movimiento. Revisa sus campos antes de continuar.`);
+    }
+    return { ...resultado, trazasLectura: preparado.trazas, erroresLectura: preparado.errores, advertenciasLectura: preparado.advertencias };
+  }
   const filas: FilaModulo[] = [];
   const excepciones: ExcepcionModulo[] = [];
   let filasLeidas = 0;
@@ -682,7 +701,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       // Con fórmula, el valor lo decide el usuario: una derivación no lo rellena ni lo discute.
       if (formulaValor && destino === descriptor.valor) continue;
       const actual = aNumero(datos[destino]);
-      const yaEsta = actual != null && actual !== 0;
+      // En inventarios un cero explícito también es una cifra del origen: puede
+      // representar una existencia sin costo. Sólo la ausencia permite derivar.
+      const yaEsta = actual != null && (descriptor.codigo === "INV" || actual !== 0);
       if ("producto" in regla) {
         const a = aNumero(datos[regla.producto[0]]);
         const b = aNumero(datos[regla.producto[1]]);

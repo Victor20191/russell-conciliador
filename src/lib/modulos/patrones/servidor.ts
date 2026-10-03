@@ -3,6 +3,7 @@ import "server-only";
 // Lecturas de BD de los patrones de archivo que comparten la carga de un módulo y la interfaz
 // de patrones. La lógica (coincidencia, elección, aplicación) vive en los módulos puros vecinos.
 import prisma from "@/lib/prisma";
+import { authorizePermiso } from "@/lib/rbac";
 import { ERP_MANUAL_CODE, procesoErpDeModulo } from "@/lib/erp-procesos";
 import type { DescriptorModulo } from "../descriptores";
 import { SpecModuloSchema } from "../extraccion/esquema";
@@ -36,6 +37,10 @@ export type VersionPatronVm = {
   aprobadoPor: string | null;
   aprobadoEn: string | null;
   actualizadoEn: string;
+  evidencia: { nombreArchivo: string; loteId: string | null; confirmadoEn: string } | null;
+  diferencias: string[];
+  versionBase: number | null;
+  lecturaEstructurada?: SpecModulo["lecturaEstructurada"];
 };
 
 export type PatronAplicativoVm = {
@@ -73,8 +78,20 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
       : Promise.resolve([]),
   ]);
   const clientesPorErp = new Map(usoPorErp.map((fila) => [fila.erpId, fila._count._all]));
+  const alcances = new Map(await Promise.all([...new Set(versiones.flatMap((v) => v.clienteOrigenId == null ? [] : [v.clienteOrigenId]))].map(async (id) =>
+    [id, (await authorizePermiso("modulos_datos:crear", { clientId: id, modo: "lectura" })).ok] as const,
+  )));
+  // La muestra compartida no revela el archivo original ni el nombre del cliente que lo aportó.
+  const visibles = versiones.filter((v) => v.estado === "aprobada" || v.clienteOrigenId == null || alcances.get(v.clienteOrigenId));
+  const idsOriginales = visibles.flatMap((v) => v.archivoOrigenId != null && v.clienteOrigenId != null && alcances.get(v.clienteOrigenId) ? [v.archivoOrigenId] : []);
+  const originales = idsOriginales.length ? await prisma.archivoOriginalModulo.findMany({
+    where: { id: { in: idsOriginales } },
+    select: { id: true, nombreArchivo: true, loteId: true, actualizadoEn: true },
+  }) : [];
+  const porOriginal = new Map(originales.map((o) => [o.id, o]));
+  const porVersion = new Map(visibles.map((v) => [v.id, v]));
   const porErp = new Map<number, PatronAplicativoVm>();
-  for (const fila of versiones) {
+  for (const fila of visibles) {
     const grupo = porErp.get(fila.erpId) ?? {
       erp: { id: fila.erp.id, nombre: fila.erp.name, activo: fila.erp.active },
       clientes: clientesPorErp.get(fila.erpId) ?? 0,
@@ -85,6 +102,17 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
     const rotulos = Array.isArray(fila.encabezadoJson)
       ? (fila.encabezadoJson as unknown[]).map((c) => String(c ?? "").trim()).filter(Boolean)
       : [];
+    const alcanceOrigen = fila.clienteOrigenId == null || alcances.get(fila.clienteOrigenId) === true;
+    const original = fila.archivoOrigenId == null ? null : porOriginal.get(fila.archivoOrigenId);
+    const base = fila.versionBaseId == null ? null : porVersion.get(fila.versionBaseId);
+    const specBase = base ? SpecModuloSchema.safeParse(base.specJson) : null;
+    const diferencias = spec && specBase?.success ? descriptor.columnas.flatMap((col) => {
+      const antes = specBase.data.columnas[col.nombre] ?? 0;
+      const ahora = spec.columnas[col.nombre] ?? 0;
+      return antes === ahora ? [] : [`${col.etiqueta}: columna ${antes || "sin asignar"} → ${ahora || "sin asignar"}`];
+    }) : [];
+    if (spec && specBase?.success && spec.subtotales !== specBase.data.subtotales) diferencias.push("Cambió la detección de totales.");
+    if (spec && specBase?.success && JSON.stringify(spec.lecturaEstructurada) !== JSON.stringify(specBase.data.lecturaEstructurada)) diferencias.push("Cambió la separación de campos o la reconstrucción de productos entre filas.");
     grupo.versiones.push({
       id: fila.id,
       version: fila.version,
@@ -95,17 +123,21 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
       rotulos,
       resumenColumnas: spec ? resumenColumnasModulo(descriptor, spec) : "Mapeo ilegible",
       totales: spec ? descripcionSubtotalesModulo(spec) : "—",
+      ...(spec?.lecturaEstructurada ? { lecturaEstructurada: spec.lecturaEstructurada } : {}),
       formato: spec && descriptor.crucePorTercero.detalleTercero ? formatoDeVersion(spec) : null,
       muestra: fila.muestraClaveObjeto ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes } : null,
       vecesUsado: fila.vecesUsado,
       ultimoUsoEn: fila.ultimoUsoEn?.toISOString() ?? null,
-      clienteOrigenNombre: fila.clienteOrigenNombre,
-      nota: fila.nota,
+      clienteOrigenNombre: alcanceOrigen ? fila.clienteOrigenNombre : null,
+      nota: alcanceOrigen ? fila.nota : null,
       creadoPor: fila.creadoPor,
       creadoEn: fila.creadoEn.toISOString(),
       aprobadoPor: fila.aprobadoPor,
       aprobadoEn: fila.aprobadoEn?.toISOString() ?? null,
       actualizadoEn: fila.actualizadoEn.toISOString(),
+      evidencia: original ? { nombreArchivo: original.nombreArchivo, loteId: original.loteId, confirmadoEn: fila.creadoEn.toISOString() } : null,
+      versionBase: base?.version ?? null,
+      diferencias,
     });
     porErp.set(fila.erpId, grupo);
   }
@@ -151,7 +183,7 @@ export async function versionesPatronCandidatas(
     where: {
       erpId,
       moduloCodigo: descriptor.codigo,
-      estado: { in: ["aprobada", "pendiente"] },
+      estado: { in: ["aprobada", "pendiente", "validada_cliente"] },
       ...(soloId != null ? { id: soloId } : {}),
     },
     select: {
@@ -167,7 +199,7 @@ export async function versionesPatronCandidatas(
     return [{
       id: fila.id,
       version: fila.version,
-      estado: fila.estado === "aprobada" ? "aprobada" : "pendiente",
+      estado: fila.estado === "aprobada" ? "aprobada" : fila.estado === "validada_cliente" ? "validada_cliente" : "pendiente",
       clienteOrigenId: fila.clienteOrigenId,
       hoja: fila.hoja,
       filaEncabezado: fila.filaEncabezado,

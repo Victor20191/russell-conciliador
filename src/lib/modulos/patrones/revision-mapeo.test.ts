@@ -33,6 +33,54 @@ const revisar = (spec: Partial<SpecModulo> = {}, hojas: GridHoja[] = [HOJA], des
   revisarMapeoMuestra(descriptor, hojas, { ...SPEC, ...spec }, { exigirTipoFormato: true });
 
 describe("revisarMapeoMuestra", () => {
+  const estructurada: SpecModulo = {
+    hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2, columnas: {}, clasificadorModo: "global",
+    lecturaEstructurada: {
+      version: 1, registro: { ancla: { columna: 1, operador: "empieza", texto: "Item:" }, maxFilas: 1 },
+      campos: [
+        { rol: "referencia", fuente: { columna: 1, desplazamientoFila: 0, selector: { tipo: "etiqueta", inicio: "Item:", fin: "Costo:" } } },
+        { rol: "valorTotal", fuente: { columna: 1, desplazamientoFila: 0, selector: { tipo: "etiqueta", inicio: "Costo:" } } },
+      ],
+    },
+  };
+  const revisarEstructurada = (filas: GridHoja["filas"], spec = estructurada) => revisarMapeoMuestra(
+    INV, [{ nombre: "Inventario", filas: [["Detalle"], ...filas] }], spec, { exigirTipoFormato: true },
+  );
+
+  it("admite un rótulo únicamente con reglas estructuradas válidas y una muestra completa", () => {
+    expect(revisarEstructurada([["Item:A · Costo:100"]]).impedimentos).toEqual([]);
+    const sinRotulo = revisarMapeoMuestra(INV, [{ nombre: "Inventario", filas: [[null], ["Item:A · Costo:100"]] }], estructurada, { exigirTipoFormato: true });
+    expect(sinRotulo.impedimentos).toContain(MENSAJE_ENCABEZADO_POBRE);
+  });
+
+  it("bloquea aprobar contenido sin interpretar aunque haya movimientos válidos", () => {
+    const revision = revisarEstructurada([["Item:A · Costo:100"], ["Ajuste fuera del formato: 50"]]);
+    expect(revision.lectura?.filas.some((fila) => fila.tipoFila === "movimiento")).toBe(true);
+    expect(revision.impedimentos.join(" ")).toContain("Contenido sin interpretar");
+  });
+
+  it("no aprueba registros que el motor terminó interpretando como totales", () => {
+    const revision = revisarEstructurada([["Item:A · Costo:100"], ["Item:Total general · Costo:100"]]);
+    expect(revision.lectura?.filas.some((fila) => fila.tipoFila === "movimiento")).toBe(true);
+    expect(revision.impedimentos.join(" ")).toContain("no produjo un movimiento");
+  });
+
+  it("bloquea bloques incompletos y valores ilegibles de una muestra estructurada", () => {
+    const bloques = structuredClone(estructurada);
+    bloques.lecturaEstructurada!.registro.maxFilas = 2;
+    bloques.lecturaEstructurada!.campos[1].fuente.desplazamientoFila = 1;
+    expect(revisarEstructurada([["Item:A · Costo:100"], ["Item:B · Costo:200"]], bloques).impedimentos.join(" ")).toContain("otro bloque");
+    expect(revisarEstructurada([["Item:A · Costo:100"], ["Item:B · Costo:ilegible"]]).impedimentos.join(" ")).toContain("ilegible");
+  });
+
+  it("exige resolver tipos ambiguos antes de aprobar para todos los clientes", () => {
+    const sinTipo = structuredClone(estructurada);
+    sinTipo.clasificadorModo = "columna";
+    sinTipo.lecturaEstructurada!.campos[0].fuente.selector = { tipo: "etiqueta", inicio: "Item:", fin: "Tipo:" };
+    sinTipo.lecturaEstructurada!.campos.push({ rol: "tipo", fuente: { columna: 1, desplazamientoFila: 0, selector: { tipo: "etiqueta", inicio: "Tipo:", fin: "Costo:" } } });
+    expect(revisarEstructurada([["Item:A · Tipo: · Costo:100"]], sinTipo).impedimentos.join(" ")).toContain("sin tipo");
+  });
+
   it("con un mapeo bueno no pone impedimentos y devuelve la lectura de la muestra", () => {
     const r = revisar();
 

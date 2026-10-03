@@ -20,12 +20,15 @@ export default async function PatronesModuloPage({ params }: { params: Promise<{
   if (!descriptor) notFound();
 
   const alc = await alcanceLecturaUsuario();
-  const [patrones, borradoresPendientes, administrar] = await Promise.all([
+  const [patrones, borradoresPendientes, administrar, lecturasPendientes] = await Promise.all([
     listarPatronesDeModulo(descriptor),
     prisma.moduloImportacionLote.count({
       where: { moduloCodigo, ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }) },
     }),
     authorizePermiso("perfiles_carga:administrar"),
+    moduloCodigo === "INV" ? prisma.archivoOriginalModulo.count({
+      where: { moduloCodigo, ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }), estado: { in: ["recibido", "no_procesable"] }, revisionAsistencia: { gt: 0 }, loteId: { not: null } },
+    }) : Promise.resolve(0),
   ]);
   const proceso = procesoErpDeModulo(moduloCodigo);
 
@@ -33,9 +36,11 @@ export default async function PatronesModuloPage({ params }: { params: Promise<{
     <div>
       <PageHeader
         title={descriptor.label}
-        subtitle={`Patrones de archivo por aplicativo (campo ${proceso ? nombreProcesoErp(proceso) : "—"} de la ficha del cliente). Un archivo con ${UMBRAL_COINCIDENCIA_PATRON} % o más de coincidencia se carga sin configurar columnas.`}
+        subtitle={moduloCodigo === "INV"
+          ? "Los formatos conocidos se reconocen al cargar. Si el archivo cambió, la asistencia prepara una nueva lectura para revisar."
+          : `Patrones de archivo por aplicativo (campo ${proceso ? nombreProcesoErp(proceso) : "—"} de la ficha del cliente). Un archivo con ${UMBRAL_COINCIDENCIA_PATRON} % o más de coincidencia se carga sin configurar columnas.`}
       />
-      <PestanasModulo moduloCodigo={moduloCodigo} activa="patrones" borradoresPendientes={borradoresPendientes} puedeVerBorradores />
+      <PestanasModulo moduloCodigo={moduloCodigo} activa="patrones" borradoresPendientes={borradoresPendientes + lecturasPendientes} puedeVerBorradores />
       <PatronesModuloClient
         moduloCodigo={moduloCodigo}
         moduloLabel={descriptor.label}

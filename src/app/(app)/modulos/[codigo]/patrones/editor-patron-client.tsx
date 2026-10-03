@@ -3,9 +3,10 @@
 // Crear o editar una versión de patrón de archivo. El mapeo se hace sobre la MUESTRA del
 // aplicativo (obligatoria para guardar); puede partir del archivo de un cliente que no coincidió
 // o de otra versión, y se traslada por rótulo a las columnas de la muestra.
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SelectBuscable } from "@/components/select-buscable";
 import { Card } from "@/components/ui";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
@@ -19,6 +20,7 @@ import {
 } from "@/app/actions/patrones-modulo";
 import { EditorMapeoModulo, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
+import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 
 export type BasePatron = { version: number; specJson: string; encabezadoJson: string };
 export type EdicionPatron = { id: number; version: number; erpNombre: string; nota: string; actualizadoEn: string; muestraNombre: string };
@@ -182,6 +184,7 @@ export default function EditorPatronClient({
           : null
   );
 
+  const opcionesErp = useMemo(() => erps.map((e) => ({ value: String(e.id), label: e.nombre })), [erps]);
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
   const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando;
 
@@ -189,17 +192,22 @@ export default function EditorPatronClient({
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-3 p-4 text-[12.5px]">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Aplicativo <span className="text-err-600">*</span></span>
             {edicion ? (
               <span className="break-words rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700">{edicion.erpNombre} · versión {edicion.version}</span>
             ) : (
-              <select value={erpId ?? ""} onChange={(e) => setErpId(e.target.value ? Number(e.target.value) : null)} className={claseCampo}>
-                <option value="">— elige el aplicativo —</option>
-                {erps.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
+              <SelectBuscable
+                opciones={opcionesErp}
+                value={erpId == null ? "" : String(erpId)}
+                onChange={(valor) => setErpId(valor ? Number(valor) : null)}
+                placeholder="Buscar aplicativo…"
+                sinResultados="No se encontraron aplicativos."
+                ariaLabel="Aplicativo"
+                className="min-w-0"
+              />
             )}
-          </label>
+          </div>
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo de muestra {edicion ? "" : <span className="text-err-600">*</span>}</span>
             {edicion ? (
@@ -233,7 +241,10 @@ export default function EditorPatronClient({
 
       {analisis && spec && (
         <Card className="p-4 text-[12.5px]">
-          <EditorMapeoModulo
+          {spec.lecturaEstructurada ? <>
+            <ResumenLecturaEstructurada reglas={spec.lecturaEstructurada} />
+            <p className="mt-3 text-[11.5px] text-ink-500">Prueba estas reglas con la muestra antes de guardarlas. Para cambiar cómo se separan los datos, usa la asistencia de lectura al cargar el inventario; al confirmar se conservará una nueva versión.</p>
+          </> : <EditorMapeoModulo
             analisis={analisis}
             spec={spec}
             setSpec={setSpec}
@@ -244,7 +255,7 @@ export default function EditorPatronClient({
             conNivelCartera={conNivelCartera}
             modo="patron"
             onCambiarHoja={cambiarHoja}
-          />
+          />}
           <label className="mt-4 flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Nota (opcional)</span>
             <textarea value={nota} maxLength={2000} rows={3} onChange={(e) => setNota(e.target.value)} placeholder="Versión del ERP, informe del que sale el archivo, particularidades…" className={claseCampo} />

@@ -14,6 +14,7 @@ import { esTipoFormatoCartera, esTipoFormatoDeclarable, tipoConDocumento, tipoCo
 import { modoClasificadorDe } from "../perfil-modulo";
 import { tieneValorFormula } from "../extraccion/valor-formula";
 import { clavesEncabezado } from "./rotulos";
+import { columnasFormatoLecturaEstructurada } from "../extraccion/lectura-estructurada";
 
 export const UMBRAL_COINCIDENCIA_PATRON = 80;
 
@@ -47,6 +48,9 @@ function columnasLeidas(descriptor: DescriptorModulo, spec: SpecModulo): Map<num
     leidas.set(columna as number, lista);
   };
   for (const rol of descriptor.columnas) anotar(spec.columnas[rol.nombre], rol.etiqueta);
+  if (descriptor.codigo === "INV" && spec.lecturaEstructurada) {
+    for (const columna of columnasFormatoLecturaEstructurada(spec.lecturaEstructurada)) anotar(columna, "Lectura de registros mezclados");
+  }
   // El valor por FÓRMULA lee varias columnas: todas pesan como leídas y todas deben estar.
   const etiquetaValor = descriptor.columnas.find((rol) => rol.nombre === descriptor.valor)?.etiqueta ?? "Valor";
   for (const termino of spec.valorFormula ?? []) anotar(termino.columna, `${etiquetaValor} (fórmula)`);
@@ -180,7 +184,14 @@ export function coincidenciaPatron(
   };
   const modo = modoClasificadorDe(patron.spec);
   const faltantesRequeridos: string[] = [];
+  const lecturaEstructurada = descriptor.codigo === "INV" ? patron.spec.lecturaEstructurada : undefined;
+  if (lecturaEstructurada) {
+    for (const c of columnasFormatoLecturaEstructurada(lecturaEstructurada)) {
+      if (mapaColumnas[c] == null) faltantesRequeridos.push(`Lectura de registros: falta ${rotuloPatron(c)}`);
+    }
+  }
   for (const rol of descriptor.columnas) {
+    if (lecturaEstructurada) continue; // Se comprobaron todas sus fuentes, incluidas anclas, secciones y totales.
     if (!rol.requerido || (rol.nombre === descriptor.clasificador && modo === "global")) continue;
     if (rol.nombre === descriptor.valor && alternoUbicado) continue;
     if (rol.nombre === descriptor.valor && formula) {

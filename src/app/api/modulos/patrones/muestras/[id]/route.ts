@@ -33,9 +33,13 @@ export async function GET(
   try {
     const version = await prisma.versionPatronArchivoModulo.findUnique({
       where: { id: versionId },
-      select: { muestraClaveObjeto: true, muestraNombre: true, muestraTamanoBytes: true, muestraSha256: true },
+      select: { estado: true, clienteOrigenId: true, muestraClaveObjeto: true, muestraNombre: true, muestraTamanoBytes: true, muestraSha256: true },
     });
     if (!version?.muestraClaveObjeto) return new Response("La versión no tiene muestra", { status: 404 });
+    if (version.estado !== "aprobada" && version.clienteOrigenId != null) {
+      const alcance = await authorizePermiso("modulos_datos:crear", { clientId: version.clienteOrigenId, modo: "lectura" });
+      if (!alcance.ok) return new Response("No autorizado", { status: 403 });
+    }
 
     const objeto = await obtenerObjeto(version.muestraClaveObjeto);
     if (!objeto) return new Response("La muestra no está disponible", { status: 404 });

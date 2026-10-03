@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   ingerir: vi.fn(),
   subirObjeto: vi.fn(),
   eliminarObjeto: vi.fn(),
+  obtenerObjeto: vi.fn(),
   erpFindUnique: vi.fn(),
   versionFindUnique: vi.fn(),
   versionUpdateMany: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock("@/lib/balance/extraccion/ingesta", () => ({ ingerir: mocks.ingerir }));
 vi.mock("@/lib/storage/objetos", () => ({
   almacenamientoDisponible: () => true,
   subirObjeto: mocks.subirObjeto,
-  obtenerObjeto: vi.fn(),
+  obtenerObjeto: mocks.obtenerObjeto,
   eliminarObjeto: mocks.eliminarObjeto,
 }));
 vi.mock("@/lib/prisma", () => ({
@@ -38,7 +39,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { borrarVersionPatron, cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion } from "./patrones-modulo";
+import { actualizarVersionPatron, borrarVersionPatron, cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "./patrones-modulo";
 
 const HOJA = {
   nombre: "Inventario",
@@ -54,6 +55,64 @@ const SPEC = {
   primeraFilaDatos: 2,
   columnas: { tipo: 1, referencia: 2, cantidad: 3, valorTotal: 4 },
 };
+
+describe("patrón local confirmado y muestra compartida", () => {
+  const version = () => ({ id: 7, version: 2, estado: "validada_cliente", clienteOrigenId: 5, archivoOrigenId: 9,
+    moduloCodigo: "INV", specJson: SPEC, encabezadoJson: HOJA.filas[0], actualizadoEn: new Date("2026-10-03T00:00:00Z"),
+    muestraClaveObjeto: null, erp: { code: "SIIGO", name: "SIIGO" } });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizePermiso.mockResolvedValue({ ok: true });
+    mocks.versionFindUnique.mockResolvedValue(version());
+    mocks.versionUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.ingerir.mockResolvedValue({ modo: "tabular", hojas: [HOJA] });
+    mocks.obtenerObjeto.mockResolvedValue({ cuerpo: new Uint8Array([1, 2, 3]) });
+  });
+
+  it("no permite editar una estructura usada ni aprobar sin muestra", async () => {
+    expect(await actualizarVersionPatron({ id: 7, actualizadoEn: version().actualizadoEn.toISOString(), specJson: JSON.stringify(SPEC) })).toMatchObject({ ok: false });
+    expect(await cambiarEstadoVersionPatron({ id: 7, estado: "aprobada" })).toMatchObject({ ok: false });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("exige confirmación explícita de muestra compartible y mantiene inmutable el spec", async () => {
+    const fd = formulario({ versionId: "7" });
+    expect(await subirMuestraVersionPatron(fd)).toMatchObject({ ok: false });
+    expect(mocks.subirObjeto).not.toHaveBeenCalled();
+    fd.set("muestraCompartible", "1");
+    expect(await subirMuestraVersionPatron(fd)).toMatchObject({ ok: true });
+    const data = mocks.versionUpdateMany.mock.calls[0][0].data;
+    expect(data.muestraClaveObjeto).toContain("/v2/");
+    expect(data).not.toHaveProperty("specJson");
+    expect(data).not.toHaveProperty("encabezadoJson");
+    expect(data).not.toHaveProperty("archivoOrigenId");
+  });
+
+  it("vuelve a probar la muestra compartida al aprobar y rechaza una inválida", async () => {
+    mocks.versionFindUnique.mockResolvedValue({ ...version(), muestraClaveObjeto: "muestra-global", muestraNombre: "prueba.xlsx" });
+    expect(await cambiarEstadoVersionPatron({ id: 7, estado: "aprobada" })).toMatchObject({ ok: true });
+    expect(mocks.obtenerObjeto).toHaveBeenCalledWith("muestra-global");
+    mocks.versionUpdateMany.mockClear();
+    mocks.ingerir.mockResolvedValue({ modo: "tabular", hojas: [{ nombre: "Otra", filas: [["Nada", "Aquí"]] }] });
+    expect(await cambiarEstadoVersionPatron({ id: 7, estado: "aprobada" })).toMatchObject({ ok: false });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("impide operar sobre la evidencia de un cliente fuera del alcance", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, message: "Sin alcance" });
+    expect(await subirMuestraVersionPatron(formulario({ versionId: "7", muestraCompartible: "1" }))).toEqual({ ok: false, message: "Sin alcance" });
+    expect(mocks.subirObjeto).not.toHaveBeenCalled();
+  });
+
+  it("reactiva una local sin muestra compartida, pero no convierte una inactiva global en local", async () => {
+    mocks.versionFindUnique.mockResolvedValue({ ...version(), estado: "inactiva" });
+    expect(await cambiarEstadoVersionPatron({ id: 7, estado: "validada_cliente" })).toMatchObject({ ok: true });
+    mocks.versionUpdateMany.mockClear();
+    mocks.versionFindUnique.mockResolvedValue({ ...version(), estado: "inactiva", archivoOrigenId: null });
+    expect(await cambiarEstadoVersionPatron({ id: 7, estado: "validada_cliente" })).toMatchObject({ ok: false });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
+  });
+});
 
 function formulario(extra: Record<string, string> = {}): FormData {
   const fd = new FormData();

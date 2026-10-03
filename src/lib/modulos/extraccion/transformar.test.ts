@@ -35,6 +35,19 @@ describe("transformarModulo (INV)", () => {
     expect(r.excepciones).toHaveLength(0);
   });
 
+  it("conserva el cero explícito del total de inventario y sólo informa la diferencia", () => {
+    const r = transformarModulo(INV, SPEC, hoja([ENC, ["Producto terminado", "REF-2", "Mesa", 2, 10, 0]]));
+    expect(r.filas[0].valor).toBe(0);
+    expect(r.filas[0].datos.valorTotal).toBe(0);
+    expect(r.excepciones).toEqual([{ filaNum: 2, mensaje: "valorTotal (0) ≠ cantidad×valorUnitario (20)" }]);
+  });
+
+  it("no reemplaza un costo unitario explícito en cero al calcular el cociente", () => {
+    const r = transformarModulo(INV, SPEC, hoja([ENC, ["Producto terminado", "REF-2", "Mesa", 2, 0, 20]]));
+    expect(r.filas[0].datos.valorUnitario).toBe(0);
+    expect(r.filas[0].valor).toBe(20);
+  });
+
   it("DERIVA valorUnitario = valorTotal ÷ cantidad cuando falta el unitario", () => {
     const r = transformarModulo(INV, SPEC, hoja([ENC, ["A", "R", "D", 100000, null, 37612287.42]]));
     expect(r.filas[0].datos.valorUnitario).toBeCloseTo(376.12, 2);

@@ -9,6 +9,8 @@ import { fmtDate, fmtHora12 } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import BorradoresModuloClient, { type BorradorModuloRow } from "./borradores-modulo-client";
 import { PestanasModulo } from "../pestanas-modulo";
+import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
+import { LecturasInventarioPendientes } from "./lecturas-inventario-pendientes";
 
 // Pestaña «Borradores» del módulo: lo leído del archivo y pendiente de confirmar,
 // separado de lo oficial (`/modulos/[codigo]`). Mismo permiso que el detalle del borrador.
@@ -22,7 +24,7 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
   const alc = await alcanceLecturaUsuario();
   const filtroCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
 
-  const [clientes, borradores] = await Promise.all([
+  const [clientes, borradores, lecturasPendientes] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, name: true, nit: true },
@@ -44,6 +46,13 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
         anexoEncabezadoId: true,
       },
     }),
+    moduloCodigo === "INV"
+      ? prisma.archivoOriginalModulo.findMany({
+          where: { moduloCodigo, ...filtroCliente, estado: { in: ["recibido", "no_procesable"] }, revisionAsistencia: { gt: 0 }, loteId: { not: null } },
+          orderBy: { actualizadoEn: "desc" },
+          select: { loteId: true, nombreArchivo: true, nombreCliente: true, actualizadoEn: true, asistenciaJson: true },
+        })
+      : Promise.resolve([]),
   ]);
   const clientePorId = new Map(clientes.map((c) => [c.id, c]));
 
@@ -139,6 +148,17 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
       anexo: anexoDe(b.anexoEncabezadoId),
     };
   });
+  const porCompletar = lecturasPendientes.flatMap((original) => {
+    const asistencia = leerAsistenciaInventario(original.asistenciaJson);
+    return asistencia && original.loteId ? [{
+      loteId: original.loteId,
+      nombreArchivo: original.nombreArchivo,
+      nombreCliente: original.nombreCliente,
+      periodo: asistencia.periodo,
+      estado: asistencia.estado,
+      fecha: fmtDate(original.actualizadoEn),
+    }] : [];
+  });
 
   return (
     <div>
@@ -146,7 +166,8 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
         title={descriptor.label}
         subtitle="Lo que se leyó del archivo antes de consolidar y cargar. Revisa la estructura (agrupadoras y movimiento), ajusta lo que haga falta, y carga o descarta. Nada se ha guardado como dato oficial del módulo."
       />
-      <PestanasModulo moduloCodigo={moduloCodigo} activa="borradores" borradoresPendientes={filas.length} puedeVerBorradores />
+      <PestanasModulo moduloCodigo={moduloCodigo} activa="borradores" borradoresPendientes={filas.length + porCompletar.length} puedeVerBorradores />
+      {moduloCodigo === "INV" && <LecturasInventarioPendientes lecturas={porCompletar} roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))} />}
       <BorradoresModuloClient moduloCodigo={moduloCodigo} moduloLabel={descriptor.label} borradores={filas} />
     </div>
   );

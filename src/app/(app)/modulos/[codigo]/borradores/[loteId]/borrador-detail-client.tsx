@@ -22,6 +22,9 @@ import { ValidacionArchivo } from "../../validacion-archivo";
 import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
 import { NombreAgrupador, type GrupoSinNombreVm } from "./nombre-agrupador";
 import { avisosContenido, INFO_CONTENIDO_ARCHIVO, type SignoContenido } from "@/lib/modulos/ingresos/contenido-archivo";
+import { CorregirLecturaInventario } from "../../corregir-lectura-inventario";
+import type { RolModulo } from "../../editor-mapeo-modulo";
+import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -119,6 +122,8 @@ export default function BorradorModuloClient({
   version,
   hermanos,
   notasCliente = null,
+  rolesAsistenciaInventario,
+  asistenciaInventario,
 }: {
   moduloCodigo: string;
   loteId: string;
@@ -146,6 +151,9 @@ export default function BorradorModuloClient({
   hermanos: VersionHermanaBorradorModulo[];
   /** Notas de carga del cliente para este módulo (Configuración › Perfiles de carga). */
   notasCliente?: string | null;
+  /** Sólo se ofrece para un original INV de aplicativo; Archivo manual conserva su flujo. */
+  rolesAsistenciaInventario?: RolModulo[];
+  asistenciaInventario?: { revision: number; estado: EstadoAsistenciaInventario };
 }) {
   const router = useRouter();
   const clasificadorEtiqueta = columnasDelCargue.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
@@ -214,6 +222,7 @@ export default function BorradorModuloClient({
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
   const hayCambios = hayCambiosFilas || periodoCambiado;
+  const asistenciaSinResolver = asistenciaInventario != null && asistenciaInventario.estado !== "borrador_preparado";
   useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar» antes de salir.");
   // MISMA regla que la promoción, llamando a la misma función: lo que el usuario aprueba
   // aquí tiene que ser exactamente lo que se carga. Duplicar el criterio ya se pagó una vez
@@ -325,6 +334,7 @@ export default function BorradorModuloClient({
     });
 
   const confirmar = () => {
+    if (asistenciaSinResolver) { notifyError("Hay una lectura pendiente de resolver. Abre «Corregir lectura», revisa su resultado y aplica la propuesta antes de confirmar."); return; }
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
     if (!/^\d{4}-\d{2}$/.test(periodo)) { notifyError("Indica el período (AAAA-MM)."); return; }
     if (!verifCompletas) { notifyError("Responde todas las verificaciones antes de cargar."); return; }
@@ -334,6 +344,7 @@ export default function BorradorModuloClient({
       fd.set("periodo", periodo);
       fd.set("observaciones", observaciones);
       fd.set("verificaciones", JSON.stringify(respuestas));
+      if (moduloCodigo === "INV" && asistenciaInventario && asistenciaInventario.revision > 0) fd.set("revisionAsistenciaEsperada", String(asistenciaInventario.revision));
       const r = await cargarBorradorModulo(undefined, fd);
       if (r.ok) { notifySuccess(r.message ?? "Cargado."); router.push(`/modulos/${moduloCodigo.toLowerCase()}`); }
       else notifyError(r.message ?? "No se pudo cargar.");
@@ -471,12 +482,14 @@ export default function BorradorModuloClient({
         <span className="min-w-0 break-words text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {totalItems.toLocaleString("es-CO")} filas imputables de {resumen.totalFilas.toLocaleString("es-CO")} · total <span className="font-semibold">{fmtContable(total)}</span></span>
         <span className="flex flex-wrap items-center gap-2">
           {hayCambios && <span className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar.</span>}
+          {rolesAsistenciaInventario && <CorregirLecturaInventario loteId={loteId} periodo={periodo} roles={rolesAsistenciaInventario} bloqueado={hayCambios || cargando || guardando || descartando} />}
           {version && <Chip label={`Borrador v${version}`} tone="blue" />}
           {hermanos.length > 1 && <MenuVersionesBorradorModulo moduloCodigo={moduloCodigo} loteId={loteId} hermanos={hermanos} />}
         </span>
       </div>
 
       {notasCliente && <NotasCargaModulo notas={notasCliente} />}
+      {asistenciaSinResolver && <p role="status" className="rounded-md border border-warn-300 bg-warn-100/30 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">Hay una lectura pendiente de resolver. El borrador actual se conserva; abre «Corregir lectura» para revisar y aplicar la propuesta antes de confirmar la carga.</p>}
 
       {/* Novedades: validación automática + checklist de verificación (arriba para que se vea siempre) */}
       <Card className="flex flex-col gap-3 p-4">
@@ -945,7 +958,7 @@ export default function BorradorModuloClient({
               className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:font-semibold"
             />
           </label>
-          <button type="button" disabled={cargando || hayCambios || !verifCompletas} onClick={confirmar} title={hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+          <button type="button" disabled={cargando || hayCambios || !verifCompletas || asistenciaSinResolver} onClick={confirmar} title={asistenciaSinResolver ? "Resuelve la lectura pendiente desde «Corregir lectura»" : hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {cargando ? "Cargando…" : "Confirmar carga"}
           </button>
         </div>

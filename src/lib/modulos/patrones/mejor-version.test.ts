@@ -21,6 +21,13 @@ const version = (datos: Partial<VersionCandidata> & { id: number }): VersionCand
 const hoja = (nombre: string, filas: (string | number | null)[][], extra: Partial<GridHoja> = {}): GridHoja => ({ nombre, filas, ...extra });
 
 describe("mejorVersion", () => {
+  it("solo ofrece la local a su cliente y la prefiere en empate con la global", () => {
+    const local = version({ id: 2, estado: "validada_cliente", clienteOrigenId: 5 });
+    const global = version({ id: 1, version: 10 });
+    expect(versionesAplicables([local, global], 6)).toEqual([global]);
+    const libro = [hoja("Inventario", [["Tipo", "Referencia", "Cantidad", "Valor total"]])];
+    expect(mejorVersion(INV, libro, versionesAplicables([global, local], 5))?.version.id).toBe(2);
+  });
   it("encuentra el encabezado debajo de las filas de título y metadatos", () => {
     const libro = [
       hoja("Hoja1", [

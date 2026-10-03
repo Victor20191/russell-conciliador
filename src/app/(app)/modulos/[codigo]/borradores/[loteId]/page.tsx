@@ -15,6 +15,7 @@ import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
 import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
+import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import BorradorModuloClient from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -40,7 +41,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
   if (!scope.ok) notFound();
 
-  const [comentariosGrp, cliente, ajustesCarga, lotesHermanos] = await Promise.all([
+  const [comentariosGrp, cliente, ajustesCarga, lotesHermanos, originalInventario] = await Promise.all([
     // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_borrador", entityId: lote.id }, _count: { _all: true } }),
     prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),
@@ -68,6 +69,9 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
           },
         })
       : Promise.resolve([]),
+    moduloCodigo === "INV"
+      ? prisma.archivoOriginalModulo.findUnique({ where: { loteId }, select: { disponible: true, revisionAsistencia: true, asistenciaJson: true } })
+      : Promise.resolve(null),
   ]);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
@@ -194,6 +198,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         subtitle={`${versionActual ? `v${versionActual} · ` : ""}${lote.archivoNombre}${lote.archivoTam ? ` · ${lote.archivoTam}` : ""}. Revisa el mapeo y confirma la carga.`}
       />
       <BorradorModuloClient
+        key={`${loteId}:${originalInventario?.revisionAsistencia ?? 0}`}
         moduloCodigo={moduloCodigo}
         loteId={loteId}
         loteRowId={lote.id}
@@ -213,6 +218,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         opcionesNombre={opcionesNombre}
         version={versionActual}
         notasCliente={ajustesCarga?.observaciones?.trim() || null}
+        asistenciaInventario={originalInventario && originalInventario.revisionAsistencia > 0 ? {
+          revision: originalInventario.revisionAsistencia,
+          estado: leerAsistenciaInventario(originalInventario.asistenciaJson)?.estado ?? "error_recuperable",
+        } : undefined}
+        rolesAsistenciaInventario={originalInventario?.disponible && originalInventario.revisionAsistencia > 0 ? descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido })) : undefined}
         hermanos={hermanosVersionados.map((hermano) => ({
           loteId: hermano.loteId,
           version: hermano.version,
