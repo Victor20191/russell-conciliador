@@ -1,23 +1,33 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, IBM_Plex_Mono, Newsreader } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const ibmPlexSans = IBM_Plex_Sans({
+// Fuentes alojadas en el repo (subconjunto latino, woff2) en vez de next/font/google: el build
+// no depende de que Google responda con el formato de URL que Turbopack sabe leer. En el VPS,
+// Google devolvió URLs «fonts.gstatic.com/l/font?kit=…&skey=…» y `next build` fallaba con
+// «next/font/google queries have exactly one entry». Misma tipografía y mismas variables CSS.
+const ibmPlexSans = localFont({
   variable: "--font-ibm-plex-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  src: [{ path: "./fonts/ibm-plex-sans.woff2", weight: "400 700", style: "normal" }], // fuente variable
+  fallback: ["system-ui", "Arial", "sans-serif"],
+  adjustFontFallback: "Arial",
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
+const ibmPlexMono = localFont({
   variable: "--font-ibm-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  src: [
+    { path: "./fonts/ibm-plex-mono-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-mono-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/ibm-plex-mono-600.woff2", weight: "600", style: "normal" },
+  ],
+  fallback: ["ui-monospace", "monospace"],
 });
 
-const newsreader = Newsreader({
+const newsreader = localFont({
   variable: "--font-newsreader",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  src: [{ path: "./fonts/newsreader.woff2", weight: "400 500", style: "normal" }], // fuente variable
+  fallback: ["Georgia", "serif"],
+  adjustFontFallback: "Times New Roman",
 });
 
 export const metadata: Metadata = {
