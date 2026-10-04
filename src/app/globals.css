@@ -168,6 +168,28 @@ button.sidebar-logout:disabled {
   }
 }
 
+@keyframes barra-indeterminada {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.barra-indeterminada {
+  animation: barra-indeterminada 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barra-indeterminada {
+    animation: none;
+    transform: none;
+    width: 100%;
+  }
+}
+
 @keyframes processing-dot-bounce {
   0%,
   60%,

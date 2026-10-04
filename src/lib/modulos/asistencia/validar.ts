@@ -10,6 +10,7 @@ import { prepararSpecLecturaEstructurada } from "../extraccion/lectura-estructur
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import { esImputable } from "../promocion";
 import { controlSubtotales, esRotuloGranTotal, TOLERANCIA_CONTROL } from "../subtotales";
+import { modeloDesdeLectura } from "./modelo-sugerido";
 import { resultadoInventarioVacio, type EntradaValidacionInventario, type ResultadoAsistenciaInventario } from "./tipos";
 
 const INV = MODULOS_IMPORT.INV;
@@ -112,6 +113,7 @@ function validarInterna(input: EntradaValidacionInventario, lecturaPreparada?: R
     }
     const muestras = porTipo.size > 1 && porTipo.size <= 3 ? [...porTipo.values()]
       : [...new Set([registros[0], registros[Math.floor(registros.length / 2)], registros.at(-1)])].filter((t) => t != null);
+    validada.modeloSugerido = modeloDesdeLectura(hoja, spec, preparada.trazas);
     validada.ejemplosLectura = muestras.map((traza) => ({
       fila: traza.filaAncla,
       campos: traza.campos.map((campo) => ({ rol: campo.rol, valor: campo.valor,
@@ -226,6 +228,7 @@ function validarInterna(input: EntradaValidacionInventario, lecturaPreparada?: R
   if (lectura.excepciones.length > 8) salida.advertencias.push(`Hay ${lectura.excepciones.length - 8} observación(es) adicionales para revisar en el borrador.`);
   salida.estructuraValida = salida.errores.length === 0;
   salida.errores.push(...erroresDatos);
+  if (!lecturaPreparada) salida.modeloSugerido = modeloDesdeLectura(hoja, spec, []);
   salida.listoParaBorrador = salida.estructuraValida && salida.errores.length === 0 && salida.preguntas.length === 0;
   return salida;
 }

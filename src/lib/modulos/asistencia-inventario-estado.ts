@@ -21,6 +21,8 @@ export type AsistenciaInventarioGuardada = {
   versionBaseId: number | null;
   encabezado: unknown[];
   error?: string;
+  /** Huella del último ejemplo armado sobre la grilla: el mismo ejemplo no repite IA. */
+  huellaModelo?: string;
 };
 
 export function leerAsistenciaInventario(valor: unknown): AsistenciaInventarioGuardada | null {

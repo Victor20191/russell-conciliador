@@ -4,7 +4,7 @@
 // que se lee el archivo de cada aplicativo. Ver `/modulos/[codigo]/patrones`. Todas exigen
 // `perfiles_carga:administrar` (Administrador): la lista se ve con el permiso de cargar módulos.
 import { revalidatePath } from "next/cache";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
@@ -44,6 +44,9 @@ import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, MENSAJE_FORMATO_NO_CONCILIA
 import type { ActionState } from "@/lib/definitions";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
 import { asistenciaCoincideConSpec, firmarAsistenciaMuestra, leerAsistenciaMuestra, type LecturaMuestraInventario } from "@/lib/modulos/patrones/asistencia-muestra";
+import { claveModelo, ModeloUsuarioSchema, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
+import { construirVentanaMuestra, type VentanaMuestra } from "@/lib/modulos/asistencia/ventana-muestra";
+import type { ResultadoAsistenciaInventario } from "@/lib/modulos/asistencia/tipos";
 
 const MAX_BYTES_MUESTRA = 30 * 1024 * 1024;
 const PERMISO = "perfiles_carga:administrar";
@@ -285,12 +288,15 @@ export async function asistirMuestraPatronInventario(formData: FormData): Promis
       instrucciones: z.string().trim().max(4000),
       respuestas: z.record(z.string().max(100), z.string().trim().max(1000)).refine((r) => Object.keys(r).length <= 12),
       hoja: z.string().trim().max(120),
+      modelo: z.string().max(200_000),
     }).safeParse({
       instrucciones: formData.get("instrucciones") ?? "",
       respuestas: JSON.parse(String(formData.get("respuestasJson") ?? "{}")),
       hoja: formData.get("hoja") ?? "",
+      modelo: formData.get("modeloJson") ?? "",
     });
     if (!entrada.success) throw new ErrorPatron("Revisa las indicaciones y respuestas de la muestra.");
+    const modelo = modeloDeFormulario(entrada.data.modelo);
     const hojas = await hojasDe(bytes, archivo.name);
     const { instrucciones, hoja } = entrada.data;
     const indicacionesNuevas = !!instrucciones && instrucciones !== previa?.instrucciones;
@@ -303,7 +309,11 @@ export async function asistirMuestraPatronInventario(formData: FormData): Promis
       if (valor !== previa?.respuestas[pregunta.id]) nuevas[pregunta.id] = valor;
     }
     if (hoja) respuestas.hoja = hoja;
+    // Lectura por ejemplo: los productos armados mandan sobre la hoja.
+    if (modelo) respuestas.hoja = modelo.hoja;
     if (respuestas.hoja && !hojas.some((h) => h.nombre === respuestas.hoja)) throw new ErrorPatron("La hoja elegida no existe en esta muestra.");
+    const huellaModelo = modelo ? createHash("sha256").update(claveModelo(modelo)).digest("hex").slice(0, 32) : previa?.huellaModelo;
+    const modeloNuevo = modelo != null && huellaModelo !== previa?.huellaModelo;
     const specBase = previa ? null : specDeFormulario(descriptor, formData.get("baseSpecJson"));
     const encabezadoBase = specBase ? JSON.parse(String(formData.get("baseEncabezadoJson") ?? "null")) : null;
     const base = specBase && Array.isArray(encabezadoBase) ? { spec: specBase, encabezado: encabezadoBase } : null;
@@ -314,7 +324,7 @@ export async function asistirMuestraPatronInventario(formData: FormData): Promis
       if (!previa || !parseado.success || parseado.data.lecturaEstructurada) throw new ErrorPatron("Revisa los ajustes de columnas de la muestra.");
       specManual = parseado.data;
     }
-    if (specManual || indicacionesNuevas) {
+    if (specManual || indicacionesNuevas || modeloNuevo) {
       // Las decisiones históricas no pisan una corrección manual ni las reglas
       // que se proponen a partir de indicaciones nuevas. Los ejemplos se revisan otra vez.
       for (const id of ["modo_tipo", "columna_tipo", "columna_valor", "total_archivo", "confirmar_lectura_estructurada"]) {
@@ -324,10 +334,23 @@ export async function asistirMuestraPatronInventario(formData: FormData): Promis
     }
     // Sin una elección de hoja se deja al motor detectar varias candidatas, no se
     // impone la primera hoja del libro. La continuación procede sólo del sobre firmado.
-    const [{ resolverLecturaInventario }, { registrarConsumoIA }] = await Promise.all([
+    const [{ resolverLecturaInventario, resolverLecturaPorEjemplo }, { registrarConsumoIA }] = await Promise.all([
       import("@/lib/modulos/asistencia/resolver"), import("@/lib/ia/uso"),
     ]);
-    const resultado = await resolverLecturaInventario({
+    let resultado: ResultadoAsistenciaInventario;
+    const porEjemplo = modelo
+      ? await resolverLecturaPorEjemplo({
+        hojas, modelo, nombreArchivo: archivo.name, aplicativo: erp.name,
+        respuestas, respuestasNuevas: nuevas, preguntasPendientes: previa?.lectura.preguntas,
+        instrucciones: instrucciones || previa?.instrucciones || undefined,
+        specPrevio: previa?.lectura.spec,
+        // El mismo ejemplo que ya se consultó no vuelve a gastar IA, salvo que el proveedor falló.
+        repetido: !modeloNuevo && !indicacionesNuevas && previa?.lectura.errorProveedorIA !== true,
+      })
+      : null;
+    if (porEjemplo) resultado = porEjemplo;
+    else if (modelo && previa) resultado = { ...previa.lectura, usos: [] };
+    else resultado = await resolverLecturaInventario({
       hojas, nombreArchivo: archivo.name, aplicativo: erp.name,
       specBase: specManual ?? previa?.lectura.spec ?? (base || respuestas.hoja || hojas.filter((h) => !h.oculta).length === 1 ? inicial.spec : undefined),
       origenBase: specManual ? "manual" : previa?.lectura.origen ?? "heuristica",
@@ -354,9 +377,51 @@ export async function asistirMuestraPatronInventario(formData: FormData): Promis
       : inicial;
     return { ok: true, analisis, lectura, asistenciaJson: firmarAsistenciaMuestra({
       ...contexto, lectura, respuestas, instrucciones: instrucciones || previa?.instrucciones || "",
+      ...(huellaModelo ? { huellaModelo } : {}),
     }) };
   } catch (e) {
     return respuestaError("asistirMuestraPatronInventario", e);
+  }
+}
+
+/** El ejemplo armado sobre la grilla (lectura por ejemplo), validado contra su contrato. */
+function modeloDeFormulario(crudo: string): ModeloUsuarioInventario | null {
+  if (!crudo.trim()) return null;
+  let valor: unknown;
+  try {
+    valor = JSON.parse(crudo);
+  } catch {
+    throw new ErrorPatron("El ejemplo armado no es válido.");
+  }
+  const parseado = ModeloUsuarioSchema.safeParse(valor);
+  if (!parseado.success) throw new ErrorPatron(parseado.error.issues[0]?.message ?? "El ejemplo armado no es válido.");
+  return parseado.data;
+}
+
+export type VentanaMuestraPatron = { ok: true; ventana: VentanaMuestra } | { ok: false; message: string };
+
+/**
+ * Un tramo de la grilla de la muestra para armar productos de ejemplo, con lo que la lectura en
+ * curso reconoce en ese tramo. Solo lectura: no guarda nada ni consulta IA.
+ */
+export async function ventanaMuestraPatron(formData: FormData): Promise<VentanaMuestraPatron> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  try {
+    const descriptor = descriptorDe(formData.get("moduloCodigo"));
+    if (descriptor.codigo !== "INV") throw new ErrorPatron("La lectura por ejemplo está disponible para Inventarios.");
+    const { archivo, bytes } = await bytesDeArchivo(formData.get("archivo"));
+    const hojas = await hojasDe(bytes, archivo.name);
+    const ventana = construirVentanaMuestra(hojas, {
+      hoja: String(formData.get("hoja") ?? "").trim() || null,
+      filaDesde: Number(formData.get("filaDesde")) || null,
+      cantidad: Number(formData.get("cantidad")) || null,
+      spec: specDeFormulario(descriptor, formData.get("specJson")),
+    });
+    if (!ventana) throw new ErrorPatron("El archivo no tiene hojas legibles.");
+    return { ok: true, ventana };
+  } catch (e) {
+    return respuestaError("ventanaMuestraPatron", e);
   }
 }
 

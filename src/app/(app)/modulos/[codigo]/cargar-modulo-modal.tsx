@@ -457,6 +457,8 @@ function CargarModal({
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? (moduloCodigo === "INV" && clientes.length === 1 ? clientes[0].id : null));
   const [fase, setFase] = useState<Fase>("archivo");
+  // Inventarios: el ejemplo sobre la grilla del original necesita ancho mientras está abierto.
+  const [asistenciaAmplia, setAsistenciaAmplia] = useState(false);
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
@@ -964,7 +966,7 @@ function CargarModal({
       open
       onClose={() => { if (!analizando) { if (fase === "asistencia") router.refresh(); onClose(); } }}
       title={anexo ? `Agregar archivo · ${moduloLabel.toLowerCase()} ${anexo.periodo}` : `Cargar ${moduloLabel.toLowerCase()}`}
-      size={fase === "mapeo" || fase === "asistencia" ? "2xl" : "lg"}
+      size={fase === "asistencia" && asistenciaAmplia ? "4xl" : fase === "mapeo" || fase === "asistencia" ? "2xl" : "lg"}
       footer={footer}
     >
       {fase === "archivo" && (
@@ -1082,6 +1084,7 @@ function CargarModal({
               resultadoInicial={asistencia}
               analisisInicial={analisis}
               roles={roles}
+              onConstructorAbierto={setAsistenciaAmplia}
               onPreparado={(loteId) => {
                 notifySuccess("Borrador preparado", "Revisa los datos y confirma la carga para finalizar.");
                 router.push(`/modulos/inv/borradores/${loteId}`);

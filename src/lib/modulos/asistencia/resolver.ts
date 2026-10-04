@@ -3,7 +3,11 @@ import { iaDisponible } from "@/lib/anthropic";
 import { MODULOS_IMPORT } from "../descriptores";
 import { sugerirSpec } from "../extraccion/sugerir";
 import { ErrorProveedorAsistenciaInventario, proponerSpecInventarioIA, type PreguntaInventarioIA } from "./ia";
+import type { SpecModulo } from "../extraccion/esquema";
+import { deducirLectura } from "./deducir-lectura";
+import type { ModeloUsuarioInventario } from "./modelo-usuario";
 import { validarLecturaInventario } from "./validar";
+import { verificarEjemplos } from "./verificar-ejemplos";
 import { resultadoInventarioVacio, type EntradaAsistenciaInventario, type ResultadoAsistenciaInventario, type PreguntaAsistenciaInventario, type EvidenciaCeldaInventario } from "./tipos";
 
 export type { EntradaAsistenciaInventario, ResultadoAsistenciaInventario } from "./tipos";
@@ -60,6 +64,13 @@ export async function resolverLecturaInventario(entrada: EntradaAsistenciaInvent
     return vacio;
   }
   const entradaAcotada = { ...entrada, hojas };
+  // Lectura por ejemplo: ninguna propuesta vale si no lee los productos que armó el usuario.
+  const ejemplos = entrada.ejemplosUsuario?.length ? entrada.ejemplosUsuario : null;
+  const reproduce = (spec: { hoja: string } & Parameters<typeof verificarEjemplos>[1]) => {
+    if (!ejemplos) return { ok: true, diferencias: [] as string[] };
+    const hoja = hojas.find((h) => h.nombre === spec.hoja);
+    return hoja ? verificarEjemplos(hoja, spec, ejemplos) : { ok: false, diferencias: [`La hoja «${spec.hoja}» no es la de los productos armados.`] };
+  };
   const pendientes = (entrada.preguntasPendientes ?? []).filter((p) => p.requiereIA === true);
   const respondidasAhora = pendientes.filter((p) => {
     const valor = entrada.respuestasNuevas?.[p.id]?.trim();
@@ -95,8 +106,8 @@ export async function resolverLecturaInventario(entrada: EntradaAsistenciaInvent
   try {
     propuesta = await proponerSpecInventarioIA(
       entradaAcotada,
-      (spec) => validarLecturaInventario({ hojas, spec, respuestas: entrada.respuestas, origen: "ia" }).estructuraValida,
-      [...(respaldo?.errores ?? []), ...(respaldo?.advertencias ?? [])],
+      (spec) => validarLecturaInventario({ hojas, spec, respuestas: entrada.respuestas, origen: "ia" }).estructuraValida && reproduce(spec).ok,
+      [...(entrada.dudasEjemplos ?? []), ...(respaldo?.errores ?? []), ...(respaldo?.advertencias ?? [])],
     );
   } catch (error) {
     respaldo.errorProveedorIA = true;
@@ -114,6 +125,14 @@ export async function resolverLecturaInventario(entrada: EntradaAsistenciaInvent
     if (requiereRegla && !entrada.instrucciones?.trim()) preguntas.push(...sinResponder);
     return agregarPreguntas(fallida, preguntas);
   }
+  const verificacion = reproduce(propuesta.spec);
+  if (!verificacion.ok) {
+    // Falla cerrada: una propuesta que contradice lo armado a mano no se ofrece ni queda como base.
+    const rechazada = resultadoInventarioVacio("ia");
+    rechazada.usos = propuesta.usos;
+    rechazada.errores.push("La asistencia propuso una lectura que no respeta los productos que armaste, así que no se usa:", ...verificacion.diferencias.slice(0, 5));
+    return agregarPreguntas(rechazada, preguntasVerificadas(entradaAcotada, rechazada, propuesta.preguntas ?? []));
+  }
   const resultado = validarLecturaInventario({ hojas, spec: propuesta.spec, respuestas: entrada.respuestas, origen: "ia" });
   resultado.usos = propuesta.usos;
   const preguntas = preguntasVerificadas(entradaAcotada, resultado, propuesta.preguntas ?? []);
@@ -124,4 +143,51 @@ export async function resolverLecturaInventario(entrada: EntradaAsistenciaInvent
   // Una respuesta parcial nunca elimina dudas anteriores que siguen sin contestar.
   if (requiereRegla && !entrada.instrucciones?.trim()) preguntas.push(...sinResponder);
   return agregarPreguntas(resultado, preguntas);
+}
+
+export type EntradaLecturaPorEjemplo = Omit<EntradaAsistenciaInventario, "ejemplosUsuario" | "dudasEjemplos" | "forzarIA" | "specBase" | "origenBase"> & {
+  modelo: ModeloUsuarioInventario;
+  /** La lectura vigente, por si los ejemplos no alcanzan y hay que pedir ayuda a la IA. */
+  specPrevio?: SpecModulo | null;
+  /** El mismo ejemplo ya se procesó: si no alcanza para deducir, no se repite la IA. */
+  repetido: boolean;
+};
+
+/**
+ * LECTURA POR EJEMPLO: deduce la regla en código desde los productos armados por el usuario.
+ * Solo si los ejemplos no alcanzan (no hay un texto fijo que marque el inicio, una sección
+ * indistinguible…) se consulta a la IA, que recibe los ejemplos como casos de prueba obligatorios.
+ * Devuelve null cuando no hay nada nuevo que hacer (el mismo ejemplo y sin IA que repetir).
+ */
+export async function resolverLecturaPorEjemplo(entrada: EntradaLecturaPorEjemplo): Promise<ResultadoAsistenciaInventario | null> {
+  const deduccion = deducirLectura(entrada.hojas, entrada.modelo);
+  if (deduccion.errores.length) {
+    const fallida = resultadoInventarioVacio("manual");
+    fallida.errores.push(...deduccion.errores);
+    return fallida;
+  }
+  if (deduccion.spec && !deduccion.diferencias.length) {
+    const resultado = validarLecturaInventario({ hojas: entrada.hojas, spec: deduccion.spec, respuestas: entrada.respuestas, origen: "manual" });
+    resultado.advertencias.unshift(...deduccion.dudas.map((d) => d.mensaje));
+    const sugeridas = deduccion.dudas.filter((d) => d.fila != null).map((d) => ({ fila: d.fila!, mensaje: d.mensaje }));
+    if (sugeridas.length) resultado.filasSugeridas = sugeridas;
+    return resultado;
+  }
+  if (entrada.repetido) return null;
+  const resultado = await resolverLecturaInventario({
+    hojas: entrada.hojas,
+    nombreArchivo: entrada.nombreArchivo,
+    aplicativo: entrada.aplicativo,
+    respuestas: entrada.respuestas,
+    respuestasNuevas: entrada.respuestasNuevas,
+    preguntasPendientes: entrada.preguntasPendientes,
+    instrucciones: entrada.instrucciones,
+    specBase: deduccion.spec ?? entrada.specPrevio ?? undefined,
+    origenBase: "manual",
+    forzarIA: true,
+    ejemplosUsuario: deduccion.ejemplos,
+    dudasEjemplos: [...deduccion.dudas.map((d) => d.mensaje), ...deduccion.diferencias].slice(0, 8),
+  });
+  resultado.advertencias.unshift("Los productos armados no alcanzaron para deducir la regla por sí solos; se consultó la asistencia, que debe respetarlos.");
+  return resultado;
 }

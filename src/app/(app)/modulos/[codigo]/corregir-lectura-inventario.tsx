@@ -23,6 +23,8 @@ export function CorregirLecturaInventario({ loteId, periodo, roles, bloqueado, c
   const [abierto, setAbierto] = useState(false);
   const [resultado, setResultado] = useState<ResultadoAsistenciaVista | null>(null);
   const [errorConsulta, setErrorConsulta] = useState(false);
+  // El ejemplo sobre la grilla necesita ancho: el modal se amplía mientras está abierto.
+  const [amplio, setAmplio] = useState(false);
   const [consultando, startConsulta] = useTransition();
   const abrir = () => {
     setAbierto(true);
@@ -53,7 +55,7 @@ export function CorregirLecturaInventario({ loteId, periodo, roles, bloqueado, c
         {continuar ? "Continuar lectura" : "Corregir lectura"}
       </button>
       {abierto && (
-        <Modal open onClose={() => { setAbierto(false); router.refresh(); }} title={`${continuar ? "Continuar" : "Corregir"} lectura · inventarios`} size="2xl">
+        <Modal open onClose={() => { setAbierto(false); setAmplio(false); router.refresh(); }} title={`${continuar ? "Continuar" : "Corregir"} lectura · inventarios`} size={amplio ? "4xl" : "2xl"}>
           {errorConsulta ? (
             <div className="flex flex-col gap-3 text-[12px]">
               <p role="alert" className="text-err-700">No pudimos recuperar la lectura guardada. El borrador no cambió.</p>
@@ -66,6 +68,7 @@ export function CorregirLecturaInventario({ loteId, periodo, roles, bloqueado, c
               resultadoInicial={resultado}
               roles={roles}
               correccion={!continuar}
+              onConstructorAbierto={setAmplio}
               onPreparado={(preparadoId) => {
                 setAbierto(false);
                 notifySuccess(continuar ? "Borrador preparado" : "Lectura actualizada", "Revisa el borrador antes de confirmar la carga.");

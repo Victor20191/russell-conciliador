@@ -6,7 +6,7 @@ import { aplicarPatronASpec } from "../patrones/aplicar";
 import { coincidenciaPatron } from "../patrones/coincidencia";
 import { mejorVersion, type VersionCandidata } from "../patrones/mejor-version";
 import { SpecModuloSchema, type SpecModulo } from "./esquema";
-import { ejecutarLecturaEstructurada, LecturaEstructuradaSchema, prepararSpecLecturaEstructurada, trasladarLecturaEstructurada, type FuenteLectura, type LecturaEstructurada } from "./lectura-estructurada";
+import { aplicarSelector, ejecutarLecturaEstructurada, LecturaEstructuradaSchema, prepararSpecLecturaEstructurada, trasladarLecturaEstructurada, type FuenteLectura, type LecturaEstructurada } from "./lectura-estructurada";
 import { transformarModulo } from "./transformar";
 
 const INV = MODULOS_IMPORT.INV;
@@ -177,5 +177,24 @@ describe("lectura declarativa de inventario irregular", () => {
     const coincidencia = coincidenciaPatron(INV, { encabezado: ["Datos", "Bloque", "Extra1", "Extra2", "Extra3", "Extra4", "Extra5", "Extra6"], spec: baseSpec(reglas) }, ["Datos", "Extra1", "Extra2", "Extra3", "Extra4", "Extra5", "Extra6"]);
     expect(coincidencia.faltantesRequeridos.join(" ")).toContain("Bloque");
     expect(coincidencia.elegible).toBe(false);
+  });
+
+  it("aplicarSelector ubica el tramo de cada forma con la misma semántica del motor", () => {
+    const texto = "Ref: A-01 | Cant: 2 | Total: 20";
+    expect(aplicarSelector(texto, { tipo: "etiqueta", inicio: "ref:", fin: "|" })).toMatchObject({ ok: true, valor: "A-01", inicioCobertura: 0 });
+    expect(aplicarSelector(texto, { tipo: "separador", separador: "|", indice: 3 })).toMatchObject({ ok: true, valor: "Total: 20" });
+    expect(aplicarSelector(texto, { tipo: "separador", separador: "|", indice: 9 })).toEqual({ ok: false, motivo: "segmento" });
+    expect(aplicarSelector(texto, { tipo: "etiqueta", inicio: "Bodega:" })).toEqual({ ok: false, motivo: "etiqueta" });
+    expect(aplicarSelector(texto, { tipo: "posicion", inicio: 6, longitud: 4 })).toMatchObject({ ok: true, valor: "A-01" });
+    expect(aplicarSelector(texto, { tipo: "posicion", inicio: 40, longitud: 4 })).toEqual({ ok: false, motivo: "tramo" });
+  });
+
+  it("ubica cada problema en su fila y columna física para señalarlo en la grilla", () => {
+    const r = ejecutarLecturaEstructurada(hoja([["Ref: A · Tipo: MP · Cant: 1 · Unit: 10 · Importe: 10", 200], ["Ajuste extraño por 50"]], { columnaInicial: 1 }), etiquetas, 2);
+    expect(r.incidencias).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fila: 2, columna: 3, tipo: "sin_interpretar" }),
+      expect.objectContaining({ fila: 3, columna: 2, tipo: "sin_interpretar" }),
+    ]));
+    expect(r.incidencias.every((i) => r.errores.includes(i.mensaje))).toBe(true);
   });
 });

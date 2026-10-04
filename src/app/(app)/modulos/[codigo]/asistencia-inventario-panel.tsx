@@ -1,13 +1,15 @@
 "use client";
 
-import { useId, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
-import { conservarLecturaInventario, consultarAsistenciaInventario, prepararBorradorInventario } from "@/app/actions/asistencia-inventario";
+import { useCallback, useId, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
+import { conservarLecturaInventario, consultarAsistenciaInventario, prepararBorradorInventario, ventanaOriginalInventario } from "@/app/actions/asistencia-inventario";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
 import { CeldasOrigen, EjemplosLectura, ResumenAsistencia } from "./lectura-inventario-vista";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { EjemploLecturaInventario, PreguntaAsistenciaInventario, ResumenLecturaInventario } from "@/lib/modulos/asistencia/tipos";
 import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { EditorMapeoModulo, type RolModulo } from "./editor-mapeo-modulo";
+import { modeloVacio, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
+import { ConstructorLectura, type ConsultaVentana } from "./constructor-lectura/constructor-lectura";
 
 /** Sólo datos serializables de la asistencia: nunca el archivo completo. */
 export type ResultadoAsistenciaVista = {
@@ -25,6 +27,9 @@ export type ResultadoAsistenciaVista = {
   message?: string;
   edicionesManuales?: number;
   hayEdicionesIncompatibles?: boolean;
+  /** Lectura por ejemplo: lo entendido, como ejemplo editable sobre la grilla. */
+  modeloSugerido?: ModeloUsuarioInventario;
+  filasSugeridas?: { fila: number; mensaje: string }[];
 };
 
 const campo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50";
@@ -42,6 +47,7 @@ export function AsistenciaInventarioPanel({
   roles,
   correccion = false,
   onPreparado,
+  onConstructorAbierto,
 }: {
   recepcionLoteId: string;
   periodo: string;
@@ -52,6 +58,8 @@ export function AsistenciaInventarioPanel({
   roles: RolModulo[];
   correccion?: boolean;
   onPreparado: (loteId: string) => void;
+  /** El ejemplo sobre la grilla necesita ancho: el modal que contiene el panel puede ampliarse. */
+  onConstructorAbierto?: (abierto: boolean) => void;
 }) {
   const id = useId();
   const [resultado, setResultado] = useState(resultadoInicial);
@@ -65,6 +73,12 @@ export function AsistenciaInventarioPanel({
   const [descartarIncompatibles, setDescartarIncompatibles] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trabajando, startTrabajo] = useTransition();
+  // Lectura por ejemplo: el producto armado sobre la grilla sobrevive a cada revisión.
+  const [modeloEjemplo, setModeloEjemplo] = useState<ModeloUsuarioInventario | null>(resultadoInicial.modeloSugerido ?? null);
+  const [modeloEditado, setModeloEditado] = useState(false);
+  const [constructorAbierto, setConstructorAbiertoEstado] = useState(false);
+  const abrirConstructor = (abierto: boolean) => { setConstructorAbiertoEstado(abierto); onConstructorAbierto?.(abierto); };
+  const cargarVentana = useCallback((consulta: ConsultaVentana) => ventanaOriginalInventario({ recepcionLoteId, hoja: consulta.hoja, filaDesde: consulta.filaDesde, spec: consulta.spec }), [recepcionLoteId]);
   const enCurso = useRef(false);
   const analisis = analisisVista;
   const preguntas = resultado.preguntas ?? [];
@@ -87,7 +101,7 @@ export function AsistenciaInventarioPanel({
 
   const puedeConservarActual = correccion && resultado.resumenAnterior != null && resultado.revision != null && !consultando && !confirmado && resultado.estado !== "borrador_preparado";
 
-  const ejecutar = (accion: "preparar" | "aplicar" | "conservar" = "preparar") => {
+  const ejecutar = (accion: "preparar" | "aplicar" | "conservar" = "preparar", modelo?: ModeloUsuarioInventario) => {
     const aplicar = accion === "aplicar";
     const conservar = accion === "conservar";
     if (enCurso.current || confirmado || (conservar && !puedeConservarActual) || (aplicar && (!propuestaVigente || (resultado.hayEdicionesIncompatibles && !descartarIncompatibles)))) return;
@@ -107,11 +121,16 @@ export function AsistenciaInventarioPanel({
               revisionEsperada: resultado.revision,
               ...(aplicar
                 ? { aplicarPropuesta: true, descartarEdicionesIncompatibles: descartarIncompatibles }
-                : { hoja, instrucciones: instrucciones.trim() || undefined, respuestas, ...(specEditado && spec ? { specManual: spec } : {}) }),
+                : modelo
+                  ? { modelo, instrucciones: instrucciones.trim() || undefined }
+                  : { hoja, instrucciones: instrucciones.trim() || undefined, respuestas, ...(specEditado && spec ? { specManual: spec } : {}) }),
             });
         setResultado((previa) => siguiente.ok ? siguiente : { ...previa, ...siguiente, revision: siguiente.revision ?? previa.revision });
         if ("analisis" in siguiente && siguiente.analisis) setAnalisisVista(siguiente.analisis);
         if ("spec" in siguiente && siguiente.spec) setSpec(siguiente.spec);
+        // Mientras el usuario no haya armado nada, el ejemplo muestra lo último que se entendió.
+        if (!modelo && !modeloEditado && "modeloSugerido" in siguiente) setModeloEjemplo(siguiente.modeloSugerido ?? null);
+        if ("preguntas" in siguiente && (siguiente.estado === "error_recuperable" || siguiente.preguntas?.some((p) => p.id.startsWith("ia_")))) abrirConstructor(true);
         if (siguiente.ok) {
           // El servidor ya guardó estas indicaciones. Volver a enviarlas al responder una
           // pregunta forzaría otra llamada IA aunque solo falte resolver esa ambigüedad.
@@ -171,7 +190,7 @@ export function AsistenciaInventarioPanel({
           <span className="font-medium text-ink-800">Explica qué debemos corregir <span className="font-normal text-ink-400">{correccion ? "" : "(opcional)"}</span></span>
           <textarea id={`${id}-indicaciones`} rows={3} maxLength={4000} value={instrucciones} onChange={(e) => { setInstrucciones(e.target.value); setCambioPendiente(true); }} placeholder="Por ejemplo: referencia, tipo y cantidad están juntos; cada producto ocupa tres filas; el costo corresponde al total." className={`${campo} resize-y`} />
         </label>
-        {spec?.lecturaEstructurada && <p className="rounded-md bg-ink-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-600">Este formato combina datos dentro de celdas o entre filas. Para corregirlo, explica cómo deben interpretarse y revisa los ejemplos de la nueva propuesta.</p>}
+        {spec?.lecturaEstructurada && <p className="rounded-md bg-ink-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-600">Este formato combina datos dentro de celdas o entre filas. Para corregirlo, explica cómo deben interpretarse —o arma un producto de ejemplo sobre el archivo— y revisa los ejemplos de la nueva propuesta.</p>}
         {spec && !spec.lecturaEstructurada && analisis && (
           <details className="rounded-md border border-ink-150 bg-ink-50/40">
             <summary className="cursor-pointer px-3 py-2.5 text-[11.5px] font-medium text-ink-600">Ajustes avanzados de lectura</summary>
@@ -201,6 +220,22 @@ export function AsistenciaInventarioPanel({
           </details>
         )}
       </fieldset>
+
+      {!confirmado && !consultando && (constructorAbierto ? (
+        <ConstructorLectura
+          modelo={modeloEjemplo ?? modeloVacio(resultado.resumen?.hoja ?? spec?.hoja ?? analisis?.hoja ?? "")}
+          onModelo={(m) => { setModeloEjemplo(m); setModeloEditado(true); setCambioPendiente(true); }}
+          spec={resultado.spec ?? null}
+          filasSugeridas={resultado.filasSugeridas}
+          trabajando={trabajando}
+          cargarVentana={cargarVentana}
+          onReprocesar={(m) => ejecutar("preparar", m)}
+        />
+      ) : (
+        <button type="button" onClick={() => abrirConstructor(true)} disabled={trabajando} className="self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] font-semibold text-navy-700 hover:bg-blue-100 disabled:opacity-50">
+          Corregir armando un ejemplo sobre el archivo
+        </button>
+      ))}
 
       {(resultado.edicionesManuales ?? 0) > 0 && <p className="text-[11px] leading-relaxed text-ink-500">El borrador tiene {resultado.edicionesManuales} cambio(s) manual(es). La nueva lectura conservará los que se puedan aplicar a las mismas filas.</p>}
       {propuestaVigente && resultado.hayEdicionesIncompatibles && (

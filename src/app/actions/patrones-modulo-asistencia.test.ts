@@ -17,7 +17,7 @@ vi.mock("@/lib/storage/objetos", () => ({ almacenamientoDisponible: () => true, 
 vi.mock("@/lib/prisma", () => ({ default: { erp: { findUnique: mocks.erp } } }));
 vi.mock("@/lib/concurrency", () => ({ tomarCandadoTransaccion: vi.fn(), transaccionSerializable: (fn: (tx: unknown) => unknown) => fn({ versionPatronArchivoModulo: { findMany: async () => [], create: mocks.crear } }) }));
 
-import { asistirMuestraPatronInventario, crearVersionPatron, type AsistenciaMuestraPatron } from "./patrones-modulo";
+import { asistirMuestraPatronInventario, crearVersionPatron, ventanaMuestraPatron, type AsistenciaMuestraPatron } from "./patrones-modulo";
 import { ingerir } from "@/lib/balance/extraccion/ingesta";
 import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
@@ -239,4 +239,96 @@ it("una indicación nueva retira el tipo global anterior antes de aplicar la pro
   expect(corregida.lectura?.spec?.clasificadorModo).toBe("columna");
   expect(corregida.lectura?.spec?.columnas.tipo).toBe(2);
   expect(corregida.lectura?.resumen.tipoInventario).toBe("A, B");
+});
+
+describe("Nuevo patrón INV: lectura por ejemplo", () => {
+  async function hoja05() {
+    const bytes = await readFile(`outputs/pruebas-inventario-siesa/${nombre}`);
+    const archivo = await ingerir(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), nombre);
+    if (archivo.modo !== "tabular") throw new Error();
+    return archivo.hojas[0];
+  }
+  async function modelo05() {
+    const h = await hoja05();
+    const celda = (fila: number) => String(h.filas[h.filasFisicas!.indexOf(fila)][0]);
+    const tramo = (fila: number, buscado: string) => { const t = celda(fila); const inicio = t.lastIndexOf(buscado); return { fila, columna: 1, inicio, fin: inicio + buscado.length }; };
+    const ultima = h.filasFisicas!.at(-1)!;
+    return {
+      version: 1, hoja: h.nombre, columnas: [], ignorarColumnas: [],
+      productos: [{ asignaciones: [
+        { rol: "referencia", ...tramo(3, "MP-001") }, { rol: "descripcion", ...tramo(4, "Lámina de acero de prueba") },
+        { rol: "cantidad", ...tramo(5, "120") }, { rol: "valorUnitario", ...tramo(6, "2500") }, { rol: "valorTotal", ...tramo(6, "300000") },
+      ] }],
+      secciones: [tramo(2, "Materias primas")],
+      totales: [{ ...tramo(ultima, "19140500"), tipo: "general" }],
+      ignorarFilas: [{ fila: 1, motivo: "Título del informe sin datos" }],
+    };
+  }
+
+  it("deduce la regla desde un producto armado, sin IA, y la guarda tras confirmar", async () => {
+    const fd = await formulario(); fd.set("modeloJson", JSON.stringify(await modelo05()));
+    const primera = await asistirMuestraPatronInventario(fd);
+    expect(primera.ok).toBe(true);
+    expect(mocks.proponer).not.toHaveBeenCalled();
+    expect(primera.lectura?.origen).toBe("manual");
+    expect(primera.lectura?.errores).toEqual([]);
+    expect(primera.lectura?.resumen).toMatchObject({ filasIncluidas: 18, valorLeido: 19_140_500, diferencia: 0 });
+    expect(primera.lectura?.preguntas.map((p) => p.id)).toEqual(["confirmar_lectura_estructurada"]);
+    const final = await confirmar(primera);
+    expect(final.lectura?.listoParaBorrador).toBe(true);
+    expect(mocks.proponer).not.toHaveBeenCalled();
+    const guardar = await formulario(final);
+    guardar.set("specJson", JSON.stringify(final.lectura!.spec)); guardar.set("aprobar", "1");
+    expect(await crearVersionPatron(guardar)).toMatchObject({ ok: true });
+  });
+
+  it("rechaza coordenadas manipuladas sin consultar la IA", async () => {
+    const m = await modelo05();
+    m.productos[0].asignaciones[0] = { ...m.productos[0].asignaciones[0], fila: 9999 };
+    const fd = await formulario(); fd.set("modeloJson", JSON.stringify(m));
+    const r = await asistirMuestraPatronInventario(fd);
+    expect(r.lectura?.errores.join(" ")).toContain("vacía");
+    expect(r.lectura?.listoParaBorrador).toBe(false);
+    expect(mocks.proponer).not.toHaveBeenCalled();
+    const malformado = await formulario(); malformado.set("modeloJson", JSON.stringify({ ...m, codigo: "return 1" }));
+    expect(await asistirMuestraPatronInventario(malformado)).toMatchObject({ ok: false });
+  });
+
+  it("cuando los ejemplos no alcanzan consulta la IA una sola vez y exige que los respete", async () => {
+    const fd = await formulario(); fd.set("archivo", new File(["Inventario\nA1\n2\nB2\n3"], "sin-rotulos.csv"));
+    const h = await ingerir(new TextEncoder().encode("Inventario\nA1\n2\nB2\n3").buffer, "sin-rotulos.csv");
+    if (h.modo !== "tabular") throw new Error();
+    const m = { version: 1, hoja: h.hojas[0].nombre, tipoUnico: true, columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [],
+      productos: [{ asignaciones: [{ rol: "referencia", fila: 2, columna: 1 }, { rol: "valorTotal", fila: 3, columna: 1 }] }] };
+    // La IA propone leer cada fila como producto: contradice el ejemplo (A1 con valor 2).
+    mocks.proponer.mockResolvedValue({ confianza: 0.95, usos: [uso], preguntas: [], spec: {
+      hoja: h.hojas[0].nombre, filaEncabezado: 1, primeraFilaDatos: 2, columnas: {}, clasificadorModo: "global",
+      lecturaEstructurada: { version: 1, registro: { ancla: { columna: 1, operador: "no_vacia" }, maxFilas: 1 }, campos: [{ rol: "valorTotal", fuente: { columna: 1, desplazamientoFila: 0, selector: { tipo: "completa" } } }] },
+    } });
+    fd.set("modeloJson", JSON.stringify(m));
+    const r = await asistirMuestraPatronInventario(fd);
+    expect(mocks.proponer).toHaveBeenCalled();
+    const [entrada, evaluar] = mocks.proponer.mock.calls[0];
+    expect(entrada.ejemplosUsuario).toEqual([expect.objectContaining({ filaInicio: 2 })]);
+    expect(evaluar(mocks.proponer.mock.results[0] ? (await mocks.proponer.mock.results[0].value).spec : null)).toBe(false);
+    expect(r.lectura?.spec).toBeNull();
+    expect(r.lectura?.errores.join(" ")).toContain("no respeta los productos que armaste");
+    const llamadas = mocks.proponer.mock.calls.length;
+    fd.set("asistenciaJson", r.asistenciaJson!);
+    await asistirMuestraPatronInventario(fd);
+    expect(mocks.proponer).toHaveBeenCalledTimes(llamadas);
+  });
+
+  it("la ventana entrega filas físicas y lo que la lectura reconoce en ese tramo", async () => {
+    const fd = await formulario();
+    fd.set("specJson", JSON.stringify(spec)); fd.set("filaDesde", "3"); fd.set("cantidad", "8");
+    const r = await ventanaMuestraPatron(fd);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.ventana.filas[0].fila).toBe(3);
+    expect(r.ventana.filas[0].celdas[0].t).toBe("Ref: MP-001");
+    expect(r.ventana.lectura?.registros).toBe(18);
+    expect(r.ventana.lectura?.trazas[0].campos.find((c) => c.rol === "referencia")).toMatchObject({ valor: "MP-001", fuentes: [{ fila: 3, columna: 1 }] });
+    mocks.permiso.mockResolvedValue({ ok: false, message: "Sin permiso" });
+    expect(await ventanaMuestraPatron(fd)).toEqual({ ok: false, message: "Sin permiso" });
+  });
 });

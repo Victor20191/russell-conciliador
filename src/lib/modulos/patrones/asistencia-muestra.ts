@@ -12,6 +12,8 @@ export type EstadoMuestra = ContextoMuestra & {
   lectura: LecturaMuestraInventario;
   respuestas: Record<string, string>;
   instrucciones: string;
+  /** Huella del último ejemplo armado (lectura por ejemplo): el mismo ejemplo no repite IA. */
+  huellaModelo?: string;
 };
 const CONTEXTO = "asistencia-muestra-patron-inv-v1";
 

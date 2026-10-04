@@ -7,7 +7,7 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 const m = vi.hoisted(() => ({
   permiso: vi.fn(), original: vi.fn(), actualizar: vi.fn(), lote: vi.fn(), filas: vi.fn(),
   guardarLote: vi.fn(), crearFilas: vi.fn(), borrarFilas: vi.fn(), tx: vi.fn(),
-  objeto: vi.fn(), ingerir: vi.fn(), resolver: vi.fn(), validar: vi.fn(), consumo: vi.fn(), aplicativo: vi.fn(), versiones: vi.fn(),
+  objeto: vi.fn(), ingerir: vi.fn(), resolver: vi.fn(), porEjemplo: vi.fn(), validar: vi.fn(), consumo: vi.fn(), aplicativo: vi.fn(), versiones: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ default: {
   archivoOriginalModulo: { findUnique: m.original, updateMany: m.actualizar },
@@ -24,12 +24,12 @@ vi.mock("@/lib/concurrency", () => ({ transaccionSerializable: m.tx, tomarCandad
 vi.mock("@/lib/storage/objetos", () => ({ obtenerObjeto: m.objeto }));
 vi.mock("@/lib/ia/uso", () => ({ registrarConsumoIA: m.consumo }));
 vi.mock("@/lib/balance/extraccion/ingesta", () => ({ ingerir: m.ingerir }));
-vi.mock("@/lib/modulos/asistencia/resolver", () => ({ resolverLecturaInventario: m.resolver }));
+vi.mock("@/lib/modulos/asistencia/resolver", () => ({ resolverLecturaInventario: m.resolver, resolverLecturaPorEjemplo: m.porEjemplo }));
 vi.mock("@/lib/modulos/asistencia/validar", () => ({ validarLecturaInventario: m.validar }));
 vi.mock("@/lib/modulos/patrones/servidor", () => ({ aplicativoConfirmadoDeCarga: m.aplicativo, versionesPatronCandidatas: m.versiones }));
 
 import prisma from "@/lib/prisma";
-import { conservarLecturaInventario, consultarAsistenciaInventario, prepararBorradorInventario } from "./asistencia-inventario";
+import { conservarLecturaInventario, consultarAsistenciaInventario, prepararBorradorInventario, ventanaOriginalInventario } from "./asistencia-inventario";
 const ID = "00000000-0000-4000-8000-000000000001";
 const bytes = new Uint8Array([1, 2, 3]);
 const spec = { hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, referencia: 2, descripcion: 0, cantidad: 3, valorUnitario: 0, valorTotal: 4 } };
@@ -72,6 +72,7 @@ beforeEach(() => {
   m.objeto.mockResolvedValue({ cuerpo: bytes });
   m.ingerir.mockResolvedValue({ modo: "tabular", hojas });
   m.resolver.mockResolvedValue(structuredClone(resultado));
+  m.porEjemplo.mockResolvedValue({ ...structuredClone(resultado), origen: "manual" });
   m.validar.mockReturnValue(structuredClone(resultado));
   m.aplicativo.mockResolvedValue({ ok: true, aplicativo: { id: 3, name: "SIESA", manual: false } });
   m.versiones.mockResolvedValue({ versiones: [], total: 0 });
@@ -298,5 +299,36 @@ describe("conservar la lectura aplicada de inventario", () => {
     expect(await conservarLecturaInventario({ recepcionLoteId: ID, revisionEsperada: 5 })).toMatchObject({ ok: false, message: expect.stringContaining("borrador cambió") });
     expect(m.actualizar).not.toHaveBeenCalled();
     expect(m.guardarLote).not.toHaveBeenCalled();
+  });
+});
+
+describe("lectura por ejemplo en el cargue", () => {
+  const modelo = { version: 1 as const, hoja: "Inventario", columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [],
+    productos: [{ asignaciones: [{ rol: "tipo" as const, fila: 2, columna: 1 }, { rol: "referencia" as const, fila: 2, columna: 2 }, { rol: "valorTotal" as const, fila: 2, columna: 4 }] }] };
+
+  it("prepara el borrador con la regla deducida del ejemplo y no repite IA con el mismo ejemplo", async () => {
+    const primera = await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-09", erpId: 3, modelo });
+    expect(primera).toMatchObject({ ok: true, estado: "borrador_preparado" });
+    expect(m.resolver).not.toHaveBeenCalled();
+    expect(m.porEjemplo).toHaveBeenCalledWith(expect.objectContaining({ modelo, respuestas: { hoja: "Inventario" }, repetido: false }));
+    const guardada = original.asistenciaJson as AsistenciaInventarioGuardada;
+    expect(guardada.huellaModelo).toMatch(/^[0-9a-f]{32}$/);
+    await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-09", revisionEsperada: original.revisionAsistencia as number, modelo });
+    expect(m.porEjemplo).toHaveBeenLastCalledWith(expect.objectContaining({ repetido: true }));
+  });
+
+  it("rechaza un ejemplo fuera de contrato antes de tocar el original", async () => {
+    const r = await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-09", erpId: 3, modelo: { ...modelo, codigo: "x" } as never });
+    expect(r).toMatchObject({ ok: false });
+    expect(m.actualizar).not.toHaveBeenCalled();
+    expect(m.porEjemplo).not.toHaveBeenCalled();
+  });
+
+  it("la ventana del original exige permiso y alcance sobre el cliente", async () => {
+    const r = await ventanaOriginalInventario({ recepcionLoteId: ID, filaDesde: 1 });
+    expect(r).toMatchObject({ ok: true, ventana: { hoja: "Inventario", filas: [{ fila: 1 }, { fila: 2 }] } });
+    m.permiso.mockImplementation(async (_p: string, opciones?: { clientId?: number }) => opciones?.clientId ? { ok: false, message: "Sin alcance" } : { ok: true });
+    expect(await ventanaOriginalInventario({ recepcionLoteId: ID })).toEqual({ ok: false, message: "Sin alcance" });
+    expect(m.objeto).toHaveBeenCalledTimes(1);
   });
 });

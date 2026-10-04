@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
@@ -22,7 +22,9 @@ import { vistaAnalisisHoja } from "@/lib/modulos/extraccion/vista-analisis";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
-import { resolverLecturaInventario } from "@/lib/modulos/asistencia/resolver";
+import { resolverLecturaInventario, resolverLecturaPorEjemplo } from "@/lib/modulos/asistencia/resolver";
+import { claveModelo, ModeloUsuarioSchema } from "@/lib/modulos/asistencia/modelo-usuario";
+import { construirVentanaMuestra, type VentanaMuestra } from "@/lib/modulos/asistencia/ventana-muestra";
 import { validarLecturaInventario } from "@/lib/modulos/asistencia/validar";
 import type { ResultadoAsistenciaInventario } from "@/lib/modulos/asistencia/tipos";
 import { compararLecturasInventario, conservarEdicionesInventario, intentoInventarioVigente, leerAsistenciaInventario, type AsistenciaInventarioGuardada } from "@/lib/modulos/asistencia-inventario-estado";
@@ -38,6 +40,8 @@ const EntradaSchema = ConsultaSchema.extend({
   instrucciones: z.string().trim().max(4000).optional(),
   respuestas: z.record(z.string().max(100), z.string().max(1000)).optional(),
   specManual: SpecModuloSchema.optional(),
+  /** Lectura por ejemplo: los productos armados sobre la grilla del original. */
+  modelo: ModeloUsuarioSchema.optional(),
   aplicarPropuesta: z.boolean().optional(),
   descartarEdicionesIncompatibles: z.boolean().optional(),
   anexoEncabezadoId: z.number().int().positive().optional(),
@@ -85,6 +89,8 @@ function respuesta(asistencia: AsistenciaInventarioGuardada, revision: number, l
     resumenAnterior: asistencia.aplicado?.resumen,
     preguntas: resultado?.preguntas ?? [],
     ejemplosLectura: resultado?.ejemplosLectura ?? [],
+    ...(resultado?.modeloSugerido ? { modeloSugerido: resultado.modeloSugerido } : {}),
+    ...(resultado?.filasSugeridas?.length ? { filasSugeridas: resultado.filasSugeridas } : {}),
     advertencias: [...(resultado?.advertencias ?? []), ...(resultado?.errores ?? [])],
     spec: spec ?? undefined,
     message: asistencia.error ?? (asistencia.estado === "analizando" ? "La lectura está en curso. Consulta su avance sin volver a subir el archivo." : undefined),
@@ -175,7 +181,7 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
     const anterior = leerAsistenciaInventario(original.asistenciaJson);
     aplicadoAnterior = anterior?.aplicado ?? null;
     if (intentoInventarioVigente(anterior)) return respuesta(anterior!, original.revisionAsistencia, datos.recepcionLoteId);
-    if (datos.revisionEsperada == null && anterior && !datos.instrucciones && !datos.respuestas && !datos.specManual && !datos.aplicarPropuesta) {
+    if (datos.revisionEsperada == null && anterior && !datos.instrucciones && !datos.respuestas && !datos.specManual && !datos.modelo && !datos.aplicarPropuesta) {
       if (anterior.estado !== "analizando" && anterior.estado !== "error_recuperable") return respuesta(anterior, original.revisionAsistencia, datos.recepcionLoteId);
     }
     if (datos.revisionEsperada != null && datos.revisionEsperada !== original.revisionAsistencia) {
@@ -208,9 +214,12 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       version: 1, estado: "analizando", operacionId: randomUUID(), venceEn: new Date(Date.now() + 30 * 60_000).toISOString(),
       erpId: aplicativo.aplicativo.id, periodo, anexoEncabezadoId: anexoId,
       instrucciones: datos.instrucciones ?? anterior?.instrucciones ?? "",
-      respuestas: datos.aplicarPropuesta ? anterior!.respuestas : datos.specManual ? {} : {
+      // Un ejemplo nuevo, como un mapa manual, retira las decisiones estructurales anteriores
+      // (la regla deducida se vuelve a confirmar); su hoja manda.
+      respuestas: datos.aplicarPropuesta ? anterior!.respuestas : datos.specManual ? {} : datos.modelo ? { hoja: datos.modelo.hoja } : {
         ...(datos.instrucciones?.trim() ? {} : anterior?.respuestas), ...datos.respuestas, ...(datos.hoja ? { hoja: datos.hoja } : {}),
       },
+      ...(anterior?.huellaModelo ? { huellaModelo: anterior.huellaModelo } : {}),
       resultado: anterior?.resultado ?? null, aplicado: anterior?.aplicado ?? null,
       versionBaseId: anterior?.versionBaseId ?? null, encabezado: anterior?.encabezado ?? [],
     };
@@ -226,6 +235,21 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       resultado = validarLecturaInventario({ hojas, spec: anterior!.resultado!.spec!, respuestas: asistencia.respuestas, origen: anterior!.resultado!.origen });
     } else if (datos.specManual) {
       resultado = validarLecturaInventario({ hojas, spec: datos.specManual, respuestas: asistencia.respuestas, origen: "manual" });
+    } else if (datos.modelo) {
+      const huella = createHash("sha256").update(claveModelo(datos.modelo)).digest("hex").slice(0, 32);
+      const porEjemplo = await resolverLecturaPorEjemplo({
+        hojas, modelo: datos.modelo, nombreArchivo: original.nombreArchivo, aplicativo: aplicativo.aplicativo.name,
+        respuestas: asistencia.respuestas, respuestasNuevas: {}, preguntasPendientes: anterior?.resultado?.preguntas,
+        instrucciones: asistencia.instrucciones || undefined, specPrevio: anterior?.resultado?.spec ?? anterior?.aplicado?.spec,
+        // El mismo ejemplo que ya se consultó no vuelve a gastar IA, salvo que el proveedor falló.
+        repetido: huella === anterior?.huellaModelo && anterior?.resultado?.errorProveedorIA !== true,
+      });
+      asistencia.huellaModelo = huella;
+      if (porEjemplo) {
+        resultado = porEjemplo;
+        await registrarConsumoIA(resultado.usos, { modulo: "INV", clienteId: original.clienteId, usuarioId: user?.id, usuarioNombre: user?.name, archivoNombre: original.nombreArchivo });
+      } else if (anterior?.resultado) resultado = { ...anterior.resultado, usos: [] };
+      else throw new ErrorAsistencia("No hay una lectura anterior con la cual comparar este ejemplo. Vuelve a reprocesar.");
     } else {
       let base = anterior?.resultado?.spec ?? null;
       if (!base) {
@@ -339,6 +363,31 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       revalidar(datos.recepcionLoteId);
     }
     return errorRespuesta(mensaje, revision);
+  }
+}
+
+const VentanaSchema = ConsultaSchema.extend({
+  hoja: z.string().trim().max(120).optional(),
+  filaDesde: z.number().int().min(1).max(1_048_576).optional(),
+  spec: SpecModuloSchema.nullish(),
+});
+
+/**
+ * Un tramo de la grilla del ORIGINAL conservado para armar productos de ejemplo, con lo que la
+ * lectura en curso reconoce en ese tramo. Mismo permiso y alcance que la asistencia; solo lectura.
+ */
+export async function ventanaOriginalInventario(entrada: z.input<typeof VentanaSchema>): Promise<{ ok: true; ventana: VentanaMuestra } | { ok: false; message: string }> {
+  const parsed = VentanaSchema.safeParse(entrada);
+  if (!parsed.success) return { ok: false, message: "Consulta inválida." };
+  try {
+    const original = await originalAutorizado(parsed.data.recepcionLoteId);
+    const hojas = await hojasDelOriginal(original);
+    const ventana = construirVentanaMuestra(hojas, { hoja: parsed.data.hoja, filaDesde: parsed.data.filaDesde, spec: parsed.data.spec ?? null });
+    if (!ventana) throw new ErrorAsistencia("El original no tiene hojas legibles.");
+    return { ok: true, ventana };
+  } catch (error) {
+    if (!(error instanceof ErrorAsistencia)) registrarError("ventanaOriginalInventario", error);
+    return { ok: false, message: error instanceof ErrorAsistencia ? error.message : "No se pudo mostrar el original. Puedes reintentar." };
   }
 }
 

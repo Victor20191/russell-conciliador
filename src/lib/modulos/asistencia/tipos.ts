@@ -1,6 +1,7 @@
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { UsoIA } from "@/lib/ia/uso";
 import type { SpecModulo } from "../extraccion/esquema";
+import type { EjemploVerificado, ModeloUsuarioInventario } from "./modelo-usuario";
 
 export type OrigenLecturaInventario = "patron" | "ia" | "heuristica" | "manual";
 
@@ -45,6 +46,10 @@ export type ResultadoAsistenciaInventario = {
   errorProveedorIA?: boolean;
   /** Ejemplos leídos por el motor para revisar una interpretación estructurada nueva. */
   ejemplosLectura?: EjemploLecturaInventario[];
+  /** Lectura por ejemplo: lo entendido, como modelo editable para corregirlo sobre la grilla. */
+  modeloSugerido?: ModeloUsuarioInventario;
+  /** Filas donde conviene armar otro producto de ejemplo, con el motivo. */
+  filasSugeridas?: { fila: number; mensaje: string }[];
 };
 
 export type EntradaAsistenciaInventario = {
@@ -60,6 +65,10 @@ export type EntradaAsistenciaInventario = {
   forzarIA?: boolean;
   nombreArchivo?: string;
   aplicativo?: string;
+  /** Productos armados por el usuario: la regla propuesta DEBE reproducirlos. */
+  ejemplosUsuario?: EjemploVerificado[];
+  /** Por qué los ejemplos no alcanzaron para deducir la regla en código (contexto para la IA). */
+  dudasEjemplos?: string[];
 };
 
 export type EntradaValidacionInventario = {

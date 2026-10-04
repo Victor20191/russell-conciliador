@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/actions/asistencia-inventario", () => ({ conservarLecturaInventario: vi.fn(), consultarAsistenciaInventario: vi.fn(), prepararBorradorInventario: vi.fn() }));
+vi.mock("@/app/actions/asistencia-inventario", () => ({ conservarLecturaInventario: vi.fn(), consultarAsistenciaInventario: vi.fn(), prepararBorradorInventario: vi.fn(), ventanaOriginalInventario: vi.fn() }));
 vi.mock("./editor-mapeo-modulo", () => ({ EditorMapeoModulo: () => null }));
 
 import { AsistenciaInventarioPanel, type ResultadoAsistenciaVista } from "./asistencia-inventario-panel";
@@ -81,5 +81,11 @@ describe("asistencia de inventario: controles antes de cambiar un borrador", () 
     const enCurso = render({ ok: true, estado: "analizando", revision: 2, resumen, resumenAnterior: resumen }, true);
     expect(enCurso).not.toContain("Conservar lectura actual");
     expect(enCurso).toContain("Consultar avance");
+  });
+
+  it("ofrece corregir armando un ejemplo sobre el archivo, salvo con la carga confirmada o en curso", () => {
+    expect(render({ ok: true, estado: "requiere_respuesta", resumen })).toContain("Corregir armando un ejemplo sobre el archivo");
+    expect(render({ ok: true, estado: "confirmado", resumen })).not.toContain("Corregir armando un ejemplo");
+    expect(render({ ok: true, estado: "analizando" })).not.toContain("Corregir armando un ejemplo");
   });
 });

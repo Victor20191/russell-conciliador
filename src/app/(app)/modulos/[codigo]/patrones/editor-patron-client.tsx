@@ -3,10 +3,12 @@
 // Crear o editar una versión de patrón de archivo. El mapeo se hace sobre la MUESTRA del
 // aplicativo (obligatoria para guardar); puede partir del archivo de un cliente que no coincidió
 // o de otra versión, y se traslada por rótulo a las columnas de la muestra.
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SelectBuscable } from "@/components/select-buscable";
+import { BannerProcesando } from "@/components/banner-procesando";
+import { Icon } from "@/components/icons";
 import { Card } from "@/components/ui";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
@@ -18,8 +20,11 @@ import {
   analizarMuestraPatron,
   analizarOriginalParaPatron,
   crearVersionPatron,
+  ventanaMuestraPatron,
   type AnalisisPatron,
 } from "@/app/actions/patrones-modulo";
+import { modeloVacio, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
+import { ConstructorLectura, type ConsultaVentana } from "../constructor-lectura/constructor-lectura";
 import { AsistenciaMuestraPanel } from "./asistencia-muestra-panel";
 import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
 import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
@@ -76,11 +81,20 @@ export default function EditorPatronClient({
   const [pruebaId, setPruebaId] = useState(0);
   const esNuevoInventario = moduloCodigo === "INV" && !edicion;
   const [hayMuestra, setHayMuestra] = useState(false);
+  const [nombreMuestra, setNombreMuestra] = useState("");
   const [asistencia, setAsistencia] = useState<AsistenciaMuestraPatron | null>(null);
   const [asistenciaPendiente, setAsistenciaPendiente] = useState(false);
   const [mapeoEditado, setMapeoEditado] = useState(false);
   const [errorAsistencia, setErrorAsistencia] = useState("");
+  // Lectura por ejemplo: el producto armado sobre la grilla sobrevive a cada reprocesamiento.
+  const [modeloEjemplo, setModeloEjemplo] = useState<ModeloUsuarioInventario | null>(null);
+  const [modeloEditado, setModeloEditado] = useState(false);
+  const [constructorAbierto, setConstructorAbierto] = useState(false);
   const secuencia = useRef(0);
+  // Tarjeta de aplicativo + muestra: ancla del botón flotante «Ir al aplicativo y muestra».
+  const cabeceraRef = useRef<HTMLDivElement>(null);
+  const [cabeceraVisible, setCabeceraVisible] = useState(true);
+  const reiniciarEjemplo = () => { setModeloEjemplo(null); setModeloEditado(false); setConstructorAbierto(false); };
 
   const aplicar = (r: AnalisisPatron, esMuestra: boolean) => {
     if (!r.ok || !r.spec) {
@@ -114,7 +128,7 @@ export default function EditorPatronClient({
   }, [idEdicion, recepcionLoteId, moduloCodigo]);
 
   const analizarMuestra = (archivo: File, hoja?: string, opciones?: {
-    erp?: number | null; continuar?: boolean; instrucciones?: string; respuestas?: Record<string, string>;
+    erp?: number | null; continuar?: boolean; instrucciones?: string; respuestas?: Record<string, string>; modelo?: ModeloUsuarioInventario;
   }) => {
     const peticion = ++secuencia.current;
     const aplicativo = opciones?.erp ?? erpId;
@@ -140,10 +154,15 @@ export default function EditorPatronClient({
           if (opciones?.continuar && mapeoEditado && spec) fd.set("specManualJson", JSON.stringify(spec));
           fd.set("instrucciones", opciones?.instrucciones ?? "");
           fd.set("respuestasJson", JSON.stringify(opciones?.respuestas ?? {}));
+          if (opciones?.modelo) fd.set("modeloJson", JSON.stringify(opciones.modelo));
           const r = await asistirMuestraPatronInventario(fd);
           if (secuencia.current !== peticion) return;
           if (!r.ok) { setErrorAsistencia(r.message ?? "No se pudo interpretar la muestra. Puedes reintentar."); return; }
           if (r.analisis) aplicar(r.analisis, true);
+          // Mientras el usuario no haya armado nada, el ejemplo muestra lo último que se entendió.
+          if (!opciones?.modelo && !modeloEditado) setModeloEjemplo(r.lectura?.modeloSugerido ?? null);
+          const lectura = r.lectura;
+          if (lectura && (!lectura.spec || lectura.errores.length > 0 || lectura.preguntas.some((p) => p.id.startsWith("ia_")))) setConstructorAbierto(true);
           setAsistencia(r);
           setAsistenciaPendiente(false);
           setMapeoEditado(false);
@@ -168,10 +187,12 @@ export default function EditorPatronClient({
     const archivo = e.target.files?.[0];
     if (!archivo) return;
     muestraRef.current = archivo;
+    setNombreMuestra(archivo.name);
     setHayMuestra(true);
     setAsistencia(null);
     setMuestraLista(false);
     setMapeoEditado(false);
+    reiniciarEjemplo();
     if (esNuevoInventario) { setSpec(null); setAnalisis(null); }
     analizarMuestra(archivo);
   };
@@ -184,6 +205,7 @@ export default function EditorPatronClient({
     setAsistencia(null);
     setAsistenciaPendiente(true);
     setMapeoEditado(false);
+    reiniciarEjemplo();
     setSpec(null);
     setAnalisis(null);
     if (muestraRef.current && nuevo) analizarMuestra(muestraRef.current, undefined, { erp: nuevo });
@@ -200,8 +222,21 @@ export default function EditorPatronClient({
     }
     setAsistencia(null);
     setMapeoEditado(false);
+    reiniciarEjemplo();
     analizarMuestra(muestraRef.current, hoja);
   };
+
+  // La grilla del archivo para armar el ejemplo: se relee del servidor por tramos.
+  const cargarVentana = useCallback(async (consulta: ConsultaVentana) => {
+    if (!muestraRef.current) return { ok: false as const, message: "Sube la muestra del aplicativo." };
+    const fd = new FormData();
+    fd.set("moduloCodigo", moduloCodigo);
+    fd.set("archivo", muestraRef.current);
+    fd.set("hoja", consulta.hoja);
+    fd.set("filaDesde", String(consulta.filaDesde));
+    if (consulta.spec) fd.set("specJson", JSON.stringify(consulta.spec));
+    return ventanaMuestraPatron(fd);
+  }, [moduloCodigo]);
 
   // Un error de guardado: el toast de siempre y, si el mensaje reclama un campo del mapeo (una
   // columna obligatoria, el tipo de formato), el foco va a ese campo. El editor decide si lo es.
@@ -265,6 +300,14 @@ export default function EditorPatronClient({
     editorRef.current?.enfocarError(mensaje);
   };
 
+  useEffect(() => {
+    const el = cabeceraRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(([e]) => setCabeceraVisible(e.isIntersecting));
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   const opcionesErp = useMemo(() => erps.map((e) => ({ value: String(e.id), label: e.nombre })), [erps]);
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
   const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando
@@ -272,6 +315,7 @@ export default function EditorPatronClient({
 
   return (
     <div className="flex flex-col gap-4">
+      <div ref={cabeceraRef} className="scroll-mt-2">
       <Card className="flex flex-col gap-3 p-4 text-[12.5px]">
         <fieldset disabled={analizando || guardando} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 disabled:opacity-60">
           <div className="flex min-w-0 flex-col gap-1">
@@ -304,7 +348,14 @@ export default function EditorPatronClient({
             )}
           </label>
         </fieldset>
-        {analizando && <p className="text-[11.5px] text-ink-500">Analizando el archivo…</p>}
+        {analizando && (
+          <BannerProcesando
+            titulo={nombreMuestra ? `Cargando y analizando «${nombreMuestra}»…` : "Cargando y analizando la muestra…"}
+            detalle={esNuevoInventario
+              ? "Estamos leyendo todas las filas y reconociendo el formato; si hace falta, consultamos la IA. Puede tardar hasta un minuto: no cierres ni recargues la página."
+              : "Estamos leyendo las hojas y columnas del archivo. No cierres ni recargues la página."}
+          />
+        )}
         {analisis?.referencia && !muestraLista && (
           <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
             Mapeo prellenado con «{analisis.referencia.nombreArchivo}» de {analisis.referencia.cliente}. Ese archivo no se guarda: sube la muestra
@@ -320,6 +371,7 @@ export default function EditorPatronClient({
           <p className="text-[11.5px] text-ink-500">{esNuevoInventario ? "Elige el aplicativo y sube la muestra. Reconoceremos el formato y te mostraremos cómo se lee." : "Sube la muestra para ver sus columnas y configurar cómo se lee."}</p>
         )}
       </Card>
+      </div>
 
       {esNuevoInventario && hayMuestra && (
         <Card className="p-4">
@@ -336,10 +388,24 @@ export default function EditorPatronClient({
             onReiniciar={() => {
               setAsistencia(null);
               setMapeoEditado(false);
+              reiniciarEjemplo();
               if (muestraRef.current) analizarMuestra(muestraRef.current);
             }}
+            onArmarEjemplo={asistencia?.lectura && !constructorAbierto ? () => setConstructorAbierto(true) : undefined}
           />
         </Card>
+      )}
+
+      {esNuevoInventario && hayMuestra && asistencia?.lectura && constructorAbierto && (
+        <ConstructorLectura
+          modelo={modeloEjemplo ?? modeloVacio(asistencia.lectura.resumen.hoja ?? analisis?.hoja ?? "")}
+          onModelo={(m) => { setModeloEjemplo(m); setModeloEditado(true); setAsistenciaPendiente(true); }}
+          spec={asistencia.lectura.spec}
+          filasSugeridas={asistencia.lectura.filasSugeridas}
+          trabajando={analizando || guardando}
+          cargarVentana={cargarVentana}
+          onReprocesar={(m) => { if (muestraRef.current) analizarMuestra(muestraRef.current, undefined, { continuar: true, modelo: m }); }}
+        />
       )}
 
       {analisis && spec && (
@@ -383,6 +449,18 @@ export default function EditorPatronClient({
           onError={enfocarErrorPrueba}
         />
       )}
+
+      <div className="pointer-events-none sticky bottom-4 z-10 -mb-4 h-0">
+        {!cabeceraVisible && (
+          <button
+            type="button"
+            onClick={() => cabeceraRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="pointer-events-auto absolute bottom-0 right-0 inline-flex items-center gap-1.5 rounded-full border border-navy-700 bg-white px-3.5 py-2 text-[12px] font-semibold text-navy-700 shadow-md hover:bg-blue-50"
+          >
+            <Icon name="chev-d" size={14} className="rotate-180" /> Ir al aplicativo y muestra
+          </button>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Link href={ruta} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Volver a patrones</Link>
