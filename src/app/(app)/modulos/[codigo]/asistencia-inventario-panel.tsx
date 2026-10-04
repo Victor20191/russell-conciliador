@@ -233,7 +233,7 @@ export function AsistenciaInventarioPanel({
         />
       ) : (
         <button type="button" onClick={() => abrirConstructor(true)} disabled={trabajando} className="self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] font-semibold text-navy-700 hover:bg-blue-100 disabled:opacity-50">
-          Corregir armando un ejemplo sobre el archivo
+          Diseñador de formato
         </button>
       ))}
 

@@ -60,7 +60,8 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
   const [filaDesde, setFilaDesde] = useState(1);
   const [irA, setIrA] = useState("");
   const [productoActivo, setProductoActivo] = useState(0);
-  const [seleccionElegida, setSeleccion] = useState<SeleccionGrilla | null>(null);
+  // undefined = el usuario aún no eligió (se abre la celda inicial); null = quitó la selección a propósito.
+  const [seleccionElegida, setSeleccion] = useState<SeleccionGrilla | null | undefined>(undefined);
   const [tramo, setTramo] = useState<Tramo | null>(null);
   const [aviso, setAviso] = useState<AvisoAsignacion | null>(null);
   const [motivo, setMotivo] = useState("");
@@ -97,10 +98,12 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
   const producto = modelo.productos[productoActivo] ?? modelo.productos[0];
   // Sin nada elegido, se abre la celda del producto que se está armando o, si no hay, la primera
   // celda del archivo que trae varios datos: así las partes se ven sin buscar nada.
-  const seleccion = seleccionElegida ?? seleccionInicial(producto, ventana);
+  const seleccion = seleccionElegida === undefined ? seleccionInicial(producto, ventana) : seleccionElegida;
 
   const actualizar = (siguiente: ModeloUsuarioInventario) => { onModelo(siguiente); };
-  const elegir = (s: SeleccionGrilla) => { setSeleccion(s); setTramo(null); setAviso(null); setMotivo(""); };
+  const elegir = (s: SeleccionGrilla | null) => { setSeleccion(s); setTramo(null); setAviso(null); setMotivo(""); };
+  // Un clic sobre lo que ya está elegido (celda, columna o fila) lo deselecciona.
+  const alternarSeleccion = (s: SeleccionGrilla) => elegir(mismaSeleccion(seleccion, s) ? null : s);
   const soltar = (destino: DestinoDato, dato: DatoArrastrado) => {
     const r = soltarDato(modelo, productoActivo, destino, dato, filaTitulos);
     if (dato.tipo === "celda" && !textos.has(clave(dato.fila, dato.columna))) setTextos((previos) => new Map(previos).set(clave(dato.fila, dato.columna), dato.texto));
@@ -166,7 +169,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
           <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-600">
             {ventana && ventana.hojas.length > 1 && (
               <label className="flex items-center gap-1.5">Hoja
-                <select className={`${claseCampo} w-auto`} value={modelo.hoja} disabled={trabajando} onChange={(e) => { actualizar({ ...modelo, hoja: e.target.value, productos: [{ asignaciones: [] }], columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [] }); setFilaDesde(1); setSeleccion(null); setProductoActivo(0); }}>
+                <select className={`${claseCampo} w-auto`} value={modelo.hoja} disabled={trabajando} onChange={(e) => { actualizar({ ...modelo, hoja: e.target.value, productos: [{ asignaciones: [] }], columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [] }); setFilaDesde(1); setSeleccion(undefined); setProductoActivo(0); }}>
                   {ventana.hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre}{h.oculta ? " (oculta)" : ""}</option>)}
                 </select>
               </label>
@@ -182,7 +185,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
           {ventana && ventana.columnasTotales > ventana.columnas && <p className="text-[11px] text-warn-700">Se muestran las primeras {ventana.columnas} de {ventana.columnasTotales} columnas.</p>}
           {errorVentana && <p role="alert" className="rounded-md bg-err-100/50 px-3 py-2 text-err-700">{errorVentana}</p>}
           {cargando && !ventana && <p role="status" className="text-ink-500">Abriendo el archivo…</p>}
-          {ventana && <GrillaMuestra ventana={ventana} modelo={modelo} seleccion={seleccion} onSeleccion={elegir} llena={pantallaCompleta} />}
+          {ventana && <GrillaMuestra ventana={ventana} modelo={modelo} seleccion={seleccion} onSeleccion={alternarSeleccion} llena={pantallaCompleta} />}
           <p className="text-[11px] text-ink-500">
             <span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-blue-100 align-middle ring-1 ring-blue-400" /> Producto leído
             <span className="ml-3 mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-ok-100 align-middle ring-1 ring-ok-500" /> Total
@@ -280,6 +283,13 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
       </div>
     </section>
   );
+}
+
+function mismaSeleccion(a: SeleccionGrilla | null, b: SeleccionGrilla): boolean {
+  if (!a || a.tipo !== b.tipo) return false;
+  if (a.tipo === "celda" && b.tipo === "celda") return a.fila === b.fila && a.columna === b.columna;
+  if (a.tipo === "columna" && b.tipo === "columna") return a.columna === b.columna;
+  return a.tipo === "fila" && b.tipo === "fila" && a.fila === b.fila;
 }
 
 function seleccionInicial(producto: ProductoEjemplo | undefined, ventana: VentanaMuestra | null): SeleccionGrilla | null {

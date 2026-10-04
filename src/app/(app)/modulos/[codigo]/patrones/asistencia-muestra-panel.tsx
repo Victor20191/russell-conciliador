@@ -52,7 +52,7 @@ export function AsistenciaMuestraPanel({ lectura, trabajando, pendiente, error, 
         <textarea id={id} rows={3} maxLength={4000} className={campo} value={instrucciones} onChange={(e) => { setInstrucciones(e.target.value); onPendiente(); }} placeholder="Por ejemplo: todo está en la columna A; cada producto empieza con Ref: y ocupa cuatro filas. El tipo está en el título de cada sección." />
       </label>
       {onArmarEjemplo && <button type="button" onClick={onArmarEjemplo} className="self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] font-semibold text-navy-700 hover:bg-blue-100">
-        Corregir armando un ejemplo sobre el archivo
+        Diseñador de formato
       </button>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {lectura?.listoParaBorrador && !pendiente && <p role="status" className="text-ink-600">La lectura está lista. Puedes guardar el patrón con los botones de abajo.</p>}

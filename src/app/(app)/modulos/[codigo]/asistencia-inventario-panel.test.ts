@@ -84,8 +84,8 @@ describe("asistencia de inventario: controles antes de cambiar un borrador", () 
   });
 
   it("ofrece corregir armando un ejemplo sobre el archivo, salvo con la carga confirmada o en curso", () => {
-    expect(render({ ok: true, estado: "requiere_respuesta", resumen })).toContain("Corregir armando un ejemplo sobre el archivo");
-    expect(render({ ok: true, estado: "confirmado", resumen })).not.toContain("Corregir armando un ejemplo");
-    expect(render({ ok: true, estado: "analizando" })).not.toContain("Corregir armando un ejemplo");
+    expect(render({ ok: true, estado: "requiere_respuesta", resumen })).toContain("Diseñador de formato");
+    expect(render({ ok: true, estado: "confirmado", resumen })).not.toContain("Diseñador de formato");
+    expect(render({ ok: true, estado: "analizando" })).not.toContain("Diseñador de formato");
   });
 });

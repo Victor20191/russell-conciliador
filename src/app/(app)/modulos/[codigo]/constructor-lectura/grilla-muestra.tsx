@@ -58,7 +58,8 @@ export function GrillaMuestra({ ventana, modelo, seleccion, onSeleccion, llena =
     const fila = filas[Math.min(filas.length - 1, Math.max(0, fi + (e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0)))];
     const columna = columnas[Math.min(columnas.length - 1, Math.max(0, ci + (e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0)))];
     if (fila != null && columna != null) {
-      onSeleccion({ tipo: "celda", fila, columna });
+      // En el borde la flecha no cambia de celda: no se reenvía (un clic sobre lo elegido deselecciona).
+      if (fila !== seleccion.fila || columna !== seleccion.columna) onSeleccion({ tipo: "celda", fila, columna });
       requestAnimationFrame(() => document.getElementById(`celda-muestra-${fila}-${columna}`)?.focus());
     }
   };
