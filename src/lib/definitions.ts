@@ -480,6 +480,19 @@ export const SubgrupoConciliacionSchema = z.object({
   ),
 });
 
+/** Pareja activo → depreciación de la cédula de Activos fijos (4 dígitos → 6 dígitos). */
+export const ParDepreciacionSchema = z.object({
+  moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Selecciona el módulo." }).max(10),
+  subgrupo: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[\s.]/g, "") : v),
+    z.string().regex(/^\d{4}$/, { error: "El activo debe ser un subgrupo Russell de 4 dígitos." }),
+  ),
+  cuenta: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(/[\s.]/g, "") : v),
+    z.string().regex(/^\d{6}$/, { error: "La depreciación debe ser una cuenta Russell de 6 dígitos." }),
+  ),
+});
+
 // Aprobación/revocación append-only del informe. La huella y el actor se calculan
 // exclusivamente en servidor; el navegador solo aporta balance y justificación.
 export const RevisionPrevalidadorSchema = z.object({

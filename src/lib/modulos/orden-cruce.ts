@@ -70,17 +70,37 @@ export function ordenarCruceTercero<T extends FilaOrdenTercero>(filas: readonly 
 
 // ---------------------------------------------------------------- cédula del cruce contable
 
-export type ColumnaCruceContable = "cuenta" | "contable" | "modulo" | "diferenciaBruta" | "noModular" | "diferencia";
+/**
+ * Las cuatro últimas son de la cédula de Activos fijos, que parte cada lado en costo y
+ * depreciación; `contable` y `modulo` son allí el NETO de cada lado.
+ */
+export type ColumnaCruceContable =
+  | "cuenta"
+  | "contable"
+  | "modulo"
+  | "diferenciaBruta"
+  | "noModular"
+  | "diferencia"
+  | "costoContable"
+  | "depContable"
+  | "costoModulo"
+  | "depModulo";
 
 export const direccionInicialCruceContable = (columna: ColumnaCruceContable): DireccionOrdenCruce =>
   columna === "cuenta" ? "asc" : "desc";
 
-type FilaOrdenContable = Pick<FilaCruceContable, "cuenta4" | "contable" | "inventario" | "diferenciaBruta" | "noModular" | "noModularModulo" | "diferencia">;
+type FilaOrdenContable = Pick<FilaCruceContable, "cuenta4" | "contable" | "inventario" | "diferenciaBruta" | "noModular" | "noModularModulo" | "diferencia"> & {
+  columnas?: FilaCruceContable["columnas"];
+};
 
 function valorCruceContable(fila: FilaOrdenContable, columna: ColumnaCruceContable): Valor {
   if (columna === "cuenta") return fila.cuenta4;
   if (columna === "contable") return fila.contable;
   if (columna === "modulo") return fila.inventario;
+  if (columna === "costoContable") return fila.columnas?.costo.contable ?? 0;
+  if (columna === "depContable") return fila.columnas?.depreciacion.contable ?? 0;
+  if (columna === "costoModulo") return fila.columnas?.costo.inventario ?? 0;
+  if (columna === "depModulo") return fila.columnas?.depreciacion.inventario ?? 0;
   if (columna === "diferenciaBruta") return Math.abs(fila.diferenciaBruta);
   // Efecto de lo no modular en la diferencia (contable excluido y módulo excluido), por tamaño.
   if (columna === "noModular") return Math.abs(fila.noModular) + Math.abs(fila.noModularModulo);

@@ -5,6 +5,25 @@
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
 
+/** Cifras de UNA columna de la cédula de Activos fijos, con su diferencia ya ajustada. */
+export type ColumnaCifrasCruce = {
+  contable: number;
+  inventario: number;
+  noModular: number;
+  noModularModulo: number;
+  diferencia: number;
+  cuadra: boolean;
+};
+
+/**
+ * Activos fijos: el renglón se presenta por el NETO y guarda aquí sus dos columnas. La
+ * depreciación va en MAGNITUD (positiva) en los dos lados; quien pinta decide el signo.
+ */
+export type ColumnasActivoFijo = {
+  costo: ColumnaCifrasCruce;
+  depreciacion: ColumnaCifrasCruce & { cuentas: string[] };
+};
+
 export type FilaCruceContable = {
   /**
    * Clave de la fila: la cuenta Russell (4 o 6 díg.) o, en una FILA AGRUPADA, las cuentas del
@@ -24,7 +43,13 @@ export type FilaCruceContable = {
    * que es justo lo que no se podía ver al expandir («¿de dónde salen estos 698 millones?»).
    */
   detalleModulo?: { clasificador: string; total: number }[];
-  contable: number; // saldo del balance de comprobación
+  /**
+   * Activos fijos: el desglose del renglón en costo (15##) y depreciación (1592##), cada uno con
+   * su diferencia. `contable`/`inventario` son el NETO, así que la marca y el cierre siguen
+   * decidiéndose por una sola cifra. Lo pone `emparejarCedulaActivos`; los demás módulos no lo traen.
+   */
+  columnas?: ColumnasActivoFijo;
+  contable: number; // saldo del balance de comprobación (Activos fijos: NETO de costo y depreciación)
   inventario: number; // suma de clasificadores con asignación 1:1 a esta cuenta
   /** Parte de `contable` que corresponde a cuentas marcadas NO MODULARES (no se concilia). */
   noModular: number;

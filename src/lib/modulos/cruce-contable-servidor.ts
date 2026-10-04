@@ -29,6 +29,7 @@ import { cedulaDelCargue, type FilaAsignacionPeriodo } from "@/lib/modulos/asign
 import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { emparejarCedulaActivos } from "@/lib/modulos/activos/cedula-activos";
 import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
@@ -163,6 +164,13 @@ export type ResultadoCruceModulo = {
    * `detalleContablePorCuenta` con su propia clave. `null` si no hay ninguna con saldo ni concepto.
    */
   soloVisibles: ResumenCruceContable | null;
+  /**
+   * Activos fijos: la cédula se presenta por el NETO y cada fila trae sus columnas de costo y
+   * depreciación (`FilaCruceContable.columnas`). Lo decide tener parejas 15##→1592## configuradas.
+   */
+  cedulaActivos: boolean;
+  /** Depreciaciones que no se pudieron emparejar porque agrupan activos de renglones distintos. */
+  sinEmparejarActivos: string[];
   /** Solo Nómina: vista por subcuenta, control de deducciones y repartos. */
   nomina: ResultadoCruceNomina | null;
   /** Cuentas que el usuario agregó solo para este período (fuera de la cédula del módulo). */
@@ -377,6 +385,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
 
   let cruceContable: ResumenCruceContable | null = null;
   let soloVisibles: ResumenCruceContable | null = null;
+  /** Activos fijos: depreciaciones agrupadas entre activos de renglones distintos (no se parten). */
+  let sinEmparejarActivos: string[] = [];
   let sinMapeoContable: { total: number; filas: number } | null = null;
   let sinReglaContableFilas = 0;
   const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
@@ -544,6 +554,23 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         .flatMap((c) => detalleContablePorCuenta[c] ?? [])
         .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
     }
+    // ACTIVOS FIJOS: cada depreciación 1592xx se funde con el renglón de su activo y el renglón
+    // pasa a presentarse por el NETO (costo − depreciación), con las dos columnas en `columnas`.
+    if (cedula.relacionPorSubgrupo.size > 0) {
+      const emparejada = emparejarCedulaActivos(cruceContable, cedula.relacionPorSubgrupo);
+      sinEmparejarActivos = emparejada.sinEmparejar;
+      // El desglose del renglón suma las cuentas del cliente del costo y las de la depreciación;
+      // estas últimas en NEGATIVO, que es como restan del neto. Así Σ del desglose = `contable`
+      // y marcar una cuenta no modular sigue cuadrando con la diferencia ajustada.
+      for (const fila of emparejada.filas) {
+        const cuentasDep = fila.columnas?.depreciacion.cuentas ?? [];
+        if (cuentasDep.length === 0) continue;
+        const dep = cuentasDep.flatMap((c) => (detalleContablePorCuenta[c] ?? []).map((h) => ({ ...h, valor: Math.round(-h.valor * 100) / 100 })));
+        detalleContablePorCuenta[fila.cuenta4] = [...(detalleContablePorCuenta[fila.cuenta4] ?? []), ...dep]
+          .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
+      }
+      cruceContable = emparejada;
+    }
     // Pesos del reparto sugerido: el saldo de todas las candidatas, concilien o solo se vean.
     const contableTodas = { ...contableVisiblePorCuenta, ...contablePorCuenta };
     // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
@@ -631,6 +658,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         }
       : null,
     soloVisibles: cruceContable ? soloVisibles : null,
+    // Activos fijos: la cédula se presenta por el neto, con las columnas de costo y depreciación.
+    cedulaActivos: cedula.relacionPorSubgrupo.size > 0,
+    sinEmparejarActivos,
     nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, repartosPendientes: [], repartosAplicados: [], repartosIgnorados: 0, repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
     cuentasPeriodo,
   };
@@ -652,6 +682,8 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     resumenMarcas: null,
     fueraDelModulo: null,
     soloVisibles: null,
+    cedulaActivos: false,
+    sinEmparejarActivos: [],
     nomina: null,
     cuentasPeriodo: [],
   };

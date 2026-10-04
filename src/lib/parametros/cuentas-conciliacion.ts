@@ -12,19 +12,25 @@ import prisma from "@/lib/prisma";
 import { descriptorModulo, MODULOS_IMPORT, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import {
   aplicarCuentasConciliacion,
+  aplicarParesDepreciacion,
   aplicarSubgruposConciliacion,
   cuentasConciliacionDe,
   esCategoriaCuentaConciliacion,
   esOrigenCuentaConciliacion,
   leerCuentasConciliacionGuardadas,
+  leerParesDepreciacionGuardados,
   leerSubgruposConciliacionGuardados,
   moduloConCuentasConciliacion,
+  moduloConParesDepreciacion,
   moduloConSubgruposConciliacion,
   normalizarCuentaConciliacion,
+  normalizarParDepreciacion,
   normalizarSubgrupoConciliacion,
+  paresDepreciacionDe,
   subgruposConciliacionDeFabrica,
   subgruposDeCuentasRussellCierre,
   type CuentaConciliacion,
+  type ParDepreciacion,
 } from "@/lib/modulos/cuentas-conciliacion";
 import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
 
@@ -160,10 +166,13 @@ export async function resolverDescriptorVigente(
   descriptor: DescriptorModulo,
   contexto?: ContextoCuentasConciliacion | null,
 ): Promise<DescriptorModulo> {
-  if (moduloConSubgruposConciliacion(descriptor)) {
-    return aplicarSubgruposConciliacion(descriptor, await subgruposConciliacionModulo(descriptor, contexto));
-  }
-  return aplicarCuentasConciliacion(descriptor, await cuentasConciliacionModulo(descriptor, contexto));
+  const base = moduloConSubgruposConciliacion(descriptor)
+    ? aplicarSubgruposConciliacion(descriptor, await subgruposConciliacionModulo(descriptor, contexto))
+    : aplicarCuentasConciliacion(descriptor, await cuentasConciliacionModulo(descriptor, contexto));
+  // Activos fijos: además, con qué 1592## se junta cada activo en la cédula.
+  return moduloConParesDepreciacion(base)
+    ? aplicarParesDepreciacion(base, await paresDepreciacionModulo(base, contexto))
+    : base;
 }
 
 /** Atajo por código de módulo; `null` si el módulo no está registrado. */
@@ -215,4 +224,77 @@ export async function getSubgruposConciliacionVista(moduloCodigo: string): Promi
     orderBy: { subgrupo: "asc" },
   });
   return filas.map((f) => ({ ...f, actualizadoEn: f.actualizadoEn.toISOString() }));
+}
+
+// ===== Parejas activo → depreciación (Activos fijos) =====
+
+async function leerParesVigentes(): Promise<Record<string, ParDepreciacion[]>> {
+  const filas = await prisma.parDepreciacionModulo.findMany({
+    select: { moduloCodigo: true, subgrupo: true, cuenta: true },
+    orderBy: [{ moduloCodigo: "asc" }, { subgrupo: "asc" }],
+  });
+  const porModulo: Record<string, ParDepreciacion[]> = {};
+  for (const f of filas) {
+    const par = normalizarParDepreciacion(f.subgrupo, f.cuenta);
+    if (!par) throw new Error(`La pareja ${f.subgrupo || "vacía"} → ${f.cuenta || "vacía"} de ${f.moduloCodigo} no es 4 → 6 dígitos.`);
+    (porModulo[f.moduloCodigo] ??= []).push(par);
+  }
+  return porModulo;
+}
+
+// Mismo tag que las otras dos listas: un cambio en cualquiera invalida todas.
+const paresCacheados = unstable_cache(leerParesVigentes, ["pares-depreciacion-vigentes"], {
+  tags: [CUENTAS_CONCILIACION_CACHE_TAG],
+});
+
+/** Parejas vigentes por código de módulo. Un módulo sin filas usa las de fábrica del descriptor. */
+export async function getParesDepreciacion(): Promise<Record<string, ParDepreciacion[]>> {
+  return paresCacheados();
+}
+
+/**
+ * Las parejas con que se arma la cédula: las vigentes o, si el período del cargue tiene la
+ * conciliación en firme, las que guardó el cierre. `null` si el módulo no cruza un valor relacionado.
+ */
+export async function paresDepreciacionModulo(
+  descriptor: DescriptorModulo,
+  contexto?: ContextoCuentasConciliacion | null,
+): Promise<ParDepreciacion[] | null> {
+  if (!moduloConParesDepreciacion(descriptor)) return null;
+  if (contexto) {
+    const cierre = await prisma.conciliacionModuloCierre.findUnique({
+      where: { clienteId_moduloCodigo_periodo: { clienteId: contexto.clienteId, moduloCodigo: descriptor.codigo, periodo: contexto.periodo } },
+      select: { estado: true, paresDepreciacion: true },
+    });
+    if (cierre?.estado === ESTADO_CIERRE_FIRME) {
+      return leerParesDepreciacionGuardados(cierre.paresDepreciacion) ?? paresDepreciacionDe(descriptor);
+    }
+  }
+  // Sin filas configuradas rigen las de fábrica: nunca se deja el módulo sin parejas.
+  const vigentes = (await getParesDepreciacion())[descriptor.codigo];
+  return vigentes && vigentes.length > 0 ? vigentes : paresDepreciacionDe(descriptor);
+}
+
+export type ParDepreciacionVista = ParDepreciacion & {
+  id: number;
+  moduloCodigo: string;
+  actualizadoPor: string | null;
+  actualizadoEn: string; // ISO
+};
+
+/** Parejas configuradas de un módulo para /config/prevalidador (sin caché, como el catálogo). */
+export async function getParesDepreciacionVista(moduloCodigo: string): Promise<ParDepreciacionVista[]> {
+  const filas = await prisma.parDepreciacionModulo.findMany({
+    where: { moduloCodigo },
+    select: { id: true, moduloCodigo: true, subgrupo: true, cuenta: true, actualizadoPor: true, actualizadoEn: true },
+    orderBy: { subgrupo: "asc" },
+  });
+  return filas.map((f) => ({
+    id: f.id,
+    moduloCodigo: f.moduloCodigo,
+    subgrupo: f.subgrupo,
+    cuenta6: f.cuenta,
+    actualizadoPor: f.actualizadoPor,
+    actualizadoEn: f.actualizadoEn.toISOString(),
+  }));
 }

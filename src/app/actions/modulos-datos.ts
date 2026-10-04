@@ -125,7 +125,7 @@ import {
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { resolverDescriptorVigente, type ContextoCuentasConciliacion } from "@/lib/parametros/cuentas-conciliacion";
-import { cuentasConciliacionDe, subgruposConciliacionDe } from "@/lib/modulos/cuentas-conciliacion";
+import { cuentasConciliacionDe, paresDepreciacionDe, subgruposConciliacionDe } from "@/lib/modulos/cuentas-conciliacion";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
@@ -4248,6 +4248,8 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     // cierre esté en firme el cruce se sigue calculando con ellos aunque cambien en /config/prevalidador.
     const cuentasConciliacion = cuentasConciliacionDe(descriptor);
     const subgruposConciliacion = subgruposConciliacionDe(descriptor);
+    // Activos fijos: con qué parejas activo → depreciación se presentó la cédula que se cierra.
+    const paresDepreciacion = paresDepreciacionDe(descriptor);
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
@@ -4317,6 +4319,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         resumenCruceTercero: evidenciaTercero ? (evidenciaTercero as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         cuentasConciliacion: cuentasConciliacion ? (cuentasConciliacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         subgruposConciliacion: subgruposConciliacion ?? Prisma.DbNull,
+        paresDepreciacion: paresDepreciacion ? (paresDepreciacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         estado: ESTADO_CIERRE_FIRME,
         cerradoPorId: authz.userId,
         cerradoPor: actor,

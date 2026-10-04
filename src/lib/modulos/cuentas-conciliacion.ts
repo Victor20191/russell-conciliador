@@ -234,3 +234,58 @@ export function subgruposDeCuentasRussellCierre(valor: unknown): string[] | null
   const lista = listaSubgrupos(valor.map((v) => (typeof v === "string" ? normalizarPrefijo(v).slice(0, 4) : null)));
   return lista.length > 0 ? lista : null;
 }
+
+// ===== Parejas activo → depreciación (Activos fijos) =====
+
+/** Pareja 15## → 1592## con la que la cédula junta el activo y su depreciación acumulada. */
+export type ParDepreciacion = { subgrupo: string; cuenta6: string };
+
+/** Solo los módulos cuya cédula cruza un segundo valor del archivo (hoy, Activos fijos). */
+export function moduloConParesDepreciacion(descriptor: Pick<DescriptorModulo, "cedula"> | null | undefined): boolean {
+  return !!descriptor?.cedula?.valorRelacionado;
+}
+
+/** Normaliza una pareja escrita en el editor; `null` si no son 4 y 6 dígitos. */
+export function normalizarParDepreciacion(subgrupo: string | null | undefined, cuenta6: string | null | undefined): ParDepreciacion | null {
+  const s = normalizarPrefijo(subgrupo ?? "");
+  const c = normalizarPrefijo(cuenta6 ?? "");
+  if (s.length !== 4 || c.length !== 6) return null;
+  return { subgrupo: s, cuenta6: c };
+}
+
+/** Las parejas sin repetir subgrupo, ordenadas por él. La última escrita gana. */
+function listaPares(pares: readonly ParDepreciacion[]): ParDepreciacion[] {
+  const porSubgrupo = new Map<string, string>();
+  for (const p of pares) porSubgrupo.set(p.subgrupo, p.cuenta6);
+  return [...porSubgrupo].map(([subgrupo, cuenta6]) => ({ subgrupo, cuenta6 })).sort((a, b) => (a.subgrupo < b.subgrupo ? -1 : 1));
+}
+
+/** Las parejas de FÁBRICA del descriptor (`RELACION_DEPRECIACION_AFI`). */
+export function paresDepreciacionDe(descriptor: DescriptorModulo | null | undefined): ParDepreciacion[] | null {
+  if (!descriptor || !moduloConParesDepreciacion(descriptor)) return null;
+  return listaPares((descriptor.cedula?.valorRelacionado?.pares ?? []).map((p) => ({ subgrupo: p.subgrupo, cuenta6: p.cuenta6 })));
+}
+
+/** El descriptor con las parejas configuradas. Un módulo sin valor relacionado queda intacto. */
+export function aplicarParesDepreciacion(
+  descriptor: DescriptorModulo,
+  pares: readonly ParDepreciacion[] | null | undefined,
+): DescriptorModulo {
+  const relacionado = descriptor.cedula?.valorRelacionado;
+  if (!pares || !relacionado) return descriptor;
+  return { ...descriptor, cedula: { ...descriptor.cedula, valorRelacionado: { ...relacionado, pares: listaPares(pares) } } };
+}
+
+/** Lee la copia guardada en el cierre (`pares_depreciacion`); `null` si no hay una válida. */
+export function leerParesDepreciacionGuardados(valor: unknown): ParDepreciacion[] | null {
+  if (!Array.isArray(valor)) return null;
+  const salida: ParDepreciacion[] = [];
+  for (const item of valor) {
+    if (!item || typeof item !== "object") return null;
+    const { subgrupo, cuenta6 } = item as { subgrupo?: unknown; cuenta6?: unknown };
+    const par = normalizarParDepreciacion(typeof subgrupo === "string" ? subgrupo : null, typeof cuenta6 === "string" ? cuenta6 : null);
+    if (!par) return null;
+    salida.push(par);
+  }
+  return listaPares(salida);
+}
