@@ -204,30 +204,38 @@ export default function BorradorModuloClient({
   const [filasPorGrupo, setFilasPorGrupo] = useState<Record<string, FilaBorradorModulo[]>>({});
   const [totalPorGrupo, setTotalPorGrupo] = useState<Record<string, number>>({});
   const [cargandoGrupos, setCargandoGrupos] = useState<Set<string>>(new Set());
+  // Toda fila que llegó del servidor, aunque un filtro, el orden o el chip de un grupo hayan soltado
+  // después su grupo. Los cambios sin guardar se calculan sobre ellas: si se tomaran solo de las
+  // filas cargadas, el total de un grupo cerrado (y el general) volvería a la cifra guardada y no
+  // descontaría lo que el usuario omitió (IGB, Activos fijos: 15240505 mostraba 646 M cerrado y
+  // 217,9 M abierto). Se vacía al guardar o al descartar.
+  const [filasVistas, setFilasVistas] = useState<Record<number, FilaBorradorModulo>>({});
 
   const filas = useMemo(() => Object.values(filasPorGrupo).flat(), [filasPorGrupo]);
 
-  const efectivas = useMemo(
-    () =>
-      filas.map((f) => {
-        const clasificador = f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador;
-        const tipoFila = f.filaNum in overrideTipo ? overrideTipo[f.filaNum] : f.tipoFila;
-        return {
-          ...f,
-          tipoFila,
-          // Un total nunca está «omitido»: al cambiar de tipo el tri-estado se limpia.
-          omitida: f.filaNum in overrideTipo ? null : f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
-          clasificador,
-        };
-      }),
-    [filas, overrideOmit, overrideClasif, overrideTipo],
+  /** La fila con los cambios sin guardar aplicados. */
+  const efectivaDe = useCallback(
+    (f: FilaBorradorModulo) => {
+      const clasificador = f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador;
+      const tipoFila = f.filaNum in overrideTipo ? overrideTipo[f.filaNum] : f.tipoFila;
+      return {
+        ...f,
+        tipoFila,
+        // Un total nunca está «omitido»: al cambiar de tipo el tri-estado se limpia.
+        omitida: f.filaNum in overrideTipo ? null : f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
+        clasificador,
+      };
+    },
+    [overrideOmit, overrideClasif, overrideTipo],
   );
+  const efectivas = useMemo(() => filas.map(efectivaDe), [filas, efectivaDe]);
 
   // Tipo/omisión ORIGINAL por fila: al aplicar en bloque, si el destino coincide con
   // el original se borra el override (no marca «cambios sin guardar» falsos).
-  const omitOriginal = useMemo(() => new Map(filas.map((f) => [f.filaNum, f.omitida === true])), [filas]);
-  const tipoOriginal = useMemo(() => new Map(filas.map((f) => [f.filaNum, f.tipoFila])), [filas]);
-  const clasifOriginal = useMemo(() => new Map(filas.map((f) => [f.filaNum, f.clasificador ?? ""])), [filas]);
+  const vistas = useMemo(() => Object.values(filasVistas), [filasVistas]);
+  const omitOriginal = useMemo(() => new Map(vistas.map((f) => [f.filaNum, f.omitida === true])), [vistas]);
+  const tipoOriginal = useMemo(() => new Map(vistas.map((f) => [f.filaNum, f.tipoFila])), [vistas]);
+  const clasifOriginal = useMemo(() => new Map(vistas.map((f) => [f.filaNum, f.clasificador ?? ""])), [vistas]);
   // Agrupadores ya presentes en el archivo (para el datalist de entrada manual).
   const agrupadoresExistentes = resumen.agrupadores;
 
@@ -256,14 +264,16 @@ export default function BorradorModuloClient({
   const enCero = (f: FilaBorradorModulo) => f.tipoFila === "movimiento" && f.omitida !== true && !esImputableFila(f);
 
   // Los totales salen del resumen del servidor (todo el archivo) y se corrigen con el EFECTO de
-  // lo que el usuario acaba de cambiar en las filas que tiene cargadas.
+  // lo que el usuario cambió y aún no guardó, esté o no cargado hoy el grupo de la fila.
   const delta = useMemo(() => {
     const porGrupo = new Map<string, { items: number; subtotal: number }>();
     let items = 0;
     let subtotal = 0;
-    for (const f of filas) {
-      const efectiva = efectivas.find((e) => e.filaNum === f.filaNum);
-      if (!efectiva) continue;
+    const cambiadas = new Set([...Object.keys(overrideOmit), ...Object.keys(overrideClasif), ...Object.keys(overrideTipo)].map(Number));
+    for (const filaNum of cambiadas) {
+      const f = filasVistas[filaNum];
+      if (!f) continue;
+      const efectiva = efectivaDe(f);
       const antes = esImputableFila(f);
       const ahora = esImputableFila(efectiva);
       const grupoAntes = f.clasificador?.trim() || GRUPO_SIN_CLASIFICAR;
@@ -277,7 +287,7 @@ export default function BorradorModuloClient({
       if (ahora) { items += 1; subtotal += efectiva.valor; ajustar(grupoAhora, 1, efectiva.valor); }
     }
     return { items, subtotal, porGrupo };
-  }, [efectivas, esImputableFila, filas]);
+  }, [efectivaDe, esImputableFila, filasVistas, overrideClasif, overrideOmit, overrideTipo]);
 
   const totalItems = resumen.imputables + delta.items;
   const total = Math.round((resumen.total + delta.subtotal) * 100) / 100;
@@ -352,6 +362,13 @@ export default function BorradorModuloClient({
         setOverrideOmit({});
         setOverrideClasif({});
         setOverrideTipo({});
+        // Las filas cargadas traen el estado de ANTES de guardar: se sueltan y los grupos abiertos se
+        // vuelven a pedir. Si no, una fila omitida y guardada se veía otra vez incluida y omitirla de
+        // nuevo la descontaba dos veces del total.
+        setFilasVistas({});
+        setFilasPorGrupo({});
+        setTotalPorGrupo({});
+        for (const g of abiertos) void cargarGrupo(g);
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
@@ -417,6 +434,11 @@ export default function BorradorModuloClient({
         if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
         setFilasPorGrupo((prev) => ({ ...prev, [clasificador]: desde > 0 ? [...(prev[clasificador] ?? []), ...r.filas] : r.filas }));
         setTotalPorGrupo((prev) => ({ ...prev, [clasificador]: r.total }));
+        setFilasVistas((prev) => {
+          const n = { ...prev };
+          for (const f of r.filas) n[f.filaNum] = f;
+          return n;
+        });
       } finally {
         setCargandoGrupos((prev) => { const n = new Set(prev); n.delete(clasificador); return n; });
       }
