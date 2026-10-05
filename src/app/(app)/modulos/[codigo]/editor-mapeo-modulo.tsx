@@ -534,7 +534,7 @@ export function EditorMapeoModulo({
           <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
         ) : (
           <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {clasificadorEtiqueta.toLowerCase()}?</span>
+            <span className="text-[11px] font-medium text-ink-600">¿Cómo viene «{clasificadorEtiqueta}» en el archivo?</span>
             <select value={modo} onChange={(e) => setModo(e.target.value as ModoClasificador)} className={claseCampo}>
               <option value="columna">En su propia columna, en cada fila</option>
               <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
@@ -548,7 +548,7 @@ export function EditorMapeoModulo({
         {cuentaEnClasificador && (
           <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
             <span className="text-[11px] font-medium text-ink-600">
-              ¿Cuántos caracteres hay ANTES de la cuenta contable dentro del {clasificadorEtiqueta.toLowerCase()}?
+              ¿Cuántos caracteres hay ANTES de la cuenta contable dentro de ese código?
             </span>
             <input
               type="number"

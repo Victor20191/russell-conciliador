@@ -24,6 +24,9 @@ export const LIMITE_FILAS_PRUEBA = 15;
 /** Un texto más largo que esto no ayuda a reconocer la columna y sí infla la respuesta. */
 const MAX_TEXTO_CELDA = 60;
 
+/** Columna sintética de la prueba: la cuenta del cliente que la lectura extrajo del clasificador. */
+const CLAVE_CUENTA_ARCHIVO = "_cuentaCliente";
+
 export type ColumnaPruebaMapeo = ColumnaDetalle & {
   /** Letra de Excel de la columna en el archivo, o «—» cuando el motor no la lee de una celda. */
   letra: string;
@@ -127,6 +130,12 @@ export function columnasPruebaMapeo(
     // dos cifras que el patrón promueve y de las que depende todo el cruce.
     if (columna.nombre === descriptor.clasificador) {
       salida.push({ ...columna, letra: global ? "—" : letraColumnaModulo(col + columnaInicial), ...(global ? { nota: "global" } : {}) });
+      // Activos fijos: la cuenta del CLIENTE que se extrae de ese código, al lado y en su propia
+      // columna. Es el dato del que depende la cuenta del cruce, así que hay que poder verlo
+      // antes de guardar: con el prefijo mal puesto, aquí sale «sin cuenta».
+      if (descriptor.cuentaDesdeClasificador) {
+        salida.push({ nombre: CLAVE_CUENTA_ARCHIVO, etiqueta: "Cuenta del archivo", tipo: "texto", letra: "—", nota: "se extrae" });
+      }
       continue;
     }
     if (columna.esValor) {
@@ -202,9 +211,13 @@ export function vistaPruebaMapeo(input: {
       celdas: columnas.map((c) =>
         c.nombre === descriptor.clasificador
           ? f.clasificador
-          : c.esValor
-            ? f.valor
-            : recortar(valorColumnaDetalle({ valor: f.valor, datos }, c)),
+          : c.nombre === CLAVE_CUENTA_ARCHIVO
+            // Lo que la lectura extrajo del código, o el aviso de que no se pudo: nunca vacío,
+            // porque una celda en blanco se leería como «todavía no lo calculó».
+            ? (typeof datos[CLAVE_CUENTA_ARCHIVO] === "string" ? String(datos[CLAVE_CUENTA_ARCHIVO]) : "sin cuenta")
+            : c.esValor
+              ? f.valor
+              : recortar(valorColumnaDetalle({ valor: f.valor, datos }, c)),
       ),
     };
   });

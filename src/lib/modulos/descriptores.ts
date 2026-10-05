@@ -20,6 +20,12 @@ export type RolColumna = {
   nombre: string;
   /** Etiqueta legible para el editor de columnas del wizard. */
   etiqueta: string;
+  /**
+   * Plural de la etiqueta, para los textos de la asignación masiva («a estos 12 …»). Solo hace
+   * falta cuando pluralizar la primera palabra no sirve: «Cuenta contable o grupo de activo» da
+   * «cuentas contable o grupo…». Ausente → se deduce (`pluralClasificador`).
+   */
+  etiquetaPlural?: string;
   tipo: TipoColumna;
   /** Si es obligatoria en el archivo (bloquea la confirmación si falta). */
   requerido: boolean;
@@ -469,7 +475,10 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     codigo: "AFI",
     label: "Activos Fijos",
     columnas: [
-      col("grupo", "Grupo de activo", "texto", true, ["grupo", "tipo", "clase", "cuenta", "categoria"]),
+      // La etiqueta nombra primero la CUENTA: de este campo se extrae la cuenta del cliente
+      // («AF152805» → 152805) y, cuando el archivo solo trae una categoría sin cuenta, sigue
+      // siendo el grupo que se asigna a mano en el Consolidado.
+      { ...col("grupo", "Cuenta contable o grupo de activo", "texto", true, ["grupo", "tipo", "clase", "cuenta", "categoria"]), etiquetaPlural: "cuentas o grupos de activo" },
       col("placa", "Placa / código", "texto", true, ["placa", "codigo", "activo", "id", "referencia"]),
       col("descripcion", "Descripción", "texto", false, ["descripcion", "detalle", "nombre"]),
       col("fechaAdquisicion", "Fecha de adquisición", "fecha", false, ["fecha", "adquisicion", "compra", "ingreso"]),

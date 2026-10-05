@@ -456,6 +456,7 @@ export default function DatoCargadoClient({
   total,
   columnas,
   clasificadorEtiqueta,
+  clasificadorEtiquetaPlural,
   totalFilasDetalle,
   columnasVisiblesDetalle,
   consolidado,
@@ -482,6 +483,8 @@ export default function DatoCargadoClient({
   total: number;
   columnas: Columna[];
   clasificadorEtiqueta: string;
+  /** Plural declarado por el descriptor; sin él se deduce de la etiqueta. */
+  clasificadorEtiquetaPlural?: string | null;
   /** Cuántas filas tiene el cargue: la pestaña «Detalle» las pide por páginas. */
   totalFilasDetalle: number;
   /** Columnas que el archivo trae (las decide el servidor mirando el cargue entero). */
@@ -631,7 +634,7 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} onGuardado={alGuardarConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
+        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} onGuardado={alGuardarConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} clasificadorEtiquetaPlural={clasificadorEtiquetaPlural} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
@@ -876,6 +879,7 @@ function ConsolidadoTab({
   moduloCodigo,
   clienteId,
   clasificadorEtiqueta,
+  clasificadorEtiquetaPlural,
   consolidado,
   cuentas,
   cuentasPeriodo,
@@ -895,6 +899,8 @@ function ConsolidadoTab({
   moduloCodigo: string;
   clienteId: number;
   clasificadorEtiqueta: string;
+  /** Plural declarado por el descriptor; sin él se deduce de la etiqueta. */
+  clasificadorEtiquetaPlural?: string | null;
   consolidado: ConsolidadoVm[];
   /** Cuentas de la cédula: lo que el selector ofrece. */
   cuentas: CuentaOpt[];
@@ -1083,7 +1089,12 @@ function ConsolidadoTab({
   // Intersección con la tabla actual: tras un refresh puede haber cambiado el consolidado.
   const seleccionados = useMemo(() => clasificadores.filter((k) => seleccion.has(k)), [clasificadores, seleccion]);
   const nSel = seleccionados.length;
-  const etiquetaPlural = useMemo(() => pluralClasificador(clasificadorEtiqueta), [clasificadorEtiqueta]);
+  // El descriptor puede declarar el plural: deducirlo de «Cuenta contable o grupo de activo»
+  // daría «cuentas contable o grupo de activo».
+  const etiquetaPlural = useMemo(
+    () => clasificadorEtiquetaPlural?.trim() || pluralClasificador(clasificadorEtiqueta),
+    [clasificadorEtiqueta, clasificadorEtiquetaPlural],
+  );
 
   const alternarSeleccion = (clasificador: string) =>
     setSeleccion((p) => {

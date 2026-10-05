@@ -573,6 +573,7 @@ export default async function DatoModuloPage({
         total={Number(encabezado.total)}
         columnas={columnasDeLaTabla}
         clasificadorEtiqueta={descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"}
+        clasificadorEtiquetaPlural={descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiquetaPlural ?? null}
         totalFilasDetalle={totalFilasDetalle}
         columnasVisiblesDetalle={columnasVisiblesTabla}
         consolidado={consolidadoVm}
