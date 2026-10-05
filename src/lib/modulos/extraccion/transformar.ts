@@ -28,6 +28,7 @@ import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
+import { detectarFilasDeEmpleado, type FilaDeEmpleado } from "../nomina/filas-empleado";
 import { cuentaDelClasificador } from "../cuenta-clasificador";
 import { MARCA_SOLO_DEPRECIACION } from "../activos/contenido-archivo";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
@@ -467,6 +468,20 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese mes.
   const corteCargue: Mes | null = nomina?.periodoPorFila ? spec.periodoHasta ?? spec.periodoDesde ?? null : null;
   const anioCargue = corteCargue ? parsearAnio(corteCargue.slice(0, 4)) : null;
+  // Reporte POR EMPLEADO (HGI «LIQUIDACION»): la fila del empleado trae la cédula en la columna del
+  // código, el nombre en la del concepto y su total en la del valor (= Σ de sus conceptos). No es un
+  // concepto: da la cédula y el nombre a las filas que la siguen y no suma (`nomina/filas-empleado.ts`).
+  const colCodigoNomina = nomina ? (spec.columnas.codigo ?? 0) : 0;
+  const colConceptoNomina = nomina ? (spec.columnas.concepto ?? 0) : 0;
+  const colValorNomina = nomina && !tieneValorFormula(spec) ? (spec.columnas[descriptor.valor] ?? 0) : 0;
+  const filasDeEmpleado: Map<number, FilaDeEmpleado> = colCodigoNomina >= 1 && colConceptoNomina >= 1 && colValorNomina >= 1
+    ? detectarFilasDeEmpleado(hoja.filas.slice(inicio).map((f) => ({
+        codigo: aTexto(celda(f ?? [], colCodigoNomina)),
+        nombre: aTexto(celda(f ?? [], colConceptoNomina)),
+        valor: aNumero(celda(f ?? [], colValorNomina)),
+      })))
+    : new Map();
+  let empleadoVigente: { cedula: string; nombre: string } | null = null;
 
   // Saldo a favor impreso como DESGLOSE («Anticipos» de CEMCO SAFIX): el mismo crédito ya está
   // en otro balde y la columna de total no lo cuenta dos veces. Se decide una vez por archivo,
@@ -644,6 +659,35 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       } else {
         datos[rolIdentificador] = null;
         if (rolNombre && (spec.columnas[rolNombre] ?? 0) < 1 && aTexto(datos.documento) != null) datos[rolNombre] = ultimoNombreTercero;
+      }
+    }
+
+    // 1.45) NÓMINA · fila de EMPLEADO (reporte por empleado): fija la cédula y el nombre de los
+    //       conceptos que la siguen y queda fuera del total; su cifra se conserva como control.
+    const filaDeEmpleado = filasDeEmpleado.get(r - inicio);
+    if (filaDeEmpleado) {
+      empleadoVigente = { cedula: filaDeEmpleado.cedula, nombre: filaDeEmpleado.nombre };
+      datos.cedula = filaDeEmpleado.cedula;
+      datos.empleado = filaDeEmpleado.nombre;
+      datos.codigo = null;
+      datos.concepto = null;
+      if (!filaDeEmpleado.cuadra) {
+        const pesos = (v: number) => v.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+        excepciones.push({
+          filaNum,
+          mensaje: `El total del empleado ${filaDeEmpleado.nombre} (${filaDeEmpleado.cedula}) es ${pesos(filaDeEmpleado.total)} y sus conceptos suman ${pesos(filaDeEmpleado.sumaConceptos)}.`,
+        });
+      }
+      filasExcluidas++;
+      filas.push({ filaNum, clasificador: null, valor: 0, datos, tipoFila: "agrupadora", motivo: "empleado:cabecera" });
+      crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: null, marcaManual: false, marcaManualExacta: false });
+      continue;
+    }
+    if (empleadoVigente) {
+      const esRotuloDeTotal = [datos.codigo, datos.concepto].some((v) => { const t = aTexto(v); return t != null && esTotal(t); });
+      if (!esRotuloDeTotal) {
+        if (aTexto(datos.cedula) == null) datos.cedula = empleadoVigente.cedula;
+        if (aTexto(datos.empleado) == null) datos.empleado = empleadoVigente.nombre;
       }
     }
 

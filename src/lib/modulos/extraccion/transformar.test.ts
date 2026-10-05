@@ -546,6 +546,44 @@ describe("transformarModulo (NOM)", () => {
     expect(junio.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.valor)).toEqual([100, 200]);
   });
 
+  it("HGI «LIQUIDACION» por empleado: la fila del empleado da la cédula a sus conceptos y no suma", () => {
+    // Como lo imprime HGI (GEN PROMOTORA 2025): título, encabezado en la fila 5, cada empleado con
+    // su cédula en CODIGO y su total en VALOR, y «DOCUMENTO» con números que no son cédulas.
+    const h = hojaNom([
+      ["GEN PROMOTORA DE PROYECTOS S.A.S", null, null, null, null, "2026-03-06"],
+      ["NIT  890,926,050-2", null, null, null, null, null],
+      ["LIQUIDACION", null, null, null, null, null],
+      ["PERIODO 24 DE 2025  ENTRE 2025-01-01  Y 2025-12-31", null, null, null, null, null],
+      ["CODIGO", "DESCRIPCION", null, "DOCUMENTO", "CANTIDAD", "VALOR"],
+      ["1022093434", "GALLO LEZCANO DANIEL ALBERTO", null, 0, 3429.99, 19922093],
+      ["01", "SALARIO BASICO", null, 0, 2709.99, 17082000],
+      ["02", "AUXILIO DE TRANSPORTE", null, 0, 0, 2400000],
+      ["15", "PRIMA", null, 1, 360, 1123373],
+      ["30", "APORTE SALUD", null, 0, 0, -683280],
+      ["1022099401", "FLOREZ DIAZ DUVAN ESTIVEN", null, 0, 3429.99, 12000000],
+      ["01", "SALARIO BASICO", null, 0, 1954.66, 12751316],
+      ["31", "APORTE PENSIÓN", null, 4, 0, -751316],
+      [null, "TOTALES", null, 5, 7494.63, 31922093],
+    ]);
+    const spec = sugerirSpec(NOM, h);
+    expect(spec.columnas).toMatchObject({ codigo: 1, concepto: 2, valor: 6, cedula: 0 });
+    expect(rolesRequeridosFaltantes(NOM, spec)).toEqual([]);
+
+    const res = transformarModulo(NOM, { ...spec, periodoHasta: "2025-12" }, h);
+    const empleados = res.filas.filter((f) => f.motivo === "empleado:cabecera");
+    expect(empleados.map((f) => [f.datos.cedula, f.datos.empleado, f.valor])).toEqual([
+      ["1022093434", "GALLO LEZCANO DANIEL ALBERTO", 0],
+      ["1022099401", "FLOREZ DIAZ DUVAN ESTIVEN", 0],
+    ]);
+    const conceptos = res.filas.filter((f) => f.tipoFila === "movimiento");
+    expect(conceptos).toHaveLength(6);
+    expect(conceptos.reduce((s, f) => s + f.valor, 0)).toBe(31922093);
+    expect(conceptos.map((f) => `${f.clasificador}:${f.datos.cedula}`)).toEqual([
+      "1:1022093434", "2:1022093434", "15:1022093434", "30:1022093434", "1:1022099401", "31:1022099401",
+    ]);
+    expect(res.excepciones).toEqual([]);
+  });
+
   it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {
     const h = hojaNom([
       ["Código del concepto", "Concepto", "Cédula", "Empleado", "Centro de costo", "Valor"],

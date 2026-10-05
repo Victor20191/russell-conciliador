@@ -603,6 +603,8 @@ const proporcion = (valores: string[], pred: (v: string) => boolean): number =>
 /** Código de concepto: dígitos o letra+dígitos cortos («001», «C001», «0005», «SOLID», «RETE»). */
 const ES_CODIGO = /^[A-Za-z]{0,5}\d{1,6}$|^[A-Z]{3,6}$/;
 const ES_DIGITOS = /^[\d.]+(-\d{1,2})?$/;
+/** Cédula o NIT: solo dígitos y al menos cinco (un «DOCUMENTO» con 0, 1, 4 —HGI— no lo es). */
+const esCedula = (v: string): boolean => ES_DIGITOS.test(v) && v.replace(/-\d{1,2}$/, "").replace(/\D/g, "").length >= 5;
 /** «8032318 - GALLEGO GUZMAN» (NOMINAI), «3348656 URIBE ALVAREZ» (SIIGO): cédula y nombre en la misma celda. */
 const ES_CODIGO_Y_NOMBRE = /^\d{4,12}\s*(?:-\s*)?[A-Za-zÁÉÍÓÚÑ]/;
 /** Cuenta contable del cliente: seis o más dígitos. */
@@ -700,10 +702,20 @@ function ajustarRolesNomina(descriptor: DescriptorModulo, hoja: GridHoja, spec: 
     cols.codigo = colConceptoExacto;
     if ((cols.concepto ?? 0) < 1) cols.concepto = vecinaTexto(colConceptoExacto, /concepto|descripci|nombre/);
   }
+  // 1c) Sin columna del nombre del concepto, el nombre es la columna de texto pegada al código si
+  //     se rotula como tal (HGI «CODIGO | DESCRIPCION»); una del empleado o del centro, no.
+  if ((cols.concepto ?? 0) < 1 && (cols.codigo ?? 0) >= 1) {
+    for (let c = cols.codigo + 1; c <= Math.min(cols.codigo + 2, header.length); c++) {
+      if (!encabezado(c) || usada(c)) continue;
+      if (/empleado|trabajador|tercero|cedula|centro|cargo|cuenta|grupo/.test(encabezado(c))) break;
+      if (/^(descripci|nombre|detalle|concepto)/.test(encabezado(c)) && esTexto(c)) cols.concepto = c;
+      break;
+    }
+  }
   // 1b) Cédula sin columna: un «Empleado» numérico que perdió el rol frente a «Nombre_Empleado»
   //     (Ofimática), o cualquier «Tercero»/«Documento» con cédulas.
   if ((cols.cedula ?? 0) < 1) {
-    const candidata = header.findIndex((h, i) => !usada(i + 1) && /empleado|cedula|identificaci|documento|nit|tercero/.test(norm(h)) && proporcion(muestra(i + 1), (v) => ES_DIGITOS.test(v)) >= 0.7);
+    const candidata = header.findIndex((h, i) => !usada(i + 1) && /empleado|cedula|identificaci|documento|nit|tercero/.test(norm(h)) && proporcion(muestra(i + 1), esCedula) >= 0.7);
     if (candidata >= 0) cols.cedula = candidata + 1;
   }
   // 2) Cédula y empleado. La columna del empleado con contenido numérico es la cédula y el
@@ -725,8 +737,15 @@ function ajustarRolesNomina(descriptor: DescriptorModulo, hoja: GridHoja, spec: 
   }
   // Cédula mapeada a una columna vacía (Heinsohn «Código Empleado») cuando hay otra con cédulas.
   if ((cols.cedula ?? 0) >= 1 && muestra(cols.cedula).length === 0) {
-    const otra = header.findIndex((h, i) => !usada(i + 1) && /cedula|identificaci|documento|nit/.test(norm(h)) && proporcion(muestra(i + 1), (v) => ES_DIGITOS.test(v)) >= 0.7);
+    const otra = header.findIndex((h, i) => !usada(i + 1) && /cedula|identificaci|documento|nit/.test(norm(h)) && proporcion(muestra(i + 1), esCedula) >= 0.7);
     if (otra >= 0) cols.cedula = otra + 1;
+  }
+  // 2b) Una «cédula» de números cortos bajo un rótulo ambiguo no es la cédula: el «DOCUMENTO» de
+  //     HGI trae 0, 1 y 4 (otra cosa del ERP). La columna rotulada «Cédula»/«Identificación» se
+  //     respeta, y la de «cédula + nombre» en la celda (SIIGO, NOMINAI) pasa: trae sus dígitos.
+  if ((cols.cedula ?? 0) >= 1 && !/cedula|identificaci/.test(encabezado(cols.cedula))) {
+    const valores = muestra(cols.cedula);
+    if (valores.length > 0 && proporcion(valores, (v) => (/^\d/.test(v) ? v.split(/\s|-\s/)[0].replace(/\D/g, "").length >= 5 : true)) < 0.5) cols.cedula = 0;
   }
   // El nombre del empleado es la PRIMERA columna de texto a la derecha de la cédula (SIESA
   //  «Tercero | Descripción», SIIGO «Cédula | Nombre»); un «Descripción Grp. Empleados» más
