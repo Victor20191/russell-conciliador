@@ -288,16 +288,20 @@ function ConfirmarCentroCarga({
 const ROL_CUENTA = "cuenta";
 
 /**
- * Nómina: el patrón lee la cuenta contable del cliente. Solo informa: los conceptos cruzarán por esa
- * cuenta (homologada en el balance o por su estructura PUC) y el catálogo de conceptos de
- * /config/conceptos-nomina no hace falta para este cargue, salvo en las filas sin cuenta válida.
+ * Nómina: el cargue lee la cuenta contable del cliente, con patrón o con el mapeo armado en la carga
+ * (5/Oct/2026). Solo informa: los conceptos cruzarán por esa cuenta (homologada en el balance o por
+ * su estructura PUC) y el catálogo de conceptos de /config/conceptos-nomina no hace falta para este
+ * cargue, salvo en las filas sin cuenta válida.
  */
-function AvisoCuentaArchivo({ analisis, columna }: { analisis: AnalisisModulo; columna: number }) {
+function AvisoCuentaArchivo({ analisis, columna, conPatron = true }: { analisis: AnalisisModulo; columna: number; conPatron?: boolean }) {
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
     <div className="flex flex-col gap-1 rounded-md border border-ok-500/60 bg-ok-100/30 px-3 py-2.5 text-[11px] leading-snug text-ink-600">
       <span className="font-medium text-ok-700">
-        El patrón lee la cuenta contable del cliente en la columna {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}.
+        {conPatron
+          ? `El patrón lee la cuenta contable del cliente en la columna ${letra}.`
+          : `En el mapeo, la cuenta contable del cliente es la columna ${letra}.`}
       </span>
       <span>
         Los conceptos cruzarán por esa cuenta y el catálogo de conceptos no hace falta para este cargue (salvo en las filas sin
@@ -1494,6 +1498,10 @@ function CargarModal({
             marcaTotalesCarga={marcaTotalesCarga}
             exigirTipoFormato={configurando}
           />
+          {/* Nómina: el mismo aviso que con patrón, sobre la columna de la cuenta que quedó en el mapeo. */}
+          {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
+            <AvisoCuentaArchivo analisis={analisis} columna={spec.columnas[ROL_CUENTA] ?? 0} conPatron={false} />
+          )}
           {/* Nómina: la misma pregunta que con patrón, sobre la columna del centro que quedó en el mapeo. */}
           {confirmarAgrupador && colCentro >= 1 && (
             <ConfirmarCentroCarga
