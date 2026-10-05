@@ -741,6 +741,13 @@ model BalancePruebaEncabezado {
   filasDescuadre           Int?      @map("filas_descuadre")
   congeladoPor             String?   @map("congelado_por")
   congeladoEn              DateTime? @map("congelado_en") @db.Timestamptz(3)
+  // Descongelado para corregirlo (4/Oct/2026): quién, cuándo y por qué. Alimentan el aviso de la
+  // pantalla mientras la versión sigue sin congelar; congelarla de nuevo los limpia. La historia
+  // completa queda en la auditoría («DESCONGELÓ BALANCE»).
+  descongeladoPor          String?   @map("descongelado_por")
+  descongeladoPorId        Int?      @map("descongelado_por_id") // FK suave a usuarios
+  descongeladoEn           DateTime? @map("descongelado_en") @db.Timestamptz(3)
+  motivoDescongelado       String?   @map("justificacion_descongelado")
   ultimaCarga              DateTime? @map("ultima_carga") @db.Timestamptz(3)
   creadoEn                 DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
