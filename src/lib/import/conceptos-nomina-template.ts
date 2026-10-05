@@ -26,7 +26,7 @@ export const HEADERS_PLANTILLA_CONCEPTOS = [
   "Cliente (NIT o código) *",
   "Grupo de cuenta contable",
   "Código del concepto *",
-  "Nombre del concepto *",
+  "Nombre del concepto",
   "Cuenta contable del cliente *",
   "Centro de costo / clase",
 ];
@@ -102,14 +102,14 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
   ws.columns = [{ width: 34 }, { width: 110 }];
   ws.addRows([
     ["Uso", "Diligencia la hoja Conceptos. Borra o reemplaza las filas que empiezan por EJEMPLO."],
-    ["Campos obligatorios", "Cliente, código, nombre y cuenta contable. Una fila con cualquiera de ellos vacío se rechaza. El grupo y el centro de costo son opcionales."],
+    ["Campos obligatorios", "Cliente, código y cuenta contable. Una fila con cualquiera de ellos vacío se rechaza. El nombre, el grupo y el centro de costo son opcionales."],
     ["Cliente", "Escribe el NIT o el código del cliente (C-1042). Consulta la hoja Referencias; solo aparecen los clientes que tienes asignados."],
     ["Grupo de cuenta contable", "La familia del concepto: Sueldos, Horas extras, Comisiones, Incapacidades, Auxilio de transporte, Cesantías, Intereses sobre cesantías, Prima de servicios, Vacaciones, Auxilios, Bonificaciones, Indemnizaciones, Aportes ARL/EPS/pensión… (lista en Referencias). Si lo dejas vacío, la plataforma lo sugiere por la cuenta o por el nombre."],
     ["Código", "El código del concepto en la nómina del cliente. Es la LLAVE del mapeo: es lo que la plataforma busca en el archivo de nómina para saber a qué cuenta lleva cada fila. «01», «001» y «1» se toman como el mismo código."],
-    ["Nombre", "El nombre legible del concepto (Sueldo básico, Auxilio de transporte…). Es la etiqueta que se ve al revisar el consolidado."],
+    ["Nombre", "Opcional. El nombre legible del concepto (Sueldo básico, Auxilio de transporte…). Si lo dejas vacío, el concepto conserva el nombre que ya tenga y, si no tiene, el consolidado muestra el nombre que trae el archivo de nómina. También ayuda a sugerir el grupo cuando no lo escribes."],
     ["Cuenta contable del cliente", "La cuenta del PUC del cliente a la que el ERP lleva el concepto (51050601, 0005060000 en SIIGO). La plataforma la convierte a la cuenta Russell de 6 dígitos con la homologación del balance (RF-NOM-10) o por su estructura. También acepta la cuenta Russell directamente (510506). Si un concepto va a varias cuentas, escríbelas en la MISMA fila separadas con punto y coma (;), p. ej. 51050601; 72050601, o repite la fila del concepto y centro con cada cuenta: se unen."],
     ["Centro de costo / clase", "Opcional. Si el archivo de nómina trae centro de costo o clase (GYA, MOD, CP, GV, 51, 72…) y el concepto va a una cuenta distinta por centro, escribe una fila por centro con el valor exacto que trae el archivo. Sin centro, la fila aplica a todos."],
-    ["Un concepto, una fila", "No repitas el mismo código y centro para un cliente en dos filas: el archivo se rechaza. Usa el punto y coma para las cuentas múltiples."],
+    ["Concepto repetido", "Si el mismo código y centro de un cliente viene en varias filas (una por cuenta, como lo exportan algunos ERP), sus cuentas se unen, igual que si vinieran en una fila separadas con punto y coma."],
     ["Qué hace la carga", "Cada concepto (y centro) REEMPLAZA las cuentas que tuviera asignadas. Los conceptos que no vengan en el archivo se quedan como están (la carga no borra lo que no menciona)."],
     ["Cuentas de deducciones", "Las cuentas de pasivo, activo o ingreso (libranzas 2370, retención 2365, préstamos 1365, intereses 4210) se aceptan: no cruzan contra el gasto, van al control de deducciones."],
     ["Catálogo del ERP", "Si el ERP exporta su propio informe de conceptos (SIIGO «Informe conceptos de nómina», «Equivalencias», «Maestro de conceptos»), puedes cargarlo tal cual con «Cargar catálogo del ERP», sin pasarlo a esta plantilla."],

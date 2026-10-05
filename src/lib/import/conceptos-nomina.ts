@@ -6,7 +6,9 @@
 //   cliente    → `cliente_id` (se resuelve por NIT o código en la Server Action)          *
 //   grupo      → `grupo` (grupo de cuenta contable RF-NOM-02: sueldos, prima, cesantías…)
 //   código     → `clasificador` (la llave: en Nómina el clasificador ES el código)         *
-//   concepto   → `descripcion` (el nombre legible)                                          *
+//   concepto   → `descripcion` (el nombre legible). Opcional desde el 5/Oct/2026: vacío, se
+//                conserva el que ya tuviera el concepto y, sin ninguno, el Consolidado muestra
+//                el nombre que trae el archivo de nómina.
 //   cuenta     → cuenta contable DEL CLIENTE (6-10 dígitos: 51050601, 0005060000) o la     *
 //                Russell de 6 (510506). Una o varias separadas con «;», o en filas repetidas del
 //                mismo concepto y centro (se unen). La Server Action la
@@ -35,8 +37,8 @@ export const DIGITOS_CUENTA_NOMINA = 6;
 /** Mínimo de dígitos de una cuenta aceptable (Russell de 6 o cuenta del cliente de 6+). */
 export const MIN_DIGITOS_CUENTA = 6;
 
-export const COLUMNAS_REQUERIDAS = ["cliente", "codigo", "concepto", "cuenta"] as const;
-export type ColumnaConcepto = (typeof COLUMNAS_REQUERIDAS)[number] | "grupo" | "agrupador";
+export const COLUMNAS_REQUERIDAS = ["cliente", "codigo", "cuenta"] as const;
+export type ColumnaConcepto = (typeof COLUMNAS_REQUERIDAS)[number] | "concepto" | "grupo" | "agrupador";
 
 const ETIQUETA_COLUMNA: Record<ColumnaConcepto, string> = {
   cliente: "Cliente (NIT o código)",
@@ -55,7 +57,7 @@ export type ConceptoCatalogoEntrada = {
   fila: number;
   /** Código canónico del concepto (sin ceros a la izquierda). */
   codigo: string;
-  /** Nombre legible del concepto. */
+  /** Nombre legible del concepto ('' = el archivo no lo trae: es opcional). */
   concepto: string;
   /** Id del grupo RF-NOM-02, o null para sugerirlo (por nombre o subcuenta). */
   grupo: string | null;
@@ -217,7 +219,7 @@ export async function parseConceptosNominaWorkbook(
     const errs: string[] = [];
     if (!cliente) errs.push("Falta el cliente (NIT o código).");
     if (!codigo) errs.push("Falta el código del concepto.");
-    if (!concepto) errs.push("Falta el nombre del concepto.");
+    // El nombre es opcional: la llave es el código y el nombre ya viene en el archivo de nómina.
 
     const { cuentas, errores: errCuentas } = partirCuentas(cuentaRaw);
     if (!cuentaRaw) errs.push("Falta la cuenta contable.");
@@ -234,13 +236,14 @@ export async function parseConceptosNominaWorkbook(
       continue;
     }
 
-    // El mismo concepto y centro en otra fila: sus cuentas se suman a la primera (el nombre es el
-    // de la primera; el grupo, el primero que venga).
+    // El mismo concepto y centro en otra fila: sus cuentas se suman a la primera (el nombre y el
+    // grupo, los primeros que vengan).
     const clave = `${normalizar(cliente)}|${normalizar(codigo)}|${normalizar(agrupador)}`;
     const previa = vistos.get(clave);
     if (previa != null) {
       const primera = filas[previa];
       primera.cuentas = [...new Set([...primera.cuentas, ...cuentas])];
+      if (!primera.concepto && concepto) primera.concepto = concepto;
       if (!primera.grupo && grupo) primera.grupo = grupo;
       unidos.add(clave);
       continue;
@@ -259,7 +262,8 @@ export async function parseConceptosNominaWorkbook(
 export type FilaConceptoAEscribir = {
   clienteId: number;
   clasificador: string;
-  descripcion: string;
+  /** null = sin nombre en el archivo: la escritura conserva el que ya tuviera el concepto. */
+  descripcion: string | null;
   agrupador: string;
   grupo: string | null;
   subcuentaPuc: string | null;
@@ -267,6 +271,24 @@ export type FilaConceptoAEscribir = {
   cuenta4: string;
   cuenta6: string;
 };
+
+/**
+ * El nombre del concepto es opcional. Una fila sin él toma el nombre del mismo código (el nombre
+ * es del concepto, no del centro): primero el que traiga otra fila del mismo archivo y, si no, el
+ * que ya tenía en la memoria del cliente —la carga reemplaza las filas y si no se perdería—.
+ * Sin ninguno queda null y el Consolidado muestra el nombre que trae el archivo de nómina.
+ */
+export function completarNombresConceptos<T extends { clienteId: number; clasificador: string; descripcion: string | null }>(
+  filas: readonly T[],
+  previas: readonly { clienteId: number; clasificador: string; descripcion: string | null }[],
+): T[] {
+  const nombres = new Map<string, string>();
+  for (const f of [...filas, ...previas]) {
+    const clave = `${f.clienteId}|${f.clasificador}`;
+    if (f.descripcion?.trim() && !nombres.has(clave)) nombres.set(clave, f.descripcion);
+  }
+  return filas.map((f) => (f.descripcion?.trim() ? f : { ...f, descripcion: nombres.get(`${f.clienteId}|${f.clasificador}`) ?? null }));
+}
 
 /** Origen con que la carga masiva deja sus filas en la memoria del cliente. */
 export const ORIGEN_CARGA_MASIVA = "carga_masiva";
