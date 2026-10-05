@@ -56,11 +56,14 @@ export function textoRangosCodigos(rangos: readonly RangoCodigos[] | undefined):
   return (rangos ?? []).map((r) => (r.desde === r.hasta ? String(r.desde) : `${r.desde}-${r.hasta}`)).join(", ");
 }
 
-/** ¿El código del concepto (solo dígitos: «541», «0541») cae en alguno de los rangos? */
+/**
+ * ¿El código del concepto cae en alguno de los rangos? Solo dígitos («541», «0541»), o el código con
+ * su nombre pegado («541 - DEDUC. FESERT», como lo imprime NOMINAI cuando no se separa al leer).
+ */
 export function esCodigoDeduccion(codigo: unknown, rangos: readonly RangoCodigos[] | undefined): boolean {
   if (!rangos?.length || codigo == null) return false;
-  const texto = String(codigo).trim();
-  if (!/^\d{1,9}$/.test(texto)) return false;
-  const n = Number(texto);
+  const m = /^(\d{1,9})(?:\s*-\s*.*)?$/.exec(String(codigo).trim());
+  if (!m) return false;
+  const n = Number(m[1]);
   return rangos.some((r) => n >= r.desde && n <= r.hasta);
 }

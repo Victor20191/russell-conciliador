@@ -43,6 +43,9 @@ describe("esCodigoDeduccion", () => {
     expect(esCodigoDeduccion("0602", NOMINAI)).toBe(true);
     expect(esCodigoDeduccion("106", NOMINAI)).toBe(false); // «DEV. DEDUCC FESERT»: devuelve, es devengo
     expect(esCodigoDeduccion("C541", NOMINAI)).toBe(false);
+    // Con el nombre pegado, como lo imprime NOMINAI.
+    expect(esCodigoDeduccion("541 - DEDUC. FESERT", NOMINAI)).toBe(true);
+    expect(esCodigoDeduccion("001 - BASICO", NOMINAI)).toBe(false);
     expect(esCodigoDeduccion("541", undefined)).toBe(false);
   });
 });

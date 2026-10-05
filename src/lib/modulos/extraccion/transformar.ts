@@ -887,6 +887,17 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         const m = /^([A-Za-z]?\d{1,6})\s*-\s*(.+)$/.exec(conceptoCrudo);
         if (m) { datos.codigo = m[1]; datos.concepto = m[2].trim(); clasificador = m[1]; }
       }
+      // …y lo mismo cuando el CÓDIGO está mapeado a esa celda (NOMINAI v2 de KP: código y concepto en
+      // la columna C, 6/Oct/2026). Sin partirla la llave era «541 - DEDUC. FESERT»: no casaba con el
+      // catálogo de conceptos (llavea por «541») ni con los códigos de deducción del formato.
+      const codigoCelda = aTexto(datos.codigo);
+      const partido = codigoCelda ? /^([A-Za-z]?\d{1,6})\s*-\s*(.+)$/.exec(codigoCelda) : null;
+      if (partido) {
+        datos.codigo = partido[1];
+        // El nombre de su propia columna manda; si es la misma celda, el que traía pegado.
+        if (conceptoCrudo == null || norm(conceptoCrudo) === norm(codigoCelda!)) datos.concepto = partido[2].trim();
+        if (clasificador === codigoCelda) clasificador = partido[1];
+      }
       // El código de concepto se guarda CANÓNICO (« 01 », «001» y «1» son el mismo concepto):
       // así llavea igual en la memoria de homologación, en el catálogo del ERP y en el cruce.
       const codigoCrudo = aTexto(datos.codigo);

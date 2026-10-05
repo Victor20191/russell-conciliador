@@ -607,6 +607,17 @@ describe("transformarModulo (NOM)", () => {
     // Sin los códigos, todo entraba como devengo.
     const sinCodigos = transformarModulo(NOM, { ...base, periodoHasta: "2025-12" }, h);
     expect(sinCodigos.filas.filter((f) => f.tipoFila === "movimiento").every((f) => f.valor > 0)).toBe(true);
+
+    // NOMINAI v2 de KP: el patrón mapea el CÓDIGO y el CONCEPTO a la misma columna C. La celda
+    // «541 - DEDUC. FESERT» se parte en código «541» y nombre, y la llave es el código canónico.
+    const mismaColumna: SpecModulo = { ...spec, columnas: { ...spec.columnas, codigo: spec.columnas.concepto } };
+    const partido = transformarModulo(NOM, mismaColumna, h).filas.filter((f) => f.tipoFila === "movimiento");
+    expect(partido.map((f) => [f.clasificador, f.datos.concepto, f.valor])).toEqual([
+      ["1", "BASICO", 1093479],
+      ["106", "DEV. DEDUCC FESERT", 1000],
+      ["541", "DEDUC. FESERT", -50000],
+      ["602", "EPS SURA", -43740],
+    ]);
   });
 
   it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {
