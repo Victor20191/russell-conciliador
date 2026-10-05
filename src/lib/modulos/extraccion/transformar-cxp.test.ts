@@ -14,8 +14,8 @@ const hoja = (filas: (string | number | null)[][]): GridHoja => ({ nombre: "Hoja
 const leer = (h: GridHoja) => transformarModulo(CXP, sugerirSpec(CXP, h), h);
 const movimientos = (r: ReturnType<typeof transformarModulo>) => r.filas.filter((f) => f.tipoFila === "movimiento");
 
-describe("CxP · manda el saldo de la columna (D2)", () => {
-  it("un documento por vencer sin edad conserva su saldo, y si edades y saldo difieren manda el saldo", () => {
+describe("CxP · como Cartera: si saldo y rangos no cuadran, manda la suma (5/Oct/2026)", () => {
+  it("un documento por vencer sin edad conserva su saldo, y si edades y saldo difieren manda la suma y se conserva el saldo para alertar", () => {
     const h = hoja([
       ["NIT", "Nombre", "Documento", "Saldo", "0 - 30", "31 - 60"],
       ["900123456", "ACME", "F-1", 1000, 1000, null],
@@ -23,7 +23,11 @@ describe("CxP · manda el saldo de la columna (D2)", () => {
       ["800111222", "BETA", "F-3", 300, null, 300],
       ["800111222", "BETA", "F-4", 200, 150, 0],
     ]);
-    expect(movimientos(leer(h)).map((f) => f.valor)).toEqual([1000, 500, 300, 200]);
+    const filas = movimientos(leer(h));
+    expect(filas.map((f) => f.valor)).toEqual([1000, 500, 300, 150]);
+    // F-2 (sin ningún rango) toma la columna; F-4 queda con la suma y el saldo de la columna viaja para la alerta.
+    expect(filas.map((f) => f.origenValor)).toEqual(["columna_y_familia", "columna", "columna_y_familia", "columna_y_familia"]);
+    expect(filas[3].valorReportado).toBe(200);
   });
 
   it("sin columna de saldo, el valor son las edades", () => {

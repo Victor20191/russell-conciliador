@@ -586,10 +586,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
 
   // ===== Cuentas por Pagar (CXP) → 2205/2210/2335 y anticipos 1330 =====
   // Estructura análoga a Cartera, contra el pasivo (RF-CXP-01…14): comparte su motor de
-  // detalle por tercero. Lo propio de CxP sale de los 16 auxiliares reales analizados: el
-  // saldo de la columna manda sobre las edades (SAP deja sin edad los documentos por
-  // vencer), varios ERP imprimen la deuda en negativo y SIIGO pone el saldo del proveedor
-  // solo en la primera fila de su bloque.
+  // detalle por tercero. Lo propio de CxP sale de los 16 auxiliares reales analizados: varios
+  // ERP imprimen la deuda en negativo y SIIGO pone el saldo del proveedor solo en la primera
+  // fila de su bloque.
   CXP: {
     codigo: "CXP",
     label: "Cuentas por Pagar",
@@ -625,9 +624,12 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
     clasificador: "cuenta",
     valor: "total",
-    // D2 (12/Sep/2026): manda el saldo de la columna. Las edades dan el valor solo cuando la
-    // columna no viene o viene en cero (SIESA Zarzal); si ambas vienen y difieren, se alerta.
-    valorDerivado: { deFamilia: "edades", prevalece: "columna" },
+    // Igual que Cartera (5/Oct/2026, decisión del usuario; antes D2 del 12/Sep: mandaba la columna):
+    // si el archivo trae saldo y rangos y no cuadran, manda la SUMA de los rangos y la diferencia se
+    // alerta. Una fila sin ningún rango (SAP deja sin edad los documentos por vencer) sigue tomando
+    // el saldo de la columna, y sin columna el valor es la suma. Al cambiarlo, ningún cargue de CxP
+    // en producción tenía filas con las dos cifras distintas.
+    valorDerivado: { deFamilia: "edades", prevalece: "familia" },
     // Se concilia por cuenta Russell de 6 dígitos (las 13 de `cuentasRussell6`), no por subgrupo.
     nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.

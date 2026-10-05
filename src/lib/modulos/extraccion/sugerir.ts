@@ -493,9 +493,9 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     columnas.diasVencidos = 0;
   }
 
-  // Cuentas por pagar (manda la columna): el saldo pendiente sobre el valor original, el saldo
-  // del bloque de SIIGO y la convención de signo del archivo.
-  if (descriptor.crucePorTercero.detalleTercero && descriptor.valorDerivado?.prevalece === "columna") {
+  // Cuentas por pagar: el saldo pendiente sobre el valor original, el saldo del bloque de SIIGO
+  // y la convención de signo del archivo.
+  if (descriptor.crucePorTercero.detalleTercero && descriptor.crucePorTercero.naturaleza === "C") {
     // «saldoTercero» no tiene sinónimos: solo lo asigna la detección del saldo del bloque. El
     // reparto por puntaje se lo daría a cualquier «Saldo» sobrante por coincidencia débil.
     if ("saldoTercero" in columnas) columnas.saldoTercero = 0;
