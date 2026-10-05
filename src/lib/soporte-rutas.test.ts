@@ -60,7 +60,7 @@ describe("catálogo de ruta y menú de una novedad", () => {
     });
     const config = catalogo.find((ruta) => ruta.clave === "configuracion")!;
     expect(config).toBeTruthy();
-    expect(config.menus.some((m) => m.etiqueta === "Mapeo plan estándar")).toBe(false);
+    expect(config.menus.some((m) => m.etiqueta === "Plan Estándar Russell")).toBe(false);
     expect(config.menus.some((m) => m.etiqueta === "Perfiles de carga")).toBe(false);
     expect(config.menus.some((m) => m.etiqueta === "Clientes")).toBe(false);
     expect(config.menus.some((m) => m.etiqueta === "Maestros")).toBe(true);

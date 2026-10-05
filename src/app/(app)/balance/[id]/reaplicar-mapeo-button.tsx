@@ -99,7 +99,7 @@ export function ReaplicarMapeoButton({
           <ol className="space-y-1.5 rounded-lg border border-ink-150 bg-ink-50 px-4 py-3 text-[12px] text-ink-600">
             <li>
               <b className="text-ink-800">1.</b> Manda lo que esté guardado en{" "}
-              <span className="font-medium">Configuración › Mapeo plan estándar</span>, incluido lo
+              <span className="font-medium">Configuración › Mapeo cuentas cliente</span>, incluido lo
               confirmado a mano.
             </li>
             <li>
