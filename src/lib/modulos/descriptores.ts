@@ -498,11 +498,10 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },
     },
     crucePorTercero: { habilitado: false },
-    verificaciones: [
-      { id: "afi_leasing", texto: "Confirme si existen activos adquiridos mediante leasing financiero." },
-      { id: "afi_depreciados", texto: "Verifique el tratamiento de los activos totalmente depreciados que siguen en uso." },
-      { id: "afi_baja", texto: "Confirme si hubo bajas o ventas de activos en el período." },
-    ],
+    // Sin verificaciones manuales en el borrador (4/Oct/2026, decisión del usuario), como Ingresos
+    // y Nómina: leasing, activos totalmente depreciados y bajas se ven en la cédula y se explican
+    // con una marca de auditoría, que queda pegada a la cifra. Los cargues anteriores conservan
+    // las respuestas que dieron.
   },
 
   // ===== Cartera / Cuentas por cobrar (CAR) → 130505, 130510 y 280505 =====
