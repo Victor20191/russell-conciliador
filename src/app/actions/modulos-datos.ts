@@ -1292,7 +1292,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       hoja: GridHoja;
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
-      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null; sinCentro: boolean } | null;
+      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null } | null;
       /** Lectura configurada en la carga: el formato que se podrá guardar como patrón al confirmar. */
       propuesta?: PropuestaPatronLote | null;
       /** …o por qué no se podrá (el cargue sigue igual). */
@@ -1437,33 +1437,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           ? `total del archivo en ${letraColumnaModulo((spec.subtotalesColumna ?? 0) + (hoja.columnaInicial ?? 0))}${spec.subtotalesFila}`
           : "el archivo no trae total";
       }
-      // Nómina: «¿Separar por centro de costo?» — con No este cargue no lee la columna del centro.
-      const respuestaCentro = String(formData.get("separarAgrupador") ?? "").trim();
-      const leiaCentro = descriptor.confirmarAgrupadorEnCarga === true && (spec.columnas.agrupador ?? 0) >= 1;
-      const centro = aplicarAgrupadorDeCarga(descriptor, spec, respuestaCentro === "si" ? true : respuestaCentro === "no" ? false : null);
-      if (!centro.ok) return centro.message;
-      const sinCentro = leiaCentro && !centro.separado;
-      spec = centro.spec;
-      if (descriptor.confirmarAgrupadorEnCarga && anexoEncabezadoId != null) {
-        // Un anexo se separa igual que el cargue al que se suma: mezclar deja el mismo concepto
-        // en dos renglones del Consolidado («8 ∥ GYA» y «8»).
-        const [{ separado: destinoSeparado }] = await prisma.$queryRaw<{ separado: boolean }[]>`
-          SELECT EXISTS (
-            SELECT 1 FROM modulo_dato_detalle
-            WHERE encabezado_id = ${anexoEncabezadoId} AND COALESCE(btrim(datos->>'agrupador'), '') <> ''
-          ) AS separado`;
-        const esteSeparado = (spec.columnas.agrupador ?? 0) >= 1;
-        if (destinoSeparado !== esteSeparado) {
-          return destinoSeparado
-            ? "El cargue al que agregas este archivo está separado por centro de costo y este no: los conceptos no coincidirían en el Consolidado. Léelo separado por centro de costo."
-            : "El cargue al que agregas este archivo no está separado por centro de costo: responde «No» a «¿Separar por centro de costo?» para que los conceptos coincidan en el Consolidado.";
-        }
-      }
+      // Nómina: «¿Separar por centro de costo?» se aplica abajo, igual para las tres lecturas.
       return {
         hoja,
         spec: normalizarSpecModuloArchivo(descriptor, spec),
         origen: "patron",
-        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue, sinCentro },
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue },
       };
     };
 
@@ -1481,6 +1460,34 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor.
     spec = normalizarSpecModuloArchivo(descriptor, spec);
+    // Nómina: «¿Separar por centro de costo?» — con patrón, con el mapeo armado en la carga y con
+    // Archivo manual (5/Oct/2026; antes solo con patrón). Con «No» ESTE cargue no lee la columna del
+    // centro; el patrón, el patrón propuesto y el perfil del cliente la conservan. Sin respuesta es
+    // un dato que falta en el formulario: el original no se marca como no procesable.
+    const columnaCentroFormato = spec.columnas.agrupador ?? 0;
+    const respuestaCentro = String(formData.get("separarAgrupador") ?? "").trim();
+    const centro = aplicarAgrupadorDeCarga(descriptor, spec, respuestaCentro === "si" ? true : respuestaCentro === "no" ? false : null);
+    if (!centro.ok) return { ok: false, message: centro.message };
+    const sinCentro = descriptor.confirmarAgrupadorEnCarga === true && columnaCentroFormato >= 1 && !centro.separado;
+    spec = centro.spec;
+    if (descriptor.confirmarAgrupadorEnCarga && anexoEncabezadoId != null) {
+      // Un anexo se separa igual que el cargue al que se suma: mezclar deja el mismo concepto
+      // en dos renglones del Consolidado («8 ∥ GYA» y «8»).
+      const [{ separado: destinoSeparado }] = await prisma.$queryRaw<{ separado: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM modulo_dato_detalle
+          WHERE encabezado_id = ${anexoEncabezadoId} AND COALESCE(btrim(datos->>'agrupador'), '') <> ''
+        ) AS separado`;
+      const esteSeparado = (spec.columnas.agrupador ?? 0) >= 1;
+      if (destinoSeparado !== esteSeparado) {
+        return {
+          ok: false,
+          message: destinoSeparado
+            ? "El cargue al que agregas este archivo está separado por centro de costo y este no: los conceptos no coincidirían en el Consolidado. Léelo separado por centro de costo."
+            : "El cargue al que agregas este archivo no está separado por centro de costo: responde «No» a «¿Separar por centro de costo?» para que los conceptos coincidan en el Consolidado.",
+        };
+      }
+    }
     // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
     const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta);
     if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
@@ -1605,7 +1612,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     };
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
-    const specPerfil = normalizarSpecModulo(descriptor, spec);
+    // Con «No» al centro de costo, el perfil conserva la columna: la respuesta es de ESTE cargue.
+    const specPerfil = normalizarSpecModulo(descriptor, sinCentro ? { ...spec, columnas: { ...spec.columnas, agrupador: columnaCentroFormato } } : spec);
     const clasificadorDelCargue = patron?.clasificadorCambiado
       ? ` · ${descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"} solo para este cargue: ${
           modoClasificadorDe(spec) === "global"
@@ -1613,11 +1621,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             : `columna ${letraColumnaModulo((spec.columnas[descriptor.clasificador] ?? 0) + (hoja.columnaInicial ?? 0))}`
         }`
       : "";
-    const detallePatron = patron
-      ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}${patron.sinCentro ? " · sin separar por centro de costo (solo este cargue)" : ""}`
+    const detalleCentro = sinCentro ? " · sin separar por centro de costo (solo este cargue)" : "";
+    const detallePatron = (patron
+      ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
       : configurarEnCarga
         ? ` · ${aplicativo.name} sin patrón · lectura configurada en la carga`
-        : ` · ${aplicativo.name}`;
+        : ` · ${aplicativo.name}`) + detalleCentro;
 
     try {
       await prisma.$transaction(async (tx) => {

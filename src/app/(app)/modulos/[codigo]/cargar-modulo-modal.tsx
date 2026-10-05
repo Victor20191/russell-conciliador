@@ -229,26 +229,31 @@ const sinCentro = (s: SpecModulo): SpecModulo => {
 };
 
 /**
- * «¿Separar por centro de costo?» en una carga con patrón (Nómina). Con «No» este cargue no lee la
- * columna del centro y el Consolidado queda por concepto; el patrón no cambia.
+ * «¿Separar por centro de costo?» (Nómina). Con «No» este cargue no lee la columna del centro y el
+ * Consolidado queda por concepto. Se pregunta con patrón y también cuando el mapeo se arma en la
+ * carga (5/Oct/2026): ni el patrón ni el mapeo que se guarda cambian.
  */
 function ConfirmarCentroCarga({
   analisis,
   columna,
   respuesta,
   onResponder,
+  conPatron = true,
 }: {
   analisis: AnalisisModulo;
   columna: number;
   respuesta: "si" | "no" | null;
   onResponder: (valor: "si" | "no") => void;
+  /** Sin patrón, la columna viene del mapeo que se está armando. */
+  conPatron?: boolean;
 }) {
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
     <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
-        ¿Separar por centro de costo? <span className="text-err-600">*</span> · el patrón lo lee en la columna{" "}
-        {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}
+        ¿Separar por centro de costo? <span className="text-err-600">*</span> ·{" "}
+        {conPatron ? `el patrón lo lee en la columna ${letra}` : `en el mapeo, el centro de costo es la columna ${letra}`}
       </span>
       {valores.length > 0 && (
         <span className="min-w-0 break-words text-[11px] leading-snug text-ink-500">
@@ -270,7 +275,11 @@ function ConfirmarCentroCarga({
           El Consolidado tendrá un renglón por concepto. Las asignaciones guardadas sin centro valen para todos los centros.
         </span>
       )}
-      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón del aplicativo no se modifica.</span>
+      <span className="text-[11px] leading-snug text-ink-500">
+        {conPatron
+          ? "Vale solo para este cargue: el patrón del aplicativo no se modifica."
+          : "Vale solo para este cargue: el mapeo que se guarda conserva la columna del centro de costo."}
+      </span>
     </div>
   );
 }
@@ -563,7 +572,16 @@ function CargarModal({
   // «¿El archivo trae el valor total?» (solo este cargue): sin respuesta hasta que el analista elija.
   const [totalArchivo, setTotalArchivo] = useState<"si" | "no" | null>(null);
   // «¿Separar por centro de costo?» (solo este cargue, Nómina): sin respuesta hasta que el analista elija.
+  // Se pregunta con patrón y cuando el mapeo se arma en la carga. La respuesta vale para la columna
+  // del centro con que se dio: si en el mapeo se cambia esa columna, se vuelve a preguntar.
   const [separarCentro, setSepararCentro] = useState<"si" | "no" | null>(null);
+  const [columnaCentroRespondida, setColumnaCentroRespondida] = useState(0);
+  const colCentro = spec ? (spec.columnas[ROL_CENTRO] ?? 0) : 0;
+  const respuestaCentro = separarCentro != null && columnaCentroRespondida === colCentro ? separarCentro : null;
+  const responderCentro = (valor: "si" | "no") => {
+    setSepararCentro(valor);
+    setColumnaCentroRespondida(colCentro);
+  };
   // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
   const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
@@ -827,8 +845,9 @@ function CargarModal({
     }
     const filaManual = Number(filaMarcaTotales);
     const celdaTotalLista = (spec.subtotalesColumna ?? 0) >= 1 && marcaManualLista && Number.isInteger(filaManual) && spec.subtotalesFila === filaManual;
-    const pedirCentro = porPatron && confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1;
-    if (pedirCentro && separarCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
+    // Con patrón y con el mapeo armado en la carga: basta que el centro de costo quede leído.
+    const pedirCentro = confirmarAgrupador && colCentro >= 1;
+    if (pedirCentro && respuestaCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
     // Ingresos: qué trae el archivo, y si complementa el cargue del período, a dónde va.
     const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
     // Activos fijos: lo mismo, cuando el archivo trae el lado que al cargue vigente le falta.
@@ -863,7 +882,6 @@ function CargarModal({
             fd.set("subtotalesFila", String(spec.subtotalesFila));
           }
         } else if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
-        if (pedirCentro) fd.set("separarAgrupador", separarCentro!);
         if (pedirClasificador) {
           fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
           fd.set("clasificadorModo", modoClasificadorCargue);
@@ -872,6 +890,7 @@ function CargarModal({
         fd.set("specJson", JSON.stringify(spec));
         if (configurando) fd.set("configurarEnCarga", "1");
       }
+      if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
       fd.set("periodoInicio", `${mes}-01`);
       fd.set("periodoFin", `${mes}-01`);
       fd.set("softwareOrigen", aplicativo.nombre);
@@ -1331,7 +1350,7 @@ function CargarModal({
             <dt className="font-medium text-ink-700">Hoja</dt>
             <dd className="min-w-0 break-words">«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
             <dt className="font-medium text-ink-700">Columnas</dt>
-            <dd className="min-w-0 break-words">{resumenMapeo(separarCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+            <dd className="min-w-0 break-words">{resumenMapeo(respuestaCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
             {conNivelCartera && (() => {
               const { tipo, declarado } = tipoFormatoCartera(spec);
               return (
@@ -1367,12 +1386,12 @@ function CargarModal({
               onConfirmar={setClasificadorConfirmado}
             />
           )}
-          {confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1 && (
+          {confirmarAgrupador && colCentro >= 1 && (
             <ConfirmarCentroCarga
               analisis={analisis}
-              columna={spec.columnas[ROL_CENTRO] ?? 0}
-              respuesta={separarCentro}
-              onResponder={setSepararCentro}
+              columna={colCentro}
+              respuesta={respuestaCentro}
+              onResponder={responderCentro}
             />
           )}
           {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
@@ -1475,6 +1494,16 @@ function CargarModal({
             marcaTotalesCarga={marcaTotalesCarga}
             exigirTipoFormato={configurando}
           />
+          {/* Nómina: la misma pregunta que con patrón, sobre la columna del centro que quedó en el mapeo. */}
+          {confirmarAgrupador && colCentro >= 1 && (
+            <ConfirmarCentroCarga
+              analisis={analisis}
+              columna={colCentro}
+              respuesta={respuestaCentro}
+              onResponder={responderCentro}
+              conPatron={false}
+            />
+          )}
           {configurando && (
             <PruebaMapeoPatron
               key={`${recepcionLoteId ?? ""}:${spec.hoja}`}
