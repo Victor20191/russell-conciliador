@@ -36,6 +36,7 @@ import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consoli
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
 import { columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
 import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
+import { cuentasClientePorClasificador, motivoPropuestaClasificador, proponerCuentaDeClasificador, type PropuestaCuentaClasificador } from "@/lib/modulos/cuenta-clasificador";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 
@@ -191,6 +192,24 @@ export default async function DatoModuloPage({
     (homologacionPorSubgrupo[clave] ??= []).push({ codigo: a.code, nombre: a.name });
   }
 
+  // ACTIVOS FIJOS: el grupo trae pegada la cuenta del CLIENTE («AF152805»). La lectura ya la
+  // extrajo con el prefijo del patrón; aquí se homologa como se homologó el balance y se PROPONE,
+  // sin guardarla: hasta que el auditor la apruebe, el renglón no cruza.
+  const propuestasArchivo = new Map<string, PropuestaCuentaClasificador>();
+  if (descriptor.cuentaDesdeClasificador) {
+    const entornoArchivo = {
+      subgruposModulo: codigosModulo,
+      homologacionCliente: new Map(Object.entries(resolucionCliente)),
+      nivel,
+    };
+    for (const [clasificador, cuentaCliente] of cuentasClientePorClasificador(
+      detalles.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
+    )) {
+      // Se resuelve sobre la cuenta ya extraída: el prefijo se aplicó al leer el archivo.
+      propuestasArchivo.set(clasificador, proponerCuentaDeClasificador(cuentaCliente, entornoArchivo));
+    }
+  }
+
   const detalleVm: FilaDetalleVm[] = detalles.map((d) => ({
     filaNum: d.filaNum,
     clasificador: d.clasificador,
@@ -250,14 +269,23 @@ export default async function DatoModuloPage({
         sugerencia: c.sugerencia,
         soloPeriodo: renglonesSoloPeriodo.has(llaveAsignacion(c.codigo, c.agrupador)),
       }))
-    : consolidado.map((c) => ({
-        clasificador: c.clasificador,
-        descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
-        total: c.total,
-        filas: c.filas,
-        cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
-        soloPeriodo: renglonesSoloPeriodo.has(llaveAsignacion(c.clasificador, "")),
-      }));
+    : consolidado.map((c) => {
+        const propuesta = propuestasArchivo.get(c.clasificador);
+        return {
+          clasificador: c.clasificador,
+          descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
+          total: c.total,
+          filas: c.filas,
+          cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+          soloPeriodo: renglonesSoloPeriodo.has(llaveAsignacion(c.clasificador, "")),
+          // La cuenta que trae el archivo, ya homologada: propuesta, nunca guardada sola.
+          propuestaArchivo: propuesta
+            ? propuesta.ok
+              ? { cuenta: propuesta.cuenta, cuentaCliente: propuesta.cuentaCliente, nombreCliente: propuesta.nombreCliente, via: propuesta.via }
+              : { motivo: motivoPropuestaClasificador(propuesta, descriptor.label) }
+            : null,
+        };
+      });
   const agrupadoresVm: AgrupadorVm[] = consolidadoNomina?.agrupadores ?? [];
   // Cruce contable (balance vs. archivos del módulo): el MISMO cálculo que verifica
   // la Server Action al cerrar la conciliación (`cruce-contable-servidor.ts`).

@@ -43,6 +43,7 @@ export default function EditorPatronClient({
   clasificadorRol,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   conNivelCartera,
   erps,
   erpInicial,
@@ -56,6 +57,8 @@ export default function EditorPatronClient({
   clasificadorRol: string;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   conNivelCartera: boolean;
   erps: { id: number; nombre: string }[];
   erpInicial?: number | null;
@@ -426,6 +429,7 @@ export default function EditorPatronClient({
             clasificadorRol={clasificadorRol}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             conNivelCartera={conNivelCartera}
             modo="patron"
             onCambiarHoja={cambiarHoja}

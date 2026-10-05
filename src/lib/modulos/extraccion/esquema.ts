@@ -145,6 +145,12 @@ export const SpecModuloSchema = z.object({
   // la columna del valor, o los de la fórmula unidos con « + » (`valor-sin-impuestos.ts`). Se
   // guarda la firma y no un booleano para que una confirmación no valide en silencio otro mapeo.
   valorSinImpuestosConfirmado: z.string().max(400).optional(),
+  // ===== La cuenta del cliente DENTRO del código del clasificador (4/Oct/2026) =====
+  // Activos fijos: los ERP pegan la cuenta al grupo del activo («AF152805», «01-1528-05»). Esto es
+  // cuántos caracteres sobran al inicio antes de la cuenta; el administrador lo declara en el
+  // patrón del aplicativo porque es una marca del FORMATO, así que viaja con el patrón y con el
+  // perfil del cliente. Sin él se lee la cuenta desde el primer carácter (`cuenta-clasificador.ts`).
+  prefijoClasificador: z.number().int().min(1).max(20).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

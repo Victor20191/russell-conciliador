@@ -88,6 +88,8 @@ type PropsCarga = {
   rolValor: string;
   /** Ingresos: el valor de una columna de «total» se confirma sin IVA al mapear. */
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   /** Ingresos: cada carga declara si el archivo trae facturas, notas crédito o ambas. */
   confirmarContenido: boolean;
 };
@@ -444,6 +446,7 @@ function CargarModal({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
   anexo,
   onClose,
@@ -1317,6 +1320,7 @@ function CargarModal({
             clasificadorRol={clasificadorRol}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             conNivelCartera={conNivelCartera}
             modo="carga"
             onCambiarHoja={(hoja) => analizar(hoja)}

@@ -206,6 +206,14 @@ function normalizarSpecModuloInterno(
     const firma = spec.valorSinImpuestosConfirmado?.trim();
     if (firma) normalizado.valorSinImpuestosConfirmado = firma.slice(0, 400);
   }
+  // Cuántos caracteres sobran antes de la cuenta dentro del clasificador («AF152805» → 2): es del
+  // FORMATO, así que vale en el patrón del aplicativo y en el perfil del cliente.
+  if (descriptor.cuentaDesdeClasificador) {
+    const prefijo = spec.prefijoClasificador;
+    if (Number.isInteger(prefijo) && (prefijo as number) >= 1 && (prefijo as number) <= 20) {
+      normalizado.prefijoClasificador = prefijo;
+    }
+  }
   return normalizado;
 }
 

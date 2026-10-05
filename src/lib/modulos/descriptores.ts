@@ -244,6 +244,13 @@ export type DescriptorModulo = {
    * excluye el IVA, y la firma de lo confirmado viaja en el spec (`valor-sin-impuestos.ts`).
    */
   confirmarValorSinImpuestos?: boolean;
+  /**
+   * El clasificador trae pegada la CUENTA DEL CLIENTE (Activos fijos: «AF152805», «1524010500098»).
+   * Al leer el archivo se extrae con el prefijo que declara el patrón (`SpecModulo.prefijoClasificador`)
+   * y se guarda en la fila; el Consolidado la homologa como el balance y la PROPONE sin guardarla
+   * (`cuenta-clasificador.ts`). Sin esto, el clasificador es solo un nombre de grupo.
+   */
+  cuentaDesdeClasificador?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -466,6 +473,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "grupo",
     valor: "costo",
     noNegativos: ["costo"],
+    // El grupo del activo suele traer pegada la cuenta del cliente: se extrae y se homologa.
+    cuentaDesdeClasificador: true,
     cedula: {
       subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },

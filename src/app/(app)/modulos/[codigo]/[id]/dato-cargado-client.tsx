@@ -230,6 +230,15 @@ export type ConsolidadoVm = {
   sugerencia?: SugerenciaConsolidado;
   /** Sus cuentas valen solo para el período del cargue (llevan una cuenta fuera de la cédula). */
   soloPeriodo?: boolean;
+  /**
+   * Activos fijos: la cuenta que el archivo trae pegada al grupo, ya homologada como se homologó
+   * el balance. Se PROPONE (queda «sin guardar») y no cruza hasta que el auditor la apruebe; si no
+   * se pudo resolver, llega el motivo para el pie del renglón.
+   */
+  propuestaArchivo?:
+    | { cuenta: string; cuentaCliente: string; nombreCliente: string | null; via: "homologacion" | "estructura" }
+    | { motivo: string }
+    | null;
 };
 /** Nómina: centros de costo / clases del archivo con su clase contable (panel del consolidado). */
 export type AgrupadorVm = { agrupador: string; filas: number; total: number; clase: ClaseNomina | null; sugerida: ClaseNomina | null };
@@ -671,6 +680,10 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelC
       const propone = s.destino === "gasto" && s.via !== "multi" && s.via !== "sugerido_nombre" && s.cuentas.length === 1;
       return [c.clasificador, propone ? [...s.cuentas] : []];
     }
+    // Activos fijos: la cuenta que trae el archivo, ya homologada, manda sobre la deducción por
+    // los dígitos del clasificador — que trunca, y el PUC del cliente no tiene por qué coincidir.
+    const archivo = c.propuestaArchivo && "cuenta" in c.propuestaArchivo ? c.propuestaArchivo.cuenta : null;
+    if (archivo) return [c.clasificador, validas.size === 0 || validas.has(archivo) ? [archivo] : []];
     const digitos = c.clasificador.replace(/\D/g, "");
     const candidatas = [digitos.length >= 6 ? digitos.slice(0, 6) : "", digitos.length >= nivel ? digitos.slice(0, nivel) : ""]
       .filter((cuenta) => cuenta.length === nivel || (cuenta.length === 6 && validas.has(cuenta)));
@@ -688,6 +701,51 @@ const ETIQUETA_VIA: Record<SugerenciaConsolidado["via"], string> = {
   sugerido_nombre: "sugerida por el nombre",
   sin_cuenta: "sin cuenta",
 };
+
+/**
+ * Activos fijos: pie del renglón con la cuenta que el archivo trae pegada al grupo, ya homologada
+ * como se homologó el balance. Dice POR DÓNDE se resolvió —la homologación del cliente o la
+ * estructura del PUC— porque no es lo mismo de fiar, y cuando no se pudo, por qué.
+ */
+function PropuestaDelArchivo({
+  propuesta,
+  asignadas,
+  onUsar,
+}: {
+  propuesta: NonNullable<ConsolidadoVm["propuestaArchivo"]>;
+  asignadas: string[];
+  onUsar: ((cuenta: string) => void) | null;
+}) {
+  if (!("cuenta" in propuesta)) {
+    return (
+      <div className="text-[10.5px] leading-snug text-warn-700">
+        <span className="rounded border border-warn-500/40 bg-warn-100/30 px-1 py-0.5 font-semibold">Sin cuenta del archivo</span>{" "}
+        {propuesta.motivo}
+      </div>
+    );
+  }
+  const yaEsta = asignadas.includes(propuesta.cuenta);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] leading-snug text-ink-500">
+      <span className="rounded border border-ink-200 bg-ink-50 px-1 py-0.5 font-semibold text-ink-600">Cuenta del archivo</span>
+      <span>
+        <span className="font-mono tabular-nums text-ink-700">{propuesta.cuentaCliente}</span>
+        {propuesta.nombreCliente ? ` ${propuesta.nombreCliente}` : ""} →{" "}
+        <span className="font-mono tabular-nums text-ink-700">{propuesta.cuenta}</span>
+        {propuesta.via === "homologacion" ? " · homologada en el balance" : " · deducida por la estructura del PUC"}
+      </span>
+      {!yaEsta && onUsar && (
+        <button
+          type="button"
+          onClick={() => onUsar(propuesta.cuenta)}
+          className="rounded-md border border-ink-200 bg-white px-1.5 py-0.5 font-semibold text-ink-600 transition hover:border-navy-700 hover:text-navy-700"
+        >
+          Usar
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Nómina: pie de cada renglón con la sugerencia de homologación y su origen. */
 function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado; asignadas: string[]; onUsar: ((cuentas: string[]) => void) | null }) {
@@ -1415,6 +1473,16 @@ function ConsolidadoTab({
                             : `Asignación guardada solo para ${periodo}.`}
                         </div>
                       ) : null}
+                      {c.propuestaArchivo && (
+                        <PropuestaDelArchivo
+                          propuesta={c.propuestaArchivo}
+                          asignadas={asignadas}
+                          onUsar={puedeEditar ? (cuenta) => {
+                            setValores((p) => ({ ...p, [c.clasificador]: [cuenta] }));
+                            anotarAutoguardado(c.clasificador, [cuenta]);
+                          } : null}
+                        />
+                      )}
                       {c.sugerencia && (
                         <SugerenciaConcepto
                           s={c.sugerencia}

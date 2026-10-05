@@ -63,6 +63,7 @@ export default async function NuevoPatronPage({
         clasificadorRol={descriptor.clasificador}
         rolValor={descriptor.valor}
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
+        cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
         erps={erps.map((e) => ({ id: e.id, nombre: e.name }))}
         erpInicial={erpInicial}

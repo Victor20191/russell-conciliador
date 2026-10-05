@@ -47,6 +47,7 @@ import {
 export { rolDerivado };
 import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-cargue";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
+import { cuentaDelClasificador } from "@/lib/modulos/cuenta-clasificador";
 
 export type RolModulo = {
   nombre: string;
@@ -182,6 +183,7 @@ export function EditorMapeoModulo({
   rolValor,
   confirmarValorSinImpuestos,
   conNivelCartera,
+  cuentaEnClasificador = false,
   modo: modoEditor,
   onCambiarHoja,
   fechaCorteSugerida = "",
@@ -200,6 +202,8 @@ export function EditorMapeoModulo({
   rolValor: string;
   /** Ingresos: pregunta si el valor excluye el IVA cuando sale de una columna de «total». */
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente («AF152805»). */
+  cuentaEnClasificador?: boolean;
   conNivelCartera: boolean;
   modo: "carga" | "patron";
   onCambiarHoja: (hoja: string) => void;
@@ -536,6 +540,46 @@ export function EditorMapeoModulo({
               <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
               <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
             </select>
+          </label>
+        )}
+        {/* Activos fijos: el grupo trae pegada la cuenta del cliente. Lo que sobra al inicio es del
+            FORMATO, así que se declara aquí y viaja con el patrón; la lectura la extrae y el
+            Consolidado la homologa como el balance, sin guardarla sola. */}
+        {cuentaEnClasificador && (
+          <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+            <span className="text-[11px] font-medium text-ink-600">
+              ¿Cuántos caracteres hay ANTES de la cuenta contable dentro del {clasificadorEtiqueta.toLowerCase()}?
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={spec.prefijoClasificador ?? 0}
+              onChange={(e) => {
+                const n = Math.max(0, Math.min(20, Math.trunc(Number(e.target.value) || 0)));
+                setSpec((s) => (s ? { ...s, prefijoClasificador: n > 0 ? n : undefined } : s));
+              }}
+              className={`${claseCampo} w-28 tabular-nums`}
+            />
+            <span className="text-[11px] leading-snug text-ink-500">
+              0 si el código empieza por la cuenta («1524010500098»); 2 si viene con una marca delante («AF152805» → 1528).
+              Lo que quede sin cuenta legible no se inventa: el renglón sale sin cuenta en el Consolidado y se asigna a mano.
+            </span>
+            {(() => {
+              // Vista previa con la muestra: qué cuenta del cliente saldría de cada código.
+              const col = spec.columnas[clasificadorRol] ?? 0;
+              if (col < 1) return null;
+              const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[col - 1] ?? null)).filter(Boolean))].slice(0, 4);
+              if (valores.length === 0) return null;
+              return (
+                <span className="text-[11px] leading-snug text-ink-600">
+                  {valores.map((v) => {
+                    const cuenta = cuentaDelClasificador(v, spec.prefijoClasificador);
+                    return `${v} → ${cuenta ?? "sin cuenta"}`;
+                  }).join(" · ")}
+                </span>
+              );
+            })()}
           </label>
         )}
         {modo === "seccion" && (

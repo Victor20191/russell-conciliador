@@ -28,6 +28,7 @@ import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
+import { cuentaDelClasificador } from "../cuenta-clasificador";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 import { letraColumnaModulo } from "../perfil-modulo";
 import { claveTerminoFormula, evaluarValorFormula, tieneValorFormula } from "./valor-formula";
@@ -969,6 +970,14 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // Saldo del proveedor impreso en la 1.ª fila de su bloque (SIIGO): control, nunca imputa.
     const saldoBloqueLeido = aNumero(datos.saldoTercero);
     const saldoDelBloque = saldoBloqueLeido != null && monedaArchivo && trmCierre ? aPesos(saldoBloqueLeido, trmCierre) : saldoBloqueLeido;
+
+    // La cuenta del CLIENTE que viene pegada al clasificador (Activos fijos: «AF152805»). Se
+    // guarda en la fila porque el cargue promovido no conserva el spec, y el prefijo con que se
+    // leyó es del formato de ESTE archivo. Homologarla es cosa del Consolidado, no de la lectura.
+    if (descriptor.cuentaDesdeClasificador) {
+      const cuentaCliente = cuentaDelClasificador(clasificador, spec.prefijoClasificador);
+      if (cuentaCliente) datos._cuentaCliente = cuentaCliente;
+    }
 
     filas.push({
       filaNum,

@@ -116,6 +116,7 @@ export default function ModulosDatosClient({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
 }: {
   moduloCodigo: string;
@@ -124,6 +125,8 @@ export default function ModulosDatosClient({
   clasificadorRol: string;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   confirmarContenido: boolean;
   /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
   conNivelCartera: boolean;
@@ -164,6 +167,7 @@ export default function ModulosDatosClient({
             avisaCuentaArchivo={avisaCuentaArchivo}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             confirmarContenido={confirmarContenido}
           />
         )}
@@ -198,6 +202,7 @@ export default function ModulosDatosClient({
         avisaCuentaArchivo={avisaCuentaArchivo}
         rolValor={rolValor}
         confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+        cuentaEnClasificador={cuentaEnClasificador}
         confirmarContenido={confirmarContenido}
       />
     </div>
@@ -224,6 +229,7 @@ function CargadosPorCliente({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
 }: {
   grupos: GrupoClienteRow[];
@@ -246,6 +252,8 @@ function CargadosPorCliente({
   avisaCuentaArchivo: boolean;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   confirmarContenido: boolean;
 }) {
   const [estado, setEstado] = useState<EstadoPeriodoModulo | null>(null);
@@ -508,6 +516,7 @@ function CargadosPorCliente({
                             avisaCuentaArchivo={avisaCuentaArchivo}
                             rolValor={rolValor}
                             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+                            cuentaEnClasificador={cuentaEnClasificador}
                             confirmarContenido={confirmarContenido}
                             anexo={{
                               encabezadoId: p.id,
