@@ -84,6 +84,15 @@ describe("sugerirGrupoConcepto (nombres reales de los archivos)", () => {
     ["ICBF", "aportes_icbf"],
     ["SENA", "aportes_sena"],
     ["AUXILIO EDUCATIVO", "auxilios"],
+    // NOMINAI (KP EMPAQUES, dic-2025): abreviaturas.
+    ["003 - HOR EXT DIUR 125%", "horas_extras"],
+    ["005 - HORA EXT NOCT 175%", "horas_extras"],
+    ["010 - REC NOCT 35%", "horas_extras"],
+    ["069 - INC. NUEVA EPS", "incapacidades"],
+    ["074 - INC. SURA", "incapacidades"],
+    ["060 - INCAP. KP EMPAQUES", "incapacidades"],
+    ["063 - LICENC. MATERNIDAD", "incapacidades"],
+    ["602 - EPS SURA", "aportes_eps"],
   ])("«%s» → %s", (nombre, esperado) => {
     expect(sugerirGrupoConcepto(nombre)).toBe(esperado);
   });

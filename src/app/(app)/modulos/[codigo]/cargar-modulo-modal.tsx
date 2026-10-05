@@ -616,6 +616,7 @@ function CargarModal({
     setTotalArchivo(null);
     setSepararCentro(null);
     setContenido(null);
+    setContenidoActivos(null);
     setDestinoCarga(null);
     setConfigurando(false);
     setFase("archivo");
@@ -785,6 +786,7 @@ function CargarModal({
         setTotalArchivo(null);
         setSepararCentro(null);
         setContenido(null);
+        setContenidoActivos(null);
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.modo === "patron" && configurando) notifySuccess(`Esta hoja coincide con un patrón de ${r.aplicativo?.nombre ?? "el aplicativo"}: se leerá con él.`);

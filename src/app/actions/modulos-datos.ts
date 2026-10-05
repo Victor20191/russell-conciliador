@@ -1338,9 +1338,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         return { hoja, spec, origen, patron: null };
       }
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      return perfilSpec
-        ? { hoja, spec: perfilSpec, origen: "perfil", patron: null }
-        : { hoja, spec: sugerirSpec(descriptor, hoja), origen: "ia", patron: null };
+      const specSinEditar = perfilSpec ?? sugerirSpec(descriptor, hoja);
+      // Un perfil viejo (p. ej. «por cuenta y NIT», retirado) o una sugerencia incompleta tampoco pasan.
+      const errorSinEditar = validarSpecModulo(descriptor, normalizarSpecModuloArchivo(descriptor, specSinEditar));
+      if (errorSinEditar) return { rechazo: `${errorSinEditar} Revisa el mapeo de columnas.` };
+      return { hoja, spec: specSinEditar, origen: perfilSpec ? "perfil" : "ia", patron: null };
     };
 
     // APLICATIVO SIN PATRÓN, LECTURA CONFIGURADA EN LA CARGA (Cartera, CxP, Ingresos, Activos
