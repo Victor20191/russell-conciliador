@@ -9,7 +9,7 @@
 import ExcelJS from "exceljs";
 import { construirPucRussell, profundidadPuc, type CuentaCuatroPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 
-/** Una cuenta del plan estándar Russell (pestaña «Plan estándar Russell»). */
+/** Una cuenta del plan estándar Russell (pestaña «Detalle Subcuentas N6»). */
 export type FilaPucEstandar = {
   code: string;
   name: string;
@@ -32,7 +32,7 @@ export type DatosExportacionPuc = {
   subgrupos?: CuentaCuatroPuc[];
 };
 
-const HOJA_ESTANDAR = "Plan Estándar";
+const HOJA_ESTANDAR = "Detalle Subcuentas N6";
 
 const COLOR_HEADER = "FF0F2744";
 const COLOR_FILL = "FFFFFFFF";
@@ -149,7 +149,7 @@ function agregarHoja<T>(
 }
 
 /**
- * Columnas de la hoja «Plan Estándar» (5/Oct/2026, pedido del usuario): cada fila es una cuenta
+ * Columnas de la hoja «Detalle Subcuentas N6» (antes «Plan Estándar»; 5/Oct/2026, pedido del usuario): cada fila es una cuenta
  * de 6 dígitos (N6) y a su lado va la cuenta de 4 (N4) a la que pertenece. El nivel no se exporta. El nombre de la N4 sale
  * del catálogo de subgrupos (`subgrupos_estandar`), no del campo libre «Cuenta Russell»: en 20 de
  * 443 cuentas ese campo dice otra cosa (las 5105xx traen «Gastos de administración» y su N4 es

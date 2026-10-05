@@ -64,12 +64,12 @@ async function abrir(datos: DatosExportacionPuc): Promise<ExcelJS.Workbook> {
 
 test("el libro incluye el PUC completo y el detalle de subcuentas", async () => {
   const wb = await abrir(DATOS);
-  expect(wb.worksheets.map((w) => w.name)).toEqual(["PUC Estándar Russell", "Plan Estándar"]);
+  expect(wb.worksheets.map((w) => w.name)).toEqual(["PUC Estándar Russell", "Detalle Subcuentas N6"]);
 });
 
 test("la hoja lista TODAS las cuentas bajo su encabezado", async () => {
   const wb = await abrir(DATOS);
-  const std = wb.getWorksheet("Plan Estándar")!;
+  const std = wb.getWorksheet("Detalle Subcuentas N6")!;
   expect(ENCABEZADOS.map((_, i) => std.getRow(1).getCell(i + 1).value)).toEqual(ENCABEZADOS);
   expect(std.getRow(1).cellCount).toBe(ENCABEZADOS.length); // sin «Nivel» ni columnas de más
   expect(std.getRow(2).getCell(1).value).toBe("110505");
@@ -89,7 +89,7 @@ test("el nombre de la cuenta N4 sale del catálogo de subgrupos, no del campo «
     estandar: [{ ...DATOS.estandar[0], code: "510506", name: "Sueldos", parent: "5105", russellAccount: "Gastos de administración" }, DATOS.estandar[1]],
     subgrupos: [{ codigo: "5105", nombre: "Gastos de personal administración", grupo: "51", nombreGrupo: "Operacionales de administración", naturaleza: "D" }],
   });
-  const std = wb.getWorksheet("Plan Estándar")!;
+  const std = wb.getWorksheet("Detalle Subcuentas N6")!;
   expect(std.getRow(2).getCell(6).value).toBe("Gastos de personal administración");
   // Sin la N4 en el catálogo se usa el campo «Cuenta Russell» (aquí vacío → «—»).
   expect(std.getRow(3).getCell(6).value).toBe("—");
@@ -97,7 +97,7 @@ test("el nombre de la cuenta N4 sale del catálogo de subgrupos, no del campo «
 
 test("los vacíos salen como «—»", async () => {
   const wb = await abrir(DATOS);
-  const std = wb.getWorksheet("Plan Estándar")!;
+  const std = wb.getWorksheet("Detalle Subcuentas N6")!;
   // Fila 3: cuenta de ingresos con varios campos nulos.
   expect(std.getRow(3).getCell(6).value).toBe("—"); // nombre de la N4 (sin catálogo ni campo)
   expect(std.getRow(3).getCell(7).value).toBe("—"); // tipo
@@ -109,7 +109,7 @@ test("los vacíos salen como «—»", async () => {
 test("sin cuentas el libro conserva la hoja y explica por qué está vacía", async () => {
   const wb = await abrir({ estandar: [] });
   expect(wb.worksheets).toHaveLength(2);
-  const std = wb.getWorksheet("Plan Estándar")!;
+  const std = wb.getWorksheet("Detalle Subcuentas N6")!;
   expect(std.rowCount).toBe(2); // encabezado + nota
   expect(String(std.getRow(2).getCell(1).value)).toContain("no tiene cuentas cargadas");
 });
