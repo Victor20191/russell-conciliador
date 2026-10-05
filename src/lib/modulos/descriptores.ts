@@ -605,7 +605,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       col("vencimiento", "Fecha de vencimiento", "fecha", false, ["vencimiento", "vence", "f vcto", "fec vence", "fecha vence", "fecha vencimiento", "fecha de vencimiento", "fech ven", "f venc", "f vencim"]),
       col("diasVencidos", "Días vencidos", "numero", false, ["dias vencidos", "dias vcto", "dias ven", "d m", "numdias", "dias de mora", "dias"]),
       // «Saldo vencido» es, en SAP, el saldo ABIERTO del documento, no solo lo vencido.
-      col("total", "Saldo del documento o del proveedor", "moneda", false, ["saldo", "total", "valor total", "importe", "saldo pendiente", "monto", "saldo vencido", "total proveedor", "total cxp", "deuda pesos", "saldo cop"]),
+      // Mismo nombre que en Cartera (5/Oct/2026): es el saldo total de la fila, sea una factura o un
+      // proveedor; antes «Saldo del documento o del proveedor» se confundía con «Saldo del proveedor».
+      col("total", "Saldo / total", "moneda", false, ["saldo", "total", "valor total", "importe", "saldo pendiente", "monto", "saldo vencido", "total proveedor", "total cxp", "deuda pesos", "saldo cop"]),
       // Sin sinónimos: lo propone el sugeridor cuando la columna de saldo solo trae dato en la
       // primera fila de cada bloque (SIIGO). Es el control del proveedor; nunca imputa.
       col("saldoTercero", "Saldo del proveedor (1.ª fila del bloque)", "moneda", false, []),
