@@ -116,16 +116,16 @@ export const configNav: NavItem[] = [
   { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
   {
     // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
-    // firma que fija quien administra la herramienta. «Cuentas del prevalidador» es el resumen de
-    // todos los módulos; cada módulo de conciliación tiene su sub-ruta (`/config/prevalidador/cxp`)
-    // con sus prefijos y las cuentas que concilia, en el orden del informe del prevalidador.
+    // firma que fija quien administra la herramienta. Cada módulo de conciliación tiene su sub-ruta
+    // (`/config/prevalidador/cxp`) con sus prefijos del prevalidador y las cuentas que concilia, en
+    // el orden del informe del prevalidador. La vista con todos los módulos juntos se retiró del menú
+    // el 5/Oct/2026 (repetía los mismos formularios): `/config/prevalidador` lleva al primer módulo.
     label: "Filtros de cuentas",
     href: "/config/prevalidador",
     icon: "filter",
     permiso: "parametros:administrar",
     modulo: "parametros",
     children: [
-      { label: "Cuentas del prevalidador", href: "/config/prevalidador", permiso: "parametros:administrar", modulo: "parametros" },
       ...PREVALIDADOR_MODULOS_ORDEN.map((codigo) => ({
         label: nombreModuloFabrica(codigo),
         href: `/config/prevalidador/${codigo.toLowerCase()}`,
