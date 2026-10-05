@@ -15,6 +15,13 @@ export const ETIQUETA_ESTADO_PATRON: Record<EstadoPatron, string> = {
   inactiva: "Inactiva",
 };
 
+/**
+ * Filas de datos que conserva la muestra automática de una versión guardada desde un cargue (el
+ * recorte anónimo del original, `muestra-recortada.ts`). Aquí para que la pantalla lo cite sin
+ * cargar el generador.
+ */
+export const FILAS_DATOS_MUESTRA = 100;
+
 export function esEstadoPatron(valor: unknown): valor is EstadoPatron {
   return typeof valor === "string" && (ESTADOS_PATRON as readonly string[]).includes(valor);
 }

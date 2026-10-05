@@ -1637,10 +1637,12 @@ model VersionPatronArchivoModulo {
   muestraNombre       String?   @map("muestra_nombre_archivo")
   muestraTamanoBytes  Int?      @map("muestra_tamano_bytes")
   muestraSha256       String?   @map("muestra_sha256")
+  /// `subida` (null en las anteriores) | `recorte_original`: recorte anónimo y verificado del original.
+  muestraOrigen       String?   @map("muestra_origen")
   /// FK suave: solo las versiones migradas del perfil de un cliente.
   clienteOrigenId     Int?      @map("cliente_origen_id")
   clienteOrigenNombre String?   @map("cliente_origen_nombre")
-  /// Referencia privada al original confirmado. Nunca se publica como muestra compartida.
+  /// Referencia privada al original confirmado. Nunca se publica entero: a lo sumo su recorte anónimo.
   archivoOrigenId     Int?      @map("archivo_origen_id")
   versionBaseId       Int?      @map("version_base_id")
   nota                String?   @map("nota") @db.Text

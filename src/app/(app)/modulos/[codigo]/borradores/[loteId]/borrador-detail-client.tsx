@@ -132,6 +132,7 @@ export default function BorradorModuloClient({
   notasCliente = null,
   rolesAsistenciaInventario,
   asistenciaInventario,
+  propuestaPatron = null,
 }: {
   moduloCodigo: string;
   loteId: string;
@@ -166,8 +167,15 @@ export default function BorradorModuloClient({
   /** Sólo se ofrece para un original INV de aplicativo; Archivo manual conserva su flujo. */
   rolesAsistenciaInventario?: RolModulo[];
   asistenciaInventario?: { revision: number; estado: EstadoAsistenciaInventario };
+  /**
+   * El aplicativo no tenía patrón para este archivo: al confirmar se puede guardar el formato como
+   * patrón (`aplicativo`) o se explica por qué no (`motivo`). `null` = no aplica.
+   */
+  propuestaPatron?: { aplicativo: string | null; motivo: string | null } | null;
 }) {
   const router = useRouter();
+  // «Guardar este formato como patrón del aplicativo», marcada por defecto.
+  const [guardarComoPatron, setGuardarComoPatron] = useState(true);
   const clasificadorEtiqueta = columnasDelCargue.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
   const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
   // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan (las
@@ -387,6 +395,7 @@ export default function BorradorModuloClient({
       fd.set("observaciones", observaciones);
       fd.set("verificaciones", JSON.stringify(respuestas));
       if (moduloCodigo === "INV" && asistenciaInventario && asistenciaInventario.revision > 0) fd.set("revisionAsistenciaEsperada", String(asistenciaInventario.revision));
+      if (propuestaPatron?.aplicativo) fd.set("guardarComoPatron", guardarComoPatron ? "1" : "0");
       const r = await cargarBorradorModulo(undefined, fd);
       if (r.ok) { notifySuccess(r.message ?? "Cargado."); router.push(`/modulos/${moduloCodigo.toLowerCase()}`); }
       else notifyError(r.message ?? "No se pudo cargar.");
@@ -1021,7 +1030,30 @@ export default function BorradorModuloClient({
       </div>
 
       {/* Barra de acciones */}
-      <Card className="flex flex-wrap items-end justify-between gap-3 p-4">
+      <Card className="flex flex-col gap-3 p-4">
+      {propuestaPatron && (
+        propuestaPatron.aplicativo ? (
+          <label className="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] text-blue-900">
+            <input
+              type="checkbox"
+              checked={guardarComoPatron}
+              onChange={(e) => setGuardarComoPatron(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="leading-snug">
+              <b>Guardar este formato como patrón de {propuestaPatron.aplicativo}</b>
+              <span className="block text-[11.5px] text-blue-800">
+                Se usará en las próximas cargas de {cliente}. Un administrador puede aprobarlo para todos los clientes de {propuestaPatron.aplicativo}.
+              </span>
+            </span>
+          </label>
+        ) : propuestaPatron.motivo ? (
+          <p className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[11.5px] leading-snug text-ink-600">
+            Este formato no se podrá guardar como patrón del aplicativo: {propuestaPatron.motivo}
+          </p>
+        ) : null
+      )}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
@@ -1062,6 +1094,7 @@ export default function BorradorModuloClient({
             {cargando ? "Cargando…" : "Confirmar carga"}
           </button>
         </div>
+      </div>
       </Card>
     </div>
   );

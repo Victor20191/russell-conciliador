@@ -24,9 +24,11 @@ import {
   leerDatosModulo,
   analizarArchivoModulo,
   preferenciasCargaModulo,
+  probarMapeoCarga,
   ubicarCeldaArchivoModulo,
   type AnalisisModulo,
 } from "@/app/actions/modulos-datos";
+import { PruebaMapeoPatron } from "./patrones/prueba-mapeo-patron";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import { tieneValorFormula, validarValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { confirmacionValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
@@ -566,6 +568,9 @@ function CargarModal({
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
   const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
   const [destinoCarga, setDestinoCarga] = useState<DestinoCarga | null>(null);
+  // El aplicativo no tiene patrón y quien carga configura la lectura en este modal (no Inventarios,
+  // que tiene su asistencia). Al confirmar el borrador podrá guardar el formato como patrón.
+  const [configurando, setConfigurando] = useState(false);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -590,6 +595,7 @@ function CargarModal({
     setSepararCentro(null);
     setContenido(null);
     setDestinoCarga(null);
+    setConfigurando(false);
     setFase("archivo");
   };
 
@@ -740,11 +746,15 @@ function CargarModal({
           }
           return;
         }
-        if (r.modo === "sin_patron" || !r.spec) {
+        // Configurando la lectura, otra hoja sin patrón sigue en el editor con su propia sugerencia.
+        const seguirConfigurando = configurando && r.modo === "sin_patron" && r.spec != null;
+        if (!seguirConfigurando && (r.modo === "sin_patron" || !r.spec)) {
           setSpec(null);
           setFase("sin_patron");
           return;
         }
+        if (r.modo !== "sin_patron") setConfigurando(false);
+        if (!r.spec) return;
         // Ni el perfil ni el patrón traen la fila del total: se ubica de nuevo en cada archivo.
         setSpec(sinCoordenadaDeArchivo(r.spec));
         // Cada análisis (también al cambiar de hoja) vuelve a pedir la confirmación del clasificador.
@@ -755,6 +765,7 @@ function CargarModal({
         setContenido(null);
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
+        if (r.modo === "patron" && configurando) notifySuccess(`Esta hoja coincide con un patrón de ${r.aplicativo?.nombre ?? "el aplicativo"}: se leerá con él.`);
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
         notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
@@ -807,6 +818,8 @@ function CargarModal({
         const sinConfirmar = impedimentoValorSinConfirmar({ valor: rolValor, confirmarValorSinImpuestos }, spec, analisis.encabezado ?? []);
         if (sinConfirmar) { notifyError(sinConfirmar); return; }
       }
+      // Sin patrón, el formato configurado aquí podrá guardarse como patrón: su tipo es obligatorio.
+      if (configurando && conNivelCartera && !spec.tipoFormato) { notifyError("Elige el tipo de formato del archivo: por documento, por edades o por documento y edades."); return; }
     }
     if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {
       notifyError(`Indica la TRM de cierre: los importes están en ${spec.monedaArchivo}.`);
@@ -857,6 +870,7 @@ function CargarModal({
         }
       } else {
         fd.set("specJson", JSON.stringify(spec));
+        if (configurando) fd.set("configurarEnCarga", "1");
       }
       fd.set("periodoInicio", `${mes}-01`);
       fd.set("periodoFin", `${mes}-01`);
@@ -1030,6 +1044,27 @@ function CargarModal({
   const botonPrimario = "rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
   const aplicativoAnalizado = analisis?.aplicativo;
   const rutaPatrones = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
+  const nombreCliente = clientes.find((c) => c.id === clienteId)?.name ?? "este cliente";
+  // Sin patrón, quien carga puede configurar la lectura en el modal (Inventarios usa su asistencia).
+  const puedeConfigurarAqui = moduloCodigo !== "INV" && analisis?.modo === "sin_patron" && analisis.spec != null;
+  const configurarAqui = () => {
+    if (!analisis?.spec) return;
+    reiniciarMarcaTotales();
+    setSpec(sinCoordenadaDeArchivo(analisis.spec));
+    setClasificadorPatron(null);
+    setClasificadorConfirmado(false);
+    setTotalArchivo(null);
+    setSepararCentro(null);
+    setContenido(null);
+    setContenidoActivos(null);
+    setDestinoCarga(null);
+    setConfigurando(true);
+    setFase("mapeo");
+  };
+  const probarEnCarga = (fd: FormData) => {
+    fd.set("clienteId", String(clienteId ?? ""));
+    return probarMapeoCarga(fd);
+  };
 
   const footer = fase === "archivo" ? (
     <>
@@ -1047,7 +1082,7 @@ function CargarModal({
     <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
   ) : (
     <>
-      <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
+      <button type="button" onClick={() => { setConfigurando(false); setFase("archivo"); }} className={botonSecundario}>Atrás</button>
       <button type="button" disabled={leyendo || analizando} onClick={leer} className={botonPrimario}>
         {leyendo ? "Leyendo…" : fase === "patron" ? "Crear borrador" : "Leer y crear borrador"}
       </button>
@@ -1218,21 +1253,30 @@ function CargarModal({
               <p className="mt-1">Rótulos del patrón que no están en el archivo: {analisis.sinPatron!.mejor!.faltantes.join(", ")}.</p>
             )}
             <p className="mt-1.5">
-              Un administrador debe crear el patrón para este formato; después vuelve a cargar el archivo. No se creó ningún borrador
-              y el original quedó conservado.
+              {puedeConfigurarAqui
+                ? "Puedes indicar aquí mismo qué es cada columna y crear el borrador; al confirmarlo podrás guardar el formato como patrón del aplicativo. "
+                : "Un administrador debe crear el patrón para este formato; después vuelve a cargar el archivo. "}
+              No se creó ningún borrador y el original quedó conservado.
             </p>
           </div>
           {analisis.advertenciaFormato && (
             <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-err-700">{analisis.advertenciaFormato}</p>
           )}
           <div className="flex flex-wrap gap-2">
+            {puedeConfigurarAqui && (
+              <button type="button" onClick={configurarAqui} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600">
+                Configurar la lectura aquí
+              </button>
+            )}
             <Link href={rutaPatrones} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50">
               Ver patrones de archivo
             </Link>
             {puedeAdministrarPatrones && aplicativoAnalizado && (
               <Link
                 href={`${rutaPatrones}/nueva?erp=${aplicativoAnalizado.id}${recepcionLoteId ? `&recepcion=${recepcionLoteId}` : ""}`}
-                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
+                className={puedeConfigurarAqui
+                  ? "rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50"
+                  : "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"}
               >
                 Crear patrón
               </Link>
@@ -1250,7 +1294,7 @@ function CargarModal({
             </p>
             <p className="mt-0.5 text-[11.5px] leading-snug">
               El archivo se leerá con este patrón, sin configurar columnas.
-              {analisis.coincidencia.estado === "pendiente" ? " Es una versión pendiente de aprobación: por ahora solo sirve para este cliente." : ""}
+              {analisis.coincidencia.estado === "pendiente" || analisis.coincidencia.estado === "validada_cliente" ? " Es una versión pendiente de aprobación: por ahora solo sirve para este cliente." : ""}
             </p>
           </div>
           {analisis.coincidencia.advertencias.length > 0 && (
@@ -1398,10 +1442,18 @@ function CargarModal({
       {fase === "mapeo" && analisis && spec && (
         <div className="flex flex-col gap-3 text-[12.5px]">
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-          <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
-            Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
-            {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
-          </p>
+          {configurando ? (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] leading-relaxed text-blue-800">
+              {aplicativoAnalizado?.nombre ?? "El aplicativo"} no tiene patrón para este formato: indica qué es cada columna y prueba el mapeo.
+              Al confirmar el cargue podrás guardarlo como patrón de {aplicativoAnalizado?.nombre ?? "ese aplicativo"}; se usará solo
+              para {nombreCliente} hasta que un administrador lo apruebe.
+            </p>
+          ) : (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
+              Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
+              {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
+            </p>
+          )}
           {preguntaContenido}
           {preguntaContenidoActivos}
           <EditorMapeoModulo
@@ -1421,7 +1473,19 @@ function CargarModal({
             onConfirmarCorte={setCorteConfirmado}
             onCambioMarcaTotales={reiniciarMarcaTotales}
             marcaTotalesCarga={marcaTotalesCarga}
+            exigirTipoFormato={configurando}
           />
+          {configurando && (
+            <PruebaMapeoPatron
+              key={`${recepcionLoteId ?? ""}:${spec.hoja}`}
+              moduloCodigo={moduloCodigo}
+              clasificadorEtiqueta={etiquetaClasificador}
+              spec={spec}
+              fuente={() => (recepcionLoteId ? { tipo: "original", recepcionLoteId } : null)}
+              puedeProbar={recepcionLoteId != null}
+              accion={probarEnCarga}
+            />
+          )}
         </div>
       )}
     </Modal>

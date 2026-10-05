@@ -192,6 +192,7 @@ export function EditorMapeoModulo({
   ref,
   corteConfirmado,
   onConfirmarCorte,
+  exigirTipoFormato = false,
 }: {
   analisis: AnalisisModulo;
   spec: SpecModulo;
@@ -218,8 +219,14 @@ export function EditorMapeoModulo({
   /** Carga: la fecha de corte ya confirmada y cómo confirmarla (ver `CamposCargueCartera`). */
   corteConfirmado?: string | null;
   onConfirmarCorte?: (fecha: string) => void;
+  /**
+   * Cartera y CxP: el tipo de formato es obligatorio (siempre en el patrón; en la carga, cuando el
+   * aplicativo no tiene patrón y la lectura se configura ahí, porque podrá guardarse como patrón).
+   */
+  exigirTipoFormato?: boolean;
 }) {
   const esCarga = modoEditor === "carga";
+  const tipoObligatorio = modoEditor === "patron" || exigirTipoFormato;
 
   // Error del servidor atribuido a un campo. El resaltado se DERIVA de este estado y del mapeo
   // actual (`errorMapeoVigente`): al corregir el campo desaparece solo, sin efectos que lo limpien.
@@ -451,7 +458,7 @@ export function EditorMapeoModulo({
         <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
           <label className="flex min-w-0 flex-col gap-1">
             <span className={`text-[11px] font-medium ${tipoFormatoConError ? "text-err-700" : "text-ink-600"}`}>
-              Tipo de formato{modoEditor === "patron" && <span className="text-err-600"> *</span>}
+              Tipo de formato{tipoObligatorio && <span className="text-err-600"> *</span>}
             </span>
             <select
               id={idCampoMapeo(uid, campoTipoFormato)}
@@ -464,7 +471,7 @@ export function EditorMapeoModulo({
             >
               {!spec.tipoFormato && (
                 <option value="">
-                  {modoEditor === "patron" ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
+                  {tipoObligatorio ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
                 </option>
               )}
               {TIPOS_FORMATO_DECLARABLES.map((t) => (

@@ -4,6 +4,7 @@
 // Flujo: leer archivo → staging editable (borrador) → promover a oficial (detalle) →
 // purga. Todo dirigido por el descriptor del módulo. Sin PUC ni partida doble.
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { randomUUID } from "crypto";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
@@ -42,10 +43,13 @@ import {
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { confirmarAprendizajeInventario } from "@/lib/modulos/asistencia-inventario-confirmacion";
+import { proponerPatronDesdeCarga } from "@/lib/modulos/patrones/proponer-desde-carga";
+import { guardarMuestraRecortada } from "@/lib/modulos/patrones/muestra-recortada-servidor";
+import { debeGuardarPatron, motivoNoProponible, type PropuestaPatronLote } from "@/lib/modulos/patrones/propuesta-lote";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { confirmacionValor, detalleAuditoriaValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
 import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
-import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
+import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
@@ -62,6 +66,9 @@ import {
   type VigentePeriodoModulo,
 } from "@/lib/modulos/ingresos/contenido-archivo";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
+import { FILAS_MAXIMAS_PRUEBA, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
+import { vistaPruebaMapeo, type ResultadoPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
+import { encabezadoParaGuardar } from "@/lib/modulos/patrones/rotulos";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
 import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
@@ -337,8 +344,9 @@ export type AnalisisModulo = {
   origen?: "perfil" | "ia" | "patron";
   /**
    * Camino de la carga: «patron» (el archivo coincide con un patrón del aplicativo y se lee sin
-   * mapear), «sin_patron» (no coincide: la carga se detiene hasta que un administrador cree el
-   * patrón) o «manual» (aplicativo «Archivo manual»: se mapea a mano y se memoriza por cliente).
+   * mapear), «sin_patron» (no coincide: quien carga configura la lectura en el modal —trae la
+   * vista de la hoja y la sugerencia— o un administrador crea el patrón) o «manual» (aplicativo
+   * «Archivo manual»: se mapea a mano y se memoriza por cliente).
    */
   modo?: "patron" | "sin_patron" | "manual";
   aplicativo?: { id: number; nombre: string; manual: boolean };
@@ -772,16 +780,25 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       };
     }
 
+    // SIN PATRÓN: la carga no sigue sola, pero quien carga puede configurar la lectura aquí mismo
+    // (salvo Inventarios, que tiene su asistencia). Para eso viaja la vista de la hoja y la
+    // sugerencia heurística; nunca el perfil del cliente, que es la memoria de «Archivo manual».
+    const specSugerido = sugerirSpec(descriptor, hoja);
+    const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
     revalidarListadosModulo(moduloCodigo);
     return {
       ok: true,
       recepcionLoteId: loteId,
       modo: "sin_patron",
       aplicativo: aplicativoVm,
+      ...vistaAnalisisHoja(descriptor, ingesta.hojas, hoja, specSugerido, seleccionHoja),
+      spec: specSugerido,
+      origen: "ia",
+      ...(vigentePeriodo ? { vigentePeriodo } : {}),
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
       ...(descriptor.crucePorTercero.detalleTercero
-        && !esTipoFormatoDeclarable(tipoFormatoCartera(sugerirSpec(descriptor, hoja)).tipo)
+        && !esTipoFormatoDeclarable(tipoFormatoCartera(specSugerido).tipo)
         ? { advertenciaFormato: MENSAJE_FORMATO_NO_CONCILIABLE }
         : {}),
       sinPatron: {
@@ -840,6 +857,121 @@ export type ResultadoUbicarCeldaArchivoModulo = {
 };
 
 /**
+ * El original conservado durante el análisis, con su integridad comprobada (tamaño y SHA-256
+ * contra la bitácora). Solo para el cliente y módulo de la carga y en los estados pedidos.
+ * Quien llama ya verificó el permiso y el alcance sobre el cliente.
+ */
+async function originalRecibidoVerificado(entrada: {
+  recepcionLoteId: string;
+  clienteId: number;
+  moduloCodigo: string;
+  estados: string[];
+  contexto: string;
+  /** «ubicar la celda», «probar el mapeo»: completa el mensaje de no disponible. */
+  para: string;
+}): Promise<{ ok: true; bytes: Uint8Array; nombreArchivo: string } | { ok: false; message: string }> {
+  const noDisponible = { ok: false as const, message: `El archivo original ya no está disponible para ${entrada.para}.` };
+  const original = await prisma.archivoOriginalModulo.findUnique({
+    where: { loteId: entrada.recepcionLoteId },
+    select: {
+      clienteId: true,
+      moduloCodigo: true,
+      nombreArchivo: true,
+      tamanoBytes: true,
+      huellaSha256: true,
+      claveObjeto: true,
+      disponible: true,
+      estado: true,
+    },
+  });
+  if (
+    !original
+    || original.clienteId !== entrada.clienteId
+    || original.moduloCodigo !== entrada.moduloCodigo
+    || !entrada.estados.includes(original.estado)
+    || !original.disponible
+    || !original.claveObjeto?.trim()
+    || typeof original.tamanoBytes !== "number"
+    || !Number.isSafeInteger(original.tamanoBytes)
+    || original.tamanoBytes <= 0
+    || typeof original.huellaSha256 !== "string"
+    || !/^[0-9a-f]{64}$/.test(original.huellaSha256)
+  ) {
+    return noDisponible;
+  }
+  const objeto = await obtenerObjeto(original.claveObjeto);
+  if (!objeto) return noDisponible;
+  if (objeto.cuerpo.byteLength !== original.tamanoBytes || huellaSha256Archivo(objeto.cuerpo) !== original.huellaSha256) {
+    registrarError(
+      `${entrada.contexto}.integridad`,
+      new Error(`El objeto ${entrada.recepcionLoteId} no coincide con su metadata durable.`),
+    );
+    return { ok: false, message: "El archivo original no supera la verificación de integridad." };
+  }
+  return { ok: true, bytes: objeto.cuerpo, nombreArchivo: original.nombreArchivo };
+}
+
+/**
+ * PROBAR EL MAPEO en la carga (aplicativo sin patrón, lectura configurada en el modal): la misma
+ * lectura que «Probar el mapeo» de la pantalla de patrones (`revisarMapeoMuestra`, con el mismo
+ * tope de filas), pero sobre el original que se está cargando y con el permiso de cargar. Es de
+ * solo lectura: no toca el original, el borrador ni el mapeo del modal.
+ */
+export async function probarMapeoCarga(formData: FormData): Promise<ResultadoPruebaMapeo> {
+  const permiso = await authorizePermiso("modulos_datos:crear");
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  const descriptor = descriptorModulo(String(formData.get("moduloCodigo") ?? "").trim().toUpperCase());
+  if (!descriptor) return { ok: false, message: "Módulo no soportado." };
+  const clienteId = Number(formData.get("clienteId"));
+  if (!Number.isInteger(clienteId) || clienteId <= 0) return { ok: false, message: "Selecciona el cliente." };
+  const alcance = await authorizePermiso("modulos_datos:crear", { clientId: clienteId });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
+  const recepcionLoteId = String(formData.get("recepcionLoteId") ?? "").trim();
+  if (!recepcionLoteId) return { ok: false, message: "Vuelve a analizar el archivo para probar el mapeo." };
+  let specEntrada: SpecModulo;
+  try {
+    const parsed = SpecModuloSchema.safeParse(JSON.parse(String(formData.get("specJson") ?? "")));
+    if (!parsed.success) return { ok: false, message: "El mapeo de columnas no es válido." };
+    specEntrada = parsed.data;
+  } catch {
+    return { ok: false, message: "El mapeo de columnas no es válido." };
+  }
+  try {
+    const original = await originalRecibidoVerificado({
+      recepcionLoteId, clienteId, moduloCodigo: descriptor.codigo,
+      estados: ["recibido", "no_procesable"], contexto: "probarMapeoCarga", para: "probar el mapeo",
+    });
+    if (!original.ok) return { ok: false, message: original.message };
+    let ingesta: Awaited<ReturnType<typeof ingerir>>;
+    try {
+      ingesta = await ingerir(original.bytes.slice().buffer as ArrayBuffer, original.nombreArchivo);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("probarMapeoCarga.ingerir", e) };
+    }
+    if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
+    // Con tope de filas: la lectura es sincrónica (ver `FILAS_MAXIMAS_PRUEBA`).
+    const revision = revisarMapeoMuestra(descriptor, ingesta.hojas, specEntrada, {
+      exigirTipoFormato: true,
+      maxFilasDatos: FILAS_MAXIMAS_PRUEBA,
+    });
+    return {
+      ok: true,
+      origen: { tipo: "muestra", nombre: original.nombreArchivo },
+      ...vistaPruebaMapeo({
+        descriptor,
+        spec: revision.spec,
+        hoja: revision.hoja,
+        lectura: revision.lectura,
+        impedimentos: revision.impedimentos,
+        recorte: revision.recorte,
+      }),
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("probarMapeoCarga", e) };
+  }
+}
+
+/**
  * Resuelve una coordenada exacta del original ya conservado durante el análisis.
  * Devuelve solo esa celda: la fila es una ayuda efímera del modal y nunca se guarda en
  * el perfil, porque cambia entre archivos aunque el formato sea el mismo.
@@ -861,50 +993,11 @@ export async function ubicarCeldaArchivoModulo(
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
-    const original = await prisma.archivoOriginalModulo.findUnique({
-      where: { loteId: datos.recepcionLoteId },
-      select: {
-        clienteId: true,
-        moduloCodigo: true,
-        nombreArchivo: true,
-        tamanoBytes: true,
-        huellaSha256: true,
-        claveObjeto: true,
-        disponible: true,
-        estado: true,
-      },
+    const original = await originalRecibidoVerificado({
+      recepcionLoteId: datos.recepcionLoteId, clienteId: datos.clienteId, moduloCodigo: datos.moduloCodigo,
+      estados: ["recibido"], contexto: "ubicarCeldaArchivoModulo", para: "ubicar la celda",
     });
-    if (
-      !original
-      || original.clienteId !== datos.clienteId
-      || original.moduloCodigo !== datos.moduloCodigo
-      || original.estado !== "recibido"
-      || !original.disponible
-      || !original.claveObjeto?.trim()
-      || typeof original.tamanoBytes !== "number"
-      || !Number.isSafeInteger(original.tamanoBytes)
-      || original.tamanoBytes <= 0
-      || typeof original.huellaSha256 !== "string"
-      || !/^[0-9a-f]{64}$/.test(original.huellaSha256)
-    ) {
-      return { ok: false, message: "El archivo original ya no está disponible para ubicar la celda." };
-    }
-
-    const claveObjeto = original.claveObjeto as string;
-    const tamanoEsperado = original.tamanoBytes as number;
-    const huellaEsperada = original.huellaSha256 as string;
-    const objeto = await obtenerObjeto(claveObjeto);
-    if (!objeto) return { ok: false, message: "El archivo original ya no está disponible para ubicar la celda." };
-    if (
-      objeto.cuerpo.byteLength !== tamanoEsperado
-      || huellaSha256Archivo(objeto.cuerpo) !== huellaEsperada
-    ) {
-      registrarError(
-        "ubicarCeldaArchivoModulo.integridad",
-        new Error(`El objeto ${datos.recepcionLoteId} no coincide con su metadata durable.`),
-      );
-      return { ok: false, message: "El archivo original no supera la verificación de integridad." };
-    }
+    if (!original.ok) return { ok: false, message: original.message };
 
     // La grilla de SheetJS empieza en la primera columna usada: la O del asistente es la Q de
     // Excel si la hoja trae A y B vacías. Aquí se lee y se rotula la celda real.
@@ -912,7 +1005,7 @@ export async function ubicarCeldaArchivoModulo(
     if (columnaFisica > 16_384) return { ok: false, message: "Indica una columna y un número de fila válidos." };
     let celdaFisica: Awaited<ReturnType<typeof leerCeldaFisicaArchivo>>;
     try {
-      const bytes = objeto.cuerpo.slice();
+      const bytes = original.bytes.slice();
       celdaFisica = await leerCeldaFisicaArchivo(
         bytes.buffer as ArrayBuffer,
         original.nombreArchivo,
@@ -1200,26 +1293,43 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
       patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null; sinCentro: boolean } | null;
+      /** Lectura configurada en la carga: el formato que se podrá guardar como patrón al confirmar. */
+      propuesta?: PropuestaPatronLote | null;
+      /** …o por qué no se podrá (el cargue sigue igual). */
+      sinPropuesta?: string | null;
     };
+    // Un mapeo que no sirve es un error del formulario, no del archivo: se responde sin marcar el
+    // original como no procesable (como la confirmación del IVA). Un texto suelto sí lo marca.
+    type Rechazo = { rechazo: string };
 
     // ARCHIVO MANUAL: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → ia.
-    const lecturaManual = async (): Promise<Lectura | string> => {
+    const specDelFormulario = (): SpecModulo | Rechazo | null => {
+      const crudo = formData.get("specJson");
+      if (typeof crudo !== "string" || !crudo.trim()) return null;
+      let specEditado: unknown;
+      try {
+        specEditado = JSON.parse(crudo);
+      } catch {
+        return { rechazo: "El mapeo de columnas no es válido." };
+      }
+      const parsed = SpecModuloSchema.safeParse(specEditado);
+      if (!parsed.success) return { rechazo: "El mapeo de columnas no es válido." };
+      const spec = normalizarSpecModuloArchivo(descriptor, parsed.data);
+      // El navegador ya exige las columnas obligatorias y el tipo de formato; el servidor no le cree.
+      const errorMapeo = validarSpecModulo(descriptor, spec);
+      return errorMapeo ? { rechazo: errorMapeo } : spec;
+    };
+
+    const lecturaManual = async (): Promise<Lectura | Rechazo | string> => {
       const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
       const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
       if (!hoja) return "El archivo no tiene hojas legibles.";
-      const specEditadoRaw = formData.get("specJson");
-      if (typeof specEditadoRaw === "string" && specEditadoRaw.trim()) {
-        let specEditado: unknown;
-        try {
-          specEditado = JSON.parse(specEditadoRaw);
-        } catch {
-          return "El mapeo de columnas no es válido.";
-        }
-        const parsed = SpecModuloSchema.safeParse(specEditado);
-        if (!parsed.success) return "El mapeo de columnas no es válido.";
+      const editado = specDelFormulario();
+      if (editado && "rechazo" in editado) return editado;
+      if (editado) {
         // El origen es metadata de auditoría: se recompone contra fuentes del
         // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
-        const spec = normalizarSpecModuloArchivo(descriptor, parsed.data);
+        const spec = editado;
         const specReutilizable = normalizarSpecModulo(descriptor, spec);
         const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
         const origen = perfilSpec && mismoSpecModulo(specReutilizable, perfilSpec)
@@ -1233,10 +1343,42 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         : { hoja, spec: sugerirSpec(descriptor, hoja), origen: "ia", patron: null };
     };
 
+    // APLICATIVO SIN PATRÓN, LECTURA CONFIGURADA EN LA CARGA (Cartera, CxP, Ingresos, Activos
+    // fijos, Nómina): el mapeo lo arma quien carga en el modal. No toca la memoria por cliente
+    // («Archivo manual»): al confirmar, el formato se puede guardar como patrón del aplicativo.
+    const lecturaConfigurada = async (): Promise<Lectura | Rechazo | string> => {
+      if (descriptor.codigo === "INV") {
+        return { rechazo: "En Inventarios la lectura sin patrón la hace la asistencia: vuelve a analizar el archivo." };
+      }
+      const editado = specDelFormulario();
+      if (!editado) return { rechazo: "Indica qué es cada columna antes de leer el archivo." };
+      if ("rechazo" in editado) return editado;
+      const hoja = ingesta.hojas.find((h) => h.nombre === (hojaElegida || editado.hoja));
+      if (!hoja) return { rechazo: `El archivo no tiene la hoja «${hojaElegida || editado.hoja}».` };
+      // Si mientras tanto aprobaron (o ya había) un patrón que reconoce el archivo, manda el patrón:
+      // un mapeo hecho en la carga nunca lo reemplaza.
+      const { versiones } = await versionesPatronCandidatas(descriptor, aplicativo.id, clienteId);
+      const ubicacion = mejorVersion(descriptor, ingesta.hojas, versiones, { hojaElegida: hoja.nombre });
+      if (ubicacion?.coincidencia.elegible) {
+        return { rechazo: `El archivo ya coincide con el patrón ${aplicativo.name} v${ubicacion.version.version}: vuelve a analizarlo para leerlo con ese patrón.` };
+      }
+      const specReutilizable = normalizarSpecModulo(descriptor, editado);
+      const encabezado = encabezadoParaGuardar(hoja.filas[editado.filaEncabezado - 1] ?? []);
+      const sinPropuesta = motivoNoProponible(descriptor, specReutilizable, encabezado);
+      // Cartera y CxP: el tipo de formato decide los controles de ESTE cargue; sin él no se lee.
+      if (sinPropuesta === MENSAJE_TIPO_FORMATO) return { rechazo: sinPropuesta };
+      return {
+        hoja, spec: editado, origen: "manual", patron: null,
+        propuesta: sinPropuesta ? null : { version: 1, erpId: aplicativo.id, encabezado, spec: specReutilizable },
+        sinPropuesta,
+      };
+    };
+    const configurarEnCarga = !aplicativo.manual && formData.get("configurarEnCarga") === "1";
+
     // PATRÓN DEL APLICATIVO: el navegador solo dice qué versión confirmó; el servidor vuelve a
     // comprobar que el archivo coincide y arma el mapeo. Del navegador solo llegan los datos de
     // ESTE cargue (fecha de corte, TRM, fila del total), nunca columnas.
-    const lecturaPorPatron = async (): Promise<Lectura | string> => {
+    const lecturaPorPatron = async (): Promise<Lectura | Rechazo | string> => {
       const versionId = Number(formData.get("patronVersionId"));
       if (!Number.isInteger(versionId) || versionId <= 0) return "Vuelve a analizar el archivo: falta el patrón con que se leerá.";
       const { versiones } = await versionesPatronCandidatas(descriptor, aplicativo.id, clienteId, versionId);
@@ -1325,8 +1467,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       };
     };
 
-    const lectura = aplicativo.manual ? await lecturaManual() : await lecturaPorPatron();
+    const lectura = aplicativo.manual
+      ? await lecturaManual()
+      : configurarEnCarga ? await lecturaConfigurada() : await lecturaPorPatron();
     if (typeof lectura === "string") return marcarNoProcesable(lectura);
+    if ("rechazo" in lectura) return { ok: false, message: lectura.rechazo };
     const { hoja, origen, patron } = lectura;
     let spec = lectura.spec;
     // Las reglas que combinan celdas/filas necesitan la confirmación vinculada a
@@ -1453,6 +1598,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       ...(reconciliacion ? { reconciliacion } : {}),
       ...(detalleValor ? { detalleValor } : {}),
       ...(signoContenido ? { signoContenido } : {}),
+      // Lectura configurada en la carga: lo que se guardaría como patrón al confirmar (lo escribe
+      // solo el servidor, tomado ANTES de los ajustes de este archivo) o por qué no se puede.
+      ...(lectura.propuesta ? { propuestaPatron: lectura.propuesta } : {}),
+      ...(configurarEnCarga && lectura.sinPropuesta ? { propuestaPatronMotivo: lectura.sinPropuesta } : {}),
     };
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
@@ -1466,7 +1615,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       : "";
     const detallePatron = patron
       ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}${patron.sinCentro ? " · sin separar por centro de costo (solo este cargue)" : ""}`
-      : ` · ${aplicativo.name}`;
+      : configurarEnCarga
+        ? ` · ${aplicativo.name} sin patrón · lectura configurada en la carga`
+        : ` · ${aplicativo.name}`;
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -1891,6 +2042,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
     const user = await getCurrentUser();
+    // «Guardar este formato como patrón del aplicativo» (casilla del borrador).
+    const guardarPatron = debeGuardarPatron(lote.moduloCodigo, formData.get("guardarComoPatron"));
 
     const resultado = await transaccionSerializable(async (tx) => {
       await tomarCandadoTransaccion(tx, `modulo-promocion:${loteId}`);
@@ -1899,7 +2052,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         where: { loteId },
         select: { id: true, version: true, filas: true, total: true },
       });
-      if (existente) return { encabezadoId: existente.id, version: existente.version, filas: existente.filas, total: Number(existente.total), aportados: existente.filas, reutilizado: true, modo: "version" as const };
+      if (existente) return { encabezadoId: existente.id, version: existente.version, filas: existente.filas, total: Number(existente.total), aportados: existente.filas, reutilizado: true, modo: "version" as const, patronAprendido: null };
 
       await tomarCandadoTransaccion(tx, `modulo-borrador:${loteId}`);
       const loteActual = await tx.moduloImportacionLote.findUnique({
@@ -1919,6 +2072,12 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
         throw new ErrorCargueModulo("El borrador cambió durante la carga o ya no existe; no se creó ninguna versión.");
       }
+      // El formato como patrón del aplicativo: Inventarios por su asistencia, los demás por la
+      // lectura configurada en la carga. Se llama después de marcar el original como cargado.
+      const usuarioPatron = { id: user?.id ?? null, nombre: user?.name ?? null };
+      const guardarPatronDelCargue = (tx2: typeof tx, encabezadoId: number) => loteActual.moduloCodigo === "INV"
+        ? confirmarAprendizajeInventario(tx2, { loteId, encabezadoId, usuario: usuarioPatron, aprender: guardarPatron })
+        : proponerPatronDesdeCarga(tx2, { loteId, encabezadoId, specLote: loteActual.specJson, aprender: guardarPatron, usuario: usuarioPatron });
 
       if (loteActual.moduloCodigo === "INV") {
         const original = await tx.archivoOriginalModulo.findUnique({
@@ -2236,7 +2395,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
         }
 
-        if (loteActual.moduloCodigo === "INV") await confirmarAprendizajeInventario(tx, { loteId, encabezadoId: vigente.id, usuario: { id: user?.id ?? null, nombre: user?.name ?? null } });
+        const patronAprendido = await guardarPatronDelCargue(tx, vigente.id);
 
         const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
         if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
@@ -2251,6 +2410,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           aportados: promocion.filas,
           reutilizado: false,
           modo: "agregar" as const,
+          patronAprendido,
         };
       }
 
@@ -2343,18 +2503,63 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       if (originalActualizado.count !== 1) {
         throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
       }
-      if (loteActual.moduloCodigo === "INV") await confirmarAprendizajeInventario(tx, { loteId, encabezadoId: enc.id, usuario: { id: user?.id ?? null, nombre: user?.name ?? null } });
+      const patronAprendido = await guardarPatronDelCargue(tx, enc.id);
       const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
       if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
       const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
       if (loteEliminado.count !== 1) throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
 
-      return { encabezadoId: enc.id, version, filas: promocion.filas, total: promocion.total, aportados: promocion.filas, reutilizado: false, modo: "version" as const };
+      return { encabezadoId: enc.id, version, filas: promocion.filas, total: promocion.total, aportados: promocion.filas, reutilizado: false, modo: "version" as const, patronAprendido };
     }, { timeoutMs: TIMEOUT_TRANSACCION_MODULO_MS });
 
-    const mensaje = resultado.modo === "agregar"
+    const patron = resultado.patronAprendido;
+    // Solo para el mensaje y la muestra: el cargue ya quedó confirmado y no depende de esta lectura.
+    const erpPatron = patron
+      ? await (async () => {
+        try {
+          return await prisma.versionPatronArchivoModulo.findUnique({ where: { id: patron.id }, select: { estado: true, erp: { select: { name: true } } } });
+        } catch (e) {
+          registrarError("cargarBorradorModulo.patronAprendido", e);
+          return null;
+        }
+      })()
+      : null;
+    const textoPatron = patron && erpPatron
+      ? erpPatron.estado === "aprobada"
+        ? ` El formato coincide con el patrón aprobado ${erpPatron.erp.name} v${patron.version}.`
+        : ` Formato guardado como patrón ${erpPatron.erp.name} v${patron.version}: se usará para ${cliente.name} hasta que un administrador lo apruebe para todos.`
+      : "";
+    const mensaje = (resultado.modo === "agregar"
       ? `Agregado a ${descriptor.label} del período ${periodo} (${resultado.aportados} ítems nuevos, total ${resultado.filas}).`
-      : `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`;
+      : `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`) + textoPatron;
+    if (patron && erpPatron && !patron.reutilizada) {
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: "PROPUSO PATRÓN DE ARCHIVO",
+        entity: `${descriptor.label} · ${erpPatron.erp.name} v${patron.version}`,
+        detail: `Desde el cargue de ${periodo} de ${cliente.name}; sirve solo a ese cliente hasta que un administrador lo apruebe.`,
+        clientId: lote.clienteId,
+      });
+    }
+    // La muestra de una versión aprendida: el recorte anónimo y verificado del original. Va después
+    // de responder (leer el original entero puede tardar); si no sale, el administrador sube una.
+    if (patron && erpPatron?.estado === "validada_cliente") {
+      const clienteMuestra = { id: lote.clienteId, nombre: cliente.name };
+      after(async () => {
+        const muestra = await guardarMuestraRecortada(patron.id);
+        if (muestra.ok && muestra.yaTenia) return;
+        await logAudit({
+          user: user?.name ?? "Sistema",
+          action: muestra.ok ? "GENERÓ MUESTRA DE PATRÓN" : "SIN MUESTRA AUTOMÁTICA DE PATRÓN",
+          entity: `${descriptor.label} · ${erpPatron.erp.name} v${patron.version}`,
+          detail: muestra.ok
+            ? `${muestra.nombre} · recorte anónimo de ${muestra.filasDatos} filas del original de ${clienteMuestra.nombre}, verificado contra el patrón`
+            : `${muestra.motivo} Un administrador debe subir una muestra para aprobarlo.`,
+          clientId: clienteMuestra.id,
+        });
+        revalidatePath(`/modulos/${descriptor.codigo.toLowerCase()}/patrones`);
+      });
+    }
     if (!resultado.reutilizado) {
       await logAudit({
         user: user?.name ?? "Sistema",

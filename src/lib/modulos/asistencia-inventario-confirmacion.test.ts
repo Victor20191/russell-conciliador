@@ -127,6 +127,17 @@ describe("confirmación transaccional del aprendizaje de inventarios", () => {
     expect(tx.archivoOriginalModulo.update).toHaveBeenCalledOnce();
   });
 
+  it("sin «Guardar como patrón» confirma la lectura sin aprender ni enlazar versión", async () => {
+    expect(await confirmarAprendizajeInventario(db, { ...entrada, aprender: false })).toBeNull();
+    expect(aprender).not.toHaveBeenCalled();
+    expect(tx.moduloDatoEncabezado.update).not.toHaveBeenCalled();
+    expect(tx.archivoOriginalModulo.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { asistenciaJson: expect.objectContaining({ estado: "confirmado", patronAprendidoId: null }) } });
+  });
+
+  it("devuelve la versión aprendida para el mensaje y la muestra", async () => {
+    expect(await confirmarAprendizajeInventario(db, entrada)).toEqual({ id: 30, version: 6, reutilizada: false });
+  });
+
   it("propaga fallos de aprendizaje para que la promoción se revierta", async () => {
     aprender.mockRejectedValueOnce(new Error("Fallo al guardar patrón"));
     await expect(confirmarAprendizajeInventario(db, entrada)).rejects.toThrow("Fallo al guardar patrón");
