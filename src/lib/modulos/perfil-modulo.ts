@@ -14,6 +14,7 @@ import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
 import { esContenidoArchivo } from "./ingresos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./extraccion/lectura-estructurada";
+import { sanearRangosCodigos, textoRangosCodigos } from "./nomina/codigos-deduccion";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -165,6 +166,12 @@ function normalizarSpecModuloInterno(
   // Qué trae ESTE archivo (Ingresos: facturas / notas crédito): es del cargue, nunca del perfil.
   if (descriptor.confirmarContenidoEnCarga && conservarCoordenadaArchivo && esContenidoArchivo(spec.contenidoArchivo)) {
     normalizado.contenidoArchivo = spec.contenidoArchivo;
+  }
+  // Nómina: qué códigos son deducciones (NOMINAI 500–799). Es del FORMATO: vale en el patrón y en
+  // el perfil del cliente.
+  if (descriptor.nomina) {
+    const rangos = sanearRangosCodigos(spec.codigosDeduccion);
+    if (rangos) normalizado.codigosDeduccion = rangos;
   }
   // El rango de meses del cargue de nómina es de ESTE archivo (el perfil es del formato).
   if (descriptor.nomina?.periodoPorFila && conservarCoordenadaArchivo) {
@@ -377,6 +384,7 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
     const rango = columnas.length === 1 ? primera : `${primera}–${ultima}`;
     partes.push(`${familia.etiqueta.toLowerCase()} ${rango} (${columnas.length})`);
   }
+  if (descriptor.nomina && spec.codigosDeduccion?.length) partes.push(`deducciones: códigos ${textoRangosCodigos(spec.codigosDeduccion)}`);
   return partes.join(" · ");
 }
 

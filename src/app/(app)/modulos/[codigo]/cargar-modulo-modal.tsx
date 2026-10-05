@@ -19,6 +19,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { fechaCorteSugeridaDe, mesActualColombia, motivoFechaFutura, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
 import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
+import { textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
 import { INFO_TIPO_FORMATO, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import {
   leerDatosModulo,
@@ -465,6 +466,7 @@ function resumenMapeo(spec: SpecModulo, roles: RolModulo[], clasificadorRol: str
     const rango = edades.length === 1 ? letra(edades[0].columna) : `${letra(edades[0].columna)}–${letra(edades[edades.length - 1].columna)}`;
     partes.push(`rangos de vencimiento ${rango} (${edades.length})`);
   }
+  if (spec.codigosDeduccion?.length) partes.push(`deducciones: códigos ${textoRangosCodigos(spec.codigosDeduccion)}`);
   return partes.join(" · ");
 }
 

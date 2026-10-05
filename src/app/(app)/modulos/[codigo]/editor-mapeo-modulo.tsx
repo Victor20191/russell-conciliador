@@ -48,6 +48,7 @@ export { rolDerivado };
 import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-cargue";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { cuentaDelClasificador } from "@/lib/modulos/cuenta-clasificador";
+import { esCodigoDeduccion, parsearRangosCodigos, textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
 
 export type RolModulo = {
   nombre: string;
@@ -174,6 +175,68 @@ export function CamposCargueCartera({
   );
 }
 
+/**
+ * Nómina: qué CÓDIGOS de concepto son deducciones, para un archivo con un solo «Valor» en positivo
+ * y sin columna de tipo (NOMINAI: 500–799). Es del formato: viaja con el patrón y con el perfil.
+ * El texto se edita libre y solo se guarda en el spec cuando se entiende.
+ */
+function CodigosDeduccionNomina({
+  analisis,
+  spec,
+  setSpec,
+}: {
+  analisis: AnalisisModulo;
+  spec: SpecModulo;
+  setSpec: Dispatch<SetStateAction<SpecModulo | null>>;
+}) {
+  const [texto, setTexto] = useState(() => textoRangosCodigos(spec.codigosDeduccion));
+  const [error, setError] = useState<string | null>(null);
+  const cambiar = (valor: string) => {
+    setTexto(valor);
+    const r = parsearRangosCodigos(valor);
+    if (!r.ok) { setError(r.error); return; }
+    setError(null);
+    setSpec((s) => (s ? { ...s, codigosDeduccion: r.rangos } : s));
+  };
+  // Vista previa con la muestra: el código sale de su columna o del «001 - BASICO» del concepto.
+  const colCodigo = spec.columnas.codigo ?? 0;
+  const colConcepto = spec.columnas.concepto ?? 0;
+  const enMuestra = new Map<string, string>();
+  for (const f of analisis.muestraFilas ?? []) {
+    const crudoCodigo = colCodigo >= 1 ? celdaTxt(f[colCodigo - 1] ?? null).trim() : "";
+    const crudoConcepto = colConcepto >= 1 ? celdaTxt(f[colConcepto - 1] ?? null).trim() : "";
+    const m = /^(\d{1,9})\s*-\s*(.*)$/.exec(crudoConcepto);
+    const codigo = crudoCodigo || m?.[1] || "";
+    if (esCodigoDeduccion(codigo, spec.codigosDeduccion)) enMuestra.set(codigo, (m?.[2] ?? crudoConcepto).trim());
+  }
+  return (
+    <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+      <span className="text-[11px] font-medium text-ink-600">Códigos de deducción (opcional)</span>
+      <input
+        type="text"
+        value={texto}
+        onChange={(e) => cambiar(e.target.value)}
+        placeholder="Ej.: 500-799"
+        aria-invalid={error != null}
+        className={`${claseCampo} max-w-xs`}
+      />
+      <span className="text-[11px] leading-snug text-ink-500">
+        Solo si el archivo trae todos los valores en positivo y ninguna columna dice qué es devengo y qué es deducción
+        (NOMINAI: 500-799). Los conceptos con esos códigos se restan. Varios rangos van separados con coma: 500-799, 900.
+      </span>
+      {error ? (
+        <span className="text-[11px] font-semibold leading-snug text-err-700">{error}</span>
+      ) : spec.codigosDeduccion?.length ? (
+        <span className="text-[11px] leading-snug text-ink-600">
+          {enMuestra.size > 0
+            ? `En las primeras filas: ${[...enMuestra.entries()].slice(0, 4).map(([c, n]) => `${c} ${n}`).join(" · ")} se restan.`
+            : "En las primeras filas no aparece ninguno de esos códigos: «Probar el mapeo» muestra el efecto en el archivo."}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
 export function EditorMapeoModulo({
   analisis,
   spec,
@@ -226,6 +289,10 @@ export function EditorMapeoModulo({
   exigirTipoFormato?: boolean;
 }) {
   const esCarga = modoEditor === "carga";
+  // Nómina es el único módulo con devengo/deducción. Los códigos de deducción solo hacen falta
+  // cuando el valor viene en UNA columna: con devengo/deducción o débito/crédito aparte ya se sabe.
+  const esNomina = roles.some((r) => r.nombre === "devengo");
+  const valorPorColumnasAparte = ["devengo", "deduccion", "debito", "credito"].some((rol) => (spec.columnas[rol] ?? 0) >= 1);
   const tipoObligatorio = modoEditor === "patron" || exigirTipoFormato;
 
   // Error del servidor atribuido a un campo. El resaltado se DERIVA de este estado y del mapeo
@@ -588,6 +655,10 @@ export function EditorMapeoModulo({
               );
             })()}
           </label>
+        )}
+        {/* Nómina: un solo «Valor» en positivo y sin columna de tipo (NOMINAI): qué códigos restan. */}
+        {esNomina && !valorPorColumnasAparte && (
+          <CodigosDeduccionNomina analisis={analisis} spec={spec} setSpec={setSpec} />
         )}
         {modo === "seccion" && (
           <label className="flex min-w-0 flex-col gap-1">

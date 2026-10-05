@@ -19,6 +19,8 @@
 // columnas, no un concepto), los pies repetidos del ERP («Procesado en: …» en todas las
 // columnas) y las filas sin concepto.
 
+import { esCodigoDeduccion, type RangoCodigos } from "./codigos-deduccion";
+
 export type NaturalezaNomina = "devengo" | "deduccion" | "neto";
 
 /** Cómo firma el ARCHIVO su columna de deducción (se decide por la columna, no por fila). */
@@ -96,6 +98,8 @@ export function valorFilaNomina(
   datos: DatosNomina,
   mapeados: ReadonlySet<string>,
   signoDeduccion: SignoDeduccion = "magnitud",
+  /** Rangos de códigos de deducción del formato (NOMINAI: 500–799), para un «Valor» sin tipo. */
+  codigosDeduccion?: readonly RangoCodigos[],
 ): { valor: number; naturaleza: NaturalezaNomina | null } {
   const tiene = (rol: string) => mapeados.has(rol);
   if (tiene("devengo") || tiene("deduccion")) {
@@ -120,6 +124,9 @@ export function valorFilaNomina(
     return { valor: redondear(deduccion ? -Math.abs(valor) : valor), naturaleza: deduccion ? "deduccion" : "devengo" };
   }
   if (valor === 0) return { valor: 0, naturaleza: null };
+  // Sin columna de tipo, el formato puede declarar qué códigos son deducciones (NOMINAI 500–799):
+  // esas filas se restan. Con la magnitud, para que un archivo ya firmado no las vuelva positivas.
+  if (esCodigoDeduccion(datos.codigo, codigosDeduccion)) return { valor: redondear(-Math.abs(valor)), naturaleza: "deduccion" };
   return { valor: redondear(valor), naturaleza: valor < 0 ? "deduccion" : "devengo" };
 }
 
@@ -140,9 +147,10 @@ export function evaluarFilaNomina(
   mapeados: ReadonlySet<string>,
   rolesTexto: readonly string[],
   signoDeduccion: SignoDeduccion = "magnitud",
+  codigosDeduccion?: readonly RangoCodigos[],
 ): EvaluacionFilaNomina {
   if (esPieRepetido(datos, rolesTexto)) return { valor: 0, naturaleza: null, excluir: "pie_repetido" };
-  const { valor, naturaleza } = valorFilaNomina(datos, mapeados, signoDeduccion);
+  const { valor, naturaleza } = valorFilaNomina(datos, mapeados, signoDeduccion, codigosDeduccion);
   const concepto = texto(datos.concepto) || texto(datos.codigo);
   if (esConceptoNeto(datos.codigo, datos.concepto)) return { valor: 0, naturaleza: "neto", excluir: "neto" };
   if (naturaleza === "neto") return { valor: 0, naturaleza: "neto", excluir: "neto" };

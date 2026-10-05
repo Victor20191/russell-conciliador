@@ -132,6 +132,14 @@ export const SpecModuloSchema = z.object({
   // cargue, no del formato: nunca se guarda en el perfil del cliente.
   periodoDesde: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   periodoHasta: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  // ===== Nómina: CÓDIGOS DE DEDUCCIÓN del formato (6/Oct/2026) =====
+  // Para un archivo con un solo «Valor» en positivo y sin columna de tipo (NOMINAI: 500–799): las
+  // filas con esos códigos se restan (`nomina/codigos-deduccion.ts`). Es del FORMATO: viaja con el
+  // patrón y con el perfil del cliente.
+  codigosDeduccion: z.array(z.object({
+    desde: z.number().int().min(0),
+    hasta: z.number().int().min(0),
+  })).max(20).optional(),
 
   // ===== El VALOR como FÓRMULA de varias columnas (28/Sep/2026) =====
   // SAP Business One no trae el ingreso neto en una columna: es «Total sin Descuento» + los tres

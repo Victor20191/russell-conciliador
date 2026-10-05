@@ -899,7 +899,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const empleadoCrudo = aTexto(datos.empleado);
       if (empleadoCrudo) datos.empleado = nombreSinCedula(empleadoCrudo.replace(/^\s*\d{2,12}\s*-?\s*/, "")) ?? empleadoCrudo;
       if (nomina.valorPorNaturaleza) {
-        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion);
+        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion, spec.codigosDeduccion);
         valor = ev.valor;
         if (ev.naturaleza) datos.naturaleza = ev.naturaleza;
         if (ev.excluir) exclusionNomina = ev.excluir;

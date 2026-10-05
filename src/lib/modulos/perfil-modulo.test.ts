@@ -65,6 +65,20 @@ describe("normalizarSpecModulo", () => {
     const seccion = normalizarSpecModulo(INV, specInv({ clasificadorModo: "seccion", seccionColumnaVaciaRol: " descripcion " }));
     expect(seccion.seccionColumnaVaciaRol).toBe("descripcion");
   });
+
+  it("los códigos de deducción de Nómina son del formato: se conservan en el perfil y en el resumen", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const specNom: SpecModulo = {
+      hoja: "Hoja1", filaEncabezado: 1, primeraFilaDatos: 2,
+      columnas: { concepto: 3, valor: 9 },
+      codigosDeduccion: [{ desde: 500, hasta: 799 }, { desde: 500, hasta: 799 }, { desde: 9, hasta: 1 }],
+    };
+    expect(normalizarSpecModulo(NOM, specNom).codigosDeduccion).toEqual([{ desde: 500, hasta: 799 }]);
+    expect(normalizarSpecModuloArchivo(NOM, specNom).codigosDeduccion).toEqual([{ desde: 500, hasta: 799 }]);
+    expect(resumenColumnasModulo(NOM, normalizarSpecModulo(NOM, specNom))).toContain("deducciones: códigos 500-799");
+    // En otro módulo no significan nada y se retiran.
+    expect(normalizarSpecModulo(INV, specInv({ codigosDeduccion: [{ desde: 1, hasta: 9 }] })).codigosDeduccion).toBeUndefined();
+  });
 });
 
 describe("validarSpecModulo", () => {

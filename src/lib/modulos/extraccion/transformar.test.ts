@@ -584,6 +584,31 @@ describe("transformarModulo (NOM)", () => {
     expect(res.excepciones).toEqual([]);
   });
 
+  it("NOMINAI con códigos de deducción: los conceptos 500–799 se restan", () => {
+    // Como KP EMPAQUES 2025: «Concepto» trae «001 - BASICO», todo el «Valor» en positivo y ninguna
+    // columna dice qué es deducción. El formato declara 500–799.
+    const h = hojaNom([
+      ["Centro de Costo", "Empleado", "Concepto", "Turno", "Salario Hora", "Vinculación", "Préstamo", "Tiempo", "Valor", "Mes"],
+      ["100101 - DIRECTORES", "8032318 - GALLEGO GUZMAN MARVIN", "001 - BASICO", "001 - BASICO", "17,828.45", "Ausente", null, 61.3, 1093479, "Enero"],
+      ["100101 - DIRECTORES", "8032318 - GALLEGO GUZMAN MARVIN", "106 - DEV. DEDUCC FESERT", "001 - BASICO", "17,828.45", "Ausente", null, 0, 1000, "Enero"],
+      ["100101 - DIRECTORES", "8032318 - GALLEGO GUZMAN MARVIN", "541 - DEDUC. FESERT", "001 - BASICO", "17,828.45", "Ausente", null, 0, 50000, "Enero"],
+      ["100101 - DIRECTORES", "8032318 - GALLEGO GUZMAN MARVIN", "602 - EPS SURA", "001 - BASICO", "17,828.45", "Ausente", null, 0, 43740, "Enero"],
+    ]);
+    const base = sugerirSpec(NOM, h);
+    const spec: SpecModulo = { ...base, periodoHasta: "2025-12", codigosDeduccion: [{ desde: 500, hasta: 799 }] };
+    const res = transformarModulo(NOM, spec, h);
+    const leidas = res.filas.filter((f) => f.tipoFila === "movimiento").map((f) => [f.clasificador, f.valor, f.datos.naturaleza]);
+    expect(leidas).toEqual([
+      ["1", 1093479, "devengo"],
+      ["106", 1000, "devengo"],
+      ["541", -50000, "deduccion"],
+      ["602", -43740, "deduccion"],
+    ]);
+    // Sin los códigos, todo entraba como devengo.
+    const sinCodigos = transformarModulo(NOM, { ...base, periodoHasta: "2025-12" }, h);
+    expect(sinCodigos.filas.filter((f) => f.tipoFila === "movimiento").every((f) => f.valor > 0)).toBe(true);
+  });
+
   it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {
     const h = hojaNom([
       ["Código del concepto", "Concepto", "Cédula", "Empleado", "Centro de costo", "Valor"],
