@@ -39,7 +39,7 @@ import {
   type ContenidoArchivo,
   type VigentePeriodoModulo,
 } from "@/lib/modulos/ingresos/contenido-archivo";
-import { CONTENIDOS_ACTIVOS, INFO_CONTENIDO_ACTIVOS, type ContenidoActivos } from "@/lib/modulos/activos/contenido-archivo";
+import { CONTENIDOS_ACTIVOS, INFO_CONTENIDO_ACTIVOS, ofertaAnexoActivos, type ContenidoActivos } from "@/lib/modulos/activos/contenido-archivo";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -316,10 +316,18 @@ type DestinoCarga = "agregar" | "nueva";
 function ConfirmarContenidoActivos({
   contenido,
   onContenido,
+  vigente,
+  destino,
+  onDestino,
 }: {
   contenido: ContenidoActivos | null;
   onContenido: (valor: ContenidoActivos) => void;
+  /** Cargue vigente del período; null en «Agregar archivo» o si el período no tiene cargue. */
+  vigente: VigentePeriodoModulo | null;
+  destino: DestinoCarga | null;
+  onDestino: (valor: DestinoCarga) => void;
 }) {
+  const oferta = ofertaAnexoActivos(contenido, vigente ? { ...vigente, lados: vigente.lados ?? null } : null);
   return (
     <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
@@ -334,11 +342,34 @@ function ConfirmarContenidoActivos({
         ))}
       </div>
       {contenido && <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ACTIVOS[contenido].ayuda}</span>}
-      {contenido && contenido !== "ambos" && (
+      {oferta.ofrecer && vigente && (
+        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+          <span className="text-[11px] font-medium text-ink-700">
+            {vigente.periodo} ya tiene la v{vigente.version} cargada ({vigente.filas.toLocaleString("es-CO")} filas · total {fmt(vigente.total)})
+            {vigente.lados ? ` con ${vigente.lados.conCosto ? "el costo" : "la depreciación"}` : ""}.
+            ¿Este archivo es la otra parte de ese cargue? <span className="text-err-600">*</span>
+          </span>
+          <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Agregar al cargue existente?">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga-activos" checked={destino === "agregar"} onChange={() => onDestino("agregar")} />
+              Sí, agregarlo a la v{vigente.version} (la cédula compara el neto)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga-activos" checked={destino === "nueva"} onChange={() => onDestino("nueva")} />
+              No, crear una versión nueva que reemplace a la v{vigente.version}
+            </label>
+          </div>
+        </div>
+      )}
+      {oferta.aviso && (
+        <span className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
+      )}
+      {contenido && contenido !== "ambos" && !oferta.ofrecer && (
         <span className="text-[11px] leading-snug text-ink-600">
           El otro archivo se sube después con «Agregar archivo» sobre este mismo cargue, para que la cédula compare el neto.
         </span>
       )}
+      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón y el mapeo guardado no se modifican.</span>
     </div>
   );
 }
@@ -787,10 +818,12 @@ function CargarModal({
     if (pedirCentro && separarCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
     // Ingresos: qué trae el archivo, y si complementa el cargue del período, a dónde va.
     const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
+    // Activos fijos: lo mismo, cuando el archivo trae el lado que al cargue vigente le falta.
+    const ofertaActivos = ofertaAnexoActivos(contenidoActivos, vigentePeriodo ? { ...vigentePeriodo, lados: vigentePeriodo.lados ?? null } : null);
     const oferta = ofertaAnexo(contenido, vigentePeriodo);
     if (confirmarContenido && contenido == null) { notifyError("Indica qué trae este archivo."); return; }
     if (confirmarContenidoActivos && contenidoActivos == null) { notifyError("Indica qué trae este archivo: costo, depreciación o ambos."); return; }
-    if (oferta.ofrecer && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
+    if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
     if (pedirTotal) {
       if (totalArchivo == null) { notifyError("Indica si el archivo trae el valor total."); return; }
@@ -832,7 +865,7 @@ function CargarModal({
       if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
       if (confirmarContenidoActivos && contenidoActivos) fd.set("contenidoActivos", contenidoActivos);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
-      else if (oferta.ofrecer && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
+      else if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await leerDatosModulo(undefined, fd);
@@ -853,8 +886,20 @@ function CargarModal({
     setContenido(valor);
     setDestinoCarga(ofertaAnexo(valor, anexo ? null : analisis?.vigentePeriodo ?? null).ofrecer ? "agregar" : null);
   };
+  /** Igual en Activos fijos: al decir que el archivo trae un solo lado, se propone agregarlo. */
+  const elegirContenidoActivos = (valor: ContenidoActivos) => {
+    setContenidoActivos(valor);
+    const vigente = anexo ? null : analisis?.vigentePeriodo ?? null;
+    setDestinoCarga(ofertaAnexoActivos(valor, vigente ? { ...vigente, lados: vigente.lados ?? null } : null).ofrecer ? "agregar" : null);
+  };
   const preguntaContenidoActivos = confirmarContenidoActivos && analisis ? (
-    <ConfirmarContenidoActivos contenido={contenidoActivos} onContenido={setContenidoActivos} />
+    <ConfirmarContenidoActivos
+      contenido={contenidoActivos}
+      onContenido={elegirContenidoActivos}
+      vigente={anexo ? null : analisis.vigentePeriodo ?? null}
+      destino={destinoCarga}
+      onDestino={setDestinoCarga}
+    />
   ) : null;
   const preguntaContenido = confirmarContenido && analisis ? (
     <ConfirmarContenidoCarga

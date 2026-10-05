@@ -227,6 +227,11 @@ export type VigentePeriodoModulo = {
   enFirme: boolean;
   /** Lo que trae cada archivo del cargue; `null` si es anterior a este dato. */
   contenidos: (ContenidoArchivo | null)[] | null;
+  /**
+   * Activos fijos: qué lados tiene ya el cargue (costo y/o depreciación), leídos de su detalle.
+   * `null` en los demás módulos. Lo usa `ofertaAnexoActivos`.
+   */
+  lados?: { conCosto: boolean; conDepreciacion: boolean } | null;
 };
 
 /**

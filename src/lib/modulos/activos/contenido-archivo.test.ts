@@ -5,6 +5,7 @@ import {
   esContenidoActivos,
   filaEsSoloDepreciacion,
   MARCA_SOLO_DEPRECIACION,
+  ofertaAnexoActivos,
 } from "./contenido-archivo";
 
 describe("esContenidoActivos", () => {
@@ -63,5 +64,53 @@ describe("avisoContenidoIncompleto", () => {
   it("con los dos lados, o sin ninguno, no dice nada", () => {
     expect(avisoContenidoIncompleto({ conCosto: true, conDepreciacion: true })).toBeNull();
     expect(avisoContenidoIncompleto({ conCosto: false, conDepreciacion: false })).toBeNull();
+  });
+});
+
+describe("ofertaAnexoActivos", () => {
+  const vigente = (lados: { conCosto: boolean; conDepreciacion: boolean } | null, extra?: { congelado?: boolean; enFirme?: boolean }) => ({
+    version: 2,
+    periodo: "2025-12",
+    congelado: extra?.congelado ?? false,
+    enFirme: extra?.enFirme ?? false,
+    lados,
+  });
+
+  it("ofrece agregar la depreciación a un cargue que solo tiene el costo", () => {
+    expect(ofertaAnexoActivos("depreciacion", vigente({ conCosto: true, conDepreciacion: false }))).toEqual({ ofrecer: true, aviso: null });
+  });
+
+  it("ofrece agregar el costo a un cargue que solo tiene la depreciación", () => {
+    expect(ofertaAnexoActivos("costo", vigente({ conCosto: false, conDepreciacion: true }))).toEqual({ ofrecer: true, aviso: null });
+  });
+
+  it("no ofrece cuando el vigente ya tiene ese lado: sería duplicarlo", () => {
+    expect(ofertaAnexoActivos("depreciacion", vigente({ conCosto: true, conDepreciacion: true }))).toEqual({ ofrecer: false, aviso: null });
+    expect(ofertaAnexoActivos("costo", vigente({ conCosto: true, conDepreciacion: false }))).toEqual({ ofrecer: false, aviso: null });
+  });
+
+  it("un archivo con las dos cosas es un cargue completo: no se anexa", () => {
+    expect(ofertaAnexoActivos("ambos", vigente({ conCosto: true, conDepreciacion: false }))).toEqual({ ofrecer: false, aviso: null });
+  });
+
+  it("sin cargue vigente o sin respuesta no hay nada que ofrecer", () => {
+    expect(ofertaAnexoActivos("costo", null)).toEqual({ ofrecer: false, aviso: null });
+    expect(ofertaAnexoActivos(null, vigente(null))).toEqual({ ofrecer: false, aviso: null });
+  });
+
+  it("un cargue anterior a este dato se ofrece igual: completar es lo más probable", () => {
+    expect(ofertaAnexoActivos("depreciacion", vigente(null))).toEqual({ ofrecer: true, aviso: null });
+  });
+
+  it("en firme no se anexa y lo explica", () => {
+    const r = ofertaAnexoActivos("depreciacion", vigente({ conCosto: true, conDepreciacion: false }, { enFirme: true }));
+    expect(r.ofrecer).toBe(false);
+    expect(r.aviso).toContain("está en firme");
+  });
+
+  it("congelada avisa que se creará una versión nueva", () => {
+    const r = ofertaAnexoActivos("depreciacion", vigente({ conCosto: true, conDepreciacion: false }, { congelado: true }));
+    expect(r.ofrecer).toBe(false);
+    expect(r.aviso).toContain("congelada");
   });
 });

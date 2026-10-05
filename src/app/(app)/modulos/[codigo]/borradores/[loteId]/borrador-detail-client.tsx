@@ -25,6 +25,7 @@ import { ValidacionArchivo } from "../../validacion-archivo";
 import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
 import { NombreAgrupador, type GrupoSinNombreVm } from "./nombre-agrupador";
 import { avisosContenido, INFO_CONTENIDO_ARCHIVO, type SignoContenido } from "@/lib/modulos/ingresos/contenido-archivo";
+import type { ContenidoActivos } from "@/lib/modulos/activos/contenido-archivo";
 import { CorregirLecturaInventario } from "../../corregir-lectura-inventario";
 import type { RolModulo } from "../../editor-mapeo-modulo";
 import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
@@ -122,6 +123,7 @@ export default function BorradorModuloClient({
   resumen,
   reconciliacion,
   anexo,
+  contenidoActivos,
   contenido = null,
   sinNombre = [],
   opcionesNombre = [],
@@ -149,6 +151,8 @@ export default function BorradorModuloClient({
   reconciliacion: ReconciliacionModulo | null;
   /** Anexo declarado con «Agregar archivo»: a qué cargue se suma, su total y qué ítems repite. */
   anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean; totalActual: number } | null;
+  /** Activos fijos: qué declaró el analista que trae este archivo (costo, depreciación o ambos). */
+  contenidoActivos?: ContenidoActivos | null;
   /** Ingresos: qué declaró el analista que trae el archivo y qué se hizo con el signo. */
   contenido?: SignoContenido | null;
   /** Filas «(sin clasificar)» y «GLOBAL» (nombradas por el sistema), a las que se les puede poner nombre. */
@@ -556,6 +560,14 @@ export default function BorradorModuloClient({
             </span>
             {!anexo.vigente ? (
               <span className="ml-1">Al confirmar se creará una versión nueva en vez de agregarse.</span>
+            ) : anexo.repetidos.length > 0 && (contenidoActivos === "costo" || contenidoActivos === "depreciacion") ? (
+              /* Activos fijos: el reporte de depreciación lista los MISMOS bienes que el de activos.
+                 Repetir las placas es lo esperado, no una re-subida: no se pinta como duplicado. */
+              <span className="ml-1">
+                {anexo.repetidos.length} ítem(s) ya están en esa versión, que es lo esperado: el reporte de
+                {contenidoActivos === "depreciacion" ? " depreciación " : " activos "}
+                lista los mismos bienes. Se suma como el otro lado del cargue.
+              </span>
             ) : anexo.repetidos.length > 0 ? (
               <span className="ml-1">
                 ⚠ {anexo.repetidos.length} ítem(s) del archivo YA están en esa versión y quedarían duplicados:{" "}

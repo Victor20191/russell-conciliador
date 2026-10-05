@@ -15,6 +15,7 @@ import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
 import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
+import { leerContenidoActivosDeLote } from "@/lib/modulos/activos/contenido-archivo";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import BorradorModuloClient from "./borrador-detail-client";
 
@@ -215,6 +216,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         reconciliacion={reconciliacion}
         anexo={anexo}
         contenido={descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null}
+        contenidoActivos={descriptor.confirmarContenidoActivosEnCarga ? leerContenidoActivosDeLote(lote.specJson) : null}
         sinNombre={[...gruposSinNombre].map(([grupo, g]) => ({ grupo, filas: g.filas, total: Math.round(g.total * 100) / 100 }))}
         opcionesNombre={opcionesNombre}
         version={versionActual}

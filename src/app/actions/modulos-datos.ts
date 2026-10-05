@@ -76,7 +76,7 @@ import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
 import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
-import { nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
+import { ladosDelCargueActivos, nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
@@ -384,7 +384,8 @@ async function vigenteDelPeriodo(
   clienteId: number,
   periodo: string,
 ): Promise<VigentePeriodoModulo | null> {
-  if (!descriptor.confirmarContenidoEnCarga || !/^\d{4}-\d{2}$/.test(periodo)) return null;
+  const conContenido = descriptor.confirmarContenidoEnCarga || descriptor.confirmarContenidoActivosEnCarga;
+  if (!conContenido || !/^\d{4}-\d{2}$/.test(periodo)) return null;
   const [vigente, cierre] = await Promise.all([
     prisma.moduloDatoEncabezado.findFirst({
       where: { clienteId, moduloCodigo: descriptor.codigo, periodo, esOficial: true },
@@ -396,6 +397,12 @@ async function vigenteDelPeriodo(
     }),
   ]);
   if (!vigente) return null;
+  // Activos fijos: qué lados trae el cargue vigente (costo, depreciación o los dos), para ofrecer
+  // agregarle el archivo que le falta en vez de reemplazarlo con una versión nueva.
+  const rolDepreciacion = descriptor.cedula?.valorRelacionado?.rol;
+  const lados = descriptor.confirmarContenidoActivosEnCarga && rolDepreciacion
+    ? await ladosDelCargueActivos(vigente.id, rolDepreciacion)
+    : null;
   return {
     encabezadoId: vigente.id,
     version: vigente.version,
@@ -405,6 +412,7 @@ async function vigenteDelPeriodo(
     congelado: vigente.estaCongelado,
     enFirme: cierre != null,
     contenidos: leerContenidoArchivos(vigente.contenidoArchivos)?.map((c) => c.contenido) ?? null,
+    lados,
   };
 }
 

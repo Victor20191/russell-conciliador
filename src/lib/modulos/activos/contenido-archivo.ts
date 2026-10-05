@@ -81,3 +81,41 @@ export function avisoContenidoIncompleto(c: { conCosto: boolean; conDepreciacion
   if (c.conDepreciacion) return "Este cargue solo trae la DEPRECIACIÓN: la columna de costo del módulo está en cero. Agrega el archivo de los activos a esta misma versión para que la cédula compare el neto.";
   return null;
 }
+
+/**
+ * Con «Cargar» (no «Agregar archivo»), un archivo que trae UN SOLO lado sobre un período que ya
+ * tiene cargue es casi siempre la otra mitad de ese cargue: crear una versión nueva solo con la
+ * depreciación reemplazaría a los activos, y al revés. Se ofrece agregarlo cuando de verdad
+ * completa lo que falta; `aviso` explica por qué no se puede cuando no se puede.
+ *
+ * No se ofrece si el archivo trae las dos cosas (es un cargue completo, que sí reemplaza) ni si el
+ * vigente ya tiene ese lado (sería duplicarlo).
+ */
+export function ofertaAnexoActivos(
+  contenido: ContenidoActivos | null,
+  vigente: { version: number; periodo: string; congelado: boolean; enFirme: boolean; lados: { conCosto: boolean; conDepreciacion: boolean } | null } | null,
+): { ofrecer: boolean; aviso: string | null } {
+  if (!contenido || !vigente) return { ofrecer: false, aviso: null };
+  if (contenido === "ambos") return { ofrecer: false, aviso: null };
+  const lados = vigente.lados;
+  // Sin saber qué trae el vigente (cargue anterior a este dato) se ofrece igual: completar es lo
+  // más probable y el usuario decide; duplicar se vería en el acto en la cédula.
+  const completa = lados == null
+    || (contenido === "costo" ? !lados.conCosto : !lados.conDepreciacion);
+  if (!completa) return { ofrecer: false, aviso: null };
+  const destino = `la v${vigente.version} de ${vigente.periodo}`;
+  if (vigente.enFirme) {
+    return { ofrecer: false, aviso: `La conciliación de ${vigente.periodo} está en firme: no se le pueden agregar archivos. Desbloquéala primero si este archivo es parte del cargue.` };
+  }
+  if (vigente.congelado) {
+    return { ofrecer: false, aviso: `${destino[0].toUpperCase()}${destino.slice(1)} está congelada: este archivo creará una versión nueva que la reemplaza.` };
+  }
+  return { ofrecer: true, aviso: null };
+}
+
+/** Lo que el analista declaró para ESTE archivo, tal como quedó en el spec del lote. */
+export function leerContenidoActivosDeLote(specJson: unknown): ContenidoActivos | null {
+  if (specJson == null || typeof specJson !== "object") return null;
+  const v = (specJson as Record<string, unknown>).contenidoActivos;
+  return esContenidoActivos(v) ? v : null;
+}
