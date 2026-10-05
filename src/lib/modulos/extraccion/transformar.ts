@@ -29,6 +29,7 @@ import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { cuentaDelClasificador } from "../cuenta-clasificador";
+import { MARCA_SOLO_DEPRECIACION } from "../activos/contenido-archivo";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 import { letraColumnaModulo } from "../perfil-modulo";
 import { claveTerminoFormula, evaluarValorFormula, tieneValorFormula } from "./valor-formula";
@@ -977,6 +978,20 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     if (descriptor.cuentaDesdeClasificador) {
       const cuentaCliente = cuentaDelClasificador(clasificador, spec.prefijoClasificador);
       if (cuentaCliente) datos._cuentaCliente = cuentaCliente;
+    }
+
+    // QUÉ TRAE EL ARCHIVO (Activos fijos). Con «solo depreciación» el valor de la fila NO es costo:
+    // se copia a la columna de depreciación y la fila se marca para que la cédula no la sume al
+    // activo. El valor se conserva para que el control del total del archivo siga cuadrando.
+    // Con «solo costo» se descarta cualquier depreciación leída, para no inventar la mitad que falta.
+    const rolDepreciacion = descriptor.cedula?.valorRelacionado?.rol;
+    if (descriptor.confirmarContenidoActivosEnCarga && rolDepreciacion) {
+      if (spec.contenidoActivos === "depreciacion") {
+        datos[rolDepreciacion] = valor;
+        datos[MARCA_SOLO_DEPRECIACION] = 1;
+      } else if (spec.contenidoActivos === "costo") {
+        datos[rolDepreciacion] = null;
+      }
     }
 
     filas.push({

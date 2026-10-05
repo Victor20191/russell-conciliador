@@ -4,6 +4,7 @@
 // Es lo que el wizard edita, el perfil guarda por huella, y el transform aplica.
 import * as z from "zod";
 import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
+import { CONTENIDOS_ACTIVOS } from "../activos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./lectura-estructurada";
 
 /**
@@ -151,6 +152,11 @@ export const SpecModuloSchema = z.object({
   // patrón del aplicativo porque es una marca del FORMATO, así que viaja con el patrón y con el
   // perfil del cliente. Sin él se lee la cuenta desde el primer carácter (`cuenta-clasificador.ts`).
   prefijoClasificador: z.number().int().min(1).max(20).optional(),
+  // Qué trae ESTE archivo (Activos fijos): costo y depreciación, solo costo o solo depreciación.
+  // Lo declara el analista en cada carga (`confirmarContenidoActivosEnCarga`); es del cargue, no del
+  // formato, así que nunca se guarda en el perfil ni en el patrón. Con «depreciacion» el valor de
+  // cada fila va a la columna de depreciación y no cuenta como costo (`activos/contenido-archivo.ts`).
+  contenidoActivos: z.enum(CONTENIDOS_ACTIVOS).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

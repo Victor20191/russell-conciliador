@@ -281,6 +281,8 @@ export type CruceContableVm = {
   cedulaActivos?: boolean;
   /** Depreciaciones que no se pudieron emparejar porque agrupan activos de renglones distintos. */
   sinEmparejarActivos?: string[];
+  /** El cargue solo trae costo o solo depreciación: todavía falta el otro archivo. */
+  avisoContenidoActivos?: string | null;
   /** Conciliación en firme del (cliente, módulo, período). */
   conciliacion: CierreConciliacionVm;
   /** Solo Nómina: rango, base contable, repartos, vista por subcuenta y control de deducciones. */
@@ -2639,6 +2641,11 @@ function CruceContableTab({
           </table>
           )}
         </div>
+        {cruceContable.avisoContenidoActivos && (
+          <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-blue-800">
+            {cruceContable.avisoContenidoActivos}
+          </div>
+        )}
         {(cruceContable.sinEmparejarActivos?.length ?? 0) > 0 && (
           <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
             No se pudo juntar con su activo la depreciación de {cruceContable.sinEmparejarActivos!.join(", ")}: agrupa activos que hoy están en renglones distintos. Queda en su propio renglón.

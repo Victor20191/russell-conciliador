@@ -49,7 +49,8 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { esContenidoActivos, INFO_CONTENIDO_ACTIVOS } from "@/lib/modulos/activos/contenido-archivo";
 import {
   agregarContenidoArchivo,
   detalleAuditoriaContenido,
@@ -974,6 +975,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   if (descriptor.confirmarContenidoEnCarga && !esContenidoArchivo(contenidoRespuesta)) {
     return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
+  // Activos fijos: lo mismo con el costo y la depreciación, que pueden venir en dos archivos.
+  const contenidoActivosRespuesta = String(formData.get("contenidoActivos") ?? "").trim();
+  if (descriptor.confirmarContenidoActivosEnCarga && !esContenidoActivos(contenidoActivosRespuesta)) {
+    return { ok: false, message: "Indica qué trae este archivo: costo y depreciación, solo el costo o solo la depreciación." };
+  }
 
   let loteOriginalRecibido: string | null = null;
   try {
@@ -1326,6 +1332,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta);
     if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
     spec = contenidoCarga.spec;
+    // Activos fijos: qué trae ESTE archivo (costo / depreciación / ambos). Manda el modal.
+    const contenidoActivosCarga = aplicarContenidoActivosDeCarga(descriptor, spec, contenidoActivosRespuesta);
+    if (!contenidoActivosCarga.ok) return { ok: false, message: contenidoActivosCarga.message };
+    spec = contenidoActivosCarga.spec;
     // Ingresos: el valor puede venir de una columna (o fórmula) de «total», pero solo con la
     // confirmación de que excluye el IVA. Es una omisión del mapeo que se corrige en el mismo
     // modal, así que el original NO se marca como no procesable (como «Faltan columnas»).
@@ -1517,7 +1527,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleAuditoriaContenido(signoContenido)}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleAuditoriaContenido(signoContenido)}${contenidoActivosCarga.contenido ? ` · contenido: ${INFO_CONTENIDO_ACTIVOS[contenidoActivosCarga.contenido].rotulo}` : ""}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);

@@ -251,6 +251,13 @@ export type DescriptorModulo = {
    * (`cuenta-clasificador.ts`). Sin esto, el clasificador es solo un nombre de grupo.
    */
   cuentaDesdeClasificador?: boolean;
+  /**
+   * La carga pregunta QUÉ TRAE EL ARCHIVO: costo y depreciación, solo costo o solo depreciación
+   * (Activos fijos). Unos ERP sacan las dos columnas juntas y otros imprimen dos reportes; leer la
+   * depreciación como si fuera costo inflaría el activo y dejaría la 1592 en cero. Es del cargue,
+   * no del formato: la respuesta va en el spec del lote y nunca en el perfil ni en el patrón.
+   */
+  confirmarContenidoActivosEnCarga?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -475,6 +482,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     noNegativos: ["costo"],
     // El grupo del activo suele traer pegada la cuenta del cliente: se extrae y se homologa.
     cuentaDesdeClasificador: true,
+    // El costo y la depreciación pueden venir en el mismo archivo o en dos: se pregunta al cargar.
+    confirmarContenidoActivosEnCarga: true,
     cedula: {
       subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },

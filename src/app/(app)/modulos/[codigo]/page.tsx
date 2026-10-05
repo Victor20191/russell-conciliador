@@ -193,6 +193,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
         cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
         confirmarContenido={descriptor.confirmarContenidoEnCarga === true}
+        confirmarContenidoActivos={descriptor.confirmarContenidoActivosEnCarga === true}
       />
     </div>
   );

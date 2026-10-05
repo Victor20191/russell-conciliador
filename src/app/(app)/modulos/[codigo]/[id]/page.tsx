@@ -426,6 +426,7 @@ export default async function DatoModuloPage({
     soloVisibles: cruce.soloVisibles,
     cedulaActivos: cruce.cedulaActivos,
     sinEmparejarActivos: cruce.sinEmparejarActivos,
+    avisoContenidoActivos: cruce.avisoContenidoActivos,
     conciliacion: cierreVm,
     nomina: cruce.nomina,
     cuentasPeriodo: cruce.cuentasPeriodo,

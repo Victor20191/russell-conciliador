@@ -39,6 +39,7 @@ import {
   type ContenidoArchivo,
   type VigentePeriodoModulo,
 } from "@/lib/modulos/ingresos/contenido-archivo";
+import { CONTENIDOS_ACTIVOS, INFO_CONTENIDO_ACTIVOS, type ContenidoActivos } from "@/lib/modulos/activos/contenido-archivo";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -92,6 +93,8 @@ type PropsCarga = {
   cuentaEnClasificador: boolean;
   /** Ingresos: cada carga declara si el archivo trae facturas, notas crédito o ambas. */
   confirmarContenido: boolean;
+  /** Activos fijos: pregunta si el archivo trae costo, depreciación o las dos cosas. */
+  confirmarContenidoActivos: boolean;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -305,6 +308,41 @@ type DestinoCarga = "agregar" | "nueva";
  * complementa (notas crédito sobre facturas, o al revés), ofrece agregarlo en vez de crear una
  * versión nueva que lo reemplace.
  */
+/**
+ * Activos fijos: qué trae este archivo — el costo, la depreciación o las dos cosas. Unos ERP sacan
+ * las dos columnas juntas y otros imprimen dos reportes; leer la depreciación como costo inflaría
+ * el activo y dejaría la 1592 en cero. Es del cargue, no del formato: se pregunta siempre.
+ */
+function ConfirmarContenidoActivos({
+  contenido,
+  onContenido,
+}: {
+  contenido: ContenidoActivos | null;
+  onContenido: (valor: ContenidoActivos) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        ¿Qué trae este archivo? <span className="text-err-600">*</span>
+      </span>
+      <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Qué trae este archivo?">
+        {CONTENIDOS_ACTIVOS.map((c) => (
+          <label key={c} className="inline-flex items-center gap-1.5">
+            <input type="radio" name="contenido-activos" checked={contenido === c} onChange={() => onContenido(c)} />
+            {INFO_CONTENIDO_ACTIVOS[c].opcion}
+          </label>
+        ))}
+      </div>
+      {contenido && <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ACTIVOS[contenido].ayuda}</span>}
+      {contenido && contenido !== "ambos" && (
+        <span className="text-[11px] leading-snug text-ink-600">
+          El otro archivo se sube después con «Agregar archivo» sobre este mismo cargue, para que la cédula compare el neto.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ConfirmarContenidoCarga({
   contenido,
   onContenido,
@@ -448,6 +486,7 @@ function CargarModal({
   confirmarValorSinImpuestos,
   cuentaEnClasificador,
   confirmarContenido,
+  confirmarContenidoActivos,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -494,6 +533,7 @@ function CargarModal({
   const [separarCentro, setSepararCentro] = useState<"si" | "no" | null>(null);
   // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
+  const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
   const [destinoCarga, setDestinoCarga] = useState<DestinoCarga | null>(null);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
@@ -749,6 +789,7 @@ function CargarModal({
     const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
     const oferta = ofertaAnexo(contenido, vigentePeriodo);
     if (confirmarContenido && contenido == null) { notifyError("Indica qué trae este archivo."); return; }
+    if (confirmarContenidoActivos && contenidoActivos == null) { notifyError("Indica qué trae este archivo: costo, depreciación o ambos."); return; }
     if (oferta.ofrecer && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
     if (pedirTotal) {
@@ -789,6 +830,7 @@ function CargarModal({
       fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
+      if (confirmarContenidoActivos && contenidoActivos) fd.set("contenidoActivos", contenidoActivos);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       else if (oferta.ofrecer && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
@@ -811,6 +853,9 @@ function CargarModal({
     setContenido(valor);
     setDestinoCarga(ofertaAnexo(valor, anexo ? null : analisis?.vigentePeriodo ?? null).ofrecer ? "agregar" : null);
   };
+  const preguntaContenidoActivos = confirmarContenidoActivos && analisis ? (
+    <ConfirmarContenidoActivos contenido={contenidoActivos} onContenido={setContenidoActivos} />
+  ) : null;
   const preguntaContenido = confirmarContenido && analisis ? (
     <ConfirmarContenidoCarga
       contenido={contenido}
@@ -1220,6 +1265,7 @@ function CargarModal({
             </p>
           )}
           {preguntaContenido}
+          {preguntaContenidoActivos}
           {confirmarClasificador && clasificadorPatron && (
             <ConfirmarClasificadorCarga
               analisis={analisis}
@@ -1312,6 +1358,7 @@ function CargarModal({
             {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
           </p>
           {preguntaContenido}
+          {preguntaContenidoActivos}
           <EditorMapeoModulo
             analisis={analisis}
             spec={spec}
