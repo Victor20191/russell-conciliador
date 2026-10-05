@@ -120,6 +120,12 @@ export type InputCruceContable = {
    * lado del módulo, igual que una cuenta no modular se descuenta del contable.
    */
   noContabilizadosPorFila?: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * Cuentas que SIEMPRE llevan renglón, aunque estén en cero por los dos lados: las que el módulo
+   * tiene parametrizadas en su cédula. Un papel de trabajo tiene que mostrar que la cuenta se miró
+   * y quedó en cero; omitirla hacía que la cédula cambiara de tamaño según el balance elegido.
+   */
+  cuentasSiempre?: readonly string[];
   consolidado: ClasificadorCruce[];
   nombrePorCuenta: (cod: string) => string | null;
   /**
@@ -275,7 +281,12 @@ export function construirCruceContable(
     });
   };
 
-  const cuentas = new Set<string>([...Object.keys(input.contablePorCuenta), ...inventarioPorCuenta.keys(), ...padre.keys()]);
+  const cuentas = new Set<string>([
+    ...Object.keys(input.contablePorCuenta),
+    ...inventarioPorCuenta.keys(),
+    ...padre.keys(),
+    ...(input.cuentasSiempre ?? []),
+  ]);
   const miembrosPorRaiz = new Map<string, string[]>();
   const filas: FilaCruceContable[] = [];
   for (const cuenta of [...cuentas].sort()) {

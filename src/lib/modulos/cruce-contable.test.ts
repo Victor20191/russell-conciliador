@@ -354,3 +354,40 @@ describe("detalleModulo: de donde sale el lado del modulo de cada fila", () => {
     expect(r.filas[0].detalleModulo).toEqual([]);
   });
 });
+
+describe("cuentasSiempre: la cédula completa", () => {
+  const nombres: Record<string, string> = { "1435": "Mercancías no fabricadas", "1430": "Materias primas", "1455": "Materiales" };
+  it("abre renglón para las cuentas parametrizadas que no movieron", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1435": 500 },
+      cuentasSiempre: ["1430", "1435", "1455"],
+      consolidado: [{ clasificador: "NO FABRICADAS", total: 500, cuentas4: ["1435"] }],
+      nombrePorCuenta: (c) => nombres[c] ?? null,
+    });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["1430", "1435", "1455"]);
+    // Las que no movieron quedan en cero y cuadran: no exigen marca ni cambian los totales.
+    expect(r.filas[0]).toMatchObject({ contable: 0, inventario: 0, diferencia: 0, cuadra: true });
+    expect(r.filas[2]).toMatchObject({ contable: 0, inventario: 0, cuadra: true });
+    expect(r.totales).toMatchObject({ contable: 500, inventario: 500, diferencia: 0 });
+  });
+
+  it("una cuenta parametrizada que ya está en una fila agrupada no abre renglón propio", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1435": 300, "1430": 200 },
+      cuentasSiempre: ["1430", "1435"],
+      consolidado: [{ clasificador: "GLOBAL", total: 500, cuentas4: ["1435", "1430"] }],
+      nombrePorCuenta: (c) => nombres[c] ?? null,
+      agruparMultiAsignados: true,
+    });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["1430+1435"]);
+  });
+
+  it("sin la lista, el cruce es el de siempre: solo lo que tiene cifra", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1435": 500 },
+      consolidado: [],
+      nombrePorCuenta: (c) => nombres[c] ?? null,
+    });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["1435"]);
+  });
+});

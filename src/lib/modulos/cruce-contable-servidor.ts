@@ -22,6 +22,7 @@ import {
   entradasValorRelacionado,
   esAdicionalCedula,
   fueraDeListaCedula,
+  opcionesCedula,
   ordenClaveCedula,
   subgruposCedula,
 } from "@/lib/modulos/cuentas-modulo";
@@ -544,6 +545,11 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
             ...consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
             ...entradasRelacionadas,
           ],
+      // La cédula se muestra COMPLETA: sus cuentas llevan renglón aunque estén en cero por los dos
+      // lados. Las solo visibles (Nómina) no, que tienen su propio resumen aparte.
+      cuentasSiempre: opcionesCedula(cedula, insumos.subgrupos, insumos.cuentasEstandar ?? [])
+        .map((c) => c.codigo)
+        .filter((c) => !cedula.visibles.has(c)),
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
       ordenCuenta: (clave) => ordenClaveCedula(cedula, clave),
       // Un clasificador asignado a varias cuentas cruza contra la suma de ellas en una fila

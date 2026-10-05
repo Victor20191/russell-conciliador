@@ -2220,6 +2220,7 @@ function CruceContableTab({
   // Filtros por columna de la cédula (van aquí, antes de los retornos tempranos: el orden de los
   // hooks no puede depender del estado del cruce).
   const [filtrosCedula, setFiltrosCedula] = useState<FiltrosCruce>({});
+  const [ocultarCeros, setOcultarCeros] = useState(false);
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
@@ -2296,7 +2297,15 @@ function CruceContableTab({
     depModulo: { numero: (f: FilaCruceMarcada) => f.columnas?.depreciacion.inventario ?? 0 },
   };
   const hayFiltrosCedula = hayFiltrosCruce(filtrosCedula);
-  const filasOrdenadas = ordenarCruceContable(filtrarFilasCruce(filasMarcadas, columnasFiltroCedula, filtrosCedula), orden);
+  // Cuentas de la cédula que no movieron por ningún lado. Se muestran —el papel de trabajo tiene
+  // que dejar constancia de que se miraron—, pero se pueden esconder. Una con marca nunca se
+  // oculta: alguien la explicó y esa explicación no puede desaparecer de la vista.
+  const sinMovimiento = (f: FilaCruceMarcada) => f.contable === 0 && f.inventario === 0 && !f.marca;
+  const enCero = filasMarcadas.filter(sinMovimiento).length;
+  const filasOrdenadas = ordenarCruceContable(
+    filtrarFilasCruce(filasMarcadas, columnasFiltroCedula, filtrosCedula).filter((f) => !ocultarCeros || !sinMovimiento(f)),
+    orden,
+  );
   const encabezado = (label: string, columna: ColumnaCruceContable, alineacion: "left" | "right", title: string) => (
     <HeaderOrdenable
       label={label}
@@ -2385,7 +2394,17 @@ function CruceContableTab({
               ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
               : <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
             {hayFiltrosCedula && <> · <span className="font-semibold text-ink-700">{filasOrdenadas.length.toLocaleString("es-CO")}</span> con los filtros</>}
+            {enCero > 0 && <> · <span className="font-semibold text-ink-700">{enCero.toLocaleString("es-CO")}</span> en cero</>}
           </span>
+          {enCero > 0 && (
+            <label
+              className="inline-flex cursor-pointer items-center gap-1.5 text-[11.5px] font-medium text-ink-600"
+              title="La cédula muestra todas las cuentas que el módulo tiene parametrizadas, hayan movido o no. Ocúltalas si estorban: siguen conciliando igual."
+            >
+              <input type="checkbox" checked={ocultarCeros} onChange={() => setOcultarCeros((v) => !v)} className="size-3.5 accent-navy-700" />
+              Ocultar las cuentas en cero
+            </label>
+          )}
           {hayFiltrosCedula && (
             <button type="button" onClick={() => setFiltrosCedula({})} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
               Limpiar filtros
