@@ -267,12 +267,25 @@ export function rolRequeridoExento(
   return rol === descriptor.valor && (valorAlternoMapeado(descriptor, spec) || tieneValorFormula(spec));
 }
 
+/**
+ * ¿El módulo admite «un único clasificador para todo el archivo» (modo global)? Nómina no: su
+ * clasificador es el código del concepto (o el concepto), y un solo grupo juntaría sueldos, horas
+ * extras y deducciones en un renglón del Consolidado. Es la regla de la pantalla y del servidor.
+ */
+export function admiteClasificadorUnico(descriptor: Pick<DescriptorModulo, "nomina">): boolean {
+  return !descriptor.nomina;
+}
+
+export const MENSAJE_SIN_CLASIFICADOR_UNICO =
+  "En Nómina el clasificador es el código del concepto (o el concepto): no puede ser único para todo el archivo.";
+
 export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
   if (spec.lecturaEstructurada) {
     if (descriptor.codigo !== "INV") return "La lectura de registros mezclados solo está habilitada para inventarios.";
     const parseado = LecturaEstructuradaSchema.safeParse(spec.lecturaEstructurada);
     if (!parseado.success) return `Revisa las reglas de lectura: ${parseado.error.issues[0]?.message ?? "estructura no válida"}`;
   }
+  if (modoClasificadorDe(spec) === "global" && !admiteClasificadorUnico(descriptor)) return MENSAJE_SIN_CLASIFICADOR_UNICO;
   if (spec.hoja.trim().length === 0) return "Indica el nombre exacto de la hoja del archivo.";
   if (spec.hoja.trim().length > 120) return "El nombre de la hoja es demasiado largo (máx. 120 caracteres).";
   if (!Number.isInteger(spec.filaEncabezado) || spec.filaEncabezado < 1) {

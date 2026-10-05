@@ -492,7 +492,8 @@ export function EditorMapeoModulo({
                     className={`${invalido ? claseCampoInvalido : claseCampo} flex-1`}
                   >
                     <option value={0}>— sin mapear —</option>
-                    {rc.nombre === clasificadorRol && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
+                    {/* Nómina no: su clasificador es el código del concepto (`admiteClasificadorUnico`). */}
+                    {rc.nombre === clasificadorRol && !esNomina && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
                     {opciones.map((o) => (
                       <option key={o.index1} value={o.index1}>{o.label}</option>
                     ))}
