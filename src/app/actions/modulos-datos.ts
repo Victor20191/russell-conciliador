@@ -2552,7 +2552,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         clientId: lote.clienteId,
       });
     }
-    // La muestra de una versión aprendida: el recorte anónimo y verificado del original. Va después
+    // La muestra de una versión aprendida: copia del original (formato y nombre) con las personas ficticias, verificada. Va después
     // de responder (leer el original entero puede tardar); si no sale, el administrador sube una.
     if (patron && erpPatron?.estado === "validada_cliente") {
       const clienteMuestra = { id: lote.clienteId, nombre: cliente.name };
@@ -2564,7 +2564,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           action: muestra.ok ? "GENERÓ MUESTRA DE PATRÓN" : "SIN MUESTRA AUTOMÁTICA DE PATRÓN",
           entity: `${descriptor.label} · ${erpPatron.erp.name} v${patron.version}`,
           detail: muestra.ok
-            ? `${muestra.nombre} · recorte anónimo de ${muestra.filasDatos} filas del original de ${clienteMuestra.nombre}, verificado contra el patrón`
+            ? `${muestra.nombre} · copia de ${muestra.filasDatos} filas del original de ${clienteMuestra.nombre} con su formato y las personas ficticias, verificada contra el patrón`
             : `${muestra.motivo} Un administrador debe subir una muestra para aprobarlo.`,
           clientId: clienteMuestra.id,
         });

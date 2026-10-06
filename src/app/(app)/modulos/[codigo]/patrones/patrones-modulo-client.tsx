@@ -143,10 +143,10 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
                         <div className="mt-1 text-blue-800">
                           Ya se utiliza para este cliente.{" "}
                           {version.muestra?.recorte
-                            ? `Su muestra es un recorte anónimo del original (las primeras ${FILAS_DATOS_MUESTRA} filas, con identificaciones y nombres ficticios): descárgala, revísala y apruébala para todo el aplicativo, o cámbiala por otra muestra.`
+                            ? `Su muestra es una copia del original con su formato (las primeras ${FILAS_DATOS_MUESTRA} filas de datos; nombres y NIT/cédulas de personas ficticios): descárgala, revísala y apruébala para todo el aplicativo, o cámbiala por otra muestra.`
                             : version.muestra
                               ? "Revisa su muestra y apruébala para compartir el formato con todo el aplicativo."
-                              : "Para compartir el formato genera la muestra anónima desde el original o sube una sin información privada, y apruébala."}
+                              : "Para compartir el formato genera la muestra desde el original o sube una, y apruébala."}
                         </div>
                       )}
                       {version.nota && <div className="mt-1 whitespace-pre-line"><b>Nota:</b> {version.nota}</div>}
@@ -375,8 +375,8 @@ function FilaVersion({
             </a>
             <span className="ml-1 text-[10.5px] text-ink-400">{tamano(version.muestra.tamanoBytes)}</span>
             {version.muestra.recorte && (
-              <span className="mt-1 block" title={`Las primeras ${FILAS_DATOS_MUESTRA} filas del original del cargue, con identificaciones y nombres ficticios; verificada contra el patrón.`}>
-                <Chip label="Recorte anónimo" tone="blue" />
+              <span className="mt-1 block" title={`Copia del original del cargue con su formato: las primeras ${FILAS_DATOS_MUESTRA} filas de datos, con nombres y NIT/cédulas de personas ficticios; verificada contra el patrón.`}>
+                <Chip label="Copia del original" tone="blue" />
               </span>
             )}
           </span>
@@ -413,9 +413,9 @@ function FilaVersion({
                 <Icon name="edit" size={11} />Editar
               </Link>
             )}
-            {local && !version.muestra && version.evidencia && (
-              <button type="button" disabled={ocupado} onClick={generarMuestra} title="Las primeras filas del original del cargue, con identificaciones y nombres ficticios" className={`${botonAccion} border-blue-300 text-blue-800 hover:bg-blue-50`}>
-                <Icon name="doc" size={11} />Generar muestra
+            {version.evidencia && ((local && !version.muestra) || version.muestra?.recorte) && (
+              <button type="button" disabled={ocupado} onClick={generarMuestra} title="Copia del original del cargue con su formato: las primeras filas de datos, con nombres y NIT/cédulas de personas ficticios" className={`${botonAccion} border-blue-300 text-blue-800 hover:bg-blue-50`}>
+                <Icon name="doc" size={11} />{version.muestra ? "Regenerar muestra" : "Generar muestra"}
               </button>
             )}
             {(pendiente || local) && (

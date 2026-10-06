@@ -691,23 +691,31 @@ export async function generarMuestraRecortadaVersion(versionId: number): Promise
     const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number(versionId) || 0 }, include: { erp: { select: { name: true } } } });
     if (!version) throw new ErrorPatron("La versión ya no existe.");
     await exigirAlcanceVersion(version);
-    if (version.estado !== "validada_cliente" || version.archivoOrigenId == null) {
+    if (version.archivoOrigenId == null) {
       throw new ErrorPatron("Solo una versión guardada desde un cargue genera su muestra a partir del original.");
     }
-    if (version.muestraClaveObjeto) throw new ErrorPatron("La versión ya tiene muestra.");
+    // Regenerar: solo una muestra que ya era copia del original (nunca una que subió alguien), y
+    // también en una versión aprobada: la nueva se verifica contra el patrón antes de guardarse.
+    const regenerar = version.muestraClaveObjeto != null;
+    if (regenerar && version.muestraOrigen !== "recorte_original") {
+      throw new ErrorPatron("Esta muestra la subió un administrador: para cambiarla usa «Cambiar muestra».");
+    }
+    if (!regenerar && version.estado !== "validada_cliente") {
+      throw new ErrorPatron("Solo una versión guardada desde un cargue genera su muestra a partir del original.");
+    }
     const descriptor = descriptorDe(version.moduloCodigo);
-    const muestra = await guardarMuestraRecortada(version.id);
-    if (!muestra.ok) return { ok: false, message: `No se pudo generar la muestra: ${muestra.motivo} Sube una muestra sin información privada.` };
+    const muestra = await guardarMuestraRecortada(version.id, { reemplazar: regenerar });
+    if (!muestra.ok) return { ok: false, message: `No se pudo ${regenerar ? "regenerar" : "generar"} la muestra: ${muestra.motivo} Sube una muestra del aplicativo.` };
     const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: "GENERÓ MUESTRA DE PATRÓN",
+      action: regenerar ? "REGENERÓ MUESTRA DE PATRÓN" : "GENERÓ MUESTRA DE PATRÓN",
       entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
-      detail: `${muestra.nombre} · recorte anónimo del original, verificado contra el patrón`,
+      detail: `${muestra.nombre} · copia del original (primeras filas, con su formato) con las personas ficticias, verificada contra el patrón`,
       ...(version.clienteOrigenId != null ? { clientId: version.clienteOrigenId } : {}),
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
-    return { ok: true, message: muestra.yaTenia ? "La versión ya tenía muestra." : `Muestra generada: ${muestra.nombre}.` };
+    return { ok: true, message: muestra.yaTenia ? "La versión ya tenía muestra." : `Muestra ${regenerar ? "regenerada" : "generada"}: ${muestra.nombre}.` };
   } catch (e) {
     return respuestaError("generarMuestraRecortadaVersion", e);
   }
