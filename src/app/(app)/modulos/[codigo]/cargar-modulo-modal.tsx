@@ -19,14 +19,17 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { fechaCorteSugeridaDe, mesActualColombia, motivoFechaFutura, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
 import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
+import { textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
 import { INFO_TIPO_FORMATO, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import {
   leerDatosModulo,
   analizarArchivoModulo,
   preferenciasCargaModulo,
+  probarMapeoCarga,
   ubicarCeldaArchivoModulo,
   type AnalisisModulo,
 } from "@/app/actions/modulos-datos";
+import { PruebaMapeoPatron } from "./patrones/prueba-mapeo-patron";
 import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import { tieneValorFormula, validarValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { confirmacionValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
@@ -39,6 +42,7 @@ import {
   type ContenidoArchivo,
   type VigentePeriodoModulo,
 } from "@/lib/modulos/ingresos/contenido-archivo";
+import { CONTENIDOS_ACTIVOS, INFO_CONTENIDO_ACTIVOS, ofertaAnexoActivos, type ContenidoActivos } from "@/lib/modulos/activos/contenido-archivo";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -88,8 +92,12 @@ type PropsCarga = {
   rolValor: string;
   /** Ingresos: el valor de una columna de «total» se confirma sin IVA al mapear. */
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   /** Ingresos: cada carga declara si el archivo trae facturas, notas crédito o ambas. */
   confirmarContenido: boolean;
+  /** Activos fijos: pregunta si el archivo trae costo, depreciación o las dos cosas. */
+  confirmarContenidoActivos: boolean;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -222,26 +230,31 @@ const sinCentro = (s: SpecModulo): SpecModulo => {
 };
 
 /**
- * «¿Separar por centro de costo?» en una carga con patrón (Nómina). Con «No» este cargue no lee la
- * columna del centro y el Consolidado queda por concepto; el patrón no cambia.
+ * «¿Separar por centro de costo?» (Nómina). Con «No» este cargue no lee la columna del centro y el
+ * Consolidado queda por concepto. Se pregunta con patrón y también cuando el mapeo se arma en la
+ * carga (5/Oct/2026): ni el patrón ni el mapeo que se guarda cambian.
  */
 function ConfirmarCentroCarga({
   analisis,
   columna,
   respuesta,
   onResponder,
+  conPatron = true,
 }: {
   analisis: AnalisisModulo;
   columna: number;
   respuesta: "si" | "no" | null;
   onResponder: (valor: "si" | "no") => void;
+  /** Sin patrón, la columna viene del mapeo que se está armando. */
+  conPatron?: boolean;
 }) {
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
     <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
-        ¿Separar por centro de costo? <span className="text-err-600">*</span> · el patrón lo lee en la columna{" "}
-        {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}
+        ¿Separar por centro de costo? <span className="text-err-600">*</span> ·{" "}
+        {conPatron ? `el patrón lo lee en la columna ${letra}` : `en el mapeo, el centro de costo es la columna ${letra}`}
       </span>
       {valores.length > 0 && (
         <span className="min-w-0 break-words text-[11px] leading-snug text-ink-500">
@@ -263,7 +276,11 @@ function ConfirmarCentroCarga({
           El Consolidado tendrá un renglón por concepto. Las asignaciones guardadas sin centro valen para todos los centros.
         </span>
       )}
-      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón del aplicativo no se modifica.</span>
+      <span className="text-[11px] leading-snug text-ink-500">
+        {conPatron
+          ? "Vale solo para este cargue: el patrón del aplicativo no se modifica."
+          : "Vale solo para este cargue: el mapeo que se guarda conserva la columna del centro de costo."}
+      </span>
     </div>
   );
 }
@@ -272,16 +289,20 @@ function ConfirmarCentroCarga({
 const ROL_CUENTA = "cuenta";
 
 /**
- * Nómina: el patrón lee la cuenta contable del cliente. Solo informa: los conceptos cruzarán por esa
- * cuenta (homologada en el balance o por su estructura PUC) y el catálogo de conceptos de
- * /config/conceptos-nomina no hace falta para este cargue, salvo en las filas sin cuenta válida.
+ * Nómina: el cargue lee la cuenta contable del cliente, con patrón o con el mapeo armado en la carga
+ * (5/Oct/2026). Solo informa: los conceptos cruzarán por esa cuenta (homologada en el balance o por
+ * su estructura PUC) y el catálogo de conceptos de /config/conceptos-nomina no hace falta para este
+ * cargue, salvo en las filas sin cuenta válida.
  */
-function AvisoCuentaArchivo({ analisis, columna }: { analisis: AnalisisModulo; columna: number }) {
+function AvisoCuentaArchivo({ analisis, columna, conPatron = true }: { analisis: AnalisisModulo; columna: number; conPatron?: boolean }) {
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
     <div className="flex flex-col gap-1 rounded-md border border-ok-500/60 bg-ok-100/30 px-3 py-2.5 text-[11px] leading-snug text-ink-600">
       <span className="font-medium text-ok-700">
-        El patrón lee la cuenta contable del cliente en la columna {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}.
+        {conPatron
+          ? `El patrón lee la cuenta contable del cliente en la columna ${letra}.`
+          : `En el mapeo, la cuenta contable del cliente es la columna ${letra}.`}
       </span>
       <span>
         Los conceptos cruzarán por esa cuenta y el catálogo de conceptos no hace falta para este cargue (salvo en las filas sin
@@ -303,6 +324,72 @@ type DestinoCarga = "agregar" | "nueva";
  * complementa (notas crédito sobre facturas, o al revés), ofrece agregarlo en vez de crear una
  * versión nueva que lo reemplace.
  */
+/**
+ * Activos fijos: qué trae este archivo — el costo, la depreciación o las dos cosas. Unos ERP sacan
+ * las dos columnas juntas y otros imprimen dos reportes; leer la depreciación como costo inflaría
+ * el activo y dejaría la 1592 en cero. Es del cargue, no del formato: se pregunta siempre.
+ */
+function ConfirmarContenidoActivos({
+  contenido,
+  onContenido,
+  vigente,
+  destino,
+  onDestino,
+}: {
+  contenido: ContenidoActivos | null;
+  onContenido: (valor: ContenidoActivos) => void;
+  /** Cargue vigente del período; null en «Agregar archivo» o si el período no tiene cargue. */
+  vigente: VigentePeriodoModulo | null;
+  destino: DestinoCarga | null;
+  onDestino: (valor: DestinoCarga) => void;
+}) {
+  const oferta = ofertaAnexoActivos(contenido, vigente ? { ...vigente, lados: vigente.lados ?? null } : null);
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        ¿Qué trae este archivo? <span className="text-err-600">*</span>
+      </span>
+      <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Qué trae este archivo?">
+        {CONTENIDOS_ACTIVOS.map((c) => (
+          <label key={c} className="inline-flex items-center gap-1.5">
+            <input type="radio" name="contenido-activos" checked={contenido === c} onChange={() => onContenido(c)} />
+            {INFO_CONTENIDO_ACTIVOS[c].opcion}
+          </label>
+        ))}
+      </div>
+      {contenido && <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ACTIVOS[contenido].ayuda}</span>}
+      {oferta.ofrecer && vigente && (
+        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+          <span className="text-[11px] font-medium text-ink-700">
+            {vigente.periodo} ya tiene la v{vigente.version} cargada ({vigente.filas.toLocaleString("es-CO")} filas · total {fmt(vigente.total)})
+            {vigente.lados ? ` con ${vigente.lados.conCosto ? "el costo" : "la depreciación"}` : ""}.
+            ¿Este archivo es la otra parte de ese cargue? <span className="text-err-600">*</span>
+          </span>
+          <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Agregar al cargue existente?">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga-activos" checked={destino === "agregar"} onChange={() => onDestino("agregar")} />
+              Sí, agregarlo a la v{vigente.version} (la cédula compara el neto)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="destino-carga-activos" checked={destino === "nueva"} onChange={() => onDestino("nueva")} />
+              No, crear una versión nueva que reemplace a la v{vigente.version}
+            </label>
+          </div>
+        </div>
+      )}
+      {oferta.aviso && (
+        <span className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
+      )}
+      {contenido && contenido !== "ambos" && !oferta.ofrecer && (
+        <span className="text-[11px] leading-snug text-ink-600">
+          El otro archivo se sube después con «Agregar archivo» sobre este mismo cargue, para que la cédula compare el neto.
+        </span>
+      )}
+      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón y el mapeo guardado no se modifican.</span>
+    </div>
+  );
+}
+
 function ConfirmarContenidoCarga({
   contenido,
   onContenido,
@@ -379,6 +466,7 @@ function resumenMapeo(spec: SpecModulo, roles: RolModulo[], clasificadorRol: str
     const rango = edades.length === 1 ? letra(edades[0].columna) : `${letra(edades[0].columna)}–${letra(edades[edades.length - 1].columna)}`;
     partes.push(`rangos de vencimiento ${rango} (${edades.length})`);
   }
+  if (spec.codigosDeduccion?.length) partes.push(`deducciones: códigos ${textoRangosCodigos(spec.codigosDeduccion)}`);
   return partes.join(" · ");
 }
 
@@ -444,7 +532,9 @@ function CargarModal({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
+  confirmarContenidoActivos,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -488,10 +578,23 @@ function CargarModal({
   // «¿El archivo trae el valor total?» (solo este cargue): sin respuesta hasta que el analista elija.
   const [totalArchivo, setTotalArchivo] = useState<"si" | "no" | null>(null);
   // «¿Separar por centro de costo?» (solo este cargue, Nómina): sin respuesta hasta que el analista elija.
+  // Se pregunta con patrón y cuando el mapeo se arma en la carga. La respuesta vale para la columna
+  // del centro con que se dio: si en el mapeo se cambia esa columna, se vuelve a preguntar.
   const [separarCentro, setSepararCentro] = useState<"si" | "no" | null>(null);
+  const [columnaCentroRespondida, setColumnaCentroRespondida] = useState(0);
+  const colCentro = spec ? (spec.columnas[ROL_CENTRO] ?? 0) : 0;
+  const respuestaCentro = separarCentro != null && columnaCentroRespondida === colCentro ? separarCentro : null;
+  const responderCentro = (valor: "si" | "no") => {
+    setSepararCentro(valor);
+    setColumnaCentroRespondida(colCentro);
+  };
   // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
+  const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
   const [destinoCarga, setDestinoCarga] = useState<DestinoCarga | null>(null);
+  // El aplicativo no tiene patrón y quien carga configura la lectura en este modal (no Inventarios,
+  // que tiene su asistencia). Al confirmar el borrador podrá guardar el formato como patrón.
+  const [configurando, setConfigurando] = useState(false);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -515,7 +618,9 @@ function CargarModal({
     setTotalArchivo(null);
     setSepararCentro(null);
     setContenido(null);
+    setContenidoActivos(null);
     setDestinoCarga(null);
+    setConfigurando(false);
     setFase("archivo");
   };
 
@@ -666,11 +771,15 @@ function CargarModal({
           }
           return;
         }
-        if (r.modo === "sin_patron" || !r.spec) {
+        // Configurando la lectura, otra hoja sin patrón sigue en el editor con su propia sugerencia.
+        const seguirConfigurando = configurando && r.modo === "sin_patron" && r.spec != null;
+        if (!seguirConfigurando && (r.modo === "sin_patron" || !r.spec)) {
           setSpec(null);
           setFase("sin_patron");
           return;
         }
+        if (r.modo !== "sin_patron") setConfigurando(false);
+        if (!r.spec) return;
         // Ni el perfil ni el patrón traen la fila del total: se ubica de nuevo en cada archivo.
         setSpec(sinCoordenadaDeArchivo(r.spec));
         // Cada análisis (también al cambiar de hoja) vuelve a pedir la confirmación del clasificador.
@@ -679,8 +788,10 @@ function CargarModal({
         setTotalArchivo(null);
         setSepararCentro(null);
         setContenido(null);
+        setContenidoActivos(null);
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
+        if (r.modo === "patron" && configurando) notifySuccess(`Esta hoja coincide con un patrón de ${r.aplicativo?.nombre ?? "el aplicativo"}: se leerá con él.`);
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
         notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
@@ -733,6 +844,8 @@ function CargarModal({
         const sinConfirmar = impedimentoValorSinConfirmar({ valor: rolValor, confirmarValorSinImpuestos }, spec, analisis.encabezado ?? []);
         if (sinConfirmar) { notifyError(sinConfirmar); return; }
       }
+      // Sin patrón, el formato configurado aquí podrá guardarse como patrón: su tipo es obligatorio.
+      if (configurando && conNivelCartera && !spec.tipoFormato) { notifyError("Elige el tipo de formato del archivo: por documento, por edades o por documento y edades."); return; }
     }
     if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {
       notifyError(`Indica la TRM de cierre: los importes están en ${spec.monedaArchivo}.`);
@@ -740,13 +853,17 @@ function CargarModal({
     }
     const filaManual = Number(filaMarcaTotales);
     const celdaTotalLista = (spec.subtotalesColumna ?? 0) >= 1 && marcaManualLista && Number.isInteger(filaManual) && spec.subtotalesFila === filaManual;
-    const pedirCentro = porPatron && confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1;
-    if (pedirCentro && separarCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
+    // Con patrón y con el mapeo armado en la carga: basta que el centro de costo quede leído.
+    const pedirCentro = confirmarAgrupador && colCentro >= 1;
+    if (pedirCentro && respuestaCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
     // Ingresos: qué trae el archivo, y si complementa el cargue del período, a dónde va.
     const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
+    // Activos fijos: lo mismo, cuando el archivo trae el lado que al cargue vigente le falta.
+    const ofertaActivos = ofertaAnexoActivos(contenidoActivos, vigentePeriodo ? { ...vigentePeriodo, lados: vigentePeriodo.lados ?? null } : null);
     const oferta = ofertaAnexo(contenido, vigentePeriodo);
     if (confirmarContenido && contenido == null) { notifyError("Indica qué trae este archivo."); return; }
-    if (oferta.ofrecer && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
+    if (confirmarContenidoActivos && contenidoActivos == null) { notifyError("Indica qué trae este archivo: costo, depreciación o ambos."); return; }
+    if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
     if (pedirTotal) {
       if (totalArchivo == null) { notifyError("Indica si el archivo trae el valor total."); return; }
@@ -773,21 +890,23 @@ function CargarModal({
             fd.set("subtotalesFila", String(spec.subtotalesFila));
           }
         } else if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
-        if (pedirCentro) fd.set("separarAgrupador", separarCentro!);
         if (pedirClasificador) {
           fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
           fd.set("clasificadorModo", modoClasificadorCargue);
         }
       } else {
         fd.set("specJson", JSON.stringify(spec));
+        if (configurando) fd.set("configurarEnCarga", "1");
       }
+      if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
       fd.set("periodoInicio", `${mes}-01`);
       fd.set("periodoFin", `${mes}-01`);
       fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
+      if (confirmarContenidoActivos && contenidoActivos) fd.set("contenidoActivos", contenidoActivos);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
-      else if (oferta.ofrecer && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
+      else if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await leerDatosModulo(undefined, fd);
@@ -808,6 +927,21 @@ function CargarModal({
     setContenido(valor);
     setDestinoCarga(ofertaAnexo(valor, anexo ? null : analisis?.vigentePeriodo ?? null).ofrecer ? "agregar" : null);
   };
+  /** Igual en Activos fijos: al decir que el archivo trae un solo lado, se propone agregarlo. */
+  const elegirContenidoActivos = (valor: ContenidoActivos) => {
+    setContenidoActivos(valor);
+    const vigente = anexo ? null : analisis?.vigentePeriodo ?? null;
+    setDestinoCarga(ofertaAnexoActivos(valor, vigente ? { ...vigente, lados: vigente.lados ?? null } : null).ofrecer ? "agregar" : null);
+  };
+  const preguntaContenidoActivos = confirmarContenidoActivos && analisis ? (
+    <ConfirmarContenidoActivos
+      contenido={contenidoActivos}
+      onContenido={elegirContenidoActivos}
+      vigente={anexo ? null : analisis.vigentePeriodo ?? null}
+      destino={destinoCarga}
+      onDestino={setDestinoCarga}
+    />
+  ) : null;
   const preguntaContenido = confirmarContenido && analisis ? (
     <ConfirmarContenidoCarga
       contenido={contenido}
@@ -937,6 +1071,27 @@ function CargarModal({
   const botonPrimario = "rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
   const aplicativoAnalizado = analisis?.aplicativo;
   const rutaPatrones = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
+  const nombreCliente = clientes.find((c) => c.id === clienteId)?.name ?? "este cliente";
+  // Sin patrón, quien carga puede configurar la lectura en el modal (Inventarios usa su asistencia).
+  const puedeConfigurarAqui = moduloCodigo !== "INV" && analisis?.modo === "sin_patron" && analisis.spec != null;
+  const configurarAqui = () => {
+    if (!analisis?.spec) return;
+    reiniciarMarcaTotales();
+    setSpec(sinCoordenadaDeArchivo(analisis.spec));
+    setClasificadorPatron(null);
+    setClasificadorConfirmado(false);
+    setTotalArchivo(null);
+    setSepararCentro(null);
+    setContenido(null);
+    setContenidoActivos(null);
+    setDestinoCarga(null);
+    setConfigurando(true);
+    setFase("mapeo");
+  };
+  const probarEnCarga = (fd: FormData) => {
+    fd.set("clienteId", String(clienteId ?? ""));
+    return probarMapeoCarga(fd);
+  };
 
   const footer = fase === "archivo" ? (
     <>
@@ -954,7 +1109,7 @@ function CargarModal({
     <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
   ) : (
     <>
-      <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
+      <button type="button" onClick={() => { setConfigurando(false); setFase("archivo"); }} className={botonSecundario}>Atrás</button>
       <button type="button" disabled={leyendo || analizando} onClick={leer} className={botonPrimario}>
         {leyendo ? "Leyendo…" : fase === "patron" ? "Crear borrador" : "Leer y crear borrador"}
       </button>
@@ -1125,21 +1280,30 @@ function CargarModal({
               <p className="mt-1">Rótulos del patrón que no están en el archivo: {analisis.sinPatron!.mejor!.faltantes.join(", ")}.</p>
             )}
             <p className="mt-1.5">
-              Un administrador debe crear el patrón para este formato; después vuelve a cargar el archivo. No se creó ningún borrador
-              y el original quedó conservado.
+              {puedeConfigurarAqui
+                ? "Puedes indicar aquí mismo qué es cada columna y crear el borrador; al confirmarlo podrás guardar el formato como patrón del aplicativo. "
+                : "Un administrador debe crear el patrón para este formato; después vuelve a cargar el archivo. "}
+              No se creó ningún borrador y el original quedó conservado.
             </p>
           </div>
           {analisis.advertenciaFormato && (
             <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-err-700">{analisis.advertenciaFormato}</p>
           )}
           <div className="flex flex-wrap gap-2">
+            {puedeConfigurarAqui && (
+              <button type="button" onClick={configurarAqui} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600">
+                Configurar la lectura aquí
+              </button>
+            )}
             <Link href={rutaPatrones} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50">
               Ver patrones de archivo
             </Link>
             {puedeAdministrarPatrones && aplicativoAnalizado && (
               <Link
                 href={`${rutaPatrones}/nueva?erp=${aplicativoAnalizado.id}${recepcionLoteId ? `&recepcion=${recepcionLoteId}` : ""}`}
-                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
+                className={puedeConfigurarAqui
+                  ? "rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50"
+                  : "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"}
               >
                 Crear patrón
               </Link>
@@ -1157,7 +1321,7 @@ function CargarModal({
             </p>
             <p className="mt-0.5 text-[11.5px] leading-snug">
               El archivo se leerá con este patrón, sin configurar columnas.
-              {analisis.coincidencia.estado === "pendiente" ? " Es una versión pendiente de aprobación: por ahora solo sirve para este cliente." : ""}
+              {analisis.coincidencia.estado === "pendiente" || analisis.coincidencia.estado === "validada_cliente" ? " Es una versión pendiente de aprobación: por ahora solo sirve para este cliente." : ""}
             </p>
           </div>
           {analisis.coincidencia.advertencias.length > 0 && (
@@ -1194,7 +1358,7 @@ function CargarModal({
             <dt className="font-medium text-ink-700">Hoja</dt>
             <dd className="min-w-0 break-words">«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
             <dt className="font-medium text-ink-700">Columnas</dt>
-            <dd className="min-w-0 break-words">{resumenMapeo(separarCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+            <dd className="min-w-0 break-words">{resumenMapeo(respuestaCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
             {conNivelCartera && (() => {
               const { tipo, declarado } = tipoFormatoCartera(spec);
               return (
@@ -1217,6 +1381,7 @@ function CargarModal({
             </p>
           )}
           {preguntaContenido}
+          {preguntaContenidoActivos}
           {confirmarClasificador && clasificadorPatron && (
             <ConfirmarClasificadorCarga
               analisis={analisis}
@@ -1229,12 +1394,12 @@ function CargarModal({
               onConfirmar={setClasificadorConfirmado}
             />
           )}
-          {confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1 && (
+          {confirmarAgrupador && colCentro >= 1 && (
             <ConfirmarCentroCarga
               analisis={analisis}
-              columna={spec.columnas[ROL_CENTRO] ?? 0}
-              respuesta={separarCentro}
-              onResponder={setSepararCentro}
+              columna={colCentro}
+              respuesta={respuestaCentro}
+              onResponder={responderCentro}
             />
           )}
           {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
@@ -1304,11 +1469,20 @@ function CargarModal({
       {fase === "mapeo" && analisis && spec && (
         <div className="flex flex-col gap-3 text-[12.5px]">
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-          <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
-            Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
-            {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
-          </p>
+          {configurando ? (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] leading-relaxed text-blue-800">
+              {aplicativoAnalizado?.nombre ?? "El aplicativo"} no tiene patrón para este formato: indica qué es cada columna y prueba el mapeo.
+              Al confirmar el cargue podrás guardarlo como patrón de {aplicativoAnalizado?.nombre ?? "ese aplicativo"}; se usará solo
+              para {nombreCliente} hasta que un administrador lo apruebe.
+            </p>
+          ) : (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
+              Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
+              {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
+            </p>
+          )}
           {preguntaContenido}
+          {preguntaContenidoActivos}
           <EditorMapeoModulo
             analisis={analisis}
             spec={spec}
@@ -1317,6 +1491,7 @@ function CargarModal({
             clasificadorRol={clasificadorRol}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             conNivelCartera={conNivelCartera}
             modo="carga"
             onCambiarHoja={(hoja) => analizar(hoja)}
@@ -1325,7 +1500,33 @@ function CargarModal({
             onConfirmarCorte={setCorteConfirmado}
             onCambioMarcaTotales={reiniciarMarcaTotales}
             marcaTotalesCarga={marcaTotalesCarga}
+            exigirTipoFormato={configurando}
           />
+          {/* Nómina: el mismo aviso que con patrón, sobre la columna de la cuenta que quedó en el mapeo. */}
+          {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
+            <AvisoCuentaArchivo analisis={analisis} columna={spec.columnas[ROL_CUENTA] ?? 0} conPatron={false} />
+          )}
+          {/* Nómina: la misma pregunta que con patrón, sobre la columna del centro que quedó en el mapeo. */}
+          {confirmarAgrupador && colCentro >= 1 && (
+            <ConfirmarCentroCarga
+              analisis={analisis}
+              columna={colCentro}
+              respuesta={respuestaCentro}
+              onResponder={responderCentro}
+              conPatron={false}
+            />
+          )}
+          {configurando && (
+            <PruebaMapeoPatron
+              key={`${recepcionLoteId ?? ""}:${spec.hoja}`}
+              moduloCodigo={moduloCodigo}
+              clasificadorEtiqueta={etiquetaClasificador}
+              spec={spec}
+              fuente={() => (recepcionLoteId ? { tipo: "original", recepcionLoteId } : null)}
+              puedeProbar={recepcionLoteId != null}
+              accion={probarEnCarga}
+            />
+          )}
         </div>
       )}
     </Modal>

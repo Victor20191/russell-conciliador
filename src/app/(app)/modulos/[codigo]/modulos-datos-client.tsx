@@ -116,7 +116,9 @@ export default function ModulosDatosClient({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
+  confirmarContenidoActivos,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -124,7 +126,11 @@ export default function ModulosDatosClient({
   clasificadorRol: string;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   confirmarContenido: boolean;
+  /** Activos fijos: pregunta si el archivo trae costo, depreciación o ambos. */
+  confirmarContenidoActivos: boolean;
   /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
   conNivelCartera: boolean;
   clientes: ClienteModulo[];
@@ -164,7 +170,9 @@ export default function ModulosDatosClient({
             avisaCuentaArchivo={avisaCuentaArchivo}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             confirmarContenido={confirmarContenido}
+            confirmarContenidoActivos={confirmarContenidoActivos}
           />
         )}
       </div>
@@ -198,7 +206,9 @@ export default function ModulosDatosClient({
         avisaCuentaArchivo={avisaCuentaArchivo}
         rolValor={rolValor}
         confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+        cuentaEnClasificador={cuentaEnClasificador}
         confirmarContenido={confirmarContenido}
+        confirmarContenidoActivos={confirmarContenidoActivos}
       />
     </div>
   );
@@ -224,7 +234,9 @@ function CargadosPorCliente({
   avisaCuentaArchivo,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   confirmarContenido,
+  confirmarContenidoActivos,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -246,7 +258,11 @@ function CargadosPorCliente({
   avisaCuentaArchivo: boolean;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   confirmarContenido: boolean;
+  /** Activos fijos: pregunta si el archivo trae costo, depreciación o ambos. */
+  confirmarContenidoActivos: boolean;
 }) {
   const [estado, setEstado] = useState<EstadoPeriodoModulo | null>(null);
   const conteoEstados = useMemo(() => contarPeriodosPorEstado(grupos), [grupos]);
@@ -508,7 +524,9 @@ function CargadosPorCliente({
                             avisaCuentaArchivo={avisaCuentaArchivo}
                             rolValor={rolValor}
                             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+                            cuentaEnClasificador={cuentaEnClasificador}
                             confirmarContenido={confirmarContenido}
+                            confirmarContenidoActivos={confirmarContenidoActivos}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

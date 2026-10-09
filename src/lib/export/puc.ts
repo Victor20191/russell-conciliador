@@ -9,7 +9,7 @@
 import ExcelJS from "exceljs";
 import { construirPucRussell, profundidadPuc, type CuentaCuatroPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 
-/** Una cuenta del plan estándar Russell (pestaña «Plan estándar Russell»). */
+/** Una cuenta del plan estándar Russell (pestaña «Detalle Subcuentas N6»). */
 export type FilaPucEstandar = {
   code: string;
   name: string;
@@ -32,7 +32,7 @@ export type DatosExportacionPuc = {
   subgrupos?: CuentaCuatroPuc[];
 };
 
-const HOJA_ESTANDAR = "Plan Estándar";
+const HOJA_ESTANDAR = "Detalle Subcuentas N6";
 
 const COLOR_HEADER = "FF0F2744";
 const COLOR_FILL = "FFFFFFFF";
@@ -148,14 +148,28 @@ function agregarHoja<T>(
   return ws;
 }
 
-const COLUMNAS_ESTANDAR: ColumnaHoja<FilaPucEstandar>[] = [
-  { header: "Código", width: 14, valor: (f) => f.code, align: "center", mono: true },
-  { header: "Nombre", width: 44, valor: (f) => f.name, wrap: true },
-  { header: "Nivel", width: 8, valor: (f) => f.level, align: "center" },
-  { header: "Naturaleza", width: 14, valor: (f) => etiquetaNaturaleza(f.nature), align: "center" },
-  { header: "Cuenta padre", width: 14, valor: (f) => f.parent, align: "center", mono: true },
-  { header: "Crítica", width: 10, valor: (f) => (f.critical ? "Sí" : "No"), align: "center" },
-  { header: "Cuenta Russell", width: 18, valor: (f) => f.russellAccount, mono: true },
+/**
+ * Columnas de la hoja «Detalle Subcuentas N6» (antes «Plan Estándar»; 5/Oct/2026, pedido del usuario): cada fila es una cuenta
+ * de 6 dígitos (N6) y a su lado va la cuenta de 4 (N4) a la que pertenece. El nivel no se exporta. El nombre de la N4 sale
+ * del catálogo de subgrupos (`subgrupos_estandar`), no del campo libre «Cuenta Russell»: en 20 de
+ * 443 cuentas ese campo dice otra cosa (las 5105xx traen «Gastos de administración» y su N4 es
+ * «Gastos de personal administración»). Sin la N4 en el catálogo se usa ese campo como respaldo.
+ */
+function columnasEstandar(nombresN4: ReadonlyMap<string, string>): ColumnaHoja<FilaPucEstandar>[] {
+  return [
+    { header: "Código N6", width: 14, valor: (f) => f.code, align: "center", mono: true },
+    { header: "Nombre Cuenta N6", width: 44, valor: (f) => f.name, wrap: true },
+    // Sin «Nivel»: todas son cuentas de 6 dígitos y el campo mezclaba 4 (las cargadas al
+    // inicio) y 6 (las creadas con «Nueva Subcuenta»), así que no distinguía nada.
+    { header: "Naturaleza N6", width: 14, valor: (f) => etiquetaNaturaleza(f.nature), align: "center" },
+    { header: "Crítica", width: 10, valor: (f) => (f.critical ? "Sí" : "No"), align: "center" },
+    { header: "Código N4", width: 12, valor: (f) => f.parent, align: "center", mono: true },
+    { header: "Nombre Cuenta N4", width: 34, valor: (f) => (f.parent ? nombresN4.get(f.parent) : undefined) ?? f.russellAccount, wrap: true },
+    ...COLUMNAS_DESCRIPTIVAS,
+  ];
+}
+
+const COLUMNAS_DESCRIPTIVAS: ColumnaHoja<FilaPucEstandar>[] = [
   { header: "Tipo de categoría", width: 22, valor: (f) => f.categoryType },
   { header: "Incluye", width: 46, valor: (f) => f.includes, wrap: true },
   { header: "Excluye", width: 46, valor: (f) => f.excludes, wrap: true },
@@ -195,7 +209,7 @@ export async function crearExportacionPuc(
   agregarHoja(
     wb,
     HOJA_ESTANDAR,
-    COLUMNAS_ESTANDAR,
+    columnasEstandar(new Map((datos.subgrupos ?? []).map((s) => [s.codigo, s.nombre]))),
     datos.estandar,
     "El plan estándar no tiene cuentas cargadas.",
   );

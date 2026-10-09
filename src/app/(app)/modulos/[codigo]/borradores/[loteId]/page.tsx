@@ -15,7 +15,9 @@ import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
 import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
+import { leerContenidoActivosDeLote } from "@/lib/modulos/activos/contenido-archivo";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
+import { leerPropuestaPatronDeLote } from "@/lib/modulos/patrones/propuesta-lote";
 import BorradorModuloClient from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -180,6 +182,24 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     (familiasDelLote?.edades ?? []).map((e) => e.etiqueta),
   );
 
+  // ¿Se podrá guardar el formato como patrón del aplicativo al confirmar? En los cinco módulos,
+  // cuando la lectura se configuró en la carga (el spec del lote trae la propuesta o el motivo);
+  // en Inventarios, cuando la asistencia no leyó con un patrón.
+  const asistenciaDelLote = originalInventario ? leerAsistenciaInventario(originalInventario.asistenciaJson) : null;
+  const propuestaLote = leerPropuestaPatronDeLote(lote.specJson);
+  const motivoSinPropuesta = (() => {
+    const crudo = (lote.specJson as Record<string, unknown> | null)?.propuestaPatronMotivo;
+    return typeof crudo === "string" ? crudo : null;
+  })();
+  const erpPropuesta = propuestaLote?.erpId
+    ?? (asistenciaDelLote?.aplicado && asistenciaDelLote.aplicado.origen !== "patron" ? asistenciaDelLote.erpId : null);
+  const nombreErpPropuesta = erpPropuesta != null
+    ? (await prisma.erp.findUnique({ where: { id: erpPropuesta }, select: { name: true } }))?.name ?? null
+    : null;
+  const propuestaPatron = nombreErpPropuesta
+    ? { aplicativo: nombreErpPropuesta, motivo: null }
+    : motivoSinPropuesta ? { aplicativo: null, motivo: motivoSinPropuesta } : null;
+
   const resumen = await cargarResumenBorrador({
     loteId,
     descriptor,
@@ -215,9 +235,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         reconciliacion={reconciliacion}
         anexo={anexo}
         contenido={descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null}
+        contenidoActivos={descriptor.confirmarContenidoActivosEnCarga ? leerContenidoActivosDeLote(lote.specJson) : null}
         sinNombre={[...gruposSinNombre].map(([grupo, g]) => ({ grupo, filas: g.filas, total: Math.round(g.total * 100) / 100 }))}
         opcionesNombre={opcionesNombre}
         version={versionActual}
+        propuestaPatron={propuestaPatron}
         notasCliente={ajustesCarga?.observaciones?.trim() || null}
         asistenciaInventario={originalInventario && originalInventario.revisionAsistencia > 0 ? {
           revision: originalInventario.revisionAsistencia,

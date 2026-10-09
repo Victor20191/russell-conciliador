@@ -12,12 +12,13 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
-import { CuentaConciliacionSchema, SubgrupoConciliacionSchema, type ActionState } from "@/lib/definitions";
+import { CuentaConciliacionSchema, ParDepreciacionSchema, SubgrupoConciliacionSchema, type ActionState } from "@/lib/definitions";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
   moduloConCategoria,
   moduloConCuentasConciliacion,
   moduloConOrigenPorCuenta,
+  moduloConParesDepreciacion,
   moduloConSubgruposConciliacion,
   subgruposFijosDe,
 } from "@/lib/modulos/cuentas-conciliacion";
@@ -271,5 +272,112 @@ export async function quitarSubgrupoConciliacion(_prev: ActionState, formData: F
   } catch (e) {
     if (e instanceof ErrorDominio) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD("quitarSubgrupoConciliacion", e) };
+  }
+}
+
+// ===== Parejas activo → depreciación (Activos fijos) =====
+// Con qué cuenta 1592## se junta cada activo 15## en la cédula. No cambian QUÉ cuentas concilia el
+// módulo (eso son los subgrupos y la 1592 fija): solo cómo se presentan y contra qué se compara
+// cada columna. Un período en firme conserva las parejas con que se cerró.
+
+/** El módulo tiene que cruzar un valor relacionado; devuelve su descriptor. */
+function validarModuloPares(moduloCodigo: string) {
+  const descriptor = descriptorModulo(moduloCodigo);
+  if (!descriptor) throw new ErrorDominio("Módulo no soportado.");
+  if (!moduloConParesDepreciacion(descriptor)) {
+    throw new ErrorDominio(`${descriptor.label} no cruza una cuenta de depreciación relacionada.`);
+  }
+  return descriptor;
+}
+
+/**
+ * Crea o cambia la pareja de un activo. Un activo tiene UNA cuenta de depreciación (la llave única
+ * es el subgrupo), así que guardar dos veces el mismo activo reemplaza su cuenta.
+ */
+export async function guardarParDepreciacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const parsed = ParDepreciacionSchema.safeParse({
+    moduloCodigo: formData.get("moduloCodigo"),
+    subgrupo: formData.get("subgrupo"),
+    cuenta: formData.get("cuenta"),
+  });
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { moduloCodigo, subgrupo, cuenta } = parsed.data;
+
+  try {
+    const descriptor = validarModuloPares(moduloCodigo);
+    // La depreciación tiene que colgar de un subgrupo que el módulo abra a 6 dígitos (la 1592):
+    // emparejar contra una cuenta que la cédula no trae dejaría el renglón sin la mitad de su saldo.
+    const abiertos = subgruposFijosDe(descriptor);
+    if (abiertos.length > 0 && !abiertos.includes(cuenta.slice(0, 4))) {
+      throw new ErrorDominio(`La cuenta de depreciación debe colgar de ${abiertos.join(" o ")}: ${cuenta} no lo hace.`);
+    }
+    if (cuenta.slice(0, 4) === subgrupo) throw new ErrorDominio("El activo y su depreciación no pueden ser el mismo subgrupo.");
+    const user = await getCurrentUser();
+    const { nombre, anterior } = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${moduloCodigo}`);
+      const [plan, activo, existente] = await Promise.all([
+        tx.standardAccount.findUnique({ where: { code: cuenta }, select: { name: true } }),
+        tx.subgrupoEstandar.findUnique({ where: { codigo: subgrupo }, select: { nombre: true } }),
+        tx.parDepreciacionModulo.findUnique({ where: { moduloCodigo_subgrupo: { moduloCodigo, subgrupo } }, select: { cuenta: true } }),
+      ]);
+      if (!activo) throw new ErrorDominio(`El subgrupo ${subgrupo} no existe en el plan estándar Russell.`);
+      if (!plan) throw new ErrorDominio(`La cuenta ${cuenta} no existe en el plan estándar Russell.`);
+      if (existente?.cuenta === cuenta) throw new ErrorDominio(`${subgrupo} ya está emparejado con ${cuenta}.`);
+      await tx.parDepreciacionModulo.upsert({
+        where: { moduloCodigo_subgrupo: { moduloCodigo, subgrupo } },
+        create: { moduloCodigo, subgrupo, cuenta, actualizadoPor: user?.name ?? null },
+        update: { cuenta, actualizadoPor: user?.name ?? null },
+      });
+      return { nombre: plan.name, anterior: existente?.cuenta ?? null };
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: anterior ? "CAMBIÓ PAREJA DE DEPRECIACIÓN" : "AGREGÓ PAREJA DE DEPRECIACIÓN",
+      entity: `${descriptor.label} · ${subgrupo} → ${cuenta}`,
+      detail: `${nombre}.${anterior ? ` Antes era ${anterior}.` : ""} La cédula junta ese activo con esa depreciación en los cargues abiertos; los períodos en firme conservan sus parejas.`,
+    });
+    invalidar();
+    return { ok: true, message: `${subgrupo} se concilia con ${cuenta}.` };
+  } catch (e) {
+    if (e instanceof ErrorDominio) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("guardarParDepreciacion", e) };
+  }
+}
+
+/**
+ * Quita la pareja de un activo: su renglón pasa a tener la depreciación en cero (como Terrenos) y
+ * la 1592## queda en un renglón propio. El módulo puede quedarse sin ninguna.
+ */
+export async function quitarParDepreciacion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = Number(formData.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Pareja inválida." };
+
+  try {
+    const user = await getCurrentUser();
+    const fila = await transaccionSerializable(async (tx) => {
+      const actual = await tx.parDepreciacionModulo.findUnique({ where: { id }, select: { moduloCodigo: true, subgrupo: true, cuenta: true } });
+      if (!actual) throw new ErrorDominio("Esa pareja ya no está configurada.");
+      await tomarCandadoTransaccion(tx, `cuentas-conciliacion:${actual.moduloCodigo}`);
+      await tx.parDepreciacionModulo.delete({ where: { id } });
+      return actual;
+    });
+
+    const descriptor = descriptorModulo(fila.moduloCodigo);
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "QUITÓ PAREJA DE DEPRECIACIÓN",
+      entity: `${descriptor?.label ?? fila.moduloCodigo} · ${fila.subgrupo} → ${fila.cuenta}`,
+      detail: `${fila.subgrupo} queda sin depreciación en la cédula y ${fila.cuenta} pasa a su propio renglón. Los períodos en firme conservan sus parejas.`,
+    });
+    invalidar();
+    return { ok: true, message: `Pareja ${fila.subgrupo} → ${fila.cuenta} retirada.` };
+  } catch (e) {
+    if (e instanceof ErrorDominio) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("quitarParDepreciacion", e) };
   }
 }

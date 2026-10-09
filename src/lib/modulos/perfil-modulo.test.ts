@@ -3,6 +3,8 @@ import { MODULOS_IMPORT } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
 import { rolesRequeridosFaltantes } from "./extraccion/sugerir";
 import {
+  admiteClasificadorUnico,
+  MENSAJE_SIN_CLASIFICADOR_UNICO,
   descripcionModoClasificador,
   descripcionSubtotalesModulo,
   letraColumnaModulo,
@@ -65,6 +67,20 @@ describe("normalizarSpecModulo", () => {
     const seccion = normalizarSpecModulo(INV, specInv({ clasificadorModo: "seccion", seccionColumnaVaciaRol: " descripcion " }));
     expect(seccion.seccionColumnaVaciaRol).toBe("descripcion");
   });
+
+  it("los códigos de deducción de Nómina son del formato: se conservan en el perfil y en el resumen", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const specNom: SpecModulo = {
+      hoja: "Hoja1", filaEncabezado: 1, primeraFilaDatos: 2,
+      columnas: { concepto: 3, valor: 9 },
+      codigosDeduccion: [{ desde: 500, hasta: 799 }, { desde: 500, hasta: 799 }, { desde: 9, hasta: 1 }],
+    };
+    expect(normalizarSpecModulo(NOM, specNom).codigosDeduccion).toEqual([{ desde: 500, hasta: 799 }]);
+    expect(normalizarSpecModuloArchivo(NOM, specNom).codigosDeduccion).toEqual([{ desde: 500, hasta: 799 }]);
+    expect(resumenColumnasModulo(NOM, normalizarSpecModulo(NOM, specNom))).toContain("deducciones: códigos 500-799");
+    // En otro módulo no significan nada y se retiran.
+    expect(normalizarSpecModulo(INV, specInv({ codigosDeduccion: [{ desde: 1, hasta: 9 }] })).codigosDeduccion).toBeUndefined();
+  });
 });
 
 describe("validarSpecModulo", () => {
@@ -76,6 +92,15 @@ describe("validarSpecModulo", () => {
     expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ hoja: "  " })))).toMatch(/hoja/i);
     expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ filaEncabezado: 4, primeraFilaDatos: 4 })))).toMatch(/después de la fila de encabezado/);
     expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ columnas: { tipo: 2, referencia: 1 } })))).toBe("Falta la columna obligatoria «Valor total».");
+  });
+
+  it("Nómina no admite un clasificador único para todo el archivo", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const nomina: SpecModulo = { hoja: "Nomina", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { codigo: 1, concepto: 2, valor: 3 } };
+    expect(validarSpecModulo(NOM, normalizarSpecModulo(NOM, nomina))).toBeNull();
+    expect(validarSpecModulo(NOM, normalizarSpecModulo(NOM, { ...nomina, clasificadorModo: "global" }))).toBe(MENSAJE_SIN_CLASIFICADOR_UNICO);
+    expect(admiteClasificadorUnico(INV)).toBe(true);
+    expect(admiteClasificadorUnico(NOM)).toBe(false);
   });
 
   it("exime al clasificador en modo global pero no a las demás obligatorias", () => {

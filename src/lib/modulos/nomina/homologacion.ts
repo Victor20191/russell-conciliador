@@ -25,7 +25,11 @@
 //  5. `sugerido_nombre` sin memoria: el grupo RF-NOM-02 que sugiere el nombre + la clase del
 //                       agrupador (o 51 por defecto) dan una cuenta A CONFIRMAR.
 //
-// Y `sin_cuenta` cuando nada aplica. Los conceptos cuya cuenta del cliente es de pasivo/activo/
+// Y `sin_cuenta` cuando nada aplica, con `destino: "gasto"` (5/Oct/2026): así el concepto llega al
+// renglón «Saldo del módulo sin cuenta asignada» de la cédula y a Novedades. Antes quedaba con
+// destino nulo y no salía en NINGÚN lado —ni cédula, ni Novedades, ni subcuenta, ni control—, de
+// modo que el total del módulo dejaba de ser el del archivo sin aviso (KP EMPAQUES dic-2025: 458
+// renglones, 1.824 M). Los conceptos cuya cuenta del cliente es de pasivo/activo/
 // ingreso (libranzas 2370, retención 2365, préstamos 1365, intereses 4210) no cruzan contra el
 // gasto: quedan con `destino: "control"` para el bloque «Control de deducciones» (D1); los de
 // una clase de gasto ajena al módulo (61 asistencial) quedan con `destino: "fuera"`.
@@ -562,13 +566,36 @@ function resolverDesdeMemoria(
   // 5) Sugerencia por nombre.
   const grupo = sugerirGrupoConcepto(nombre);
   if (grupo) {
+    // Salud y pensión: el nombre no distingue el aporte de la empresa (gasto 5105 69/70) de la
+    // deducción del empleado (pasivo 2370), y el signo tampoco (hay archivos que imprimen en
+    // negativo hasta la caja de compensación). Solo se sugiere con la empresa nombrada y sin
+    // señal de descuento; si no, sin cuenta y con el porqué.
+    if (esAporteAmbiguo(grupo, nombre)) {
+      return base({ via: "sin_cuenta", destino: "gasto", grupo, motivo: `Parece ${grupoConcepto(grupo)?.etiqueta.toLowerCase() ?? "un aporte"} del EMPLEADO (deducción, va al pasivo 2370), no un aporte de la empresa: asígnale la cuenta a mano o con el catálogo de conceptos.` });
+    }
     const clase = claseRegla ?? "51";
     const cuenta = cuentaPorGrupo(grupo, clase);
     if (cuenta && delModulo(cuenta)) {
       return base({ cuentas: [cuenta], via: "sugerido_nombre", destino: "gasto", clase, grupo, motivo: `Sugerida por el nombre («${grupoConcepto(grupo)?.etiqueta ?? grupo}») en la clase ${clase}${claseRegla ? "" : " por defecto"}. Confírmala.` });
     }
   }
-  return base({ via: "sin_cuenta", motivo: "Sin memoria ni cuenta en el archivo: asigna la cuenta a mano." });
+  return base({ via: "sin_cuenta", destino: "gasto", motivo: "Sin memoria, sin cuenta en el archivo y sin un nombre que se reconozca: asigna la cuenta a mano. Mientras tanto suma en «Saldo del módulo sin cuenta asignada»." });
+}
+
+/** Lo que dice que el concepto se le DESCUENTA al empleado. */
+const SENAL_DEDUCCION = /\bdescuento|\bdcto\b|\bdto\b|deduc|\bvol\b|voluntari|\bempleados?\b|\btrabajador|solidaridad|\bfsp\b|seguro|\bseg\b|prepagad|complementari|\bplan\b/;
+/** Lo que dice que el aporte lo paga la EMPRESA. */
+const SENAL_EMPRESA = /\bempresa|\bemplead?or\b|patronal|\bcia\b|compania|aporte(s)? (de )?(la )?empresa/;
+
+/**
+ * Salud o pensión que la sugerencia por nombre NO debe llevar al gasto: con señal de descuento o
+ * sin la empresa nombrada. «SALUD EMPRESA» se sugiere; «SALUD», «Descuento Seg Salud»,
+ * «APORTE VOL. DE PENSION» o «DCTO PLAN … PENSIÓN EMPRESA», no.
+ */
+export function esAporteAmbiguo(grupo: string, nombre: unknown): boolean {
+  if (grupo !== "aportes_eps" && grupo !== "aportes_pension") return false;
+  const t = String(nombre ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return SENAL_DEDUCCION.test(t) || !SENAL_EMPRESA.test(t);
 }
 
 // ===== Reparto (RF-NOM-12 / D4) =====

@@ -49,7 +49,8 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
     etiqueta: "Horas extras y recargos",
     sufijoRussell: "06",
     subcuentasPuc: ["15"],
-    patrones: [/hora[s]? ?extra|h\.? ?e\.? |hed|hen|hedf|henf|extra diurna|extra nocturna|recargo noct|\bhe\b/],
+    // NOMINAI abrevia: «HOR EXT DIUR 125%», «HORA EXT NOCT 175%», «REC NOCT 35%» (KP EMPAQUES).
+    patrones: [/hora[s]? ?extra|h\.? ?e\.? |hed|hen|hedf|henf|extra diurna|extra nocturna|recargo noct|\bhe\b|\bhor(as?)? ext\b|\brec noct?\b/],
     sinonimos: ["horas extras", "horas extra", "extras", "horas extras y recargos"],
   },
   {
@@ -73,7 +74,9 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
     etiqueta: "Incapacidades",
     sufijoRussell: "06",
     subcuentasPuc: ["24"],
-    patrones: [/incapacidad|licencia de maternidad|licencia de paternidad|\blma\b|\blmp\b|ausentismo/],
+    // «INC. SURA», «INC. NUEVA EPS», «INCAP. KP», «LICENC. MATERNIDAD»: sin esto la incapacidad que
+    // paga la EPS caía en «Aportes EPS» por la palabra «EPS».
+    patrones: [/incapacidad|licencia de maternidad|licencia de paternidad|\blma\b|\blmp\b|ausentismo|\binc\b|\bincap\b|\blicen\w* (de |por )?(maternidad|paternidad)/],
     sinonimos: ["incapacidad", "incapacidades y licencias"],
   },
   {

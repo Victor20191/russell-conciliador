@@ -38,6 +38,7 @@ import { ingerir } from "@/lib/balance/extraccion/ingesta";
 import {
   parseConceptosNominaWorkbook,
   planEscrituraConceptos,
+  completarNombresConceptos,
   HOJA_CONCEPTOS,
   MODULO_CONCEPTOS_NOMINA,
   type ConceptoCatalogoEntrada,
@@ -119,7 +120,8 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
       const base = {
         clienteId: e.clienteId,
         clasificador: e.codigo,
-        descripcion: e.concepto,
+        // Opcional: sin nombre en el archivo, `escribirFilas` conserva el que ya tenía.
+        descripcion: e.concepto.trim() || null,
         agrupador: e.agrupador,
         grupo,
         subcuentaPuc: sub,
@@ -194,12 +196,15 @@ async function clientesSinAlcance(clienteIds: number[]): Promise<Set<number>> {
  * concepto y un catálogo de 67 conceptos pasaba del tiempo de la transacción (P2028).
  */
 async function escribirFilas(filas: FilaAEscribir[], actor: string | null): Promise<{ actualizados: number }> {
-  const { claves, data } = planEscrituraConceptos(filas, actor);
+  const plan = planEscrituraConceptos(filas, actor);
+  const { claves } = plan;
   const clienteIds = [...new Set(claves.map((c) => c.clienteId))];
   const previas = await prisma.consolidacionModuloCliente.findMany({
     where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA, clienteId: { in: clienteIds }, clasificador: { in: [...new Set(claves.map((c) => c.clasificador))] } },
-    select: { clienteId: true, clasificador: true, agrupador: true },
+    select: { clienteId: true, clasificador: true, agrupador: true, descripcion: true },
   });
+  // El nombre es opcional: una fila sin él conserva el que ya tenía el concepto.
+  const data = completarNombresConceptos(plan.data, previas);
   const yaExistian = new Set(previas.map((p) => `${p.clienteId}|${p.clasificador}|${p.agrupador}`));
   const actualizados = claves.filter((c) => yaExistian.has(`${c.clienteId}|${c.clasificador}|${c.agrupador}`)).length;
 

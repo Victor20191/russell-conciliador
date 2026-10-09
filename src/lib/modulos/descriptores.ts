@@ -20,6 +20,12 @@ export type RolColumna = {
   nombre: string;
   /** Etiqueta legible para el editor de columnas del wizard. */
   etiqueta: string;
+  /**
+   * Plural de la etiqueta, para los textos de la asignación masiva («a estos 12 …»). Solo hace
+   * falta cuando pluralizar la primera palabra no sirve: «Cuenta contable o grupo de activo» da
+   * «cuentas contable o grupo…». Ausente → se deduce (`pluralClasificador`).
+   */
+  etiquetaPlural?: string;
   tipo: TipoColumna;
   /** Si es obligatoria en el archivo (bloquea la confirmación si falta). */
   requerido: boolean;
@@ -244,6 +250,20 @@ export type DescriptorModulo = {
    * excluye el IVA, y la firma de lo confirmado viaja en el spec (`valor-sin-impuestos.ts`).
    */
   confirmarValorSinImpuestos?: boolean;
+  /**
+   * El clasificador trae pegada la CUENTA DEL CLIENTE (Activos fijos: «AF152805», «1524010500098»).
+   * Al leer el archivo se extrae con el prefijo que declara el patrón (`SpecModulo.prefijoClasificador`)
+   * y se guarda en la fila; el Consolidado la homologa como el balance y la PROPONE sin guardarla
+   * (`cuenta-clasificador.ts`). Sin esto, el clasificador es solo un nombre de grupo.
+   */
+  cuentaDesdeClasificador?: boolean;
+  /**
+   * La carga pregunta QUÉ TRAE EL ARCHIVO: costo y depreciación, solo costo o solo depreciación
+   * (Activos fijos). Unos ERP sacan las dos columnas juntas y otros imprimen dos reportes; leer la
+   * depreciación como si fuera costo inflaría el activo y dejaría la 1592 en cero. Es del cargue,
+   * no del formato: la respuesta va en el spec del lote y nunca en el perfil ni en el patrón.
+   */
+  confirmarContenidoActivosEnCarga?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -455,7 +475,10 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     codigo: "AFI",
     label: "Activos Fijos",
     columnas: [
-      col("grupo", "Grupo de activo", "texto", true, ["grupo", "tipo", "clase", "cuenta", "categoria"]),
+      // La etiqueta nombra primero la CUENTA: de este campo se extrae la cuenta del cliente
+      // («AF152805» → 152805) y, cuando el archivo solo trae una categoría sin cuenta, sigue
+      // siendo el grupo que se asigna a mano en el Consolidado.
+      { ...col("grupo", "Cuenta contable o grupo de activo", "texto", true, ["grupo", "tipo", "clase", "cuenta", "categoria"]), etiquetaPlural: "cuentas o grupos de activo" },
       col("placa", "Placa / código", "texto", true, ["placa", "codigo", "activo", "id", "referencia"]),
       col("descripcion", "Descripción", "texto", false, ["descripcion", "detalle", "nombre"]),
       col("fechaAdquisicion", "Fecha de adquisición", "fecha", false, ["fecha", "adquisicion", "compra", "ingreso"]),
@@ -466,16 +489,19 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "grupo",
     valor: "costo",
     noNegativos: ["costo"],
+    // El grupo del activo suele traer pegada la cuenta del cliente: se extrae y se homologa.
+    cuentaDesdeClasificador: true,
+    // El costo y la depreciación pueden venir en el mismo archivo o en dos: se pregunta al cargar.
+    confirmarContenidoActivosEnCarga: true,
     cedula: {
       subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },
     },
     crucePorTercero: { habilitado: false },
-    verificaciones: [
-      { id: "afi_leasing", texto: "Confirme si existen activos adquiridos mediante leasing financiero." },
-      { id: "afi_depreciados", texto: "Verifique el tratamiento de los activos totalmente depreciados que siguen en uso." },
-      { id: "afi_baja", texto: "Confirme si hubo bajas o ventas de activos en el período." },
-    ],
+    // Sin verificaciones manuales en el borrador (4/Oct/2026, decisión del usuario), como Ingresos
+    // y Nómina: leasing, activos totalmente depreciados y bajas se ven en la cédula y se explican
+    // con una marca de auditoría, que queda pegada a la cifra. Los cargues anteriores conservan
+    // las respuestas que dieron.
   },
 
   // ===== Cartera / Cuentas por cobrar (CAR) → 130505, 130510 y 280505 =====
@@ -560,10 +586,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
 
   // ===== Cuentas por Pagar (CXP) → 2205/2210/2335 y anticipos 1330 =====
   // Estructura análoga a Cartera, contra el pasivo (RF-CXP-01…14): comparte su motor de
-  // detalle por tercero. Lo propio de CxP sale de los 16 auxiliares reales analizados: el
-  // saldo de la columna manda sobre las edades (SAP deja sin edad los documentos por
-  // vencer), varios ERP imprimen la deuda en negativo y SIIGO pone el saldo del proveedor
-  // solo en la primera fila de su bloque.
+  // detalle por tercero. Lo propio de CxP sale de los 16 auxiliares reales analizados: varios
+  // ERP imprimen la deuda en negativo y SIIGO pone el saldo del proveedor solo en la primera
+  // fila de su bloque.
   CXP: {
     codigo: "CXP",
     label: "Cuentas por Pagar",
@@ -580,7 +605,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       col("vencimiento", "Fecha de vencimiento", "fecha", false, ["vencimiento", "vence", "f vcto", "fec vence", "fecha vence", "fecha vencimiento", "fecha de vencimiento", "fech ven", "f venc", "f vencim"]),
       col("diasVencidos", "Días vencidos", "numero", false, ["dias vencidos", "dias vcto", "dias ven", "d m", "numdias", "dias de mora", "dias"]),
       // «Saldo vencido» es, en SAP, el saldo ABIERTO del documento, no solo lo vencido.
-      col("total", "Saldo del documento o del proveedor", "moneda", false, ["saldo", "total", "valor total", "importe", "saldo pendiente", "monto", "saldo vencido", "total proveedor", "total cxp", "deuda pesos", "saldo cop"]),
+      // Mismo nombre que en Cartera (5/Oct/2026): es el saldo total de la fila, sea una factura o un
+      // proveedor; antes «Saldo del documento o del proveedor» se confundía con «Saldo del proveedor».
+      col("total", "Saldo / total", "moneda", false, ["saldo", "total", "valor total", "importe", "saldo pendiente", "monto", "saldo vencido", "total proveedor", "total cxp", "deuda pesos", "saldo cop"]),
       // Sin sinónimos: lo propone el sugeridor cuando la columna de saldo solo trae dato en la
       // primera fila de cada bloque (SIIGO). Es el control del proveedor; nunca imputa.
       col("saldoTercero", "Saldo del proveedor (1.ª fila del bloque)", "moneda", false, []),
@@ -599,9 +626,12 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
     clasificador: "cuenta",
     valor: "total",
-    // D2 (12/Sep/2026): manda el saldo de la columna. Las edades dan el valor solo cuando la
-    // columna no viene o viene en cero (SIESA Zarzal); si ambas vienen y difieren, se alerta.
-    valorDerivado: { deFamilia: "edades", prevalece: "columna" },
+    // Igual que Cartera (5/Oct/2026, decisión del usuario; antes D2 del 12/Sep: mandaba la columna):
+    // si el archivo trae saldo y rangos y no cuadran, manda la SUMA de los rangos y la diferencia se
+    // alerta. Una fila sin ningún rango (SAP deja sin edad los documentos por vencer) sigue tomando
+    // el saldo de la columna, y sin columna el valor es la suma. Al cambiarlo, ningún cargue de CxP
+    // en producción tenía filas con las dos cifras distintas.
+    valorDerivado: { deFamilia: "edades", prevalece: "familia" },
     // Se concilia por cuenta Russell de 6 dígitos (las 13 de `cuentasRussell6`), no por subgrupo.
     nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.

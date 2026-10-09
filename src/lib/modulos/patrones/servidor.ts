@@ -27,7 +27,8 @@ export type VersionPatronVm = {
   totales: string;
   /** Cartera y CxP: tipo de formato de la versión (null en los demás módulos). */
   formato: FormatoVersionVm | null;
-  muestra: { nombre: string; tamanoBytes: number | null } | null;
+  /** `recorte`: la muestra es el recorte anónimo del original del cargue (no la subió nadie). */
+  muestra: { nombre: string; tamanoBytes: number | null; recorte: boolean } | null;
   vecesUsado: number;
   ultimoUsoEn: string | null;
   clienteOrigenNombre: string | null;
@@ -125,7 +126,7 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
       totales: spec ? descripcionSubtotalesModulo(spec) : "—",
       ...(spec?.lecturaEstructurada ? { lecturaEstructurada: spec.lecturaEstructurada } : {}),
       formato: spec && descriptor.crucePorTercero.detalleTercero ? formatoDeVersion(spec) : null,
-      muestra: fila.muestraClaveObjeto ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes } : null,
+      muestra: fila.muestraClaveObjeto ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes, recorte: fila.muestraOrigen === "recorte_original" } : null,
       vecesUsado: fila.vecesUsado,
       ultimoUsoEn: fila.ultimoUsoEn?.toISOString() ?? null,
       clienteOrigenNombre: alcanceOrigen ? fila.clienteOrigenNombre : null,

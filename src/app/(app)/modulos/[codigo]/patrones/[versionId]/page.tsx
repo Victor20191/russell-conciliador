@@ -44,6 +44,7 @@ export default async function EditarPatronPage({ params }: { params: Promise<{ c
           clasificadorRol={descriptor.clasificador}
         rolValor={descriptor.valor}
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
+        cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
           conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
           erps={[]}
           edicion={{

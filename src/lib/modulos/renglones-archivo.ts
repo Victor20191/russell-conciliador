@@ -59,6 +59,8 @@ export function razonNoSuma(motivo: string | null | undefined): string | null {
   if (motivo === "seccion_cuenta") return "cuenta del archivo";
   if (motivo === "sin_identificador") return "sin identificación";
   if (motivo.startsWith("subtotal_tercero")) return "encabezado del tercero";
+  // Nómina por empleado (HGI): la fila del empleado con el total de sus conceptos.
+  if (motivo.startsWith("empleado:")) return "total del empleado";
   if (motivo.startsWith("gran_total")) return "total del archivo";
   if (motivo.startsWith("subtotal")) return "subtotal del archivo";
   if (motivo.startsWith("cola_control")) return "cuadro de cierre del archivo";

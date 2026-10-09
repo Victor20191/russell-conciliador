@@ -22,7 +22,7 @@ export type NotificationDTO = {
 const CRUMB_LABELS: Record<string, string> = {
   dashboard: "Inicio",
   balance: "Balance de comprobación",
-  mapeo: "Mapeo plan estándar",
+  mapeo: "Plan Estándar Russell",
   conciliacion: "Conciliación",
   nueva: "Nueva",
   "en-proceso": "En proceso",

@@ -53,7 +53,7 @@ export default async function MapeoPage() {
   }));
   return (
     <div>
-      <PageHeader title="Mapeo plan estándar" subtitle="Plan de cuentas estándar de Russell Bedford y su módulo de conciliación. La homologación del PUC de cada cliente se administra en «Mapeo cuentas cliente»." />
+      <PageHeader title="Plan Estándar Russell" subtitle="Plan de cuentas estándar de Russell Bedford y su módulo de conciliación. La homologación del PUC de cada cliente se administra en «Mapeo cuentas cliente»." />
       <MapeoClient std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
     </div>
   );

@@ -11,6 +11,7 @@ import { tieneValorFormula, type TerminoFormula } from "../extraccion/valor-form
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
 import { esContenidoArchivo, type ContenidoArchivo } from "../ingresos/contenido-archivo";
+import { esContenidoActivos, type ContenidoActivos } from "../activos/contenido-archivo";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 import { trasladarLecturaEstructurada } from "../extraccion/lectura-estructurada";
 
@@ -348,6 +349,30 @@ export function aplicarContenidoDeCarga(
     return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
   return { ok: true, spec: { ...sinContenido, contenidoArchivo: respuesta }, contenido: respuesta };
+}
+
+export type ContenidoActivosDeCarga =
+  | { ok: true; spec: SpecModulo; contenido: ContenidoActivos | null }
+  | { ok: false; message: string };
+
+/**
+ * Aplica al spec de ESTE archivo la respuesta a «¿Qué trae este archivo?» de Activos fijos
+ * (`confirmarContenidoActivosEnCarga`): costo y depreciación, solo costo o solo depreciación. Se
+ * pregunta en TODA carga —con patrón y con archivo manual—, así que la respuesta del formulario
+ * manda siempre sobre lo que traiga el spec. Sin la bandera el campo se retira.
+ */
+export function aplicarContenidoActivosDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  respuesta: unknown,
+): ContenidoActivosDeCarga {
+  const { contenidoActivos: _previo, ...sinContenido } = spec;
+  void _previo;
+  if (!descriptor.confirmarContenidoActivosEnCarga) return { ok: true, spec: sinContenido, contenido: null };
+  if (!esContenidoActivos(respuesta)) {
+    return { ok: false, message: "Indica qué trae este archivo: costo y depreciación, solo el costo o solo la depreciación." };
+  }
+  return { ok: true, spec: { ...sinContenido, contenidoActivos: respuesta }, contenido: respuesta };
 }
 
 /** Respuesta a «¿El archivo trae el valor total?» al cargar con patrón (`confirmarTotalEnCarga`). */

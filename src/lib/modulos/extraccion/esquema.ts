@@ -4,6 +4,7 @@
 // Es lo que el wizard edita, el perfil guarda por huella, y el transform aplica.
 import * as z from "zod";
 import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
+import { CONTENIDOS_ACTIVOS } from "../activos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./lectura-estructurada";
 
 /**
@@ -131,6 +132,14 @@ export const SpecModuloSchema = z.object({
   // cargue, no del formato: nunca se guarda en el perfil del cliente.
   periodoDesde: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   periodoHasta: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  // ===== Nómina: CÓDIGOS DE DEDUCCIÓN del formato (6/Oct/2026) =====
+  // Para un archivo con un solo «Valor» en positivo y sin columna de tipo (NOMINAI: 500–799): las
+  // filas con esos códigos se restan (`nomina/codigos-deduccion.ts`). Es del FORMATO: viaja con el
+  // patrón y con el perfil del cliente.
+  codigosDeduccion: z.array(z.object({
+    desde: z.number().int().min(0),
+    hasta: z.number().int().min(0),
+  })).max(20).optional(),
 
   // ===== El VALOR como FÓRMULA de varias columnas (28/Sep/2026) =====
   // SAP Business One no trae el ingreso neto en una columna: es «Total sin Descuento» + los tres
@@ -145,6 +154,17 @@ export const SpecModuloSchema = z.object({
   // la columna del valor, o los de la fórmula unidos con « + » (`valor-sin-impuestos.ts`). Se
   // guarda la firma y no un booleano para que una confirmación no valide en silencio otro mapeo.
   valorSinImpuestosConfirmado: z.string().max(400).optional(),
+  // ===== La cuenta del cliente DENTRO del código del clasificador (4/Oct/2026) =====
+  // Activos fijos: los ERP pegan la cuenta al grupo del activo («AF152805», «01-1528-05»). Esto es
+  // cuántos caracteres sobran al inicio antes de la cuenta; el administrador lo declara en el
+  // patrón del aplicativo porque es una marca del FORMATO, así que viaja con el patrón y con el
+  // perfil del cliente. Sin él se lee la cuenta desde el primer carácter (`cuenta-clasificador.ts`).
+  prefijoClasificador: z.number().int().min(1).max(20).optional(),
+  // Qué trae ESTE archivo (Activos fijos): costo y depreciación, solo costo o solo depreciación.
+  // Lo declara el analista en cada carga (`confirmarContenidoActivosEnCarga`); es del cargue, no del
+  // formato, así que nunca se guarda en el perfil ni en el patrón. Con «depreciacion» el valor de
+  // cada fila va a la columna de depreciación y no cuenta como costo (`activos/contenido-archivo.ts`).
+  contenidoActivos: z.enum(CONTENIDOS_ACTIVOS).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

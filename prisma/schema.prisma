@@ -741,6 +741,13 @@ model BalancePruebaEncabezado {
   filasDescuadre           Int?      @map("filas_descuadre")
   congeladoPor             String?   @map("congelado_por")
   congeladoEn              DateTime? @map("congelado_en") @db.Timestamptz(3)
+  // Descongelado para corregirlo (4/Oct/2026): quién, cuándo y por qué. Alimentan el aviso de la
+  // pantalla mientras la versión sigue sin congelar; congelarla de nuevo los limpia. La historia
+  // completa queda en la auditoría («DESCONGELÓ BALANCE»).
+  descongeladoPor          String?   @map("descongelado_por")
+  descongeladoPorId        Int?      @map("descongelado_por_id") // FK suave a usuarios
+  descongeladoEn           DateTime? @map("descongelado_en") @db.Timestamptz(3)
+  motivoDescongelado       String?   @map("justificacion_descongelado")
   ultimaCarga              DateTime? @map("ultima_carga") @db.Timestamptz(3)
   creadoEn                 DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
@@ -1630,10 +1637,12 @@ model VersionPatronArchivoModulo {
   muestraNombre       String?   @map("muestra_nombre_archivo")
   muestraTamanoBytes  Int?      @map("muestra_tamano_bytes")
   muestraSha256       String?   @map("muestra_sha256")
+  /// `subida` (null en las anteriores) | `recorte_original`: recorte anónimo y verificado del original.
+  muestraOrigen       String?   @map("muestra_origen")
   /// FK suave: solo las versiones migradas del perfil de un cliente.
   clienteOrigenId     Int?      @map("cliente_origen_id")
   clienteOrigenNombre String?   @map("cliente_origen_nombre")
-  /// Referencia privada al original confirmado. Nunca se publica como muestra compartida.
+  /// Referencia privada al original confirmado. Nunca se publica entero: a lo sumo su recorte anónimo.
   archivoOrigenId     Int?      @map("archivo_origen_id")
   versionBaseId       Int?      @map("version_base_id")
   nota                String?   @map("nota") @db.Text
@@ -1894,6 +1903,21 @@ model CuentaConciliacionModulo {
 // sembró lo que cada módulo conciliaba por su regla al 29/Sep/2026. Un cambio rige para todos los
 // cargues salvo los períodos conciliados en firme, que conservan la copia guardada en
 // `conciliacion_modulo_cierre.subgrupos_conciliacion`.
+/// Parejas activo → depreciación de la cédula de Activos fijos (15## ↔ 1592##). Se administran en
+/// /config/prevalidador/afi; sin filas rigen las de fábrica del descriptor.
+model ParDepreciacionModulo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  moduloCodigo   String   @map("modulo_codigo")
+  subgrupo       String   @map("subgrupo")
+  cuenta         String   @map("cuenta")
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([moduloCodigo, subgrupo])
+  @@map("pares_depreciacion_modulo")
+}
+
 model SubgrupoConciliacionModulo {
   id             Int      @id @default(autoincrement()) @map("id")
   moduloCodigo   String   @map("modulo_codigo")
@@ -2510,6 +2534,10 @@ model ConciliacionModuloCierre {
   /// fijos). Mientras el cierre esté en firme el cruce usa esta copia. Null en los cierres anteriores:
   /// usan los subgrupos que quedaron en firme en ese cierre (`cuentas_russell`).
   subgruposConciliacion   Json?                         @map("subgrupos_conciliacion")
+  /// Parejas activo → depreciación con que se presentó la cédula al cerrar (`[{ subgrupo, cuenta6 }]`;
+  /// Activos fijos). Mientras el cierre esté en firme la cédula se arma con esta copia, así que
+  /// cambiar las parejas no reordena un período cerrado. Null en los cierres anteriores: de fábrica.
+  paresDepreciacion       Json?                         @map("pares_depreciacion")
   estado                  String                        @default("firme") @map("estado") // firme | desbloqueado
   cerradoPorId            Int?                          @map("cerrado_por_id")
   cerradoPor              String                        @map("cerrado_por")

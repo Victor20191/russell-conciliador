@@ -14,6 +14,7 @@ import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
 import { esContenidoArchivo } from "./ingresos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./extraccion/lectura-estructurada";
+import { sanearRangosCodigos, textoRangosCodigos } from "./nomina/codigos-deduccion";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -166,6 +167,12 @@ function normalizarSpecModuloInterno(
   if (descriptor.confirmarContenidoEnCarga && conservarCoordenadaArchivo && esContenidoArchivo(spec.contenidoArchivo)) {
     normalizado.contenidoArchivo = spec.contenidoArchivo;
   }
+  // Nómina: qué códigos son deducciones (NOMINAI 500–799). Es del FORMATO: vale en el patrón y en
+  // el perfil del cliente.
+  if (descriptor.nomina) {
+    const rangos = sanearRangosCodigos(spec.codigosDeduccion);
+    if (rangos) normalizado.codigosDeduccion = rangos;
+  }
   // El rango de meses del cargue de nómina es de ESTE archivo (el perfil es del formato).
   if (descriptor.nomina?.periodoPorFila && conservarCoordenadaArchivo) {
     if (spec.periodoDesde && /^\d{4}-\d{2}$/.test(spec.periodoDesde)) normalizado.periodoDesde = spec.periodoDesde;
@@ -205,6 +212,14 @@ function normalizarSpecModuloInterno(
   if (descriptor.confirmarValorSinImpuestos) {
     const firma = spec.valorSinImpuestosConfirmado?.trim();
     if (firma) normalizado.valorSinImpuestosConfirmado = firma.slice(0, 400);
+  }
+  // Cuántos caracteres sobran antes de la cuenta dentro del clasificador («AF152805» → 2): es del
+  // FORMATO, así que vale en el patrón del aplicativo y en el perfil del cliente.
+  if (descriptor.cuentaDesdeClasificador) {
+    const prefijo = spec.prefijoClasificador;
+    if (Number.isInteger(prefijo) && (prefijo as number) >= 1 && (prefijo as number) <= 20) {
+      normalizado.prefijoClasificador = prefijo;
+    }
   }
   return normalizado;
 }
@@ -252,12 +267,25 @@ export function rolRequeridoExento(
   return rol === descriptor.valor && (valorAlternoMapeado(descriptor, spec) || tieneValorFormula(spec));
 }
 
+/**
+ * ¿El módulo admite «un único clasificador para todo el archivo» (modo global)? Nómina no: su
+ * clasificador es el código del concepto (o el concepto), y un solo grupo juntaría sueldos, horas
+ * extras y deducciones en un renglón del Consolidado. Es la regla de la pantalla y del servidor.
+ */
+export function admiteClasificadorUnico(descriptor: Pick<DescriptorModulo, "nomina">): boolean {
+  return !descriptor.nomina;
+}
+
+export const MENSAJE_SIN_CLASIFICADOR_UNICO =
+  "En Nómina el clasificador es el código del concepto (o el concepto): no puede ser único para todo el archivo.";
+
 export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
   if (spec.lecturaEstructurada) {
     if (descriptor.codigo !== "INV") return "La lectura de registros mezclados solo está habilitada para inventarios.";
     const parseado = LecturaEstructuradaSchema.safeParse(spec.lecturaEstructurada);
     if (!parseado.success) return `Revisa las reglas de lectura: ${parseado.error.issues[0]?.message ?? "estructura no válida"}`;
   }
+  if (modoClasificadorDe(spec) === "global" && !admiteClasificadorUnico(descriptor)) return MENSAJE_SIN_CLASIFICADOR_UNICO;
   if (spec.hoja.trim().length === 0) return "Indica el nombre exacto de la hoja del archivo.";
   if (spec.hoja.trim().length > 120) return "El nombre de la hoja es demasiado largo (máx. 120 caracteres).";
   if (!Number.isInteger(spec.filaEncabezado) || spec.filaEncabezado < 1) {
@@ -369,6 +397,7 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
     const rango = columnas.length === 1 ? primera : `${primera}–${ultima}`;
     partes.push(`${familia.etiqueta.toLowerCase()} ${rango} (${columnas.length})`);
   }
+  if (descriptor.nomina && spec.codigosDeduccion?.length) partes.push(`deducciones: códigos ${textoRangosCodigos(spec.codigosDeduccion)}`);
   return partes.join(" · ");
 }
 

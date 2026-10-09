@@ -725,7 +725,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
             <p className="text-[13px] font-semibold text-ink-800">¿A cuáles cuentas deseas aplicar este cambio?</p>
             <p className="mt-1 text-[12px] text-ink-500">Elige el alcance antes de guardar. La homologación no se ejecutará hasta que confirmes una opción.</p>
             <p className="mt-2 rounded-md bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-700">
-              Con cualquiera de las dos opciones el cambio queda <span className="font-semibold">memorizado para este cliente</span> y se aplica solo en las próximas cargas de balance (los balances ya cargados no se tocan). Puedes revisarlo o deshacerlo en <span className="font-semibold">Configuración › Mapeo plan estándar</span>.
+              Con cualquiera de las dos opciones el cambio queda <span className="font-semibold">memorizado para este cliente</span> y se aplica solo en las próximas cargas de balance (los balances ya cargados no se tocan). Puedes revisarlo o deshacerlo en <span className="font-semibold">Configuración › Mapeo cuentas cliente</span>.
             </p>
           </div>
           <SelectorAlcance nodo={nodo} cuenta6={cuenta6} alcance={alcance} setAlcance={setAlcance} pending={pending} accionLabel="Guardar homologación" />

@@ -260,3 +260,30 @@ export async function nombresConceptoDelCargue(encabezadoId: number, codigos: re
   );
   return new Map(rows.filter((r) => r.concepto).map((r) => [r.clasificador, r.concepto as string]));
 }
+
+/**
+ * ACTIVOS FIJOS: qué lados trae un cargue ya promovido —costo, depreciación o los dos—, resuelto
+ * en la base con dos `bool_or` para no bajar el detalle. Lo usa la oferta de anexar al cargar el
+ * segundo archivo: si el vigente solo tiene el costo, el archivo de la depreciación lo completa.
+ *
+ * Una fila de un archivo de solo depreciación lleva la marca `_soloDepreciacion` y su valor NO es
+ * costo; las demás aportan costo por su `valor` y depreciación por su columna, si la traen.
+ */
+export async function ladosDelCargueActivos(
+  encabezadoId: number,
+  rolDepreciacion: string,
+): Promise<{ conCosto: boolean; conDepreciacion: boolean }> {
+  const { rows } = await poolLectura().query<{ con_costo: boolean | null; con_depreciacion: boolean | null }>(
+    `SELECT
+       bool_or(datos->>'_soloDepreciacion' IS NULL AND valor <> 0) AS con_costo,
+       bool_or(
+         (datos->>'_soloDepreciacion' IS NOT NULL AND valor <> 0)
+         OR COALESCE(NULLIF(btrim(datos->>$2), '')::numeric, 0) <> 0
+       ) AS con_depreciacion
+     FROM modulo_dato_detalle
+     WHERE encabezado_id = $1 AND imputable IS NOT FALSE`,
+    [encabezadoId, rolDepreciacion],
+  );
+  const fila = rows[0];
+  return { conCosto: fila?.con_costo === true, conDepreciacion: fila?.con_depreciacion === true };
+}

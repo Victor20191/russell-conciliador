@@ -28,6 +28,9 @@ import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
+import { detectarFilasDeEmpleado, type FilaDeEmpleado } from "../nomina/filas-empleado";
+import { cuentaDelClasificador } from "../cuenta-clasificador";
+import { MARCA_SOLO_DEPRECIACION } from "../activos/contenido-archivo";
 import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 import { letraColumnaModulo } from "../perfil-modulo";
 import { claveTerminoFormula, evaluarValorFormula, tieneValorFormula } from "./valor-formula";
@@ -465,6 +468,20 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese mes.
   const corteCargue: Mes | null = nomina?.periodoPorFila ? spec.periodoHasta ?? spec.periodoDesde ?? null : null;
   const anioCargue = corteCargue ? parsearAnio(corteCargue.slice(0, 4)) : null;
+  // Reporte POR EMPLEADO (HGI «LIQUIDACION»): la fila del empleado trae la cédula en la columna del
+  // código, el nombre en la del concepto y su total en la del valor (= Σ de sus conceptos). No es un
+  // concepto: da la cédula y el nombre a las filas que la siguen y no suma (`nomina/filas-empleado.ts`).
+  const colCodigoNomina = nomina ? (spec.columnas.codigo ?? 0) : 0;
+  const colConceptoNomina = nomina ? (spec.columnas.concepto ?? 0) : 0;
+  const colValorNomina = nomina && !tieneValorFormula(spec) ? (spec.columnas[descriptor.valor] ?? 0) : 0;
+  const filasDeEmpleado: Map<number, FilaDeEmpleado> = colCodigoNomina >= 1 && colConceptoNomina >= 1 && colValorNomina >= 1
+    ? detectarFilasDeEmpleado(hoja.filas.slice(inicio).map((f) => ({
+        codigo: aTexto(celda(f ?? [], colCodigoNomina)),
+        nombre: aTexto(celda(f ?? [], colConceptoNomina)),
+        valor: aNumero(celda(f ?? [], colValorNomina)),
+      })))
+    : new Map();
+  let empleadoVigente: { cedula: string; nombre: string } | null = null;
 
   // Saldo a favor impreso como DESGLOSE («Anticipos» de CEMCO SAFIX): el mismo crédito ya está
   // en otro balde y la columna de total no lo cuenta dos veces. Se decide una vez por archivo,
@@ -642,6 +659,35 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       } else {
         datos[rolIdentificador] = null;
         if (rolNombre && (spec.columnas[rolNombre] ?? 0) < 1 && aTexto(datos.documento) != null) datos[rolNombre] = ultimoNombreTercero;
+      }
+    }
+
+    // 1.45) NÓMINA · fila de EMPLEADO (reporte por empleado): fija la cédula y el nombre de los
+    //       conceptos que la siguen y queda fuera del total; su cifra se conserva como control.
+    const filaDeEmpleado = filasDeEmpleado.get(r - inicio);
+    if (filaDeEmpleado) {
+      empleadoVigente = { cedula: filaDeEmpleado.cedula, nombre: filaDeEmpleado.nombre };
+      datos.cedula = filaDeEmpleado.cedula;
+      datos.empleado = filaDeEmpleado.nombre;
+      datos.codigo = null;
+      datos.concepto = null;
+      if (!filaDeEmpleado.cuadra) {
+        const pesos = (v: number) => v.toLocaleString("es-CO", { maximumFractionDigits: 2 });
+        excepciones.push({
+          filaNum,
+          mensaje: `El total del empleado ${filaDeEmpleado.nombre} (${filaDeEmpleado.cedula}) es ${pesos(filaDeEmpleado.total)} y sus conceptos suman ${pesos(filaDeEmpleado.sumaConceptos)}.`,
+        });
+      }
+      filasExcluidas++;
+      filas.push({ filaNum, clasificador: null, valor: 0, datos, tipoFila: "agrupadora", motivo: "empleado:cabecera" });
+      crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: null, marcaManual: false, marcaManualExacta: false });
+      continue;
+    }
+    if (empleadoVigente) {
+      const esRotuloDeTotal = [datos.codigo, datos.concepto].some((v) => { const t = aTexto(v); return t != null && esTotal(t); });
+      if (!esRotuloDeTotal) {
+        if (aTexto(datos.cedula) == null) datos.cedula = empleadoVigente.cedula;
+        if (aTexto(datos.empleado) == null) datos.empleado = empleadoVigente.nombre;
       }
     }
 
@@ -841,6 +887,17 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         const m = /^([A-Za-z]?\d{1,6})\s*-\s*(.+)$/.exec(conceptoCrudo);
         if (m) { datos.codigo = m[1]; datos.concepto = m[2].trim(); clasificador = m[1]; }
       }
+      // …y lo mismo cuando el CÓDIGO está mapeado a esa celda (NOMINAI v2 de KP: código y concepto en
+      // la columna C, 6/Oct/2026). Sin partirla la llave era «541 - DEDUC. FESERT»: no casaba con el
+      // catálogo de conceptos (llavea por «541») ni con los códigos de deducción del formato.
+      const codigoCelda = aTexto(datos.codigo);
+      const partido = codigoCelda ? /^([A-Za-z]?\d{1,6})\s*-\s*(.+)$/.exec(codigoCelda) : null;
+      if (partido) {
+        datos.codigo = partido[1];
+        // El nombre de su propia columna manda; si es la misma celda, el que traía pegado.
+        if (conceptoCrudo == null || norm(conceptoCrudo) === norm(codigoCelda!)) datos.concepto = partido[2].trim();
+        if (clasificador === codigoCelda) clasificador = partido[1];
+      }
       // El código de concepto se guarda CANÓNICO (« 01 », «001» y «1» son el mismo concepto):
       // así llavea igual en la memoria de homologación, en el catálogo del ERP y en el cruce.
       const codigoCrudo = aTexto(datos.codigo);
@@ -853,7 +910,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const empleadoCrudo = aTexto(datos.empleado);
       if (empleadoCrudo) datos.empleado = nombreSinCedula(empleadoCrudo.replace(/^\s*\d{2,12}\s*-?\s*/, "")) ?? empleadoCrudo;
       if (nomina.valorPorNaturaleza) {
-        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion);
+        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion, spec.codigosDeduccion);
         valor = ev.valor;
         if (ev.naturaleza) datos.naturaleza = ev.naturaleza;
         if (ev.excluir) exclusionNomina = ev.excluir;
@@ -969,6 +1026,28 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // Saldo del proveedor impreso en la 1.ª fila de su bloque (SIIGO): control, nunca imputa.
     const saldoBloqueLeido = aNumero(datos.saldoTercero);
     const saldoDelBloque = saldoBloqueLeido != null && monedaArchivo && trmCierre ? aPesos(saldoBloqueLeido, trmCierre) : saldoBloqueLeido;
+
+    // La cuenta del CLIENTE que viene pegada al clasificador (Activos fijos: «AF152805»). Se
+    // guarda en la fila porque el cargue promovido no conserva el spec, y el prefijo con que se
+    // leyó es del formato de ESTE archivo. Homologarla es cosa del Consolidado, no de la lectura.
+    if (descriptor.cuentaDesdeClasificador) {
+      const cuentaCliente = cuentaDelClasificador(clasificador, spec.prefijoClasificador);
+      if (cuentaCliente) datos._cuentaCliente = cuentaCliente;
+    }
+
+    // QUÉ TRAE EL ARCHIVO (Activos fijos). Con «solo depreciación» el valor de la fila NO es costo:
+    // se copia a la columna de depreciación y la fila se marca para que la cédula no la sume al
+    // activo. El valor se conserva para que el control del total del archivo siga cuadrando.
+    // Con «solo costo» se descarta cualquier depreciación leída, para no inventar la mitad que falta.
+    const rolDepreciacion = descriptor.cedula?.valorRelacionado?.rol;
+    if (descriptor.confirmarContenidoActivosEnCarga && rolDepreciacion) {
+      if (spec.contenidoActivos === "depreciacion") {
+        datos[rolDepreciacion] = valor;
+        datos[MARCA_SOLO_DEPRECIACION] = 1;
+      } else if (spec.contenidoActivos === "costo") {
+        datos[rolDepreciacion] = null;
+      }
+    }
 
     filas.push({
       filaNum,

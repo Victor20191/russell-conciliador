@@ -204,6 +204,7 @@ export function AsistenciaInventarioPanel({
                   clasificadorRol="tipo"
                   rolValor="valorTotal"
                   confirmarValorSinImpuestos={false}
+                  cuentaEnClasificador={false}
                   conNivelCartera={false}
                   modo="carga"
                   onCambiarHoja={(nombre) => { setHoja(nombre); setSpecEditado(false); setSpec((previa) => previa ? { ...previa, hoja: nombre } : previa); setCambioPendiente(true); }}

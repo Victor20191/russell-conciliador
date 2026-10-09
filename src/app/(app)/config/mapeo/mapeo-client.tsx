@@ -41,7 +41,7 @@ export default function MapeoClient({
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Planes de cuentas">
         <TabBtn on={tab === "puc"} onClick={() => setTab("puc")} label="PUC Estándar Russell" count={puc.length} />
-        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan Estándar" count={std.length} />
+        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Detalle Subcuentas N6" count={std.length} />
         <a href="/config/mapeo/exportar" download title="Descargar PUC completo (niveles 1, 2, 4 y 6) y detalle de subcuentas" className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
           <Icon name="download" size={13} /> Descargar PUC completo
         </a>

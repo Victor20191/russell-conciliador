@@ -9,8 +9,8 @@ import { Icon } from "@/components/icons";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones/servidor";
-import { ETIQUETA_ESTADO_PATRON, motivoNoBorrable } from "@/lib/modulos/patrones/version";
-import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
+import { ETIQUETA_ESTADO_PATRON, FILAS_DATOS_MUESTRA, motivoNoBorrable } from "@/lib/modulos/patrones/version";
+import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, generarMuestraRecortadaVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
 import { Modal } from "@/components/modal";
 import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
@@ -52,8 +52,8 @@ export default function PatronesModuloClient({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="min-w-0 max-w-3xl text-[12px] leading-relaxed text-ink-500">
           {moduloCodigo === "INV"
-            ? "Los formatos aprendidos al confirmar un inventario se reutilizan para ese cliente. Revisa la evidencia y aprueba una muestra compartible para usarlos en todo el aplicativo."
-            : `Cada versión define cómo se lee el archivo de ${moduloLabel.toLowerCase()}. Al aprobarla se ofrece a todos los clientes del aplicativo.`}
+            ? "Los formatos aprendidos al confirmar un inventario se reutilizan para ese cliente. Revisa la evidencia y su muestra, y apruébalos para usarlos en todo el aplicativo."
+            : `Cada versión define cómo se lee el archivo de ${moduloLabel.toLowerCase()}. Al aprobarla se ofrece a todos los clientes del aplicativo. Las que se guardan al confirmar un cargue sin patrón sirven solo a su cliente hasta que se aprueben.`}
         </p>
         {puedeAdministrar && (
           <Link href={`${ruta}/nueva`} className="whitespace-nowrap rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
@@ -74,7 +74,7 @@ export default function PatronesModuloClient({
           <EmptyState
             icon="doc"
             title={patrones.length ? `Sin patrones ${bandeja.toLowerCase()}` : "Todavía no hay patrones para este módulo"}
-            description={moduloCodigo === "INV" ? "Carga un inventario: el formato se aprende cuando confirmas su borrador." : "Puedes crear un patrón a partir de una muestra del aplicativo."}
+            description={moduloCodigo === "INV" ? "Carga un inventario: el formato se aprende cuando confirmas su borrador." : "Crea un patrón a partir de una muestra del aplicativo, o guárdalo al confirmar un cargue que no tenía patrón."}
           />
         </Card>
       ) : (
@@ -139,7 +139,16 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
                       {version.lecturaEstructurada && <div className="mt-3 rounded-md border border-ink-200 bg-white p-3"><ResumenLecturaEstructurada reglas={version.lecturaEstructurada} /></div>}
                       {version.evidencia && <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2"><b>Carga confirmada:</b> {version.evidencia.nombreArchivo} · {fmtDateTime(version.evidencia.confirmadoEn)}. El original permanece privado para el cliente.</div>}
                       {version.versionBase != null && <div className="mt-2"><b>Comparada con v{version.versionBase}:</b> {version.diferencias.length ? version.diferencias.join(" · ") : "Sin cambios en las reglas de lectura."}</div>}
-                      {version.estado === "validada_cliente" && <div className="mt-1 text-blue-800">Ya se utiliza para este cliente. Para compartir el formato, sube una muestra sin información privada y apruébala.</div>}
+                      {version.estado === "validada_cliente" && (
+                        <div className="mt-1 text-blue-800">
+                          Ya se utiliza para este cliente.{" "}
+                          {version.muestra?.recorte
+                            ? `Su muestra es una copia del original con su formato (las primeras ${FILAS_DATOS_MUESTRA} filas de datos; nombres y NIT/cédulas de personas ficticios): descárgala, revísala y apruébala para todo el aplicativo, o cámbiala por otra muestra.`
+                            : version.muestra
+                              ? "Revisa su muestra y apruébala para compartir el formato con todo el aplicativo."
+                              : "Para compartir el formato genera la muestra desde el original o sube una, y apruébala."}
+                        </div>
+                      )}
                       {version.nota && <div className="mt-1 whitespace-pre-line"><b>Nota:</b> {version.nota}</div>}
                       {version.aprobadoPor && <div className="mt-1">Aprobada por {version.aprobadoPor} el {fmtDateTime(version.aprobadoEn)}.</div>}
                       {version.ultimoUsoEn && <div className="mt-1">Último uso: {fmtDateTime(version.ultimoUsoEn)}.</div>}
@@ -314,6 +323,15 @@ function FilaVersion({
     });
   };
 
+  const generarMuestra = () => {
+    startAccion(async () => {
+      const r = await generarMuestraRecortadaVersion(version.id);
+      if (r.ok) notifySuccess(r.message ?? "Muestra generada.");
+      else notifyError(r.message ?? "No se pudo generar la muestra.");
+      router.refresh();
+    });
+  };
+
   const pendiente = version.estado === "pendiente";
   const local = version.estado === "validada_cliente";
   const reactivarLocal = version.estado === "inactiva" && version.evidencia != null && version.aprobadoEn == null;
@@ -356,6 +374,11 @@ function FilaVersion({
               {version.muestra.nombre.length > 28 ? `${version.muestra.nombre.slice(0, 27)}…` : version.muestra.nombre}
             </a>
             <span className="ml-1 text-[10.5px] text-ink-400">{tamano(version.muestra.tamanoBytes)}</span>
+            {version.muestra.recorte && (
+              <span className="mt-1 block" title={`Copia del original del cargue con su formato: las primeras ${FILAS_DATOS_MUESTRA} filas de datos, con nombres y NIT/cédulas de personas ficticios; verificada contra el patrón.`}>
+                <Chip label="Copia del original" tone="blue" />
+              </span>
+            )}
           </span>
         ) : (
           <Chip label="Sin muestra" tone="warn" />
@@ -389,6 +412,11 @@ function FilaVersion({
               <Link href={`${ruta}/${version.id}`} className={`${botonAccion} border-ink-200 text-ink-700 hover:bg-ink-50`}>
                 <Icon name="edit" size={11} />Editar
               </Link>
+            )}
+            {version.evidencia && ((local && !version.muestra) || version.muestra?.recorte) && (
+              <button type="button" disabled={ocupado} onClick={generarMuestra} title="Copia del original del cargue con su formato: las primeras filas de datos, con nombres y NIT/cédulas de personas ficticios" className={`${botonAccion} border-blue-300 text-blue-800 hover:bg-blue-50`}>
+                <Icon name="doc" size={11} />{version.muestra ? "Regenerar muestra" : "Generar muestra"}
+              </button>
             )}
             {(pendiente || local) && (
               <>

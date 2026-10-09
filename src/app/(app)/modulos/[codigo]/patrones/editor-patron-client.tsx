@@ -26,6 +26,7 @@ import {
 import { modeloVacio, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
 import { ConstructorLectura, type ConsultaVentana } from "../constructor-lectura/constructor-lectura";
 import { AsistenciaMuestraPanel } from "./asistencia-muestra-panel";
+import { motivoNoGuardarPatron } from "./motivo-no-guardar";
 import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
 import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
@@ -43,6 +44,7 @@ export default function EditorPatronClient({
   clasificadorRol,
   rolValor,
   confirmarValorSinImpuestos,
+  cuentaEnClasificador,
   conNivelCartera,
   erps,
   erpInicial,
@@ -56,6 +58,8 @@ export default function EditorPatronClient({
   clasificadorRol: string;
   rolValor: string;
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
+  cuentaEnClasificador: boolean;
   conNivelCartera: boolean;
   erps: { id: number; nombre: string }[];
   erpInicial?: number | null;
@@ -94,6 +98,8 @@ export default function EditorPatronClient({
   // Tarjeta de aplicativo + muestra: ancla del botón flotante «Ir al aplicativo y muestra».
   const cabeceraRef = useRef<HTMLDivElement>(null);
   const [cabeceraVisible, setCabeceraVisible] = useState(true);
+  // Recuadro de la lectura de la muestra (Inventarios nuevo): destino de «Ir a la lectura» del aviso de guardar.
+  const lecturaRef = useRef<HTMLDivElement>(null);
   const reiniciarEjemplo = () => { setModeloEjemplo(null); setModeloEditado(false); setConstructorAbierto(false); };
 
   const aplicar = (r: AnalisisPatron, esMuestra: boolean) => {
@@ -312,6 +318,22 @@ export default function EditorPatronClient({
   const erpNombre = edicion?.erpNombre ?? erps.find((e) => e.id === erpId)?.nombre ?? "";
   const puedeGuardar = spec != null && muestraLista && (edicion != null || erpId != null) && !analizando && !guardando
     && (!esNuevoInventario || (!asistenciaPendiente && asistencia?.lectura?.listoParaBorrador === true));
+  const lectura = asistencia?.lectura;
+  const motivoNoGuardar = puedeGuardar ? null : motivoNoGuardarPatron({
+    guardando,
+    analizando,
+    esEdicion: edicion != null,
+    erpElegido: erpId != null,
+    hayMuestra,
+    muestraLista,
+    haySpec: spec != null,
+    esNuevoInventario,
+    asistenciaPendiente,
+    falloLectura: !!errorAsistencia || lectura?.errorProveedorIA === true,
+    lectura: lectura ? { listoParaBorrador: lectura.listoParaBorrador, preguntas: lectura.preguntas.length, errores: lectura.errores.length } : null,
+  });
+  const irA = (destino: "aplicativo" | "lectura") =>
+    (destino === "lectura" ? lecturaRef : cabeceraRef).current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
     <div className="flex flex-col gap-4">
@@ -374,6 +396,7 @@ export default function EditorPatronClient({
       </div>
 
       {esNuevoInventario && hayMuestra && (
+        <div ref={lecturaRef} className="scroll-mt-2">
         <Card className="p-4">
           <AsistenciaMuestraPanel
             key={pruebaId}
@@ -394,6 +417,7 @@ export default function EditorPatronClient({
             onArmarEjemplo={asistencia?.lectura && !constructorAbierto ? () => setConstructorAbierto(true) : undefined}
           />
         </Card>
+        </div>
       )}
 
       {esNuevoInventario && hayMuestra && asistencia?.lectura && constructorAbierto && (
@@ -426,6 +450,7 @@ export default function EditorPatronClient({
             clasificadorRol={clasificadorRol}
             rolValor={rolValor}
             confirmarValorSinImpuestos={confirmarValorSinImpuestos}
+            cuentaEnClasificador={cuentaEnClasificador}
             conNivelCartera={conNivelCartera}
             modo="patron"
             onCambiarHoja={cambiarHoja}
@@ -462,13 +487,23 @@ export default function EditorPatronClient({
         )}
       </div>
 
+      {motivoNoGuardar && (
+        <p role="status" className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right text-[12px] text-warn-700">
+          <span>No se puede guardar todavía: {motivoNoGuardar.texto}</span>
+          {motivoNoGuardar.destino && (
+            <button type="button" onClick={() => irA(motivoNoGuardar.destino!)} className="font-semibold underline underline-offset-2 hover:text-warn-800">
+              {motivoNoGuardar.destino === "lectura" ? "Ir a la lectura" : "Ir al aplicativo y muestra"}
+            </button>
+          )}
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Link href={ruta} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Volver a patrones</Link>
-        <button type="button" disabled={!puedeGuardar} onClick={() => guardar(false)} className="rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50">
+        <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(false)} className="rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50">
           {guardando ? "Guardando…" : edicion ? "Guardar cambios" : "Guardar como pendiente"}
         </button>
         {!edicion && (
-          <button type="button" disabled={!puedeGuardar} onClick={() => guardar(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50">
+          <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50">
             {guardando ? "Guardando…" : `Guardar y aprobar${erpNombre ? ` para ${erpNombre}` : ""}`}
           </button>
         )}

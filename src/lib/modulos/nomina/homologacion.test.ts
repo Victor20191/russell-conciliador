@@ -8,6 +8,7 @@ import {
   cuentaPorGrupo,
   cuentaRussellPorEstructura,
   destinoDeCuentaCliente,
+  esAporteAmbiguo,
   esCuentaComodin,
   resolverCuentaClienteARussell,
   resolverCuentaConcepto,
@@ -272,8 +273,20 @@ describe("resolverCuentaConcepto", () => {
     expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Cesantías", agrupador: "MOD" }, { ...ctxVacio, reglasClase: new Map([["MOD", "72"]]) })).toMatchObject({ cuentas: ["720530"], via: "sugerido_nombre", clase: "72" });
   });
 
-  it("sin nada → sin_cuenta", () => {
-    expect(resolverCuentaConcepto({ clasificador: "999", nombre: "PRESTAMO EMPLEADOS" }, ctxVacio)).toMatchObject({ cuentas: [], via: "sin_cuenta", destino: null });
+  it("sin nada → sin_cuenta y de GASTO: suma en «Saldo del módulo sin cuenta» y sale en Novedades", () => {
+    // Con destino nulo no salía en ningún lado (KP EMPAQUES dic-2025: 458 renglones, 1.824 M).
+    expect(resolverCuentaConcepto({ clasificador: "999", nombre: "PRESTAMO EMPLEADOS" }, ctxVacio)).toMatchObject({ cuentas: [], via: "sin_cuenta", destino: "gasto" });
+  });
+
+  it("salud y pensión: se sugiere el gasto solo si el nombre dice que es de la empresa", () => {
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "SALUD EMPRESA" }, ctxVacio)).toMatchObject({ cuentas: ["510569"], via: "sugerido_nombre" });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "APORTE PENSION EMPLEADOR" }, ctxVacio)).toMatchObject({ cuentas: ["510570"], via: "sugerido_nombre" });
+    for (const nombre of ["602 - EPS SURA", "SALUD", "Descuento Seg Salud Dependientes", "APORTE VOL. DE PENSION", "39266 - DCTO PLAN APORTE INST PENSIÓN EMPRESA", "PENSION EMPLEADO"]) {
+      const r = resolverCuentaConcepto({ clasificador: "X", nombre }, ctxVacio);
+      expect(r, nombre).toMatchObject({ cuentas: [], via: "sin_cuenta", destino: "gasto" });
+      expect(r.motivo, nombre).toContain("EMPLEADO");
+    }
+    expect(esAporteAmbiguo("prima", "PRIMA EMPLEADO")).toBe(false);
   });
 });
 

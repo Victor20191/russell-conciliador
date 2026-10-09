@@ -45,6 +45,7 @@ export function PruebaMapeoPatron({
   fuente,
   puedeProbar,
   onError,
+  accion,
 }: {
   moduloCodigo: string;
   /** Cómo llama el módulo a lo que agrupa el archivo («Tipo de inventario», «Concepto»). */
@@ -63,6 +64,11 @@ export function PruebaMapeoPatron({
    * sigue mostrando todos los impedimentos; esto solo avisa, no cambia lo que se pinta.
    */
   onError?: (mensaje: string) => void;
+  /**
+   * La acción que lee el archivo. Por defecto la de la pantalla de patrones (administradores);
+   * la carga pasa `probarMapeoCarga`, que prueba sobre el original con el permiso de cargar.
+   */
+  accion?: (fd: FormData) => Promise<ResultadoPruebaMapeo>;
 }) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [specProbado, setSpecProbado] = useState<string | null>(null);
@@ -85,7 +91,7 @@ export function PruebaMapeoPatron({
       if (origen.tipo === "muestra") fd.set("archivo", origen.archivo);
       if (origen.tipo === "version") fd.set("versionId", String(origen.id));
       if (origen.tipo === "original") fd.set("recepcionLoteId", origen.recepcionLoteId);
-      const r = await probarMapeoPatron(fd);
+      const r = await (accion ?? probarMapeoPatron)(fd);
       if (!r.ok) {
         const mensaje = r.message ?? "No se pudo probar el mapeo.";
         notifyError(mensaje);

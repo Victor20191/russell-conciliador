@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TransactionClient } from "@/lib/concurrency";
-import { aprenderPatronInventarioConfirmado } from "./aprender-confirmado";
+import { tomarCandadoTransaccion } from "@/lib/concurrency";
+import { aprenderPatronConfirmado, aprenderPatronInventarioConfirmado } from "./aprender-confirmado";
 import type { LecturaEstructurada } from "../extraccion/lectura-estructurada";
 
 vi.mock("@/lib/concurrency", () => ({ tomarCandadoTransaccion: vi.fn() }));
@@ -91,6 +92,25 @@ describe("aprendizaje confirmado de inventarios", () => {
     distintas.campos[2].fuente.desplazamientoFila = 0;
     expect(await aprenderPatronInventarioConfirmado(db, { ...entrada, spec: { ...spec, lecturaEstructurada: distintas } })).toMatchObject({ version: 5, reutilizada: false });
     expect(tx.versionPatronArchivoModulo.create.mock.calls[0][0].data.specJson.lecturaEstructurada).toEqual(distintas);
+  });
+
+  it("si ya hay una versión APROBADA igual, la enlaza en vez de crear otra", async () => {
+    tx.versionPatronArchivoModulo.findMany.mockResolvedValue([{ id: 40, version: 2, estado: "aprobada", clienteOrigenId: null, specJson: spec, encabezadoJson: entrada.encabezado }]);
+    expect(await aprenderPatronInventarioConfirmado(db, entrada)).toEqual({ id: 40, version: 2, reutilizada: true });
+    expect(tx.versionPatronArchivoModulo.create).not.toHaveBeenCalled();
+  });
+
+  it("los demás módulos: aplicativo de Contabilidad, candado del módulo y tipo de formato declarado", async () => {
+    const specCar = { hoja: "Cartera", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { cuenta: 1, nit: 2, documento: 3, total: 4 }, tipoFormato: "documento" as const };
+    const entradaCar = { ...entrada, moduloCodigo: "CAR", spec: specCar, encabezado: ["Cuenta", "NIT", "Documento", "Saldo"] };
+    tx.archivoOriginalModulo.findUnique.mockResolvedValue({ id: 9, clienteId: 5, nombreCliente: "Cliente", moduloCodigo: "CAR", estado: "cargado", encabezadoId: 90 });
+    expect(await aprenderPatronConfirmado(db, entradaCar)).toMatchObject({ reutilizada: false });
+    expect(tx.clientErpProcess.findFirst.mock.calls[0][0].where.process).toEqual({ code: "CONT" });
+    expect(vi.mocked(tomarCandadoTransaccion)).toHaveBeenCalledWith(db, "patron-archivo:3:CAR");
+    expect(tx.versionPatronArchivoModulo.create.mock.calls[0][0].data).toMatchObject({ moduloCodigo: "CAR", estado: "validada_cliente" });
+    await expect(aprenderPatronConfirmado(db, { ...entradaCar, spec: { ...specCar, tipoFormato: undefined } })).rejects.toThrow("tipo de formato");
+    // Un original de otro módulo no se aprende como este.
+    await expect(aprenderPatronConfirmado(db, { ...entradaCar, moduloCodigo: "CXP" })).rejects.toThrow("solo se aprende al confirmar");
   });
 
   it("aprende campos combinados en una columna sólo con gramática válida", async () => {

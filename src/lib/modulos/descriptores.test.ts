@@ -222,7 +222,8 @@ describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => 
     const CXP = MODULOS_IMPORT.CXP;
     expect(CXP.crucePorTercero).toMatchObject({ habilitado: true, rolClave: "nit", naturaleza: "C", detalleTercero: true, exigidoParaCierre: true });
     expect(CXP.crucePorTercero.cuentasRussell6).toEqual(["220505", "221005", "233505", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"]);
-    expect(CXP.valorDerivado).toEqual({ deFamilia: "edades", prevalece: "columna" });
+    // Como Cartera desde el 5/Oct/2026: si saldo y rangos no cuadran, manda la suma y se alerta.
+    expect(CXP.valorDerivado).toEqual({ deFamilia: "edades", prevalece: "familia" });
     expect(CXP.noNegativos).toBeUndefined();
     expect(CXP.columnas.find((c) => c.nombre === "nit")?.requerido).toBe(true);
   });

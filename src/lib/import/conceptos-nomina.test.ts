@@ -1,13 +1,13 @@
 import { test, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { parseConceptosNominaWorkbook, partirCuentas, planEscrituraConceptos, HOJA_CONCEPTOS, type FilaConceptoAEscribir } from "./conceptos-nomina";
+import { completarNombresConceptos, parseConceptosNominaWorkbook, partirCuentas, planEscrituraConceptos, HOJA_CONCEPTOS, type FilaConceptoAEscribir } from "./conceptos-nomina";
 
 /** Encabezados de la plantilla RF-NOM-08 (cliente / grupo / código / nombre / cuenta del cliente + centro opcional). */
 const HEADERS = [
   "Cliente (NIT o código) *",
   "Grupo de cuenta contable",
   "Código del concepto *",
-  "Nombre del concepto *",
+  "Nombre del concepto",
   "Cuenta contable del cliente *",
   "Centro de costo / clase",
 ];
@@ -74,7 +74,7 @@ test("un grupo que no está en el catálogo se rechaza (no se adivina)", async (
   expect(errores[0].mensaje).toMatch(/Grupo de cuenta contable no reconocido: «Gastos varios»/);
 });
 
-test("los cuatro campos requeridos siguen siéndolo; grupo y centro son opcionales", async () => {
+test("cliente, código y cuenta son obligatorios; nombre, grupo y centro son opcionales", async () => {
   const buf = await construir([
     [null, null, "001", "Sueldo", "510506"],
     ["900", null, null, "Sueldo", "510506"],
@@ -82,12 +82,54 @@ test("los cuatro campos requeridos siguen siéndolo; grupo y centro son opcional
     ["900", null, "003", "Sueldo", null],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
-  expect(filas).toEqual([]);
-  expect(errores.map((e) => e.fila)).toEqual([2, 3, 4, 5]);
+  expect(errores.map((e) => e.fila)).toEqual([2, 3, 5]);
   expect(errores[0].mensaje).toMatch(/cliente/i);
   expect(errores[1].mensaje).toMatch(/código/i);
-  expect(errores[2].mensaje).toMatch(/nombre del concepto/i);
-  expect(errores[3].mensaje).toMatch(/cuenta/i);
+  expect(errores[2].mensaje).toMatch(/cuenta/i);
+  // Sin nombre la fila se acepta (5/Oct/2026): el nombre queda vacío.
+  expect(filas).toHaveLength(1);
+  expect(filas[0]).toMatchObject({ fila: 4, codigo: "2", concepto: "", cuentas: ["510506"] });
+});
+
+test("un archivo sin la columna del nombre se lee igual", async () => {
+  const buf = await construir(
+    [["900", null, "001", "51050601", "MOD"]],
+    HOJA_CONCEPTOS,
+    ["Cliente (NIT o código) *", "Grupo de cuenta contable", "Código del concepto *", "Cuenta contable del cliente *", "Centro de costo / clase"],
+  );
+  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas[0]).toMatchObject({ codigo: "1", concepto: "", cuentas: ["51050601"], agrupador: "MOD" });
+});
+
+test("una fila repetida aporta el nombre si la primera no lo traía", async () => {
+  const buf = await construir([
+    ["900", null, "001", null, "51050601", "314"],
+    ["900", null, "001", "Sueldo básico", "72050601", "314"],
+  ]);
+  const { filas } = await parseConceptosNominaWorkbook(buf);
+  expect(filas).toHaveLength(1);
+  expect(filas[0]).toMatchObject({ concepto: "Sueldo básico", cuentas: ["51050601", "72050601"] });
+});
+
+test("sin nombre, el concepto toma el de otra fila del archivo o el que ya tenía guardado", () => {
+  const fila = (clasificador: string, agrupador: string, descripcion: string | null) => ({ clienteId: 7, clasificador, agrupador, descripcion });
+  const completas = completarNombresConceptos(
+    [
+      fila("1", "GYA", "Sueldo básico"),
+      fila("1", "MOD", null), // mismo código en otro centro: toma el nombre del archivo
+      fila("2", "", null), // sin nombre en el archivo: conserva el guardado
+      fila("3", "", null), // sin nombre en ninguna parte: queda null
+      fila("4", "", "Prima nueva"), // con nombre: manda el del archivo
+    ],
+    [
+      { clienteId: 7, clasificador: "1", descripcion: "Sueldo (viejo)" },
+      { clienteId: 7, clasificador: "2", descripcion: "Auxilio de transporte" },
+      { clienteId: 7, clasificador: "4", descripcion: "Prima" },
+      { clienteId: 8, clasificador: "3", descripcion: "De otro cliente" },
+    ],
+  );
+  expect(completas.map((f) => f.descripcion)).toEqual(["Sueldo básico", "Sueldo básico", "Auxilio de transporte", null, "Prima nueva"]);
 });
 
 test("une las filas repetidas del mismo concepto y centro (una fila por cuenta) y avisa", async () => {

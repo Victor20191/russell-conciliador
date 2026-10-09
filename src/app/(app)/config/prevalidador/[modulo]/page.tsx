@@ -4,12 +4,13 @@ import { Icon } from "@/components/icons";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { getCatalogoPrevalidadorVista } from "@/lib/parametros/prevalidador";
-import { getCuentasConciliacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
+import { getCuentasConciliacionVista, getParesDepreciacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
 import { prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import PrevalidadorConfigClient from "../prevalidador-client";
 import CuentasConciliacionPanel, { type ModuloCuentasVm } from "../cuentas-conciliacion-panel";
 import SubgruposConciliacionPanel from "../subgrupos-conciliacion-panel";
+import ParesDepreciacionPanel from "../pares-depreciacion-panel";
 import { cargarPlan4, cargarPlan6, configuracionModulo, moduloDeRuta } from "../datos";
 
 /**
@@ -40,7 +41,9 @@ export default async function PrevalidadorModuloPage({
   const volverAlCruce = typeof volver === "string" && RUTA_VOLVER.test(volver) ? volver : null;
 
   const config = configuracionModulo(codigo);
-  const [catalogo, modulos, cuentas, plan6, subgrupos, plan4] = await Promise.all([
+  // Activos fijos: las parejas activo → depreciación y los dos planes que las nombran.
+  const conPares = config.subgruposAbiertos.length > 0;
+  const [catalogo, modulos, cuentas, plan6, subgrupos, plan4, pares, plan4Pares, plan6Pares] = await Promise.all([
     getCatalogoPrevalidadorVista(),
     prisma.module.findMany({
       where: { code: { in: [...PREVALIDADOR_MODULOS_ORDEN] } },
@@ -53,6 +56,9 @@ export default async function PrevalidadorModuloPage({
     // independiente de la regla del prevalidador.
     config.conSubgrupos4 ? getSubgruposConciliacionVista(codigo) : Promise.resolve([]),
     config.conSubgrupos4 ? cargarPlan4() : Promise.resolve([]),
+    conPares ? getParesDepreciacionVista(codigo) : Promise.resolve([]),
+    conPares ? cargarPlan4() : Promise.resolve([]),
+    conPares ? cargarPlan6() : Promise.resolve([]),
   ]);
   const modulo = modulos.find((m) => m.code === codigo);
   if (!modulo) notFound();
@@ -95,26 +101,26 @@ export default async function PrevalidadorModuloPage({
         )}
 
         {config.subgruposAbiertos.length > 0 && (
-          <Card className="p-4">
-            <div className="mb-1 flex items-center gap-2">
-              <Icon name="settings" size={15} />
-              <h2 className="text-[14px] font-semibold text-ink-900">Cuentas relacionadas</h2>
-              <span className="text-[11px] text-ink-400">{modulo.code}</span>
-            </div>
-            <p className="text-[11.5px] text-ink-500">
-              Fijas en el sistema: {config.subgruposAbiertos.join(", ")} se concilia por cuenta de 6 dígitos y la
-              depreciación del archivo cruza contra la cuenta relacionada con cada activo.
-            </p>
-            {config.paresRelacionados.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {config.paresRelacionados.map((p) => (
-                  <span key={p.subgrupo} className="rounded-md border border-ink-150 bg-ink-50/60 px-2 py-1 font-mono text-[11.5px] tabular-nums text-ink-600">
-                    {p.subgrupo} → {p.cuenta6}
-                  </span>
-                ))}
+          <>
+            <Card className="p-4">
+              <div className="mb-1 flex items-center gap-2">
+                <Icon name="settings" size={15} />
+                <h2 className="text-[14px] font-semibold text-ink-900">Cuentas relacionadas</h2>
+                <span className="text-[11px] text-ink-400">{modulo.code}</span>
               </div>
-            )}
-          </Card>
+              <p className="text-[11.5px] text-ink-500">
+                Fija en el sistema: {config.subgruposAbiertos.join(", ")} se concilia por cuenta de 6 dígitos y la
+                depreciación del archivo cruza contra la cuenta relacionada con cada activo, que se define abajo.
+              </p>
+            </Card>
+            <ParesDepreciacionPanel
+              modulo={{ code: modulo.code, name: modulo.name }}
+              pares={pares}
+              subgruposAbiertos={config.subgruposAbiertos}
+              plan4={plan4Pares}
+              plan6={plan6Pares}
+            />
+          </>
         )}
       </div>
     </div>

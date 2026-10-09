@@ -374,6 +374,8 @@ function PerfilCargaModuloDetalle({
 
   const rolClasificador = roles.find((r) => r.nombre === clasificadorRol);
   const etiquetaClasificador = rolClasificador?.etiqueta ?? "clasificador";
+  // Nómina (el único módulo con devengo) no admite un clasificador único para todo el archivo.
+  const esNomina = roles.some((r) => r.nombre === "devengo");
   const modo = modoClasificadorDe(estructura);
   const modoGuardado = modoClasificadorDe(perfil.estructura);
   const rolSenal = estructura.seccionColumnaVaciaRol ?? "descripcion";
@@ -635,7 +637,7 @@ function PerfilCargaModuloDetalle({
                 onChange={(evento) => cambiarModo(evento.target.value as ModoClasificador)}
                 className={CLASE_INPUT}
               >
-                {MODOS_CLASIFICADOR.map((m) => (
+                {MODOS_CLASIFICADOR.filter((m) => m !== "global" || !esNomina).map((m) => (
                   <option key={m} value={m}>
                     {m === "columna" && "En su propia columna, en cada fila"}
                     {m === "arrastrar" && "Agrupado en su columna (una vez por bloque; se arrastra)"}

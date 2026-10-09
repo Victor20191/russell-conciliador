@@ -17,6 +17,9 @@ import BalanceDetailClient, {
 import { tabDesdeParametro } from "./tabs";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
+import { DescongelarBalanceButton } from "./descongelar-balance-button";
+import { quedoDescongelado } from "@/lib/balance/descongelar";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { ExportarBalance } from "./exportar-balance";
@@ -153,6 +156,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // vuelven a verificarlo al ejecutar.
   const puedeEditar = editarAuth.ok;
   const puedeMapear = mapearAuth.ok && !balance.estaCongelado;
+  // Descongelada para corregirla y aún sin volver a congelar: aviso arriba y chip en el encabezado.
+  const descongelada = quedoDescongelado(balance);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
@@ -277,6 +282,15 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
               <FreezeBalanceButton id={id} traslado={trasladoCongelar} bloqueo={bloqueoCongelar} />
             )}
             {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
+            {balance.estaCongelado && puedeEditar && (
+              <DescongelarBalanceButton
+                id={id}
+                titulo={`${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`}
+                esOficial={balance.esOficial}
+                cierres={cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor }))}
+              />
+            )}
+            {descongelada && <Chip label="Descongelado" tone="warn" />}
             {eliminarAuth.ok && (
               <EliminarBalanceButton
                 balanceId={id}
@@ -313,6 +327,19 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
           </a>
         )}
       </p>
+
+      {descongelada && (
+        <div role="status" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warn-500 bg-warn-100/40 px-3 py-2 text-[12.5px] text-warn-700">
+          <Icon name="edit" size={13} />
+          <span>
+            Descongelada por <b>{balance.descongeladoPor ?? "—"}</b> el {balance.descongeladoEn ? fmtDateTime(balance.descongeladoEn) : "—"} para corregirla
+            {balance.motivoDescongelado ? <>: «{balance.motivoDescongelado}»</> : null}.
+          </span>
+          <span className="font-semibold">
+            Cuando termines, vuelve a congelarla{balance.esOficial ? " (sigue siendo la versión oficial)" : ""}.
+          </span>
+        </div>
+      )}
 
       {(crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente) && (
         <section id="cruce-aperturas" aria-label="Estado de validación entre aperturas" className={`my-4 flex scroll-mt-20 flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 font-semibold sm:rounded-full ${crucesAperturas.pares.some((p) => p.inconsistente) ? "bg-err-100 text-err-700" : "bg-warn-100 text-warn-700"}`}>

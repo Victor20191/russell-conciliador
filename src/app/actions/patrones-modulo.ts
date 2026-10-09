@@ -25,6 +25,7 @@ import { confirmacionValor, detalleAuditoriaValor } from "@/lib/modulos/extracci
 import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion, type VersionCandidata } from "@/lib/modulos/patrones/mejor-version";
+import { guardarMuestraRecortada } from "@/lib/modulos/patrones/muestra-recortada-servidor";
 import { FILAS_MAXIMAS_PRUEBA, MENSAJE_SIN_FILAS, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
 import { vistaPruebaMapeo, type ResultadoPruebaMapeo, type OrigenPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
 import {
@@ -655,6 +656,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
         muestraNombre: archivo.name,
         muestraTamanoBytes: bytes.byteLength,
         muestraSha256: huellaSha256Archivo(bytes),
+        muestraOrigen: "subida",
       },
     });
     if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió mientras se subía la muestra. Recarga la página.");
@@ -674,6 +676,48 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
   } catch (e) {
     if (claveLocalSubida) await eliminarObjeto(claveLocalSubida).catch((error) => registrarError("subirMuestraVersionPatron.limpiarConflicto", error));
     return respuestaError("subirMuestraVersionPatron", e);
+  }
+}
+
+/**
+ * Genera la muestra de una versión guardada desde un cargue: el recorte anónimo y verificado de su
+ * original (primeras filas, identificaciones y nombres ficticios). La confirmación del cargue ya
+ * lo intenta sola; esto es el reintento y el camino de las versiones anteriores a esa regla.
+ */
+export async function generarMuestraRecortadaVersion(versionId: number): Promise<ActionState> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  try {
+    const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number(versionId) || 0 }, include: { erp: { select: { name: true } } } });
+    if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
+    if (version.archivoOrigenId == null) {
+      throw new ErrorPatron("Solo una versión guardada desde un cargue genera su muestra a partir del original.");
+    }
+    // Regenerar: solo una muestra que ya era copia del original (nunca una que subió alguien), y
+    // también en una versión aprobada: la nueva se verifica contra el patrón antes de guardarse.
+    const regenerar = version.muestraClaveObjeto != null;
+    if (regenerar && version.muestraOrigen !== "recorte_original") {
+      throw new ErrorPatron("Esta muestra la subió un administrador: para cambiarla usa «Cambiar muestra».");
+    }
+    if (!regenerar && version.estado !== "validada_cliente") {
+      throw new ErrorPatron("Solo una versión guardada desde un cargue genera su muestra a partir del original.");
+    }
+    const descriptor = descriptorDe(version.moduloCodigo);
+    const muestra = await guardarMuestraRecortada(version.id, { reemplazar: regenerar });
+    if (!muestra.ok) return { ok: false, message: `No se pudo ${regenerar ? "regenerar" : "generar"} la muestra: ${muestra.motivo} Sube una muestra del aplicativo.` };
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: regenerar ? "REGENERÓ MUESTRA DE PATRÓN" : "GENERÓ MUESTRA DE PATRÓN",
+      entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
+      detail: `${muestra.nombre} · copia del original (primeras filas, con su formato) con las personas ficticias, verificada contra el patrón`,
+      ...(version.clienteOrigenId != null ? { clientId: version.clienteOrigenId } : {}),
+    });
+    revalidatePath(rutaPatrones(version.moduloCodigo));
+    return { ok: true, message: muestra.yaTenia ? "La versión ya tenía muestra." : `Muestra ${regenerar ? "regenerada" : "generada"}: ${muestra.nombre}.` };
+  } catch (e) {
+    return respuestaError("generarMuestraRecortadaVersion", e);
   }
 }
 

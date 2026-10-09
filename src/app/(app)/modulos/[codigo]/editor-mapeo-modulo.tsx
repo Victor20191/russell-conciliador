@@ -47,6 +47,8 @@ import {
 export { rolDerivado };
 import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-cargue";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
+import { cuentaDelClasificador } from "@/lib/modulos/cuenta-clasificador";
+import { esCodigoDeduccion, parsearRangosCodigos, textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
 
 export type RolModulo = {
   nombre: string;
@@ -173,6 +175,68 @@ export function CamposCargueCartera({
   );
 }
 
+/**
+ * Nómina: qué CÓDIGOS de concepto son deducciones, para un archivo con un solo «Valor» en positivo
+ * y sin columna de tipo (NOMINAI: 500–799). Es del formato: viaja con el patrón y con el perfil.
+ * El texto se edita libre y solo se guarda en el spec cuando se entiende.
+ */
+function CodigosDeduccionNomina({
+  analisis,
+  spec,
+  setSpec,
+}: {
+  analisis: AnalisisModulo;
+  spec: SpecModulo;
+  setSpec: Dispatch<SetStateAction<SpecModulo | null>>;
+}) {
+  const [texto, setTexto] = useState(() => textoRangosCodigos(spec.codigosDeduccion));
+  const [error, setError] = useState<string | null>(null);
+  const cambiar = (valor: string) => {
+    setTexto(valor);
+    const r = parsearRangosCodigos(valor);
+    if (!r.ok) { setError(r.error); return; }
+    setError(null);
+    setSpec((s) => (s ? { ...s, codigosDeduccion: r.rangos } : s));
+  };
+  // Vista previa con la muestra: el código sale de su columna o del «001 - BASICO» del concepto.
+  const colCodigo = spec.columnas.codigo ?? 0;
+  const colConcepto = spec.columnas.concepto ?? 0;
+  const enMuestra = new Map<string, string>();
+  for (const f of analisis.muestraFilas ?? []) {
+    const crudoCodigo = colCodigo >= 1 ? celdaTxt(f[colCodigo - 1] ?? null).trim() : "";
+    const crudoConcepto = colConcepto >= 1 ? celdaTxt(f[colConcepto - 1] ?? null).trim() : "";
+    const m = /^(\d{1,9})\s*-\s*(.*)$/.exec(crudoConcepto);
+    const codigo = crudoCodigo || m?.[1] || "";
+    if (esCodigoDeduccion(codigo, spec.codigosDeduccion)) enMuestra.set(codigo, (m?.[2] ?? crudoConcepto).trim());
+  }
+  return (
+    <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+      <span className="text-[11px] font-medium text-ink-600">Códigos de deducción (opcional)</span>
+      <input
+        type="text"
+        value={texto}
+        onChange={(e) => cambiar(e.target.value)}
+        placeholder="Ej.: 500-799"
+        aria-invalid={error != null}
+        className={`${claseCampo} max-w-xs`}
+      />
+      <span className="text-[11px] leading-snug text-ink-500">
+        Solo si el archivo trae todos los valores en positivo y ninguna columna dice qué es devengo y qué es deducción
+        (NOMINAI: 500-799). Los conceptos con esos códigos se restan. Varios rangos van separados con coma: 500-799, 900.
+      </span>
+      {error ? (
+        <span className="text-[11px] font-semibold leading-snug text-err-700">{error}</span>
+      ) : spec.codigosDeduccion?.length ? (
+        <span className="text-[11px] leading-snug text-ink-600">
+          {enMuestra.size > 0
+            ? `En las primeras filas: ${[...enMuestra.entries()].slice(0, 4).map(([c, n]) => `${c} ${n}`).join(" · ")} se restan.`
+            : "En las primeras filas no aparece ninguno de esos códigos: «Probar el mapeo» muestra el efecto en el archivo."}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
 export function EditorMapeoModulo({
   analisis,
   spec,
@@ -182,6 +246,7 @@ export function EditorMapeoModulo({
   rolValor,
   confirmarValorSinImpuestos,
   conNivelCartera,
+  cuentaEnClasificador = false,
   modo: modoEditor,
   onCambiarHoja,
   fechaCorteSugerida = "",
@@ -190,6 +255,7 @@ export function EditorMapeoModulo({
   ref,
   corteConfirmado,
   onConfirmarCorte,
+  exigirTipoFormato = false,
 }: {
   analisis: AnalisisModulo;
   spec: SpecModulo;
@@ -200,6 +266,8 @@ export function EditorMapeoModulo({
   rolValor: string;
   /** Ingresos: pregunta si el valor excluye el IVA cuando sale de una columna de «total». */
   confirmarValorSinImpuestos: boolean;
+  /** Activos fijos: el clasificador trae pegada la cuenta del cliente («AF152805»). */
+  cuentaEnClasificador?: boolean;
   conNivelCartera: boolean;
   modo: "carga" | "patron";
   onCambiarHoja: (hoja: string) => void;
@@ -214,8 +282,18 @@ export function EditorMapeoModulo({
   /** Carga: la fecha de corte ya confirmada y cómo confirmarla (ver `CamposCargueCartera`). */
   corteConfirmado?: string | null;
   onConfirmarCorte?: (fecha: string) => void;
+  /**
+   * Cartera y CxP: el tipo de formato es obligatorio (siempre en el patrón; en la carga, cuando el
+   * aplicativo no tiene patrón y la lectura se configura ahí, porque podrá guardarse como patrón).
+   */
+  exigirTipoFormato?: boolean;
 }) {
   const esCarga = modoEditor === "carga";
+  // Nómina es el único módulo con devengo/deducción. Los códigos de deducción solo hacen falta
+  // cuando el valor viene en UNA columna: con devengo/deducción o débito/crédito aparte ya se sabe.
+  const esNomina = roles.some((r) => r.nombre === "devengo");
+  const valorPorColumnasAparte = ["devengo", "deduccion", "debito", "credito"].some((rol) => (spec.columnas[rol] ?? 0) >= 1);
+  const tipoObligatorio = modoEditor === "patron" || exigirTipoFormato;
 
   // Error del servidor atribuido a un campo. El resaltado se DERIVA de este estado y del mapeo
   // actual (`errorMapeoVigente`): al corregir el campo desaparece solo, sin efectos que lo limpien.
@@ -414,7 +492,8 @@ export function EditorMapeoModulo({
                     className={`${invalido ? claseCampoInvalido : claseCampo} flex-1`}
                   >
                     <option value={0}>— sin mapear —</option>
-                    {rc.nombre === clasificadorRol && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
+                    {/* Nómina no: su clasificador es el código del concepto (`admiteClasificadorUnico`). */}
+                    {rc.nombre === clasificadorRol && !esNomina && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
                     {opciones.map((o) => (
                       <option key={o.index1} value={o.index1}>{o.label}</option>
                     ))}
@@ -447,7 +526,7 @@ export function EditorMapeoModulo({
         <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
           <label className="flex min-w-0 flex-col gap-1">
             <span className={`text-[11px] font-medium ${tipoFormatoConError ? "text-err-700" : "text-ink-600"}`}>
-              Tipo de formato{modoEditor === "patron" && <span className="text-err-600"> *</span>}
+              Tipo de formato{tipoObligatorio && <span className="text-err-600"> *</span>}
             </span>
             <select
               id={idCampoMapeo(uid, campoTipoFormato)}
@@ -460,7 +539,7 @@ export function EditorMapeoModulo({
             >
               {!spec.tipoFormato && (
                 <option value="">
-                  {modoEditor === "patron" ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
+                  {tipoObligatorio ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
                 </option>
               )}
               {TIPOS_FORMATO_DECLARABLES.map((t) => (
@@ -530,13 +609,57 @@ export function EditorMapeoModulo({
           <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
         ) : (
           <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {clasificadorEtiqueta.toLowerCase()}?</span>
+            <span className="text-[11px] font-medium text-ink-600">¿Cómo viene «{clasificadorEtiqueta}» en el archivo?</span>
             <select value={modo} onChange={(e) => setModo(e.target.value as ModoClasificador)} className={claseCampo}>
               <option value="columna">En su propia columna, en cada fila</option>
               <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
               <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
             </select>
           </label>
+        )}
+        {/* Activos fijos: el grupo trae pegada la cuenta del cliente. Lo que sobra al inicio es del
+            FORMATO, así que se declara aquí y viaja con el patrón; la lectura la extrae y el
+            Consolidado la homologa como el balance, sin guardarla sola. */}
+        {cuentaEnClasificador && (
+          <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+            <span className="text-[11px] font-medium text-ink-600">
+              ¿Cuántos caracteres hay ANTES de la cuenta contable dentro de ese código?
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={spec.prefijoClasificador ?? 0}
+              onChange={(e) => {
+                const n = Math.max(0, Math.min(20, Math.trunc(Number(e.target.value) || 0)));
+                setSpec((s) => (s ? { ...s, prefijoClasificador: n > 0 ? n : undefined } : s));
+              }}
+              className={`${claseCampo} w-28 tabular-nums`}
+            />
+            <span className="text-[11px] leading-snug text-ink-500">
+              0 si el código empieza por la cuenta («1524010500098»); 2 si viene con una marca delante («AF152805» → 1528).
+              Lo que quede sin cuenta legible no se inventa: el renglón sale sin cuenta en el Consolidado y se asigna a mano.
+            </span>
+            {(() => {
+              // Vista previa con la muestra: qué cuenta del cliente saldría de cada código.
+              const col = spec.columnas[clasificadorRol] ?? 0;
+              if (col < 1) return null;
+              const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[col - 1] ?? null)).filter(Boolean))].slice(0, 4);
+              if (valores.length === 0) return null;
+              return (
+                <span className="text-[11px] leading-snug text-ink-600">
+                  {valores.map((v) => {
+                    const cuenta = cuentaDelClasificador(v, spec.prefijoClasificador);
+                    return `${v} → ${cuenta ?? "sin cuenta"}`;
+                  }).join(" · ")}
+                </span>
+              );
+            })()}
+          </label>
+        )}
+        {/* Nómina: un solo «Valor» en positivo y sin columna de tipo (NOMINAI): qué códigos restan. */}
+        {esNomina && !valorPorColumnasAparte && (
+          <CodigosDeduccionNomina analisis={analisis} spec={spec} setSpec={setSpec} />
         )}
         {modo === "seccion" && (
           <label className="flex min-w-0 flex-col gap-1">

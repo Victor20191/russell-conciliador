@@ -126,6 +126,24 @@ describe("cargarBorradorModulo · revisión visible de inventario", () => {
     expect(m.crearEncabezado).toHaveBeenCalledOnce();
   });
 
+  it("con «Guardar este formato como patrón» desmarcada no aprende ni enlaza una versión", async () => {
+    const fd = formulario();
+    fd.set("guardarComoPatron", "0");
+    expect(await cargarBorradorModulo(undefined, fd)).toMatchObject({ ok: true, encabezadoId: 90 });
+    expect(m.aprender).not.toHaveBeenCalled();
+    expect(m.actualizarEncabezado).not.toHaveBeenCalled();
+    expect(m.confirmarOriginal).toHaveBeenCalledWith(expect.objectContaining({
+      data: { asistenciaJson: expect.objectContaining({ estado: "confirmado", patronAprendidoId: null }) },
+    }));
+  });
+
+  it("marcada (o sin el campo, como una pestaña anterior) aprende como siempre", async () => {
+    const fd = formulario();
+    fd.set("guardarComoPatron", "1");
+    expect(await cargarBorradorModulo(undefined, fd)).toMatchObject({ ok: true });
+    expect(m.aprender).toHaveBeenCalledOnce();
+  });
+
   it("el reintento posterior al commit conserva su respuesta idempotente", async () => {
     m.buscarEncabezado.mockResolvedValueOnce({ id: 90, clienteId: 5, version: 1 });
     expect(await cargarBorradorModulo(undefined, formulario(null))).toMatchObject({ ok: true, encabezadoId: 90, message: expect.stringContaining("ya había sido cargada") });
