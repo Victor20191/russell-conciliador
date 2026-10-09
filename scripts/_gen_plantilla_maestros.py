@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -230,6 +231,6 @@ orden = ["Instrucciones", "Socios", "Gerentes", "Seniors", "Staff", "Listas"]
 wb._sheets.sort(key=lambda s: orden.index(s.title))
 wb.active = wb.sheetnames.index("Socios")
 
-out = "/Users/vicbook/Documents/Xentria-apps/Russell Diagnostico/russell-lfm/Plantilla_Maestros_Personas.xlsx"
+out = Path(__file__).resolve().parent.parent / "Plantilla_Maestros_Personas.xlsx"
 wb.save(out)
 print("OK", out)

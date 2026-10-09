@@ -3,24 +3,24 @@ import { MATRIZ, PERMISOS, ROLES, ROLES_MATRIZ, ROLES_PDF } from "./catalogo";
 import { puedeSobreCliente, tienePermiso, type Asignacion } from "./permisos";
 import { derivarAsignacionesSocio, ROLES_ALCANCE_GLOBAL } from "./jerarquia";
 import {
-  DEMO_USUARIOS,
-  asignacionesDemo,
-  DEMO_CLIENTE_A,
-  DEMO_CLIENTE_B,
-  DEMO_CLIENTE_FUERA,
-  DEMO_CLIENTE_MAPEO,
-} from "./escenario-demo";
+  PRUEBA_USUARIOS,
+  asignacionesPrueba,
+  PRUEBA_CLIENTE_A,
+  PRUEBA_CLIENTE_B,
+  PRUEBA_CLIENTE_FUERA,
+  PRUEBA_CLIENTE_MAPEO,
+} from "./__fixtures__/escenario";
 
-const SOCIO = "socio.demo@russellbedford.co";
-const GERENTE = "gerente.demo@russellbedford.co";
-const SENIOR = "senior.demo@russellbedford.co";
-const STAFF1 = "staff1.demo@russellbedford.co";
-const STAFF2 = "staff2.demo@russellbedford.co";
+const SOCIO = "socio@rbac.test";
+const GERENTE = "gerente@rbac.test";
+const SENIOR = "senior@rbac.test";
+const STAFF1 = "staff1@rbac.test";
+const STAFF2 = "staff2@rbac.test";
 
-// Traduce el escenario demo a asignaciones que entiende el resolver,
+// Traduce el escenario de prueba a asignaciones que entiende el resolver,
 // usando el email como id de usuario (en BD será el id real; la lógica
 // es idéntica).
-const directas: Asignacion[] = asignacionesDemo().map((a) => ({
+const directas: Asignacion[] = asignacionesPrueba().map((a) => ({
   clientId: a.clientCode,
   userId: a.userEmail,
   readScope: a.readScope,
@@ -36,7 +36,7 @@ const asignaciones: Asignacion[] = [
   ...derivarAsignacionesSocio(SOCIO, deGerentes),
 ];
 
-const rolDe = (email: string) => DEMO_USUARIOS.find((u) => u.email === email)!.role;
+const rolDe = (email: string) => PRUEBA_USUARIOS.find((u) => u.email === email)!.role;
 
 // Atajo: ¿este usuario puede realizar la acción sobre el cliente?
 function puede(email: string, permiso: string, clientId: string) {
@@ -77,52 +77,52 @@ describe("Integridad del catálogo RBAC", () => {
 
 describe("Segregación operativa — Staff es el ÚNICO que escribe", () => {
   test("Staff escribe (ejecuta conciliación) SOLO sobre su cliente asignado", () => {
-    expect(puede(STAFF1, "conciliaciones:ejecutar", DEMO_CLIENTE_A)).toBe(true); // suyo
-    expect(puede(STAFF1, "conciliaciones:ejecutar", DEMO_CLIENTE_B)).toBe(false); // del otro Staff
-    expect(puede(STAFF2, "conciliaciones:ejecutar", DEMO_CLIENTE_B)).toBe(true); // suyo
-    expect(puede(STAFF2, "conciliaciones:ejecutar", DEMO_CLIENTE_A)).toBe(false);
+    expect(puede(STAFF1, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(true); // suyo
+    expect(puede(STAFF1, "conciliaciones:ejecutar", PRUEBA_CLIENTE_B)).toBe(false); // del otro Staff
+    expect(puede(STAFF2, "conciliaciones:ejecutar", PRUEBA_CLIENTE_B)).toBe(true); // suyo
+    expect(puede(STAFF2, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
   });
 
   test("Senior/Gerente/Socio NO pueden ejecutar (no tienen permiso operativo)", () => {
     for (const u of [SENIOR, GERENTE, SOCIO]) {
-      expect(puede(u, "conciliaciones:ejecutar", DEMO_CLIENTE_A)).toBe(false);
+      expect(puede(u, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
     }
   });
 
   test("nadie escribe un cliente fuera de su alcance", () => {
-    expect(puede(STAFF1, "conciliaciones:ejecutar", DEMO_CLIENTE_FUERA)).toBe(false);
+    expect(puede(STAFF1, "conciliaciones:ejecutar", PRUEBA_CLIENTE_FUERA)).toBe(false);
   });
 });
 
 describe("Lectura — alcance por dato (asignación directa, sin equipos)", () => {
   test("el Staff LEE solo los clientes donde es el responsable asignado", () => {
-    expect(puede(STAFF1, "conciliaciones:ver", DEMO_CLIENTE_A)).toBe(true);
-    expect(puede(STAFF1, "conciliaciones:ver", DEMO_CLIENTE_MAPEO)).toBe(true);
-    expect(puede(STAFF1, "conciliaciones:ver", DEMO_CLIENTE_B)).toBe(false); // ya no hay herencia por equipo
-    expect(puede(STAFF2, "conciliaciones:ver", DEMO_CLIENTE_B)).toBe(true);
+    expect(puede(STAFF1, "conciliaciones:ver", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(STAFF1, "conciliaciones:ver", PRUEBA_CLIENTE_MAPEO)).toBe(true);
+    expect(puede(STAFF1, "conciliaciones:ver", PRUEBA_CLIENTE_B)).toBe(false); // ya no hay herencia por equipo
+    expect(puede(STAFF2, "conciliaciones:ver", PRUEBA_CLIENTE_B)).toBe(true);
   });
 
   test("nadie ve un cliente fuera de su alcance", () => {
-    expect(puede(STAFF1, "conciliaciones:ver", DEMO_CLIENTE_FUERA)).toBe(false);
-    expect(puede(SENIOR, "conciliaciones:ver", DEMO_CLIENTE_FUERA)).toBe(false);
+    expect(puede(STAFF1, "conciliaciones:ver", PRUEBA_CLIENTE_FUERA)).toBe(false);
+    expect(puede(SENIOR, "conciliaciones:ver", PRUEBA_CLIENTE_FUERA)).toBe(false);
   });
 });
 
 describe("Revisión, validación y supervisión", () => {
   test("Senior revisa conciliaciones de sus clientes, pero no de clientes ajenos", () => {
-    expect(puede(SENIOR, "conciliaciones:revisar", DEMO_CLIENTE_A)).toBe(true);
-    expect(puede(SENIOR, "conciliaciones:revisar", DEMO_CLIENTE_B)).toBe(true);
-    expect(puede(SENIOR, "conciliaciones:revisar", DEMO_CLIENTE_FUERA)).toBe(false);
+    expect(puede(SENIOR, "conciliaciones:revisar", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(SENIOR, "conciliaciones:revisar", PRUEBA_CLIENTE_B)).toBe(true);
+    expect(puede(SENIOR, "conciliaciones:revisar", PRUEBA_CLIENTE_FUERA)).toBe(false);
   });
 
   test("el Staff NO revisa (no es su función)", () => {
-    expect(puede(STAFF1, "conciliaciones:revisar", DEMO_CLIENTE_A)).toBe(false);
+    expect(puede(STAFF1, "conciliaciones:revisar", PRUEBA_CLIENTE_A)).toBe(false);
   });
 
   test("el Gerente (valida) LEE los clientes donde está asignado, sin escribir", () => {
-    expect(puede(GERENTE, "conciliaciones:ver", DEMO_CLIENTE_A)).toBe(true);
-    expect(puede(GERENTE, "conciliaciones:ver", DEMO_CLIENTE_B)).toBe(true);
-    expect(puede(GERENTE, "conciliaciones:ejecutar", DEMO_CLIENTE_A)).toBe(false);
+    expect(puede(GERENTE, "conciliaciones:ver", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(GERENTE, "conciliaciones:ver", PRUEBA_CLIENTE_B)).toBe(true);
+    expect(puede(GERENTE, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
   });
 
   test("supervisar cartera es de Gerente y Socio (no Senior ni Staff)", () => {
@@ -130,19 +130,19 @@ describe("Revisión, validación y supervisión", () => {
     expect(tienePermiso(MATRIZ, "Socio", "clientes:supervisar")).toBe(true);
     expect(tienePermiso(MATRIZ, "Senior", "clientes:supervisar")).toBe(false);
     expect(tienePermiso(MATRIZ, "Staff", "clientes:supervisar")).toBe(false);
-    expect(puede(GERENTE, "clientes:supervisar", DEMO_CLIENTE_A)).toBe(true); // lectura sobre su cliente
+    expect(puede(GERENTE, "clientes:supervisar", PRUEBA_CLIENTE_A)).toBe(true); // lectura sobre su cliente
   });
 });
 
 describe("Socio — alcance DERIVADO por jerarquía (no se asigna por cliente)", () => {
   test("lee los clientes donde su gerente subordinado está asignado", () => {
-    expect(puede(SOCIO, "conciliaciones:ver", DEMO_CLIENTE_A)).toBe(true);
-    expect(puede(SOCIO, "conciliaciones:ver", DEMO_CLIENTE_B)).toBe(true);
-    expect(puede(SOCIO, "conciliaciones:ver", DEMO_CLIENTE_MAPEO)).toBe(true);
+    expect(puede(SOCIO, "conciliaciones:ver", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(SOCIO, "conciliaciones:ver", PRUEBA_CLIENTE_B)).toBe(true);
+    expect(puede(SOCIO, "conciliaciones:ver", PRUEBA_CLIENTE_MAPEO)).toBe(true);
   });
 
   test("no ve clientes fuera de la cartera de sus gerentes", () => {
-    expect(puede(SOCIO, "conciliaciones:ver", DEMO_CLIENTE_FUERA)).toBe(false);
+    expect(puede(SOCIO, "conciliaciones:ver", PRUEBA_CLIENTE_FUERA)).toBe(false);
   });
 
   test("la derivación NUNCA concede escritura", () => {
@@ -230,20 +230,20 @@ describe("Administración de clientes — alcance por MEMBRESÍA (override de mo
   });
 
   test("sin override, editar cliente infiere ESCRITURA y deniega al Senior (writeScope=false)", () => {
-    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_A))).toBe(false);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_A))).toBe(false);
   });
 
   test("con modo 'lectura' (membresía) el Senior administra los clientes donde es responsable", () => {
-    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_A), "lectura")).toBe(true);
-    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_B), "lectura")).toBe(true);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_A), "lectura")).toBe(true);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_B), "lectura")).toBe(true);
   });
 
   test("el override NO concede acceso fuera de la cartera del Senior", () => {
-    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_FUERA), "lectura")).toBe(false);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_FUERA), "lectura")).toBe(false);
   });
 
   test("el override de lectura no salta el permiso de rol (un Staff no administra clientes)", () => {
-    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", DEMO_CLIENTE_A), "lectura")).toBe(false);
+    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", PRUEBA_CLIENTE_A), "lectura")).toBe(false);
   });
 });
 

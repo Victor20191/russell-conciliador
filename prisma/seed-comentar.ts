@@ -1,9 +1,8 @@
 // ============================================================
 // Seed ADITIVO — permisos "<modulo>:comentar".
 //
-// A diferencia de seed-rbac.ts (que BORRA y reconstruye la matriz,
-// la jerarquía y las asignaciones demo), este script solo INSERTA los
-// permisos de comentar y sus concesiones por rol. Es idempotente y NO
+// Complementa inicializar-rbac.ts para instalaciones existentes: solo
+// INSERTA los permisos de comentar y sus concesiones por rol. Es idempotente y NO
 // toca ningún ajuste manual de /config/permisos ni la jerarquía o las
 // asignaciones existentes.
 //

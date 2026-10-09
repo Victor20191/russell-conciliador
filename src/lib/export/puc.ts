@@ -170,7 +170,7 @@ export async function crearExportacionPuc(
   generadoEn: Date = new Date(),
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Russell LFM";
+  wb.creator = "Russell Conciliador";
   wb.created = generadoEn;
 
   const arbol = construirPucRussell(datos.estandar, datos.subgrupos ?? []);

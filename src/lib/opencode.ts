@@ -278,7 +278,7 @@ async function solicitarOpenCode({
       headers: {
         ...headers,
         "x-opencode-session": sessionId.trim(),
-        "User-Agent": "russell-lfm/reporte-ejecutivo",
+        "User-Agent": "russell-conciliador/reporte-ejecutivo",
       },
       body: JSON.stringify(body),
     });

@@ -162,7 +162,7 @@ async function probarS3(
       new PutObjectCommand({
         Bucket: bucket,
         Key: clave,
-        Body: "Prueba de conexión de Russell LFM",
+        Body: "Prueba de conexión de Russell Conciliador",
         ContentType: "text/plain",
       }),
     );
@@ -373,7 +373,7 @@ async function probarWebhook(
       headers,
       body: JSON.stringify({
         evento: "prueba.conexion",
-        plataforma: "Russell LFM",
+        plataforma: "Russell Conciliador",
         fecha: new Date().toISOString(),
       }),
       signal: AbortSignal.timeout(TIMEOUT_CONEXION_MS),

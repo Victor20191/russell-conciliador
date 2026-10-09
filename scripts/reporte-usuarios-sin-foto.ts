@@ -71,7 +71,7 @@ async function main() {
   const outPath = path.join(outDir, `usuarios-sin-foto-perfil_${fecha}.xlsx`);
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Russell LFM";
+  wb.creator = "Russell Conciliador";
   wb.created = new Date();
 
   // --- Resumen ---

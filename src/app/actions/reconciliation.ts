@@ -1,23 +1,15 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-import { aplicativosDelProceso } from "@/lib/erp-cliente";
-import { procesoErpDeModulo } from "@/lib/erp-procesos";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
-import { createProcessNotification } from "@/lib/notifications";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { mensajeErrorBD } from "@/lib/errores";
-import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import type { ActionState } from "@/lib/definitions";
-import { anioColombia } from "@/lib/fecha-hora";
-import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
-import { validarCompuertaPrevalidador } from "@/lib/modulos/compuerta-cruce";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
 // permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
@@ -96,23 +88,8 @@ export async function sendToReviewer(formData: FormData): Promise<ActionState> {
   }
 }
 
-// Partidas demo del cruce de Inventarios (mismas que el cruce de referencia).
-const DEMO_CROSS_ROWS: [string, string, number, number, number, number][] = [
-  ["143505", "Mercancías no fabricadas por la empresa", 412580450, 412580450, 0, 124],
-  ["143510", "Materias primas", 188204000, 188204000, 0, 86],
-  ["143515", "Productos en proceso", 74215300, 72850450, -1364850, 41],
-  ["143520", "Materiales, repuestos y accesorios", 56118200, 56340800, 222600, 33],
-  ["143524", "Producto terminado", 245118400, 240218400, -4900000, 58],
-  ["143530", "Envases y empaques", 18445000, 18445000, 0, 22],
-  ["143599", "Otros inventarios", 9120000, 10845200, 1725200, 14],
-  ["148015", "Provisión obsolescencia", -12450000, -12450000, 0, 1],
-  ["143580", "Inventarios en tránsito", 31200000, 29420000, -1780000, 6],
-];
-
-class ErrorCompuertaPrevalidador extends Error {}
-
-type ContextoPrevalidador = Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>>;
-
+// Compatibilidad con formularios anteriores: las conciliaciones se ejecutan en
+// los módulos con archivos reales. Esta acción solo orienta y nunca persiste cruces.
 export async function executeReconciliation(
   _prev: ActionState | undefined,
   formData: FormData,
@@ -129,129 +106,17 @@ export async function executeReconciliation(
   const alcance = await authorizePermiso("conciliaciones:ejecutar", { clientId });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
-  // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
-  // redirect() funciona lanzando una excepción especial que NO debe capturarse.
-  let reconciliationId: number | null = null;
   try {
-    const [client, mod, user] = await Promise.all([
-      prisma.client.findUnique({
-        where: { id: clientId },
-        include: {
-          erp: { select: { name: true } },
-          erpsPorProceso: {
-            select: {
-              process: { select: { code: true } },
-              erp: { select: { name: true } },
-            },
-          },
-        },
-      }),
-      prisma.module.findUnique({ where: { id: moduleId } }),
-      getCurrentUser(),
-    ]);
-    if (!client || !mod) return { ok: false, message: "Cliente o módulo inexistente." };
+    const mod = await prisma.module.findUnique({ where: { id: moduleId }, select: { code: true } });
+    if (!mod) return { ok: false, message: "Módulo inexistente." };
+    const descriptor = descriptorModulo(mod.code.trim().toUpperCase());
+    if (!descriptor) return { ok: false, message: "El módulo seleccionado no tiene un flujo de conciliación disponible." };
 
-    // ING ya cuenta con un flujo operativo basado en archivos reales. Evita que
-    // el conciliador legado cree para ese módulo las partidas demostrativas de
-    // Inventarios definidas en DEMO_CROSS_ROWS.
-    if (mod.code.trim().toUpperCase() === "ING") {
-      return {
-        ok: false,
-        message:
-          "El módulo de Ingresos se concilia desde /modulos/ing con los datos reales cargados. El flujo legado no genera partidas demostrativas para ING.",
-      };
-    }
-
-    // Cartera, CxP e Ingresos usan los aplicativos de Contabilidad; el resto, el suyo.
-    const campoModulo = procesoErpDeModulo(mod.code) ?? mod.code.trim().toUpperCase();
-    const erpsModulo = aplicativosDelProceso(
-      (client.erpsPorProceso ?? [])
-        .filter((asignacion) => asignacion.process.code === campoModulo)
-        .map((asignacion) => asignacion.erp.name),
-      client.erp?.name ?? null,
-    );
-    if (erpsModulo.length === 0) {
-      return {
-        ok: false,
-        message: `El cliente no tiene un ERP definido para ${mod.name}. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.`,
-      };
-    }
-
-    let preflight: ContextoPrevalidador;
-    try {
-      preflight = await cargarContextoPrevalidadorBalance(balanceId);
-    } catch {
-      return { ok: false, message: "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado." };
-    }
-    const bloqueoPreflight = validarCompuertaPrevalidador(preflight, clientId, mod.code);
-    if (bloqueoPreflight) return { ok: false, message: bloqueoPreflight };
-
-    const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
-    const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
-
-    const { id, code } = await transaccionSerializable(async (tx) => {
-      // Misma llave que usan homologación, override y congelamiento. La relectura
-      // dentro de la transacción elimina la ventana entre preflight y creación.
-      await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
-      await tomarCandadoTransaccion(tx, `balance-oficial:${clientId}:${preflight.balance.periodo}`);
-      const contexto = await cargarContextoPrevalidadorBalance(balanceId, tx);
-      const bloqueo = validarCompuertaPrevalidador(contexto, clientId, mod.code);
-      if (bloqueo) throw new ErrorCompuertaPrevalidador(bloqueo);
-
-      const temporalCode = `REC-TMP-${randomUUID()}`;
-      const ahora = new Date();
-      const reconciliation = await tx.reconciliation.create({
-        data: {
-          code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period: contexto.balance.periodo,
-          erp: erpsModulo.join(" · "), status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
-          owner: user?.name ?? "Auditor", cutoff: contexto.balance.periodoFin, runAt: ahora, runBy: user?.name ?? "Auditor",
-          balancePrevalidadoId: contexto.balance.id,
-          materiality: 2000000, lastActivity: ahora,
-          rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
-        },
-        select: { id: true },
-      });
-
-      const year = anioColombia(ahora);
-      const code = `REC-${year}-${5000 + reconciliation.id}`;
-      await tx.reconciliation.update({
-        where: { id: reconciliation.id },
-        data: { code },
-      });
-
-      // Marca el módulo del cliente como parametrizado.
-      await tx.clientModule.upsert({
-        where: { clientId_moduleId: { clientId, moduleId } },
-        create: { clientId, moduleId, status: "configured" },
-        update: { status: "configured" },
-      });
-
-      return { id: reconciliation.id, code };
-    });
-
-    await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${preflight.balance.periodo} · balance ${balanceId}` });
-    await createProcessNotification({
-      actor: user?.name,
-      text: "ejecutó el proceso de conciliación de",
-      target: `${client.name} · ${mod.name} · ${preflight.balance.periodo}`,
-    });
-    revalidatePath("/", "layout");
-    reconciliationId = id;
+    return {
+      ok: false,
+      message: `La conciliación de ${descriptor.label} se realiza desde /modulos/${descriptor.codigo.toLowerCase()} con los datos reales cargados. Abre el módulo para continuar.`,
+    };
   } catch (e) {
-    if (e instanceof ErrorCompuertaPrevalidador) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD("executeReconciliation", e) };
   }
-
-  // Éxito: redirige al detalle del cruce con la señal `ejecutada=1`, que la
-  // página destino usa para confirmar con un toast (FlashToast). El redirect()
-  // se ejecuta FUERA del try porque funciona lanzando una excepción especial.
-  if (reconciliationId !== null) {
-    redirect(`/conciliacion/resultados/${reconciliationId}?ejecutada=1`);
-  }
-  return { ok: false, message: "No se pudo ejecutar la conciliación." };
-}
-
-function fmtSigned(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}$ ${Math.abs(n).toLocaleString("es-CO")}`;
 }

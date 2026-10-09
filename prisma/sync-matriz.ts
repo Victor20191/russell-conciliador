@@ -3,8 +3,8 @@
 // (src/lib/rbac/catalogo.ts), SIN tocar jerarquía, asignaciones ni
 // usuarios.
 //
-// A diferencia de `db:seed:rbac` (que borra y re-crea la jerarquía y
-// las asignaciones demo), este script solo reconcilia:
+// A diferencia de `db:inicializar:rbac` (que agrega el catálogo mínimo
+// para una base nueva), este script reconcilia la configuración existente:
 //   1) roles      — upsert por code (no borra roles extra: solo avisa)
 //   2) permisos   — upsert por code (no borra permisos extra: solo avisa)
 //   3) roles_permisos (la MATRIZ) — la deja EXACTAMENTE igual al

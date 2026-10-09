@@ -202,7 +202,7 @@ export async function crearPlantillaImportacionClientes(
   catalogo: CatalogoPlantillaClientes,
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Russell LFM";
+  wb.creator = "Russell Conciliador";
   wb.created = new Date();
 
   const ws = wb.addWorksheet(HOJA_CLIENTES, {

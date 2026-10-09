@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="migracion-russell" name="Migración al cliente">
+    <mxGraphModel dx="1200" dy="720" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="720" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Migración de Russell LFM al cliente" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=30;fontColor=#17324D;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="44" y="28" width="1100" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="phase1" value="1  MIGRACIÓN INICIAL" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=18;fontColor=#17324D;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="44" y="98" width="1050" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="origen" value="&lt;b&gt;Servidores Xentria&lt;/b&gt;&lt;br&gt;&lt;br&gt;Aplicación&lt;br&gt;PostgreSQL y archivos" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#EAF2FC;strokeColor=#759BCB;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="44" y="150" width="198" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="respaldo" value="&lt;b&gt;Respaldo y pausa&lt;/b&gt;&lt;br&gt;&lt;br&gt;Pausar escrituras&lt;br&gt;Guardar copia final" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#EAF2FC;strokeColor=#759BCB;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="272" y="150" width="198" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="traslado" value="&lt;b&gt;Trasladar al cliente&lt;/b&gt;&lt;br&gt;&lt;br&gt;Instalar aplicación&lt;br&gt;Restaurar BD y archivos" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#EAF2FC;strokeColor=#759BCB;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="500" y="150" width="198" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="validacion" value="&lt;b&gt;Probar y aprobar&lt;/b&gt;&lt;br&gt;&lt;br&gt;Xentria verifica&lt;br&gt;Cliente valida" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#FFF4D8;strokeColor=#D6B35F;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="728" y="150" width="198" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="produccion" value="&lt;b&gt;Activar producción&lt;/b&gt;&lt;br&gt;&lt;br&gt;Cambiar el acceso&lt;br&gt;Operar en el cliente" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#E4F3EB;strokeColor=#75A68A;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="956" y="150" width="198" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="mig0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="origen" target="respaldo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mig1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="respaldo" target="traslado">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mig2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="traslado" target="validacion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="mig3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="validacion" target="produccion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="nota1" value="Transferencia y soporte mediante VPN o bastión autorizado." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=17;fontColor=#526474;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="44" y="288" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nota2" value="Al activar al cliente, el servidor anterior deja de recibir datos nuevos." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=17;fontColor=#526474;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="44" y="328" width="1100" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="phase2" value="2  ACTUALIZACIONES POSTERIORES" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=18;fontColor=#17324D;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="44" y="408" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="desarrollo" value="&lt;b&gt;Xentria desarrolla&lt;/b&gt;&lt;br&gt;&lt;br&gt;Código y migraciones&lt;br&gt;de base de datos" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#EAF2FC;strokeColor=#759BCB;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="44" y="465" width="244" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="aprobacion" value="&lt;b&gt;Probar y aprobar&lt;/b&gt;&lt;br&gt;&lt;br&gt;Pruebas previas&lt;br&gt;Autorización del cliente" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#FFF4D8;strokeColor=#D6B35F;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="333" y="465" width="244" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="acceso" value="&lt;b&gt;Acceder por VPN&lt;/b&gt;&lt;br&gt;&lt;br&gt;Paquete aprobado&lt;br&gt;y respaldo previo" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#EAF2FC;strokeColor=#759BCB;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="622" y="465" width="244" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="actualizar" value="&lt;b&gt;Actualizar al cliente&lt;/b&gt;&lt;br&gt;&lt;br&gt;Aplicar cambios&lt;br&gt;Verificar funcionamiento" style="rounded=1;whiteSpace=wrap;html=1;arcSize=14;fillColor=#E4F3EB;strokeColor=#75A68A;strokeWidth=1.5;fontColor=#17324D;fontFamily=Helvetica;fontSize=17;spacing=14;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="911" y="465" width="244" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="upd0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="desarrollo" target="aprobacion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="upd1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="aprobacion" target="acceso">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="upd2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#58748C;strokeWidth=2;" edge="1" parent="1" source="acceso" target="actualizar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="nota3" value="Los datos de producción permanecen en el cliente. Cada actualización conserva esos datos." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=17;fontColor=#526474;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="44" y="616" width="1100" height="44" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

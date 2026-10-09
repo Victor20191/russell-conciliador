@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -361,7 +362,7 @@ for ci in range(10, len(headers) + 1):
 wb.move_sheet("Listas", offset=2)
 wb.active = wb.sheetnames.index("Clientes")
 
-out = "/Users/vicbook/Documents/Xentria-apps/Russell Diagnostico/russell-lfm/Plantilla_Importacion_Clientes.xlsx"
+out = Path(__file__).resolve().parent.parent / "Plantilla_Importacion_Clientes.xlsx"
 wb.save(out)
 print("OK", out)
 print("socios", socios)

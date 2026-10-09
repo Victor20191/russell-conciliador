@@ -2,9 +2,10 @@
 // Catálogo RBAC — Roles, permisos y matriz rol×permiso.
 //
 // FUENTE ÚNICA DE VERDAD, compartida por:
-//   - el seed de BD            (prisma/seed-rbac.ts)
+//   - el catálogo mínimo de BD (prisma/inicializar-rbac.ts)
 //   - las pruebas de permisos  (src/lib/rbac/permisos.test.ts)
-// Así la validación refleja EXACTAMENTE lo que se siembra.
+// Así las pruebas validan las concesiones predeterminadas del catálogo.
+// La configuración vigente de cada instalación puede tener ajustes propios.
 //
 // Derivado de:
 //   - "RB_GCT Roles y Responsabilidades – Área de Revisoría Fiscal"
@@ -332,8 +333,8 @@ export const PERMISOS_LECTURA_GENERAL: string[] = PERMISOS
 /**
  * Matriz rol×permiso COMPLETA: los 5 roles del PDF + los roles legado,
  * a los que se les hereda el conjunto de permisos de su rol del PDF
- * (o la lectura general si no hay equivalente). Es la que siembra
- * prisma/seed-rbac.ts para que NINGÚN rol quede sin permisos.
+ * (o la lectura general si no hay equivalente). Es la base que agrega
+ * prisma/inicializar-rbac.ts para que NINGÚN rol quede sin permisos.
  */
 export function matrizConLegado(): Matriz {
   const m: Matriz = {};

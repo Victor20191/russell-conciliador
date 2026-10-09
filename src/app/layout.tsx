@@ -31,7 +31,7 @@ const newsreader = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Russell Bedford · Conciliador",
+  title: "Russell Conciliador",
   description:
     "Plataforma de conciliación y diagnóstico contable y tributario — Russell Bedford",
 };

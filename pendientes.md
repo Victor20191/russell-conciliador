@@ -4,7 +4,7 @@ Reunión del 22/06/2026 — Víctor Rivera & Luisa Martinez
 
 ---
 
-## Russell — Etapa 3 (Desarrollo LFM)
+## Russell — Etapa 3 (Desarrollo Russell Conciliador)
 
 1. **Módulos de impuestos en clientes:** incluir IVA, ICA y Retefuente junto a los 6 RP, con checkbox visual similar pero marcando que están dentro de la categoría "Impuestos". (Víctor)
 2. **Conformación de equipos de trabajo:** dejar/validar la visual y evaluar si genera valor con la info que entregaron. (Pendiente nuestro — backlog)

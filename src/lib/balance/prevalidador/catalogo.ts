@@ -97,7 +97,7 @@ export type FilaFabricaPrevalidador = {
 
 /**
  * Orden de los módulos en el informe, tal como los listó Russell. Los códigos son
- * los de `modulos` (`prisma/seed.ts`): "Cartera" es lo que Russell llama cuentas por
+ * los del catálogo operativo `modulos`: "Cartera" es lo que Russell llama cuentas por
  * cobrar y "Activos fijos" lo que llama propiedad, planta y equipo.
  */
 export const PREVALIDADOR_MODULOS_ORDEN: readonly string[] = [

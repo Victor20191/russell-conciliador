@@ -1,124 +1,110 @@
-# Russell Bedford · Conciliador / Diagnóstico
+# Russell Conciliador
 
-Plataforma de conciliación y diagnóstico contable y tributario, migrada del prototipo
-original (React sobre Babel en el navegador) a una aplicación **Next.js 16** completa con
-backend real, autenticación y persistencia en **PostgreSQL** vía **Prisma**.
+Plataforma de conciliación y diagnóstico contable y tributario en producción,
+con Next.js 16, React 19, TypeScript, Prisma 7 y PostgreSQL.
 
-## Stack
+## Estructura de la base de datos
 
-| Capa | Tecnología |
-|------|------------|
-| Framework | **Next.js 16.2.7** (App Router · Turbopack · React 19.2) |
-| Estilos | **Tailwind CSS v4** (tokens institucionales en `@theme`) |
-| ORM / BD | **Prisma 7.8** + **PostgreSQL** (driver adapter `@prisma/adapter-pg`) |
-| Autenticación | Patrón nativo de Next 16: **credenciales (email/contraseña)** con **bcrypt** + **sesión JWT** firmada con **Jose**, cookies `httpOnly`, DAL y protección por `proxy.ts` |
-| Validación | **Zod 4** |
-| Lenguaje | **TypeScript 5** |
+- `prisma/schema.prisma`: modelo usado por el código de esta aplicación.
+- `prisma/migrations/`: historial de migraciones versionadas; se conserva íntegro.
+- `prisma/estructura-actual/estructura.sql`: exportación de la estructura consultada
+  directamente en PostgreSQL, incluidas tablas, columnas, índices, secuencias,
+  restricciones, funciones y triggers. Es DDL portable, sin propietarios ni
+  permisos/GRANT de PostgreSQL; no contiene filas de negocio.
+- `prisma/estructura-actual/estructura.json`: inventario de tablas y columnas,
+  versión del servidor, fecha de consulta y SHA-256 del SQL.
+- `prisma/estructura-actual/diferencias-con-modelo.sql`: diferencias detectadas
+  entre el modelo local y el servidor al preparar la instantánea; es una referencia
+  de revisión, no una migración para ejecutar automáticamente.
 
-### Nota sobre autenticación
-
-Se eligió el **patrón de autenticación nativo documentado por Next.js 16** en lugar de
-`next-auth`/Auth.js v5 porque este último sigue en beta/RC y arrastra fricciones con Next 16
-(el renombrado `middleware.ts` → `proxy.ts` y el adapter de Prisma en el runtime edge).
-El resultado funcional es idéntico al solicitado: **login con credenciales propias +
-sesión JWT**. Migrar a `next-auth` más adelante es directo (los modelos `User` ya existen).
-
-## Requisitos
-
-- Node.js ≥ 20.9 (probado con 22.16)
-- PostgreSQL ≥ 14 corriendo en `localhost:5432`
-
-## Puesta en marcha
+Para actualizar la exportación desde la conexión configurada en `DATABASE_URL`:
 
 ```bash
-# 1. Instalar dependencias (genera el cliente Prisma automáticamente)
-npm install
-
-# 2. Configurar variables de entorno en .env
-#   Este archivo es local y no se versiona.
-#   - DATABASE_URL: cadena de conexión a PostgreSQL
-#   - SESSION_SECRET: genera uno con  openssl rand -base64 32
-#   - ANTHROPIC_API_KEY: proveedor obligatorio de balances en producción
-#   - BALANCE_AI_DEV_SELECTOR=true + BALANCE_AI_PROVIDER=gemini + GEMINI_API_KEY:
-#     opción económica solo con `next dev` local (selector en /balance › Cargar balance)
-#     Todo build/despliegue para clientes oculta el selector y fuerza Anthropic.
-#   - OPENROUTER_API_KEY: opcional, habilita reportes funcionales IA en /novedades
-
-# 3. Crear la base de datos (si no existe)
-createdb russell_lfm
-
-# 4. Aplicar el esquema y los datos de ejemplo
-npm run db:migrate     # aplica las migraciones
-npm run db:seed        # carga datos demo (clientes, balances, DIAN, etc.)
-
-# 5. Arrancar en desarrollo
-npm run dev            # http://localhost:3000
+npm run db:exportar:estructura
+# Directorio alternativo:
+npm run db:exportar:estructura -- --salida /ruta/del/paquete/estructura
 ```
 
-## Credenciales de demostración
+El comando consulta catálogos del servidor, ejecuta `pg_dump --schema-only` y
+regenera la comparación de solo lectura con el modelo local (`prisma migrate diff`).
+Requiere las herramientas cliente de PostgreSQL (`pg_dump` en PATH o
+`PG_DUMP_PATH` con su ruta). Para leer el SQL con `psql`, usa un cliente de la
+misma versión o posterior a la de `pg_dump` indicada en `estructura.json`.
+No cambia tablas ni registros y no exporta
+contraseñas de conexión. La estructura SQL no incluye usuarios de la aplicación,
+clientes, balances ni la configuración guardada como filas en tablas.
 
-| Correo | Rol | Contraseña |
-|--------|-----|------------|
-| `admin@russellbedford.co` | Auditor Senior | `Russell2026*` |
-| `juliana@russellbedford.co` | Auditor Junior | `Russell2026*` |
+La instantánea del 7 de octubre de 2026 corresponde a PostgreSQL 16.14 y 99 tablas
+(incluida `_prisma_migrations`). Aunque las 145 migraciones locales figuran
+aplicadas, el servidor contiene columnas adicionales y la tabla
+`pares_depreciacion_modulo` que no están en el modelo local. La diferencia queda
+registrada junto al SQL; preparar un paquete debe usar la instantánea real y
+reconciliar esta diferencia con la revisión del código que se despliegue.
 
-## Scripts
+## Operación en producción
 
-| Script | Descripción |
-|--------|-------------|
-| `npm run dev` | Servidor de desarrollo (Turbopack) |
-| `npm run build` | Build de producción |
-| `npm start` | Servir el build de producción |
-| `npm run lint` | ESLint |
-| `npm run db:migrate` | Crear/aplicar migraciones Prisma |
-| `npm run db:seed` | Cargar datos de ejemplo |
-| `npm run db:studio` | Prisma Studio (explorador de BD) |
-| `npm run db:migrar:patrones` | Convierte los perfiles de carga de módulos en versiones pendientes de patrones por aplicativo (dry-run; `-- --aplicar`) |
+Requisitos: Node.js compatible con Next.js 16 (mínimo 20.9), PostgreSQL y las
+variables privadas de la instalación. `.env` es local y no se versiona.
 
-## Rutas del menú
+Variables esenciales:
 
+- `DATABASE_URL`: conexión a la base correspondiente a la instalación.
+- `SESSION_SECRET`: secreto propio de esa instalación.
+- `ANTHROPIC_API_KEY`: extracción de balances con IA.
+- Variables S3/R2 del almacenamiento de fotos y de evidencias de tickets, cuando
+  se habiliten esas funciones; consultar sus nombres en `CLAUDE.md` y en el código.
+- `NEXT_DEPLOYMENT_ID`: mismo identificador al construir y arrancar la aplicación.
+
+Para actualizar una instalación existente, con un respaldo previo y la revisión
+correcta del código:
+
+```bash
+npm ci
+npm run db:status
+npm run db:deploy
+export NEXT_DEPLOYMENT_ID=$(git rev-parse --short HEAD)
+npm run build
+npm start
 ```
-/login                         Inicio de sesión (público)
-/dashboard                     Inicio — resumen (datos de Prisma)
-/balance                       Balance de comprobación — repositorio (Prisma)
-/balance/[id]                  Detalle de balance: sumas, validaciones, desglose (Prisma)
-/balance/mapeo                 Mapeo plan estándar — PUC de la firma (Prisma)
-/balance/estado-resultado      Estado de Resultado
-/razonabilidad                 Análisis de razonabilidad
-/conciliacion/nueva            Asistente de nueva conciliación
-/conciliacion/en-proceso       Conciliaciones con diferencias/revisión (Prisma)
-/conciliacion/resultados       Histórico de cruces (Prisma)
-/dian                          Impuestos · DIAN — formatos y períodos (Prisma)
-/requerimientos                Requerimientos de información
-/calendario                    Calendario tributario y de cierres
-/auditoria                     Registro de auditoría (Prisma)
-/config/modulos                Módulos y campos (Prisma)
-/config/clientes               Clientes y parametrización (Prisma)
-/config/dian                   Mapeos DIAN
-```
 
-Las rutas marcadas **(Prisma)** ya leen de la base de datos. El resto están enrutadas y
-con UI base, listas para migración progresiva del detalle desde el prototipo original.
+El gestor de procesos del servidor debe conservar el entorno usado durante el
+build. `db:deploy` aplica las migraciones pendientes y no propone reiniciar la base.
+La exportación SQL conserva la estructura lógica, pero no reconstruye propietarios
+ni permisos de usuarios PostgreSQL. No debe restaurarse
+encima de una base existente ni combinarse con `migrate deploy` en una base nueva
+sin definir antes su línea base de migraciones.
 
-## Estructura
+## Catálogos operativos
 
-```
-prisma/
-  schema.prisma          Modelos (User, Client, Module, Reconciliation, Balance, DianForm…)
-  seed.ts                Datos de ejemplo (portados de los mocks *.jsx del prototipo)
-src/
-  proxy.ts               Protección de rutas (sustituye a middleware en Next 16)
-  generated/prisma/      Cliente Prisma generado
-  lib/
-    prisma.ts            Singleton de PrismaClient con driver adapter
-    session.ts           JWT (Jose) + cookies httpOnly
-    dal.ts               verifySession / getCurrentUser (capa de acceso a datos)
-    definitions.ts       Esquemas Zod y tipos
-    nav.ts, format.ts    Navegación y helpers de formato
-  components/            Sidebar, Topbar, Icon/BrandMark, UI compartida
-  app/
-    layout.tsx           Layout raíz (fuentes IBM Plex / Newsreader)
-    login/               Página de login + Server Action
-    actions/auth.ts      Server Actions: login / logout
-    (app)/               Grupo de rutas protegidas (layout con Sidebar + Topbar)
-```
+El proyecto no incluye cargas de usuarios, clientes, balances o resultados ficticios,
+ni cuentas con contraseña compartida. En una base nueva, la configuración y los
+usuarios se provisionan para la instalación real.
+
+`npm run db:inicializar:rbac` agrega los roles, permisos y concesiones mínimas del
+catálogo del código. No crea usuarios, jerarquías ni responsables; no es una copia
+de los permisos configurados en producción. Conserva filas y ediciones existentes,
+pero agrega concesiones predeterminadas faltantes, por lo que se reserva para la
+inicialización de una base nueva.
+
+Se conservan las utilidades operativas de PUC, subgrupos, prompts y permisos.
+`db:sync:rbac` muestra diferencias por defecto; con `-- --aplicar` también revoca
+concesiones que no estén en el catálogo. Los catálogos y las novedades se cargan
+solo cuando corresponde a una operación autorizada, no como parte del despliegue.
+
+## Comandos
+
+| Comando | Uso |
+|---------|-----|
+| `npm run db:status` | Revisar migraciones aplicadas y pendientes |
+| `npm run db:deploy` / `npm run db:migrate` | Aplicar migraciones versionadas |
+| `npm run db:exportar:estructura` | Exportar únicamente la estructura real de PostgreSQL |
+| `npm run db:inicializar:rbac` | Inicializar catálogo mínimo de permisos en una base nueva |
+| `npm run db:sync:rbac` | Comparar matriz de permisos, sin cambios por defecto |
+| `npm run build` | Construir la aplicación para producción |
+| `npm start` | Servir la compilación |
+| `npm run test` | Ejecutar pruebas automatizadas aisladas |
+| `npm run lint` | Revisar el código con ESLint |
+| `npx tsc --noEmit` | Comprobar tipos |
+
+`npm run dev` y `npm run db:migrate:dev` quedan como herramientas de desarrollo;
+no forman parte del procedimiento de producción ni generan datos ficticios.

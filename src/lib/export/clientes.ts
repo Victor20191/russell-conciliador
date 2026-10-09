@@ -181,7 +181,7 @@ export async function crearExportacionClientes(
   generadoEn: Date = new Date(),
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Russell LFM";
+  wb.creator = "Russell Conciliador";
   wb.created = generadoEn;
 
   const ws = wb.addWorksheet(HOJA_CLIENTES, {

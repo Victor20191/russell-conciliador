@@ -76,7 +76,7 @@ graphify-out/
 !.claude/
 .claude/*
 !.claude/agents/
-!.claude/agents/russell-lfm-evolucion.md
+!.claude/agents/russell-conciliador-evolucion.md
 
 # snapshots de reversión de scripts/rehomologar-fuera-de-clase.ts (datos de producción)
 scripts/.snapshots/

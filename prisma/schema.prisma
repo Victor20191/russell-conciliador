@@ -1,5 +1,5 @@
-// Schema Prisma 7 — Russell Bedford · Conciliador/Diagnóstico
-// Modelos derivados de los datos demo del prototipo original (data*.jsx)
+// Modelo de persistencia de la aplicación — Russell Conciliador (Prisma 7).
+// La instantánea de la estructura consultada en el servidor está en estructura-actual/.
 //
 // Convención: la base de datos física está en ESPAÑOL.
 //   - Tablas: @@map("nombre_en_espanol")

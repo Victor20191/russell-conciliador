@@ -296,4 +296,4 @@ Basado en estas implementaciones, se podrían considerar:
 ---
 
 *Presentación generada el 28 de junio de 2026 para Russell Diagnóstico*  
-*Basada en los commits recientes del repositorio russell-lfm*
+*Basada en los commits recientes del repositorio russell-conciliador*

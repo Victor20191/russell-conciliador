@@ -132,7 +132,7 @@ export async function crearPlantillaConceptosNomina(
   catalogo: CatalogoPlantillaConceptos,
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Russell LFM";
+  wb.creator = "Russell Conciliador";
   wb.created = new Date();
 
   const ws = wb.addWorksheet(HOJA_CONCEPTOS, { views: [{ state: "frozen", ySplit: 1 }] });

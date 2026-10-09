@@ -84,7 +84,7 @@ describe("sesión de OpenCode", () => {
     expect(url).toEqual(expect.stringContaining(ruta));
     const headers = new Headers(opciones.headers);
     expect(headers.get("x-opencode-session")).toBe("sesion-reporte");
-    expect(headers.get("user-agent")).toBe("russell-lfm/reporte-ejecutivo");
+    expect(headers.get("user-agent")).toBe("russell-conciliador/reporte-ejecutivo");
     if (ruta === "/messages") {
       expect(headers.get("x-api-key")).toBe("clave-de-prueba");
       expect(headers.get("anthropic-version")).toBe("2023-06-01");

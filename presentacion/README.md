@@ -65,7 +65,7 @@ Para generar PDF:
 
 ## Nota importante
 
-Esta presentación se basa en los commits reales del repositorio russell-lfm desde junio de 2026, incluyendo funcionalidades como:
+Esta presentación se basa en los commits reales del repositorio russell-conciliador desde junio de 2026, incluyendo funcionalidades como:
 - Gestión de prompts de IA (commit a13294d)
 - Monitoreo de consumo de IA (commit 1ad00f6)
 - Fotos de perfil y exportación de clientes (commit fa84d46)

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Genera la guía PDF: "Flujo de configuración: Clientes, Equipos, Cartera,
-Usuarios y Permisos por rol" para la plataforma Russell Bedford (russell-lfm).
+Usuarios y Permisos por rol" para la plataforma Russell Conciliador.
 """
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -202,7 +202,7 @@ def on_content(canvas, doc):
     canvas.rect(0, PAGE_H - 12 * mm, 6 * mm, 12 * mm, fill=1, stroke=0)
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 8.5)
-    canvas.drawString(MARGIN, PAGE_H - 7.8 * mm, "RUSSELL BEDFORD · russell-lfm")
+    canvas.drawString(MARGIN, PAGE_H - 7.8 * mm, "RUSSELL CONCILIADOR")
     canvas.setFont("Helvetica", 7.6)
     canvas.setFillColor(colors.HexColor("#B9C6D6"))
     canvas.drawRightString(PAGE_W - MARGIN, PAGE_H - 7.8 * mm, "Flujo de configuración · Control de acceso (RBAC)")
@@ -239,7 +239,7 @@ def on_cover(canvas, doc):
     canvas.drawString(cx + 12 * mm, cy + 1, "Russell Bedford")
     canvas.setFillColor(colors.HexColor("#9FB0C2"))
     canvas.setFont("Helvetica", 8.5)
-    canvas.drawString(cx + 12 * mm, cy - 9, "Plataforma de Revisoría Fiscal · russell-lfm")
+    canvas.drawString(cx + 12 * mm, cy - 9, "Plataforma de Revisoría Fiscal · Russell Conciliador")
     canvas.restoreState()
 
 
@@ -247,10 +247,10 @@ frame_content = Frame(MARGIN, 14 * mm, PAGE_W - 2 * MARGIN, PAGE_H - 14 * mm - 1
 frame_cover = Frame(MARGIN, 30 * mm, PAGE_W - 2 * MARGIN, PAGE_H - 95 * mm, id="cover")
 
 doc = BaseDocTemplate(
-    "/Users/vicbook/Documents/Xentria-apps/Russell Diagnostico/russell-lfm/Flujo-Configuracion-RBAC.pdf",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Flujo-Configuracion-RBAC.pdf"),
     pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=16 * mm, bottomMargin=16 * mm,
-    title="Flujo de configuración RBAC — russell-lfm",
-    author="Russell Bedford · russell-lfm",
+    title="Flujo de configuración RBAC — Russell Conciliador",
+    author="Russell Conciliador",
     subject="Clientes, Equipos, Cartera, Usuarios y Permisos por rol",
 )
 doc.addPageTemplates([
@@ -702,7 +702,7 @@ story.append(Spacer(1, 8))
 story.append(HRule(CW, color=BORDER))
 story.append(Spacer(1, 3))
 story.append(Paragraph(
-    "Documento de referencia interna basado en la implementación de russell-lfm "
+    "Documento de referencia interna basado en la implementación de Russell Conciliador "
     "(src/lib/rbac, src/app/actions y src/app/(app)/config). El comportamiento descrito refleja el "
     "código vigente; ante cambios en el catálogo de permisos, vuelve a sembrar la matriz.", TINY))
 

@@ -24,7 +24,7 @@ const CODES = [
 
 async function main() {
   const admin = await prisma.role.findUnique({ where: { code: "Administrador" }, select: { id: true } });
-  if (!admin) throw new Error("No existe el rol Administrador (¿corriste el seed RBAC?).");
+  if (!admin) throw new Error("No existe el rol Administrador (inicializa el catálogo con npm run db:inicializar:rbac).");
 
   const permisos = await prisma.permission.findMany({
     where: { code: { in: CODES } },
@@ -32,7 +32,7 @@ async function main() {
   });
   if (permisos.length !== CODES.length) {
     const faltan = CODES.filter((c) => !permisos.some((p) => p.code === c));
-    throw new Error(`Faltan permisos en BD: ${faltan.join(", ")} (corre el seed RBAC).`);
+    throw new Error(`Faltan permisos en BD: ${faltan.join(", ")} (inicializa el catálogo con npm run db:inicializar:rbac).`);
   }
 
   const res = await prisma.rolePermission.createMany({

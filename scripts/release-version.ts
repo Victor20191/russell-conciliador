@@ -159,7 +159,7 @@ async function main() {
     `Release ${nueva}`;
 
   console.log("");
-  console.log("📦 Release de versión Russell LFM");
+  console.log("📦 Release de versión Russell Conciliador");
   console.log("─────────────────────────────────");
   console.log(`  package.json actual : ${actual}`);
   console.log(`  nueva versión       : ${nueva}`);
