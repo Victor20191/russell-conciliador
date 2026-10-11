@@ -71,6 +71,9 @@ modulos-inv-*.png
 graphify-out/
 .graphify*
 
+# Diagramas generados con la skill Archify (HTML, candidatos y evidencias; no versionar)
+.archify/
+
 # El subagente de evolución sí pertenece al proyecto; el estado local anterior
 # permanece ignorado y no se versiona.
 !.claude/
