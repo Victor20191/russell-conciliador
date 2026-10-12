@@ -216,13 +216,13 @@ function CodigosDeduccionNomina({
         type="text"
         value={texto}
         onChange={(e) => cambiar(e.target.value)}
-        placeholder="Ej.: 500-799"
+        placeholder="Ej.: 500-799; 100-150"
         aria-invalid={error != null}
         className={`${claseCampo} max-w-xs`}
       />
       <span className="text-[11px] leading-snug text-ink-500">
         Solo si el archivo trae todos los valores en positivo y ninguna columna dice qué es devengo y qué es deducción
-        (NOMINAI: 500-799). Los conceptos con esos códigos se restan. Varios rangos van separados con coma: 500-799, 900.
+        (NOMINAI: 500-799). Los conceptos con esos códigos se restan. Varios rangos van separados con coma o punto y coma: 500-799; 100-150.
       </span>
       {error ? (
         <span className="text-[11px] font-semibold leading-snug text-err-700">{error}</span>

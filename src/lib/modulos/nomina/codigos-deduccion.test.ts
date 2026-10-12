@@ -11,6 +11,13 @@ describe("parsearRangosCodigos", () => {
     });
   });
 
+  it("separa con coma o con punto y coma, y los ordena", () => {
+    const esperado = { ok: true, rangos: [{ desde: 100, hasta: 150 }, { desde: 500, hasta: 799 }] };
+    expect(parsearRangosCodigos("500-799; 100-150")).toEqual(esperado);
+    expect(parsearRangosCodigos("500-799, 100-150")).toEqual(esperado);
+    expect(parsearRangosCodigos("500-799;100-150;")).toEqual(esperado);
+  });
+
   it("ordena un rango al revés y deja vacío sin rangos", () => {
     expect(parsearRangosCodigos("799-500")).toEqual({ ok: true, rangos: [{ desde: 500, hasta: 799 }] });
     expect(parsearRangosCodigos("  ")).toEqual({ ok: true, rangos: undefined });

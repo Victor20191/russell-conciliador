@@ -33,7 +33,8 @@ export function sanearRangosCodigos(rangos: unknown): RangoCodigos[] | undefined
 }
 
 /**
- * «500-799» o «500-799, 900, 950-960» → rangos. Vacío → sin rangos. Un rango al revés («799-500»)
+ * «500-799», «500-799; 100-150» o «500-799, 900, 950-960» → rangos: se separan con coma o con punto
+ * y coma, indistintamente. Vacío → sin rangos. Un rango al revés («799-500»)
  * se acepta y se ordena; cualquier otro texto es un error que se explica.
  */
 export function parsearRangosCodigos(texto: string): { ok: true; rangos: RangoCodigos[] | undefined } | { ok: false; error: string } {
@@ -42,7 +43,7 @@ export function parsearRangosCodigos(texto: string): { ok: true; rangos: RangoCo
   const rangos: RangoCodigos[] = [];
   for (const parte of partes) {
     const m = /^(\d{1,9})(?:\s*(?:-|–|a|al|hasta)\s*(\d{1,9}))?$/i.exec(parte);
-    if (!m) return { ok: false, error: `«${parte}» no es un código ni un rango. Escribe, por ejemplo, 500-799 o 500-799, 900.` };
+    if (!m) return { ok: false, error: `«${parte}» no es un código ni un rango. Escribe, por ejemplo, 500-799 o 500-799; 100-150.` };
     const a = Number(m[1]);
     const b = m[2] != null ? Number(m[2]) : a;
     rangos.push({ desde: Math.min(a, b), hasta: Math.max(a, b) });
