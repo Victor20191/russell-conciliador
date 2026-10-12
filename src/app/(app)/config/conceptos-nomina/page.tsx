@@ -6,6 +6,7 @@ import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
 import { descriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarCuentasEstandarDeCedula } from "@/lib/modulos/cruce-contable-servidor";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
+import { esAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 import ConceptosNominaClient, { type ConceptoRow } from "./conceptos-nomina-client";
 
 /**
@@ -39,10 +40,10 @@ export default async function ConceptosNominaPage() {
         ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }),
       },
       select: {
-        clienteId: true, clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true,
+        clienteId: true, agruparPor: true, clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true,
         grupo: true, subcuentaPuc: true, cuentaCliente: true, origen: true, actualizadoEn: true,
       },
-      orderBy: [{ clasificador: "asc" }, { agrupador: "asc" }, { cuenta6: "asc" }, { cuentaCliente: "asc" }],
+      orderBy: [{ agruparPor: "asc" }, { clasificador: "asc" }, { agrupador: "asc" }, { cuenta6: "asc" }, { cuentaCliente: "asc" }],
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
     descriptorVigente(MODULO_CONCEPTOS_NOMINA).then((d) => cargarCuentasEstandarDeCedula(d)),
@@ -55,12 +56,13 @@ export default async function ConceptosNominaPage() {
   const cuentaDe = (f: { cuenta4: string; cuenta6: string }) => f.cuenta6 || f.cuenta4;
 
   // Una fila por (cliente, código, centro): sus cuentas se agrupan, porque en BD cada par
-  // concepto↔cuenta es una fila propia.
+  // concepto↔cuenta es una fila propia. Lo guardado agrupando por nombre o por cuenta del cliente
+  // («Agrupar por» del Consolidado) es otra llave: no se mezcla con el código.
   const agrupadas = new Map<string, ConceptoRow>();
   for (const f of filas) {
     const cliente = porCliente.get(f.clienteId);
     if (!cliente) continue; // FK suave: el cliente pudo borrarse
-    const clave = `${f.clienteId}|${f.clasificador}|${f.agrupador}`;
+    const clave = `${f.clienteId}|${f.agruparPor}|${f.clasificador}|${f.agrupador}`;
     const russell = cuentaDe(f);
     const cuenta = { codigo: russell, nombre: russell ? nombreCuenta.get(russell) ?? null : null, cuentaCliente: f.cuentaCliente, subcuentaPuc: f.subcuentaPuc };
     const previa = agrupadas.get(clave);
@@ -77,6 +79,7 @@ export default async function ConceptosNominaPage() {
       clienteNombre: cliente.name,
       clienteNit: cliente.nit,
       codigo: f.clasificador,
+      agruparPor: esAgruparPor(f.agruparPor) ? f.agruparPor : "codigo",
       agrupador: f.agrupador,
       concepto: f.descripcion,
       grupo: f.grupo ? grupoConcepto(f.grupo)?.etiqueta ?? f.grupo : null,

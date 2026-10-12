@@ -23,6 +23,13 @@ import type { FormatoArchivoCartera } from "./cartera/tipo-formato";
 import type { NivelCartera } from "./cartera/saldos-tercero";
 import type { ColumnaDetalle } from "./cartera/columnas-cartera";
 import { claveColumna, claveGrupo, GRUPO_SIN_CLASIFICAR, resumirBorrador, type FilaBorrador, type FilaSlim, type ResumenBorrador } from "./borrador-resumen";
+import {
+  agrupaPorOtraDimension,
+  expresionSqlClaveNomina,
+  SQL_LATERAL_CUENTA_NOMINA,
+  type AgruparPorNomina,
+} from "./nomina/agrupar-por";
+import { nombresCuentasCliente } from "./cargue-servidor";
 
 type FilaCruda = {
   fila_num: number;
@@ -32,6 +39,7 @@ type FilaCruda = {
   tipo_fila: string;
   omitida: boolean | null;
   motivo_tipo_fila: string | null;
+  grupo?: string | null;
 };
 
 const aFila = (f: FilaCruda): FilaBorrador => ({
@@ -42,32 +50,62 @@ const aFila = (f: FilaCruda): FilaBorrador => ({
   tipoFila: f.tipo_fila,
   omitida: f.omitida,
   motivo: f.motivo_tipo_fila,
+  ...(f.grupo !== undefined ? { grupo: f.grupo } : {}),
 });
 
 const CAMPOS = "fila_num, clasificador, valor, tipo_fila, omitida, motivo_tipo_fila";
 
 /**
+ * Cómo se agrupan las filas del borrador en SQL. Por código (o fuera de Nómina) el grupo es el
+ * clasificador, como siempre; por nombre o por cuenta del cliente («Agrupar por») es la MISMA
+ * expresión del Consolidado (`expresionSqlClaveNomina`), que viaja en la columna `grupo` de la fila.
+ */
+function sqlGrupo(agruparPor: AgruparPorNomina | null | undefined): { desde: string; expresion: string; columna: string } {
+  if (!agrupaPorOtraDimension(agruparPor)) {
+    return { desde: "modulo_importacion_staging", expresion: "NULLIF(btrim(clasificador), '')", columna: "" };
+  }
+  const expresion = expresionSqlClaveNomina(agruparPor);
+  return { desde: `modulo_importacion_staging ${SQL_LATERAL_CUENTA_NOMINA}`, expresion, columna: `, ${expresion} AS grupo` };
+}
+
+/** Condición SQL de las filas de UN grupo ($2 = su clave; «(sin clasificar)» = sin dato). */
+function condicionGrupo(clave: string, agruparPor: AgruparPorNomina | null | undefined) {
+  const { desde, expresion } = sqlGrupo(agruparPor);
+  const sinClasificar = claveGrupo(clave) === GRUPO_SIN_CLASIFICAR;
+  return {
+    desde,
+    condicion: sinClasificar ? `${expresion} IS NULL` : `${expresion} = $2`,
+    parametros: sinClasificar ? [] : [clave.trim()],
+  };
+}
+
+/**
  * Filas del lote CON sus datos, en el orden del archivo (para exportar o para Cartera). Con
  * `roles`, `datos` trae SOLO esas claves (vacío = ninguna): la página del borrador solo necesita
  * la llave del ítem y las columnas numéricas, y el JSON entero de un cargue de nómina pesa 50 MB
- * (95.937 filas): leerlo completo tardaba 20-30 s y agotaba el pool de lectura al recargar.
+ * (95.937 filas): leerlo completo tardaba 20-30 s y agotaba el pool de lectura al recargar. Con
+ * `agruparPor` por nombre o por cuenta (Nómina), cada fila trae además su `grupo`.
  */
-export async function filasDelLote(loteId: string, opciones: { roles?: readonly string[] } = {}): Promise<FilaBorrador[]> {
+export async function filasDelLote(
+  loteId: string,
+  opciones: { roles?: readonly string[]; agruparPor?: AgruparPorNomina | null } = {},
+): Promise<FilaBorrador[]> {
   const roles = opciones.roles ? [...new Set(opciones.roles)] : null;
+  const { desde, columna } = sqlGrupo(opciones.agruparPor);
   const { rows } = roles == null
     ? await pool().query<FilaCruda>(
-        `SELECT ${CAMPOS}, datos FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+        `SELECT ${CAMPOS}, datos${columna} FROM ${desde} WHERE lote_id = $1 ORDER BY fila_num ASC`,
         [loteId],
       )
     : roles.length === 0
       ? await pool().query<FilaCruda>(
-          `SELECT ${CAMPOS}, '{}'::jsonb AS datos FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+          `SELECT ${CAMPOS}, '{}'::jsonb AS datos${columna} FROM ${desde} WHERE lote_id = $1 ORDER BY fila_num ASC`,
           [loteId],
         )
       : await pool().query<FilaCruda>(
           `SELECT ${CAMPOS},
-                  (SELECT COALESCE(jsonb_object_agg(k, datos -> k), '{}'::jsonb) FROM unnest($2::text[]) AS k WHERE datos ? k) AS datos
-             FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`,
+                  (SELECT COALESCE(jsonb_object_agg(k, datos -> k), '{}'::jsonb) FROM unnest($2::text[]) AS k WHERE datos ? k) AS datos${columna}
+             FROM ${desde} WHERE lote_id = $1 ORDER BY fila_num ASC`,
           [loteId, roles],
         );
   return rows.map(aFila);
@@ -76,31 +114,46 @@ export async function filasDelLote(loteId: string, opciones: { roles?: readonly 
 /** Filas de UN grupo del borrador, con sus datos: lo que la tabla pide al abrirlo. */
 export async function filasDelGrupo(
   loteId: string,
-  clasificador: string,
-  opciones: { limite?: number; desde?: number } = {},
+  clave: string,
+  opciones: { limite?: number; desde?: number; agruparPor?: AgruparPorNomina | null } = {},
 ): Promise<FilaBorrador[]> {
-  const sinClasificar = claveGrupo(clasificador) === claveGrupo(null);
-  const condicion = sinClasificar ? "COALESCE(btrim(clasificador), '') = ''" : "btrim(clasificador) = $2";
-  const parametros: unknown[] = sinClasificar ? [loteId] : [loteId, clasificador.trim()];
+  const { desde, condicion, parametros } = condicionGrupo(clave, opciones.agruparPor);
+  const { columna } = sqlGrupo(opciones.agruparPor);
   const limite = opciones.limite != null ? ` LIMIT ${Number(opciones.limite)} OFFSET ${Number(opciones.desde ?? 0)}` : "";
   const { rows } = await pool().query<FilaCruda>(
-    `SELECT ${CAMPOS}, datos FROM modulo_importacion_staging
+    `SELECT ${CAMPOS}, datos${columna} FROM ${desde}
       WHERE lote_id = $1 AND ${condicion} ORDER BY fila_num ASC${limite}`,
-    parametros,
+    [loteId, ...parametros],
   );
   return rows.map(aFila);
 }
 
 /** Cuántas filas tiene un grupo (para saber si falta por traer sin leerlas). */
-export async function conteoDelGrupo(loteId: string, clasificador: string): Promise<number> {
-  const sinClasificar = claveGrupo(clasificador) === claveGrupo(null);
-  const condicion = sinClasificar ? "COALESCE(btrim(clasificador), '') = ''" : "btrim(clasificador) = $2";
-  const parametros: unknown[] = sinClasificar ? [loteId] : [loteId, clasificador.trim()];
+export async function conteoDelGrupo(loteId: string, clave: string, agruparPor?: AgruparPorNomina | null): Promise<number> {
+  const { desde, condicion, parametros } = condicionGrupo(clave, agruparPor);
   const { rows } = await pool().query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM modulo_importacion_staging WHERE lote_id = $1 AND ${condicion}`,
-    parametros,
+    `SELECT count(*)::text AS n FROM ${desde} WHERE lote_id = $1 AND ${condicion}`,
+    [loteId, ...parametros],
   );
   return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * Por qué dimensiones se puede agrupar el borrador de Nómina: las que tienen dato en alguna fila
+ * que se cargaría (código, nombre del concepto, cuenta del cliente válida). Mismo criterio que
+ * `agruparPorDisponibles` del cargue, sobre el staging.
+ */
+export async function agruparPorDisponiblesLote(loteId: string): Promise<Record<AgruparPorNomina, boolean>> {
+  const { rows } = await pool().query<{ codigo: boolean | null; concepto: boolean | null; cuenta: boolean | null }>(
+    `SELECT bool_or(NULLIF(btrim(datos->>'codigo'), '') IS NOT NULL) AS codigo,
+            bool_or(${expresionSqlClaveNomina("concepto")} IS NOT NULL) AS concepto,
+            bool_or(${expresionSqlClaveNomina("cuenta")} IS NOT NULL) AS cuenta
+       FROM modulo_importacion_staging ${SQL_LATERAL_CUENTA_NOMINA}
+      WHERE lote_id = $1 AND tipo_fila = 'movimiento' AND omitida IS DISTINCT FROM true`,
+    [loteId],
+  );
+  const fila = rows[0];
+  return { codigo: fila?.codigo === true, concepto: fila?.concepto === true, cuenta: fila?.cuenta === true };
 }
 
 /** Qué columnas trae el archivo: un `bool_or` por columna, resuelto en la base. */
@@ -172,13 +225,22 @@ async function declaradoPorCuenta(loteId: string, valorRol: string): Promise<Map
  * más se repite en el grupo —un mismo código puede venir escrito de dos formas— y la cuenta la
  * hace la base: traer la columna `datos` de 125.000 filas para esto costaría medio minuto.
  */
-async function descripcionPorGrupo(loteId: string, rol: string): Promise<Map<string, string>> {
+async function descripcionPorGrupo(
+  loteId: string,
+  rol: string,
+  agruparPor?: AgruparPorNomina | null,
+  clienteId?: number | null,
+): Promise<Map<string, string>> {
+  // «Agrupar por» (Nómina): por nombre, lo que acompaña al grupo es el código del concepto; por
+  // cuenta, el nombre del concepto más repetido (y encima, el nombre de la cuenta del cliente).
+  const rolTexto = agruparPor === "concepto" ? "codigo" : rol;
+  const { desde, expresion } = sqlGrupo(agruparPor);
   const { rows } = await pool().query<{ clasificador: string | null; texto: string; n: string }>(
-    `SELECT clasificador, btrim(datos->>$2) AS texto, count(*)::text AS n
-       FROM modulo_importacion_staging
+    `SELECT ${expresion} AS clasificador, btrim(datos->>$2) AS texto, count(*)::text AS n
+       FROM ${desde}
       WHERE lote_id = $1 AND NULLIF(btrim(datos->>$2), '') IS NOT NULL
       GROUP BY 1, 2`,
-    [loteId, rol],
+    [loteId, rolTexto],
   );
   const mejor = new Map<string, { texto: string; n: number }>();
   for (const f of rows) {
@@ -189,7 +251,12 @@ async function descripcionPorGrupo(loteId: string, rol: string): Promise<Map<str
     const previo = mejor.get(clave);
     if (!previo || n > previo.n) mejor.set(clave, { texto: f.texto, n });
   }
-  return new Map([...mejor].map(([clave, v]) => [clave, v.texto]));
+  const salida = new Map([...mejor].map(([clave, v]) => [clave, agruparPor === "concepto" ? `cód. ${v.texto}` : v.texto]));
+  if (agruparPor === "cuenta" && clienteId != null) {
+    const nombres = await nombresCuentasCliente(clienteId, [...new Set(rows.map((r) => r.clasificador ?? "").filter(Boolean))]);
+    for (const [cuenta, nombre] of nombres) salida.set(cuenta, nombre);
+  }
+  return salida;
 }
 
 /** Negativos y descuadres de cantidad × unitario, mirando SOLO las columnas que los definen. */
@@ -248,23 +315,36 @@ export async function cargarResumenBorrador(input: {
   nivelCartera: NivelCartera;
   formatoCartera: FormatoArchivoCartera | null;
   filas?: readonly FilaSlim[];
+  /**
+   * Nómina: por qué se agrupan las filas («Agrupar por» del lote). Con `filas`, estas ya traen su
+   * `grupo` (las leyó `filasDelLote` con la misma agrupación).
+   */
+  agruparPor?: AgruparPorNomina | null;
+  /** Para nombrar los grupos por la cuenta del cliente cuando se agrupa por cuenta. */
+  clienteId?: number | null;
 }): Promise<ResumenBorrador> {
   const { loteId, descriptor, columnas, formatoCartera } = input;
   const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  const grupoSql = sqlGrupo(input.agruparPor);
 
   const [slim, enCero, declarado, conDatos, novedades, descripciones] = await Promise.all([
     input.filas
       ? Promise.resolve(null)
-      : pool().query<FilaCruda>(`SELECT ${CAMPOS} FROM modulo_importacion_staging WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
+      : pool().query<FilaCruda>(`SELECT ${CAMPOS}${grupoSql.columna} FROM ${grupoSql.desde} WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
     imputablesEnCero(loteId, columnasNumericas),
     declaradoPorCuenta(loteId, descriptor.valor),
     columnasConDatos(loteId, columnas),
     novedadesDeColumnas(loteId, descriptor, columnas),
     // El nombre del grupo solo hace falta donde el clasificador es un código y el nombre va aparte.
-    descriptor.clasificadorAlterno ? descripcionPorGrupo(loteId, descriptor.clasificadorAlterno) : Promise.resolve(new Map<string, string>()),
+    descriptor.clasificadorAlterno
+      ? descripcionPorGrupo(loteId, descriptor.clasificadorAlterno, input.agruparPor, input.clienteId)
+      : Promise.resolve(new Map<string, string>()),
   ]);
   const filas: FilaSlim[] = input.filas
-    ? input.filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivo }))
+    ? input.filas.map((f) => ({
+        filaNum: f.filaNum, clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivo,
+        ...(f.grupo !== undefined ? { grupo: f.grupo } : {}),
+      }))
     : (slim?.rows ?? []).map((f) => ({
         filaNum: f.fila_num,
         clasificador: f.clasificador,
@@ -272,6 +352,7 @@ export async function cargarResumenBorrador(input: {
         tipoFila: f.tipo_fila,
         omitida: f.omitida,
         motivo: f.motivo_tipo_fila,
+        ...(f.grupo !== undefined ? { grupo: f.grupo } : {}),
       }));
 
   // Cartera y CxP: sus controles (documentos contra el total del cliente, edades contra el

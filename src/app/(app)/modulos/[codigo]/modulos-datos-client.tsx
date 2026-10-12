@@ -25,7 +25,7 @@ import {
   type EstadoPeriodoModulo,
 } from "@/lib/modulos/listado";
 import { EliminarDatosModuloButton } from "./eliminar-datos-modulo-modal";
-import { AgregarArchivoButton, CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
+import { AgregarArchivoButton, CargarModuloButton, type ClienteModulo, type OpcionAgruparPor, type RolModulo } from "./cargar-modulo-modal";
 import {
   BOTON_ACCION,
   BadgeComentarios,
@@ -119,6 +119,7 @@ export default function ModulosDatosClient({
   cuentaEnClasificador,
   confirmarContenido,
   confirmarContenidoActivos,
+  opcionesAgruparPor = null,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -131,6 +132,8 @@ export default function ModulosDatosClient({
   confirmarContenido: boolean;
   /** Activos fijos: pregunta si el archivo trae costo, depreciación o ambos. */
   confirmarContenidoActivos: boolean;
+  /** Nómina: «¿Cómo agrupar los conceptos?» (código, nombre o cuenta del cliente). */
+  opcionesAgruparPor?: OpcionAgruparPor[] | null;
   /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
   conNivelCartera: boolean;
   clientes: ClienteModulo[];
@@ -173,6 +176,7 @@ export default function ModulosDatosClient({
             cuentaEnClasificador={cuentaEnClasificador}
             confirmarContenido={confirmarContenido}
             confirmarContenidoActivos={confirmarContenidoActivos}
+            opcionesAgruparPor={opcionesAgruparPor}
           />
         )}
       </div>
@@ -209,6 +213,7 @@ export default function ModulosDatosClient({
         cuentaEnClasificador={cuentaEnClasificador}
         confirmarContenido={confirmarContenido}
         confirmarContenidoActivos={confirmarContenidoActivos}
+        opcionesAgruparPor={opcionesAgruparPor}
       />
     </div>
   );
@@ -237,6 +242,7 @@ function CargadosPorCliente({
   cuentaEnClasificador,
   confirmarContenido,
   confirmarContenidoActivos,
+  opcionesAgruparPor = null,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -263,6 +269,8 @@ function CargadosPorCliente({
   confirmarContenido: boolean;
   /** Activos fijos: pregunta si el archivo trae costo, depreciación o ambos. */
   confirmarContenidoActivos: boolean;
+  /** Nómina: «¿Cómo agrupar los conceptos?» (código, nombre o cuenta del cliente). */
+  opcionesAgruparPor?: OpcionAgruparPor[] | null;
 }) {
   const [estado, setEstado] = useState<EstadoPeriodoModulo | null>(null);
   const conteoEstados = useMemo(() => contarPeriodosPorEstado(grupos), [grupos]);
@@ -527,6 +535,7 @@ function CargadosPorCliente({
                             cuentaEnClasificador={cuentaEnClasificador}
                             confirmarContenido={confirmarContenido}
                             confirmarContenidoActivos={confirmarContenidoActivos}
+                            opcionesAgruparPor={opcionesAgruparPor}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

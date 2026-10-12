@@ -24,7 +24,8 @@
 import { factorPresentacion } from "@/lib/balance/prevalidador/calcular";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
 import { partirClaveConsolidado } from "./clave-consolidado";
-import { codigoConceptoCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
+import { clasificadorCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
+import type { AgruparPorNomina } from "./agrupar-por";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
@@ -408,14 +409,15 @@ export function pesosRepartoDeCentros(
   renglon: { codigo: string; agrupador: string; cuentaArchivo?: string | null },
   cuentas: readonly string[],
   repartos: readonly RepartoConcepto[],
+  agruparPor: AgruparPorNomina = "codigo",
 ): Record<string, number> | null {
   if (renglon.agrupador.trim()) return null;
-  const codigo = codigoConceptoCanonico(renglon.codigo);
+  const codigo = clasificadorCanonico(agruparPor, renglon.codigo);
   const candidatas = new Set(cuentas);
   const pesos: Record<string, number> = Object.fromEntries(cuentas.map((c) => [c, 0]));
   for (const rep of repartos) {
     const { clasificador, agrupador, cuentaArchivo } = partirClaveConsolidado(rep.clasificador);
-    if (!agrupador || codigoConceptoCanonico(clasificador) !== codigo) continue;
+    if (!agrupador || clasificadorCanonico(agruparPor, clasificador) !== codigo) continue;
     if (renglon.cuentaArchivo && cuentaArchivo && cuentaArchivo !== renglon.cuentaArchivo) continue;
     for (const [cuenta, valor] of Object.entries(rep.valores)) {
       if (candidatas.has(cuenta) && Number.isFinite(valor)) pesos[cuenta] = redondear(pesos[cuenta] + valor);

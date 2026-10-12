@@ -8,6 +8,13 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   logAudit: vi.fn(),
   encabezadoFindUnique: vi.fn(),
+  encabezadoUpdateMany: vi.fn(),
+  agruparPorDisponibles: vi.fn(),
+  nombresCuentasCliente: vi.fn(),
+  nombresConceptoDelCargue: vi.fn(),
+  loteFindUnique: vi.fn(),
+  loteUpdate: vi.fn(),
+  disponiblesLote: vi.fn(),
   standardFindMany: vi.fn(),
   subgrupoFindMany: vi.fn(),
   periodoFindMany: vi.fn(),
@@ -42,12 +49,24 @@ vi.mock("@/lib/modulos/patrones/servidor", () => ({
   versionesPatronCandidatas: vi.fn(async () => ({ versiones: [], total: 0 })),
 }));
 vi.mock("@/lib/parametros/prevalidador", () => ({ getCatalogoPrevalidador: async () => catalogoPrevalidadorDeFabrica() }));
+// Las consultas agregadas del detalle (driver `pg`): «Agrupar por» y los nombres del renglón.
+vi.mock("@/lib/modulos/cargue-servidor", async (original) => ({
+  ...(await original<typeof import("@/lib/modulos/cargue-servidor")>()),
+  agruparPorDisponibles: mocks.agruparPorDisponibles,
+  nombresCuentasCliente: mocks.nombresCuentasCliente,
+  nombresConceptoDelCargue: mocks.nombresConceptoDelCargue,
+}));
+vi.mock("@/lib/modulos/borrador-servidor", async (original) => ({
+  ...(await original<typeof import("@/lib/modulos/borrador-servidor")>()),
+  agruparPorDisponiblesLote: mocks.disponiblesLote,
+}));
 // Las cuentas que concilia cada módulo (/config/prevalidador): aquí, las de fábrica del descriptor.
 vi.mock("@/lib/parametros/cuentas-conciliacion", () => ({ resolverDescriptorVigente: async (descriptor: unknown) => descriptor }));
 vi.mock("@/lib/prisma", () => {
   const cliente = {
     client: { findUnique: vi.fn(async () => ({ name: "Redplas" })) },
-    moduloDatoEncabezado: { findUnique: mocks.encabezadoFindUnique },
+    moduloDatoEncabezado: { findUnique: mocks.encabezadoFindUnique, updateMany: mocks.encabezadoUpdateMany },
+    moduloImportacionLote: { findUnique: mocks.loteFindUnique, update: mocks.loteUpdate },
     standardAccount: { findMany: mocks.standardFindMany },
     subgrupoEstandar: { findMany: mocks.subgrupoFindMany },
     asignacionPeriodoModulo: {
@@ -56,6 +75,8 @@ vi.mock("@/lib/prisma", () => {
       createMany: mocks.periodoCreateMany,
     },
     conciliacionModuloCierre: { findFirst: mocks.cierreFindFirst },
+    // Nómina: repartos del cruce del período (ninguno en estas pruebas).
+    repartoCruceModulo: { findMany: vi.fn(async () => []), deleteMany: vi.fn() },
     consolidacionModuloCliente: {
       findMany: mocks.memoriaFindMany,
       deleteMany: mocks.memoriaDeleteMany,
@@ -70,13 +91,14 @@ vi.mock("@/lib/prisma", () => {
   return { default: cliente };
 });
 
-import { consultarCuentasRussell, guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "./modulos-datos";
+import { cambiarAgruparPorBorrador, cambiarAgruparPorConsolidado, consultarCuentasRussell, guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "./modulos-datos";
 
 const PLAN = [
   { code: "210505", name: "Bancos nacionales" },
   { code: "210510", name: "Bancos del exterior" },
   { code: "220505", name: "Proveedores nacionales" },
   { code: "220510", name: "Proveedores del exterior" },
+  { code: "510506", name: "Sueldos" },
 ];
 const ENCABEZADO = { clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12" };
 
@@ -95,6 +117,10 @@ beforeEach(() => {
   mocks.cierreFindFirst.mockResolvedValue(null);
   mocks.memoriaFindMany.mockResolvedValue([]);
   mocks.transaction.mockResolvedValue([]);
+  mocks.encabezadoUpdateMany.mockResolvedValue({ count: 1 });
+  mocks.agruparPorDisponibles.mockResolvedValue({ codigo: true, concepto: true, cuenta: false });
+  mocks.nombresCuentasCliente.mockResolvedValue(new Map());
+  mocks.nombresConceptoDelCargue.mockResolvedValue(new Map());
 });
 
 const guardar = (cuentas4: string[], encabezadoId: number | null = 55) =>
@@ -109,11 +135,11 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     expect(mocks.memoriaDeleteMany).not.toHaveBeenCalled();
     expect(mocks.memoriaCreateMany).not.toHaveBeenCalled();
     expect(mocks.periodoDeleteMany).toHaveBeenCalledWith({
-      where: { clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", OR: [{ clasificador: "GIROS", agrupador: "" }] },
+      where: { clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", agruparPor: "codigo", OR: [{ clasificador: "GIROS", agrupador: "" }] },
     });
     const filas = mocks.periodoCreateMany.mock.calls[0][0].data;
     expect(filas.map((f: { cuenta4: string; cuenta6: string }) => `${f.cuenta4}/${f.cuenta6}`).sort()).toEqual(["2105/210510", "2205/220505"]);
-    expect(filas[0]).toMatchObject({ clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", clasificador: "GIROS", creadoPor: "Analista", creadoPorId: 9 });
+    expect(filas[0]).toMatchObject({ clienteId: 17, moduloCodigo: "CXP", periodo: "2025-12", agruparPor: "codigo", clasificador: "GIROS", creadoPor: "Analista", creadoPorId: 9 });
     expect(mocks.logAudit.mock.calls[0][0].detail).toContain("solo 2025-12: 210510");
   });
 
@@ -123,7 +149,7 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     const r = await guardar(["220505"]);
 
     expect(r).toMatchObject({ ok: true, message: "Consolidación guardada." });
-    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: { clienteId: 17, moduloCodigo: "CXP", OR: [{ clasificador: "GIROS", agrupador: "" }] } });
+    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: { clienteId: 17, moduloCodigo: "CXP", agruparPor: "codigo", OR: [{ clasificador: "GIROS", agrupador: "" }] } });
     expect(mocks.memoriaCreateMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ cuenta4: "2205", cuenta6: "220505" })]);
     expect(mocks.periodoDeleteMany).toHaveBeenCalledTimes(1);
     expect(mocks.periodoCreateMany).not.toHaveBeenCalled();
@@ -195,6 +221,99 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     expect(r.message).toContain("2 consolidaciones guardadas.");
     expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({ where: expect.objectContaining({ OR: [{ clasificador: "NACIONALES", agrupador: "" }] }) });
     expect(mocks.periodoCreateMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ clasificador: "GIROS", cuenta6: "210510" })]);
+  });
+});
+
+describe("Nómina · «Agrupar por» del Consolidado", () => {
+  const NOMINA = { clienteId: 17, moduloCodigo: "NOM", periodo: "2025-12", version: 3, nombreCliente: "KP", agruparPor: null };
+
+  it("agrupando por cuenta, la memoria se guarda en esa dimensión, por la cuenta del cliente y con su nombre", async () => {
+    mocks.encabezadoFindUnique.mockResolvedValue({ ...NOMINA, agruparPor: "cuenta" });
+    mocks.nombresCuentasCliente.mockResolvedValue(new Map([["51050601", "Sueldos administración"]]));
+
+    const r = await guardarConsolidacionModulo({ clienteId: 17, moduloCodigo: "NOM", clasificador: "51050601 ∥ GYA", cuentas4: ["510506"], encabezadoId: 98 });
+
+    expect(r).toEqual({ ok: true, message: "Consolidación guardada." });
+    expect(mocks.memoriaFindMany.mock.calls[0][0].where).toMatchObject({ agruparPor: "cuenta" });
+    expect(mocks.memoriaDeleteMany).toHaveBeenCalledWith({
+      where: { clienteId: 17, moduloCodigo: "NOM", agruparPor: "cuenta", OR: [{ clasificador: "51050601", agrupador: "GYA", cuentaCliente: "51050601" }] },
+    });
+    expect(mocks.memoriaCreateMany.mock.calls[0][0].data).toEqual([expect.objectContaining({
+      agruparPor: "cuenta", clasificador: "51050601", agrupador: "GYA", cuenta6: "510506", cuentaCliente: "51050601", origen: "archivo", descripcion: "Sueldos administración",
+    })]);
+    expect(mocks.nombresConceptoDelCargue).toHaveBeenCalledWith(98, [], "cuenta");
+  });
+
+  it("cambia la agrupación del cargue, condicionada a la que se vio, y lo deja en la bitácora", async () => {
+    mocks.encabezadoFindUnique.mockResolvedValue(NOMINA);
+
+    const r = await cambiarAgruparPorConsolidado({ encabezadoId: 98, agruparPor: "concepto" });
+
+    expect(r).toEqual({ ok: true, message: "El Consolidado ahora se agrupa por nombre del concepto." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("modulos_datos:editar", { clientId: 17 });
+    expect(mocks.encabezadoUpdateMany).toHaveBeenCalledWith({ where: { id: 98, agruparPor: null }, data: { agruparPor: "concepto" } });
+    expect(mocks.logAudit.mock.calls[0][0]).toMatchObject({
+      action: "CAMBIÓ LA AGRUPACIÓN DEL CONSOLIDADO",
+      detail: "NOM 2025-12 v3 · de Código del concepto a Nombre del concepto",
+    });
+  });
+
+  it("no agrupa por una dimensión que el cargue no trae, ni con la conciliación en firme, ni en otro módulo", async () => {
+    mocks.encabezadoFindUnique.mockResolvedValue(NOMINA);
+    expect(await cambiarAgruparPorConsolidado({ encabezadoId: 98, agruparPor: "cuenta" })).toMatchObject({ ok: false, message: expect.stringContaining("no trae cuenta contable del cliente") });
+
+    mocks.cierreFindFirst.mockResolvedValue({ id: 3 });
+    expect(await cambiarAgruparPorConsolidado({ encabezadoId: 98, agruparPor: "concepto" })).toMatchObject({ ok: false, message: expect.stringContaining("está en firme") });
+
+    mocks.encabezadoFindUnique.mockResolvedValue({ ...NOMINA, moduloCodigo: "CXP" });
+    expect(await cambiarAgruparPorConsolidado({ encabezadoId: 98, agruparPor: "concepto" })).toMatchObject({ ok: false });
+    expect(mocks.encabezadoUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("si otra pestaña la cambió mientras tanto, no la pisa", async () => {
+    mocks.encabezadoFindUnique.mockResolvedValue(NOMINA);
+    mocks.encabezadoUpdateMany.mockResolvedValue({ count: 0 });
+
+    expect(await cambiarAgruparPorConsolidado({ encabezadoId: 98, agruparPor: "concepto" })).toMatchObject({ ok: false, message: expect.stringContaining("cambió mientras tanto") });
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("Nómina · «Agrupar por» desde el borrador", () => {
+  const LOTE = {
+    id: 5, clienteId: 17, moduloCodigo: "NOM", anexoEncabezadoId: null, archivoNombre: "Preuba Melonn.xlsx",
+    specJson: { hoja: "Acumulados", columnas: { codigo: 13, concepto: 14, cuenta: 15, valor: 20 }, agruparPor: "codigo", reconciliacion: { x: 1 } },
+  };
+
+  beforeEach(() => {
+    mocks.loteFindUnique.mockResolvedValue(LOTE);
+    mocks.loteUpdate.mockResolvedValue({});
+    mocks.disponiblesLote.mockResolvedValue({ codigo: true, concepto: true, cuenta: true });
+  });
+
+  it("guarda la nueva agrupación en el spec del lote sin perder lo demás, y lo deja en la bitácora", async () => {
+    const r = await cambiarAgruparPorBorrador({ loteId: "abc", agruparPor: "cuenta" });
+
+    expect(r).toEqual({ ok: true, message: "El borrador ahora se agrupa por cuenta contable del cliente." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("modulos_datos:crear", { clientId: 17 });
+    expect(mocks.loteUpdate).toHaveBeenCalledWith({ where: { id: 5 }, data: { specJson: { ...LOTE.specJson, agruparPor: "cuenta" } } });
+    expect(mocks.logAudit.mock.calls[0][0]).toMatchObject({
+      action: "CAMBIÓ LA AGRUPACIÓN DEL BORRADOR",
+      detail: "NOM · Preuba Melonn.xlsx · de Código del concepto a Cuenta contable del cliente",
+    });
+  });
+
+  it("no agrupa por una columna que el mapeo no trae, ni por una sin datos, ni en un anexo", async () => {
+    mocks.loteFindUnique.mockResolvedValue({ ...LOTE, specJson: { ...LOTE.specJson, columnas: { codigo: 13, concepto: 14, cuenta: 0 } } });
+    expect(await cambiarAgruparPorBorrador({ loteId: "abc", agruparPor: "cuenta" })).toMatchObject({ ok: false, message: expect.stringContaining("columna mapeada") });
+
+    mocks.loteFindUnique.mockResolvedValue(LOTE);
+    mocks.disponiblesLote.mockResolvedValue({ codigo: true, concepto: true, cuenta: false });
+    expect(await cambiarAgruparPorBorrador({ loteId: "abc", agruparPor: "cuenta" })).toMatchObject({ ok: false, message: expect.stringContaining("no trae") });
+
+    mocks.loteFindUnique.mockResolvedValue({ ...LOTE, anexoEncabezadoId: 91 });
+    expect(await cambiarAgruparPorBorrador({ loteId: "abc", agruparPor: "concepto" })).toMatchObject({ ok: false, message: expect.stringContaining("cargue existente") });
+    expect(mocks.loteUpdate).not.toHaveBeenCalled();
   });
 });
 

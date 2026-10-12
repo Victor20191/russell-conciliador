@@ -26,6 +26,12 @@ export type FilaBorrador = {
   tipoFila: string;
   omitida: boolean | null;
   motivo?: string | null;
+  /**
+   * Nómina agrupada por nombre o por cuenta del cliente («Agrupar por»): la clave del grupo de la
+   * fila, calculada en la base con la misma regla del Consolidado. Ausente = el grupo es el
+   * clasificador (lo de siempre). Cambiar el código de la fila no la mueve de grupo.
+   */
+  grupo?: string | null;
 };
 
 /** La misma fila sin `datos`: lo que basta para agrupar, sumar y controlar los subtotales. */
@@ -99,6 +105,10 @@ const MAX_DETALLE_NOVEDAD = 50;
 
 export const claveGrupo = (clasificador: string | null | undefined): string => clasificador?.trim() || GRUPO_SIN_CLASIFICAR;
 
+/** El grupo de una fila del borrador: su `grupo` («Agrupar por») si lo trae, si no su clasificador. */
+export const grupoDeFila = (f: { clasificador: string | null; grupo?: string | null }): string =>
+  claveGrupo(f.grupo !== undefined ? f.grupo : f.clasificador);
+
 const redondear = (v: number) => Math.round(v * 100) / 100;
 
 export type InsumosResumen = {
@@ -110,7 +120,10 @@ export type InsumosResumen = {
   imputablesEnCero: ReadonlySet<number>;
   /** Total que el archivo imprime en el renglón de cada cuenta (`seccion_cuenta`). */
   declaradoPorCuenta: ReadonlyMap<string, number>;
-  /** Nombre legible de cada grupo cuando el clasificador es un código (Nómina). */
+  /**
+   * Nombre legible de cada grupo (Nómina): el del concepto si se agrupa por código, el código si
+   * se agrupa por nombre, el de la cuenta del cliente si se agrupa por cuenta.
+   */
   descripcionPorGrupo?: ReadonlyMap<string, string>;
   /** Columnas que traen dato en alguna fila del archivo. */
   columnasConDatos: ReadonlySet<string>;
@@ -141,14 +154,15 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
   for (const g of control.grupos) if (g.estado === "descuadre") novedades.add(g.filaSubtotal);
   if (control.granTotal?.estado === "descuadre") novedades.add(control.granTotal.filaNum);
 
-  // Grupos en el orden en que aparecen en el archivo.
+  // Grupos en el orden en que aparecen en el archivo. Nómina agrupada por nombre o por cuenta
+  // («Agrupar por»): la fila trae su `grupo`; si no, el grupo es su clasificador.
   const orden: string[] = [];
   const porGrupo = new Map<string, GrupoBorrador>();
   // Por qué no suma cada fila del grupo, para explicar los grupos que quedan en cero.
   const motivosPorGrupo = new Map<string, Map<string, number>>();
   let renglonesEstructura = 0;
   for (const f of filas) {
-    const k = claveGrupo(f.clasificador);
+    const k = grupoDeFila(f);
     let g = porGrupo.get(k);
     if (!g) {
       g = {

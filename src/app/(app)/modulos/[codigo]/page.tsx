@@ -194,6 +194,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
         confirmarContenido={descriptor.confirmarContenidoEnCarga === true}
         confirmarContenidoActivos={descriptor.confirmarContenidoActivosEnCarga === true}
+        opcionesAgruparPor={descriptor.consolidado?.agruparPor ?? null}
       />
     </div>
   );

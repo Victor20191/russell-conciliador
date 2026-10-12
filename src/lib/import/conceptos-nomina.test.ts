@@ -74,21 +74,52 @@ test("un grupo que no está en el catálogo se rechaza (no se adivina)", async (
   expect(errores[0].mensaje).toMatch(/Grupo de cuenta contable no reconocido: «Gastos varios»/);
 });
 
-test("cliente, código y cuenta son obligatorios; nombre, grupo y centro son opcionales", async () => {
+test("cliente y cuenta son obligatorios, y el código o el nombre; grupo y centro son opcionales", async () => {
   const buf = await construir([
     [null, null, "001", "Sueldo", "510506"],
     ["900", null, null, "Sueldo", "510506"],
     ["900", null, "002", null, "510506"],
     ["900", null, "003", "Sueldo", null],
+    ["900", null, null, null, "510506"],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
-  expect(errores.map((e) => e.fila)).toEqual([2, 3, 5]);
+  expect(errores.map((e) => e.fila)).toEqual([2, 5, 6]);
   expect(errores[0].mensaje).toMatch(/cliente/i);
-  expect(errores[1].mensaje).toMatch(/código/i);
-  expect(errores[2].mensaje).toMatch(/cuenta/i);
-  // Sin nombre la fila se acepta (5/Oct/2026): el nombre queda vacío.
-  expect(filas).toHaveLength(1);
-  expect(filas[0]).toMatchObject({ fila: 4, codigo: "2", concepto: "", cuentas: ["510506"] });
+  expect(errores[1].mensaje).toMatch(/cuenta/i);
+  expect(errores[2].mensaje).toMatch(/código del concepto \(o su nombre/);
+  // Sin código, el NOMBRE es la llave (11/Oct/2026); sin nombre, el código (5/Oct/2026).
+  expect(filas).toHaveLength(2);
+  expect(filas[0]).toMatchObject({ fila: 3, codigo: "Sueldo", agruparPor: "concepto", concepto: "Sueldo", cuentas: ["510506"] });
+  expect(filas[1]).toMatchObject({ fila: 4, codigo: "2", agruparPor: "codigo", concepto: "", cuentas: ["510506"] });
+});
+
+test("un concepto sin código se guarda por su nombre canónico y se avisa", async () => {
+  const buf = await construir([
+    ["900", null, null, "  Sueldo   básico ", "51050601", "GYA"],
+    ["900", null, null, "Sueldo básico", "72050601", "GYA"], // mismo nombre y centro: se une
+    ["900", null, "001", "Sueldo básico", "51050601", "GYA"], // con código: es OTRO concepto (otra llave)
+  ]);
+  const { filas, errores, avisos } = await parseConceptosNominaWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas.map((f) => [f.agruparPor, f.codigo, f.agrupador, f.cuentas])).toEqual([
+    ["concepto", "Sueldo básico", "GYA", ["51050601", "72050601"]],
+    ["codigo", "1", "GYA", ["51050601"]],
+  ]);
+  expect(avisos).toEqual([
+    expect.stringContaining("1 concepto(s) venían en varias filas"),
+    expect.stringContaining("1 concepto(s) sin código se guardaron por su NOMBRE"),
+  ]);
+});
+
+test("un archivo sin la columna del código se lee por el nombre", async () => {
+  const buf = await construir(
+    [["900", "Horas extras", "51051501"]],
+    HOJA_CONCEPTOS,
+    ["Cliente (NIT o código) *", "Nombre del concepto", "Cuenta contable del cliente *"],
+  );
+  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas[0]).toMatchObject({ codigo: "Horas extras", agruparPor: "concepto", cuentas: ["51051501"] });
 });
 
 test("un archivo sin la columna del nombre se lee igual", async () => {
@@ -130,6 +161,14 @@ test("sin nombre, el concepto toma el de otra fila del archivo o el que ya tení
     ],
   );
   expect(completas.map((f) => f.descripcion)).toEqual(["Sueldo básico", "Sueldo básico", "Auxilio de transporte", null, "Prima nueva"]);
+});
+
+test("el nombre guardado es del concepto en SU dimensión: el código «1» no lo presta a un concepto llamado «1»", () => {
+  const completas = completarNombresConceptos(
+    [{ clienteId: 7, clasificador: "1", agruparPor: "concepto", agrupador: "", descripcion: null }],
+    [{ clienteId: 7, clasificador: "1", agruparPor: "codigo", descripcion: "Sueldo básico" }],
+  );
+  expect(completas[0].descripcion).toBeNull();
 });
 
 test("une las filas repetidas del mismo concepto y centro (una fila por cuenta) y avisa", async () => {
@@ -230,7 +269,7 @@ test("un archivo que no es .xlsx devuelve el error de archivo", async () => {
 // filas), no dos por concepto; con 67 conceptos la transacción se pasaba de tiempo (P2028).
 test("planEscrituraConceptos: una clave por (cliente, concepto, centro) y sin cuentas repetidas", () => {
   const fila = (extra: Partial<FilaConceptoAEscribir>): FilaConceptoAEscribir => ({
-    clienteId: 7, clasificador: "1", descripcion: "SALARIO BASICO", agrupador: "", grupo: "sueldos",
+    clienteId: 7, clasificador: "1", agruparPor: "codigo", descripcion: "SALARIO BASICO", agrupador: "", grupo: "sueldos",
     subcuentaPuc: "06", cuentaCliente: "0005060000", cuenta4: "", cuenta6: "", ...extra,
   });
   const { claves, data } = planEscrituraConceptos([
@@ -240,19 +279,23 @@ test("planEscrituraConceptos: una clave por (cliente, concepto, centro) y sin cu
     fila({ agrupador: "MOD", cuentaCliente: "72050601", cuenta4: "7205", cuenta6: "720506" }),
     fila({ clasificador: "4", descripcion: "PRESTAMO EMPLEADOS", grupo: null, subcuentaPuc: "95", cuentaCliente: "1365950000" }),
     fila({ clienteId: 8 }),
+    // Un concepto guardado por su NOMBRE es otra llave aunque coincida el texto.
+    fila({ agruparPor: "concepto", clasificador: "1" }),
   ], "Victor");
   expect(claves).toEqual([
-    { clienteId: 7, clasificador: "1", agrupador: "" },
-    { clienteId: 7, clasificador: "1", agrupador: "MOD" },
-    { clienteId: 7, clasificador: "4", agrupador: "" },
-    { clienteId: 8, clasificador: "1", agrupador: "" },
+    { clienteId: 7, agruparPor: "codigo", clasificador: "1", agrupador: "" },
+    { clienteId: 7, agruparPor: "codigo", clasificador: "1", agrupador: "MOD" },
+    { clienteId: 7, agruparPor: "codigo", clasificador: "4", agrupador: "" },
+    { clienteId: 8, agruparPor: "codigo", clasificador: "1", agrupador: "" },
+    { clienteId: 7, agruparPor: "concepto", clasificador: "1", agrupador: "" },
   ]);
-  expect(data.map((d) => [d.clienteId, d.clasificador, d.agrupador, d.cuentaCliente])).toEqual([
-    [7, "1", "", "0005060000"],
-    [7, "1", "", "51050601"],
-    [7, "1", "MOD", "72050601"],
-    [7, "4", "", "1365950000"],
-    [8, "1", "", "0005060000"],
+  expect(data.map((d) => [d.clienteId, d.agruparPor, d.clasificador, d.agrupador, d.cuentaCliente])).toEqual([
+    [7, "codigo", "1", "", "0005060000"],
+    [7, "codigo", "1", "", "51050601"],
+    [7, "codigo", "1", "MOD", "72050601"],
+    [7, "codigo", "4", "", "1365950000"],
+    [8, "codigo", "1", "", "0005060000"],
+    [7, "concepto", "1", "", "0005060000"],
   ]);
   expect(data[0]).toMatchObject({ moduloCodigo: "NOM", origen: "carga_masiva", actualizadoPor: "Victor", grupo: "sueldos", subcuentaPuc: "06" });
 });

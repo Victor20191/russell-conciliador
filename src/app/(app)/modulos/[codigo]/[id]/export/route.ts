@@ -10,6 +10,7 @@ import { cargarCuentasEstandarDeCedula, cargarInsumosCruceModulo, construirCruce
 import { cedulaModulo, claveCedula } from "@/lib/modulos/cuentas-modulo";
 import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
+import { agruparPorDeEncabezado, etiquetaAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 import { cuentasEfectivasRenglon } from "@/lib/modulos/nomina/consolidado-nomina";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -40,13 +41,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
     // Las cuentas que concilia el módulo en este cargue (las del cierre si el período está en firme).
     const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
+    // Nómina: por qué se agrupan los conceptos del Consolidado de este cargue («Agrupar por»).
+    const agruparPor = agruparPorDeEncabezado(encabezado.agruparPor);
 
     // Misma clave que la pantalla: subgrupo de 4 dígitos, la cuenta Russell completa o una mezcla.
     // La clave no depende de los prefijos del prevalidador, así que no se carga el catálogo.
     const cedula = cedulaModulo(descriptor, []);
     // El Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período.
     const [consolidacion, subgrupos] = await Promise.all([
-      cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo),
+      cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo, descriptor.nomina ? { agruparPor } : undefined),
       prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
     ]);
     const consolidacionRows = consolidacion.filas;
@@ -87,7 +90,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
             total: r.total,
             filas: r.filas,
             cuentas4: efectivas.cuentas.map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
-            cuentaArchivo: r.cuentaArchivo,
+            // Agrupando por cuenta, la cuenta del archivo ES el renglón: no se repite en otra columna.
+            cuentaArchivo: agruparPor === "cuenta" ? null : r.cuentaArchivo,
             origen: efectivas.origen,
           };
         })
@@ -126,6 +130,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       // Las de la pantalla: con los rangos de vencimiento del cargue y el saldo efectivo.
       columnas: columnasDetalleModulo(descriptor, encabezado.rangosEdades).map((c) => ({ ...c, tipo: c.tipo as ColumnaExportModulo["tipo"] })),
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
+      // Nómina: la hoja «Consolidado» se titula con la agrupación del cargue.
+      ...(descriptor.consolidado ? { consolidadoEtiqueta: etiquetaAgruparPor(agruparPor) } : {}),
       detalle,
       consolidado,
       ...(cruceTercero ? { cruceTercero } : {}),

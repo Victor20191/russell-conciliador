@@ -13,7 +13,8 @@ import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar"
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
 import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
-import { cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
+import { agruparPorDisponiblesLote, cargarResumenBorrador, filasDelLote } from "@/lib/modulos/borrador-servidor";
+import { agruparPorDeLote, agruparPorMapeadas, etiquetaAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
 import { leerContenidoActivosDeLote } from "@/lib/modulos/activos/contenido-archivo";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
@@ -38,7 +39,10 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const rolesDatos = lote.anexoEncabezadoId != null
     ? [...rolesLlaveItemDe(descriptor), ...columnasNumericas]
     : descriptor.nomina ? [] : columnasNumericas;
-  const filas = await filasDelLote(loteId, { roles: rolesDatos });
+  // Nómina: por qué se agrupan las filas del borrador («Agrupar por»): lo que se respondió al leer
+  // el archivo, o lo que se cambió aquí. Es lo que tendrá el cargue al confirmarse.
+  const agruparPor = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
+  const filas = await filasDelLote(loteId, { roles: rolesDatos, agruparPor });
   if (filas.length === 0) notFound();
   const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
   if (!scope.ok) notFound();
@@ -200,15 +204,39 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     ? { aplicativo: nombreErpPropuesta, motivo: null }
     : motivoSinPropuesta ? { aplicativo: null, motivo: motivoSinPropuesta } : null;
 
-  const resumen = await cargarResumenBorrador({
-    loteId,
-    descriptor,
-    columnas: columnasDelBorrador,
-    nivelCartera: nivelDelLote,
-    formatoCartera: formatoDelLote,
-    // Las mismas filas de arriba: no se vuelven a traer de la base.
-    filas,
-  });
+  const [resumen, agruparPorConDatos] = await Promise.all([
+    cargarResumenBorrador({
+      loteId,
+      descriptor,
+      columnas: columnasDelBorrador,
+      nivelCartera: nivelDelLote,
+      formatoCartera: formatoDelLote,
+      // Las mismas filas de arriba: no se vuelven a traer de la base.
+      filas,
+      agruparPor,
+      clienteId: lote.clienteId,
+    }),
+    agruparPor ? agruparPorDisponiblesLote(loteId) : Promise.resolve(null),
+  ]);
+  const columnasLote = (lote.specJson as { columnas?: Record<string, number> } | null)?.columnas;
+  const mapeadas = agruparPorMapeadas(columnasLote);
+  const agruparPorVm = descriptor.consolidado && agruparPor && agruparPorConDatos
+    ? {
+        actual: agruparPor,
+        etiqueta: etiquetaAgruparPor(agruparPor),
+        // Un anexo se agrupa como el cargue al que se suma: no se cambia aquí.
+        fija: lote.anexoEncabezadoId != null,
+        opciones: descriptor.consolidado.agruparPor.map((o) => {
+          const disponible = o.id === agruparPor || (mapeadas[o.id] && agruparPorConDatos[o.id]);
+          return {
+            id: o.id,
+            etiqueta: o.etiqueta,
+            disponible,
+            motivo: disponible ? null : mapeadas[o.id] ? `El archivo no trae ${o.etiqueta.toLocaleLowerCase("es")} en sus filas.` : `${o.etiqueta} no está en el mapeo de este archivo.`,
+          };
+        }),
+      }
+    : null;
 
   return (
     <div>
@@ -218,7 +246,8 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         subtitle={`${versionActual ? `v${versionActual} · ` : ""}${lote.archivoNombre}${lote.archivoTam ? ` · ${lote.archivoTam}` : ""}. Revisa el mapeo y confirma la carga.`}
       />
       <BorradorModuloClient
-        key={`${loteId}:${originalInventario?.revisionAsistencia ?? 0}`}
+        // Cambiar «Agrupar por» cambia las claves de los grupos: la pantalla se remonta.
+        key={`${loteId}:${originalInventario?.revisionAsistencia ?? 0}:${agruparPor ?? ""}`}
         moduloCodigo={moduloCodigo}
         loteId={loteId}
         loteRowId={lote.id}
@@ -232,6 +261,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
         resumen={resumen}
+        agruparPor={agruparPorVm}
         reconciliacion={reconciliacion}
         anexo={anexo}
         contenido={descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null}

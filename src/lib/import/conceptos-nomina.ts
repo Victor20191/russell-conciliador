@@ -5,10 +5,13 @@
 // Columnas de la plantilla (las del documento de requisitos, en ese orden):
 //   cliente    → `cliente_id` (se resuelve por NIT o código en la Server Action)          *
 //   grupo      → `grupo` (grupo de cuenta contable RF-NOM-02: sueldos, prima, cesantías…)
-//   código     → `clasificador` (la llave: en Nómina el clasificador ES el código)         *
+//   código     → `clasificador` (la llave: en Nómina el clasificador ES el código)        (*)
 //   concepto   → `descripcion` (el nombre legible). Opcional desde el 5/Oct/2026: vacío, se
 //                conserva el que ya tuviera el concepto y, sin ninguno, el Consolidado muestra
 //                el nombre que trae el archivo de nómina.
+//   (*) Sin código, el NOMBRE es la llave (11/Oct/2026, «Agrupar por»): la fila se guarda con
+//       `agrupar_por = concepto` y aplica a los cargues cuyo Consolidado se agrupa por nombre del
+//       concepto. Sin código ni nombre, la fila es un error.
 //   cuenta     → cuenta contable DEL CLIENTE (6-10 dígitos: 51050601, 0005060000) o la     *
 //                Russell de 6 (510506). Una o varias separadas con «;», o en filas repetidas del
 //                mismo concepto y centro (se unen). La Server Action la
@@ -24,7 +27,7 @@ import type ExcelJS from "exceljs";
 import { celdaTexto, normalizar, cargarWorkbook } from "./xlsx";
 import type { ErrorImport } from "./maestros";
 import { normalizarGrupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
-import { codigoConceptoCanonico, digitosCuenta } from "@/lib/modulos/nomina/homologacion";
+import { clasificadorCanonico, codigoConceptoCanonico, digitosCuenta } from "@/lib/modulos/nomina/homologacion";
 
 export const HOJA_CONCEPTOS = "Conceptos";
 
@@ -37,8 +40,12 @@ export const DIGITOS_CUENTA_NOMINA = 6;
 /** Mínimo de dígitos de una cuenta aceptable (Russell de 6 o cuenta del cliente de 6+). */
 export const MIN_DIGITOS_CUENTA = 6;
 
-export const COLUMNAS_REQUERIDAS = ["cliente", "codigo", "cuenta"] as const;
-export type ColumnaConcepto = (typeof COLUMNAS_REQUERIDAS)[number] | "concepto" | "grupo" | "agrupador";
+/** Columnas que el encabezado tiene que traer; además, la del código o la del nombre del concepto. */
+export const COLUMNAS_REQUERIDAS = ["cliente", "cuenta"] as const;
+export type ColumnaConcepto = (typeof COLUMNAS_REQUERIDAS)[number] | "codigo" | "concepto" | "grupo" | "agrupador";
+
+/** Dimensión de la llave de un concepto cargado: su código o, sin código, su nombre. */
+export type AgruparPorConcepto = "codigo" | "concepto";
 
 const ETIQUETA_COLUMNA: Record<ColumnaConcepto, string> = {
   cliente: "Cliente (NIT o código)",
@@ -55,8 +62,13 @@ const ETIQUETA_COLUMNA: Record<ColumnaConcepto, string> = {
  */
 export type ConceptoCatalogoEntrada = {
   fila: number;
-  /** Código canónico del concepto (sin ceros a la izquierda). */
+  /**
+   * Llave del concepto: su código canónico (sin ceros a la izquierda) o, en una fila de la
+   * plantilla sin código, su nombre canónico (`agruparPor: "concepto"`).
+   */
   codigo: string;
+  /** Qué es la llave. Ausente = el código (los catálogos del ERP siempre lo traen). */
+  agruparPor?: AgruparPorConcepto;
   /** Nombre legible del concepto ('' = el archivo no lo trae: es opcional). */
   concepto: string;
   /** Id del grupo RF-NOM-02, o null para sugerirlo (por nombre o subcuenta). */
@@ -177,7 +189,9 @@ export async function parseConceptosNominaWorkbook(
   }
 
   const cols = ubicarColumnas(ws);
-  const faltan = COLUMNAS_REQUERIDAS.filter((k) => !cols[k]);
+  const faltan: ColumnaConcepto[] = COLUMNAS_REQUERIDAS.filter((k) => !cols[k]);
+  // La llave del concepto es el código o, sin él, el nombre: basta una de las dos columnas.
+  if (!cols.codigo && !cols.concepto) faltan.push("codigo");
   if (faltan.length > 0) {
     return {
       filas: [],
@@ -201,6 +215,7 @@ export async function parseConceptosNominaWorkbook(
   // (una fila por cuenta: FAM, centro 314 → 51050601 y 72050601), y equivale a separarlas con «;».
   const vistos = new Map<string, number>();
   const unidos = new Set<string>();
+  let porNombre = 0;
 
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
@@ -218,8 +233,12 @@ export async function parseConceptosNominaWorkbook(
 
     const errs: string[] = [];
     if (!cliente) errs.push("Falta el cliente (NIT o código).");
-    if (!codigo) errs.push("Falta el código del concepto.");
-    // El nombre es opcional: la llave es el código y el nombre ya viene en el archivo de nómina.
+    // La llave es el código; sin él, el NOMBRE (para los cargues agrupados por nombre del concepto).
+    // Con código, el nombre es opcional: ya viene en el archivo de nómina.
+    const nombreLlave = clasificadorCanonico("concepto", concepto);
+    if (!codigo && !nombreLlave) errs.push("Falta el código del concepto (o su nombre, para agrupar por nombre).");
+    const agruparPor: AgruparPorConcepto = codigo ? "codigo" : "concepto";
+    const llave = codigo || nombreLlave;
 
     const { cuentas, errores: errCuentas } = partirCuentas(cuentaRaw);
     if (!cuentaRaw) errs.push("Falta la cuenta contable.");
@@ -237,8 +256,8 @@ export async function parseConceptosNominaWorkbook(
     }
 
     // El mismo concepto y centro en otra fila: sus cuentas se suman a la primera (el nombre y el
-    // grupo, los primeros que vengan).
-    const clave = `${normalizar(cliente)}|${normalizar(codigo)}|${normalizar(agrupador)}`;
+    // grupo, los primeros que vengan). Un concepto por código y otro por nombre no se mezclan.
+    const clave = `${normalizar(cliente)}|${agruparPor}|${normalizar(llave)}|${normalizar(agrupador)}`;
     const previa = vistos.get(clave);
     if (previa != null) {
       const primera = filas[previa];
@@ -249,12 +268,18 @@ export async function parseConceptosNominaWorkbook(
       continue;
     }
     vistos.set(clave, filas.length);
-    filas.push({ fila: r, cliente, codigo, concepto, grupo, agrupador, cuentas });
+    if (agruparPor === "concepto") porNombre++;
+    filas.push({ fila: r, cliente, codigo: llave, agruparPor, concepto, grupo, agrupador, cuentas });
   }
 
-  const avisos = unidos.size > 0
-    ? [`${unidos.size} concepto(s) venían en varias filas para el mismo cliente y centro: sus cuentas se unieron, como si vinieran en una fila separadas con «;».`]
-    : [];
+  const avisos = [
+    ...(unidos.size > 0
+      ? [`${unidos.size} concepto(s) venían en varias filas para el mismo cliente y centro: sus cuentas se unieron, como si vinieran en una fila separadas con «;».`]
+      : []),
+    ...(porNombre > 0
+      ? [`${porNombre} concepto(s) sin código se guardaron por su NOMBRE: aplican a los cargues cuyo Consolidado se agrupa por nombre del concepto.`]
+      : []),
+  ];
   return { filas, errores, avisos };
 }
 
@@ -262,6 +287,8 @@ export async function parseConceptosNominaWorkbook(
 export type FilaConceptoAEscribir = {
   clienteId: number;
   clasificador: string;
+  /** Qué es el clasificador: el código del concepto o, sin código, su nombre. */
+  agruparPor: AgruparPorConcepto;
   /** null = sin nombre en el archivo: la escritura conserva el que ya tuviera el concepto. */
   descripcion: string | null;
   agrupador: string;
@@ -278,16 +305,18 @@ export type FilaConceptoAEscribir = {
  * que ya tenía en la memoria del cliente —la carga reemplaza las filas y si no se perdería—.
  * Sin ninguno queda null y el Consolidado muestra el nombre que trae el archivo de nómina.
  */
-export function completarNombresConceptos<T extends { clienteId: number; clasificador: string; descripcion: string | null }>(
+export function completarNombresConceptos<T extends { clienteId: number; clasificador: string; descripcion: string | null; agruparPor?: string }>(
   filas: readonly T[],
-  previas: readonly { clienteId: number; clasificador: string; descripcion: string | null }[],
+  previas: readonly { clienteId: number; clasificador: string; descripcion: string | null; agruparPor?: string }[],
 ): T[] {
+  // El nombre es del concepto en SU dimensión: el código «1» y un concepto llamado «1» no se cruzan.
+  const llave = (f: { clienteId: number; clasificador: string; agruparPor?: string }) => `${f.clienteId}|${f.agruparPor ?? "codigo"}|${f.clasificador}`;
   const nombres = new Map<string, string>();
   for (const f of [...filas, ...previas]) {
-    const clave = `${f.clienteId}|${f.clasificador}`;
+    const clave = llave(f);
     if (f.descripcion?.trim() && !nombres.has(clave)) nombres.set(clave, f.descripcion);
   }
-  return filas.map((f) => (f.descripcion?.trim() ? f : { ...f, descripcion: nombres.get(`${f.clienteId}|${f.clasificador}`) ?? null }));
+  return filas.map((f) => (f.descripcion?.trim() ? f : { ...f, descripcion: nombres.get(llave(f)) ?? null }));
 }
 
 /** Origen con que la carga masiva deja sus filas en la memoria del cliente. */
@@ -302,15 +331,15 @@ export function planEscrituraConceptos(
   filas: readonly FilaConceptoAEscribir[],
   actor: string | null,
 ): {
-  claves: { clienteId: number; clasificador: string; agrupador: string }[];
+  claves: { clienteId: number; agruparPor: AgruparPorConcepto; clasificador: string; agrupador: string }[];
   data: (Omit<FilaConceptoAEscribir, "clienteId"> & { clienteId: number; moduloCodigo: string; origen: string; actualizadoPor: string | null })[];
 } {
-  const claves = new Map<string, { clienteId: number; clasificador: string; agrupador: string }>();
+  const claves = new Map<string, { clienteId: number; agruparPor: AgruparPorConcepto; clasificador: string; agrupador: string }>();
   const vistas = new Set<string>();
   const data: ReturnType<typeof planEscrituraConceptos>["data"] = [];
   for (const f of filas) {
-    const clave = `${f.clienteId}|${f.clasificador}|${f.agrupador}`;
-    if (!claves.has(clave)) claves.set(clave, { clienteId: f.clienteId, clasificador: f.clasificador, agrupador: f.agrupador });
+    const clave = `${f.clienteId}|${f.agruparPor}|${f.clasificador}|${f.agrupador}`;
+    if (!claves.has(clave)) claves.set(clave, { clienteId: f.clienteId, agruparPor: f.agruparPor, clasificador: f.clasificador, agrupador: f.agrupador });
     const cuenta = `${clave}|${f.cuenta6}|${f.cuentaCliente}`;
     if (vistas.has(cuenta)) continue;
     vistas.add(cuenta);

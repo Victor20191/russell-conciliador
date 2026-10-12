@@ -12,6 +12,7 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, va
 import type { UbicacionPatron } from "./mejor-version";
 import { esContenidoArchivo, type ContenidoArchivo } from "../ingresos/contenido-archivo";
 import { esContenidoActivos, type ContenidoActivos } from "../activos/contenido-archivo";
+import { esAgruparPor, type AgruparPorNomina } from "../nomina/agrupar-por";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 import { trasladarLecturaEstructurada } from "../extraccion/lectura-estructurada";
 
@@ -325,6 +326,37 @@ export function aplicarAgrupadorDeCarga(
   const columnas = { ...spec.columnas };
   delete columnas[ROL_AGRUPADOR_CARGA];
   return { ok: true, spec: normalizarSpecModuloArchivo(descriptor, { ...spec, columnas }), separado: false };
+}
+
+export type AgruparPorDeCarga =
+  | { ok: true; spec: SpecModulo; agruparPor: AgruparPorNomina | null }
+  | { ok: false; message: string };
+
+/**
+ * Aplica al spec de ESTE archivo la respuesta a «¿Cómo agrupar los conceptos?» (Nómina,
+ * `descriptor.consolidado`): código del concepto, nombre del concepto o cuenta contable del cliente.
+ * Se pregunta en TODA carga y solo entre lo que el mapeo trae: la columna del rol tiene que estar
+ * mapeada. Es del cargue, como el centro de costo: la versión del patrón no cambia. Sin la
+ * capacidad el campo se retira.
+ */
+export function aplicarAgruparPorDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  respuesta: unknown,
+): AgruparPorDeCarga {
+  const { agruparPor: _previo, ...sinAgrupar } = spec;
+  void _previo;
+  const opciones = descriptor.consolidado?.agruparPor;
+  if (!opciones?.length) return { ok: true, spec: sinAgrupar, agruparPor: null };
+  if (!esAgruparPor(respuesta)) {
+    return { ok: false, message: "Indica cómo agrupar los conceptos de este cargue: por código, por nombre o por cuenta contable del cliente." };
+  }
+  const opcion = opciones.find((o) => o.id === respuesta);
+  if (!opcion) return { ok: false, message: "Esa forma de agrupar no aplica a este módulo." };
+  if ((spec.columnas[opcion.rol] ?? 0) < 1) {
+    return { ok: false, message: `Para agrupar por «${opcion.etiqueta}» el archivo debe traer esa columna mapeada.` };
+  }
+  return { ok: true, spec: { ...sinAgrupar, agruparPor: respuesta }, agruparPor: respuesta };
 }
 
 export type ContenidoDeCarga =

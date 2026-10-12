@@ -15,6 +15,7 @@ import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorF
 import { esContenidoArchivo } from "./ingresos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./extraccion/lectura-estructurada";
 import { sanearRangosCodigos, textoRangosCodigos } from "./nomina/codigos-deduccion";
+import { esAgruparPor } from "./nomina/agrupar-por";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -166,6 +167,10 @@ function normalizarSpecModuloInterno(
   // Qué trae ESTE archivo (Ingresos: facturas / notas crédito): es del cargue, nunca del perfil.
   if (descriptor.confirmarContenidoEnCarga && conservarCoordenadaArchivo && esContenidoArchivo(spec.contenidoArchivo)) {
     normalizado.contenidoArchivo = spec.contenidoArchivo;
+  }
+  // Nómina: por qué dimensión se agrupa el Consolidado de ESTE cargue. Es del cargue, nunca del perfil.
+  if (descriptor.consolidado && conservarCoordenadaArchivo && esAgruparPor(spec.agruparPor)) {
+    normalizado.agruparPor = spec.agruparPor;
   }
   // Nómina: qué códigos son deducciones (NOMINAI 500–799). Es del FORMATO: vale en el patrón y en
   // el perfil del cliente.

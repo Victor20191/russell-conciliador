@@ -85,9 +85,11 @@ function ImportConceptosNominaModal({ onClose }: { onClose: () => void }) {
             un <span className="font-semibold">concepto de nómina</span> de un cliente con su{" "}
             <span className="font-semibold">grupo de cuenta contable</span> y la{" "}
             <span className="font-semibold">cuenta contable del cliente</span> (o la Russell de 6): la
-            plataforma la lleva a la cuenta Russell con la homologación del balance. Cliente, código y
-            cuenta son obligatorios; el nombre, el grupo y el centro de costo, opcionales (sin nombre,
-            el concepto conserva el que ya tenga o toma el del archivo de nómina). Varias
+            plataforma la lleva a la cuenta Russell con la homologación del balance. Cliente y cuenta
+            son obligatorios, y el código o el nombre del concepto: sin código, el concepto se guarda por
+            su nombre y aplica a los cargues cuyo Consolidado se agrupa por nombre. El grupo y el centro
+            de costo son opcionales (con código y sin nombre, el concepto conserva el que ya tenga o toma
+            el del archivo de nómina). Varias
             cuentas van en la misma fila separadas con «;» o en filas repetidas del mismo concepto y
             centro. Cada concepto (y centro) reemplaza sus
             cuentas anteriores; los que no vengan quedan intactos. No se importa nada si hay errores.

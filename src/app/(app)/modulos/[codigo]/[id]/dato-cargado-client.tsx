@@ -13,6 +13,7 @@ import ComentarioAncla from "@/components/comentario-ancla";
 import {
   guardarConsolidacionModulo,
   guardarConsolidacionModuloLote,
+  cambiarAgruparPorConsolidado,
   guardarClaseAgrupador,
   guardarRepartoCruce,
   aplicarRepartosSugeridos,
@@ -27,6 +28,7 @@ import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } 
 import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
 import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import { resumenCuentaArchivo, type SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
+import type { AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import { SEPARADOR_AGRUPADOR, SEPARADOR_CUENTA, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
@@ -51,6 +53,9 @@ import { hayReclasificacionEntreColumnas, totalesColumnasActivos } from "@/lib/m
 
 /** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
 const CLAVE_TOTAL_AGRUPADA = "__total_agrupada__";
+
+/** Primer componente de la clave cuando la fila no trae el dato de la agrupación (`SIN_CLASIFICAR`). */
+const SIN_CLASIFICAR_CONSOLIDADO = "(sin clasificar)";
 
 /**
  * Renglón único de un concepto partido por cuenta: sus sumas y, a la derecha, qué cuenta del
@@ -226,6 +231,8 @@ export type ConsolidadoVm = {
   agrupador?: string;
   /** Cuenta contable del cliente que trae el archivo para el renglón (parte el concepto por cuenta). */
   cuentaArchivo?: string | null;
+  /** Código del concepto más repetido del renglón (se muestra cuando no se agrupa por código). */
+  codigoArchivo?: string | null;
   /** Homologación sugerida cuando no hay memoria exacta (o la misma memoria, ya guardada). */
   sugerencia?: SugerenciaConsolidado;
   /** Sus cuentas valen solo para el período del cargue (llevan una cuenta fuera de la cédula). */
@@ -242,6 +249,16 @@ export type ConsolidadoVm = {
 };
 /** Nómina: centros de costo / clases del archivo con su clase contable (panel del consolidado). */
 export type AgrupadorVm = { agrupador: string; filas: number; total: number; clase: ClaseNomina | null; sugerida: ClaseNomina | null };
+/**
+ * Nómina: «Agrupar por» del Consolidado —código del concepto, nombre o cuenta contable del
+ * cliente— con las opciones que el cargue trae (las demás van deshabilitadas con su motivo).
+ */
+export type AgruparPorNominaVm = {
+  actual: AgruparPorNomina;
+  etiqueta: string;
+  etiquetaPlural: string;
+  opciones: { id: AgruparPorNomina; etiqueta: string; disponible: boolean; motivo: string | null }[];
+};
 // Cruce contable (balance vs. archivos del módulo): `resumen` es null cuando NO hay
 // balance de comprobación oficial para el período del módulo (estado vacío en la UI).
 export type CruceContableVm = {
@@ -470,6 +487,7 @@ export default function DatoCargadoClient({
   homologacionCliente,
   resolucionCliente,
   agrupadores = [],
+  agruparPorNomina = null,
   puedeEditar,
   versiones,
   versionActualId,
@@ -504,6 +522,8 @@ export default function DatoCargadoClient({
   resolucionCliente: ResolucionCliente;
   /** Nómina: centros de costo del archivo y su clase contable. Vacío en los demás módulos. */
   agrupadores?: AgrupadorVm[];
+  /** Nómina: por qué se agrupan los renglones del Consolidado y a qué se puede cambiar. */
+  agruparPorNomina?: AgruparPorNominaVm | null;
   puedeEditar: boolean;
   versiones: VersionModuloVm[];
   versionActualId: number;
@@ -634,7 +654,9 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} onGuardado={alGuardarConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} clasificadorEtiquetaPlural={clasificadorEtiquetaPlural} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
+        // Al cambiar «Agrupar por» las claves de los renglones son otras: la pestaña se remonta para
+        // que lo editado, lo guardado y la selección no arrastren claves de la agrupación anterior.
+        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : agruparPorNomina?.actual} comprobarSalidaRef={comprobarSalidaConsolidado} onGuardado={alGuardarConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={agruparPorNomina?.etiqueta ?? clasificadorEtiqueta} clasificadorEtiquetaPlural={agruparPorNomina?.etiquetaPlural ?? clasificadorEtiquetaPlural} agruparPorNomina={agruparPorNomina} enFirme={cruceContable.conciliacion?.cierre?.enFirme === true} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
@@ -888,6 +910,8 @@ function ConsolidadoTab({
   homologacionCliente,
   resolucionCliente,
   agrupadores,
+  agruparPorNomina = null,
+  enFirme = false,
   moduloLabel,
   puedeEditar,
   encabezadoId,
@@ -912,6 +936,10 @@ function ConsolidadoTab({
   homologacionCliente: HomologacionCliente;
   resolucionCliente: ResolucionCliente;
   agrupadores: AgrupadorVm[];
+  /** Nómina: por qué se agrupan los renglones y a qué se puede cambiar («Agrupar por»). */
+  agruparPorNomina?: AgruparPorNominaVm | null;
+  /** La conciliación del período está en firme: la agrupación no se cambia. */
+  enFirme?: boolean;
   moduloLabel: string;
   puedeEditar: boolean;
   encabezadoId: number;
@@ -1231,10 +1259,63 @@ function ConsolidadoTab({
     continuar?.();
   };
 
+  // Nómina, «Agrupar por»: cambiarla reagrupa los renglones. Lo que quede sin grabar pasa primero
+  // por el mismo modal de salida y después se confirma el cambio.
+  const [agruparDestino, setAgruparDestino] = useState<AgruparPorNomina | null>(null);
+  const [cambiandoAgrupar, startCambioAgrupar] = useTransition();
+  const pedirCambioAgrupar = (destino: AgruparPorNomina) => {
+    if (!agruparPorNomina || destino === agruparPorNomina.actual) return;
+    const abrir = () => setAgruparDestino(destino);
+    if (requiereAviso) setSalidaPendiente(() => abrir);
+    else abrir();
+  };
+  const confirmarCambioAgrupar = () => {
+    const destino = agruparDestino;
+    if (!destino) return;
+    startCambioAgrupar(async () => {
+      const r = await cambiarAgruparPorConsolidado({ encabezadoId, agruparPor: destino });
+      if (!r.ok) { notifyError(r.message ?? "No se pudo cambiar la agrupación."); return; }
+      setAgruparDestino(null);
+      notifySuccess(r.message ?? "Agrupación cambiada.");
+      router.refresh();
+    });
+  };
+  const motivoAgruparBloqueado = !puedeEditar
+    ? "Solo quien puede editar el Consolidado cambia la agrupación."
+    : enFirme
+      ? "La conciliación del período está en firme: desbloquéala para cambiar la agrupación."
+      : null;
+
   // Región propia (no `<Card>`): en pantalla completa pasa a ser el contenedor fijo en columna,
   // con las barras arriba y la tabla como lo único que scrollea.
   return (
     <div role="region" aria-label="Consolidado del cargue" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+      {agruparPorNomina && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
+          <span className="font-medium text-ink-600">Agrupar por:</span>
+          <div role="radiogroup" aria-label="Agrupar los conceptos por" className="flex flex-wrap gap-1.5">
+            {agruparPorNomina.opciones.map((o) => {
+              const activa = o.id === agruparPorNomina.actual;
+              const deshabilitada = !activa && (!o.disponible || motivoAgruparBloqueado != null || cambiandoAgrupar);
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={activa}
+                  disabled={deshabilitada}
+                  onClick={() => pedirCambioAgrupar(o.id)}
+                  title={activa ? "Agrupación de este cargue" : !o.disponible ? o.motivo ?? undefined : motivoAgruparBloqueado ?? undefined}
+                  className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  {o.etiqueta}
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-ink-400">Rige las cuentas asignadas, la memoria del cliente y el cruce de este cargue.</span>
+        </div>
+      )}
       {resumenArchivo && (
         <div className="shrink-0 border-b border-ink-100 bg-ok-100/30 px-3 py-2 text-[11.5px] leading-snug text-ink-700">
           <b className="text-ok-700">Este archivo trae la cuenta contable del cliente.</b>{" "}
@@ -1437,14 +1518,21 @@ function ConsolidadoTab({
                     </td>
                   )}
                   <td className="px-3 py-2 font-medium text-ink-800">
-                    {c.codigo ?? c.clasificador}
+                    {agruparPorNomina?.actual === "cuenta" && c.codigo === SIN_CLASIFICAR_CONSOLIDADO
+                      ? <span className="italic text-ink-500" title="Filas sin una cuenta contable válida en el archivo">(sin cuenta en el archivo)</span>
+                      : c.codigo ?? c.clasificador}
                     {/* Nómina: centro de costo / clase del archivo al que pertenece el renglón. */}
                     {c.agrupador && (
                       <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 text-[10.5px] font-semibold text-ink-600" title="Centro de costo / clase del archivo">{c.agrupador}</span>
                     )}
-                    {/* Nómina: cuenta contable del cliente que trae el archivo (un renglón por cuenta). */}
-                    {c.cuentaArchivo && (
+                    {/* Nómina: cuenta contable del cliente que trae el archivo (un renglón por cuenta).
+                        Agrupando por cuenta ya es el renglón: no se repite. */}
+                    {c.cuentaArchivo && agruparPorNomina?.actual !== "cuenta" && (
                       <span className="ml-1.5 rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono text-[10.5px] font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo para este concepto">{c.cuentaArchivo}</span>
+                    )}
+                    {/* Nómina sin agrupar por código: el código del concepto más repetido del renglón. */}
+                    {agruparPorNomina && agruparPorNomina.actual !== "codigo" && c.codigoArchivo && (
+                      <span className="ml-1.5 rounded border border-ink-200 bg-white px-1 py-0.5 font-mono text-[10.5px] text-ink-500" title={agruparPorNomina.actual === "cuenta" ? "Código del concepto más repetido en las filas de esta cuenta" : "Código del concepto en el archivo"}>cód. {c.codigoArchivo}</span>
                     )}
                     {/* Nombre del concepto cuando el clasificador es un código (Nómina). */}
                     {c.descripcion && (
@@ -1644,6 +1732,37 @@ function ConsolidadoTab({
           onSalirSinGuardar={salirSinGuardar}
           onClose={() => setSalidaPendiente(null)}
         />
+      )}
+      {agruparPorNomina && agruparDestino && (
+        <Modal
+          open
+          onClose={() => { if (!cambiandoAgrupar) setAgruparDestino(null); }}
+          title={`Agrupar por ${agruparPorNomina.opciones.find((o) => o.id === agruparDestino)?.etiqueta.toLocaleLowerCase("es") ?? agruparDestino}`}
+          footer={
+            <button
+              type="button"
+              disabled={cambiandoAgrupar}
+              onClick={confirmarCambioAgrupar}
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {cambiandoAgrupar ? "Cambiando…" : "Cambiar agrupación"}
+            </button>
+          }
+        >
+          <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
+            <p>
+              Los renglones del Consolidado de este cargue se reagrupan por <b>{agruparPorNomina.opciones.find((o) => o.id === agruparDestino)?.etiqueta.toLocaleLowerCase("es")}</b> en vez de por {agruparPorNomina.etiqueta.toLocaleLowerCase("es")}.
+            </p>
+            <p>
+              Las cuentas asignadas, los repartos y las marcas del cruce hechos con la agrupación actual dejan de aplicar mientras rija la nueva; no se borran y vuelven si regresas a {agruparPorNomina.etiqueta.toLocaleLowerCase("es")}.
+            </p>
+            {agruparDestino === "cuenta" && (
+              <p className="text-ink-500">
+                Agrupando por cuenta, cada renglón cruza por la homologación de esa cuenta en el balance. Una cuenta asignada a mano aquí vale como corrección de este cargue; para cambiarla siempre, corrige la homologación en Mapeo cuentas cliente.
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );

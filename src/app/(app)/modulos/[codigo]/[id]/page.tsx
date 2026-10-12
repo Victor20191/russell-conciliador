@@ -34,7 +34,8 @@ import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloque
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
-import { columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
+import { agruparPorDisponibles, columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, nombresCuentasCliente, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
+import { agruparPorDeEncabezado, etiquetaAgruparPor, etiquetaAgruparPorPlural } from "@/lib/modulos/nomina/agrupar-por";
 import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { cuentasClientePorClasificador, motivoPropuestaClasificador, proponerCuentaDeClasificador, type PropuestaCuentaClasificador } from "@/lib/modulos/cuenta-clasificador";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
@@ -59,6 +60,9 @@ export default async function DatoModuloPage({
   // Las cuentas que concilia el módulo: las de /config/prevalidador o, con la conciliación del
   // período en firme, las que guardó el cierre.
   const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
+  // Nómina: por qué se agrupan los conceptos del Consolidado (código, nombre o cuenta del cliente).
+  // Rige la memoria que se lee, la clave de los renglones y el cruce.
+  const agruparPor = agruparPorDeEncabezado(encabezado.agruparPor);
   // El detalle de un cargue de NÓMINA son cientos de miles de filas (INCODOL: 124.957 = 70 MB):
   // su consolidado y sus novedades se piden agregados y la pestaña «Detalle» pagina.
   const detalles = descriptor.nomina
@@ -74,7 +78,7 @@ export default async function DatoModuloPage({
 
   // Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período encima.
   const [consolidacion, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows, marcasPeriodoRows] = await Promise.all([
-    cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo),
+    cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo, descriptor.nomina ? { agruparPor } : undefined),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
@@ -245,7 +249,14 @@ export default async function DatoModuloPage({
   // Nómina: un renglón por (concepto, centro de costo) con la memoria guardada para ese par y la
   // sugerencia de homologación (cuenta del archivo, memoria + regla de clase, grupo por nombre).
   const reglasClase = new Map(reglasClaseRows.filter((r) => esClaseNomina(r.clase)).map((r) => [r.agrupador, r.clase as ClaseNomina]));
-  const gruposNomina = descriptor.nomina ? await gruposNominaDelCargue(encabezadoId) : undefined;
+  const [gruposNomina, agruparPorConDatos] = descriptor.nomina
+    ? await Promise.all([gruposNominaDelCargue(encabezadoId, agruparPor), agruparPorDisponibles(encabezadoId)])
+    : [undefined, null];
+  // Agrupando por cuenta, el renglón se nombra por la cuenta del cliente (también las que el
+  // balance aún no tiene homologadas, que `cuentasCliente` no trae).
+  const nombrePorCuentaCliente = descriptor.nomina && agruparPor === "cuenta" && gruposNomina
+    ? await nombresCuentasCliente(encabezado.clienteId, gruposNomina.map((g) => g.codigo))
+    : undefined;
   const consolidadoNomina = descriptor.nomina && gruposNomina
     ? construirConsolidadoNominaDeGrupos({
         grupos: gruposNomina,
@@ -253,6 +264,8 @@ export default async function DatoModuloPage({
         reglasClase,
         mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
         cuentasRussell6: cuentasCedula6(descriptor, cuentasPeriodo),
+        agruparPor,
+        nombrePorCuentaCliente,
       })
     : null;
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
@@ -262,6 +275,7 @@ export default async function DatoModuloPage({
         codigo: c.codigo,
         agrupador: c.agrupador,
         cuentaArchivo: c.cuentaArchivo,
+        codigoArchivo: c.codigoArchivo ?? null,
         descripcion: c.descripcion,
         total: c.total,
         filas: c.filas,
@@ -305,6 +319,7 @@ export default async function DatoModuloPage({
         imputable: d.imputable,
       })),
       gruposNomina,
+      ...(descriptor.nomina ? { agruparPorNomina: agruparPor, nombrePorCuentaCliente } : {}),
     },
     consolidacionRows,
     asignacionesPeriodo: consolidacion.filasPeriodo,
@@ -587,6 +602,19 @@ export default async function DatoModuloPage({
         homologacionCliente={homologacionPorSubgrupo}
         resolucionCliente={resolucionCliente}
         agrupadores={agrupadoresVm}
+        agruparPorNomina={descriptor.consolidado && agruparPorConDatos
+          ? {
+              actual: agruparPor,
+              etiqueta: etiquetaAgruparPor(agruparPor),
+              etiquetaPlural: etiquetaAgruparPorPlural(agruparPor),
+              opciones: descriptor.consolidado.agruparPor.map((o) => {
+                // La vigente siempre se ofrece: un cargue sin columna de código agrupa por el
+                // nombre que hizo de clasificador y sigue siendo «Código».
+                const disponible = o.id === agruparPor || agruparPorConDatos[o.id];
+                return { id: o.id, etiqueta: o.etiqueta, disponible, motivo: disponible ? null : `Este cargue no trae ${o.etiqueta.toLocaleLowerCase("es")}.` };
+              }),
+            }
+          : null}
         puedeEditar={puedeEditar}
         versiones={versiones}
         versionActualId={encabezado.id}

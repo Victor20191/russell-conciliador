@@ -1383,6 +1383,11 @@ model ModuloDatoEncabezado {
   /// invirtió su signo: `[{ loteId, archivo, contenido, signoInvertido, filas, total, previo? }]`.
   /// Los anexos agregan el suyo. Null = cargue anterior o módulo que no lo pregunta.
   contenidoArchivos  Json?               @map("contenido_archivos")
+  /// Nómina: por qué dimensión se agrupan los conceptos del Consolidado de este cargue —`codigo`
+  /// (código del concepto), `concepto` (nombre) o `cuenta` (cuenta contable del cliente)—. Se
+  /// pregunta al cargar y se puede cambiar en el Consolidado; rige la asignación de cuentas, la
+  /// memoria, el cruce y el Excel. Null = código (cargues anteriores o módulo sin «Agrupar por»).
+  agruparPor         String?             @map("agrupar_por")
   /// TRM de cierre con la que se convirtió a pesos la cartera en divisa (130510).
   trmCierre          Decimal?            @map("trm_cierre") @db.Decimal(12, 4)
   cargadoPor         String?             @map("cargado_por")
@@ -1753,6 +1758,10 @@ model ConsolidacionModuloCliente {
   /// '' cuando la fila se creó a mano con la cuenta Russell. Entra en la llave única: dos
   /// cuentas del cliente homologadas a la misma Russell son dos filas.
   cuentaCliente  String   @default("") @map("cuenta_cliente")
+  /// Nómina: dimensión del `clasificador` —`codigo` (código del concepto), `concepto` (nombre del
+  /// concepto) o `cuenta` (cuenta contable del cliente)—. Un cargue solo lee las filas de su
+  /// dimensión; `codigo` en los demás módulos. Entra en la llave única.
+  agruparPor     String   @default("codigo") @map("agrupar_por")
   /// carga_masiva | manual | sugerido_nombre | sugerido_balance | archivo (Nómina: la cuenta la trajo el archivo)
   origen         String   @default("manual") @map("origen")
   actualizadoPor String?  @map("actualizado_por")
@@ -1761,7 +1770,7 @@ model ConsolidacionModuloCliente {
 
   // Un clasificador puede cruzar con UNA o VARIAS cuentas de 4 díg (p. ej. el inventario
   // globalizado contra 1405+1430+1435). La unicidad incluye la cuenta: una fila por par.
-  @@unique([clienteId, moduloCodigo, clasificador, agrupador, cuenta4, cuenta6, cuentaCliente], map: "consolidacion_modulo_cliente_clasif_agrupador_cuenta_key")
+  @@unique([clienteId, moduloCodigo, agruparPor, clasificador, agrupador, cuenta4, cuenta6, cuentaCliente], map: "consolidacion_modulo_cliente_clasif_agrupador_cuenta_key")
   @@index([moduloCodigo, clienteId])
   @@index([clienteId, moduloCodigo, clasificador], map: "consolidacion_modulo_cliente_cliente_id_modulo_codigo_clasi_idx")
   @@map("consolidacion_modulo_cliente")
@@ -1786,11 +1795,14 @@ model AsignacionPeriodoModulo {
   cuenta4      String   @map("cuenta_4")
   /// Cuenta de 6 dígitos en los módulos que cruzan a ese nivel; '' en los de 4.
   cuenta6      String   @default("") @map("cuenta_6")
+  /// Nómina: dimensión del `clasificador` (`codigo` | `concepto` | `cuenta`), la misma del cargue
+  /// que la escribió; `codigo` en los demás módulos. Entra en la llave única.
+  agruparPor   String   @default("codigo") @map("agrupar_por")
   creadoPor    String?  @map("creado_por")
   creadoPorId  Int?     @map("creado_por_id") // FK suave → usuarios
   creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
-  @@unique([clienteId, moduloCodigo, periodo, clasificador, agrupador, cuenta4, cuenta6], map: "asignacion_periodo_modulo_unica")
+  @@unique([clienteId, moduloCodigo, periodo, agruparPor, clasificador, agrupador, cuenta4, cuenta6], map: "asignacion_periodo_modulo_unica")
   @@index([clienteId, moduloCodigo, periodo], map: "asignacion_periodo_modulo_periodo_idx")
   @@map("asignacion_periodo_modulo")
 }

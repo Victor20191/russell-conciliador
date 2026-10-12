@@ -45,7 +45,8 @@ import {
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
-import { gruposNominaDelCargue } from "@/lib/modulos/cargue-servidor";
+import { gruposNominaDelCargue, nombresCuentasCliente } from "@/lib/modulos/cargue-servidor";
+import { agruparPorDeEncabezado, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { agruparDetalleNomina, construirConsolidadoNominaDeGrupos, type GrupoNominaAgregado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { esClaseNomina, sugerirReparto, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import {
@@ -84,6 +85,10 @@ export type InsumosCruceModulo = {
      * consulta con gruposNominaDelCargue.
      */
     gruposNomina?: readonly GrupoNominaAgregado[];
+    /** Nómina: «Agrupar por» del cargue (código, nombre o cuenta del cliente). Ausente = código. */
+    agruparPorNomina?: AgruparPorNomina;
+    /** Nómina agrupando por cuenta: nombre de cada cuenta del cliente, para el renglón. */
+    nombrePorCuentaCliente?: ReadonlyMap<string, string>;
   };
   /**
    * `cuenta6` solo importa en los módulos que cruzan a 6 dígitos (`nivelCruce: 6`); las demás
@@ -193,11 +198,14 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
       moduloCodigo: true,
       periodo: true,
       verificaciones: true,
+      agruparPor: true,
     },
   });
   if (!encabezado) return null;
   const base = descriptorModulo(encabezado.moduloCodigo);
   const descriptor = base ? await resolverDescriptorVigente(base, { clienteId: encabezado.clienteId, periodo: encabezado.periodo }) : null;
+  // Nómina: la agrupación del cargue decide la clave de los renglones y qué memoria se lee.
+  const agruparPorNomina = descriptor?.nomina ? agruparPorDeEncabezado(encabezado.agruparPor) : undefined;
   // El JSON de cada fila solo hace falta en Nómina (agrupador, cuenta del archivo): en
   // Cartera/CxP son cientos de miles de filas y no se lee.
   // La depreciación de Activos fijos (valor relacionado) también vive en `datos`.
@@ -208,18 +216,26 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     descriptor?.nomina
       ? Promise.resolve([])
       : prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
-    descriptor?.nomina ? gruposNominaDelCargue(encabezadoId) : Promise.resolve(undefined),
-    cargarConsolidacionDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
+    descriptor?.nomina ? gruposNominaDelCargue(encabezadoId, agruparPorNomina) : Promise.resolve(undefined),
+    cargarConsolidacionDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo, agruparPorNomina ? { agruparPor: agruparPorNomina } : undefined),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
   ]);
-  const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
+  const [cuentasEstandar, nombrePorCuentaCliente] = await Promise.all([
+    cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6)),
+    agruparPorNomina === "cuenta" && gruposNomina
+      ? nombresCuentasCliente(encabezado.clienteId, gruposNomina.map((g) => g.codigo))
+      : Promise.resolve(undefined),
+  ]);
+  const { agruparPor: _agruparPor, ...datosEncabezado } = encabezado;
+  void _agruparPor;
   return {
     descriptor,
     encabezado: {
-      ...encabezado,
+      ...datosEncabezado,
       detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), imputable: d.imputable, ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
       gruposNomina,
+      ...(agruparPorNomina ? { agruparPorNomina, nombrePorCuentaCliente } : {}),
     },
     consolidacionRows: consolidacion.filas,
     asignacionesPeriodo: consolidacion.filasPeriodo,
@@ -324,14 +340,17 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   // Nómina: consolidado por (concepto, centro) con la homologación resuelta y los repartos
   // guardados; el lado módulo de la cédula sale de ahí.
   const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, encabezado.periodo) : null;
+  const agruparPorNomina = encabezado.agruparPorNomina ?? "codigo";
   const consolidadoNomina = descriptor.nomina && insumosNomina
     ? construirConsolidadoNominaDeGrupos({
         grupos: encabezado.gruposNomina
-          ?? agruparDetalleNomina(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos ?? {} }))),
+          ?? agruparDetalleNomina(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos ?? {} })), agruparPorNomina),
         memoria: consolidacionRows.map((r) => ({ ...r, agrupador: r.agrupador ?? "", cuenta6: r.cuenta6 ?? "" })),
         reglasClase: insumosNomina.reglasClase,
         mapeoCliente: insumosNomina.mapeoCliente,
         cuentasRussell6: cuentasCedula6(descriptor, cuentasPeriodo),
+        agruparPor: agruparPorNomina,
+        nombrePorCuentaCliente: encabezado.nombrePorCuentaCliente,
       })
     : null;
   const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
@@ -613,7 +632,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         control: construirControlDeducciones({ balance: balanceNomina, renglones: consolidadoNomina.renglones }),
         repartosPendientes: formalNomina.pendientesReparto.map((r) => {
           const porCuenta = Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contableTodas[c] ?? 0]));
-          const deCentros = pesosRepartoDeCentros(r, r.sugerencia.cuentas, insumosNomina.repartos);
+          const deCentros = pesosRepartoDeCentros(r, r.sugerencia.cuentas, insumosNomina.repartos, agruparPorNomina);
           return {
             clasificador: r.clasificador,
             codigo: r.codigo,

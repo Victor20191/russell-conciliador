@@ -4,11 +4,19 @@
 // clase, grupo por nombre…). Además, la lista de agrupadores del archivo con su clase guardada y la
 // que sugiere su valor, para el panel «Clases por centro de costo». Puro: la página carga las filas
 // y llama aquí.
+//
+// «Agrupar por» (11/Oct/2026): el primer componente de la clave es la dimensión que eligió el
+// cargue —código del concepto (lo de siempre), nombre del concepto o cuenta contable del cliente—
+// (`agrupar-por.ts`). Con la cuenta, la clave NO lleva la cuenta del archivo como tercer componente
+// (sería ella misma), pero el grupo la conserva en `cuenta` para que la homologación la resuelva por
+// la vía `archivo` (balance → estructura PUC).
 
 import { claveCruceContable } from "../cuentas-modulo";
 import { SIN_CLASIFICAR } from "../promocion";
 import { claveConsolidado } from "./clave-consolidado";
+import type { AgruparPorNomina } from "./agrupar-por";
 import {
+  clasificadorCanonico,
   cuentaArchivoValida,
   digitosCuenta,
   indexarMemoria,
@@ -36,10 +44,13 @@ export type SugerenciaConsolidado = Pick<
 export type RenglonConsolidadoNomina = {
   /** Clave del renglón («1», «1 ∥ GYA» o, con cuenta del archivo, «1 ∥ GYA # 51050601»). */
   clasificador: string;
+  /** Primer componente de la clave: el código, el nombre o la cuenta, según «Agrupar por». */
   codigo: string;
   agrupador: string;
   /** Cuenta contable del cliente que traen las filas del renglón (null si el archivo no la trae). */
   cuentaArchivo: string | null;
+  /** Código del concepto más repetido en las filas del renglón (útil cuando no se agrupa por código). */
+  codigoArchivo?: string | null;
   descripcion: string | null;
   total: number;
   filas: number;
@@ -87,12 +98,15 @@ function moda(filas: FilaDetalleNomina[], rol: string): string | null {
 export type GrupoNominaAgregado = {
   /** Clave del renglón («1», «1 ∥ GYA» o «1 ∥ GYA # 51050601»). */
   clasificador: string;
+  /** Primer componente de la clave: el código, el nombre o la cuenta, según «Agrupar por». */
   codigo: string;
   agrupador: string;
   filas: number;
   total: number;
   /** Valor más repetido del nombre del concepto en las filas del grupo (la `moda`). */
   concepto: string | null;
+  /** Valor más repetido del código del concepto (`datos.codigo`); null si el archivo no lo trae. */
+  codigoArchivo?: string | null;
   /**
    * Cuenta contable del cliente de las filas del grupo (dígitos, `cuentaArchivoValida`), o null.
    * Parte el renglón: un concepto registrado en dos cuentas son dos grupos con su valor real.
@@ -108,17 +122,31 @@ export type GrupoNominaAgregado = {
 const ROLES_MODA = ["concepto", "cuentaAdmin", "cuentaVentas", "cuentaMOD", "cuentaMOI"] as const;
 
 /**
+ * Primer componente de la clave de una fila según «Agrupar por»: el código (la columna
+ * `clasificador`, ya canónica desde la lectura), el nombre o la cuenta del cliente canónicos.
+ * `SIN_CLASIFICAR` cuando la fila no trae ese dato.
+ */
+export function baseClaveNomina(fila: Pick<FilaDetalleNomina, "clasificador" | "datos">, agruparPor: AgruparPorNomina = "codigo"): string {
+  const base = agruparPor === "codigo"
+    ? fila.clasificador?.trim() ?? ""
+    : clasificadorCanonico(agruparPor, fila.datos[agruparPor === "cuenta" ? "cuenta" : "concepto"]);
+  return base || SIN_CLASIFICAR;
+}
+
+/**
  * Agrupa el detalle por (concepto, centro, cuenta del archivo) con la moda de los roles que mira la
  * homologación. Es la especificación del GROUP BY de `gruposNominaDelCargue`: mismas claves, mismo
- * orden (valor absoluto descendente y luego la clave).
+ * orden (valor absoluto descendente y luego la clave). El «concepto» es la dimensión de
+ * `agruparPor`; agrupando por cuenta, la clave no repite la cuenta como tercer componente.
  */
-export function agruparDetalleNomina(detalle: readonly FilaDetalleNomina[]): GrupoNominaAgregado[] {
+export function agruparDetalleNomina(detalle: readonly FilaDetalleNomina[], agruparPor: AgruparPorNomina = "codigo"): GrupoNominaAgregado[] {
   const grupos = new Map<string, { codigo: string; agrupador: string; cuenta: string | null; total: number; filas: FilaDetalleNomina[] }>();
   for (const d of detalle) {
-    const codigo = d.clasificador?.trim() || SIN_CLASIFICAR;
+    const codigo = baseClaveNomina(d, agruparPor);
     const agrupador = texto(d.datos.agrupador) ?? "";
-    const cuenta = cuentaArchivoValida(d.datos.cuenta);
-    const k = claveConsolidado(codigo, agrupador, cuenta);
+    const porCuenta = agruparPor === "cuenta";
+    const cuenta = porCuenta ? (codigo === SIN_CLASIFICAR ? null : codigo) : cuentaArchivoValida(d.datos.cuenta);
+    const k = porCuenta ? claveConsolidado(codigo, agrupador) : claveConsolidado(codigo, agrupador, cuenta);
     const g = grupos.get(k) ?? { codigo, agrupador, cuenta, total: 0, filas: [] };
     g.total += d.valor;
     g.filas.push(d);
@@ -132,6 +160,7 @@ export function agruparDetalleNomina(detalle: readonly FilaDetalleNomina[]): Gru
       filas: g.filas.length,
       total: Math.round(g.total * 100) / 100 + 0 || 0,
       cuenta: g.cuenta,
+      codigoArchivo: moda(g.filas, "codigo"),
       ...(Object.fromEntries(ROLES_MODA.map((rol) => [rol, moda(g.filas, rol)])) as Record<(typeof ROLES_MODA)[number], string | null>),
     }))
     .sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
@@ -143,31 +172,41 @@ export function construirConsolidadoNomina(input: {
   reglasClase: ReadonlyMap<string, ClaseNomina>;
   mapeoCliente?: ReadonlyMap<string, string>;
   cuentasRussell6: readonly string[];
+  agruparPor?: AgruparPorNomina;
+  nombrePorCuentaCliente?: ReadonlyMap<string, string>;
 }): { renglones: RenglonConsolidadoNomina[]; agrupadores: AgrupadorConsolidado[] } {
-  return construirConsolidadoNominaDeGrupos({ ...input, grupos: agruparDetalleNomina(input.detalle) });
+  return construirConsolidadoNominaDeGrupos({ ...input, grupos: agruparDetalleNomina(input.detalle, input.agruparPor) });
 }
 
 /** El mismo consolidado partiendo de los grupos ya agregados (sin las filas del archivo). */
 export function construirConsolidadoNominaDeGrupos(input: {
   grupos: readonly GrupoNominaAgregado[];
+  /** La memoria de la MISMA dimensión del cargue (`agrupar_por`). */
   memoria: MemoriaConceptoRow[];
   reglasClase: ReadonlyMap<string, ClaseNomina>;
   mapeoCliente?: ReadonlyMap<string, string>;
   cuentasRussell6: readonly string[];
+  /** Dimensión del cargue («Agrupar por»). Ausente = código del concepto. */
+  agruparPor?: AgruparPorNomina;
+  /** Agrupando por cuenta: nombre de cada cuenta del cliente (dígitos → nombre), para el renglón. */
+  nombrePorCuentaCliente?: ReadonlyMap<string, string>;
 }): { renglones: RenglonConsolidadoNomina[]; agrupadores: AgrupadorConsolidado[] } {
   const consolidado = input.grupos;
+  const agruparPor = input.agruparPor ?? "codigo";
+  const canonico = (v: string) => clasificadorCanonico(agruparPor, v) || v.trim();
   // Memoria: filas por (concepto, centro) y descripción por concepto. Lo GUARDADO de un renglón con
   // cuenta del archivo son solo las filas de esa cuenta del cliente (más una asignación «Solo
   // {período}» del par, que rige para todas sus cuentas); sin cuenta, todas las del par, como antes.
   const memoriaPorPar = new Map<string, MemoriaConceptoRow[]>();
   const descripcionPorCodigo = new Map<string, string>();
   for (const m of input.memoria) {
-    const k = claveConsolidado(m.clasificador, m.agrupador);
+    const codigo = canonico(m.clasificador);
+    const k = claveConsolidado(codigo, m.agrupador);
     memoriaPorPar.set(k, [...(memoriaPorPar.get(k) ?? []), m]);
-    if (m.descripcion && !descripcionPorCodigo.has(m.clasificador)) descripcionPorCodigo.set(m.clasificador, m.descripcion);
+    if (m.descripcion && !descripcionPorCodigo.has(codigo)) descripcionPorCodigo.set(codigo, m.descripcion);
   }
   const guardadasDe = (c: GrupoNominaAgregado): string[] => {
-    const filas = (memoriaPorPar.get(claveConsolidado(c.codigo ?? c.clasificador, c.agrupador ?? "")) ?? [])
+    const filas = (memoriaPorPar.get(claveConsolidado(canonico(c.codigo ?? c.clasificador), c.agrupador ?? "")) ?? [])
       .filter((m) => !c.cuenta || m.soloPeriodo || digitosCuenta(m.cuentaCliente) === c.cuenta);
     return [...new Set(filas.map((m) => claveCruceContable(m.cuenta6, 6)).filter((c6): c6 is string => !!c6))].sort();
   };
@@ -183,18 +222,24 @@ export function construirConsolidadoNominaDeGrupos(input: {
     reglasClase: input.reglasClase,
     mapeoCliente: input.mapeoCliente,
     cuentasRussell6: input.cuentasRussell6,
+    agruparPor,
   };
-  const indice = indexarMemoria(input.memoria);
+  const indice = indexarMemoria(input.memoria, agruparPor);
 
   const renglones: RenglonConsolidadoNomina[] = consolidado.map((c) => {
     const codigo = c.codigo ?? c.clasificador;
     const agrupador = c.agrupador ?? "";
-    const descripcion = descripcionPorCodigo.get(codigo) ?? c.concepto ?? nombrePorCodigo.get(codigo) ?? null;
+    // Agrupando por cuenta, el renglón se nombra por la cuenta del cliente; los conceptos que
+    // reúne pueden ser varios, así que su nombre no sugiere un grupo de cuenta.
+    const porCuenta = agruparPor === "cuenta";
+    const descripcion = porCuenta
+      ? input.nombrePorCuentaCliente?.get(codigo) ?? descripcionPorCodigo.get(codigo) ?? c.concepto ?? null
+      : descripcionPorCodigo.get(canonico(codigo)) ?? c.concepto ?? nombrePorCodigo.get(codigo) ?? null;
     const r = resolverCuentaConcepto(
       {
         clasificador: codigo,
         agrupador,
-        nombre: descripcion,
+        nombre: porCuenta ? null : descripcion,
         cuentaArchivo: c.cuenta,
         cuentasPorClaseArchivo: {
           "51": c.cuentaAdmin,
@@ -211,6 +256,7 @@ export function construirConsolidadoNominaDeGrupos(input: {
       codigo,
       agrupador,
       cuentaArchivo: c.cuenta,
+      codigoArchivo: c.codigoArchivo ?? null,
       descripcion,
       total: c.total,
       filas: c.filas,

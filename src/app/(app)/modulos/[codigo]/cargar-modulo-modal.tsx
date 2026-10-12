@@ -20,6 +20,7 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { fechaCorteSugeridaDe, mesActualColombia, motivoFechaFutura, motivoPeriodoFuturo, nombrePeriodo, rangoDelPeriodo } from "@/lib/fecha-cargue";
 import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
 import { textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
+import { agruparPorMapeadas, agruparPorPreseleccion, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { INFO_TIPO_FORMATO, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import {
   leerDatosModulo,
@@ -98,6 +99,11 @@ type PropsCarga = {
   confirmarContenido: boolean;
   /** Activos fijos: pregunta si el archivo trae costo, depreciación o las dos cosas. */
   confirmarContenidoActivos: boolean;
+  /**
+   * Nómina: «¿Cómo agrupar los conceptos?» (código, nombre o cuenta del cliente) con las opciones
+   * del descriptor. null = el módulo no lo pregunta.
+   */
+  opcionesAgruparPor?: OpcionAgruparPor[] | null;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -280,6 +286,66 @@ function ConfirmarCentroCarga({
         {conPatron
           ? "Vale solo para este cargue: el patrón del aplicativo no se modifica."
           : "Vale solo para este cargue: el mapeo que se guarda conserva la columna del centro de costo."}
+      </span>
+    </div>
+  );
+}
+
+/** Una opción de «¿Cómo agrupar los conceptos?»: la dimensión y la columna que la forma. */
+export type OpcionAgruparPor = { id: AgruparPorNomina; rol: string; etiqueta: string };
+
+/**
+ * «¿Cómo agrupar los conceptos?» (Nómina, 11/Oct/2026): código del concepto, nombre del concepto o
+ * cuenta contable del cliente, solo entre lo que el mapeo trae. Llega pre-marcada con la última que
+ * usó el cliente con ese patrón (o la propuesta) y el usuario la confirma o la cambia. Vale para
+ * este cargue y se puede cambiar después en el Consolidado.
+ */
+function ConfirmarAgruparPorCarga({
+  analisis,
+  spec,
+  opciones,
+  valor,
+  origen,
+  onElegir,
+}: {
+  analisis: AnalisisModulo;
+  spec: SpecModulo;
+  opciones: OpcionAgruparPor[];
+  valor: AgruparPorNomina | null;
+  /** De dónde salió la marca inicial; null = la eligió el usuario. */
+  origen: "patron" | "cliente" | "propuesta" | null;
+  onElegir: (valor: AgruparPorNomina) => void;
+}) {
+  const letra = (columna: number) => letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
+  const muestras = (columna: number) => [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        ¿Cómo agrupar los conceptos? <span className="text-err-600">*</span>
+        {origen === "patron" && " · marcada la última que usó este cliente con este patrón"}
+        {origen === "cliente" && " · marcada la última que usó este cliente"}
+      </span>
+      <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Cómo agrupar los conceptos?">
+        {opciones.map((o) => {
+          const columna = spec.columnas[o.rol] ?? 0;
+          const mapeada = columna >= 1;
+          const ejemplo = mapeada ? muestras(columna).slice(0, 3).join(" · ") : "";
+          return (
+            <label key={o.id} className={`inline-flex min-w-0 items-start gap-1.5 ${mapeada ? "" : "text-ink-400"}`}>
+              <input type="radio" name="agrupar-por" className="mt-0.5" checked={valor === o.id} disabled={!mapeada} onChange={() => onElegir(o.id)} />
+              <span className="min-w-0 break-words">
+                {o.etiqueta}
+                {mapeada
+                  ? <span className="text-ink-500"> · columna {letra(columna)}{ejemplo ? ` (${ejemplo})` : ""}</span>
+                  : <span> · no viene en el mapeo</span>}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <span className="text-[11px] leading-snug text-ink-500">
+        Cada renglón del Consolidado será un {valor ? opciones.find((o) => o.id === valor)?.etiqueta.toLocaleLowerCase("es") : "concepto"} (por centro de costo si se separa).
+        Vale para este cargue y se puede cambiar después en el Consolidado; el patrón no se modifica.
       </span>
     </div>
   );
@@ -535,6 +601,7 @@ function CargarModal({
   cuentaEnClasificador,
   confirmarContenido,
   confirmarContenidoActivos,
+  opcionesAgruparPor = null,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -588,6 +655,18 @@ function CargarModal({
     setSepararCentro(valor);
     setColumnaCentroRespondida(colCentro);
   };
+  // «¿Cómo agrupar los conceptos?» (solo este cargue, Nómina). Llega marcada con la última que usó
+  // el cliente con ese patrón —o la de por defecto entre lo mapeado— y vale lo que elija el usuario
+  // mientras su columna siga en el mapeo; si deja de estarlo, vuelve a la marca inicial.
+  const [agruparElegido, setAgruparElegido] = useState<AgruparPorNomina | null>(null);
+  const agruparMapeadas = agruparPorMapeadas(spec?.columnas);
+  const agruparInicial = agruparPorPreseleccion(analisis?.agruparPorUltimo?.agruparPor ?? null, agruparMapeadas);
+  const agruparPor: AgruparPorNomina | null = opcionesAgruparPor
+    ? agruparElegido && agruparMapeadas[agruparElegido] ? agruparElegido : agruparMapeadas[agruparInicial] ? agruparInicial : null
+    : null;
+  const origenAgruparPor: "patron" | "cliente" | "propuesta" | null = agruparPor == null || agruparPor === agruparElegido
+    ? null
+    : analisis?.agruparPorUltimo?.agruparPor === agruparPor ? analisis.agruparPorUltimo.origen : "propuesta";
   // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
   const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
@@ -617,6 +696,7 @@ function CargarModal({
     setClasificadorConfirmado(false);
     setTotalArchivo(null);
     setSepararCentro(null);
+    setAgruparElegido(null);
     setContenido(null);
     setContenidoActivos(null);
     setDestinoCarga(null);
@@ -787,6 +867,7 @@ function CargarModal({
         setClasificadorConfirmado(false);
         setTotalArchivo(null);
         setSepararCentro(null);
+        setAgruparElegido(null);
         setContenido(null);
         setContenidoActivos(null);
         setDestinoCarga(null);
@@ -856,6 +937,9 @@ function CargarModal({
     // Con patrón y con el mapeo armado en la carga: basta que el centro de costo quede leído.
     const pedirCentro = confirmarAgrupador && colCentro >= 1;
     if (pedirCentro && respuestaCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
+    // Nómina: cómo se agrupan los conceptos. Un anexo se agrupa como el cargue al que se suma.
+    const pedirAgruparPor = opcionesAgruparPor != null && !anexo;
+    if (pedirAgruparPor && agruparPor == null) { notifyError("Indica cómo agrupar los conceptos: por código, por nombre o por cuenta contable del cliente."); return; }
     // Ingresos: qué trae el archivo, y si complementa el cargue del período, a dónde va.
     const vigentePeriodo = anexo ? null : analisis.vigentePeriodo ?? null;
     // Activos fijos: lo mismo, cuando el archivo trae el lado que al cargue vigente le falta.
@@ -899,6 +983,7 @@ function CargarModal({
         if (configurando) fd.set("configurarEnCarga", "1");
       }
       if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
+      if (pedirAgruparPor && agruparPor) fd.set("agruparPor", agruparPor);
       fd.set("periodoInicio", `${mes}-01`);
       fd.set("periodoFin", `${mes}-01`);
       fd.set("softwareOrigen", aplicativo.nombre);
@@ -951,6 +1036,12 @@ function CargarModal({
       onDestino={setDestinoCarga}
     />
   ) : null;
+  // Nómina: «¿Cómo agrupar los conceptos?». En un anexo no se pregunta: se agrupa como su cargue.
+  const preguntaAgruparPor = opcionesAgruparPor && analisis && spec
+    ? anexo
+      ? <p className="rounded-md border border-ink-200 bg-ink-50 px-3 py-1.5 text-[11px] text-ink-600">Los conceptos se agrupan como en el cargue al que se agrega este archivo.</p>
+      : <ConfirmarAgruparPorCarga analisis={analisis} spec={spec} opciones={opcionesAgruparPor} valor={agruparPor} origen={origenAgruparPor} onElegir={setAgruparElegido} />
+    : null;
 
   const cambiarFilaMarcaTotales = (fila: string) => {
     solicitudCeldaRef.current += 1;
@@ -1082,6 +1173,7 @@ function CargarModal({
     setClasificadorConfirmado(false);
     setTotalArchivo(null);
     setSepararCentro(null);
+    setAgruparElegido(null);
     setContenido(null);
     setContenidoActivos(null);
     setDestinoCarga(null);
@@ -1402,6 +1494,7 @@ function CargarModal({
               onResponder={responderCentro}
             />
           )}
+          {preguntaAgruparPor}
           {avisaCuentaArchivo && (spec.columnas[ROL_CUENTA] ?? 0) >= 1 && (
             <AvisoCuentaArchivo analisis={analisis} columna={spec.columnas[ROL_CUENTA] ?? 0} />
           )}
@@ -1516,6 +1609,7 @@ function CargarModal({
               conPatron={false}
             />
           )}
+          {preguntaAgruparPor}
           {configurando && (
             <PruebaMapeoPatron
               key={`${recepcionLoteId ?? ""}:${spec.hoja}`}

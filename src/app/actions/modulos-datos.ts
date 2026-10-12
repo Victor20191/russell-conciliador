@@ -53,7 +53,7 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { aplicarAgrupadorDeCarga, aplicarAgruparPorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
 import { esContenidoActivos, INFO_CONTENIDO_ACTIVOS } from "@/lib/modulos/activos/contenido-archivo";
 import {
   agregarContenidoArchivo,
@@ -72,7 +72,17 @@ import { encabezadoParaGuardar } from "@/lib/modulos/patrones/rotulos";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
 import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
-import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
+import { CLASES_NOMINA, cuentaArchivoValida } from "@/lib/modulos/nomina/homologacion";
+import {
+  AGRUPAR_POR_DEFECTO,
+  agruparPorDeEncabezado,
+  agruparPorDeLote,
+  agruparPorMapeadas,
+  detalleAuditoriaAgruparPor,
+  etiquetaAgruparPor,
+  OPCIONES_AGRUPAR_POR,
+  type AgruparPorNomina,
+} from "@/lib/modulos/nomina/agrupar-por";
 import { repartoQuedaViejo, validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
@@ -82,8 +92,8 @@ import { normalizarOrden, ordenarFilas } from "@/lib/modulos/orden-tabla";
 import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
 import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
-import { conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
-import { ladosDelCargueActivos, nombresConceptoDelCargue, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
+import { agruparPorDisponiblesLote, conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
+import { agruparPorDisponibles, ladosDelCargueActivos, nombresConceptoDelCargue, nombresCuentasCliente, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
@@ -381,7 +391,37 @@ export type AnalisisModulo = {
    * archivo de notas crédito a ese cargue en vez de crear una versión nueva que lo reemplace.
    */
   vigentePeriodo?: VigentePeriodoModulo | null;
+  /**
+   * Nómina («Agrupar por»): la última agrupación que usó el cliente con ESE patrón (o, sin patrón,
+   * en su último cargue del módulo). Con ella la pregunta del cargue llega pre-marcada; el usuario
+   * la confirma o la cambia. null = sin historial.
+   */
+  agruparPorUltimo?: { agruparPor: AgruparPorNomina; origen: "patron" | "cliente" } | null;
 };
+
+/**
+ * Nómina: con qué agrupación llega pre-marcada la pregunta «¿Cómo agrupar los conceptos?». Con
+ * patrón, la del último cargue del cliente leído con esa versión; sin patrón, la de su último cargue
+ * del módulo. Un cargue anterior a la pregunta (null) agrupaba por código. Nunca bloquea el análisis.
+ */
+async function ultimoAgruparPor(
+  descriptor: DescriptorModulo,
+  clienteId: number,
+  patronVersionId: number | null,
+): Promise<AnalisisModulo["agruparPorUltimo"]> {
+  if (!descriptor.consolidado) return null;
+  try {
+    const ultimo = await prisma.moduloDatoEncabezado.findFirst({
+      where: { clienteId, moduloCodigo: descriptor.codigo, ...(patronVersionId != null ? { patronVersionId } : {}) },
+      orderBy: [{ ultimaCarga: "desc" }, { id: "desc" }],
+      select: { agruparPor: true },
+    });
+    return ultimo ? { agruparPor: agruparPorDeEncabezado(ultimo.agruparPor), origen: patronVersionId != null ? "patron" : "cliente" } : null;
+  } catch (e) {
+    registrarError("analizarArchivoModulo.ultimoAgruparPor", e);
+    return null;
+  }
+}
 
 /**
  * El cargue vigente (oficial) de un período, para la oferta de agregar al cargar
@@ -732,7 +772,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
       const spec = perfilSpec ? normalizarSpecModulo(descriptor, perfilSpec) : sugerirSpec(descriptor, hoja);
       const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
-      const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
+      const [vigentePeriodo, agruparPorUltimo] = await Promise.all([
+        vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis),
+        ultimoAgruparPor(descriptor, clienteId, null),
+      ]);
       revalidarListadosModulo(moduloCodigo);
       return {
         ok: true,
@@ -743,6 +786,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         spec,
         origen,
         ...(vigentePeriodo ? { vigentePeriodo } : {}),
+        ...(agruparPorUltimo ? { agruparPorUltimo } : {}),
       };
     }
 
@@ -759,7 +803,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       // Un valor de «total» ya no saca al archivo de su patrón: el administrador confirmó al
       // crearlo que excluye el IVA (la firma viaja en el spec) y la carga solo lo informa.
       const aplicado = aplicarPatronASpec(descriptor, ubicacion, hojaPatron);
-      const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
+      const [vigentePeriodo, agruparPorUltimo] = await Promise.all([
+        vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis),
+        ultimoAgruparPor(descriptor, clienteId, ubicacion.version.id),
+      ]);
       revalidarListadosModulo(moduloCodigo);
       return {
         ok: true,
@@ -770,6 +817,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaPatron, aplicado.spec, seleccionHoja),
         spec: aplicado.spec,
         ...(vigentePeriodo ? { vigentePeriodo } : {}),
+        ...(agruparPorUltimo ? { agruparPorUltimo } : {}),
         coincidencia: {
           versionId: ubicacion.version.id,
           version: ubicacion.version.version,
@@ -784,7 +832,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     // (salvo Inventarios, que tiene su asistencia). Para eso viaja la vista de la hoja y la
     // sugerencia heurística; nunca el perfil del cliente, que es la memoria de «Archivo manual».
     const specSugerido = sugerirSpec(descriptor, hoja);
-    const vigentePeriodo = await vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis);
+    const [vigentePeriodo, agruparPorUltimo] = await Promise.all([
+      vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis),
+      ultimoAgruparPor(descriptor, clienteId, null),
+    ]);
     revalidarListadosModulo(moduloCodigo);
     return {
       ok: true,
@@ -795,6 +846,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       spec: specSugerido,
       origen: "ia",
       ...(vigentePeriodo ? { vigentePeriodo } : {}),
+      ...(agruparPorUltimo ? { agruparPorUltimo } : {}),
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
       ...(descriptor.crucePorTercero.detalleTercero
@@ -1094,6 +1146,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const aplicativo = aplicativoValidado.aplicativo;
 
     let anexoEncabezadoId: number | null = null;
+    // Nómina: un anexo se agrupa como el cargue al que se suma (no se vuelve a preguntar).
+    let anexoAgruparPor: AgruparPorNomina | null = null;
     if (anexoPedido != null) {
       const destino = await prisma.moduloDatoEncabezado.findUnique({
         where: { id: anexoPedido },
@@ -1104,6 +1158,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           esOficial: true,
           estaCongelado: true,
           verificaciones: true,
+          agruparPor: true,
         },
       });
       if (!destino) return { ok: false, message: "El cargue al que ibas a agregar el archivo ya no existe." };
@@ -1118,6 +1173,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       );
       if (bloqueoAnexo) return { ok: false, message: bloqueoAnexo };
       anexoEncabezadoId = destino.id;
+      if (descriptor.consolidado) anexoAgruparPor = agruparPorDeEncabezado(destino.agruparPor);
     }
 
     let contenidoOriginal: Uint8Array;
@@ -1490,6 +1546,21 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         };
       }
     }
+    // Nómina: «¿Cómo agrupar los conceptos?» — código, nombre o cuenta del cliente, en las tres
+    // lecturas (patrón, mapeo armado en la carga y Archivo manual). Un ANEXO no pregunta: toma la
+    // agrupación del cargue al que se suma y se rechaza si este archivo no trae esa columna. Sin
+    // respuesta es un dato que falta en el formulario: el original no se marca como no procesable.
+    const respuestaAgrupar = anexoAgruparPor ?? (String(formData.get("agruparPor") ?? "").trim() || null);
+    const agruparCarga = aplicarAgruparPorDeCarga(descriptor, spec, respuestaAgrupar);
+    if (!agruparCarga.ok) {
+      return {
+        ok: false,
+        message: anexoAgruparPor
+          ? `El cargue al que agregas este archivo agrupa por ${etiquetaAgruparPor(anexoAgruparPor).toLocaleLowerCase("es")}: este archivo no trae esa columna mapeada.`
+          : agruparCarga.message,
+      };
+    }
+    spec = agruparCarga.spec;
     // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
     const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta);
     if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
@@ -1628,7 +1699,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
       : configurarEnCarga
         ? ` · ${aplicativo.name} sin patrón · lectura configurada en la carga`
-        : ` · ${aplicativo.name}`) + detalleCentro;
+        : ` · ${aplicativo.name}`) + detalleCentro + detalleAuditoriaAgruparPor(agruparCarga.agruparPor);
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -1764,6 +1835,8 @@ export async function filasBorradorModulo(entrada: {
     if (!scope.ok) return { ok: false, message: scope.message, filas: [], total: 0 };
     const descriptor = descriptorModulo(lote.moduloCodigo);
     if (!descriptor) return { ok: false, message: "Módulo desconocido.", filas: [], total: 0 };
+    // Nómina: el grupo es del «Agrupar por» del lote (código, nombre o cuenta del cliente).
+    const agruparPor = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
 
     const grupo = String(entrada.clasificador ?? "").trim();
     const novedades = Array.isArray(entrada.soloNovedades) ? new Set(entrada.soloNovedades.filter(Number.isInteger)) : null;
@@ -1777,15 +1850,15 @@ export async function filasBorradorModulo(entrada: {
     // no viaja entero para mostrar 500. Con filtros hay que verlo completo, pero es UN grupo.
     if (!recorta) {
       const [filas, total] = await Promise.all([
-        filasDelGrupo(id, grupo, { limite: FILAS_POR_PAGINA_BORRADOR, desde }),
-        conteoDelGrupo(id, grupo),
+        filasDelGrupo(id, grupo, { limite: FILAS_POR_PAGINA_BORRADOR, desde, agruparPor }),
+        conteoDelGrupo(id, grupo, agruparPor),
       ]);
       return { ok: true, filas, total };
     }
 
     const familias = ((lote.specJson ?? {}) as { familias?: Record<string, { etiqueta: string }[]> }).familias;
     const columnas = columnasDetalleModulo(descriptor, (familias?.edades ?? []).map((e) => e.etiqueta));
-    let visibles = await filasDelGrupo(id, grupo);
+    let visibles = await filasDelGrupo(id, grupo, { agruparPor });
     if (entrada.verEstructura !== true) visibles = visibles.filter((f) => !esRenglonEstructura(f));
     if (novedades) visibles = visibles.filter((f) => novedades.has(f.filaNum));
     const valorDe = (fila: FilaBorrador, columna: { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }) =>
@@ -2034,6 +2107,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     if (!descriptor) return { ok: false, message: "Módulo no soportado." };
     // Ingresos: qué traía el archivo y si su signo se invirtió (lo dejó la lectura en el lote).
     const signoContenidoLote = descriptor.confirmarContenidoEnCarga ? leerContenidoDeLote(lote.specJson) : null;
+    // Nómina: cómo se agrupan los conceptos del Consolidado (lo respondió el analista al leer). Un
+    // lote anterior a la pregunta toma la de por defecto entre lo que su mapeo trae.
+    const agruparPorLote: AgruparPorNomina | null = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
 
     // Checklist de verificación (novedades): TODAS las preguntas del descriptor deben venir
     // respondidas (si | no | na). Se guarda id → { respuesta, nota }.
@@ -2472,6 +2548,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             }
             : {}),
           ...(entradaContenido ? { contenidoArchivos: [entradaContenido] as unknown as Prisma.InputJsonValue } : {}),
+          ...(agruparPorLote ? { agruparPor: agruparPorLote } : {}),
           cargadoPor: user?.name ?? null,
           cargadoPorId: user?.id ?? null,
           ultimaCarga: ahora,
@@ -2578,7 +2655,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         entity: cliente.name,
         detail: resultado.modo === "agregar"
           ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}`
-          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}`,
+          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}${detalleAuditoriaAgruparPor(agruparPorLote)}`,
         clientId: lote.clienteId,
       });
     }
@@ -2750,10 +2827,15 @@ type MemoriaConcepto = { descripcion: string | null; grupo: string | null; subcu
 // cuenta del archivo («1 ∥ GYA # 51050601») toma primero las filas de ESA cuenta del cliente, luego
 // las del par sin cuenta del cliente y luego la base del concepto; su cuenta del cliente es la del
 // archivo (la escribe el plan de escritura).
-async function memoriaGuardada(clienteId: number, moduloCodigo: string, claves: string[]): Promise<Map<string, MemoriaConcepto>> {
+async function memoriaGuardada(
+  clienteId: number,
+  moduloCodigo: string,
+  claves: string[],
+  agruparPor: AgruparPorNomina = AGRUPAR_POR_DEFECTO,
+): Promise<Map<string, MemoriaConcepto>> {
   const clasificadores = [...new Set(claves.map((k) => partirClaveConsolidado(k).clasificador))];
   const filas = await prisma.consolidacionModuloCliente.findMany({
-    where: { clienteId, moduloCodigo, clasificador: { in: clasificadores } },
+    where: { clienteId, moduloCodigo, agruparPor, clasificador: { in: clasificadores } },
     select: { clasificador: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
   });
   const mapa = new Map<string, MemoriaConcepto>();
@@ -2816,24 +2898,36 @@ async function auditarConsolidacion(
 }
 
 /**
- * Período del cargue desde el que se guarda el Consolidado. Sale del encabezado, nunca del
- * navegador; `null` cuando no se indica cargue (entonces no se admiten cuentas del período).
+ * Período del cargue desde el que se guarda el Consolidado, y con qué dimensión agrupa sus
+ * conceptos (Nómina, «Agrupar por»). Sale del encabezado, nunca del navegador; `periodo: null`
+ * cuando no se indica cargue (entonces no se admiten cuentas del período).
  */
 async function periodoDelCargue(
   encabezadoId: number | null | undefined,
   clienteId: number,
   moduloCodigo: string,
-): Promise<{ ok: true; periodo: string | null } | { ok: false; message: string }> {
-  if (encabezadoId == null) return { ok: true, periodo: null };
+): Promise<{ ok: true; periodo: string | null; agruparPor: AgruparPorNomina } | { ok: false; message: string }> {
+  if (encabezadoId == null) return { ok: true, periodo: null, agruparPor: AGRUPAR_POR_DEFECTO };
   if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({
     where: { id: encabezadoId },
-    select: { clienteId: true, moduloCodigo: true, periodo: true },
+    select: { clienteId: true, moduloCodigo: true, periodo: true, agruparPor: true },
   });
   if (!encabezado || encabezado.clienteId !== clienteId || encabezado.moduloCodigo !== moduloCodigo) {
     return { ok: false, message: "El cargue no corresponde a este cliente y módulo. Recarga la página." };
   }
-  return { ok: true, periodo: encabezado.periodo };
+  return { ok: true, periodo: encabezado.periodo, agruparPor: agruparPorDeEncabezado(encabezado.agruparPor) };
+}
+
+/**
+ * Parte la clave de un renglón del Consolidado. En Nómina trae el centro y la cuenta del archivo
+ * («1 ∥ GYA # 51050601»); agrupando por cuenta, la cuenta del archivo ES el clasificador. En los
+ * demás módulos el clasificador es la clave entera.
+ */
+function partirClaveRenglon(descriptor: DescriptorModulo, clave: string, agruparPor: AgruparPorNomina) {
+  if (!descriptor.nomina) return { clasificador: clave, agrupador: "", cuentaArchivo: null as string | null };
+  const partes = partirClaveConsolidado(clave);
+  return agruparPor === "cuenta" ? { ...partes, cuentaArchivo: cuentaArchivoValida(partes.clasificador) } : partes;
 }
 
 type FilaConsolidacionGuardar = {
@@ -2860,10 +2954,13 @@ async function guardarConsolidacion(args: {
   periodo: string | null;
   /** El cargue desde el que se guarda: de ahí sale el nombre del concepto que la memoria aún no tiene. */
   encabezadoId?: number | null;
+  /** Nómina: dimensión con que agrupa el cargue; la memoria y el período se guardan con ella. */
+  agruparPor?: AgruparPorNomina;
   filas: FilaConsolidacionGuardar[];
   contexto: string;
 }): Promise<ActionState> {
   const { clienteId, moduloCodigo, descriptor, periodo, filas } = args;
+  const agruparPor = args.agruparPor ?? AGRUPAR_POR_DEFECTO;
   const cedula = await cedulaDelModulo(moduloCodigo, descriptor, periodo ? { clienteId, periodo } : null);
   const longitudes = [...longitudesCedula(cedula)].sort().join(" o ");
   const separadas = filas.map((f) => ({ ...f, ...separarCuentasCedula(cedula, f.cuentas) }));
@@ -2902,7 +2999,7 @@ async function guardarConsolidacion(args: {
     // Renglones que tocan la asignación del período: los que la crean o cambian, y los que la tenían.
     const conPeriodoPrevio = periodo
       ? await prisma.asignacionPeriodoModulo.findMany({
-          where: { clienteId, moduloCodigo, periodo, OR: filas.map((f) => ({ clasificador: f.clasificador, agrupador: f.agrupador })) },
+          where: { clienteId, moduloCodigo, periodo, agruparPor, OR: filas.map((f) => ({ clasificador: f.clasificador, agrupador: f.agrupador })) },
           select: { clasificador: true, agrupador: true },
         })
       : [];
@@ -2916,13 +3013,16 @@ async function guardarConsolidacion(args: {
       if (cierre) return { ok: false, message: `La conciliación de ${periodo} está en firme: desbloquéala para cambiar las cuentas que valen solo para ese período.` };
     }
 
-    const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave));
+    const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave), agruparPor);
     // Nómina con la cuenta en el archivo: el cliente puede no tener catálogo de conceptos, así que
-    // la memoria no sabe el nombre del concepto. Se toma del propio cargue.
+    // la memoria no sabe el nombre del concepto. Se toma del propio cargue; agrupando por cuenta, el
+    // renglón se nombra por la cuenta del cliente y, si no la tiene, por el concepto más repetido.
     if (descriptor.nomina && args.encabezadoId) {
       const sinNombre = filas.filter((f) => f.cuentaArchivo && !memoria.get(f.clave)?.descripcion).map((f) => f.clasificador);
       if (sinNombre.length > 0) {
-        const nombres = await nombresConceptoDelCargue(args.encabezadoId, sinNombre);
+        const nombresCuenta = agruparPor === "cuenta" ? await nombresCuentasCliente(clienteId, sinNombre) : new Map<string, string>();
+        const delCargue = await nombresConceptoDelCargue(args.encabezadoId, sinNombre.filter((c) => !nombresCuenta.has(c)), agruparPor);
+        const nombres = new Map([...delCargue, ...nombresCuenta]);
         for (const f of filas) {
           const nombre = f.cuentaArchivo ? nombres.get(f.clasificador) : undefined;
           if (!nombre) continue;
@@ -2964,19 +3064,19 @@ async function guardarConsolidacion(args: {
           await tx.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } });
         }
         if (plan.memoriaBorrar.length > 0) {
-          await tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, OR: plan.memoriaBorrar } });
+          await tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, agruparPor, OR: plan.memoriaBorrar } });
         }
         if (plan.memoriaCrear.length > 0) {
           await tx.consolidacionModuloCliente.createMany({
-            data: plan.memoriaCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, actualizadoPor: actor, origen: fila.origen ?? "manual" })),
+            data: plan.memoriaCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, agruparPor, actualizadoPor: actor, origen: fila.origen ?? "manual" })),
           });
         }
         if (periodo && plan.periodoBorrar.length > 0) {
-          await tx.asignacionPeriodoModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo, OR: plan.periodoBorrar } });
+          await tx.asignacionPeriodoModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo, agruparPor, OR: plan.periodoBorrar } });
         }
         if (periodo && plan.periodoCrear.length > 0) {
           await tx.asignacionPeriodoModulo.createMany({
-            data: plan.periodoCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, periodo, creadoPor: actor, creadoPorId: user?.id ?? null })),
+            data: plan.periodoCrear.map((fila) => ({ ...fila, clienteId, moduloCodigo, periodo, agruparPor, creadoPor: actor, creadoPorId: user?.id ?? null })),
           });
         }
       },
@@ -3017,18 +3117,19 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
   const clave = String(input.clasificador ?? "").trim();
-  // En Nómina la clave del renglón puede traer el agrupador («1 ∥ GYA»); en los demás módulos
-  // el agrupador queda vacío y el clasificador es la clave entera.
-  const { clasificador, agrupador, cuentaArchivo } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "", cuentaArchivo: null };
-  if (!clasificador) return { ok: false, message: "Indica el clasificador." };
   const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
   if (!periodo.ok) return periodo;
+  // En Nómina la clave del renglón puede traer el agrupador («1 ∥ GYA»); en los demás módulos
+  // el agrupador queda vacío y el clasificador es la clave entera.
+  const { clasificador, agrupador, cuentaArchivo } = partirClaveRenglon(descriptor, clave, periodo.agruparPor);
+  if (!clasificador) return { ok: false, message: "Indica el clasificador." };
   return guardarConsolidacion({
     clienteId: input.clienteId,
     moduloCodigo,
     descriptor,
     periodo: periodo.periodo,
     encabezadoId: input.encabezadoId ?? null,
+    agruparPor: periodo.agruparPor,
     filas: [{ clave, clasificador, agrupador, cuentaArchivo, cuentas: digitosCuentas(input.cuentas4) }],
     contexto: "guardarConsolidacionModulo",
   });
@@ -3047,22 +3148,22 @@ export async function guardarConsolidacionModuloLote(input: {
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "", cuentaArchivo: null });
+  const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
+  if (!periodo.ok) return periodo;
   const filas = (input.filas ?? [])
     .map((f) => {
       const clave = String(f.clasificador ?? "").trim();
-      return { clave, ...partir(clave), cuentas: digitosCuentas(f.cuentas4) };
+      return { clave, ...partirClaveRenglon(descriptor, clave, periodo.agruparPor), cuentas: digitosCuentas(f.cuentas4) };
     })
     .filter((f) => f.clave && f.clasificador);
   if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
-  const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
-  if (!periodo.ok) return periodo;
   return guardarConsolidacion({
     clienteId: input.clienteId,
     moduloCodigo,
     descriptor,
     periodo: periodo.periodo,
     encabezadoId: input.encabezadoId ?? null,
+    agruparPor: periodo.agruparPor,
     filas,
     contexto: "guardarConsolidacionModuloLote",
   });
@@ -3116,6 +3217,123 @@ export async function consultarCuentasRussell(input: { encabezadoId: number; tex
     return { ok: true, cuentas };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("consultarCuentasRussell", e) };
+  }
+}
+
+// ============================================================
+// «AGRUPAR POR» del Consolidado (Nómina, 11/Oct/2026): código del concepto, nombre del concepto o
+// cuenta contable del cliente. Rige la asignación de cuentas, la memoria, el cruce y el Excel del
+// cargue. Cambiarla no borra nada: lo asignado con otra agrupación deja de aplicar mientras esta
+// rija y vuelve si se regresa.
+// ============================================================
+const CambiarAgruparPorSchema = z.object({
+  encabezadoId: z.number().int().positive(),
+  agruparPor: z.enum(OPCIONES_AGRUPAR_POR),
+});
+
+const CambiarAgruparPorBorradorSchema = z.object({
+  loteId: z.string().trim().min(1),
+  agruparPor: z.enum(OPCIONES_AGRUPAR_POR),
+});
+
+/**
+ * «Agrupar por» desde el BORRADOR (Nómina): cambia la respuesta que se dio al leer el archivo. Es
+ * lo que el cargue tendrá al confirmarse, así que queda en el spec del lote (`agruparPor`), igual
+ * que si se hubiera respondido así en la carga. Un anexo no cambia: se agrupa como su cargue.
+ */
+export async function cambiarAgruparPorBorrador(input: { loteId: string; agruparPor: AgruparPorNomina }): Promise<ActionState> {
+  const parsed = CambiarAgruparPorBorradorSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Elige cómo agrupar los conceptos." };
+  const { loteId, agruparPor } = parsed.data;
+  const authz = await authorizePermiso("modulos_datos:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const lote = await prisma.moduloImportacionLote.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true, moduloCodigo: true, anexoEncabezadoId: true, specJson: true, archivoNombre: true },
+    });
+    if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
+    const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    const descriptor = descriptorModulo(lote.moduloCodigo);
+    if (!descriptor?.consolidado) return { ok: false, message: `${descriptor?.label ?? "Este módulo"} no permite cambiar la agrupación.` };
+    if (lote.anexoEncabezadoId != null) {
+      return { ok: false, message: "Este archivo se suma a un cargue existente: sus conceptos se agrupan como en ese cargue." };
+    }
+    const actual = agruparPorDeLote(lote.specJson);
+    const etiqueta = etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es");
+    if (actual === agruparPor) return { ok: true, message: `El borrador ya se agrupa por ${etiqueta}.` };
+    const columnas = (lote.specJson as { columnas?: Record<string, number> } | null)?.columnas;
+    if (!agruparPorMapeadas(columnas)[agruparPor]) {
+      return { ok: false, message: `Para agrupar por ${etiqueta} el archivo debe traer esa columna mapeada.` };
+    }
+    const disponibles = await agruparPorDisponiblesLote(loteId);
+    if (!disponibles[agruparPor]) return { ok: false, message: `Este archivo no trae ${etiqueta} en sus filas: no se puede agrupar así.` };
+    await prisma.moduloImportacionLote.update({
+      where: { id: lote.id },
+      data: { specJson: { ...((lote.specJson ?? {}) as Record<string, unknown>), agruparPor } as Prisma.InputJsonValue },
+    });
+    const [user, cliente] = await Promise.all([
+      getCurrentUser(),
+      prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),
+    ]);
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "CAMBIÓ LA AGRUPACIÓN DEL BORRADOR",
+      entity: cliente?.name ?? `Cliente ${lote.clienteId}`,
+      detail: `${lote.moduloCodigo} · ${lote.archivoNombre} · de ${etiquetaAgruparPor(actual)} a ${etiquetaAgruparPor(agruparPor)}`,
+      clientId: lote.clienteId,
+    });
+    revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${loteId}`);
+    return { ok: true, message: `El borrador ahora se agrupa por ${etiqueta}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cambiarAgruparPorBorrador", e) };
+  }
+}
+
+export async function cambiarAgruparPorConsolidado(input: { encabezadoId: number; agruparPor: AgruparPorNomina }): Promise<ActionState> {
+  const parsed = CambiarAgruparPorSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Elige cómo agrupar los conceptos." };
+  const { encabezadoId, agruparPor } = parsed.data;
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { clienteId: true, moduloCodigo: true, periodo: true, version: true, nombreCliente: true, agruparPor: true },
+  });
+  if (!encabezado) return { ok: false, message: "El cargue ya no existe. Recarga la página." };
+  const descriptor = descriptorModulo(encabezado.moduloCodigo);
+  if (!descriptor?.consolidado) return { ok: false, message: `${descriptor?.label ?? "Este módulo"} no permite cambiar la agrupación del Consolidado.` };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const actual = agruparPorDeEncabezado(encabezado.agruparPor);
+  if (actual === agruparPor) return { ok: true, message: `El Consolidado ya se agrupa por ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")}.` };
+  try {
+    const cierre = await prisma.conciliacionModuloCierre.findFirst({
+      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, estado: ESTADO_CIERRE_FIRME },
+      select: { id: true },
+    });
+    if (cierre) return { ok: false, message: `La conciliación de ${encabezado.periodo} está en firme: desbloquéala para cambiar la agrupación del Consolidado.` };
+    const disponibles = await agruparPorDisponibles(encabezadoId);
+    if (!disponibles[agruparPor]) {
+      return { ok: false, message: `Este cargue no trae ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")} en sus filas: no se puede agrupar así.` };
+    }
+    // Condicionado a lo que se vio: dos pestañas abiertas no se pisan en silencio.
+    const { count } = await prisma.moduloDatoEncabezado.updateMany({
+      where: { id: encabezadoId, agruparPor: encabezado.agruparPor },
+      data: { agruparPor },
+    });
+    if (count === 0) return { ok: false, message: "La agrupación de este cargue cambió mientras tanto. Recarga la página." };
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "CAMBIÓ LA AGRUPACIÓN DEL CONSOLIDADO",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} v${encabezado.version} · de ${etiquetaAgruparPor(actual)} a ${etiquetaAgruparPor(agruparPor)}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(rutaModulo(encabezado.moduloCodigo));
+    return { ok: true, message: `El Consolidado ahora se agrupa por ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cambiarAgruparPorConsolidado", e) };
   }
 }
 

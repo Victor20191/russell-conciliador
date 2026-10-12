@@ -10,6 +10,7 @@
 // (INV, CAR, CXP, ING, AFI, NOM) para alinear con los «campos mínimos» y `ClientModule`.
 
 import { esRotuloEdad } from "./cartera/edades";
+import { etiquetaAgruparPor, OPCIONES_AGRUPAR_POR, rolDeAgruparPor, type AgruparPorNomina } from "./nomina/agrupar-por";
 
 // "numero" = cantidad/conteo (miles, sin $); "moneda" = monto en pesos (con $).
 export type TipoColumna = "texto" | "numero" | "moneda" | "fecha";
@@ -336,6 +337,14 @@ export type DescriptorModulo = {
   valorAlterno?: string[];
   /** Capacidades propias de Nómina (ver `ConfiguracionNomina`). Ausente en los demás módulos. */
   nomina?: ConfiguracionNomina;
+  /**
+   * «Agrupar por» del Consolidado (11/Oct/2026): las dimensiones por las que se pueden agrupar los
+   * renglones del cargue. `id` es lo que se guarda en `agrupar_por`; `rol`, la columna del descriptor
+   * cuyos datos forman la clave. Se pregunta en cada carga (solo las que el mapeo trae) y se cambia
+   * en el Consolidado. Hoy solo Nómina (código, nombre o cuenta del cliente); es el gancho para
+   * evaluarlo en los demás módulos. Ausente = la clave es el clasificador, como siempre.
+   */
+  consolidado?: { agruparPor: { id: AgruparPorNomina; rol: string; etiqueta: string }[] };
 };
 
 /**
@@ -784,6 +793,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
     // Un mismo patrón sirve para cargar con o sin separar por centro de costo.
     confirmarAgrupadorEnCarga: true,
+    // «Agrupar por» (11/Oct/2026): el Consolidado se agrupa por el código del concepto, por su
+    // nombre (ERP sin código) o por la cuenta contable del cliente (el archivo la trae completa).
+    consolidado: { agruparPor: OPCIONES_AGRUPAR_POR.map((id) => ({ id, rol: rolDeAgruparPor(id), etiqueta: etiquetaAgruparPor(id) })) },
     // El cruce por tercero queda apagado (RF-NOM-03); si se reactiva es contra la CÉDULA del
     // empleado. `cuentasRussell6` acota el lado contable a las cuentas de RF-NOM-05 aunque el
     // cruce por tercero no exista: es lo que decide «fuera del módulo» y el cierre en firme.

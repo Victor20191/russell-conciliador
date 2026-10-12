@@ -467,6 +467,11 @@ function hojaControlDeducciones(wb: ExcelJS.Workbook, nomina: CruceNominaExportM
 export async function crearExportacionModulo(input: {
   columnas: ColumnaExportModulo[];
   clasificadorEtiqueta: string;
+  /**
+   * Encabezado de la hoja «Consolidado» cuando no es el clasificador del detalle (Nómina agrupada
+   * por nombre o por cuenta del cliente). Ausente = `clasificadorEtiqueta`.
+   */
+  consolidadoEtiqueta?: string;
   detalle: FilaExportModulo[];
   consolidado: ConsolidadoExportModulo[];
   /** Solo el borrador: control de subtotales del archivo (si trae alguno). */
@@ -481,7 +486,7 @@ export async function crearExportacionModulo(input: {
   wb.creator = "Russell Conciliador";
   wb.created = input.meta.generadoEn;
   hojaDetalle(wb, input.columnas, input.clasificadorEtiqueta, input.detalle, input.meta);
-  hojaConsolidado(wb, input.clasificadorEtiqueta, input.consolidado, input.meta);
+  hojaConsolidado(wb, input.consolidadoEtiqueta ?? input.clasificadorEtiqueta, input.consolidado, input.meta);
   if (input.control && input.control.length > 0) hojaControlSubtotales(wb, input.clasificadorEtiqueta, input.control, input.meta);
   if (input.cruceTercero) hojaCruceTercero(wb, input.cruceTercero, input.meta);
   if (input.cruceNomina) {

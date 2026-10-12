@@ -81,6 +81,14 @@ describe("normalizarSpecModulo", () => {
     // En otro módulo no significan nada y se retiran.
     expect(normalizarSpecModulo(INV, specInv({ codigosDeduccion: [{ desde: 1, hasta: 9 }] })).codigosDeduccion).toBeUndefined();
   });
+
+  it("«Agrupar por» es del CARGUE: va al lote, nunca al perfil ni al patrón, y solo en Nómina", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const specNom: SpecModulo = { hoja: "Nomina", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 3, cuenta: 4, valor: 9 }, agruparPor: "cuenta" };
+    expect(normalizarSpecModuloArchivo(NOM, specNom).agruparPor).toBe("cuenta");
+    expect(normalizarSpecModulo(NOM, specNom).agruparPor).toBeUndefined();
+    expect(normalizarSpecModuloArchivo(INV, specInv({ agruparPor: "cuenta" })).agruparPor).toBeUndefined();
+  });
 });
 
 describe("validarSpecModulo", () => {

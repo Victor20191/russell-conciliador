@@ -9,6 +9,8 @@ import { crearExportacionModulo, type ColumnaExportModulo } from "@/lib/export/m
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaCalendarioISO, fechaColombiaISO } from "@/lib/fecha-hora";
+import { agruparPorDeLote, etiquetaAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
+import { baseClaveNomina } from "@/lib/modulos/nomina/consolidado-nomina";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +82,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
         ? [{ clasificador: "GRAN TOTAL", filaSubtotal: ctl.granTotal.filaNum, items: detalle.filter((d) => d.imputable).length, sumaMovimientos: ctl.granTotal.sumaMovimientos, subtotalArchivo: ctl.granTotal.subtotalArchivo, diferencia: ctl.granTotal.diferencia, estado: ctl.granTotal.estado }]
         : []),
     ];
-    const consolidado = consolidarPorClasificador(detalle.filter((d) => d.imputable).map((d) => ({ clasificador: d.clasificador, valor: d.valor })))
+    // Nómina: el Consolidado del borrador se agrupa como el cargue que saldrá de él («Agrupar por»):
+    // por código (el clasificador, como siempre), por nombre o por cuenta del cliente. La hoja
+    // «Detalle» sigue por el clasificador del archivo.
+    const agruparPor = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
+    const claveConsolidadoBorrador = (d: { clasificador: string | null; datos: Record<string, unknown> }) =>
+      agruparPor && agruparPor !== "codigo" ? baseClaveNomina(d, agruparPor) : d.clasificador;
+    const consolidado = consolidarPorClasificador(detalle.filter((d) => d.imputable).map((d) => ({ clasificador: claveConsolidadoBorrador(d), valor: d.valor })))
       .map((c) => ({ clasificador: c.clasificador, total: c.total, filas: c.filas, cuentas4: [] }));
 
     const periodo = lote.periodoFinal ? fechaCalendarioISO(lote.periodoFinal).slice(0, 7) : lote.periodoInicial ? fechaCalendarioISO(lote.periodoInicial).slice(0, 7) : "sin-periodo";
@@ -92,6 +100,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
         ((lote.specJson ?? {}) as { familias?: { edades?: { etiqueta: string }[] } }).familias?.edades?.map((e) => e.etiqueta),
       ).map((c) => ({ ...c, tipo: c.tipo as ColumnaExportModulo["tipo"] })),
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
+      ...(agruparPor ? { consolidadoEtiqueta: etiquetaAgruparPor(agruparPor) } : {}),
       detalle,
       consolidado,
       control,

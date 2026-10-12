@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { descriptorModulo } from "../descriptores";
+import { descriptorModulo, MODULOS_IMPORT } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import type { CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { transformarModulo } from "../extraccion/transformar";
 import { consolidarPorClasificador } from "../promocion";
-import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
+import { aplicarAgrupadorDeCarga, aplicarAgruparPorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
 import { coincidenciaPatron } from "./coincidencia";
 import type { UbicacionPatron, VersionCandidata } from "./mejor-version";
 
@@ -310,6 +310,34 @@ describe("aplicarTotalDeCarga («¿El archivo trae el valor total?» en el cargu
     expect(manual.spec.subtotalesColumna).toBeUndefined();
     expect(manual.spec.subtotalesFila).toBeUndefined();
     expect(manual.spec.subtotalesTexto).toBeUndefined();
+  });
+});
+
+describe("aplicarAgruparPorDeCarga («¿Cómo agrupar los conceptos?» en el cargue)", () => {
+  const NOMINA = MODULOS_IMPORT.NOM;
+  const spec = (columnas: Record<string, number>): SpecModulo => ({ hoja: "Hoja1", filaEncabezado: 1, primeraFilaDatos: 2, columnas });
+
+  it("solo Nómina lo pregunta; en los demás módulos el campo se retira", () => {
+    const conCampo = { ...spec({ tipo: 1, valorTotal: 2 }), agruparPor: "cuenta" as const };
+    const r = aplicarAgruparPorDeCarga(MODULOS_IMPORT.INV, conCampo, "cuenta");
+    expect(r).toEqual({ ok: true, spec: spec({ tipo: 1, valorTotal: 2 }), agruparPor: null });
+  });
+
+  it("sin respuesta (o con una que no existe) no sigue", () => {
+    const s = spec({ codigo: 1, concepto: 2, valor: 3 });
+    expect(aplicarAgruparPorDeCarga(NOMINA, s, null)).toMatchObject({ ok: false, message: expect.stringContaining("Indica cómo agrupar") });
+    expect(aplicarAgruparPorDeCarga(NOMINA, s, "nombre")).toMatchObject({ ok: false });
+  });
+
+  it("solo entre lo que el mapeo trae: agrupar por cuenta exige la columna de la cuenta", () => {
+    const s = spec({ codigo: 1, concepto: 2, valor: 3 });
+    expect(aplicarAgruparPorDeCarga(NOMINA, s, "cuenta")).toMatchObject({ ok: false, message: expect.stringContaining("Cuenta contable del cliente") });
+    expect(aplicarAgruparPorDeCarga(NOMINA, s, "concepto")).toEqual({ ok: true, spec: { ...s, agruparPor: "concepto" }, agruparPor: "concepto" });
+  });
+
+  it("la respuesta manda sobre lo que trajera el spec", () => {
+    const s = { ...spec({ codigo: 1, concepto: 2, cuenta: 4, valor: 3 }), agruparPor: "codigo" as const };
+    expect(aplicarAgruparPorDeCarga(NOMINA, s, "cuenta")).toMatchObject({ ok: true, spec: { agruparPor: "cuenta" }, agruparPor: "cuenta" });
   });
 });
 

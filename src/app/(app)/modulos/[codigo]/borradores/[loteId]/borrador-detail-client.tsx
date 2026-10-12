@@ -17,9 +17,10 @@ import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
-import { GRUPO_SIN_CLASIFICAR, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
+import { grupoDeFila, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
+import { rolDeAgruparPor, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
-import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo, filasBorradorModulo } from "@/app/actions/modulos-datos";
+import { aplicarCambiosBorradorModulo, cambiarAgruparPorBorrador, cargarBorradorModulo, descartarBorradorModulo, filasBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
 import { ValidacionArchivo } from "../../validacion-archivo";
 import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
@@ -41,8 +42,19 @@ export type FilaBorradorModulo = {
   omitida: boolean | null;
   /** Por qué el motor marcó la fila como subtotal (`total`), si aplica. */
   motivo?: string | null;
+  /** Nómina agrupada por nombre o por cuenta: el grupo de la fila (no cambia al editar el código). */
+  grupo?: string | null;
 };
 type Columna = { nombre: string; etiqueta: string; tipo: string; esValor?: boolean; familia?: { clave: string; etiqueta: string } };
+
+/** Nómina: «Agrupar por» del borrador (código, nombre o cuenta del cliente). */
+export type AgruparPorBorradorVm = {
+  actual: AgruparPorNomina;
+  etiqueta: string;
+  /** Un anexo se agrupa como el cargue al que se suma: el selector no se cambia. */
+  fija: boolean;
+  opciones: { id: AgruparPorNomina; etiqueta: string; disponible: boolean; motivo: string | null }[];
+};
 
 type VersionHermanaBorradorModulo = { loteId: string; version: number; archivoNombre: string; fecha: string };
 const FILTRO_NOVEDADES = "__novedades__";
@@ -121,6 +133,7 @@ export default function BorradorModuloClient({
   productos,
   verificaciones,
   resumen,
+  agruparPor = null,
   reconciliacion,
   anexo,
   contenidoActivos,
@@ -149,6 +162,11 @@ export default function BorradorModuloClient({
   verificaciones: { id: string; texto: string }[];
   /** Agregados del archivo COMPLETO, calculados en el servidor: las filas se piden por grupo. */
   resumen: ResumenBorrador;
+  /**
+   * Nómina: por qué se agrupan las filas («Agrupar por»: código, nombre o cuenta del cliente), las
+   * opciones que el archivo trae y si se puede cambiar (un anexo se agrupa como su cargue).
+   */
+  agruparPor?: AgruparPorBorradorVm | null;
   reconciliacion: ReconciliacionModulo | null;
   /** Anexo declarado con «Agregar archivo»: a qué cargue se suma, su total y qué ítems repite. */
   anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean; totalActual: number } | null;
@@ -177,6 +195,17 @@ export default function BorradorModuloClient({
   // «Guardar este formato como patrón del aplicativo», marcada por defecto.
   const [guardarComoPatron, setGuardarComoPatron] = useState(true);
   const clasificadorEtiqueta = columnasDelCargue.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
+  // Nómina, «Agrupar por»: los grupos se nombran por la dimensión elegida. Por nombre o por cuenta,
+  // la columna que identifica al grupo es la de esa dimensión (y no la del código).
+  const etiquetaGrupo = agruparPor?.etiqueta ?? clasificadorEtiqueta;
+  const otraDimension = agruparPor != null && agruparPor.actual !== "codigo";
+  const rolesGrupo = useMemo(
+    () => (otraDimension && agruparPor
+      ? { clasificador: rolDeAgruparPor(agruparPor.actual), descripcion: null }
+      : { clasificador: clasificadorRol, descripcion: descripcionRol }),
+    [agruparPor, clasificadorRol, descripcionRol, otraDimension],
+  );
+  const [cambiandoAgrupar, startCambioAgrupar] = useTransition();
   const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
   // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan (las
   // decide el servidor, que es quien ve el archivo entero).
@@ -284,8 +313,9 @@ export default function BorradorModuloClient({
       const efectiva = efectivaDe(f);
       const antes = esImputableFila(f);
       const ahora = esImputableFila(efectiva);
-      const grupoAntes = f.clasificador?.trim() || GRUPO_SIN_CLASIFICAR;
-      const grupoAhora = efectiva.clasificador?.trim() || GRUPO_SIN_CLASIFICAR;
+      // Agrupando por nombre o por cuenta («Agrupar por»), cambiar el código no mueve la fila de grupo.
+      const grupoAntes = grupoDeFila(f);
+      const grupoAhora = grupoDeFila(efectiva);
       if (antes === ahora && grupoAntes === grupoAhora) continue;
       const ajustar = (g: string, di: number, ds: number) => {
         const previo = porGrupo.get(g) ?? { items: 0, subtotal: 0 };
@@ -379,6 +409,20 @@ export default function BorradorModuloClient({
         for (const g of abiertos) void cargarGrupo(g);
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
+    });
+  };
+
+  // Nómina: cambiar «Agrupar por» reagrupa el borrador y es lo que tendrá el cargue al confirmarse.
+  // Con cambios sin guardar no se cambia: la página se vuelve a armar y se perderían.
+  const cambiarAgrupacion = (destino: AgruparPorNomina) => {
+    if (!agruparPor || destino === agruparPor.actual) return;
+    if (hayCambios) { notifyError("Guarda o descarta los cambios antes de cambiar la agrupación."); return; }
+    startCambioAgrupar(async () => {
+      const r = await cambiarAgruparPorBorrador({ loteId, agruparPor: destino });
+      if (!r.ok) { notifyError(r.message ?? "No se pudo cambiar la agrupación."); return; }
+      notifySuccess(r.message ?? "Agrupación cambiada.");
+      setFiltro(null);
+      router.refresh();
     });
   };
 
@@ -480,13 +524,13 @@ export default function BorradorModuloClient({
       .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0)
       // Los filtros del clasificador y de su nombre recortan la LISTA de grupos; los de las demás
       // columnas solo recortan las filas de cada grupo, que llegan al abrirlo.
-      .filter((g) => coincideGrupoDetalle(g, { clasificador: clasificadorRol, descripcion: descripcionRol }, filtrosColumnas));
+      .filter((g) => coincideGrupoDetalle(g, rolesGrupo, filtrosColumnas));
     // La LISTA de grupos se ordena por las dos columnas que la identifican: el clasificador y su
     // nombre. Por las demás columnas se ordenan las filas dentro de cada grupo, no los grupos.
     const ordenados = ordenarFilas(
       base,
-      orden && (orden.columna === clasificadorRol || orden.columna === descripcionRol) ? orden : null,
-      (g, columna) => (columna === descripcionRol ? g.descripcion ?? g.clasificador : g.clasificador),
+      orden && (orden.columna === rolesGrupo.clasificador || orden.columna === rolesGrupo.descripcion) ? orden : null,
+      (g, columna) => (columna === rolesGrupo.descripcion ? g.descripcion ?? g.clasificador : g.clasificador),
       () => false,
     );
     return ordenados.map((g) => {
@@ -507,7 +551,7 @@ export default function BorradorModuloClient({
         cargando: cargandoGrupos.has(g.clasificador),
       };
     });
-  }, [abiertos, cargandoGrupos, clasificadorRol, delta.porGrupo, descripcionRol, filasPorGrupo, filtro, filtrosColumnas, orden, resumen.grupos, totalPorGrupo, verEstructura]);
+  }, [abiertos, cargandoGrupos, rolesGrupo, delta.porGrupo, filasPorGrupo, filtro, filtrosColumnas, orden, resumen.grupos, totalPorGrupo, verEstructura]);
 
   const filasVisibles = gruposVista.reduce((n, g) => n + (g.cargadas?.length ?? 0), 0);
   const filasDelArchivoVisibles = gruposVista.reduce((n, g) => n + (g.totalFiltrado ?? g.filasDelArchivo), 0);
@@ -726,7 +770,39 @@ export default function BorradorModuloClient({
 
       {/* Consolidado por clasificador (previsualización) — también filtra la tabla */}
       <Card className="p-4">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Consolidado por clasificador · toca para filtrar</div>
+        {agruparPor && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-ink-100 pb-3 text-[11.5px]">
+            <span className="font-medium text-ink-600">Agrupar por:</span>
+            <div role="radiogroup" aria-label="Agrupar los conceptos del borrador por" className="flex flex-wrap gap-1.5">
+              {agruparPor.opciones.map((o) => {
+                const activa = o.id === agruparPor.actual;
+                const bloqueo = agruparPor.fija
+                  ? "Este archivo se suma a un cargue existente: se agrupa como ese cargue."
+                  : !o.disponible ? o.motivo : null;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={activa}
+                    disabled={!activa && (bloqueo != null || cambiandoAgrupar)}
+                    onClick={() => cambiarAgrupacion(o.id)}
+                    title={activa ? "Agrupación de este borrador" : bloqueo ?? undefined}
+                    className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    {o.etiqueta}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-ink-400">
+              {cambiandoAgrupar ? "Reagrupando…" : "Así quedará el Consolidado al confirmar la carga; después también se puede cambiar."}
+            </span>
+          </div>
+        )}
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+          {agruparPor ? `Consolidado por ${etiquetaGrupo.toLocaleLowerCase("es")}` : "Consolidado por clasificador"} · toca para filtrar
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }}
             className={`rounded-md border px-3 py-1.5 text-[12px] ${filtro === null ? "border-navy-600 bg-blue-50 font-semibold text-navy-800" : "border-ink-150 bg-ink-50 text-ink-700 hover:bg-ink-100"}`}>
@@ -839,7 +915,7 @@ export default function BorradorModuloClient({
             )}
             {filtro !== null && filtro !== FILTRO_NOVEDADES && (
               <span className="inline-flex items-center gap-1 rounded-md border border-navy-700 bg-blue-50 px-2 py-1 font-semibold text-navy-800">
-                {clasificadorEtiqueta}: {filtro}
+                {etiquetaGrupo}: {filtro}
                 <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-700/60 hover:text-err-700">×</button>
               </span>
             )}
@@ -902,7 +978,7 @@ export default function BorradorModuloClient({
                         className="inline-flex items-center gap-1.5 font-semibold text-navy-800 hover:underline"
                       >
                         <Icon name={g.abierto ? "chev-d" : "chev-r"} size={12} />
-                        {clasificadorEtiqueta}: {g.clasificador}
+                        {etiquetaGrupo}: {g.clasificador}
                         {g.descripcion && <span className="ml-1.5 font-normal text-navy-700">· {g.descripcion}</span>}
                       </button>
                       <span className="ml-2 font-normal text-ink-500">· {g.items.toLocaleString("es-CO")} ítems · {(g.totalFiltrado ?? g.filasDelArchivo).toLocaleString("es-CO")} filas</span>

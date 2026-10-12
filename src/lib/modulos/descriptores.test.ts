@@ -155,6 +155,20 @@ describe("descriptores de módulos", () => {
   });
 });
 
+describe("«Agrupar por» del Consolidado (gancho del descriptor)", () => {
+  it("solo Nómina lo declara: código, nombre y cuenta del cliente, con roles que existen en sus columnas", () => {
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      if (d.codigo !== "NOM") {
+        expect(d.consolidado, d.codigo).toBeUndefined();
+        continue;
+      }
+      expect(d.consolidado?.agruparPor.map((o) => o.id)).toEqual(["codigo", "concepto", "cuenta"]);
+      const roles = new Set(d.columnas.map((c) => c.nombre));
+      for (const o of d.consolidado!.agruparPor) expect(roles.has(o.rol), o.rol).toBe(true);
+    }
+  });
+});
+
 describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => {
   const CAR = MODULOS_IMPORT.CAR;
 

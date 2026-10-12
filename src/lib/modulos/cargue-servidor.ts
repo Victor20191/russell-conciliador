@@ -15,6 +15,8 @@ import { poolLectura } from "./pool-lectura";
 import type { DescriptorModulo } from "./descriptores";
 import type { GrupoNominaAgregado } from "./nomina/consolidado-nomina";
 import { claveConsolidado } from "./nomina/clave-consolidado";
+import { expresionSqlClaveNomina, type AgruparPorNomina } from "./nomina/agrupar-por";
+import { SIN_CLASIFICAR } from "./promocion";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
 import { ordenarFilas, type OrdenTabla } from "./orden-tabla";
 import { valorColumnaDetalle } from "./celda-detalle-modulo";
@@ -54,26 +56,32 @@ const aFila = (f: FilaCruda): FilaDetalleCargue => ({
  * la cuenta del archivo se normaliza con la misma regla de `cuentaArchivoValida` (solo dígitos, al
  * menos 6 y que no sea un comodín como «000000»): un concepto registrado en dos cuentas son dos
  * renglones, cada uno con su valor real. Es la especificación de `agruparDetalleNomina`.
+ *
+ * «Agrupar por» (11/Oct/2026): el primer componente es el código, el nombre o la cuenta del cliente
+ * (`expresionSqlClaveNomina`). Agrupando por cuenta, la cuenta no se repite como tercer componente.
  */
-export async function gruposNominaDelCargue(encabezadoId: number): Promise<GrupoNominaAgregado[]> {
+export async function gruposNominaDelCargue(encabezadoId: number, agruparPor: AgruparPorNomina = "codigo"): Promise<GrupoNominaAgregado[]> {
+  const porCuenta = agruparPor === "cuenta";
   const { rows } = await poolLectura().query<{
-    clasificador: string | null;
+    base: string | null;
     agrupador: string | null;
     cuenta: string;
     filas: string;
     total: string;
     concepto: string | null;
+    codigo_archivo: string | null;
     cuenta_admin: string | null;
     cuenta_ventas: string | null;
     cuenta_mod: string | null;
     cuenta_moi: string | null;
   }>(
-    `SELECT clasificador,
+    `SELECT ${expresionSqlClaveNomina(agruparPor)} AS base,
             COALESCE(btrim(datos->>'agrupador'), '') AS agrupador,
-            CASE WHEN c.d ~ '^[0-9]{6,}$' AND c.d !~ '^([0-9])\\1+$' THEN c.d ELSE '' END AS cuenta,
+            ${porCuenta ? "''" : "CASE WHEN c.d ~ '^[0-9]{6,}$' AND c.d !~ '^([0-9])\\1+$' THEN c.d ELSE '' END"} AS cuenta,
             count(*)::text AS filas,
             sum(valor)::text AS total,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'concepto'), '')) AS concepto,
+            mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'codigo'), '')) AS codigo_archivo,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaAdmin'), '')) AS cuenta_admin,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaVentas'), '')) AS cuenta_ventas,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'cuentaMOD'), '')) AS cuenta_mod,
@@ -87,16 +95,17 @@ export async function gruposNominaDelCargue(encabezadoId: number): Promise<Grupo
     [encabezadoId],
   );
   return rows.map((r) => {
-    const codigo = r.clasificador?.trim() || "(sin clasificar)";
+    const codigo = r.base?.trim() || SIN_CLASIFICAR;
     const agrupador = r.agrupador?.trim() ?? "";
-    const cuenta = r.cuenta || null;
+    const cuenta = porCuenta ? (codigo === SIN_CLASIFICAR ? null : codigo) : r.cuenta || null;
     return {
-      clasificador: claveConsolidado(codigo, agrupador, cuenta),
+      clasificador: porCuenta ? claveConsolidado(codigo, agrupador) : claveConsolidado(codigo, agrupador, cuenta),
       codigo,
       agrupador,
       filas: Number(r.filas),
       total: Math.round(Number(r.total) * 100) / 100,
       concepto: r.concepto,
+      codigoArchivo: r.codigo_archivo,
       cuenta,
       cuentaAdmin: r.cuenta_admin,
       cuentaVentas: r.cuenta_ventas,
@@ -245,20 +254,66 @@ export async function paginaDetalleCargue(input: {
 /**
  * Nombre de cada concepto en un cargue de Nómina (el más repetido de sus filas). Al guardar un
  * renglón que cruza por la cuenta del archivo, el cliente puede no tener catálogo de conceptos: la
- * memoria no sabe el nombre y se toma de aquí. Lee solo esos códigos del cargue.
+ * memoria no sabe el nombre y se toma de aquí. Lee solo esas claves del cargue, en la dimensión con
+ * que se agrupa («Agrupar por»: código, nombre o cuenta del cliente).
  */
-export async function nombresConceptoDelCargue(encabezadoId: number, codigos: readonly string[]): Promise<Map<string, string>> {
+export async function nombresConceptoDelCargue(
+  encabezadoId: number,
+  codigos: readonly string[],
+  agruparPor: AgruparPorNomina = "codigo",
+): Promise<Map<string, string>> {
   const unicos = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
   if (unicos.length === 0) return new Map();
+  const clave = expresionSqlClaveNomina(agruparPor);
   const { rows } = await poolLectura().query<{ clasificador: string; concepto: string | null }>(
-    `SELECT btrim(clasificador) AS clasificador,
+    `SELECT ${clave} AS clasificador,
             mode() WITHIN GROUP (ORDER BY NULLIF(btrim(datos->>'concepto'), '')) AS concepto
        FROM modulo_dato_detalle
-      WHERE encabezado_id = $1 AND imputable AND btrim(clasificador) = ANY($2::text[])
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN datos ? 'cuenta' THEN regexp_replace(COALESCE(datos->>'cuenta', ''), '[^0-9]', '', 'g') ELSE '' END AS d
+      ) c
+      WHERE encabezado_id = $1 AND imputable AND ${clave} = ANY($2::text[])
       GROUP BY 1`,
     [encabezadoId, unicos],
   );
   return new Map(rows.filter((r) => r.concepto).map((r) => [r.clasificador, r.concepto as string]));
+}
+
+/**
+ * Nombre de cada cuenta contable del cliente (`cuentas_cliente`), por sus dígitos. Agrupando el
+ * Consolidado de Nómina por cuenta, el renglón se nombra por la cuenta y no por un concepto.
+ */
+export async function nombresCuentasCliente(clienteId: number, cuentas: readonly string[]): Promise<Map<string, string>> {
+  const unicas = [...new Set(cuentas.map((c) => c.replace(/\D/g, "")).filter(Boolean))];
+  if (unicas.length === 0) return new Map();
+  const { rows } = await poolLectura().query<{ codigo: string; nombre: string | null }>(
+    `SELECT regexp_replace(codigo, '[^0-9]', '', 'g') AS codigo, nombre
+       FROM cuentas_cliente
+      WHERE cliente_id = $1 AND regexp_replace(codigo, '[^0-9]', '', 'g') = ANY($2::text[])`,
+    [clienteId, unicas],
+  );
+  return new Map(rows.filter((r) => r.nombre?.trim()).map((r) => [r.codigo, r.nombre!.trim()]));
+}
+
+/**
+ * Por qué dimensiones se puede agrupar el Consolidado de un cargue de Nómina: las que tienen dato
+ * en alguna fila imputable (código, nombre del concepto, cuenta del cliente válida). Un `bool_or`
+ * por dimensión, resuelto en la base.
+ */
+export async function agruparPorDisponibles(encabezadoId: number): Promise<Record<AgruparPorNomina, boolean>> {
+  const { rows } = await poolLectura().query<{ codigo: boolean | null; concepto: boolean | null; cuenta: boolean | null }>(
+    `SELECT bool_or(NULLIF(btrim(datos->>'codigo'), '') IS NOT NULL) AS codigo,
+            bool_or(${expresionSqlClaveNomina("concepto")} IS NOT NULL) AS concepto,
+            bool_or(${expresionSqlClaveNomina("cuenta")} IS NOT NULL) AS cuenta
+       FROM modulo_dato_detalle
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN datos ? 'cuenta' THEN regexp_replace(COALESCE(datos->>'cuenta', ''), '[^0-9]', '', 'g') ELSE '' END AS d
+      ) c
+      WHERE encabezado_id = $1 AND imputable`,
+    [encabezadoId],
+  );
+  const fila = rows[0];
+  return { codigo: fila?.codigo === true, concepto: fila?.concepto === true, cuenta: fila?.cuenta === true };
 }
 
 /**

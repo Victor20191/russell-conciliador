@@ -5,6 +5,7 @@
 import * as z from "zod";
 import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
 import { CONTENIDOS_ACTIVOS } from "../activos/contenido-archivo";
+import { OPCIONES_AGRUPAR_POR } from "../nomina/agrupar-por";
 import { LecturaEstructuradaSchema } from "./lectura-estructurada";
 
 /**
@@ -140,6 +141,11 @@ export const SpecModuloSchema = z.object({
     desde: z.number().int().min(0),
     hasta: z.number().int().min(0),
   })).max(20).optional(),
+  // ===== Nómina: «AGRUPAR POR» del Consolidado de ESTE cargue (11/Oct/2026) =====
+  // Código del concepto, nombre del concepto o cuenta contable del cliente (`nomina/agrupar-por.ts`).
+  // Lo responde el analista en cada carga; es del CARGUE, no del formato, así que nunca se guarda en
+  // el perfil ni en el patrón. Al promover queda en `modulo_dato_encabezado.agrupar_por`.
+  agruparPor: z.enum(OPCIONES_AGRUPAR_POR).optional(),
 
   // ===== El VALOR como FÓRMULA de varias columnas (28/Sep/2026) =====
   // SAP Business One no trae el ingreso neto en una columna: es «Total sin Descuento» + los tres

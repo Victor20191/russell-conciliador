@@ -58,6 +58,7 @@ import {
   subcuentaPucDe,
 } from "@/lib/modulos/nomina/homologacion";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { esAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 
 const PATH = "/config/conceptos-nomina";
 const RUTA_MODULO = `/modulos/${MODULO_CONCEPTOS_NOMINA.toLowerCase()}`;
@@ -120,6 +121,8 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
       const base = {
         clienteId: e.clienteId,
         clasificador: e.codigo,
+        // Sin código (plantilla), la llave es el nombre: aplica a los cargues agrupados por nombre.
+        agruparPor: e.agruparPor ?? ("codigo" as const),
         // Opcional: sin nombre en el archivo, `escribirFilas` conserva el que ya tenía.
         descripcion: e.concepto.trim() || null,
         agrupador: e.agrupador,
@@ -201,12 +204,13 @@ async function escribirFilas(filas: FilaAEscribir[], actor: string | null): Prom
   const clienteIds = [...new Set(claves.map((c) => c.clienteId))];
   const previas = await prisma.consolidacionModuloCliente.findMany({
     where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA, clienteId: { in: clienteIds }, clasificador: { in: [...new Set(claves.map((c) => c.clasificador))] } },
-    select: { clienteId: true, clasificador: true, agrupador: true, descripcion: true },
+    select: { clienteId: true, agruparPor: true, clasificador: true, agrupador: true, descripcion: true },
   });
   // El nombre es opcional: una fila sin él conserva el que ya tenía el concepto.
   const data = completarNombresConceptos(plan.data, previas);
-  const yaExistian = new Set(previas.map((p) => `${p.clienteId}|${p.clasificador}|${p.agrupador}`));
-  const actualizados = claves.filter((c) => yaExistian.has(`${c.clienteId}|${c.clasificador}|${c.agrupador}`)).length;
+  const llave = (c: { clienteId: number; agruparPor: string; clasificador: string; agrupador: string }) => `${c.clienteId}|${c.agruparPor}|${c.clasificador}|${c.agrupador}`;
+  const yaExistian = new Set(previas.map(llave));
+  const actualizados = claves.filter((c) => yaExistian.has(llave(c))).length;
 
   await prisma.$transaction(
     async (tx) => {
@@ -240,7 +244,7 @@ async function cargarEntradas(entradas: EntradaResuelta[], accion: string): Prom
   const user = await getCurrentUser();
   const actor = user?.name ?? null;
   const { actualizados } = await escribirFilas(resuelto.filas, actor);
-  const conceptos = new Set(entradas.map((e) => `${e.clienteId}|${e.codigo}|${e.agrupador}`)).size;
+  const conceptos = new Set(entradas.map((e) => `${e.clienteId}|${e.agruparPor ?? "codigo"}|${e.codigo}|${e.agrupador}`)).size;
   const cuentas = resuelto.filas.length;
   await logAudit({
     user: actor ?? "Sistema",
@@ -362,16 +366,20 @@ export async function eliminarConceptoNomina(input: {
   codigo: string;
   /** Si viene, borra solo ese centro/clase; si no, todos. */
   agrupador?: string | null;
+  /** Dimensión de la llave (`agrupar_por`): el código, el nombre o la cuenta. Ausente = código. */
+  agruparPor?: string | null;
 }): Promise<{ ok: boolean; message: string }> {
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
   const codigo = String(input.codigo ?? "").trim();
   if (!codigo) return { ok: false, message: "Indica el código del concepto." };
   const agrupador = input.agrupador == null ? null : String(input.agrupador).trim();
+  if (input.agruparPor != null && !esAgruparPor(input.agruparPor)) return { ok: false, message: "Concepto inválido." };
+  const agruparPor = input.agruparPor ?? "codigo";
 
   try {
     const { count } = await prisma.consolidacionModuloCliente.deleteMany({
-      where: { clienteId: input.clienteId, moduloCodigo: MODULO_CONCEPTOS_NOMINA, clasificador: codigo, ...(agrupador == null ? {} : { agrupador }) },
+      where: { clienteId: input.clienteId, moduloCodigo: MODULO_CONCEPTOS_NOMINA, agruparPor, clasificador: codigo, ...(agrupador == null ? {} : { agrupador }) },
     });
     if (count === 0) return { ok: false, message: "El concepto ya no existe." };
 
@@ -383,7 +391,7 @@ export async function eliminarConceptoNomina(input: {
       user: user?.name ?? "Sistema",
       action: "ELIMINÓ concepto de nómina",
       entity: cliente?.name ?? `Cliente ${input.clienteId}`,
-      detail: `${codigo}${agrupador ? ` · ${agrupador}` : ""} · ${count} cuenta(s)`,
+      detail: `${codigo}${agruparPor !== "codigo" ? ` (por ${agruparPor === "cuenta" ? "cuenta" : "nombre"})` : ""}${agrupador ? ` · ${agrupador}` : ""} · ${count} cuenta(s)`,
       clientId: input.clienteId,
     });
 

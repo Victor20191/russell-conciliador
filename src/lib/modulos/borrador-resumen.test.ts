@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODULOS_IMPORT } from "./descriptores";
 import { columnasDetalleModulo } from "./cartera/columnas-cartera";
-import { claveColumna, GRUPO_SIN_CLASIFICAR, resumirBorrador, type FilaSlim, type InsumosResumen } from "./borrador-resumen";
+import { claveColumna, GRUPO_SIN_CLASIFICAR, grupoDeFila, resumirBorrador, type FilaSlim, type InsumosResumen } from "./borrador-resumen";
 
 const INV = MODULOS_IMPORT.INV;
 const COLUMNAS_INV = columnasDetalleModulo(INV, []);
@@ -28,6 +28,32 @@ const resumir = (filas: FilaSlim[], extra: Partial<InsumosResumen> = {}) =>
     controlesFormato: null,
     ...extra,
   });
+
+describe("«Agrupar por» en el borrador de Nómina", () => {
+  it("grupoDeFila: el grupo calculado si la fila lo trae; si no, su clasificador", () => {
+    expect(grupoDeFila({ clasificador: "1", grupo: "SUELDO BASICO" })).toBe("SUELDO BASICO");
+    expect(grupoDeFila({ clasificador: "1", grupo: null })).toBe(GRUPO_SIN_CLASIFICAR);
+    expect(grupoDeFila({ clasificador: " 1 " })).toBe("1");
+    expect(grupoDeFila({ clasificador: null })).toBe(GRUPO_SIN_CLASIFICAR);
+  });
+
+  it("con `grupo` en las filas, los grupos y sus subtotales salen de él; los agrupadores siguen siendo los códigos", () => {
+    const r = resumir([
+      { ...fila(2, "1", 100), grupo: "51050601" },
+      { ...fila(3, "2", 40), grupo: "51050601" },
+      { ...fila(4, "15", 30), grupo: "51051501" },
+      { ...fila(5, "15", 5), grupo: null },
+    ], { descripcionPorGrupo: new Map([["51050601", "SUELDOS"]]) });
+    expect(r.grupos.map((g) => [g.clasificador, g.descripcion, g.items, g.subtotal])).toEqual([
+      ["51050601", "SUELDOS", 2, 140],
+      ["51051501", null, 1, 30],
+      [GRUPO_SIN_CLASIFICAR, null, 1, 5],
+    ]);
+    expect(r.total).toBe(175);
+    // La barra «Agrupador» edita el CÓDIGO de la fila: sus opciones siguen siendo los códigos.
+    expect(r.agrupadores).toEqual(["1", "15", "2"]);
+  });
+});
 
 describe("resumirBorrador · lo que la pantalla ve sin recibir las filas", () => {
   it("agrupa por clasificador conservando el orden del archivo, con sus ítems y su subtotal", () => {

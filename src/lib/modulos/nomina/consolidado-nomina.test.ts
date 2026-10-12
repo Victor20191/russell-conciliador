@@ -4,9 +4,77 @@ import { cuentasCedula6 } from "../cuentas-modulo";
 
 // Las cuentas a las que la homologación puede llevar un concepto: las que concilian y las solo visibles.
 const CUENTAS_RUSSELL_NOMINA = cuentasCedula6(MODULOS_IMPORT.NOM);
-import { construirConsolidadoNomina, cuentasEfectivasRenglon, resumenCuentaArchivo } from "./consolidado-nomina";
+import { agruparDetalleNomina, baseClaveNomina, construirConsolidadoNomina, cuentasEfectivasRenglon, resumenCuentaArchivo } from "./consolidado-nomina";
 
 const fila = (codigo: string, valor: number, datos: Record<string, unknown> = {}) => ({ clasificador: codigo, valor, datos });
+
+describe("«Agrupar por» (código, nombre o cuenta del cliente)", () => {
+  const detalle = [
+    fila("1", 100, { codigo: "1", concepto: "SUELDO BASICO", agrupador: "GYA", cuenta: "51050601" }),
+    fila("2", 40, { codigo: "2", concepto: "SUELDO  BASICO", agrupador: "GYA", cuenta: "51050601" }),
+    fila("15", 30, { codigo: "15", concepto: "HORAS EXTRAS", agrupador: "GYA", cuenta: "51051501" }),
+    fila("15", 5, { codigo: "15", concepto: "HORAS EXTRAS", agrupador: "GYA", cuenta: "8888" }),
+  ];
+
+  it("baseClaveNomina: el código de siempre, el nombre canónico o la cuenta válida; si falta, «(sin clasificar)»", () => {
+    expect(baseClaveNomina(detalle[1], "codigo")).toBe("2");
+    expect(baseClaveNomina(detalle[1], "concepto")).toBe("SUELDO BASICO");
+    expect(baseClaveNomina(detalle[1], "cuenta")).toBe("51050601");
+    expect(baseClaveNomina(detalle[3], "cuenta")).toBe("(sin clasificar)");
+  });
+
+  it("por código no cambia nada (sigue partiendo por la cuenta del archivo)", () => {
+    expect(agruparDetalleNomina(detalle).map((g) => g.clasificador)).toEqual(agruparDetalleNomina(detalle, "codigo").map((g) => g.clasificador));
+    expect(agruparDetalleNomina(detalle).map((g) => g.clasificador)).toEqual([
+      "1 ∥ GYA # 51050601",
+      "2 ∥ GYA # 51050601",
+      "15 ∥ GYA # 51051501",
+      "15 ∥ GYA",
+    ]);
+  });
+
+  it("por nombre: dos códigos con el mismo nombre son UN renglón, con el código más repetido", () => {
+    const grupos = agruparDetalleNomina(detalle, "concepto");
+    expect(grupos.map((g) => [g.clasificador, g.total, g.codigoArchivo])).toEqual([
+      ["SUELDO BASICO ∥ GYA # 51050601", 140, "1"],
+      ["HORAS EXTRAS ∥ GYA # 51051501", 30, "15"],
+      ["HORAS EXTRAS ∥ GYA", 5, "15"],
+    ]);
+  });
+
+  it("por cuenta: un renglón por cuenta del cliente, sin repetirla en la clave, que cruza por la vía del archivo", () => {
+    const r = construirConsolidadoNomina({
+      detalle,
+      memoria: [],
+      reglasClase: new Map(),
+      mapeoCliente: new Map([["51050601", "510506"]]),
+      cuentasRussell6: CUENTAS_RUSSELL_NOMINA,
+      agruparPor: "cuenta",
+      nombrePorCuentaCliente: new Map([["51050601", "Sueldos administración"]]),
+    });
+    const porClave = new Map(r.renglones.map((x) => [x.clasificador, x]));
+    expect(r.renglones.map((x) => x.clasificador)).toEqual(["51050601 ∥ GYA", "51051501 ∥ GYA", "(sin clasificar) ∥ GYA"]);
+    expect(porClave.get("51050601 ∥ GYA")).toMatchObject({
+      codigo: "51050601", cuentaArchivo: "51050601", total: 140, descripcion: "Sueldos administración",
+      sugerencia: { via: "archivo", cuentas: ["510506"], origenCuentaArchivo: "balance" },
+    });
+    // Sin nombre en el balance cae al concepto más repetido; derivada por estructura PUC.
+    expect(porClave.get("51051501 ∥ GYA")).toMatchObject({ cuentaArchivo: "51051501", sugerencia: { via: "archivo", origenCuentaArchivo: "estructura" } });
+    // La fila sin cuenta válida no se inventa una: queda sin cuenta (y nunca se sugiere por nombre).
+    expect(porClave.get("(sin clasificar) ∥ GYA")).toMatchObject({ cuentaArchivo: null, total: 5, sugerencia: { via: "sin_cuenta", destino: "gasto" } });
+  });
+
+  it("por nombre: la memoria de esa dimensión rige el renglón (por su nombre canónico)", () => {
+    const r = construirConsolidadoNomina({
+      detalle: detalle.map((d) => ({ ...d, datos: { ...d.datos, cuenta: undefined } })),
+      memoria: [{ clasificador: "SUELDO  BASICO", agrupador: "GYA", cuenta6: "510506" }],
+      reglasClase: new Map(),
+      cuentasRussell6: CUENTAS_RUSSELL_NOMINA,
+      agruparPor: "concepto",
+    });
+    expect(r.renglones.find((x) => x.clasificador === "SUELDO BASICO ∥ GYA")).toMatchObject({ cuentas: ["510506"], sugerencia: { via: "memoria_exacta", cuentas: ["510506"] } });
+  });
+});
 
 describe("construirConsolidadoNomina", () => {
   it("un renglón por (concepto, centro), con lo guardado y la sugerencia", () => {

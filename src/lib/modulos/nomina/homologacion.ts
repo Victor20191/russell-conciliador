@@ -37,6 +37,7 @@
 // Puro: sin BD. Las pruebas viven en `homologacion.test.ts`.
 
 import { GRUPOS_CONCEPTO_NOMINA, grupoConcepto, grupoPorSubcuentaPuc, sugerirGrupoConcepto } from "./grupos-concepto";
+import type { AgruparPorNomina } from "./agrupar-por";
 
 /** Clases del gasto/costo de personal que concilia el módulo (D1). */
 export const CLASES_NOMINA = ["51", "52", "72", "73"] as const;
@@ -244,6 +245,11 @@ export type ContextoHomologacion = {
   mapeoCliente?: ReadonlyMap<string, string>;
   /** Cuentas Russell del módulo (D1). */
   cuentasRussell6: readonly string[];
+  /**
+   * Dimensión con que se agrupa el cargue («Agrupar por»): decide cómo se canoniza el clasificador
+   * del renglón y el de la memoria. Ausente = código del concepto.
+   */
+  agruparPor?: AgruparPorNomina;
 };
 
 export type ResolucionConcepto = {
@@ -286,18 +292,40 @@ export function cuentaArchivoValida(v: unknown): string | null {
   return d.length >= 6 && !esCuentaComodin(d) ? d : null;
 }
 
-function claveMemoria(clasificador: string, agrupador: string): string {
-  return `${codigoConceptoCanonico(clasificador)}|${agrupador.trim().toUpperCase()}`;
+/**
+ * Forma CANÓNICA del clasificador según la dimensión con que se agrupa el cargue («Agrupar por»,
+ * `agrupar-por.ts`): la llave con que se agrupa el detalle, se guarda la memoria y se busca en ella.
+ *  - `codigo`   → `codigoConceptoCanonico` (« 01 », «001» y «1» son el mismo concepto);
+ *  - `concepto` → el nombre con los espacios colapsados, sin tocar mayúsculas ni tildes;
+ *  - `cuenta`   → `cuentaArchivoValida`, que CONSERVA los ceros a la izquierda («0005060000»).
+ * Vacío ('') cuando el valor no sirve como llave.
+ */
+export function clasificadorCanonico(agruparPor: AgruparPorNomina, v: unknown): string {
+  switch (agruparPor) {
+    case "concepto":
+      return String(v ?? "").replace(/\s+/g, " ").trim();
+    case "cuenta":
+      return cuentaArchivoValida(v) ?? "";
+    default:
+      return codigoConceptoCanonico(v);
+  }
 }
 
-/** Índice de la memoria por (concepto, agrupador) → filas. */
-export function indexarMemoria(memoria: readonly FilaHomologacion[]): Map<string, FilaHomologacion[]> {
+function claveMemoria(clasificador: string, agrupador: string, agruparPor: AgruparPorNomina = "codigo"): string {
+  return `${clasificadorCanonico(agruparPor, clasificador)}|${agrupador.trim().toUpperCase()}`;
+}
+
+/**
+ * Índice de la memoria por (concepto, agrupador) → filas. La memoria que llega ya es la de la
+ * dimensión del cargue (`agrupar_por`); `agruparPor` solo decide cómo se canoniza la llave.
+ */
+export function indexarMemoria(memoria: readonly FilaHomologacion[], agruparPor: AgruparPorNomina = "codigo"): Map<string, FilaHomologacion[]> {
   const m = new Map<string, FilaHomologacion[]>();
   for (const f of memoria) {
-    const k = claveMemoria(f.clasificador, f.agrupador ?? "");
+    const k = claveMemoria(f.clasificador, f.agrupador ?? "", agruparPor);
     m.set(k, [...(m.get(k) ?? []), f]);
     // Todas las filas del concepto, con cualquier agrupador (vía 3b: memoria de otros centros).
-    const todas = claveMemoria(f.clasificador, "*");
+    const todas = claveMemoria(f.clasificador, "*", agruparPor);
     m.set(todas, [...(m.get(todas) ?? []), f]);
   }
   return m;
@@ -329,9 +357,10 @@ export function destinoDeCuentaCliente(cuentaCliente: unknown): "gasto" | "contr
 }
 
 export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHomologacion, indice?: Map<string, FilaHomologacion[]>): ResolucionConcepto {
-  const idx = indice ?? indexarMemoria(ctx.memoria);
+  const agruparPor = ctx.agruparPor ?? "codigo";
+  const idx = indice ?? indexarMemoria(ctx.memoria, agruparPor);
   const agrupador = String(entrada.agrupador ?? "").trim();
-  const clasificador = codigoConceptoCanonico(entrada.clasificador);
+  const clasificador = clasificadorCanonico(agruparPor, entrada.clasificador);
   const claseRegla = agrupador ? ctx.reglasClase?.get(agrupador) ?? ctx.reglasClase?.get(agrupador.toUpperCase()) ?? null : null;
   const delModulo = (c: string) => ctx.cuentasRussell6.includes(c);
   const base = (over: Partial<ResolucionConcepto>): ResolucionConcepto => ({
@@ -359,7 +388,7 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
     // Una asignación «Solo {período}» del par (concepto, centro) reemplaza la cuenta del archivo en
     // ESTE cargue: es la corrección explícita del auditor. Rige para todas las cuentas del archivo
     // del par (la asignación del período no distingue cuenta).
-    const delPeriodo = (idx.get(claveMemoria(clasificador, agrupador)) ?? []).filter((f) => f.soloPeriodo);
+    const delPeriodo = (idx.get(claveMemoria(clasificador, agrupador, agruparPor)) ?? []).filter((f) => f.soloPeriodo);
     const cuentasPeriodo = [...new Set(delPeriodo.map((f) => digitosCuenta(f.cuenta6)).filter((c) => c.length === 6))];
     if (cuentasPeriodo.length > 0) {
       return base({
@@ -433,13 +462,14 @@ function memoriaDistintaDelArchivo(
   nombre: string | null | undefined,
   base: (o: Partial<ResolucionConcepto>) => ResolucionConcepto,
 ): string[] | null {
+  const agruparPor = ctx.agruparPor ?? "codigo";
   const aplicables = ctx.memoria.filter((f) => {
-    if (f.soloPeriodo || codigoConceptoCanonico(f.clasificador) !== clasificador) return false;
+    if (f.soloPeriodo || clasificadorCanonico(agruparPor, f.clasificador) !== clasificador) return false;
     const cliente = digitosCuenta(f.cuentaCliente);
     return cliente === "" || cliente === cuentaArchivo;
   });
   if (aplicables.length === 0) return null;
-  const r = resolverDesdeMemoria(clasificador, agrupador, claseRegla, indexarMemoria(aplicables), ctx, nombre, base);
+  const r = resolverDesdeMemoria(clasificador, agrupador, claseRegla, indexarMemoria(aplicables, agruparPor), ctx, nombre, base);
   if (r.destino !== "gasto" || !["memoria_exacta", "memoria_clase", "multi"].includes(r.via)) return null;
   const cuentas = [...new Set(r.cuentas)].sort();
   return cuentas.length > 0 && !(cuentas.length === 1 && cuentas[0] === cuentaResuelta) ? cuentas : null;
@@ -455,12 +485,13 @@ function resolverDesdeMemoria(
   base: (o: Partial<ResolucionConcepto>) => ResolucionConcepto,
 ): ResolucionConcepto {
   const delModulo = (c: string) => ctx.cuentasRussell6.includes(c);
+  const agruparPor = ctx.agruparPor ?? "codigo";
   const cuentasDe = (filas: FilaHomologacion[]) => [...new Set(filas.map((f) => digitosCuenta(f.cuenta6)).filter((c) => c.length === 6))];
   // Lo descriptivo (grupo, subcuenta PUC, cuenta del cliente) sale de las filas del renglón y, si
   // ahí falta, de la fila BASE del concepto (agrupador vacío = todos los centros). Una cuenta asignada
   // «solo para el período» a un centro no trae esos datos: sin el respaldo, el concepto quedaba sin
   // subcuenta y fuera de la vista por subcuenta (Kakaraka, concepto 8 → 519505 en la subcuenta 18).
-  const filasBase = idx.get(claveMemoria(clasificador, "")) ?? [];
+  const filasBase = idx.get(claveMemoria(clasificador, "", agruparPor)) ?? [];
   const metaDe = (filas: FilaHomologacion[], respaldo: FilaHomologacion[] = []) => ({
     grupo: filas.find((f) => f.grupo)?.grupo ?? respaldo.find((f) => f.grupo)?.grupo ?? null,
     subcuentaPuc: filas.find((f) => f.subcuentaPuc)?.subcuentaPuc ?? respaldo.find((f) => f.subcuentaPuc)?.subcuentaPuc ?? null,
@@ -476,7 +507,7 @@ function resolverDesdeMemoria(
   };
 
   // 2) Memoria exacta (concepto, agrupador).
-  const exacta = agrupador ? idx.get(claveMemoria(clasificador, agrupador)) ?? [] : [];
+  const exacta = agrupador ? idx.get(claveMemoria(clasificador, agrupador, agruparPor)) ?? [] : [];
   if (exacta.length > 0) {
     const cuentas = cuentasDe(exacta);
     const meta = metaDe(exacta, filasBase);
@@ -495,7 +526,7 @@ function resolverDesdeMemoria(
   //     1, 5, 10 y 20). Gana a la fila del catálogo, que sin cuenta Russell solo listaría las clases
   //     posibles o la marcaría de control. No cruza hasta que se guarde.
   if (!agrupador && cuentasDe(filasBase).length === 0) {
-    const enCentros = (idx.get(claveMemoria(clasificador, "*")) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
+    const enCentros = (idx.get(claveMemoria(clasificador, "*", agruparPor)) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
     const cuentas = cuentasDe(enCentros).filter(delModulo);
     if (cuentas.length > 0) {
       const centros = [...new Set(enCentros.filter((f) => cuentas.includes(digitosCuenta(f.cuenta6))).map((f) => String(f.agrupador).trim()))]
@@ -546,7 +577,7 @@ function resolverDesdeMemoria(
   // 3b) Memoria del concepto en OTROS centros (el catálogo del ERP viene por área —ADMON,
   //     PRODUCCIÓN— y el archivo trae el centro de costo): con regla de clase se toma la cuenta
   //     de esa clase; con una sola cuenta distinta se usa; con varias, reparto.
-  const otras = (idx.get(claveMemoria(clasificador, "*")) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
+  const otras = (idx.get(claveMemoria(clasificador, "*", agruparPor)) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
   if (otras.length > 0 && cuentasDe(otras).length > 0) {
     const meta = metaDe(otras);
     const cuentas = cuentasDe(otras).filter(delModulo);

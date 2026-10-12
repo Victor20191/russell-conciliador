@@ -6,6 +6,7 @@ import "server-only";
 // cuentas. Los lectores de la memoria general (conceptos de Nómina) no pasan por aquí.
 import prisma from "@/lib/prisma";
 import { fusionarAsignaciones, type FilaAsignacionPeriodo } from "./asignacion-periodo";
+import { AGRUPAR_POR_DEFECTO, type AgruparPorNomina } from "./nomina/agrupar-por";
 
 export type FilaConsolidacionPeriodo = {
   clasificador: string;
@@ -31,28 +32,42 @@ const vacia = (fila: FilaAsignacionPeriodo): Omit<FilaConsolidacionPeriodo, "sol
   cuentaCliente: "",
 });
 
-/** Filas guardadas de la asignación del período. */
-export async function filasAsignacionPeriodo(clienteId: number, moduloCodigo: string, periodo: string): Promise<FilaAsignacionPeriodo[]> {
+/**
+ * Filas guardadas de la asignación del período. Nómina: solo las de la dimensión con que se agrupa
+ * el cargue («Agrupar por»); los demás módulos siempre son `codigo`.
+ */
+export async function filasAsignacionPeriodo(
+  clienteId: number,
+  moduloCodigo: string,
+  periodo: string,
+  agruparPor: AgruparPorNomina = AGRUPAR_POR_DEFECTO,
+): Promise<FilaAsignacionPeriodo[]> {
   const filas = await prisma.asignacionPeriodoModulo.findMany({
-    where: { clienteId, moduloCodigo, periodo },
+    where: { clienteId, moduloCodigo, periodo, agruparPor },
     select: { clasificador: true, agrupador: true, cuenta4: true, cuenta6: true },
     orderBy: [{ clasificador: "asc" }, { agrupador: "asc" }, { cuenta4: "asc" }, { cuenta6: "asc" }],
   });
   return filas;
 }
 
-/** El Consolidado con que se concilia el período, y las filas de su asignación propia. */
+/**
+ * El Consolidado con que se concilia el período, y las filas de su asignación propia. Nómina pasa
+ * la dimensión del cargue: lo asignado agrupando por código no se mezcla con lo asignado agrupando
+ * por nombre o por cuenta.
+ */
 export async function cargarConsolidacionDelPeriodo(
   clienteId: number,
   moduloCodigo: string,
   periodo: string,
+  opciones?: { agruparPor?: AgruparPorNomina },
 ): Promise<{ filas: FilaConsolidacionPeriodo[]; filasPeriodo: FilaAsignacionPeriodo[] }> {
+  const agruparPor = opciones?.agruparPor ?? AGRUPAR_POR_DEFECTO;
   const [memoria, filasPeriodo] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
-      where: { clienteId, moduloCodigo },
+      where: { clienteId, moduloCodigo, agruparPor },
       select: { clasificador: true, cuenta4: true, cuenta6: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
     }),
-    filasAsignacionPeriodo(clienteId, moduloCodigo, periodo),
+    filasAsignacionPeriodo(clienteId, moduloCodigo, periodo, agruparPor),
   ]);
   return { filas: fusionarAsignaciones(memoria, filasPeriodo, vacia), filasPeriodo };
 }

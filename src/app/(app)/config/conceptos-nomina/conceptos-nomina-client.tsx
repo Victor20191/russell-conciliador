@@ -10,6 +10,13 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { fmtDate } from "@/lib/format";
 import { eliminarConceptoNomina } from "@/app/actions/import-conceptos-nomina";
 import { ImportCatalogoErpButton, ImportConceptosNominaButton, type ClienteOpcionConceptos } from "./import-conceptos-nomina-modal";
+import type { AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
+
+/** Chip de la llave cuando no es el código: lo guardado agrupando por nombre o por cuenta. */
+const CHIP_AGRUPAR_POR: Partial<Record<AgruparPorNomina, { texto: string; titulo: string }>> = {
+  concepto: { texto: "por nombre", titulo: "Guardado por el nombre del concepto: aplica a los cargues cuyo Consolidado se agrupa por nombre." },
+  cuenta: { texto: "por cuenta", titulo: "Guardado por la cuenta contable del cliente: aplica a los cargues cuyo Consolidado se agrupa por cuenta." },
+};
 
 /** Un concepto de nómina de un cliente (y centro de costo), con TODAS las cuentas contra las que cruza. */
 export type ConceptoRow = {
@@ -17,8 +24,10 @@ export type ConceptoRow = {
   clienteCodigo: string;
   clienteNombre: string;
   clienteNit: string;
-  /** Código del concepto: la llave del mapeo. */
+  /** Código del concepto: la llave del mapeo (o el nombre / la cuenta, según `agruparPor`). */
   codigo: string;
+  /** Dimensión de la llave («Agrupar por» del Consolidado): código, nombre o cuenta del cliente. */
+  agruparPor: AgruparPorNomina;
   /** Centro de costo / clase del archivo ('' = aplica a todos). */
   agrupador: string;
   /** Nombre legible. Null en los mapeos que se crearon a mano antes de la carga masiva. */
@@ -138,6 +147,7 @@ export default function ConceptosNominaClient({
         clienteId: objetivo.clienteId,
         codigo: objetivo.codigo,
         agrupador: objetivo.agrupador,
+        agruparPor: objetivo.agruparPor,
       });
       if (res.ok) {
         notifySuccess(res.message);
@@ -268,7 +278,7 @@ export default function ConceptosNominaClient({
               )}
               {pg.pageItems.map((r) => (
                 <tr
-                  key={`${r.clienteId}:${r.codigo}:${r.agrupador}`}
+                  key={`${r.clienteId}:${r.agruparPor}:${r.codigo}:${r.agrupador}`}
                   className="border-b border-ink-50 last:border-0 hover:bg-ink-50"
                 >
                   <td className="px-4 py-2.5">
@@ -278,7 +288,14 @@ export default function ConceptosNominaClient({
                       <span>NIT {r.clienteNit}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-ink-700">{r.codigo}</td>
+                  <td className="px-4 py-2.5 font-mono text-ink-700">
+                    {r.codigo}
+                    {CHIP_AGRUPAR_POR[r.agruparPor] && (
+                      <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 font-sans text-[10.5px] font-semibold text-ink-600" title={CHIP_AGRUPAR_POR[r.agruparPor]!.titulo}>
+                        {CHIP_AGRUPAR_POR[r.agruparPor]!.texto}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-ink-700">
                     {r.concepto ?? <span className="text-ink-400">Sin nombre (mapeo manual)</span>}
                   </td>
