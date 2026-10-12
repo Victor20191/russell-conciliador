@@ -41,6 +41,14 @@ import { EstadoGuardado } from "@/components/estado-guardado";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { filtrarConsolidado, hayFiltrosConsolidado, type FiltrosConsolidado } from "@/lib/modulos/filtros-consolidado";
+import {
+  AYUDA_CATEGORIA,
+  CATEGORIAS_CONSOLIDADO,
+  categoriaRenglon,
+  contarCategorias,
+  ETIQUETA_CATEGORIA,
+  type CategoriaConsolidado,
+} from "@/lib/modulos/categoria-consolidado";
 import { agruparConsolidadoPorConcepto, resumirGrupoConcepto } from "@/lib/modulos/nomina/consolidado-por-concepto";
 import { filtrarFilasCruce, hayFiltrosCruce, type FiltrosCruce } from "@/lib/modulos/filtros-cruce";
 import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orden-tabla";
@@ -948,7 +956,7 @@ function ConsolidadoTab({
   const router = useRouter();
   // Lo que el usuario EDITA se autoguarda en todos los módulos (pausa corta + LOTE). Las
   // PROPUESTAS del sistema al abrir nunca se graban solas: se confirman con «Guardar» y, si
-  // quedan, se recuerdan al salir. Inventarios además tiene el filtro «Sin cuenta asignada».
+  // quedan, se recuerdan al salir. El filtro «Mostrar» separa los renglones por tipo.
   const esInventarios = moduloCodigo === "INV";
   const [buscando, setBuscando] = useState<string | null>(null); // clasificador cuyo selector de cuenta está abierto
   // Cuentas del plan Russell fuera de la cédula que valen solo para este período: las ya
@@ -1011,25 +1019,39 @@ function ConsolidadoTab({
   const valoresRef = useRef(valores);
   useEffect(() => { valoresRef.current = valores; }, [valores]);
 
-  // Filtro de VISTA «Todas / Sin cuenta asignada» (solo Inventarios): se basa en la
-  // asignación GUARDADA (`guardados`), nunca en la sugerencia de prefill sin confirmar
-  // que trae `valores` — de lo contrario un clasificador con solo la propuesta automática
-  // (aún sin persistir) se vería como «con cuenta» y no aparecería en el filtro.
-  const [filtroVista, setFiltroVista] = useState<"todas" | "sinCuenta">("todas");
+  // Filtro de VISTA «Mostrar» (todos los módulos): el TIPO de cada renglón según lo que hace en el
+  // cruce —cuentas del módulo, propuesta sin guardar, sin cuenta y, en Nómina, control de
+  // deducciones o fuera del módulo— (`categoria-consolidado.ts`). Lo guardado sale de `guardados`,
+  // no de la propuesta que trae `valores`: una cuenta propuesta y sin guardar todavía no cruza.
+  const [categoria, setCategoria] = useState<CategoriaConsolidado | null>(null);
   // Filtros por columna de la tabla (clasificador y su nombre, filas, total, cuentas asignadas).
   const [filtros, setFiltros] = useState<FiltrosConsolidado>({});
   const hayFiltros = hayFiltrosConsolidado(filtros);
   // Orden por columna (clic en el encabezado): la tabla la tenemos entera, se ordena aquí.
   const [orden, setOrden] = useState<OrdenTabla>(null);
   const ordenarPor = (columna: string) => setOrden((actual) => alternarOrden(actual, columna));
-  const sinCuentaGuardada = useMemo(
-    () => consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0).length,
-    [consolidado, guardados],
+  // Nómina: renglones que ya cruzan por la cuenta contable del archivo. No son propuestas: se ven
+  // resueltos y no piden «Guardar» (guardarlos en la memoria es opcional).
+  const resueltosPorArchivo = useMemo(
+    () => Object.fromEntries(
+      consolidado
+        .filter((c) => c.sugerencia?.via === "archivo" && c.sugerencia.destino === "gasto" && c.sugerencia.cuentas.length === 1)
+        .map((c) => [c.clasificador, c.sugerencia!.cuentas]),
+    ) as Record<string, string[]>,
+    [consolidado],
   );
+  const categoriaPorClave = useMemo(
+    () => new Map(consolidado.map((c) => [c.clasificador, categoriaRenglon({
+      guardadas: guardados[c.clasificador] ?? [],
+      visibles: valores[c.clasificador] ?? [],
+      resueltaPorArchivo: c.clasificador in resueltosPorArchivo,
+      destino: c.sugerencia?.destino ?? null,
+    })])),
+    [consolidado, guardados, valores, resueltosPorArchivo],
+  );
+  const conteoCategorias = useMemo(() => contarCategorias(categoriaPorClave.values()), [categoriaPorClave]);
   const consolidadoVisible = useMemo(() => {
-    const base = esInventarios && filtroVista === "sinCuenta"
-      ? consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0)
-      : consolidado;
+    const base = categoria ? consolidado.filter((c) => categoriaPorClave.get(c.clasificador) === categoria) : consolidado;
     // Las cuentas que se buscan (y por las que se ordena) son las que la fila MUESTRA: las
     // asignadas o, mientras no se guarden, las propuestas.
     const conCuentas = base.map((c) => ({
@@ -1038,7 +1060,7 @@ function ConsolidadoTab({
     }));
     const filtradas = hayFiltrosConsolidado(filtros) ? filtrarConsolidado(conCuentas, filtros) : conCuentas;
     return ordenarFilas(filtradas, orden, valorColumnaConsolidado, (c) => c === "filas" || c === "total");
-  }, [consolidado, guardados, filtroVista, esInventarios, filtros, valores, nombrePorCuenta, orden]);
+  }, [consolidado, categoria, categoriaPorClave, filtros, valores, nombrePorCuenta, orden]);
 
   const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
     const aplicar = (prev: Record<string, string[]>) => {
@@ -1076,16 +1098,6 @@ function ConsolidadoTab({
 
   // Nómina: el archivo trae la cuenta contable del cliente (banner arriba de la tabla).
   const resumenArchivo = useMemo(() => resumenCuentaArchivo(consolidado), [consolidado]);
-  // Nómina: renglones que ya cruzan por la cuenta contable del archivo. No son propuestas: se ven
-  // resueltos y no piden «Guardar» (guardarlos en la memoria es opcional).
-  const resueltosPorArchivo = useMemo(
-    () => Object.fromEntries(
-      consolidado
-        .filter((c) => c.sugerencia?.via === "archivo" && c.sugerencia.destino === "gasto" && c.sugerencia.cuentas.length === 1)
-        .map((c) => [c.clasificador, c.sugerencia!.cuentas]),
-    ) as Record<string, string[]>,
-    [consolidado],
-  );
   // Lo que se ve y no está grabado: propuestas (sin tocar) y ediciones en camino o con error.
   const pendientes = useMemo(
     () => renglonesSinGuardar({ clasificadores: consolidado.map((c) => c.clasificador), valores, guardados, tocados, resueltos: resueltosPorArchivo }),
@@ -1132,7 +1144,9 @@ function ConsolidadoTab({
       return s;
     });
   const seleccionarTodos = (activar: boolean) => setSeleccion(activar ? new Set(clasificadores) : new Set());
-  const seleccionarSinCuenta = () => setSeleccion(new Set(clasificadores.filter((k) => (valores[k] ?? []).length === 0)));
+  // «Sin cuenta»: los visibles que no tienen ninguna (no los de control ni los de fuera del módulo,
+  // que no se asignan a mano).
+  const seleccionarSinCuenta = () => setSeleccion(new Set(clasificadores.filter((k) => categoriaPorClave.get(k) === "sin_cuenta")));
 
   // La asignación masiva es una edición explícita: el autoguardado la persiste sola.
   const aplicarMasivo = (cuentas4: string[], modo: ModoAsignacionMasiva) => {
@@ -1335,25 +1349,33 @@ function ConsolidadoTab({
           <PanelClasesAgrupador agrupadores={agrupadores} clienteId={clienteId} moduloCodigo={moduloCodigo} puedeEditar={puedeEditar} />
         </div>
       )}
-      {esInventarios && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
-          <span className="text-ink-500">Mostrar:</span>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
+        <span className="font-medium text-ink-600">Mostrar:</span>
+        <button
+          type="button"
+          aria-pressed={categoria === null}
+          onClick={() => { setCategoria(null); tablaRef.current?.scrollTo({ top: 0 }); }}
+          className={`rounded-full border px-2.5 py-1 font-semibold ${categoria === null ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
+        >
+          Todos ({consolidado.length.toLocaleString("es-CO")})
+        </button>
+        {CATEGORIAS_CONSOLIDADO.filter((c) => conteoCategorias[c] > 0 || categoria === c).map((c) => (
           <button
+            key={c}
             type="button"
-            onClick={() => { setFiltroVista("todas"); tablaRef.current?.scrollTo({ top: 0 }); }}
-            className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "todas" ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
+            aria-pressed={categoria === c}
+            title={AYUDA_CATEGORIA[c]}
+            onClick={() => { setCategoria((actual) => (actual === c ? null : c)); tablaRef.current?.scrollTo({ top: 0 }); }}
+            className={`rounded-full border px-2.5 py-1 font-semibold ${
+              categoria === c
+                ? c === "sin_cuenta" || c === "propuesta" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-navy-700 bg-navy-700 text-white"
+                : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
+            }`}
           >
-            Todas ({consolidado.length})
+            {ETIQUETA_CATEGORIA[c]} ({conteoCategorias[c].toLocaleString("es-CO")})
           </button>
-          <button
-            type="button"
-            onClick={() => { setFiltroVista("sinCuenta"); tablaRef.current?.scrollTo({ top: 0 }); }}
-            className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "sinCuenta" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
-          >
-            Sin cuenta asignada ({sinCuentaGuardada})
-          </button>
-        </div>
-      )}
+        ))}
+      </div>
       {/* La barra va siempre (lleva «Pantalla completa»); selección y guardado, solo a quien edita. */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
         {puedeEditar ? (
@@ -1460,12 +1482,12 @@ function ConsolidadoTab({
             </tr>
           </thead>
           <tbody>
-            {consolidadoVisible.length === 0 && (esInventarios && filtroVista === "sinCuenta" || hayFiltros) && (
+            {consolidadoVisible.length === 0 && (categoria !== null || hayFiltros) && (
               <tr>
                 <td colSpan={puedeEditar ? 6 : 5} className="px-3 py-6 text-center text-ink-400">
-                  {hayFiltros
-                    ? `Ningún ${clasificadorEtiqueta.toLocaleLowerCase("es")} coincide con los filtros.`
-                    : "Ningún grupo coincide con el filtro «Sin cuenta asignada»."}
+                  {categoria !== null
+                    ? `No hay renglones de «${ETIQUETA_CATEGORIA[categoria]}»${hayFiltros ? " que coincidan con los filtros" : ""}.`
+                    : `Ningún ${clasificadorEtiqueta.toLocaleLowerCase("es")} coincide con los filtros.`}
                 </td>
               </tr>
             )}
