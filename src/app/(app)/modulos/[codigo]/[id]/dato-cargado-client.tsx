@@ -8,6 +8,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
 import { INFO_CONTENIDO_ARCHIVO, type ContenidoArchivoCargue } from "@/lib/modulos/ingresos/contenido-archivo";
+import { ALERTAS_COSTO, resumirAlertasCosto, type TipoAlertaCosto } from "@/lib/modulos/validaciones";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
@@ -338,6 +339,8 @@ export type { CruceTerceroVm } from "./cruce-tercero-tab";
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
+  /** Inventarios: referencias con alertas de costo. `null`/ausente = el módulo no las calcula. */
+  alertasCosto?: { tipo: TipoAlertaCosto; filaNum: number; referencia: string | null; cantidad: number | null; unitario: number | null; total: number | null }[] | null;
   observaciones: string | null;
   /** Ingresos: qué trae cada archivo del cargue; null en cargues anteriores o en otros módulos. */
   archivosCargue?: ContenidoArchivoCargue[] | null;
@@ -571,7 +574,7 @@ export default function DatoCargadoClient({
     () => Object.fromEntries(consolidado.filter((c) => c.descripcion?.trim()).map((c) => [c.clasificador, c.descripcion!.trim()])),
     [consolidado],
   );
-  const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
+  const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres, ...(novedades.alertasCosto ?? [])].map((n) => n.filaNum));
   const alertas = filasNovedad.size + (novedades.tercero?.total ?? 0);
   const tabs: TabId[] = [
     "consolidado",
@@ -4624,6 +4627,7 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
           </div>
         )}
       </Card>
+      {novedades.alertasCosto && <AlertasCostoCard alertas={novedades.alertasCosto} />}
         </>
       )}
 
@@ -4777,6 +4781,67 @@ function VersionesTab({
           </tbody>
         </table>
       </div>
+    </Card>
+  );
+}
+
+/** Tope de filas que pinta la tabla de alertas de costo; el resumen cuenta todas. */
+const MAX_FILAS_ALERTAS_COSTO = 200;
+
+/** Inventarios: costo cero con existencias, sin existencias y con costo, y costo unitario 1. */
+function AlertasCostoCard({ alertas }: { alertas: NonNullable<NovedadesVm["alertasCosto"]> }) {
+  const resumen = resumirAlertasCosto(alertas);
+  const etiqueta = new Map(ALERTAS_COSTO.map((a) => [a.tipo, a.etiqueta]));
+  const visibles = alertas.slice(0, MAX_FILAS_ALERTAS_COSTO);
+  const cantidad = (v: number | null) => (v == null ? "—" : v.toLocaleString("es-CO", { maximumFractionDigits: 4 }));
+  return (
+    <Card className="p-4">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Alertas de costo por referencia</div>
+      {alertas.length === 0 ? (
+        <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
+          ✓ Ninguna referencia con costo cero y existencias, sin existencias y con costo, ni con costo unitario 1.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            {resumen.map((r) => (
+              <div key={r.tipo} className={`rounded-md border px-3 py-1.5 text-[12px] ${r.referencias > 0 ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-ink-150 text-ink-500"}`}>
+                <span className="font-semibold">{r.etiqueta}:</span> {r.referencias} {r.referencias === 1 ? "referencia" : "referencias"}
+                {r.valorTotal !== 0 ? <> · {fmtContable(r.valorTotal)}</> : null}
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto rounded-md border border-ink-150">
+            <table className="w-full text-[12px]">
+              <thead className="bg-ink-50 text-left text-ink-500">
+                <tr>
+                  <th className="px-2.5 py-1.5 font-semibold">Fila</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Referencia</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Alerta</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Cantidad</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Costo unitario</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Valor total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((a, i) => (
+                  <tr key={i} className="border-t border-ink-100">
+                    <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-500">{a.filaNum}</td>
+                    <td className="px-2.5 py-1.5 text-ink-700">{a.referencia ?? "—"}</td>
+                    <td className="px-2.5 py-1.5 text-warn-700">{etiqueta.get(a.tipo) ?? a.tipo}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-700">{cantidad(a.cantidad)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-700">{a.unitario == null ? "—" : fmtContable(a.unitario)}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-700">{a.total == null ? "—" : fmtContable(a.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {alertas.length > visibles.length && (
+            <div className="text-[11.5px] text-ink-500">Se muestran las primeras {visibles.length} de {alertas.length} alertas; el conteo de arriba incluye todas.</div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

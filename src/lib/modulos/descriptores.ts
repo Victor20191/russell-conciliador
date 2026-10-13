@@ -213,6 +213,12 @@ export type DescriptorModulo = {
   /** Columnas que NO deberían ser negativas (existencias/costos): generan alerta automática. */
   noNegativos?: string[];
   /**
+   * Alertas de costo por referencia (Inventarios): costo cero con existencias, sin existencias
+   * y con costo, y costo unitario 1. Nombra las columnas de cantidad, costo unitario y valor
+   * total; sin este bloque el módulo no calcula estas alertas. Solo informan.
+   */
+  alertasCosto?: { cantidad: string; unitario: string; total: string };
+  /**
    * Qué hacer con las filas en NEGRITA (subtotales del ERP) al importar:
    *  - sin bandera → se marcan `agrupadora` (no imputan, no se pueden rescatar por fila).
    *  - `true` → entran como `movimiento` OMITIDAS: tampoco imputan, pero el borrador las
@@ -462,6 +468,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       valorUnitario: { cociente: ["valorTotal", "cantidad"] },
     },
     noNegativos: ["cantidad", "valorUnitario", "valorTotal"],
+    alertasCosto: { cantidad: "cantidad", unitario: "valorUnitario", total: "valorTotal" },
     // La negrita en los inventarios NO es confiable como «es un subtotal»: se omite por
     // defecto (excluida del total) pero queda rescatable desde el borrador.
     negritaComoOmitida: true,

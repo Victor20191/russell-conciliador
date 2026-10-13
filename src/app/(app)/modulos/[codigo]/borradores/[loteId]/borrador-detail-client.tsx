@@ -377,9 +377,11 @@ export default function BorradorModuloClient({
     limpiarSeleccion();
   };
 
-  // Novedades del archivo COMPLETO (negativos, descuadres de cantidad × unitario, filas que
-  // parecen el gran total y subtotales que no cuadran): las calcula el servidor al abrir.
+  // Novedades del archivo COMPLETO (negativos, descuadres de cantidad × unitario, alertas de
+  // costo, filas que parecen el gran total y subtotales que no cuadran): las calcula el servidor
+  // al abrir. `alertasCosto` es null en los módulos que no las calculan.
   const { negativos, descuadres, totalizadoras } = resumen;
+  const alertasCosto = (resumen.alertasCosto ?? []).filter((a) => a.referencias > 0);
   const resumenValidacion = { items: totalItems, sumaMovimientos: total };
   const filasConNovedad = useMemo(() => new Set(resumen.novedades), [resumen.novedades]);
   const verifCompletas = verificaciones.every((v) => respuestas[v.id]);
@@ -701,8 +703,19 @@ export default function BorradorModuloClient({
             <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{resumen.descuadresFilas > 8 ? "…" : ""}.</span>
           </div>
         )}
-        {negativos.length === 0 && descuadres.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos ni descuadres de valor en los movimientos.</div>
+        {alertasCosto.map((a) => (
+          <div key={a.tipo} className="rounded-md border border-warn-500 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
+            <span className="font-semibold">
+              ⚠ {a.referencias} {a.referencias === 1 ? "referencia" : "referencias"} · {a.etiqueta.toLowerCase()}
+              {a.valorTotal !== 0 ? ` (valor total ${fmtContable(a.valorTotal)})` : ""}.
+            </span>
+            <span className="ml-1">Filas: {a.filas.join(", ")}{a.referencias > a.filas.length ? "…" : ""}.</span>
+          </div>
+        ))}
+        {negativos.length === 0 && descuadres.length === 0 && alertasCosto.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
+          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
+            {resumen.alertasCosto ? "✓ Sin negativos, descuadres de valor ni alertas de costo en los movimientos." : "✓ Sin negativos ni descuadres de valor en los movimientos."}
+          </div>
         )}
 
         {verificaciones.length > 0 && (

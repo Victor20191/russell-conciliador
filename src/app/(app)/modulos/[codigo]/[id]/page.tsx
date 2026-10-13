@@ -13,7 +13,7 @@ import {
 } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
-import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
+import { detectarNegativos, detectarDescuadres, detectarAlertasCosto } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { fmtDateTime } from "@/lib/format";
@@ -225,10 +225,13 @@ export default async function DatoModuloPage({
   const filasVal = detalleVm.map((d) => ({ filaNum: d.filaNum, clasificador: d.clasificador, datos: d.datos }));
   const negativos = detectarNegativos(descriptor, filasVal);
   const descuadres = detectarDescuadres(descriptor, filasVal);
+  const alertasCosto = descriptor.alertasCosto ? detectarAlertasCosto(descriptor, filasVal) : null;
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
   const novedades: NovedadesVm = {
     negativos: negativos.map((n) => ({ filaNum: n.filaNum, etiqueta: n.etiqueta, referencia: n.referencia, valor: n.valor })),
     descuadres: descuadres.map((d) => ({ filaNum: d.filaNum, referencia: d.referencia, etiqueta: d.resultadoEtiqueta, declarado: d.declarado, esperado: d.esperado })),
+    // Inventarios: costo cero con existencias, sin existencias y con costo, costo unitario 1.
+    alertasCosto: alertasCosto?.map((a) => ({ tipo: a.tipo, filaNum: a.filaNum, referencia: a.referencia, cantidad: a.cantidad, unitario: a.unitario, total: a.total })) ?? null,
     observaciones: encabezado.observaciones ?? null,
     // Ingresos: qué trae cada archivo del cargue (facturas / notas crédito) y si se invirtió.
     archivosCargue: leerContenidoArchivos(encabezado.contenidoArchivos),

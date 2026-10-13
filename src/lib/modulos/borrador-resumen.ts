@@ -12,6 +12,7 @@
 // novedad. Ver `borrador-servidor.ts`.
 import type { DescriptorModulo } from "./descriptores";
 import { detectarFilasTotalizadoras } from "./fila-totalizadora";
+import { resumirAlertasCosto, type ItemAlertaCosto, type ResumenAlertaCosto } from "./validaciones";
 import { controlSubtotales, type ControlSubtotales } from "./subtotales";
 import { esRenglonEstructura } from "./renglones-archivo";
 import type { ControlesFormatoCartera } from "./cartera/controles-formato";
@@ -93,6 +94,8 @@ export type ResumenBorrador = {
   negativosFilas: number;
   descuadres: { filaNum: number; etiqueta: string; declarado: number; esperado: number }[];
   descuadresFilas: number;
+  /** Inventarios: costo cero con existencias, sin existencias y con costo, costo 1. `null` = el módulo no las calcula. */
+  alertasCosto: ResumenAlertaCosto[] | null;
   totalizadoras: { filaNum: number; valor: number; resto: number }[];
   control: ControlSubtotales;
   controlesFormato: ControlesFormatoCartera | null;
@@ -129,6 +132,8 @@ export type InsumosResumen = {
   columnasConDatos: ReadonlySet<string>;
   negativos: { filaNum: number; etiqueta: string; valor: number }[];
   descuadres: { filaNum: number; etiqueta: string; declarado: number; esperado: number }[];
+  /** Referencias con alertas de costo; `null`/ausente = el módulo no las calcula. */
+  alertasCosto?: Pick<ItemAlertaCosto, "tipo" | "filaNum" | "total">[] | null;
   controlesFormato: ControlesFormatoCartera | null;
 };
 
@@ -143,7 +148,11 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
 
   const imputables = filas.filter(esImputableFila);
 
-  const novedades = new Set<number>([...input.negativos.map((n) => n.filaNum), ...input.descuadres.map((d) => d.filaNum)]);
+  const novedades = new Set<number>([
+    ...input.negativos.map((n) => n.filaNum),
+    ...input.descuadres.map((d) => d.filaNum),
+    ...(input.alertasCosto ?? []).map((a) => a.filaNum),
+  ]);
   const totalizadoras = detectarFilasTotalizadoras(imputables.map((f) => ({ filaNum: f.filaNum, valor: f.valor })));
   for (const t of totalizadoras) novedades.add(t.filaNum);
 
@@ -220,6 +229,7 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
     negativosFilas: new Set(input.negativos.map((n) => n.filaNum)).size,
     descuadres: input.descuadres.slice(0, MAX_DETALLE_NOVEDAD),
     descuadresFilas: input.descuadres.length,
+    alertasCosto: input.alertasCosto ? resumirAlertasCosto(input.alertasCosto) : null,
     totalizadoras: totalizadoras.map((t) => ({ filaNum: t.filaNum, valor: t.valor, resto: t.resto })),
     control,
     controlesFormato: input.controlesFormato,

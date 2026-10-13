@@ -77,6 +77,99 @@ export function detectarDescuadres(descriptor: DescriptorModulo, filas: FilaVali
   return out;
 }
 
+/** Las tres alertas de costo de una referencia de inventario. */
+export type TipoAlertaCosto = "costo_cero_con_existencias" | "sin_existencias_con_costo" | "costo_uno";
+
+/** Orden en que se presentan (y nombre legible de cada una). */
+export const ALERTAS_COSTO: readonly { tipo: TipoAlertaCosto; etiqueta: string }[] = [
+  { tipo: "costo_cero_con_existencias", etiqueta: "Costo cero con existencias" },
+  { tipo: "sin_existencias_con_costo", etiqueta: "Sin existencias y con costo" },
+  { tipo: "costo_uno", etiqueta: "Costo unitario 1" },
+];
+
+// Un importe «en cero» o «igual a 1» se mide al centavo; la cantidad no, porque puede traer
+// fracciones (kilos, metros) y 0,001 unidades siguen siendo existencias.
+const CENTAVO = 0.005;
+
+/**
+ * Alertas de costo de UNA referencia. Un dato vacío no dispara nada: sin la cantidad no se sabe
+ * si hay existencias, y sin el costo no se sabe si es cero.
+ *  - costo cero con existencias: cantidad mayor que cero y costo unitario o valor total en cero.
+ *  - sin existencias y con costo: cantidad en cero (escrita, no vacía) y valor total distinto de cero.
+ *  - costo 1: costo unitario igual a 1, el costo de relleno típico de un ítem sin costear.
+ */
+export function alertasCostoDeFila(v: { cantidad: number | null; unitario: number | null; total: number | null }): TipoAlertaCosto[] {
+  const { cantidad, unitario, total } = v;
+  const salida: TipoAlertaCosto[] = [];
+  const enCero = (n: number | null) => n != null && Math.abs(n) < CENTAVO;
+  if (cantidad != null && cantidad > 0 && (enCero(unitario) || enCero(total))) salida.push("costo_cero_con_existencias");
+  if (cantidad === 0 && total != null && !enCero(total)) salida.push("sin_existencias_con_costo");
+  if (unitario != null && Math.abs(unitario - 1) < CENTAVO) salida.push("costo_uno");
+  return salida;
+}
+
+export type ItemAlertaCosto = {
+  tipo: TipoAlertaCosto;
+  filaNum: number;
+  clasificador: string | null;
+  referencia: string | null;
+  cantidad: number | null;
+  unitario: number | null;
+  total: number | null;
+};
+
+/**
+ * Referencias con alertas de costo, según las columnas que nombra `descriptor.alertasCosto`.
+ * Una referencia puede tener dos (sin existencias, con costo y costo unitario 1).
+ */
+export function detectarAlertasCosto(descriptor: DescriptorModulo, filas: FilaValidable[]): ItemAlertaCosto[] {
+  const roles = descriptor.alertasCosto;
+  if (!roles) return [];
+  const refRol = descriptor.columnas.find((c) => /ref/i.test(c.nombre))?.nombre;
+  const salida: ItemAlertaCosto[] = [];
+  for (const f of filas) {
+    const valores = { cantidad: num(f.datos[roles.cantidad]), unitario: num(f.datos[roles.unitario]), total: num(f.datos[roles.total]) };
+    for (const tipo of alertasCostoDeFila(valores)) {
+      salida.push({
+        tipo,
+        filaNum: f.filaNum,
+        clasificador: f.clasificador,
+        referencia: refRol ? (f.datos[refRol] != null ? String(f.datos[refRol]) : null) : null,
+        ...valores,
+      });
+    }
+  }
+  return salida;
+}
+
+export type ResumenAlertaCosto = {
+  tipo: TipoAlertaCosto;
+  etiqueta: string;
+  /** Cuántas referencias la tienen. */
+  referencias: number;
+  /** Σ de su valor total (en «costo cero» suele ser 0). */
+  valorTotal: number;
+  /** Primeras filas, para que la pantalla las nombre. */
+  filas: number[];
+};
+
+/** Conteo y valor de cada alerta, en el orden de `ALERTAS_COSTO` (incluidas las que están en cero). */
+export function resumirAlertasCosto(
+  items: readonly Pick<ItemAlertaCosto, "tipo" | "filaNum" | "total">[],
+  maxFilas = 8,
+): ResumenAlertaCosto[] {
+  return ALERTAS_COSTO.map(({ tipo, etiqueta }) => {
+    const propias = items.filter((i) => i.tipo === tipo);
+    return {
+      tipo,
+      etiqueta,
+      referencias: propias.length,
+      valorTotal: round2(propias.reduce((s, i) => s + (i.total ?? 0), 0)),
+      filas: propias.slice(0, maxFilas).map((i) => i.filaNum),
+    };
+  });
+}
+
 /**
  * Ítems con existencias o costos NEGATIVOS en las columnas que el descriptor marca como
  * `noNegativos`. Un ítem puede aparecer varias veces si tiene más de una columna negativa.

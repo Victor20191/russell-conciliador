@@ -176,3 +176,27 @@ describe("grupos en cero: nombre del concepto y por qué no suman", () => {
     expect(r.grupos[0]).toMatchObject({ descripcion: null, motivoSinItems: null, items: 1 });
   });
 });
+
+describe("alertas de costo en el borrador de Inventarios", () => {
+  it("se resumen por tipo y sus filas entran a las novedades", () => {
+    const r = resumir([fila(2, "1435", 0), fila(3, "1435", 1500), fila(4, "1435", 8), fila(5, "1435", 200)], {
+      imputablesEnCero: new Set([2]),
+      alertasCosto: [
+        { tipo: "costo_cero_con_existencias", filaNum: 2, total: 0 },
+        { tipo: "sin_existencias_con_costo", filaNum: 3, total: 1500 },
+        { tipo: "costo_uno", filaNum: 4, total: 8 },
+      ],
+    });
+    expect(r.alertasCosto?.map((a) => [a.tipo, a.referencias, a.valorTotal])).toEqual([
+      ["costo_cero_con_existencias", 1, 0],
+      ["sin_existencias_con_costo", 1, 1500],
+      ["costo_uno", 1, 8],
+    ]);
+    expect(r.novedades).toEqual(expect.arrayContaining([2, 3, 4]));
+    expect(r.novedades).not.toContain(5);
+  });
+
+  it("sin el insumo (módulos que no las calculan) queda en null", () => {
+    expect(resumir([fila(2, "1435", 10)]).alertasCosto).toBeNull();
+  });
+});

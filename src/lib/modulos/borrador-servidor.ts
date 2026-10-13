@@ -9,7 +9,7 @@
 //  2. las filas con `valor` 0 CON `datos` (aquí 1.471): son las únicas donde el criterio de
 //     «fila en cero» necesita mirar las columnas numéricas;
 //  3. los renglones de cuenta (`seccion_cuenta`), para el total que declara cada cuenta;
-//  4. los escalares de las columnas que vigilan negativos y descuadres (Inventarios);
+//  4. los escalares de las columnas que vigilan negativos, descuadres y alertas de costo (Inventarios);
 //  5. un agregado que dice qué columnas trae el archivo (para ocultar las vacías).
 //
 // Va por el DRIVER `pg` y no por Prisma: el motor de Prisma serializa cada fila con su `Decimal`
@@ -17,7 +17,7 @@
 import "server-only";
 import { poolLectura as pool } from "./pool-lectura";
 import type { DescriptorModulo } from "./descriptores";
-import { esDescuadreProducto } from "./validaciones";
+import { alertasCostoDeFila, esDescuadreProducto, type ItemAlertaCosto } from "./validaciones";
 import { controlesFormatoCartera } from "./cartera/controles-formato";
 import type { FormatoArchivoCartera } from "./cartera/tipo-formato";
 import type { NivelCartera } from "./cartera/saldos-tercero";
@@ -259,17 +259,27 @@ async function descripcionPorGrupo(
   return salida;
 }
 
-/** Negativos y descuadres de cantidad × unitario, mirando SOLO las columnas que los definen. */
+type AlertaCostoBorrador = Pick<ItemAlertaCosto, "tipo" | "filaNum" | "total">;
+
+/**
+ * Negativos, descuadres de cantidad × unitario y alertas de costo, mirando SOLO las columnas que
+ * los definen. `alertasCosto` es null cuando el módulo no las calcula.
+ */
 async function novedadesDeColumnas(
   loteId: string,
   descriptor: DescriptorModulo,
   columnas: readonly ColumnaDetalle[],
-): Promise<{ negativos: ResumenBorrador["negativos"]; descuadres: ResumenBorrador["descuadres"] }> {
+): Promise<{ negativos: ResumenBorrador["negativos"]; descuadres: ResumenBorrador["descuadres"]; alertasCosto: AlertaCostoBorrador[] | null }> {
   const productos = Object.entries(descriptor.derivar ?? {})
     .filter(([, regla]) => "producto" in regla)
     .map(([resultado, regla]) => ({ resultado, producto: (regla as { producto: [string, string] }).producto }));
-  const roles = [...new Set([...(descriptor.noNegativos ?? []), ...productos.flatMap((p) => [p.resultado, ...p.producto])])];
-  if (roles.length === 0) return { negativos: [], descuadres: [] };
+  const costo = descriptor.alertasCosto ?? null;
+  const roles = [...new Set([
+    ...(descriptor.noNegativos ?? []),
+    ...productos.flatMap((p) => [p.resultado, ...p.producto]),
+    ...(costo ? [costo.cantidad, costo.unitario, costo.total] : []),
+  ])];
+  if (roles.length === 0) return { negativos: [], descuadres: [], alertasCosto: costo ? [] : null };
 
   const parametros: unknown[] = [loteId];
   const columnasSql = roles.map((rol) => {
@@ -285,6 +295,8 @@ async function novedadesDeColumnas(
   const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number(v));
   const negativos: ResumenBorrador["negativos"] = [];
   const descuadres: ResumenBorrador["descuadres"] = [];
+  const alertasCosto: AlertaCostoBorrador[] = [];
+  const finito = (v: number | null) => (v != null && Number.isFinite(v) ? v : null);
   for (const f of rows) {
     for (const rol of descriptor.noNegativos ?? []) {
       const v = num(f[rol]);
@@ -299,8 +311,13 @@ async function novedadesDeColumnas(
         descuadres.push({ filaNum: f.fila_num, etiqueta: etiqueta(p.resultado), declarado: tot, esperado: Math.round(a * b * 100) / 100 });
       }
     }
+    if (costo) {
+      const total = finito(num(f[costo.total]));
+      const tipos = alertasCostoDeFila({ cantidad: finito(num(f[costo.cantidad])), unitario: finito(num(f[costo.unitario])), total });
+      for (const tipo of tipos) alertasCosto.push({ tipo, filaNum: f.fila_num, total });
+    }
   }
-  return { negativos, descuadres };
+  return { negativos, descuadres, alertasCosto: costo ? alertasCosto : null };
 }
 
 /**
@@ -380,6 +397,7 @@ export async function cargarResumenBorrador(input: {
     columnasConDatos: conDatos,
     negativos: novedades.negativos,
     descuadres: novedades.descuadres,
+    alertasCosto: novedades.alertasCosto,
     controlesFormato,
   });
 }
