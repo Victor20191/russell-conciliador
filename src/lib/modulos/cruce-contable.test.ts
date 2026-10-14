@@ -123,6 +123,45 @@ describe("construirCruceContable", () => {
       });
       expect(r.filas).toHaveLength(1);
       expect(r.filas[0]).toMatchObject({ cuenta4: "1305+1310+2805", clasificadores: ["A", "B"], contable: 60, inventario: 60, cuadra: true });
+      // En cadena, a cada uno le falta la cuenta del otro.
+      expect(r.filas[0].cuentasDispares).toEqual([
+        { clasificador: "A", cuentas: ["1305", "1310"], faltan: [{ cuenta: "2805", tienen: ["B"] }] },
+        { clasificador: "B", cuentas: ["1310", "2805"], faltan: [{ cuenta: "1305", tienen: ["A"] }] },
+      ]);
+    });
+
+    it("avisa del concepto al que le falta una cuenta del renglón, sin cambiar la cifra", () => {
+      const r = construirCruceContable({
+        contablePorCuenta: { "510506": 100, "520506": 200, "720505": 300 },
+        consolidado: [
+          { clasificador: "1", total: 400, cuentas4: ["510506", "520506", "720505"] },
+          { clasificador: "6", total: 150, cuentas4: ["720505", "510506", "520506"] },
+          { clasificador: "207", total: 50, cuentas4: ["510506", "520506"] },
+        ],
+        nombrePorCuenta: () => null,
+        agruparMultiAsignados: true,
+      });
+      expect(r.filas).toHaveLength(1);
+      expect(r.filas[0]).toMatchObject({ cuenta4: "510506+520506+720505", contable: 600, inventario: 600, cuadra: true });
+      expect(r.filas[0].cuentasDispares).toEqual([
+        { clasificador: "207", cuentas: ["510506", "520506"], faltan: [{ cuenta: "720505", tienen: ["1", "6"] }] },
+      ]);
+    });
+
+    it("sin aviso cuando todos los conceptos del renglón tienen las mismas cuentas", () => {
+      const r = construirCruceContable({
+        contablePorCuenta: { "510506": 100, "520506": 200 },
+        consolidado: [
+          { clasificador: "1", total: 250, cuentas4: ["510506", "520506"] },
+          { clasificador: "6", total: 40, cuentas4: ["520506", "510506"] },
+          // Un concepto de una sola cuenta se absorbe y no se compara: no está «agrupado».
+          { clasificador: "9", total: 10, cuentas4: ["510506"] },
+        ],
+        nombrePorCuenta: () => null,
+        agruparMultiAsignados: true,
+      });
+      expect(r.filas).toHaveLength(1);
+      expect(r.filas[0].cuentasDispares).toBeUndefined();
     });
   });
 

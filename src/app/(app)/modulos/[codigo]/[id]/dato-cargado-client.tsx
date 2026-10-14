@@ -57,7 +57,7 @@ import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
-import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, cuentasDeClaveCruce, type ColumnaCifrasCruce, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, cuentasDeClaveCruce, type ColumnaCifrasCruce, type CuentaDisparCruce, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { hayReclasificacionEntreColumnas, totalesColumnasActivos } from "@/lib/modulos/activos/cedula-activos";
 
 /** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
@@ -471,6 +471,43 @@ const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "
     : fila.cuentas && fila.cuentas.length > 1
     ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${clasificadoresDeGrupo(fila.clasificadores).join(", ")}` : ""}`
     : etiquetaRussell(fila.cuenta4, fila.nombre);
+
+/** «A», «A y B», «A, B y C». */
+const unirConY = (partes: readonly string[]): string =>
+  partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+
+/**
+ * Fila agrupada cuyos conceptos no tienen las mismas cuentas (A y B → 1, 2 y 3; C → 1 y 2). La cifra
+ * no cambia —el renglón compara la suma de todas—, así que una cuenta olvidada en el Consolidado no
+ * se notaría: se avisa, plegado, con lo que le falta a cada concepto y quién sí la tiene.
+ */
+function AvisoCuentasDispares({ dispares, etiqueta }: { dispares: CuentaDisparCruce[]; etiqueta: (clave: string) => string }) {
+  return (
+    <details className="mt-1 w-full rounded border border-warn-500 bg-warn-100/40 px-2 py-1 text-[11px] font-normal leading-snug text-warn-700">
+      <summary className="cursor-pointer font-semibold">
+        Revisa las cuentas: {dispares.length === 1 ? "1 concepto no tiene" : `${dispares.length} conceptos no tienen`} todas las cuentas de este renglón
+      </summary>
+      <p className="mt-1 text-ink-600">
+        La cifra no cambia, porque el renglón compara la suma de todas las cuentas, pero puede faltar una cuenta en el Consolidado.
+      </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4 text-ink-700">
+        {dispares.map((d) => (
+          <li key={d.clasificador}>
+            {etiqueta(d.clasificador)} no tiene{" "}
+            {d.faltan.map((falta, i) => (
+              <Fragment key={falta.cuenta}>
+                {i > 0 && (i === d.faltan.length - 1 ? " ni " : ", ")}
+                <span className="whitespace-nowrap font-semibold">R - {falta.cuenta}</span>
+                <span className="text-ink-500"> ({falta.tienen.length === 1 ? "la tiene" : "la tienen"} {unirConY(falta.tienen.map(etiqueta))})</span>
+              </Fragment>
+            ))}
+            <span className="text-ink-500"> · asignadas: {d.cuentas.join(", ")}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 /** Distintivo de una cuenta que no es de la cédula y vale solo para el período del cargue. */
 function ChipSoloPeriodo({ periodo }: { periodo: string }) {
@@ -2382,6 +2419,10 @@ function CruceContableTab({
     const base = clave.split(" → ")[0];
     return descripcionPorClasificador[base] ?? descripcionPorClasificador[base.split(" ∥ ")[0]] ?? null;
   };
+  const etiquetaConceptoCruce = (clave: string): string => {
+    const descripcion = descripcionDeClasificador(clave);
+    return `«${clave}${descripcion ? ` ${descripcion}` : ""}»`;
+  };
   // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
   const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
 
@@ -2665,7 +2706,12 @@ function CruceContableTab({
                                 <span className="inline-block w-[18px]" />
                               )}
                               {esTotalGrupo ? (
-                                <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                                <>
+                                  <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                                  {f.cuentasDispares && f.cuentasDispares.length > 0 && (
+                                    <AvisoCuentasDispares dispares={f.cuentasDispares} etiqueta={etiquetaConceptoCruce} />
+                                  )}
+                                </>
                               ) : sinCuenta ? (
                                 <span title="Lo del módulo que no tiene cuenta asignada en el Consolidado: suma en la columna del módulo contra un contable en cero.">
                                   {NOMBRE_SIN_CUENTA}
