@@ -515,7 +515,7 @@ function resolverDesdeMemoria(
     const fueraExacta = claseFuera(exacta);
     if (fueraExacta) return base({ via: "memoria_exacta", destino: "fuera", ...meta, motivo: `Memoria del cliente para «${agrupador}»: cuenta ${meta.cuentaCliente} de la clase ${fueraExacta}, que Nómina no concilia.` });
     if (cuentas.length > 0) {
-      return base({ cuentas, via: cuentas.length > 1 ? "multi" : "memoria_exacta", destino: "gasto", clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : claseRegla, ...meta, motivo: cuentas.length > 1 ? `Memoria del cliente para «${agrupador}» con ${cuentas.length} cuentas: la porción de cada una la define el auditor.` : `Memoria del cliente para «${agrupador}».` });
+      return base({ cuentas, via: cuentas.length > 1 ? "multi" : "memoria_exacta", destino: "gasto", clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : claseRegla, ...meta, motivo: cuentas.length > 1 ? `Memoria del cliente para «${agrupador}» con ${cuentas.length} cuentas.` : `Memoria del cliente para «${agrupador}».` });
     }
   }
 
@@ -537,7 +537,7 @@ function resolverDesdeMemoria(
         destino: "gasto",
         clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : null,
         ...metaDe(filasBase, enCentros),
-        motivo: `Lo que asignaste a este concepto en ${centros.length === 1 ? "el centro" : "los centros"} ${centros.join(", ")}. Guárdalo para usarlo sin centro${cuentas.length > 1 ? "; la porción de cada cuenta se reparte en el cruce" : ""}.`,
+        motivo: `Lo que asignaste a este concepto en ${centros.length === 1 ? "el centro" : "los centros"} ${centros.join(", ")}. Guárdalo para usarlo sin centro${cuentas.length > 1 ? "; con varias cuentas cruza en un renglón agrupado contra la suma de ellas" : ""}.`,
       });
     }
   }
@@ -561,7 +561,7 @@ function resolverDesdeMemoria(
       }
     }
     if (cuentas.length === 1) return base({ cuentas, via: "memoria_exacta", destino: "gasto", clase: claseDeCuentaRussell(cuentas[0]), ...meta, motivo: "Memoria del cliente." });
-    if (cuentas.length > 1) return base({ cuentas, via: "multi", destino: "gasto", clase: claseRegla, ...meta, motivo: `Memoria del cliente con ${cuentas.length} cuentas: la porción de cada una la define el auditor (o una regla de clase para «${agrupador || "el agrupador"}»).` });
+    if (cuentas.length > 1) return base({ cuentas, via: "multi", destino: "gasto", clase: claseRegla, ...meta, motivo: `Memoria del cliente con ${cuentas.length} cuentas${agrupador ? `; asignarle clase a «${agrupador}» la llevaría a la cuenta de esa clase` : ""}.` });
     // Memoria solo con la cuenta del cliente (clase «00»): grupo + clase conocida.
     const grupo = meta.grupo ?? grupoPorSubcuentaPuc(meta.subcuentaPuc) ?? sugerirGrupoConcepto(nombre);
     if (grupo && claseRegla) {
@@ -570,7 +570,7 @@ function resolverDesdeMemoria(
     }
     if (grupo) {
       const candidatas = CLASES_NOMINA.map((cl) => cuentaPorGrupo(grupo, cl)).filter((c): c is string => !!c && delModulo(c));
-      return base({ cuentas: [...new Set(candidatas)], via: "multi", destino: "gasto", ...meta, grupo, motivo: `La cuenta ${meta.cuentaCliente ?? "del cliente"} no fija la clase: la porción por clase la define el auditor cuadrando contra el balance.` });
+      return base({ cuentas: [...new Set(candidatas)], via: "multi", destino: "gasto", ...meta, grupo, motivo: `La cuenta ${meta.cuentaCliente ?? "del cliente"} no fija la clase: van las cuentas del grupo en cada clase posible.` });
     }
   }
 

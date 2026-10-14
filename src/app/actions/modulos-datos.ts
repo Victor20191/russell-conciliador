@@ -3485,6 +3485,44 @@ export async function aplicarRepartosSugeridos(input: { encabezadoId: number }):
   }
 }
 
+/**
+ * Quita de una vez los repartos que RIGEN en este cargue (los del recuadro «Repartos aplicados»):
+ * cada concepto vuelve al renglón agrupado de sus cuentas. Los guardados que ya no aplican (otra
+ * agrupación, otro centro) no se tocan: vuelven a regir si el cargue regresa a esa forma.
+ */
+export async function quitarRepartosAplicados(input: { encabezadoId: number }): Promise<ActionState & { quitados?: number }> {
+  const encabezadoId = Number(input.encabezadoId);
+  if (!Number.isInteger(encabezadoId)) return { ok: false, message: "Dato inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true } });
+  if (!encabezado) return { ok: false, message: "El dato no existe." };
+  if (!descriptorModulo(encabezado.moduloCodigo)?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const insumos = await cargarInsumosCruceModulo(encabezadoId);
+    const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
+    if (!cruce?.nomina || cruce.bloqueo || !cruce.cruceContable) return { ok: false, message: cruce?.bloqueo ?? "El cruce no está disponible: hace falta el balance del período." };
+    const clasificadores = cruce.nomina.repartosAplicados.map((r) => r.clasificador);
+    if (clasificadores.length === 0) return { ok: true, message: "No hay repartos aplicados en este cargue.", quitados: 0 };
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    await prisma.repartoCruceModulo.deleteMany({
+      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, clasificador: { in: clasificadores } },
+    });
+    await logAudit({
+      user: actor ?? "Sistema",
+      action: "QUITÓ todos los repartos del cruce",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} · ${clasificadores.length} concepto(s) vuelven al renglón agrupado: ${clasificadores.map((c) => `«${c}»`).join(", ")}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(rutaModulo(encabezado.moduloCodigo));
+    return { ok: true, message: `${clasificadores.length} reparto(s) retirado(s): cada concepto vuelve al renglón agrupado de sus cuentas.`, quitados: clasificadores.length };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarRepartosAplicados", e) };
+  }
+}
+
 // ============================================================
 // MARCAS DE AUDITORÍA sobre las diferencias del CRUCE CONTABLE.
 //

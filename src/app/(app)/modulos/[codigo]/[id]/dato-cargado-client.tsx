@@ -17,6 +17,7 @@ import {
   guardarClaseAgrupador,
   guardarRepartoCruce,
   aplicarRepartosSugeridos,
+  quitarRepartosAplicados,
   guardarMarcaCruce,
   quitarMarcaCruce,
   cerrarConciliacionModulo,
@@ -56,7 +57,7 @@ import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
-import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, cuentasDeClaveCruce, type ColumnaCifrasCruce, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, cuentasDeClaveCruce, type ColumnaCifrasCruce, type CuentaDisparCruce, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { hayReclasificacionEntreColumnas, totalesColumnasActivos } from "@/lib/modulos/activos/cedula-activos";
 
 /** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
@@ -461,6 +462,43 @@ const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "
     ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${clasificadoresDeGrupo(fila.clasificadores).join(", ")}` : ""}`
     : etiquetaRussell(fila.cuenta4, fila.nombre);
 
+/** «A», «A y B», «A, B y C». */
+const unirConY = (partes: readonly string[]): string =>
+  partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+
+/**
+ * Fila agrupada cuyos conceptos no tienen las mismas cuentas (A y B → 1, 2 y 3; C → 1 y 2). La cifra
+ * no cambia —el renglón compara la suma de todas—, así que una cuenta olvidada en el Consolidado no
+ * se notaría: se avisa, plegado, con lo que le falta a cada concepto y quién sí la tiene.
+ */
+function AvisoCuentasDispares({ dispares, etiqueta }: { dispares: CuentaDisparCruce[]; etiqueta: (clave: string) => string }) {
+  return (
+    <details className="mt-1 w-full rounded border border-warn-500 bg-warn-100/40 px-2 py-1 text-[11px] font-normal leading-snug text-warn-700">
+      <summary className="cursor-pointer font-semibold">
+        Revisa las cuentas: {dispares.length === 1 ? "1 concepto no tiene" : `${dispares.length} conceptos no tienen`} todas las cuentas de este renglón
+      </summary>
+      <p className="mt-1 text-ink-600">
+        La cifra no cambia, porque el renglón compara la suma de todas las cuentas, pero puede faltar una cuenta en el Consolidado.
+      </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4 text-ink-700">
+        {dispares.map((d) => (
+          <li key={d.clasificador}>
+            {etiqueta(d.clasificador)} no tiene{" "}
+            {d.faltan.map((falta, i) => (
+              <Fragment key={falta.cuenta}>
+                {i > 0 && (i === d.faltan.length - 1 ? " ni " : ", ")}
+                <span className="whitespace-nowrap font-semibold">R - {falta.cuenta}</span>
+                <span className="text-ink-500"> ({falta.tienen.length === 1 ? "la tiene" : "la tienen"} {unirConY(falta.tienen.map(etiqueta))})</span>
+              </Fragment>
+            ))}
+            <span className="text-ink-500"> · asignadas: {d.cuentas.join(", ")}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** Distintivo de una cuenta que no es de la cédula y vale solo para el período del cargue. */
 function ChipSoloPeriodo({ periodo }: { periodo: string }) {
   return (
@@ -804,7 +842,7 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
           {s.cuentas.map((c) => <span key={c} className="mr-1 rounded border border-ink-200 bg-white px-1 font-mono text-ink-700">{c}</span>)}
         </>
       )}
-      {s.via === "multi" && <span className="text-ink-500"> — la porción de cada una la define el auditor en el cruce.</span>}
+      {s.via === "multi" && <span className="text-ink-500"> — en el cruce van juntas, en un renglón agrupado contra la suma de las cuentas; repartir el valor entre ellas es opcional.</span>}
       {s.via === "archivo" && s.origenCuentaArchivo === "estructura" && (
         <span className="ml-1 rounded border border-warn-500 bg-warn-100/40 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
           sin homologar en el balance
@@ -858,7 +896,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
         <div className="px-3 pb-3">
           <p className="mb-2 text-[11px] text-ink-500">
             El centro decide la CLASE del gasto (51 administración, 52 ventas, 72 mano de obra directa, 73 indirecta) y el concepto pone la subcuenta:
-            con la clase, la memoria de cada concepto se lleva al centro sin volver a homologar. Sin clase, la porción por clase se define en el cruce.
+            con la clase, la memoria de cada concepto se lleva al centro sin volver a homologar. Sin clase, un concepto con cuentas de varias clases cruza en un renglón agrupado contra la suma de ellas.
           </p>
           <div className="overflow-x-auto">
           <table className="w-full text-[11.5px]">
@@ -2371,6 +2409,10 @@ function CruceContableTab({
     const base = clave.split(" → ")[0];
     return descripcionPorClasificador[base] ?? descripcionPorClasificador[base.split(" ∥ ")[0]] ?? null;
   };
+  const etiquetaConceptoCruce = (clave: string): string => {
+    const descripcion = descripcionDeClasificador(clave);
+    return `«${clave}${descripcion ? ` ${descripcion}` : ""}»`;
+  };
   // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
   const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
 
@@ -2654,7 +2696,12 @@ function CruceContableTab({
                                 <span className="inline-block w-[18px]" />
                               )}
                               {esTotalGrupo ? (
-                                <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                                <>
+                                  <span className="font-semibold text-ink-700">Total de las {f.cuentas?.length ?? 0} cuentas</span>
+                                  {f.cuentasDispares && f.cuentasDispares.length > 0 && (
+                                    <AvisoCuentasDispares dispares={f.cuentasDispares} etiqueta={etiquetaConceptoCruce} />
+                                  )}
+                                </>
                               ) : sinCuenta ? (
                                 <span title="Lo del módulo que no tiene cuenta asignada en el Consolidado: suma en la columna del módulo contra un contable en cero.">
                                   {NOMBRE_SIN_CUENTA}
@@ -2996,18 +3043,27 @@ function ConceptoReparto({ codigo, agrupador, descripcion }: { codigo: string; a
 
 /**
  * Cómo quedó cada reparto que rige (RF-NOM-12): el concepto, su total y lo que se llevó cada cuenta.
- * Se edita con el mismo editor de los pendientes; «Quitar» lo retira y el concepto vuelve a pendientes.
+ * Se edita con el mismo editor de los pendientes; «Quitar» lo retira y el concepto vuelve al renglón
+ * agrupado de sus cuentas. «Quitar todos» hace lo mismo con todos los del recuadro, previa confirmación.
  */
 function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEditar }: { aplicados: RepartoAplicadoVm[]; ignorados: number; encabezadoId: number; puedeEditar: boolean }) {
   const router = useRouter();
   const [visible, setVisible] = useState(false);
   const [abierto, setAbierto] = useState<string | null>(null);
+  const [confirmarTodos, setConfirmarTodos] = useState(false);
   const [pending, start] = useTransition();
   const total = aplicados.reduce((s, p) => s + Math.abs(p.total), 0);
   const quitar = (p: RepartoAplicadoVm) => {
     start(async () => {
       const r = await guardarRepartoCruce({ encabezadoId, clasificador: p.clasificador, valores: {} });
       if (r.ok) { notifySuccess(`Reparto de ${p.codigo}${p.agrupador ? ` · ${p.agrupador}` : ""} retirado: el concepto vuelve al renglón agrupado de sus cuentas.`); router.refresh(); } else notifyError(r.message ?? "No se pudo quitar el reparto.");
+    });
+  };
+  const quitarTodos = () => {
+    start(async () => {
+      const r = await quitarRepartosAplicados({ encabezadoId });
+      setConfirmarTodos(false);
+      if (r.ok) { notifySuccess(r.message ?? "Repartos retirados."); router.refresh(); } else notifyError(r.message ?? "No se pudieron quitar los repartos.");
     });
   };
   return (
@@ -3022,10 +3078,30 @@ function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEdit
           )}
         </div>
         {aplicados.length > 0 && (
-          <button type="button" onClick={() => setVisible((v) => !v)} aria-expanded={visible} className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
-            <Icon name={chevronDivulgacion(visible)} size={12} />
-            {visible ? "Ocultar reparto" : "Ver reparto"}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {puedeEditar && !confirmarTodos && (
+              <button type="button" disabled={pending} onClick={() => setConfirmarTodos(true)} className="rounded-md border border-err-100 bg-white px-2 py-1 text-[11px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50">
+                Quitar todos
+              </button>
+            )}
+            {puedeEditar && confirmarTodos && (
+              <span className="inline-flex flex-wrap items-center gap-1.5 rounded-md border border-err-100 bg-err-50 px-2 py-1 text-[11px] text-err-700">
+                <span>
+                  ¿Quitar {aplicados.length === 1 ? "el reparto" : `los ${aplicados.length} repartos`}? {aplicados.length === 1 ? "El concepto vuelve" : "Los conceptos vuelven"} al renglón agrupado de sus cuentas.
+                </span>
+                <button type="button" disabled={pending} onClick={quitarTodos} className="rounded border border-err-700 bg-err-700 px-2 py-0.5 font-semibold text-white hover:opacity-90 disabled:opacity-50">
+                  {pending ? "Quitando…" : "Sí, quitar todos"}
+                </button>
+                <button type="button" disabled={pending} onClick={() => setConfirmarTodos(false)} className="rounded border border-ink-200 bg-white px-2 py-0.5 font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700 disabled:opacity-50">
+                  Cancelar
+                </button>
+              </span>
+            )}
+            <button type="button" onClick={() => setVisible((v) => !v)} aria-expanded={visible} className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
+              <Icon name={chevronDivulgacion(visible)} size={12} />
+              {visible ? "Ocultar reparto" : "Ver reparto"}
+            </button>
+          </div>
         )}
       </div>
       {visible && aplicados.length > 0 && (

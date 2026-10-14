@@ -38,6 +38,13 @@ export type FilaCruceContable = {
   /** Solo en filas agrupadas: el lado contable de cada cuenta, en el orden de `cuentas`. */
   desglose?: { cuenta: string; nombre: string | null; contable: number; noModular: number }[];
   /**
+   * Solo en filas agrupadas: los clasificadores de varias cuentas a los que les falta alguna cuenta
+   * del renglón (A y B → {1,2,3}, C → {1,2}: a C le falta la 3, que sí tienen A y B; también en
+   * cadena, A → {1,2} y B → {2,3}). La cifra no cambia —el renglón compara la suma de todas—, así
+   * que una asignación incompleta pasaría inadvertida: solo se avisa. Ausente si todos coinciden.
+   */
+  cuentasDispares?: CuentaDisparCruce[];
+  /**
    * De qué se compone `inventario`: los clasificadores del archivo que suman a esta fila, de mayor
    * a menor. En una fila agrupada van los de sus varias cuentas y los 1:1 de cualquiera de ellas,
    * que es justo lo que no se podía ver al expandir («¿de dónde salen estos 698 millones?»).
@@ -63,6 +70,15 @@ export type FilaCruceContable = {
   diferencia: number; // (contable - noModular) - (inventario - noModularModulo) → la que se concilia
   cuadra: boolean; // |diferencia| <= tolerancia
   estado: "cuadra" | "descuadre" | "solo_contable" | "solo_inventario";
+};
+
+/** Un clasificador de una fila agrupada sin todas las cuentas del renglón (`cuentasDispares`). */
+export type CuentaDisparCruce = {
+  clasificador: string;
+  /** Las cuentas que sí tiene asignadas, ordenadas. */
+  cuentas: string[];
+  /** Cada cuenta del renglón que le falta, con los clasificadores del renglón que sí la tienen. */
+  faltan: { cuenta: string; tienen: string[] }[];
 };
 
 /**
@@ -166,6 +182,29 @@ export function normalizarClaveCruce(valor: string): string {
 }
 
 /**
+ * Los clasificadores de varias cuentas de un grupo a los que les falta alguna de sus cuentas, con
+ * quién sí la tiene. Toda cuenta del grupo llegó por algún clasificador de varias cuentas (los 1:1
+ * solo se absorben), así que cada faltante tiene al menos uno que la tiene.
+ */
+function cuentasDisparesDelGrupo(miembros: readonly string[], multi: readonly ClasificadorCruce[]): CuentaDisparCruce[] {
+  const cuentasGrupo = [...miembros].sort();
+  // «2» antes que «10»: los clasificadores de Nómina son códigos de concepto.
+  const porCodigo = (a: string, b: string) => a.localeCompare(b, "es", { numeric: true });
+  const dispares: CuentaDisparCruce[] = [];
+  for (const c of multi) {
+    const propias = new Set(c.cuentas4);
+    const faltan = cuentasGrupo
+      .filter((cuenta) => !propias.has(cuenta))
+      .map((cuenta) => ({
+        cuenta,
+        tienen: multi.filter((o) => o !== c && o.cuentas4.includes(cuenta)).map((o) => o.clasificador).sort(porCodigo),
+      }));
+    if (faltan.length > 0) dispares.push({ clasificador: c.clasificador, cuentas: [...propias].sort(), faltan });
+  }
+  return dispares.sort((a, b) => porCodigo(a.clasificador, b.clasificador));
+}
+
+/**
  * Cruza el saldo contable (balance de comprobación) contra el valor cargado en los
  * archivos del módulo, cuenta Russell de 4 dígitos por cuenta de 4 dígitos.
  *
@@ -248,7 +287,7 @@ export function construirCruceContable(
   // Una fila a partir de sus cifras: la diferencia que se concilia descuenta lo no modular de
   // cada lado (cuentas del cliente del contable; clasificadores del módulo en el saldo sin cuenta).
   const filaDeCifras = (
-    base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "detalleModulo">,
+    base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "cuentasDispares" | "detalleModulo">,
     cifras: { contable: number; inventario: number; noModular: number; noModularModulo: number },
   ): FilaCruceContable => {
     const { contable, inventario, noModular, noModularModulo } = cifras;
@@ -267,7 +306,7 @@ export function construirCruceContable(
       .map((c) => ({ clasificador: c.clasificador, total: c.total }))
       .sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
 
-  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "detalleModulo">, miembros: readonly string[], extraInventario: number, multi: readonly ClasificadorCruce[] = []): FilaCruceContable => {
+  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose" | "cuentasDispares" | "detalleModulo">, miembros: readonly string[], extraInventario: number, multi: readonly ClasificadorCruce[] = []): FilaCruceContable => {
     const sumar = (valorDe: (c: string) => number) => miembros.reduce((s, c) => s + valorDe(c), 0);
     const detalleModulo = detalleModuloDe(miembros, multi);
     const noContabilizados = input.noContabilizadosPorFila?.get(base.cuenta4);
@@ -300,6 +339,7 @@ export function construirCruceContable(
   for (const [r, miembros] of miembrosPorRaiz) {
     const clasificadores = multiPorRaiz.get(r) ?? [];
     const nombres = miembros.map((c) => input.nombrePorCuenta(c)).filter((n): n is string => !!n);
+    const dispares = cuentasDisparesDelGrupo(miembros, clasificadores);
     filas.push(
       construirFila(
         {
@@ -313,6 +353,7 @@ export function construirCruceContable(
             contable: redondear(input.contablePorCuenta[c] ?? 0),
             noModular: redondear(input.noModularPorCuenta?.[c] ?? 0),
           })),
+          ...(dispares.length > 0 ? { cuentasDispares: dispares } : {}),
         },
         miembros,
         clasificadores.reduce((s, c) => s + c.total, 0),
