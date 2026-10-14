@@ -410,6 +410,14 @@ function valorColumnaConsolidado(fila: ConsolidadoVm & { cuentas?: { codigo: str
   return null;
 }
 
+/**
+ * Nombre del lado del archivo en el cruce contable («Módulo nómina», «Módulo activos fijos»),
+ * para que no se confunda con el lado de Contabilidad.
+ */
+function ladoModuloCruce(moduloLabel: string): string {
+  return `Módulo ${moduloLabel.toLocaleLowerCase("es")}`;
+}
+
 /** Campo de filtro de una columna de las tablas del cruce (mismo aspecto que los del Detalle). */
 function FiltroColumnaCruce({ etiqueta, valor, onChange, numerico = false }: {
   etiqueta: string;
@@ -2582,7 +2590,7 @@ function CruceContableTab({
               <tr>
                 <th className="min-w-[12rem] px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">{encabezado("Contabilidad", "contable", "right", "Ordenar por el saldo contable.")}</th>
-                <th className="px-3 py-2 text-right font-semibold">{encabezado(`${moduloLabel} (archivos)`, "modulo", "right", "Ordenar por el saldo del módulo.")}</th>
+                <th className="px-3 py-2 text-right font-semibold">{encabezado(`${ladoModuloCruce(moduloLabel)} (archivos)`, "modulo", "right", "Ordenar por el saldo del módulo.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">
                   {encabezado("Diferencia", "diferenciaBruta", "right", "Diferencia sin descontar las cuentas no modulares. Ordena por su tamaño, sin importar el signo.")}
                 </th>
@@ -2774,7 +2782,7 @@ function CruceContableTab({
                               <ListaNoModulares hijos={hijos} seleccion={excluidas} />
                               <DetalleModuloFila
                                 detalle={f.detalleModulo ?? []}
-                                etiqueta={`${moduloLabel} (archivos)`}
+                                etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                                 descripcionDe={descripcionDeClasificador}
                                 excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
                               />
@@ -3223,7 +3231,7 @@ function CuentasSoloVisiblesCard({ resumen, detalle, moduloLabel }: { resumen: R
         <span className="text-[12.5px] font-semibold text-ink-800">Cuentas solo visibles</span>
         <span className="text-[11.5px] text-ink-500">{resumen.filas.length} · no cuentan para la conciliación</span>
         <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
-          Contabilidad {fmtContable(resumen.totales.contable)} · {moduloLabel} {fmtContable(resumen.totales.inventario)}
+          Contabilidad {fmtContable(resumen.totales.contable)} · {ladoModuloCruce(moduloLabel)} {fmtContable(resumen.totales.inventario)}
         </span>
       </button>
       {abierto && (
@@ -3238,7 +3246,7 @@ function CuentasSoloVisiblesCard({ resumen, detalle, moduloLabel }: { resumen: R
                 <tr>
                   <th className="px-3 py-2 font-semibold">Cuenta</th>
                   <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-                  <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
+                  <th className="px-3 py-2 text-right font-semibold">{ladoModuloCruce(moduloLabel)}</th>
                   <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
                 </tr>
               </thead>
@@ -3367,10 +3375,10 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
     <Card className="p-0">
       <div className="border-b border-ink-100 px-3 py-2">
         <div className="text-[12.5px] font-semibold text-ink-800">
-          Cruce por subcuenta de la cuenta del CLIENTE · balance vs {moduloLabel.toLocaleLowerCase("es")}
+          Cruce por subcuenta de la cuenta del CLIENTE · balance vs {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
         </div>
         <p className="text-[11px] text-ink-500">
-          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {moduloLabel.toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase ni reparto; no decide el cierre.
+          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase ni reparto; no decide el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -3384,7 +3392,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
                 <EncabezadoOrdenable etiqueta="Contabilidad" columna="contable" orden={orden} onOrdenar={ordenarPor} numerica />
               </th>
               <th className="px-3 py-2 text-right font-semibold">
-                <EncabezadoOrdenable etiqueta={moduloLabel} columna="modulo" orden={orden} onOrdenar={ordenarPor} numerica />
+                <EncabezadoOrdenable etiqueta={ladoModuloCruce(moduloLabel)} columna="modulo" orden={orden} onOrdenar={ordenarPor} numerica />
               </th>
               <th className="px-3 py-2 text-right font-semibold">
                 <EncabezadoOrdenable etiqueta="Diferencia" columna="diferencia" orden={orden} onOrdenar={ordenarPor} numerica />
@@ -3430,7 +3438,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
             <span className="text-[12px] font-semibold text-ink-700">Subcuentas solo visibles</span>
             <span className="text-[11.5px] text-ink-500">{filasVisibles.length} · no cuentan en los totales</span>
             <span className="ml-auto whitespace-nowrap text-[11.5px] tabular-nums text-ink-500">
-              Contabilidad {fmtContable(vista.totalesVisibles?.contable ?? 0)} · {moduloLabel} {fmtContable(vista.totalesVisibles?.modulo ?? 0)}
+              Contabilidad {fmtContable(vista.totalesVisibles?.contable ?? 0)} · {ladoModuloCruce(moduloLabel)} {fmtContable(vista.totalesVisibles?.modulo ?? 0)}
             </span>
           </button>
           {verVisibles && (
@@ -3468,7 +3476,7 @@ function ControlDeduccionesCard({ control, moduloLabel }: { control: NonNullable
               <th className="px-3 py-2 font-semibold">Cuenta del cliente</th>
               <th className="px-3 py-2 font-semibold">Conceptos</th>
               <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-              <th className="px-3 py-2 text-right font-semibold">{moduloLabel}</th>
+              <th className="px-3 py-2 text-right font-semibold">{ladoModuloCruce(moduloLabel)}</th>
               <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
             </tr>
           </thead>
@@ -3829,7 +3837,7 @@ function TablaCedulaActivos({
             Saldo según contabilidad
           </th>
           <th colSpan={3} className="border-r border-ink-200 px-3 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-600">
-            Saldo según {moduloLabel.toLocaleLowerCase("es")}
+            Saldo según {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
           </th>
           <th rowSpan={2} className="px-3 py-2 text-right align-bottom font-semibold">
             {encabezado("Diferencia", "diferencia", "right", "Diferencia del NETO después de restar lo no modular: es la que se concilia y la que exige marca. Ordena por su tamaño, sin importar el signo.")}
@@ -3842,8 +3850,8 @@ function TablaCedulaActivos({
           <th className="border-l border-ink-200 px-3 py-2 text-right font-semibold">{encabezado("Costo", "costoContable", "right", "Saldo de la cuenta 15## del balance.")}</th>
           <th className="px-3 py-2 text-right font-semibold">{encabezado("Depreciación", "depContable", "right", "Saldo de la 1592## relacionada con el activo. Es crédito: se muestra en negativo.")}</th>
           <th className="border-r border-ink-200 px-3 py-2 text-right font-semibold">{encabezado("Neto", "contable", "right", "Costo menos depreciación, según el balance.")}</th>
-          <th className="px-3 py-2 text-right font-semibold">{encabezado("Costo", "costoModulo", "right", `Costo según los archivos de ${moduloLabel.toLocaleLowerCase("es")}.`)}</th>
-          <th className="px-3 py-2 text-right font-semibold">{encabezado("Depreciación", "depModulo", "right", `Depreciación según los archivos de ${moduloLabel.toLocaleLowerCase("es")}.`)}</th>
+          <th className="px-3 py-2 text-right font-semibold">{encabezado("Costo", "costoModulo", "right", `Costo según los archivos del ${ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}.`)}</th>
+          <th className="px-3 py-2 text-right font-semibold">{encabezado("Depreciación", "depModulo", "right", `Depreciación según los archivos del ${ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}.`)}</th>
           <th className="border-r border-ink-200 px-3 py-2 text-right font-semibold">{encabezado("Neto", "modulo", "right", "Costo menos depreciación, según el módulo.")}</th>
         </tr>
         <tr className="bg-ink-50">
@@ -3970,7 +3978,7 @@ function TablaCedulaActivos({
                         <ListaNoModulares hijos={hijos} seleccion={excluidas} />
                         <DetalleModuloFila
                           detalle={f.detalleModulo ?? []}
-                          etiqueta={`${moduloLabel} (archivos)`}
+                          etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                           descripcionDe={descripcionDeClasificador}
                           excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
                         />
@@ -4467,7 +4475,7 @@ function ModalMarca({
             <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.contable)}</div>
           </div>
           <div>
-            <div className="text-ink-500">Archivos de {moduloLabel.toLocaleLowerCase("es")}</div>
+            <div className="text-ink-500">{ladoModuloCruce(moduloLabel)} (archivos)</div>
             <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.inventario)}</div>
           </div>
           <div>
@@ -4506,7 +4514,7 @@ function ModalMarca({
                 </span>
                 <DetalleModuloFila
                   detalle={conceptos}
-                  etiqueta={`${moduloLabel} (archivos)`}
+                  etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                   descripcionDe={descripcionDeClasificador}
                   excluidos={noContabilizados}
                   onAlternar={alternarNoContabilizado}

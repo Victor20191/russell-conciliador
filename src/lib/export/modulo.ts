@@ -371,7 +371,7 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
     { header: "Cuenta / concepto", key: "cuenta", width: 16 },
     { header: "Nombre", key: "nombre", width: 40 },
     { header: "Saldo contable", key: "contable", width: 20 },
-    { header: "Saldo nómina", key: "modulo", width: 20 },
+    { header: "Saldo módulo nómina", key: "modulo", width: 22 },
     { header: "Diferencia", key: "diferencia", width: 18 },
     { header: "Estado", key: "estado", width: 18 },
   ];
@@ -440,7 +440,7 @@ function hojaControlDeducciones(wb: ExcelJS.Workbook, nomina: CruceNominaExportM
     { header: "Cuentas del balance", key: "balance", width: 28 },
     { header: "Conceptos", key: "conceptos", width: 44 },
     { header: "Saldo contable", key: "contable", width: 20 },
-    { header: "Saldo nómina", key: "modulo", width: 20 },
+    { header: "Saldo módulo nómina", key: "modulo", width: 22 },
     { header: "Diferencia", key: "diferencia", width: 18 },
   ];
   ws.spliceRows(1, 0, [], [], []);
