@@ -359,7 +359,7 @@ export function cuentasEfectivasRenglon(r: RenglonConsolidadoNomina): { cuentas:
     case "memoria_clase":
       return { cuentas: [...s.cuentas], origen: "Memoria del cliente + clase" };
     case "multi":
-      return { cuentas: [...s.cuentas], origen: s.cuentaArchivoReemplazada ? "Solo el período · varias cuentas (reparto)" : "Varias cuentas (reparto)" };
+      return { cuentas: [...s.cuentas], origen: s.cuentaArchivoReemplazada ? "Solo el período · varias cuentas (renglón agrupado)" : "Varias cuentas (renglón agrupado)" };
     case "memoria_centros":
     case "sugerido_nombre":
       return { cuentas: [], origen: "Propuesta sin confirmar" };

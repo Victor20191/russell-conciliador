@@ -75,8 +75,6 @@ vi.mock("@/lib/prisma", () => {
       createMany: mocks.periodoCreateMany,
     },
     conciliacionModuloCierre: { findFirst: mocks.cierreFindFirst },
-    // Nómina: repartos del cruce del período (ninguno en estas pruebas).
-    repartoCruceModulo: { findMany: vi.fn(async () => []), deleteMany: vi.fn() },
     consolidacionModuloCliente: {
       findMany: mocks.memoriaFindMany,
       deleteMany: mocks.memoriaDeleteMany,

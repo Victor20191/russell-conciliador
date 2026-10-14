@@ -2506,6 +2506,9 @@ model EnvironmentVariable {
 /// a VARIAS cuentas Russell (510506 / 520506 / 720505) que va a cada una, definida por el
 /// auditor y sugerida proporcional al movimiento del balance. Vive por (cliente, módulo,
 /// período, clave del consolidado «concepto ∥ agrupador», cuenta), no por cargue. FK suaves.
+/// RETIRADO el 14/Oct/2026: ningún código la lee ni la escribe (el reparto de Nómina se quitó
+/// porque nadie lo usaba). Se conserva con sus filas de Kakaraka hasta decidir borrarla con una
+/// migración.
 model RepartoCruceModulo {
   id            Int      @id @default(autoincrement()) @map("id")
   clienteId     Int      @map("cliente_id")

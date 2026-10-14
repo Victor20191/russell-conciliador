@@ -163,7 +163,7 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
       const clase = claseDeCuentaCliente(cuenta);
       if (clase === null && sub) {
         // SIIGO «0005060000»: clase a cargo del centro de costo. Se guarda con subcuenta; la
-        // cuenta Russell la decide una regla de clase o el reparto en el cruce.
+        // cuenta Russell la decide una regla de clase (sin ella, el renglón agrupado del cruce).
         filas.push({ ...base, cuentaCliente: cuenta, cuenta4: "", cuenta6: "" });
         sinRussell++;
         continue;

@@ -20,8 +20,8 @@
 //  3c. `memoria_centros` renglón SIN centro (el cargue no se separó por centro de costo) cuyo
 //                       concepto no tiene cuenta Russell guardada sin centro pero sí en los
 //                       centros: se PROPONE lo asignado ahí; no cruza hasta que se guarde.
-//  4. `multi`           la memoria tiene el concepto con varias cuentas y no hay regla: la
-//                       porción de cada lado la decide el auditor (reparto, RF-NOM-12).
+//  4. `multi`           la memoria tiene el concepto con varias cuentas y no hay regla: cruza en
+//                       un renglón agrupado contra la suma de ellas (el reparto se retiró el 14/Oct/2026).
 //  5. `sugerido_nombre` sin memoria: el grupo RF-NOM-02 que sugiere el nombre + la clase del
 //                       agrupador (o 51 por defecto) dan una cuenta A CONFIRMAR.
 //
@@ -78,7 +78,7 @@ export function subcuentaPucDe(cuentaCliente: unknown): string | null {
 /**
  * Clase (2 primeros dígitos) de la cuenta del cliente. «00» (SIIGO deja la clase a cargo del
  * centro de costo) → `null`: la cuenta Russell queda indeterminada entre 51/52/72 hasta que
- * haya regla de clase o reparto, aunque la subcuenta sí se conozca.
+ * haya regla de clase, aunque la subcuenta sí se conozca.
  */
 export function claseDeCuentaCliente(cuentaCliente: unknown): string | null {
   const d = digitosCuenta(cuentaCliente);
@@ -576,7 +576,7 @@ function resolverDesdeMemoria(
 
   // 3b) Memoria del concepto en OTROS centros (el catálogo del ERP viene por área —ADMON,
   //     PRODUCCIÓN— y el archivo trae el centro de costo): con regla de clase se toma la cuenta
-  //     de esa clase; con una sola cuenta distinta se usa; con varias, reparto.
+  //     de esa clase; con una sola cuenta distinta se usa; con varias, renglón agrupado.
   const otras = (idx.get(claveMemoria(clasificador, "*", agruparPor)) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
   if (otras.length > 0 && cuentasDe(otras).length > 0) {
     const meta = metaDe(otras);
@@ -627,31 +627,6 @@ export function esAporteAmbiguo(grupo: string, nombre: unknown): boolean {
   if (grupo !== "aportes_eps" && grupo !== "aportes_pension") return false;
   const t = String(nombre ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
   return SENAL_DEDUCCION.test(t) || !SENAL_EMPRESA.test(t);
-}
-
-// ===== Reparto (RF-NOM-12 / D4) =====
-
-/**
- * Reparto PROPORCIONAL de `total` entre las cuentas candidatas según el movimiento del balance
- * en cada una (D4: «la porción por clase se sugiere cuadrando contra el balance»). Redondea a
- * pesos y deja el residuo en la cuenta de mayor movimiento para que la Σ sea exacta. Si el
- * balance no tiene movimiento en ninguna, reparte por partes iguales.
- */
-export function sugerirReparto(total: number, movimientoPorCuenta: Readonly<Record<string, number>>): Record<string, number> {
-  const cuentas = Object.keys(movimientoPorCuenta);
-  if (cuentas.length === 0) return {};
-  const pesos = cuentas.map((c) => Math.max(0, Math.abs(movimientoPorCuenta[c] ?? 0)));
-  const suma = pesos.reduce((a, b) => a + b, 0);
-  const proporciones = suma > 0 ? pesos.map((p) => p / suma) : cuentas.map(() => 1 / cuentas.length);
-  const reparto: Record<string, number> = {};
-  let asignado = 0;
-  cuentas.forEach((c, i) => {
-    reparto[c] = Math.round(total * proporciones[i]);
-    asignado += reparto[c];
-  });
-  const mayor = cuentas.reduce((m, c, i) => (pesos[i] > pesos[cuentas.indexOf(m)] ? c : m), cuentas[0]);
-  reparto[mayor] = Math.round((reparto[mayor] + (total - asignado)) * 100) / 100;
-  return reparto;
 }
 
 /** Grupos del catálogo que son aportes patronales/provisiones (para el aviso D2). */

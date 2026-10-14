@@ -2,7 +2,7 @@ import "server-only";
 
 // Lectura del Consolidado de UN período: la memoria del cliente con la asignación del período
 // encima (`asignacion-periodo.ts`). La usan la página del cargue, los insumos de los cruces
-// (marcas, repartos, emparejamientos, cierre) y la exportación, para que todos vean las mismas
+// (marcas, emparejamientos, cierre) y la exportación, para que todos vean las mismas
 // cuentas. Los lectores de la memoria general (conceptos de Nómina) no pasan por aquí.
 import prisma from "@/lib/prisma";
 import { fusionarAsignaciones, type FilaAsignacionPeriodo } from "./asignacion-periodo";

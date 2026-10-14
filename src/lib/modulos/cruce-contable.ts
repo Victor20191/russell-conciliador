@@ -146,8 +146,8 @@ export type InputCruceContable = {
   nombrePorCuenta: (cod: string) => string | null;
   /**
    * Un clasificador asignado a VARIAS cuentas se compara contra la SUMA de ellas en una fila
-   * agrupada, en vez de quedar fuera como `multiAsignado`. Todos los módulos lo usan; en Nómina
-   * (desde el 1/Oct/2026) el reparto entre cuentas es opcional y llega ya partido (RF-NOM-12).
+   * agrupada, en vez de quedar fuera como `multiAsignado`. Todos los módulos lo usan (Nómina
+   * desde el 1/Oct/2026; su reparto entre cuentas se retiró el 14/Oct/2026).
    */
   agruparMultiAsignados?: boolean;
   /**

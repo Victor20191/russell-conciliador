@@ -180,7 +180,7 @@ export default function ConceptosNominaClient({
           label="Sin cuenta Russell"
           value={String(totales.sinRussell)}
           tone={totales.sinRussell > 0 ? "warn" : "ok"}
-          hint="clase «00» del ERP: la decide el centro o el reparto"
+          hint="clase «00» del ERP: la decide el centro de costo"
         />
         <StatCard label="De control" value={String(totales.control)} hint="deducciones a pasivo/activo: no cruzan contra el gasto" />
       </div>
