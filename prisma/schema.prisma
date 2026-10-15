@@ -2550,6 +2550,14 @@ model ConciliacionModuloCierre {
   /// Activos fijos). Mientras el cierre esté en firme la cédula se arma con esta copia, así que
   /// cambiar las parejas no reordena un período cerrado. Null en los cierres anteriores: de fábrica.
   paresDepreciacion       Json?                         @map("pares_depreciacion")
+  /// Copia congelada de los insumos del cruce que se comparten entre períodos o se leen en vivo
+  /// (`CopiaCierreV1` en src/lib/conciliacion/copia-cierre.ts): el Consolidado ya fundido con el
+  /// período, las reglas del prevalidador del módulo, las clases por centro y la homologación del
+  /// cliente de Nómina, las agrupadoras excluidas y el umbral del cruce por tercero. Mientras el
+  /// cierre esté en firme el cruce, el Consolidado y el Excel del período leen esta copia, así que
+  /// lo que se cambie desde otro mes no altera la conciliación cerrada. Null en los cierres
+  /// anteriores al 14/Oct/2026 (leen en vivo) hasta que el script de respaldo les toma una.
+  copiaCongelada          Json?                         @map("copia_congelada")
   estado                  String                        @default("firme") @map("estado") // firme | desbloqueado
   cerradoPorId            Int?                          @map("cerrado_por_id")
   cerradoPor              String                        @map("cerrado_por")

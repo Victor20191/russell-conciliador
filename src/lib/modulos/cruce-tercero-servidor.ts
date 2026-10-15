@@ -493,5 +493,7 @@ export async function cruceTerceroDeCargue(
     catalogoPrevalidador: insumos.catalogoPrevalidador,
     consolidacionRows: insumos.consolidacionRows,
     asignacionesPeriodo: insumos.asignacionesPeriodo,
+    // Con la conciliación en firme, el umbral con que se cerró (copia congelada).
+    umbralDescuadre: insumos.umbralDescuadre ?? undefined,
   });
 }

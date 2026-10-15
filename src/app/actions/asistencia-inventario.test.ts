@@ -14,6 +14,8 @@ vi.mock("@/lib/prisma", () => ({ default: {
   moduloImportacionLote: { findUnique: m.lote, create: m.guardarLote, update: m.guardarLote },
   moduloImportacionStaging: { findMany: m.filas, createMany: m.crearFilas, deleteMany: m.borrarFilas },
   versionPatronArchivoModulo: { updateMany: vi.fn() },
+  // Ningún período con la conciliación en firme en estas pruebas.
+  conciliacionModuloCierre: { findFirst: vi.fn(async () => null) },
 } }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: m.permiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn().mockResolvedValue({ id: 9, name: "Prueba" }) }));

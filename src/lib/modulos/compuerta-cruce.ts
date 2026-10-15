@@ -110,6 +110,44 @@ export function avisoSeleccionBalance<T extends BalanceDescribible>(
   return null;
 }
 
+/**
+ * El balance de un período con la conciliación EN FIRME: el que guardó el cierre, no el que hoy
+ * elegiría `seleccionarBalanceCruceModulo`. Así una versión nueva del mes no cambia contra qué se
+ * concilió. null si ese balance ya no existe.
+ */
+export function balanceFijadoDelCierre<T extends { id: number }>(candidatos: readonly T[], balanceEncabezadoId: number): T | null {
+  return candidatos.find((c) => c.id === balanceEncabezadoId) ?? null;
+}
+
+/**
+ * Compuerta del balance FIJADO por un cierre en firme. La aprobación del prevalidador se verificó bajo
+ * candado al cerrar y sus cuentas en firme no pueden cambiar, así que ya no se exige que siga vigente:
+ * editar otra cuenta del balance, revocar la aprobación o cargar otra versión no debe tumbar la
+ * cédula conciliada. Sí tiene que ser del cliente y, sin copia congelada (cierre anterior), el
+ * prevalidador tiene que poder calcularse, porque de él salen las agrupadoras que se excluyen.
+ */
+export function validarBalanceFijado(contexto: ContextoCompuertaCruce, clientId: number, conCopia: boolean): string | null {
+  if (contexto.balance.clienteId !== clientId) {
+    return "El balance con que se cerró la conciliación no pertenece al cliente.";
+  }
+  if (conCopia) return null;
+  if (contexto.prevalidador.estado === "sin_catalogo") return "No hay cuentas activas configuradas para el prevalidador.";
+  if (contexto.prevalidador.estado === "bloqueado") {
+    return `El prevalidador del balance conciliado está bloqueado: quedan ${contexto.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar.`;
+  }
+  if (contexto.prevalidador.estado === "no_disponible") return contexto.prevalidador.mensaje;
+  return null;
+}
+
+/**
+ * Aviso cuando hoy el cruce elegiría otro balance que el de la conciliación en firme (se cargó o
+ * congeló otra versión del mes): el cruce se sigue mostrando contra el conciliado.
+ */
+export function avisoBalanceFijado<T extends BalanceDescribible>(fijado: T, vivo: T | null): string | null {
+  if (!vivo || vivo.id === fijado.id) return null;
+  return `La conciliación está en firme: el cruce se muestra contra el balance con que se cerró, ${describirBalanceCruce(fijado)}. Hoy el período también tiene el ${describirBalanceCruce(vivo)}, que no la cambia.`;
+}
+
 /** Códigos de agrupadoras que el prevalidador ya excluyó para evitar doble conteo. */
 export function cuentasAgrupadorasExcluidas(
   prevalidador: ContextoCompuertaCruce["prevalidador"],

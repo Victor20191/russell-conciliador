@@ -82,6 +82,8 @@ vi.mock("@/lib/prisma", () => {
       deleteMany: mocks.memoriaDeleteMany,
       createMany: mocks.memoriaCreateMany,
     },
+    // El candado de la conciliación del período (`exigirPeriodoAbierto` dentro de la transacción).
+    $executeRaw: vi.fn(async () => 0),
     $transaction: (arg: unknown, opciones?: unknown) => {
       mocks.transaction(arg, opciones);
       // El guardado del Consolidado va en UNA transacción interactiva (pocas sentencias).
@@ -155,12 +157,20 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     expect(mocks.periodoCreateMany).not.toHaveBeenCalled();
   });
 
-  it("un renglón sin asignación del período no consulta el cierre ni borra nada del período", async () => {
+  it("un renglón sin asignación del período no borra nada del período, pero desde el cargue siempre mira el cierre", async () => {
     const r = await guardar(["220505"]);
 
     expect(r.ok).toBe(true);
-    expect(mocks.cierreFindFirst).not.toHaveBeenCalled();
+    // Desde el cargue de un período el cierre se consulta SIEMPRE (14/Oct/2026): fuera y dentro de la transacción.
+    expect(mocks.cierreFindFirst).toHaveBeenCalledTimes(2);
     expect(mocks.periodoDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("sin cargue (configuración) la memoria se guarda sin mirar ningún cierre", async () => {
+    const r = await guardar(["220505"], null);
+
+    expect(r.ok).toBe(true);
+    expect(mocks.cierreFindFirst).not.toHaveBeenCalled();
   });
 
   it("sin cargue no admite cuentas fuera de la cédula", async () => {
@@ -185,16 +195,22 @@ describe("guardarConsolidacionModulo · cuentas solo del período", () => {
     expect(r.message).toContain("usa una cuenta Russell de 6 dígitos");
   });
 
-  it("con la conciliación del período en firme no crea ni quita asignaciones del período", async () => {
-    mocks.cierreFindFirst.mockResolvedValue({ id: 3 });
+  it("con la conciliación del período en firme no cambia nada desde ese cargue, ni la memoria del cliente", async () => {
+    mocks.cierreFindFirst.mockResolvedValue({
+      id: 3, moduloCodigo: "CXP", periodo: "2025-12", balancePeriodo: "Diciembre 2025", balanceEncabezadoId: 210,
+      moduloDatoEncabezadoId: 55, cerradoPor: "Camila", cerradoEn: new Date("2026-10-01T15:00:00Z"), cuentasRussell: [], cuentasRussell6: null,
+    });
+    const mensaje = "La conciliación de CXP · 2025-12 está en firme (cargue #55, cerró Camila): no se puede cambiar las cuentas del Consolidado. Pide al senior o gerente del cliente que la desbloquee para continuar.";
 
     const conExtra = await guardar(["210510"]);
-    expect(conExtra).toEqual({ ok: false, message: "La conciliación de 2025-12 está en firme: desbloquéala para cambiar las cuentas que valen solo para ese período." });
+    expect(conExtra).toEqual({ ok: false, message: mensaje });
 
-    mocks.periodoFindMany.mockResolvedValue([{ clasificador: "GIROS", agrupador: "" }]);
-    const quitando = await guardar(["220505"]);
-    expect(quitando.ok).toBe(false);
+    // Solo cuentas de la cédula (memoria del cliente): también se rechaza desde el cargue cerrado.
+    const memoria = await guardar(["220505"]);
+    expect(memoria).toEqual({ ok: false, message: mensaje });
     expect(mocks.transaction).not.toHaveBeenCalled();
+    // El intento queda en la bitácora.
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "CONCILIACIÓN EN FIRME · INTENTO BLOQUEADO" }));
   });
 
   it("el período sale del cargue, que debe ser del mismo cliente y módulo", async () => {

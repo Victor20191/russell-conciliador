@@ -5,32 +5,11 @@ import "server-only";
 // (marcas, repartos, emparejamientos, cierre) y la exportación, para que todos vean las mismas
 // cuentas. Los lectores de la memoria general (conceptos de Nómina) no pasan por aquí.
 import prisma from "@/lib/prisma";
-import { fusionarAsignaciones, type FilaAsignacionPeriodo } from "./asignacion-periodo";
+import type { FilaAsignacionPeriodo } from "./asignacion-periodo";
+import { leerAsignacionPeriodo, leerConsolidacionDelPeriodo, type FilaConsolidacionPeriodo } from "./asignacion-periodo-lectura";
 import { AGRUPAR_POR_DEFECTO, type AgruparPorNomina } from "./nomina/agrupar-por";
 
-export type FilaConsolidacionPeriodo = {
-  clasificador: string;
-  cuenta4: string;
-  cuenta6: string;
-  agrupador: string;
-  descripcion: string | null;
-  grupo: string | null;
-  subcuentaPuc: string | null;
-  cuentaCliente: string;
-  /** La fila viene de la asignación del período, no de la memoria del cliente. */
-  soloPeriodo: boolean;
-};
-
-const vacia = (fila: FilaAsignacionPeriodo): Omit<FilaConsolidacionPeriodo, "soloPeriodo"> => ({
-  clasificador: fila.clasificador,
-  cuenta4: fila.cuenta4,
-  cuenta6: fila.cuenta6,
-  agrupador: fila.agrupador,
-  descripcion: null,
-  grupo: null,
-  subcuentaPuc: null,
-  cuentaCliente: "",
-});
+export type { FilaConsolidacionPeriodo };
 
 /**
  * Filas guardadas de la asignación del período. Nómina: solo las de la dimensión con que se agrupa
@@ -42,18 +21,14 @@ export async function filasAsignacionPeriodo(
   periodo: string,
   agruparPor: AgruparPorNomina = AGRUPAR_POR_DEFECTO,
 ): Promise<FilaAsignacionPeriodo[]> {
-  const filas = await prisma.asignacionPeriodoModulo.findMany({
-    where: { clienteId, moduloCodigo, periodo, agruparPor },
-    select: { clasificador: true, agrupador: true, cuenta4: true, cuenta6: true },
-    orderBy: [{ clasificador: "asc" }, { agrupador: "asc" }, { cuenta4: "asc" }, { cuenta6: "asc" }],
-  });
-  return filas;
+  return leerAsignacionPeriodo(prisma, clienteId, moduloCodigo, periodo, agruparPor);
 }
 
 /**
- * El Consolidado con que se concilia el período, y las filas de su asignación propia. Nómina pasa
- * la dimensión del cargue: lo asignado agrupando por código no se mezcla con lo asignado agrupando
- * por nombre o por cuenta.
+ * El Consolidado con que se concilia el período, y las filas de su asignación propia, EN VIVO. Nómina
+ * pasa la dimensión del cargue: lo asignado agrupando por código no se mezcla con lo asignado
+ * agrupando por nombre o por cuenta. Con la conciliación del período en firme, el cruce y la página
+ * leen la copia congelada del cierre (`cargarInsumosPeriodo`), no esto.
  */
 export async function cargarConsolidacionDelPeriodo(
   clienteId: number,
@@ -61,15 +36,7 @@ export async function cargarConsolidacionDelPeriodo(
   periodo: string,
   opciones?: { agruparPor?: AgruparPorNomina },
 ): Promise<{ filas: FilaConsolidacionPeriodo[]; filasPeriodo: FilaAsignacionPeriodo[] }> {
-  const agruparPor = opciones?.agruparPor ?? AGRUPAR_POR_DEFECTO;
-  const [memoria, filasPeriodo] = await Promise.all([
-    prisma.consolidacionModuloCliente.findMany({
-      where: { clienteId, moduloCodigo, agruparPor },
-      select: { clasificador: true, cuenta4: true, cuenta6: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
-    }),
-    filasAsignacionPeriodo(clienteId, moduloCodigo, periodo, agruparPor),
-  ]);
-  return { filas: fusionarAsignaciones(memoria, filasPeriodo, vacia), filasPeriodo };
+  return leerConsolidacionDelPeriodo(prisma, clienteId, moduloCodigo, periodo, opciones?.agruparPor ?? AGRUPAR_POR_DEFECTO);
 }
 
 /**

@@ -148,11 +148,12 @@ export async function calcularImpactoHomologacionCliente(
   return { balances, filas, congelados, excepciones };
 }
 
-export type EncabezadoAfectado = { id: number; periodo: string; loteId: string | null };
+export type EncabezadoAfectado = { id: number; periodo: string; periodoFin: Date; loteId: string | null };
 
 /**
  * Encabezados NO congelados del cliente que contienen la cuenta/grupo del
- * alcance dado, con su período (para decidir qué candados de período tomar) y
+ * alcance dado, con su período (para decidir qué candados de período tomar), su
+ * fecha fin (los cierres en firme que lo protegen son los de su mes de corte) y
  * su `loteId` (para sincronizar el cargue por tercero ligado).
  */
 export async function encabezadosNoCongeladosPorAlcance(
@@ -162,8 +163,26 @@ export async function encabezadosNoCongeladosPorAlcance(
   const filtro = filtroDetallePorAlcanceCliente(params.alcance, params.codigoMemoria, params.cuentaCliente);
   return db.balancePruebaEncabezado.findMany({
     where: { clienteId: params.clienteId, estaCongelado: false, detalles: { some: filtro } },
-    select: { id: true, periodo: true, loteId: true },
+    select: { id: true, periodo: true, periodoFin: true, loteId: true },
   });
+}
+
+/**
+ * Filas de esos encabezados que la migración reescribiría, con su homologación y saldo actuales:
+ * las juzga la conciliación en firme antes de migrar (una cuenta en firme no cambia; una nueva no
+ * entra con saldo al alcance de un módulo cerrado).
+ */
+export async function filasQueMigrarian(
+  db: ClienteDB,
+  params: { alcance: AlcanceHomologacion; codigoMemoria: string; cuentaCliente: string; encabezadoIds: number[] },
+): Promise<{ encabezadoId: number; cuenta8: string; cuenta6Russell: string | null; saldoFinal: number }[]> {
+  if (params.encabezadoIds.length === 0) return [];
+  const filtro = filtroDetallePorAlcanceCliente(params.alcance, params.codigoMemoria, params.cuentaCliente);
+  const filas = await db.balancePruebaDetalle.findMany({
+    where: { encabezadoId: { in: params.encabezadoIds }, ...filtro },
+    select: { encabezadoId: true, cuenta8: true, cuenta6Russell: true, saldoFinal: true },
+  });
+  return filas.map((f) => ({ encabezadoId: f.encabezadoId, cuenta8: f.cuenta8, cuenta6Russell: f.cuenta6Russell, saldoFinal: Number(f.saldoFinal) }));
 }
 
 /** Nombre más reciente registrado en el detalle del cliente para esta cuenta/grupo (o null si no existe). */

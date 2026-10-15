@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  motivoEliminacionPorCierre,
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
 } from "./alcance-eliminacion";
@@ -51,5 +52,21 @@ describe("resolverAlcanceEliminacionModulo", () => {
       const plan = resolverAlcanceEliminacionModulo(alcance, REF);
       expect(plan.filtroEncabezado).toMatchObject({ clienteId: 7, moduloCodigo: "INV" });
     }
+  });
+});
+
+describe("motivoEliminacionPorCierre", () => {
+  const cierre = (periodo: string) => ({ moduloCodigo: "NOM", periodo, cerradoPor: "Camila", moduloDatoEncabezadoId: 74 });
+
+  it("sin cierres en firme se puede eliminar", () => {
+    expect(motivoEliminacionPorCierre("version", [])).toBeNull();
+  });
+
+  it("con la conciliación en firme no se elimina ningún alcance que la incluya", () => {
+    expect(motivoEliminacionPorCierre("version", [cierre("2025-12")])).toBe(
+      "No se puede eliminar esta versión: la conciliación de NOM está en firme en 2025-12 (cargue #74, cerró Camila). Pide al senior o gerente del cliente que la desbloquee primero.",
+    );
+    expect(motivoEliminacionPorCierre("periodo", [cierre("2025-12")])).toContain("los cargues de este período");
+    expect(motivoEliminacionPorCierre("cliente_perfiles", [cierre("2025-12"), cierre("2025-11")])).toContain("en 2025-11 (cargue #74, cerró Camila); 2025-12");
   });
 });

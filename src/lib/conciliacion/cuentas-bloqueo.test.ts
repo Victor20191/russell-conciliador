@@ -13,12 +13,16 @@ import {
   cuentasRussellDelCruce,
   decidirCongelarConCierres,
   esResponsableSeniorOGerente,
+  diferenciasTerceroEnFirme,
+  estadoEdicionCargue,
   evaluarCambiosBloqueados,
   evaluarCierreConciliacion,
   mensajeConciliacionEnFirme,
+  mensajePeriodoEnFirme,
   mensajeTrasladoCierre,
   mesDeCorteBalance,
   validarJustificacionDesbloqueo,
+  violacionesCambioHomologacion,
   type CierreParaCongelar,
   type FilaDetalleBloqueo,
 } from "./cuentas-bloqueo";
@@ -443,7 +447,7 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
     expect(entraEnAlcance("220505", cerradas)).toBe(false);
   });
 
-  it("una cuenta de la cédula fuera del prevalidador también queda en firme (Ingresos 422005); una solo visible fuera de él no (Nómina 25xx)", () => {
+  it("una cuenta de la cédula fuera del prevalidador también queda en firme (Ingresos 422005), y las solo visibles también (Nómina 25xx, 14/Oct/2026)", () => {
     const ingresos = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.ING, ["41"]), cruceCon(["410505"]));
     expect(ingresos).toContain("41");
     expect(ingresos).toContain("422005");
@@ -454,12 +458,20 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
 
     const nomina = alcanceDelCierre(cedulaModulo(MODULOS_IMPORT.NOM, ["5105", "5205", "7205", "7305"]), cruceCon(["510506"]));
     expect(nomina).toEqual(expect.arrayContaining(["5105", "5205", "7205", "7305", "510506"]));
-    expect(nomina).not.toContain("251010");
     const cerradasNom = alcanceDeCierres([{ cuentasRussell: ["5105"], cuentasRussell6: nomina }]);
     expect(entraEnAlcance("510548", cerradasNom)).toBe(true); // bajo la regla 5105
-    expect(entraEnAlcance("510530", cerradasNom)).toBe(true); // solo visible, pero bajo la regla 5105
-    expect(entraEnAlcance("251010", cerradasNom)).toBe(false); // solo visible y fuera del prevalidador
-    expect(entraEnAlcance("251015", cerradasNom)).toBe(false);
+    expect(entraEnAlcance("510530", cerradasNom)).toBe(true); // solo visible, bajo la regla 5105
+    expect(entraEnAlcance("251015", cerradasNom)).toBe(false); // ni regla, ni cédula, ni visible
+
+    // Las solo visibles son parte de Filtros de cuentas: quedan en firme aunque no caigan bajo un
+    // prefijo del prevalidador (los pasivos 251010, 251505, 252005 y 252505).
+    const base = cedulaModulo(MODULOS_IMPORT.NOM, ["5105", "5205", "7205", "7305"]);
+    const conVisibles = alcanceDelCierre({ ...base, visibles: new Set(["510530", "251010", "252505"]) }, cruceCon(["510506"]));
+    expect(conVisibles).toEqual(expect.arrayContaining(["251010", "252505"]));
+    const cerradasVis = alcanceDeCierres([{ cuentasRussell: ["5105"], cuentasRussell6: conVisibles }]);
+    expect(entraEnAlcance("251010", cerradasVis)).toBe(true);
+    expect(entraEnAlcance("251015", cerradasVis)).toBe(false);
+    expect(bloqueadasCon([fila("25101001", "251010", { saldoFinal: -500 }), fila("25151001", "251505", { saldoFinal: -7 })], conVisibles)).toEqual(["25101001"]);
   });
 
   it("Inventarios: la regla, la lista del módulo (aunque quede fuera de la regla) y lo del período", () => {
@@ -512,6 +524,65 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
     const anterior = alcanceDeCierres([{ cuentasRussell: ["1305", "2805"], cuentasRussell6: ["130505", "130510", "280505"] }]);
     expect(anterior.cuentas2.size).toBe(0);
     expect(entraEnAlcance("130515", anterior)).toBe(false);
+  });
+});
+
+describe("violacionesCambioHomologacion (re-homologar con la conciliación en firme)", () => {
+  const cerradas = alcanceDeCierres([{ cuentasRussell: [], cuentasRussell6: ["13", "280505"] }]);
+  const enFirme = [fila("13050501", "130505", { saldoFinal: 900 })];
+  const cambio = (cuenta8: string, anterior: string | null, nueva: string | null, saldoFinal: number) => ({ cuenta8, cuenta6Anterior: anterior, cuenta6Nueva: nueva, saldoFinal });
+
+  it("una cuenta en firme no cambia de homologación", () => {
+    const v = violacionesCambioHomologacion(enFirme, [cambio("13050501", "130505", "130510", 900)], cerradas);
+    expect(v).toEqual([expect.objectContaining({ cuenta8: "13050501", motivo: "homologacion" })]);
+  });
+
+  it("una cuenta que no está en firme no entra con saldo al alcance cerrado; con saldo 0 sí", () => {
+    expect(violacionesCambioHomologacion(enFirme, [cambio("41050501", "410505", "130515", 40)], cerradas))
+      .toEqual([expect.objectContaining({ cuenta8: "41050501", motivo: "nueva_en_modulo" })]);
+    expect(violacionesCambioHomologacion(enFirme, [cambio("41050501", "410505", "130515", 0)], cerradas)).toEqual([]);
+  });
+
+  it("solo cuentan los cambios reales y lo que queda fuera del alcance", () => {
+    expect(violacionesCambioHomologacion(enFirme, [cambio("13050501", "130505", "130505", 900)], cerradas)).toEqual([]);
+    expect(violacionesCambioHomologacion(enFirme, [cambio("51050601", "510506", "510595", 70)], cerradas)).toEqual([]);
+  });
+});
+
+describe("diferenciasTerceroEnFirme (traslado de un cierre con cruce por tercero)", () => {
+  const enFirme = new Set(["13050501", "28050501"]);
+  const t = (cuenta8: string, tercero: string | null, saldoFinal: number) => ({ cuenta8, tercero, saldoFinal });
+
+  it("el mismo detalle por tercero de las cuentas en firme no difiere, aunque cambie el orden o lo de fuera", () => {
+    const conciliado = [t("13050501", "900", 100), t("13050501", "800", 50), t("41050501", "900", 7)];
+    const nuevo = [t("13050501", "800", 30), t("13050501", "800", 20), t("13050501", "900", 100), t("41050501", "900", 9)];
+    expect(diferenciasTerceroEnFirme(enFirme, conciliado, nuevo)).toEqual([]);
+  });
+
+  it("detecta un tercero que cambia de saldo, aparece o desaparece en una cuenta en firme", () => {
+    const conciliado = [t("13050501", "900", 100), t("28050501", "700", -30)];
+    expect(diferenciasTerceroEnFirme(enFirme, conciliado, [t("13050501", "900", 90), t("28050501", "700", -30)])).toEqual(["13050501"]);
+    expect(diferenciasTerceroEnFirme(enFirme, conciliado, [t("13050501", "900", 100)])).toEqual(["28050501"]);
+    expect(diferenciasTerceroEnFirme(enFirme, conciliado, [...conciliado, t("28050501", "600", -1)])).toEqual(["28050501"]);
+  });
+});
+
+describe("mensajePeriodoEnFirme y estadoEdicionCargue", () => {
+  const cierre = { moduloCodigo: "NOM", periodo: "2025-12", cerradoPor: "Camila", moduloDatoEncabezadoId: 74 };
+
+  it("el mensaje nombra la conciliación, la operación y quién la reabre", () => {
+    expect(mensajePeriodoEnFirme(cierre, "cambiar las cuentas del Consolidado")).toBe(
+      "La conciliación de NOM · 2025-12 está en firme (cargue #74, cerró Camila): no se puede cambiar las cuentas del Consolidado. Pide al senior o gerente del cliente que la desbloquee para continuar.",
+    );
+  });
+
+  it("con la conciliación en firme el cargue es de solo lectura aunque haya permiso", () => {
+    const enFirme = estadoEdicionCargue({ puedeEditar: true, cierre: { estado: "firme", cerradoPor: "Camila", cerradoEn: "2026-10-01" } });
+    expect(enFirme).toMatchObject({ puedeEditar: false, enFirme: true });
+    expect(enFirme.aviso).toContain("solo lectura");
+    expect(estadoEdicionCargue({ puedeEditar: true, cierre: { estado: "desbloqueado", cerradoPor: "Camila", cerradoEn: "2026-10-01" } }))
+      .toEqual({ puedeEditar: true, enFirme: false, aviso: null });
+    expect(estadoEdicionCargue({ puedeEditar: false, cierre: null })).toEqual({ puedeEditar: false, enFirme: false, aviso: null });
   });
 });
 

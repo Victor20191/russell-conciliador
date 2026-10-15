@@ -58,7 +58,13 @@ import type { ResultadoAsistenciaVista } from "./asistencia-inventario-panel";
 const AsistenciaInventarioPanel = dynamic(() => import("./asistencia-inventario-panel").then((m) => m.AsistenciaInventarioPanel));
 
 export type { RolModulo };
-export type ClienteModulo = { id: number; name: string; nit: string };
+export type ClienteModulo = {
+  id: number;
+  name: string;
+  nit: string;
+  /** Períodos («YYYY-MM») con la conciliación del módulo en firme: no reciben otro archivo ni otra versión. */
+  periodosEnFirme?: string[];
+};
 
 /**
  * Adición declarada a un cargue existente. Cuando viene, el modal fija cliente y período
@@ -773,7 +779,12 @@ function CargarModal({
   const eleccionLista = eleccion !== "" && (eleccion !== OTRO || (otroElegido !== "" && (otroElegido !== NUEVO || nombreNuevo.trim().length >= 2)));
   const mesValido = /^\d{4}-\d{2}$/.test(mes);
   // Ninguna fecha del cargue puede ser futura (calendario de Colombia; el mes en curso sí vale).
-  const errorMes = !anexo && mesValido ? motivoPeriodoFuturo(mes) : null;
+  // Un período con la conciliación en firme no recibe otro archivo ni otra versión (el servidor también
+  // lo rechaza): se dice antes de subir nada.
+  const mesEnFirme = !anexo && mesValido && clientes.find((c) => c.id === clienteId)?.periodosEnFirme?.includes(mes)
+    ? `La conciliación de ${mes} está en firme para este cliente: no se puede cargar otro archivo ni otra versión de ese período hasta que el senior o gerente la desbloquee.`
+    : null;
+  const errorMes = !anexo && mesValido ? motivoPeriodoFuturo(mes) ?? mesEnFirme : null;
   const periodoListo = anexo != null || (mesValido && !errorMes && mesConfirmado === mes);
   // Fin del período o, si es el mes en curso, hoy (su fin todavía no llega).
   const fechaCorteSugerida = mes ? fechaCorteSugeridaDe(mes) ?? "" : "";

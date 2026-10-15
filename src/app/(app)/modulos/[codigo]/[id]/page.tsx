@@ -14,14 +14,13 @@ import {
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres, detectarAlertasCosto } from "@/lib/modulos/validaciones";
-import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { fmtDateTime } from "@/lib/format";
 import type { MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
 import { cedulaDelCargue, llaveAsignacion } from "@/lib/modulos/asignacion-periodo";
-import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
+import { cargarInsumosPeriodo } from "@/lib/modulos/insumos-periodo-servidor";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
-import { cargarCuentasEstandarDeCedula, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarCuentasEstandarDeCedula, cierreFijadoDe, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarAuxiliarTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import { leerFormatosCartera } from "@/lib/modulos/cartera/tipo-formato";
@@ -29,16 +28,16 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { CLAVE_MONEDA } from "@/lib/modulos/cartera/detalle-cartera";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
-import { ESTADO_CIERRE_FIRME, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
+import { ESTADO_CIERRE_FIRME, estadoEdicionCargue, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
+import { descripcionCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
 import { agruparPorDisponibles, columnasConDatosCargue, conteoDetalleCargue, gruposNominaDelCargue, nombresCuentasCliente, novedadesFilaNominaDelCargue } from "@/lib/modulos/cargue-servidor";
 import { agruparPorDeEncabezado, etiquetaAgruparPor, etiquetaAgruparPorPlural } from "@/lib/modulos/nomina/agrupar-por";
-import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
+import type { ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { cuentasClientePorClasificador, motivoPropuestaClasificador, proponerCuentaDeClasificador, type PropuestaCuentaClasificador } from "@/lib/modulos/cuenta-clasificador";
-import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 
 export default async function DatoModuloPage({
@@ -73,14 +72,17 @@ export default async function DatoModuloPage({
   const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
   if (!scope.ok) notFound();
 
-  // ¿Puede editar la consolidación de este cliente?
-  const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
+  // ¿Puede editar la consolidación de este cliente? (Con la conciliación del período en firme, no:
+  // `estadoEdicionCargue`, más abajo.)
+  const permisoEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  // Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período encima.
-  const [consolidacion, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows, marcasPeriodoRows] = await Promise.all([
-    cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo, descriptor.nomina ? { agruparPor } : undefined),
+  // Consolidado DEL PERÍODO (la memoria del cliente con la asignación solo de este período encima),
+  // reglas del prevalidador y, en Nómina, clases por centro y homologación del cliente. Con la
+  // conciliación del período en firme salen de la copia congelada del cierre: lo que se cambie desde
+  // otro mes no altera lo conciliado.
+  const [insumosPeriodo, subgrupos, comentariosGrp, cuentasCliente, hermanos, marcasPeriodoRows] = await Promise.all([
+    cargarInsumosPeriodo({ clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo, agruparPor, esNomina: descriptor.nomina != null }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
     // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
     prisma.clientAccount.findMany({
@@ -109,10 +111,6 @@ export default async function DatoModuloPage({
         ultimaCarga: true,
       },
     }),
-    // Nómina: clase contable por centro de costo / clase del archivo (GYA → 51, MOD → 72).
-    descriptor.nomina
-      ? prisma.claseAgrupadorModulo.findMany({ where: { clienteId: encabezado.clienteId, moduloCodigo }, select: { agrupador: true, clase: true } })
-      : Promise.resolve([] as { agrupador: string; clase: string }[]),
     // Todas las marcas del período (cuenta y tercero comparten la numeración): cada pestaña del
     // cruce lista también las de la otra para que la secuencia se lea completa.
     prisma.marcaCruceModulo.findMany({
@@ -136,6 +134,7 @@ export default async function DatoModuloPage({
     soportes: m._count.adjuntos,
     noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta })),
   }));
+  const { consolidacion, catalogoPrevalidador } = insumosPeriodo;
   const consolidacionRows = consolidacion.filas;
   const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
   // Cédula contable: subgrupo de 4 dígitos, cuenta Russell completa (Nómina, Cartera, CxP) o una
@@ -251,7 +250,7 @@ export default async function DatoModuloPage({
 
   // Nómina: un renglón por (concepto, centro de costo) con la memoria guardada para ese par y la
   // sugerencia de homologación (cuenta del archivo, memoria + regla de clase, grupo por nombre).
-  const reglasClase = new Map(reglasClaseRows.filter((r) => esClaseNomina(r.clase)).map((r) => [r.agrupador, r.clase as ClaseNomina]));
+  const reglasClase = insumosPeriodo.nomina?.reglasClase ?? new Map<string, ClaseNomina>();
   const [gruposNomina, agruparPorConDatos] = descriptor.nomina
     ? await Promise.all([gruposNominaDelCargue(encabezadoId, agruparPor), agruparPorDisponibles(encabezadoId)])
     : [undefined, null];
@@ -265,7 +264,7 @@ export default async function DatoModuloPage({
         grupos: gruposNomina,
         memoria: consolidacionRows.map((r) => ({ ...r, cuenta6: r.cuenta6 ?? "" })),
         reglasClase,
-        mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
+        mapeoCliente: insumosPeriodo.nomina?.mapeoCliente ?? new Map<string, string>(),
         cuentasRussell6: cuentasCedula6(descriptor, cuentasPeriodo),
         agruparPor,
         nombrePorCuentaCliente,
@@ -329,6 +328,9 @@ export default async function DatoModuloPage({
     subgrupos,
     cuentasEstandar,
     catalogoPrevalidador,
+    nomina: insumosPeriodo.nomina,
+    cierreFijado: cierreFijadoDe(insumosPeriodo),
+    umbralDescuadre: insumosPeriodo.umbralDescuadre,
   });
   const balanceEmparejado = cruce.balanceEmparejado;
 
@@ -362,6 +364,7 @@ export default async function DatoModuloPage({
         consolidacionRows,
         asignacionesPeriodo: consolidacion.filasPeriodo,
         conAlcance: true,
+        umbralDescuadre: insumosPeriodo.umbralDescuadre ?? undefined,
       })
     : null;
 
@@ -405,12 +408,21 @@ export default async function DatoModuloPage({
           desbloqueadoPor: cierreRow.desbloqueadoPor,
           desbloqueadoEn: cierreRow.desbloqueadoEn ? fmtDateTime(cierreRow.desbloqueadoEn) : null,
           justificacionDesbloqueo: cierreRow.justificacionDesbloqueo,
+          insumos: cierreRow.estado === ESTADO_CIERRE_FIRME
+            ? descripcionCopiaCierre(insumosPeriodo.cierre?.copia ?? null, (iso) => fmtDateTime(new Date(iso)))
+            : null,
         }
       : null,
     puedeCerrar: cerrarAuth.ok,
     puedeDesbloquear: desbloquearAuth.ok,
     motivoNoCerrable: evaluacionCierre && !evaluacionCierre.ok ? evaluacionCierre.motivo : null,
   };
+
+  // Con la conciliación del período EN FIRME el cargue es de solo lectura aunque haya permiso.
+  const edicion = estadoEdicionCargue({
+    puedeEditar: permisoEditar,
+    cierre: cierreRow ? { estado: cierreRow.estado, cerradoPor: cierreRow.cerradoPor, cerradoEn: cierreRow.cerradoEn } : null,
+  });
 
   const cruceContableVm: CruceContableVm = {
     balanceEncontrado: balanceEmparejado != null,
@@ -618,7 +630,8 @@ export default async function DatoModuloPage({
               }),
             }
           : null}
-        puedeEditar={puedeEditar}
+        puedeEditar={edicion.puedeEditar}
+        avisoSoloLectura={edicion.aviso}
         versiones={versiones}
         versionActualId={encabezado.id}
         tabInicial={query.tab === "versiones" ? "versiones" : query.tab === "cruceTercero" && descriptor.crucePorTercero.habilitado ? "cruceTercero" : null}

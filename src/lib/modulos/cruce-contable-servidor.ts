@@ -27,7 +27,8 @@ import {
   subgruposCedula,
 } from "@/lib/modulos/cuentas-modulo";
 import { cedulaDelCargue, type FilaAsignacionPeriodo } from "@/lib/modulos/asignacion-periodo";
-import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
+import { cargarInsumosPeriodo, type InsumosPeriodo } from "@/lib/modulos/insumos-periodo-servidor";
+import { leerHomologacionNomina } from "@/lib/modulos/insumos-periodo-lectura";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { emparejarCedulaActivos } from "@/lib/modulos/activos/cedula-activos";
@@ -38,17 +39,19 @@ import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import {
+  avisoBalanceFijado,
+  balanceFijadoDelCierre,
   cuentasAgrupadorasExcluidas,
   seleccionarBalanceCruceModulo,
   avisoSeleccionBalance,
   describirBalanceCruce,
+  validarBalanceFijado,
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
-import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { gruposNominaDelCargue, nombresCuentasCliente } from "@/lib/modulos/cargue-servidor";
 import { agruparPorDeEncabezado, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { agruparDetalleNomina, construirConsolidadoNominaDeGrupos, type GrupoNominaAgregado } from "@/lib/modulos/nomina/consolidado-nomina";
-import { esClaseNomina, sugerirReparto, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
+import { sugerirReparto, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import {
   construirControlDeducciones,
   construirVistaSubcuenta,
@@ -119,6 +122,26 @@ export type InsumosCruceModulo = {
    */
   cuentasEstandar?: { codigo: string; nombre: string }[];
   catalogoPrevalidador: Awaited<ReturnType<typeof getCatalogoPrevalidador>>;
+  /**
+   * Nómina: clases por centro de costo y homologación de las cuentas del cliente, ya resueltas
+   * (`cargarInsumosPeriodo`: de la copia congelada si el período está en firme). Ausente = se leen
+   * en vivo.
+   */
+  nomina?: { reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string> } | null;
+  /**
+   * Conciliación del período EN FIRME: el cruce se fija al balance con que se cerró, sin exigir que su
+   * aprobación del prevalidador siga vigente, y excluye las agrupadoras que se excluyeron al cerrar.
+   * Ausente o null = período abierto, el balance se elige como siempre.
+   */
+  cierreFijado?: {
+    balanceEncabezadoId: number;
+    /** null = cierre sin copia: se calculan del balance. */
+    agrupadorasExcluidas: ReadonlySet<string> | null;
+    /** La copia no pasó la validación: el cruce se bloquea. */
+    copiaInvalida: boolean;
+  } | null;
+  /** Umbral de descuadre del cruce por tercero con que se cerró (Cartera, CxP). Ausente = el vigente. */
+  umbralDescuadre?: number | null;
 };
 
 export type BalanceFuenteCruce = {
@@ -184,6 +207,12 @@ export type ResultadoCruceModulo = {
   nomina: ResultadoCruceNomina | null;
   /** Cuentas que el usuario agregó solo para este período (fuera de la cédula del módulo). */
   cuentasPeriodo: string[];
+  /**
+   * Cuentas del cliente (cuenta_8) que el cruce excluyó por ser agrupadoras en el balance. El cierre
+   * las guarda en la copia congelada para leer el balance igual mientras esté en firme. null si no
+   * se llegó a leer el balance.
+   */
+  agrupadorasExcluidas: string[] | null;
 };
 
 export type { ResultadoCruceNomina, RepartoPendienteVm } from "@/lib/modulos/nomina/cruce-nomina";
@@ -212,15 +241,23 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
   // En Nómina NO se lee el detalle: el consolidado sale de un GROUP BY (cientos de miles de
   // filas contra 81 renglones). La depreciación de Activos fijos sí necesita el JSON de la fila.
   const conDatos = descriptor?.cedula?.valorRelacionado != null;
-  const [detalles, gruposNomina, consolidacion, subgrupos, catalogoPrevalidador] = await Promise.all([
+  // Consolidado, reglas del prevalidador y (Nómina) homologación: de la copia congelada si la
+  // conciliación del período está en firme; si no, en vivo.
+  const [detalles, gruposNomina, periodo, subgrupos] = await Promise.all([
     descriptor?.nomina
       ? Promise.resolve([])
       : prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
     descriptor?.nomina ? gruposNominaDelCargue(encabezadoId, agruparPorNomina) : Promise.resolve(undefined),
-    cargarConsolidacionDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo, agruparPorNomina ? { agruparPor: agruparPorNomina } : undefined),
+    cargarInsumosPeriodo({
+      clienteId: encabezado.clienteId,
+      moduloCodigo: encabezado.moduloCodigo,
+      periodo: encabezado.periodo,
+      agruparPor: agruparPorNomina,
+      esNomina: descriptor?.nomina != null,
+    }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    getCatalogoPrevalidador(),
   ]);
+  const { consolidacion, catalogoPrevalidador } = periodo;
   const [cuentasEstandar, nombrePorCuentaCliente] = await Promise.all([
     cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6)),
     agruparPorNomina === "cuenta" && gruposNomina
@@ -242,17 +279,35 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     subgrupos,
     cuentasEstandar,
     catalogoPrevalidador,
+    nomina: periodo.nomina,
+    cierreFijado: cierreFijadoDe(periodo),
+    umbralDescuadre: periodo.umbralDescuadre,
   };
 }
 
-/** Lo que el cruce de Nómina necesita además de los insumos comunes. */
-async function cargarInsumosNomina(clienteId: number, moduloCodigo: string, periodo: string): Promise<{ reglasClase: Map<string, ClaseNomina>; mapeoCliente: Map<string, string>; repartos: RepartoConcepto[] }> {
-  const [reglas, cuentas, repartosRows] = await Promise.all([
-    prisma.claseAgrupadorModulo.findMany({ where: { clienteId, moduloCodigo }, select: { agrupador: true, clase: true } }),
-    prisma.clientAccount.findMany({
-      where: { clienteId, cuenta6Russell: { not: null } },
-      select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
-    }),
+/** Lo que el cruce necesita del cierre en firme del período (`InsumosCruceModulo.cierreFijado`). */
+export function cierreFijadoDe(periodo: Pick<InsumosPeriodo, "cierre" | "agrupadorasExcluidas">): InsumosCruceModulo["cierreFijado"] {
+  if (!periodo.cierre) return null;
+  return {
+    balanceEncabezadoId: periodo.cierre.balanceEncabezadoId,
+    agrupadorasExcluidas: periodo.agrupadorasExcluidas,
+    copiaInvalida: periodo.cierre.copiaInvalida,
+  };
+}
+
+/**
+ * Lo que el cruce de Nómina necesita además de los insumos comunes. Las clases y la homologación
+ * llegan resueltas cuando el período está en firme (copia congelada); los repartos son del período
+ * y, con la conciliación en firme, ya no pueden cambiar.
+ */
+async function cargarInsumosNomina(
+  clienteId: number,
+  moduloCodigo: string,
+  periodo: string,
+  resueltos?: { reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string> } | null,
+): Promise<{ reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string>; repartos: RepartoConcepto[] }> {
+  const [homologacion, repartosRows] = await Promise.all([
+    resueltos ?? leerHomologacionNomina(prisma, clienteId, moduloCodigo),
     prisma.repartoCruceModulo.findMany({ where: { clienteId, moduloCodigo, periodo }, select: { clasificador: true, cuentaRussell: true, valor: true } }),
   ]);
   const repartos = new Map<string, Record<string, number>>();
@@ -262,8 +317,8 @@ async function cargarInsumosNomina(clienteId: number, moduloCodigo: string, peri
     repartos.set(r.clasificador, v);
   }
   return {
-    reglasClase: new Map(reglas.filter((r) => esClaseNomina(r.clase)).map((r) => [r.agrupador, r.clase as ClaseNomina])),
-    mapeoCliente: new Map([...construirConfigMapeoCliente(cuentas).entries()].map(([k, v]) => [k, v.std])),
+    reglasClase: homologacion.reglasClase,
+    mapeoCliente: homologacion.mapeoCliente,
     repartos: [...repartos.entries()].map(([clasificador, valores]) => ({ clasificador, valores })),
   };
 }
@@ -339,7 +394,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
 
   // Nómina: consolidado por (concepto, centro) con la homologación resuelta y los repartos
   // guardados; el lado módulo de la cédula sale de ahí.
-  const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, encabezado.periodo) : null;
+  const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, encabezado.periodo, insumos.nomina) : null;
   const agruparPorNomina = encabezado.agruparPorNomina ?? "codigo";
   const consolidadoNomina = descriptor.nomina && insumosNomina
     ? construirConsolidadoNominaDeGrupos({
@@ -401,8 +456,14 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     for (const captura of capturas) if (captura.loteId) lotesConTerceros.add(captura.loteId);
   }
   const balancesConfirmados = balancesDelCliente.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && lotesConTerceros.has(b.loteId) }));
-  const emparejado = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, { preferirDetalleTercero });
-  const avisoBalance = avisoSeleccionBalance(balancesConfirmados, emparejado, encabezado.periodo);
+  const elegidoVivo = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, { preferirDetalleTercero });
+  // Con la conciliación en firme el cruce se fija al balance con que se cerró: otra versión del mes,
+  // cargada o congelada después, no cambia contra qué se concilió.
+  const fijado = insumos.cierreFijado ?? null;
+  const emparejado = fijado ? balanceFijadoDelCierre(balancesConfirmados, fijado.balanceEncabezadoId) : elegidoVivo;
+  const avisoBalance = fijado
+    ? emparejado ? avisoBalanceFijado(emparejado, elegidoVivo) : null
+    : avisoSeleccionBalance(balancesConfirmados, emparejado, encabezado.periodo);
   const balanceEmparejado: BalanceFuenteCruce | null = emparejado
     ? {
         id: emparejado.id,
@@ -425,16 +486,29 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   let sinReglaContableFilas = 0;
   const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
   let bloqueo = bloqueoCrucePorVerificacionesCriticasModulo(descriptor, verifGuardadas);
+  if (!bloqueo && fijado?.copiaInvalida) {
+    bloqueo = "La copia congelada de esta conciliación en firme no es válida, así que el cruce no se puede mostrar con certeza. Pide al senior o gerente del cliente que la desbloquee y la vuelva a cerrar.";
+  }
+  if (!bloqueo && fijado && !emparejado) {
+    bloqueo = `El balance con que se cerró la conciliación (#${fijado.balanceEncabezadoId}) ya no existe. Pide al senior o gerente del cliente que la desbloquee para conciliar contra otro.`;
+  }
   let contextoBalance: Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>> | null = null;
 
   if (emparejado && !bloqueo) {
     try {
       contextoBalance = await cargarContextoPrevalidadorBalance(emparejado.id);
-      bloqueo = validarCompuertaPrevalidador(contextoBalance, encabezado.clienteId, moduloCodigo);
+      bloqueo = fijado
+        ? validarBalanceFijado(contextoBalance, encabezado.clienteId, fijado.agrupadorasExcluidas != null)
+        : validarCompuertaPrevalidador(contextoBalance, encabezado.clienteId, moduloCodigo);
     } catch {
       bloqueo = "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado.";
     }
   }
+  // Agrupadoras que no se suman (evitan contar dos veces la cuenta padre): las que se excluyeron al
+  // cerrar, si el período está en firme y tiene copia; si no, las del prevalidador del balance.
+  const cuentasAgrupadoras: ReadonlySet<string> | null = contextoBalance && !bloqueo
+    ? fijado?.agrupadorasExcluidas ?? cuentasAgrupadorasExcluidas(contextoBalance.prevalidador)
+    : null;
   // Las marcas se leen ANTES de agregar: traen las cuentas marcadas NO MODULARES, que se
   // descuentan del lado contable al construir el cruce. Viven por (cliente, módulo,
   // período), NO por cargue.
@@ -464,8 +538,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
 
   const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
   let nomina: ResultadoCruceNomina | null = null;
-  if (emparejado && contextoBalance && !bloqueo) {
-    const cuentasAgrupadoras = cuentasAgrupadorasExcluidas(contextoBalance.prevalidador);
+  if (emparejado && contextoBalance && cuentasAgrupadoras && !bloqueo) {
     const contablePorCuenta: Record<string, number> = {};
     const contableVisiblePorCuenta: Record<string, number> = {};
     const noModularPorCuenta: Record<string, number> = {};
@@ -681,6 +754,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     bloqueo,
     avisoBalance,
     huellaBalance: contextoBalance && !bloqueo ? contextoBalance.huella : null,
+    agrupadorasExcluidas: cuentasAgrupadoras ? [...cuentasAgrupadoras].sort() : null,
     cruceContable,
     detalleContablePorCuenta,
     detalleSinCuenta: (cruceContable?.sinCuenta ?? []).map((s) => ({ ...s, noModular: excluidosSinCuenta.has(s.clasificador) })),
@@ -712,6 +786,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     bloqueo,
     avisoBalance: null,
     huellaBalance: null,
+    agrupadorasExcluidas: null,
     cruceContable: null,
     detalleContablePorCuenta: {},
     detalleSinCuenta: [],

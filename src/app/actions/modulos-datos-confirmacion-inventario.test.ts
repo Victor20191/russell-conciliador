@@ -22,6 +22,8 @@ vi.mock("@/lib/prisma", () => ({ default: {
   moduloDatoEncabezado: { findUnique: m.buscarEncabezado, findFirst: vi.fn(async () => null), create: m.crearEncabezado, updateMany: vi.fn(), update: m.actualizarEncabezado },
   moduloImportacionStaging: { findMany: m.filas, deleteMany: m.purgarFilas },
   comment: { updateMany: vi.fn() },
+  // Ningún período con la conciliación en firme en estas pruebas.
+  conciliacionModuloCierre: { findFirst: vi.fn(async () => null) },
 } }));
 
 import prisma from "@/lib/prisma";

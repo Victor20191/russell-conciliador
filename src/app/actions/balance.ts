@@ -63,11 +63,13 @@ import {
   cierresFirmesDeBalance,
   cuentasBloqueadas,
   ErrorConciliacionEnFirme,
+  exigirCambioHomologacionCompatible,
   exigirCargueCompatibleConCierres,
   registrarIntentoBloqueado,
 } from "@/lib/conciliacion/verificar-bloqueo";
-import { decidirCongelarConCierres, mensajeConciliacionEnFirme, mensajeTrasladoCierre, validarJustificacionDesbloqueo } from "@/lib/conciliacion/cuentas-bloqueo";
+import { decidirCongelarConCierres, diferenciasTerceroEnFirme, mensajeConciliacionEnFirme, mensajeTrasladoCierre, validarJustificacionDesbloqueo, type CambioHomologacion, type FilaTerceroEnFirme } from "@/lib/conciliacion/cuentas-bloqueo";
 import { ESTADO_DESCONGELADO } from "@/lib/balance/descongelar";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
@@ -1218,6 +1220,45 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           return { ok: false as const, message: mensajeConciliacionEnFirme(cierresAjenos, decision.violaciones), bloqueadoPor: cierresAjenos, balance };
         }
         if (decision.tipo === "traslado") {
+          // Un cierre con cruce por tercero (Cartera, CxP) se fija a su balance: trasladarlo a esta
+          // versión hace que su cruce por tercero lea ESTE detalle por tercero, así que tiene que
+          // conservarlo y ser idéntico en las cuentas en firme.
+          const conTercero = cierresAjenos.filter((c) => descriptorModulo(c.moduloCodigo)?.crucePorTercero.habilitado === true);
+          if (conTercero.length > 0) {
+            const lotes = await tx.balancePruebaEncabezado.findMany({
+              where: { id: { in: [id, ...conTercero.map((c) => c.balanceEncabezadoId)] } },
+              select: { id: true, loteId: true },
+            });
+            const loteDe = new Map(lotes.map((l) => [l.id, l.loteId]));
+            const filasTercero = async (loteId: string | null | undefined): Promise<FilaTerceroEnFirme[] | null> => {
+              if (!loteId) return null;
+              const captura = await tx.balanceTerceroEncabezado.findFirst({ where: { loteId }, select: { id: true } });
+              if (!captura) return null;
+              const filas = await tx.balanceTerceroDetalle.findMany({
+                where: { encabezadoId: captura.id },
+                select: { cuenta8: true, claveTercero: true, nitTercero: true, saldoFinal: true },
+              });
+              return filas.map((f) => ({ cuenta8: f.cuenta8, tercero: f.claveTercero ?? f.nitTercero, saldoFinal: Number(f.saldoFinal) }));
+            };
+            const nuevas = await filasTercero(loteDe.get(id));
+            for (const c of conTercero) {
+              const conciliadas = await filasTercero(loteDe.get(c.balanceEncabezadoId));
+              if (!conciliadas) continue; // el balance conciliado no tenía detalle por tercero
+              const enFirmeDelCierre = new Set(bloqueadas.filter((b) => b.cierre.id === c.id).map((b) => b.cuenta8));
+              if (!nuevas) {
+                return { ok: false as const, message: `${mensajeConciliacionEnFirme([c])} Esta versión no conserva el detalle por tercero con que se concilió ${c.moduloCodigo}: no se puede congelar.`, bloqueadoPor: [c], balance };
+              }
+              const difieren = diferenciasTerceroEnFirme(enFirmeDelCierre, conciliadas, nuevas);
+              if (difieren.length > 0) {
+                return {
+                  ok: false as const,
+                  message: mensajeConciliacionEnFirme([c], difieren.slice(0, 3).map((cuenta8) => ({ cuenta8, motivo: "valores" as const, detalle: `${cuenta8} cambia su detalle por tercero` }))),
+                  bloqueadoPor: [c],
+                  balance,
+                };
+              }
+            }
+          }
           // Fail-closed: sin la confirmación del formulario no se traslada nada. No es un
           // intento de manipulación, así que no se audita como bloqueado.
           if (formData.get("confirmarTraslado") !== "1") {
@@ -1969,7 +2010,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
       }),
       tx.balancePruebaDetalle.findMany({
         where: { encabezadoId: id },
-        select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true },
+        select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoFinal: true },
       }),
     ]);
     const configCliente = construirConfigMapeoCliente(configRows);
@@ -1977,6 +2018,8 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
     // Las filas que cambian se agrupan por destino: un balance grande cabe en
     // unos pocos `updateMany` en vez de una sentencia por cuenta.
     const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[]; cuentas: string[] }>();
+    // Lo que cambia, con su saldo: lo juzga la conciliación en firme (regla 3).
+    const cambios: CambioHomologacion[] = [];
     let rehomologadas = 0;
     let retiradas = 0;
     for (const d of detalles) {
@@ -2001,6 +2044,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
       if (std === d.cuenta6Russell) continue;
       if (std == null) retiradas++;
       else rehomologadas++;
+      cambios.push({ cuenta8: d.cuenta8, cuenta6Anterior: d.cuenta6Russell, cuenta6Nueva: std, saldoFinal: Number(d.saldoFinal) });
       const clave = `${std ?? ""}|${coincidencia ?? ""}`;
       const grupo = porDestino.get(clave);
       if (grupo) {
@@ -2009,13 +2053,14 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
       } else porDestino.set(clave, { std, coincidencia, ids: [d.id], cuentas: [d.cuenta8] });
     }
 
-    // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas.
-    const cuentasQueCambian = [...porDestino.values()].flatMap((g) => g.cuentas);
-    const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado, { cuentas: cuentasQueCambian }, tx);
-    if (enFirme.length > 0) {
-      const cierres = [...new Map(enFirme.map((b) => [b.cierre.id, b.cierre])).values()];
-      await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres, detalle: enFirme.slice(0, 5).map((b) => b.cuenta8).join(", ") });
-      return { ok: false as const, message: mensajeConciliacionEnFirme(cierres, enFirme.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion" as const, detalle: `${b.cuenta8} está conciliada` }))) };
+    // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas ni meter con saldo
+    // una cuenta nueva al alcance de un módulo cerrado del corte (regla 3).
+    try {
+      await exigirCambioHomologacionCompatible({ clienteId: encabezado.clienteId, balance: encabezado, cambios }, tx);
+    } catch (e) {
+      if (!(e instanceof ErrorConciliacionEnFirme)) throw e;
+      await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres: e.cierres, detalle: e.violaciones.slice(0, 5).map((v) => v.cuenta8).join(", ") });
+      return { ok: false as const, message: e.message };
     }
 
     for (const { std, coincidencia, ids } of porDestino.values()) {
