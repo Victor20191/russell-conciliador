@@ -102,3 +102,41 @@ describe("coincideGrupoDetalle: qué grupos siguen a la vista con filtros puesto
     expect(coincideGrupoDetalle(sinNombre, { clasificador: "tipo" }, { concepto: "lo que sea" })).toBe(true);
   });
 });
+
+describe("filtro de celdas vacías («—»)", () => {
+  // Las filas de total y las omitidas del archivo no traen referencia ni descripción: la tabla las pinta «—».
+  const total = { datos: { tipo: "GLOBAL", referencia: null, descripcion: "", cantidad: null, valorTotal: 173397.68 } };
+  const conGuion = fila("GLOBAL", "01-1528-05", "ESTUCHE", 2, 11556);
+  const filas = [...DATA, total, conGuion];
+
+  it("«—», «–», un guion solo y «vacío» encuentran solo las celdas vacías de esa columna", () => {
+    for (const filtro of ["—", "–", "-", " - ", "vacío", "Vacio", "(vacío)"]) {
+      expect(filtrarFilasDetalleModulo(filas, COLS, { referencia: filtro }), filtro).toEqual([total]);
+    }
+    expect(filtrarFilasDetalleModulo(filas, COLS, { descripcion: "—" })).toEqual([total]);
+  });
+
+  it("vale también en columnas numéricas", () => {
+    expect(filtrarFilasDetalleModulo(filas, COLS, { cantidad: "—" })).toEqual([total]);
+    expect(filtrarFilasDetalleModulo(filas, COLS, { valorTotal: "-" })).toEqual([]);
+  });
+
+  it("un guion dentro del texto sigue buscando como subcadena", () => {
+    expect(filtrarFilasDetalleModulo(filas, COLS, { referencia: "01-15" })).toEqual([conGuion]);
+    expect(filtrarFilasDetalleModulo(filas, COLS, { referencia: "-" })).not.toContain(conGuion);
+  });
+
+  it("un rango de vencimiento en cero cuenta como vacío, como se pinta", () => {
+    const rango: ColumnaFiltro = { nombre: "_edades:De 1 a 30", tipo: "moneda", familia: { clave: "_edades", etiqueta: "De 1 a 30" } };
+    const enCero = { datos: { referencia: "A" }, valorRango: 0 };
+    const conSaldo = { datos: { referencia: "B" }, valorRango: 398500 };
+    const valor = (f: { valorRango: number }) => f.valorRango;
+    expect(filtrarFilasDetalleModulo([enCero, conSaldo], [rango], { [rango.nombre]: "—" }, valor)).toEqual([enCero]);
+  });
+
+  it("no esconde grupos: el filtro de celdas vacías lo deciden las filas", () => {
+    const ROLES = { clasificador: "tipo", descripcion: "concepto" };
+    expect(coincideGrupoDetalle({ clasificador: "GLOBAL" }, ROLES, { tipo: "—" })).toBe(true);
+    expect(coincideGrupoDetalle({ clasificador: "GLOBAL", descripcion: "Mercancía" }, ROLES, { concepto: "vacío" })).toBe(true);
+  });
+});

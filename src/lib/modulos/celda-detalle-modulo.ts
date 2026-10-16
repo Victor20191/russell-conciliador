@@ -52,14 +52,22 @@ export function valorColumnaDetalle(fila: FilaCeldaDetalle, columna: ColumnaCeld
   return typeof v === "number" || typeof v === "string" ? v : String(v);
 }
 
+/**
+ * ¿La celda se pinta «—»? Vacía, o —en un rango de vencimiento— en cero: un rango en cero es un
+ * documento que no cae ahí, y en blanco se lee el rango que sí aplica. Es la MISMA regla del filtro
+ * de celdas vacías (`filtros-detalle-modulo.ts`), así lo que se ve y lo que se filtra no se separan.
+ */
+export function celdaSinValor(valor: string | number | null | undefined, columna: Pick<ColumnaCeldaDetalle, "tipo" | "familia">): boolean {
+  if (valor == null || valor === "") return true;
+  return Boolean(columna.familia) && (columna.tipo === "moneda" || columna.tipo === "numero") && numero(valor) === 0;
+}
+
 /** Texto de la celda según el tipo de la columna. */
 export function textoCeldaDetalle(valor: string | number | null | undefined, columna: ColumnaCeldaDetalle): string {
-  if (valor == null || valor === "") return "—";
+  if (celdaSinValor(valor, columna)) return "—";
   if (columna.tipo === "moneda" || columna.tipo === "numero") {
     const n = numero(valor);
     if (n == null) return String(valor);
-    // Un rango en cero es un documento que no cae ahí: en blanco se lee el rango que sí aplica.
-    if (columna.familia && n === 0) return "—";
     return columna.tipo === "moneda" ? fmtContable(n) : fmtNum(n);
   }
   if (columna.tipo === "fecha") {

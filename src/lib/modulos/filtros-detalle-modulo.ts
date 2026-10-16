@@ -1,7 +1,12 @@
 // Filtros por COLUMNA del detalle de un dato de módulo cargado (puro, sin BD ni UI).
 // Genérico sobre las columnas del descriptor: texto → subcadena normalizada (o posición, con el
 // comodín `*`); numérico (cantidad/moneda) → operadores >, >=, <, <=, = (igual que el balance).
+// Celdas VACÍAS (15/Oct/2026): el filtro compara contra el valor crudo y el «—» solo se pinta, así
+// que escribir «—» no encontraba nada. Ahora «—», «–», un guion solo «-» o «vacío» encuentran las
+// celdas que la tabla pinta «—» (`celdaSinValor`), en cualquier tipo de columna; un guion dentro de
+// un texto («01-15») sigue buscando como subcadena.
 import { coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
+import { celdaSinValor } from "./celda-detalle-modulo";
 
 /** nombre de columna del descriptor → texto del filtro (vacío = sin filtro). */
 export type FiltrosDetalleModulo = Record<string, string>;
@@ -56,6 +61,14 @@ export function coincideFiltroNumerico(valor: number | null | undefined, filtro:
   }
 }
 
+/** Lo que, escrito como filtro ENTERO, pide las celdas vacías (las que la tabla pinta «—»). */
+const FILTROS_CELDA_VACIA = new Set(["—", "–", "-", "vacio", "vacia", "(vacio)", "(vacia)"]);
+
+/** ¿El filtro pide las celdas vacías? «—», «–», un guion solo o «vacío» (sin tildes ni mayúsculas). */
+export function esFiltroCeldaVacia(filtro: string | null | undefined): boolean {
+  return FILTROS_CELDA_VACIA.has(normalizarTexto(filtro ?? "").replace(/\s+/g, ""));
+}
+
 export function hayFiltrosDetalleModulo(filtros: FiltrosDetalleModulo): boolean {
   return Object.values(filtros).some((v) => v.trim() !== "");
 }
@@ -74,6 +87,11 @@ export function coincideFilaDetalle<T extends FilaFiltrable>(
     const f = filtros[col.nombre];
     if (!f || !f.trim()) continue;
     const v = obtenerValor(fila, col);
+    // «—» (o «-», «vacío»): las celdas que la tabla pinta vacías, con la misma regla que la pinta.
+    if (esFiltroCeldaVacia(f)) {
+      if (!celdaSinValor(v, col)) return false;
+      continue;
+    }
     if (esNumerica(col.tipo)) {
       if (!coincideFiltroNumerico(v == null || v === "" ? null : Number(v), f)) return false;
     } else if (!coincideFiltroTexto(v == null ? "" : String(v), f)) {
@@ -109,10 +127,13 @@ export function coincideGrupoDetalle(
   roles: { clasificador: string; descripcion?: string | null },
   filtros: FiltrosDetalleModulo,
 ): boolean {
-  if (!coincideFiltroTexto(grupo.clasificador, filtros[roles.clasificador])) return false;
+  // El filtro de celdas vacías no decide aquí: el grupo queda a la vista y deciden sus filas (si
+  // no, un «—» en la columna del clasificador escondería todos los grupos).
+  const delClasificador = filtros[roles.clasificador];
+  if (!esFiltroCeldaVacia(delClasificador) && !coincideFiltroTexto(grupo.clasificador, delClasificador)) return false;
   // Sin nombre propio, el del grupo es su clasificador (así se guarda cuando son iguales).
   const nombre = roles.descripcion ? filtros[roles.descripcion] : "";
-  return coincideFiltroTexto(grupo.descripcion ?? grupo.clasificador, nombre);
+  return esFiltroCeldaVacia(nombre) || coincideFiltroTexto(grupo.descripcion ?? grupo.clasificador, nombre);
 }
 
 /** Filtra las filas del detalle por los filtros de columna (sin filtros → mismas filas). */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fmtContable } from "@/lib/format";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
-import { columnasVisiblesDetalle, fechaDeCelda, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "./celda-detalle-modulo";
+import { celdaSinValor, columnasVisiblesDetalle, fechaDeCelda, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "./celda-detalle-modulo";
 
 const SALDO = { nombre: "total", tipo: "moneda", esValor: true };
 const edad = (etiqueta: string) => ({ nombre: `_edades:${etiqueta}`, tipo: "moneda", familia: { clave: "_edades", etiqueta } });
@@ -76,5 +76,17 @@ describe("columnas visibles del detalle", () => {
     const { visibles, ocultas } = columnasVisiblesDetalle(columnas, [cabecera, notaCredito, factura, conCupo], ["cuenta"]);
     expect(visibles.map((c) => c.nombre)).toEqual(["cuenta", "nit", "total", "_edades:Corriente", "_edades:De 1 a 30"]);
     expect(ocultas.map((c) => c.nombre)).toEqual(["dv", "_edades:De 361 o mas", "_edades:Cupo", "_edades:Posfechados"]);
+  });
+});
+
+describe("celdaSinValor", () => {
+  it("es exactamente lo que textoCeldaDetalle pinta «—»", () => {
+    const TEXTO = { nombre: "referencia", tipo: "texto" };
+    const casos: [string | number | null, { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }][] = [
+      [null, TEXTO], ["", TEXTO], ["0000126", TEXTO], [0, SALDO], [0, edad("Corriente")], [25160, edad("Corriente")], ["", FECHA],
+    ];
+    for (const [valor, columna] of casos) {
+      expect(celdaSinValor(valor, columna), `${String(valor)} · ${columna.nombre}`).toBe(textoCeldaDetalle(valor, columna) === "—");
+    }
   });
 });
