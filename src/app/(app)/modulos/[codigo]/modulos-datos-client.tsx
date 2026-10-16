@@ -516,8 +516,9 @@ function CargadosPorCliente({
                         </Link>
                         {/* Adición explícita al cargue vigente: el usuario declara que
                             este archivo se SUMA, en vez de dejar que el sistema lo adivine.
-                            No aplica sobre versiones históricas ni sobre un congelado. */}
-                        {puedeCrear && p.esOficial && !p.estaCongelado && (
+                            No aplica sobre versiones históricas, sobre un congelado ni sobre un
+                            período con la conciliación en firme (hay que desbloquearla). */}
+                        {puedeCrear && p.esOficial && !p.estaCongelado && !p.conciliacionCerrada && (
                           <AgregarArchivoButton
                             moduloCodigo={moduloCodigo}
                             moduloLabel={moduloLabel}
@@ -545,8 +546,26 @@ function CargadosPorCliente({
                             className={`${BOTON_ACCION} border-navy-600 text-navy-700 hover:bg-blue-50 hover:text-navy-800`}
                           />
                         )}
-                        {puedeEliminar && (
+                        {puedeEliminar && p.conciliacionCerrada && (
+                          // El cargue de un período con la conciliación en firme no se elimina: el
+                          // cierre se quedaría sin su papel de trabajo (el servidor también lo rechaza).
+                          <button
+                            type="button"
+                            disabled
+                            title={`La conciliación de ${p.periodo} está en firme (cerró ${p.conciliacionCerrada.cerradoPor}): pide al senior o gerente que la desbloquee para eliminar este cargue.`}
+                            aria-label={`Eliminar no disponible: la conciliación de ${p.periodo} está en firme`}
+                            className={`${BOTON_ACCION} cursor-not-allowed border-ink-200 text-ink-300`}
+                          >
+                            <Icon name="trash" size={15} />
+                          </button>
+                        )}
+                        {puedeEliminar && !p.conciliacionCerrada && (
                           <EliminarDatosModuloButton
+                            bloqueoCliente={
+                              grupo.periodos.some((x) => x.conciliacionCerrada)
+                                ? `No se puede eliminar el historial del cliente: hay conciliaciones de ${moduloLabel} en firme (${grupo.periodos.filter((x) => x.conciliacionCerrada).map((x) => x.periodo).join(", ")}). Pide al senior o gerente que las desbloquee primero.`
+                                : null
+                            }
                             encabezadoId={p.id}
                             moduloLabel={moduloLabel}
                             clienteNombre={grupo.clienteNombre}

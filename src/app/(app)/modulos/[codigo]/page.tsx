@@ -180,7 +180,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
         clasificadorRol={descriptor.clasificador}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
-        clientes={clientes}
+        clientes={clientes.map((c) => ({ ...c, periodosEnFirme: cierresEnFirme.filter((x) => x.clienteId === c.id).map((x) => x.periodo) }))}
         gruposCargados={filasCargados}
         puedeCrear={autorizacionCrear.ok}
         puedeEliminar={autorizacionEliminar.ok}

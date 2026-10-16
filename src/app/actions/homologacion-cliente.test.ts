@@ -130,6 +130,13 @@ const mocks = vi.hoisted(() => {
   };
 
   const balancePruebaDetalle = {
+    // Filas que la migración reescribiría (las juzga la conciliación en firme antes de migrar).
+    findMany: vi.fn(async ({ where }: { where: Filtro & { encabezadoId: { in: number[] } } }) => {
+      const { encabezadoId, ...filtro } = where;
+      return state.detalles
+        .filter((d) => encabezadoId.in.includes(d.encabezadoId) && coincideFiltro(d, filtro as Filtro))
+        .map((d) => ({ encabezadoId: d.encabezadoId, cuenta8: d.cuenta8, cuenta6Russell: d.cuenta6Russell, saldoFinal: 0 }));
+    }),
     count: vi.fn(
       async ({
         where,
@@ -340,6 +347,7 @@ vi.mock("@/lib/conciliacion/verificar-bloqueo", () => ({
   cierresFirmesDeBalance: vi.fn(async () => []),
   cuentasBloqueadas: vi.fn(async () => []),
   exigirCargueCompatibleConCierres: vi.fn(async () => undefined),
+  exigirCambioHomologacionCompatible: vi.fn(async () => undefined),
   registrarIntentoBloqueado: vi.fn(async () => undefined),
   autorizarCierreConciliacion: vi.fn(async () => ({ ok: true, userId: 1, role: "Senior" })),
   ErrorConciliacionEnFirme: class ErrorConciliacionEnFirme extends Error {},

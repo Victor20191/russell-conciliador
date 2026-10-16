@@ -24,6 +24,7 @@ import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { ExportarBalance } from "./exportar-balance";
 import { EliminarBalanceButton } from "./eliminar-balance-button";
+import { bloqueosEliminacionBalance } from "@/lib/balance/alcance-eliminacion";
 import { FlashToast } from "@/components/flash-toast";
 import { ComentarioAprobacion } from "./comentario-aprobacion";
 import {
@@ -79,6 +80,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     cierresPeriodo,
     bloqueadasPeriodo,
     terceroLigado,
+    cierresCliente,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -130,6 +132,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     balance.loteId
       ? prisma.balanceTerceroEncabezado.findUnique({ where: { loteId: balance.loteId, clienteId: balance.clienteId }, select: { id: true } })
       : Promise.resolve(null),
+    // Todas las conciliaciones en firme del cliente: deciden qué alcances de «Eliminar» se ofrecen
+    // (el balance con que se cerró una no se elimina hasta desbloquearla).
+    cierresFirmes(clientId),
   ]);
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
@@ -300,6 +305,11 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 versionesPeriodo={hermanos.length}
                 balancesCliente={balancesCliente}
                 perfilesCliente={perfilesCliente}
+                bloqueos={bloqueosEliminacionBalance({
+                  balanceId: id,
+                  idsPeriodo: hermanos.map((h) => h.id),
+                  cierresCliente: cierresCliente,
+                })}
               />
             )}
           </div>

@@ -15,6 +15,7 @@ import { registrarConsumoIA } from "@/lib/ia/uso";
 import { ingerir, type GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella } from "@/lib/balance/extraccion/huella";
 import { descriptorModulo, bloqueoAnexoPorVerificacionesCriticasModulo } from "@/lib/modulos/descriptores";
+import { exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
 import { huellaSha256Archivo } from "@/lib/modulos/archivo-original";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
@@ -208,6 +209,16 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       const bloqueo = bloqueoAnexoPorVerificacionesCriticasModulo(INV, destino.verificaciones as Record<string, { respuesta: "si" | "no" | "na" } | undefined>);
       if (bloqueo) throw new ErrorAsistencia(bloqueo);
       if (destino.periodo !== periodo) throw new ErrorAsistencia("El archivo adicional debe corresponder al período del cargue de destino.");
+    }
+    // Con la conciliación del período en firme no entra otro archivo ni otra versión.
+    if (periodo) {
+      try {
+        await exigirPeriodoAbierto(prisma, { clienteId: original.clienteId, moduloCodigo: "INV", periodo }, { operacion: "cargar otro archivo ni otra versión de ese período" });
+      } catch (e) {
+        const enFirme = await respuestaPeriodoEnFirme(e);
+        if (enFirme) throw new ErrorAsistencia(enFirme.message);
+        throw e;
+      }
     }
     revision = original.revisionAsistencia + 1;
     asistencia = {

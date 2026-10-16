@@ -329,6 +329,8 @@ export type CierreConciliacionVm = {
     desbloqueadoPor: string | null;
     desbloqueadoEn: string | null;
     justificacionDesbloqueo: string | null;
+    /** En firme: de dónde salen los insumos del cruce (copia congelada al cerrar, respaldo o en vivo). */
+    insumos?: string | null;
   } | null;
   puedeCerrar: boolean;
   puedeDesbloquear: boolean;
@@ -545,6 +547,7 @@ export default function DatoCargadoClient({
   agrupadores = [],
   agruparPorNomina = null,
   puedeEditar,
+  avisoSoloLectura = null,
   versiones,
   versionActualId,
   tabInicial,
@@ -580,7 +583,10 @@ export default function DatoCargadoClient({
   agrupadores?: AgrupadorVm[];
   /** Nómina: por qué se agrupan los renglones del Consolidado y a qué se puede cambiar. */
   agruparPorNomina?: AgruparPorNominaVm | null;
+  /** Ya trae la conciliación en firme: con ella el cargue es de solo lectura (`estadoEdicionCargue`). */
   puedeEditar: boolean;
+  /** Por qué el cargue es de solo lectura (conciliación del período en firme); null = se edita. */
+  avisoSoloLectura?: string | null;
   versiones: VersionModuloVm[];
   versionActualId: number;
   tabInicial: "versiones" | "cruceTercero" | null;
@@ -678,6 +684,12 @@ export default function DatoCargadoClient({
 
   return (
     <div className="flex flex-col gap-4">
+      {avisoSoloLectura && (
+        <div role="status" className="flex items-start gap-2 rounded-md border border-navy-700/30 bg-navy-700/5 px-3 py-2.5 text-[12.5px] text-ink-800">
+          <Icon name="shield" size={15} className="mt-0.5 shrink-0 text-navy-700" />
+          <p>{avisoSoloLectura}</p>
+        </div>
+      )}
       {/* Por debajo de xl las pestañas no caben junto al total y la exportación: estos suben a su
           propio renglón y las pestañas se desplazan en horizontal en vez de montarse. */}
       <div className="flex flex-col-reverse gap-2 border-b border-ink-150 xl:flex-row xl:items-center xl:gap-1">
@@ -878,7 +890,7 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
 }
 
 /** Nómina: clase contable de cada centro de costo / clase del archivo (GYA → 51, MOD → 72). */
-function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEditar }: { agrupadores: AgrupadorVm[]; clienteId: number; moduloCodigo: string; puedeEditar: boolean }) {
+function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, encabezadoId, puedeEditar }: { agrupadores: AgrupadorVm[]; clienteId: number; moduloCodigo: string; encabezadoId: number; puedeEditar: boolean }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(agrupadores.some((a) => a.clase == null));
   const [guardando, setGuardando] = useState<string | null>(null);
@@ -887,7 +899,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, puedeEdita
   const cambiar = (agrupador: string, clase: string) => {
     setGuardando(agrupador);
     start(async () => {
-      const r = await guardarClaseAgrupador({ clienteId, moduloCodigo, agrupador, clase: clase || null });
+      const r = await guardarClaseAgrupador({ clienteId, moduloCodigo, agrupador, clase: clase || null, encabezadoId });
       setGuardando(null);
       if (r.ok) { notifySuccess(r.message ?? "Clase guardada."); router.refresh(); } else notifyError(r.message ?? "No se pudo guardar la clase.");
     });
@@ -1394,7 +1406,7 @@ function ConsolidadoTab({
       {agrupadores.length > 0 && (
         // En la vista completa el panel de clases (Nómina) no puede comerse la tabla: se acota.
         <div className={pantallaCompleta ? "max-h-[35vh] shrink-0 overflow-y-auto" : undefined}>
-          <PanelClasesAgrupador agrupadores={agrupadores} clienteId={clienteId} moduloCodigo={moduloCodigo} puedeEditar={puedeEditar} />
+          <PanelClasesAgrupador agrupadores={agrupadores} clienteId={clienteId} moduloCodigo={moduloCodigo} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
         </div>
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
@@ -3682,6 +3694,7 @@ function ConciliacionEnFirmePanel({
             {cierre.cuentasBloqueadas} cuenta(s) del balance <b className="text-ink-700">{cierre.balancePeriodo}</b> bloqueada(s) · cargue #{cierre.moduloDatoEncabezadoId}
           </span>
           <Link href={`/balance/${cierre.balanceEncabezadoId}`} className="font-semibold text-blue-600 hover:underline">Ver balance →</Link>
+          {cierre.insumos && <span className="basis-full text-[11.5px] text-ink-500">{cierre.insumos}</span>}
         </div>
         {puedeDesbloquear && (
           <button
@@ -3772,7 +3785,10 @@ function ConciliacionEnFirmePanel({
       >
         <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
           <p>
-            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
+            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia (también las solo visibles) y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
+          </p>
+          <p>
+            Este cargue quedará de <b>solo lectura</b>: no se podrán cambiar sus cuentas del Consolidado, marcas, repartos ni emparejamientos, cargar otro archivo o versión del período, ni eliminarlo. Lo que se cambie desde otro mes en la memoria del cliente tampoco lo alterará: se guarda una copia de lo conciliado.
           </p>
           <p className="text-ink-500">Solo el senior o gerente asignado al cliente podrá desbloquearla, con una justificación que queda en la bitácora.</p>
         </div>

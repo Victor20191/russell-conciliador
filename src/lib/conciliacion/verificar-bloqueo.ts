@@ -13,7 +13,7 @@ import { logAudit } from "@/lib/audit";
 import { getCurrentUser, verifySession } from "@/lib/dal";
 import { authorizePermiso, type AuthzResult } from "@/lib/rbac";
 import { ROLES_ALCANCE_GLOBAL } from "@/lib/rbac/jerarquia";
-import type { TransactionClient } from "@/lib/concurrency";
+import { tomarCandadoTransaccion, type TransactionClient } from "@/lib/concurrency";
 import {
   alcanceDeCierres,
   entraEnAlcance,
@@ -21,7 +21,10 @@ import {
   esResponsableSeniorOGerente,
   evaluarCambiosBloqueados,
   mensajeConciliacionEnFirme,
+  mensajePeriodoEnFirme,
   mesDeCorteBalance,
+  violacionesCambioHomologacion,
+  type CambioHomologacion,
   type CuentaBloqueada,
   type FilaDetalleBloqueo,
   type ViolacionBloqueo,
@@ -309,6 +312,114 @@ export async function bloqueoMemoriaHomologacion(
       bloqueadas.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion", detalle: `${b.cuenta8} está conciliada en ${b.cierre.balancePeriodo}` })),
     ),
   };
+}
+
+/**
+ * Enforcement para re-homologar filas de un balance confirmado («Re-homologar», reaplicar el mapeo,
+ * «Aplicar también a balances existentes»): ninguna cuenta en firme puede cambiar de homologación
+ * y ninguna otra puede entrar CON SALDO al alcance de un módulo cerrado del corte (regla 3, la misma
+ * de `persistirCargue` y `asignarCuentaEstandar`). Solo se evalúan las filas que cambian, así que lo
+ * que ya estaba antes no bloquea. Lanza `ErrorConciliacionEnFirme`; sin cierres del corte es no-op.
+ */
+export async function exigirCambioHomologacionCompatible(
+  p: { clienteId: number; balance: BalanceDelCorte; cambios: readonly CambioHomologacion[] },
+  db: Db = prisma,
+): Promise<void> {
+  if (p.cambios.length === 0) return;
+  const cierres = await cierresFirmes(p.clienteId, p.balance, db);
+  if (cierres.length === 0) return;
+  const bloqueadas = await cuentasBloqueadas(p.clienteId, p.balance, undefined, db);
+  const violaciones = violacionesCambioHomologacion(bloqueadas, p.cambios, alcanceDeCierres(cierres));
+  if (violaciones.length > 0) throw new ErrorConciliacionEnFirme(cierres, violaciones);
+}
+
+// ===== Período de un módulo en firme: solo lectura =====
+
+/** Cliente + módulo + período del módulo: la llave de un cierre (`conciliacion_modulo_cierre_unico`). */
+export type ClavePeriodoModulo = { clienteId: number; moduloCodigo: string; periodo: string };
+
+/**
+ * Lo lanza `exigirPeriodoAbierto` cuando la conciliación del período está en firme: mientras lo esté,
+ * nada de lo que alimenta su cruce se puede cambiar (cuentas del Consolidado, marcas, repartos,
+ * emparejamientos, cargar otro archivo o versión, eliminar el cargue). Solo «Desbloquear» lo reabre.
+ */
+export class ErrorPeriodoEnFirme extends Error {
+  readonly cierre: CierreFirme;
+  readonly clave: ClavePeriodoModulo;
+  readonly operacion: string;
+  constructor(cierre: CierreFirme, clave: ClavePeriodoModulo, operacion: string) {
+    super(mensajePeriodoEnFirme(cierre, operacion));
+    this.name = "ErrorPeriodoEnFirme";
+    this.cierre = cierre;
+    this.clave = clave;
+    this.operacion = operacion;
+  }
+}
+
+/** El cierre EN FIRME del período del módulo, o null. */
+export async function cierreFirmeDelPeriodo(db: Db, clave: ClavePeriodoModulo): Promise<CierreFirme | null> {
+  const row = await db.conciliacionModuloCierre.findFirst({
+    where: { clienteId: clave.clienteId, moduloCodigo: clave.moduloCodigo, periodo: clave.periodo, estado: ESTADO_CIERRE_FIRME },
+    select: SELECT_CIERRE,
+  });
+  return row ? aCierre(row) : null;
+}
+
+/**
+ * Exige que la conciliación del período NO esté en firme; si lo está, lanza `ErrorPeriodoEnFirme`.
+ * Dentro de una transacción (`enTransaccion`) toma antes el candado `conciliacion-cierre:` —el
+ * mismo de cerrar y desbloquear—, así la escritura y el cierre no se cruzan: o el cierre ve la
+ * escritura ya hecha, o la escritura ve el cierre y se rechaza.
+ */
+export async function exigirPeriodoAbierto(
+  db: Db,
+  clave: ClavePeriodoModulo,
+  opciones: { operacion: string; enTransaccion?: boolean },
+): Promise<void> {
+  if (opciones.enTransaccion) {
+    await tomarCandadoTransaccion(db as TransactionClient, `conciliacion-cierre:${clave.clienteId}:${clave.moduloCodigo}:${clave.periodo}`);
+  }
+  const cierre = await cierreFirmeDelPeriodo(db, clave);
+  if (cierre) throw new ErrorPeriodoEnFirme(cierre, clave, opciones.operacion);
+}
+
+/**
+ * Lo mismo a partir del cargue: cliente, módulo y período salen del ENCABEZADO en el servidor,
+ * nunca del navegador. Devuelve esos datos para que la acción no los vuelva a leer. Un cargue que
+ * no existe no se rechaza aquí (cada acción ya responde por eso): devuelve null.
+ */
+export async function exigirPeriodoAbiertoDeCargue(
+  db: Db,
+  encabezadoId: number,
+  opciones: { operacion: string; enTransaccion?: boolean },
+): Promise<(ClavePeriodoModulo & { nombreCliente: string }) | null> {
+  const encabezado = await db.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true },
+  });
+  if (!encabezado) return null;
+  await exigirPeriodoAbierto(db, encabezado, opciones);
+  return encabezado;
+}
+
+/**
+ * Traduce `ErrorPeriodoEnFirme` a la respuesta de una acción `ActionState` y deja el intento en la
+ * auditoría; cualquier otro error devuelve null para que la acción siga con su propio manejo.
+ * Llamarla FUERA de la transacción (la auditoría no debe deshacerse con ella).
+ */
+export async function respuestaPeriodoEnFirme(
+  e: unknown,
+  contexto: { entidad?: string; detalle?: string } = {},
+): Promise<{ ok: false; message: string } | null> {
+  if (!(e instanceof ErrorPeriodoEnFirme)) return null;
+  await registrarIntentoBloqueado({
+    clienteId: e.clave.clienteId,
+    entidad: contexto.entidad ?? `${e.clave.moduloCodigo} · ${e.clave.periodo}`,
+    operacion: e.operacion,
+    cierres: [e.cierre],
+    detalle: contexto.detalle,
+  });
+  return { ok: false, message: e.message };
 }
 
 /** Evento de auditoría de un intento de manipulación bloqueado (best-effort). */

@@ -23,6 +23,7 @@ import {
   type DescriptorModulo,
 } from "@/lib/modulos/descriptores";
 import {
+  motivoEliminacionPorCierre,
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
   type AlcanceEliminacionModulo,
@@ -161,7 +162,14 @@ import {
   evaluarCierreConciliacion,
   validarJustificacionDesbloqueo,
 } from "@/lib/conciliacion/cuentas-bloqueo";
-import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
+import {
+  autorizarCierreConciliacion,
+  exigirPeriodoAbierto,
+  exigirPeriodoAbiertoDeCargue,
+  respuestaPeriodoEnFirme,
+} from "@/lib/conciliacion/verificar-bloqueo";
+import { construirCopiaCierre } from "@/lib/conciliacion/copia-cierre";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -555,6 +563,39 @@ export async function preferenciasCargaModulo(clienteId: number, moduloCodigo: s
 // spec sugerido. El token de recepción permite que LEER reutilice la misma bitácora
 // y el mismo objeto, sin duplicarlos al crear el borrador.
 // ============================================================
+/** Lo que el rechazo dice que no se puede hacer con la conciliación del período en firme. */
+const OPERACION_CARGA = "cargar otro archivo ni otra versión de ese período";
+
+/**
+ * Con la conciliación del período EN FIRME no entra otro archivo («Agregar archivo») ni una versión
+ * nueva: el cargue conciliado es el papel de trabajo. El período sale del cargue destino si es un
+ * anexo, o del que declaró el formulario. Audita el intento y devuelve el mensaje; null = se puede.
+ */
+async function bloqueoCargaPorCierre(p: {
+  clienteId: number;
+  moduloCodigo: string;
+  periodo?: string | null;
+  anexoEncabezadoId?: number | null;
+}): Promise<string | null> {
+  let periodo = p.periodo && /^\d{4}-\d{2}$/.test(p.periodo) ? p.periodo : null;
+  if (p.anexoEncabezadoId && Number.isSafeInteger(p.anexoEncabezadoId) && p.anexoEncabezadoId > 0) {
+    const destino = await prisma.moduloDatoEncabezado.findUnique({
+      where: { id: p.anexoEncabezadoId },
+      select: { clienteId: true, moduloCodigo: true, periodo: true },
+    });
+    if (destino && destino.clienteId === p.clienteId && destino.moduloCodigo === p.moduloCodigo) periodo = destino.periodo;
+  }
+  if (!periodo) return null;
+  try {
+    await exigirPeriodoAbierto(prisma, { clienteId: p.clienteId, moduloCodigo: p.moduloCodigo, periodo }, { operacion: OPERACION_CARGA });
+    return null;
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e);
+    if (enFirme) return enFirme.message;
+    throw e;
+  }
+}
+
 export async function analizarArchivoModulo(formData: FormData): Promise<AnalisisModulo> {
   const moduloCodigo = String(formData.get("moduloCodigo") ?? "").trim().toUpperCase();
   const descriptor = descriptorModulo(moduloCodigo);
@@ -577,6 +618,15 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       message: "No se puede conservar el archivo original porque el almacenamiento de objetos no está configurado. Avisa al administrador antes de continuar.",
     };
   }
+  // Un período con la conciliación en firme no recibe otro archivo ni otra versión: se rechaza antes
+  // de leer o registrar nada.
+  const cargaCerrada = await bloqueoCargaPorCierre({
+    clienteId,
+    moduloCodigo,
+    periodo: String(formData.get("periodo") ?? "").trim(),
+    anexoEncabezadoId: Number(formData.get("anexoEncabezadoId")),
+  });
+  if (cargaCerrada) return { ok: false, message: cargaCerrada };
 
   let recepcionLoteId: string | null = null;
   let recepcionOriginalDisponible = false;
@@ -1195,6 +1245,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // de registrar el original: es un dato del formulario, no un problema del archivo.
     const periodoFuturo = periodoArchivo ? motivoPeriodoFuturo(periodoArchivo) : null;
     if (periodoFuturo) return { ok: false, message: periodoFuturo };
+    // Con la conciliación del período en firme no entra otro archivo ni otra versión: también antes
+    // de registrar el original y sin marcarlo no procesable.
+    const cargaCerrada = await bloqueoCargaPorCierre({ clienteId, moduloCodigo, periodo: periodoArchivo, anexoEncabezadoId });
+    if (cargaCerrada) return { ok: false, message: cargaCerrada };
     const huellaOriginal = huellaSha256Archivo(contenidoOriginal);
     const recepcionPedida = String(formData.get("recepcionLoteId") ?? "").trim();
     const originalRecibido = recepcionPedida
@@ -2128,6 +2182,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
+    // Con la conciliación del período en firme el borrador no se carga (ni como anexo ni como
+    // versión nueva); se vuelve a verificar dentro de la transacción, bajo el candado del cierre.
+    const cargaCerrada = await bloqueoCargaPorCierre({ clienteId: lote.clienteId, moduloCodigo: lote.moduloCodigo, periodo });
+    if (cargaCerrada) return { ok: false, message: cargaCerrada };
     const user = await getCurrentUser();
     // «Guardar este formato como patrón del aplicativo» (casilla del borrador).
     const guardarPatron = debeGuardarPatron(lote.moduloCodigo, formData.get("guardarComoPatron"));
@@ -2292,6 +2350,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       // Serializa el consecutivo y el cambio de versión vigente para este grupo (también
       // serializa dos anexos concurrentes al mismo vigente: el segundo espera al primero).
       await tomarCandadoTransaccion(tx, `modulo-cargue:${loteActual.clienteId}:${loteActual.moduloCodigo}:${periodo}`);
+      await exigirPeriodoAbierto(tx, { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo }, { operacion: OPERACION_CARGA, enTransaccion: true });
       const ahora = new Date();
 
       // Fraccionamiento: el vigente del período (si lo hay) decide si el archivo se
@@ -2663,6 +2722,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     return { ok: true, encabezadoId: resultado.encabezadoId, modo: resultado.modo, message: mensaje };
   } catch (e) {
     if (e instanceof ErrorCargueModulo) return { ok: false, message: e.message };
+    const enFirme = await respuestaPeriodoEnFirme(e);
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("cargarBorradorModulo", e) };
   }
 }
@@ -2947,6 +3008,9 @@ type FilaConsolidacionGuardar = {
  *    (`asignacion_periodo_modulo`) con todas sus cuentas; la memoria del cliente no se toca.
  * Con la conciliación del período en firme no se crean, cambian ni quitan asignaciones del período.
  */
+/** Lo que el rechazo dice que no se puede hacer con la conciliación del período en firme. */
+const OPERACION_CONSOLIDADO = "cambiar las cuentas del Consolidado";
+
 async function guardarConsolidacion(args: {
   clienteId: number;
   moduloCodigo: string;
@@ -3004,14 +3068,10 @@ async function guardarConsolidacion(args: {
         })
       : [];
     const previos = new Set(conPeriodoPrevio.map((p) => llaveAsignacion(p.clasificador, p.agrupador)));
-    const tocanPeriodo = separadas.some((f) => f.extras.length > 0 || previos.has(llaveAsignacion(f.clasificador, f.agrupador)));
-    if (periodo && tocanPeriodo) {
-      const cierre = await prisma.conciliacionModuloCierre.findFirst({
-        where: { clienteId, moduloCodigo, periodo, estado: ESTADO_CIERRE_FIRME },
-        select: { id: true },
-      });
-      if (cierre) return { ok: false, message: `La conciliación de ${periodo} está en firme: desbloquéala para cambiar las cuentas que valen solo para ese período.` };
-    }
+    // Desde el cargue de un período con la conciliación EN FIRME no se cambia nada, tampoco la
+    // memoria del cliente: el Consolidado de ese cargue es lo conciliado. (Desde otro mes la memoria
+    // sí se edita: el período cerrado lee su copia congelada.)
+    if (periodo) await exigirPeriodoAbierto(prisma, { clienteId, moduloCodigo, periodo }, { operacion: OPERACION_CONSOLIDADO });
 
     const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave), agruparPor);
     // Nómina con la cuenta en el archivo: el cliente puede no tener catálogo de conceptos, así que
@@ -3060,6 +3120,7 @@ async function guardarConsolidacion(args: {
     );
     await prisma.$transaction(
       async (tx) => {
+        if (periodo) await exigirPeriodoAbierto(tx, { clienteId, moduloCodigo, periodo }, { operacion: OPERACION_CONSOLIDADO, enTransaccion: true });
         if (repartosViejos.length > 0) {
           await tx.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } });
         }
@@ -3099,6 +3160,8 @@ async function guardarConsolidacion(args: {
       : ` Se descartó el reparto del cruce que tenía${repartosViejos.length === 1 ? "" : `n ${repartosViejos.length} conceptos`}: ya no corresponde a sus cuentas.`;
     return { ok: true, message: base + aviso + avisoReparto };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e);
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD(args.contexto, e) };
   }
 }
@@ -3306,20 +3369,21 @@ export async function cambiarAgruparPorConsolidado(input: { encabezadoId: number
   if (!authz.ok) return { ok: false, message: authz.message };
   const actual = agruparPorDeEncabezado(encabezado.agruparPor);
   if (actual === agruparPor) return { ok: true, message: `El Consolidado ya se agrupa por ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")}.` };
+  const clavePeriodo = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
+  const operacion = "cambiar la agrupación del Consolidado";
   try {
-    const cierre = await prisma.conciliacionModuloCierre.findFirst({
-      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, estado: ESTADO_CIERRE_FIRME },
-      select: { id: true },
-    });
-    if (cierre) return { ok: false, message: `La conciliación de ${encabezado.periodo} está en firme: desbloquéala para cambiar la agrupación del Consolidado.` };
+    await exigirPeriodoAbierto(prisma, clavePeriodo, { operacion });
     const disponibles = await agruparPorDisponibles(encabezadoId);
     if (!disponibles[agruparPor]) {
       return { ok: false, message: `Este cargue no trae ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")} en sus filas: no se puede agrupar así.` };
     }
     // Condicionado a lo que se vio: dos pestañas abiertas no se pisan en silencio.
-    const { count } = await prisma.moduloDatoEncabezado.updateMany({
-      where: { id: encabezadoId, agruparPor: encabezado.agruparPor },
-      data: { agruparPor },
+    const { count } = await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, clavePeriodo, { operacion, enTransaccion: true });
+      return tx.moduloDatoEncabezado.updateMany({
+        where: { id: encabezadoId, agruparPor: encabezado.agruparPor },
+        data: { agruparPor },
+      });
     });
     if (count === 0) return { ok: false, message: "La agrupación de este cargue cambió mientras tanto. Recarga la página." };
     const user = await getCurrentUser();
@@ -3333,6 +3397,8 @@ export async function cambiarAgruparPorConsolidado(input: { encabezadoId: number
     revalidatePath(rutaModulo(encabezado.moduloCodigo));
     return { ok: true, message: `El Consolidado ahora se agrupa por ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")}.` };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("cambiarAgruparPorConsolidado", e) };
   }
 }
@@ -3346,29 +3412,43 @@ const ClaseAgrupadorSchema = z.object({
   moduloCodigo: z.string().trim().toUpperCase(),
   agrupador: z.string().trim().min(1, "Indica el agrupador.").max(120),
   clase: z.enum(CLASES_NOMINA).nullable(),
+  /** El cargue desde el que se fija: con la conciliación de su período en firme no se cambia. */
+  encabezadoId: z.number().int().positive().nullish(),
 });
 
-/** Guarda (o quita, con `clase: null`) la clase contable de un agrupador del archivo. */
-export async function guardarClaseAgrupador(input: { clienteId: number; moduloCodigo: string; agrupador: string; clase: string | null }): Promise<ActionState> {
+/**
+ * Guarda (o quita, con `clase: null`) la clase contable de un agrupador del archivo. Es memoria del
+ * cliente: desde un cargue con la conciliación del período en firme no se cambia (ese período lee
+ * la clase de su copia congelada, así que cambiarla desde otro mes no lo altera).
+ */
+export async function guardarClaseAgrupador(input: { clienteId: number; moduloCodigo: string; agrupador: string; clase: string | null; encabezadoId?: number | null }): Promise<ActionState> {
   const parsed = ClaseAgrupadorSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { clienteId, moduloCodigo, agrupador, clase } = parsed.data;
+  const { clienteId, moduloCodigo, agrupador, clase, encabezadoId } = parsed.data;
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor?.nomina) return { ok: false, message: "Las clases por agrupador solo aplican a Nómina." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
+  const operacion = "cambiar las clases por centro de costo";
   try {
+    const delCargue = encabezadoId ? await exigirPeriodoAbiertoDeCargue(prisma, encabezadoId, { operacion }) : null;
+    if (encabezadoId && (!delCargue || delCargue.clienteId !== clienteId || delCargue.moduloCodigo !== moduloCodigo)) {
+      return { ok: false, message: "El cargue no corresponde a este cliente y módulo. Recarga la página." };
+    }
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
-    if (clase == null) {
-      await prisma.claseAgrupadorModulo.deleteMany({ where: { clienteId, moduloCodigo, agrupador } });
-    } else {
-      await prisma.claseAgrupadorModulo.upsert({
-        where: { clienteId_moduloCodigo_agrupador: { clienteId, moduloCodigo, agrupador } },
-        create: { clienteId, moduloCodigo, agrupador, clase, actualizadoPor: actor },
-        update: { clase, actualizadoPor: actor },
-      });
-    }
+    await prisma.$transaction(async (tx) => {
+      if (delCargue) await exigirPeriodoAbierto(tx, delCargue, { operacion, enTransaccion: true });
+      if (clase == null) {
+        await tx.claseAgrupadorModulo.deleteMany({ where: { clienteId, moduloCodigo, agrupador } });
+      } else {
+        await tx.claseAgrupadorModulo.upsert({
+          where: { clienteId_moduloCodigo_agrupador: { clienteId, moduloCodigo, agrupador } },
+          create: { clienteId, moduloCodigo, agrupador, clase, actualizadoPor: actor },
+          update: { clase, actualizadoPor: actor },
+        });
+      }
+    });
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     await logAudit({
       user: actor ?? "Sistema",
@@ -3380,6 +3460,8 @@ export async function guardarClaseAgrupador(input: { clienteId: number; moduloCo
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: clase == null ? "Clase retirada." : `«${agrupador}» → clase ${clase}.` };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e);
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("guardarClaseAgrupador", e) };
   }
 }
@@ -3390,6 +3472,9 @@ export async function guardarClaseAgrupador(input: { clienteId: number; moduloCo
 // consolidado); la sugerencia proporcional al balance la calcula el cruce y el auditor la
 // confirma o la corrige aquí. La Σ del reparto debe cerrar con el total del concepto.
 // ============================================================
+/** Lo que el rechazo dice que no se puede hacer con la conciliación del período en firme. */
+const OPERACION_REPARTO = "cambiar los repartos del cruce";
+
 const RepartoSchema = z.object({
   encabezadoId: z.number().int().positive(),
   clasificador: z.string().trim().min(1, "Indica el concepto."),
@@ -3407,7 +3492,9 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
   if (!descriptor?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
+  const clavePeriodo = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
   try {
+    await exigirPeriodoAbierto(prisma, clavePeriodo, { operacion: OPERACION_REPARTO });
     const insumos = await cargarInsumosCruceModulo(encabezadoId);
     const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
     const renglon = cruce?.nomina?.renglones.find((r) => r.clasificador === clasificador);
@@ -3424,12 +3511,13 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
     const where = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, clasificador };
-    await prisma.$transaction([
-      prisma.repartoCruceModulo.deleteMany({ where }),
-      ...(Object.keys(limpios).length > 0
-        ? [prisma.repartoCruceModulo.createMany({ data: Object.entries(limpios).map(([cuentaRussell, valor]) => ({ ...where, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor })) })]
-        : []),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, clavePeriodo, { operacion: OPERACION_REPARTO, enTransaccion: true });
+      await tx.repartoCruceModulo.deleteMany({ where });
+      if (Object.keys(limpios).length > 0) {
+        await tx.repartoCruceModulo.createMany({ data: Object.entries(limpios).map(([cuentaRussell, valor]) => ({ ...where, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor })) });
+      }
+    });
     await logAudit({
       user: actor ?? "Sistema",
       action: Object.keys(limpios).length > 0 ? "DEFINIÓ reparto del cruce" : "QUITÓ reparto del cruce",
@@ -3440,6 +3528,8 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
     revalidatePath(rutaModulo(encabezado.moduloCodigo));
     return { ok: true, message: Object.keys(limpios).length > 0 ? "Reparto guardado." : "Reparto retirado." };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("guardarRepartoCruce", e) };
   }
 }
@@ -3456,7 +3546,9 @@ export async function aplicarRepartosSugeridos(input: { encabezadoId: number }):
   if (!descriptorModulo(encabezado.moduloCodigo)?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
+  const clavePeriodo = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
   try {
+    await exigirPeriodoAbierto(prisma, clavePeriodo, { operacion: OPERACION_REPARTO });
     const insumos = await cargarInsumosCruceModulo(encabezadoId);
     const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
     if (!cruce?.nomina || cruce.bloqueo || !cruce.cruceContable) return { ok: false, message: cruce?.bloqueo ?? "El cruce no está disponible: hace falta el balance del período." };
@@ -3465,12 +3557,13 @@ export async function aplicarRepartosSugeridos(input: { encabezadoId: number }):
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
     const base = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
-    await prisma.$transaction([
-      prisma.repartoCruceModulo.deleteMany({ where: { ...base, clasificador: { in: pendientes.map((p) => p.clasificador) } } }),
-      prisma.repartoCruceModulo.createMany({
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, clavePeriodo, { operacion: OPERACION_REPARTO, enTransaccion: true });
+      await tx.repartoCruceModulo.deleteMany({ where: { ...base, clasificador: { in: pendientes.map((p) => p.clasificador) } } });
+      await tx.repartoCruceModulo.createMany({
         data: pendientes.flatMap((p) => Object.entries(p.sugerido).filter(([, v]) => v !== 0).map(([cuentaRussell, valor]) => ({ ...base, clasificador: p.clasificador, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor }))),
-      }),
-    ]);
+      });
+    });
     await logAudit({
       user: actor ?? "Sistema",
       action: "APLICÓ repartos sugeridos del cruce",
@@ -3481,6 +3574,8 @@ export async function aplicarRepartosSugeridos(input: { encabezadoId: number }):
     revalidatePath(rutaModulo(encabezado.moduloCodigo));
     return { ok: true, message: `${pendientes.length} concepto(s) repartidos según el balance. Revísalos y ajusta los que haga falta.`, aplicados: pendientes.length };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("aplicarRepartosSugeridos", e) };
   }
 }
@@ -3501,7 +3596,11 @@ export async function aplicarRepartosSugeridos(input: { encabezadoId: number }):
 // ============================================================
 
 /** Encabezado + período al que pertenece una marca, con el permiso ya verificado. */
-async function contextoMarcaCruce(encabezadoId: number) {
+/**
+ * Cargue, permiso de editar y —con la conciliación del período en firme— el rechazo de `operacion`
+ * (auditado): marcas, soportes, fecha de corte y emparejamientos son del período y quedan inmutables.
+ */
+async function contextoMarcaCruce(encabezadoId: number, operacion: string) {
   if (!Number.isSafeInteger(encabezadoId)) return { ok: false as const, message: "Cargue inválido." };
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({
     where: { id: encabezadoId },
@@ -3510,8 +3609,19 @@ async function contextoMarcaCruce(encabezadoId: number) {
   if (!encabezado) return { ok: false as const, message: "El cargue ya no existe." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
   if (!authz.ok) return { ok: false as const, message: authz.message };
+  try {
+    await exigirPeriodoAbierto(prisma, encabezado, { operacion });
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return { ok: false as const, message: enFirme.message };
+    throw e;
+  }
   return { ok: true as const, encabezado, userId: authz.userId };
 }
+
+/** Lo que el rechazo dice que no se puede hacer con la conciliación del período en firme. */
+const OPERACION_MARCA = "cambiar las marcas del cruce (no modulares, no contabilizados ni soportes)";
+const OPERACION_EMPAREJAMIENTO = "cambiar los emparejamientos de terceros";
 
 async function auditarMarcaCruce(
   encabezado: { clienteId: number; moduloCodigo: string; periodo: string; nombreCliente: string },
@@ -3584,7 +3694,7 @@ async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
  */
 export async function guardarMarcaCruce(formData: FormData): Promise<ActionState> {
   const encabezadoId = Number(formData.get("encabezadoId"));
-  const ctx = await contextoMarcaCruce(encabezadoId);
+  const ctx = await contextoMarcaCruce(encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
   const dimension: DimensionMarca = formData.get("dimension") === "tercero" ? "tercero" : "cuenta4";
@@ -3748,6 +3858,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     }));
     const marca = await transaccionSerializable(async (tx) => {
       await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
       const guardada = existente
         ? await tx.marcaCruceModulo.update({
             where: { id: existente.id },
@@ -3813,6 +3924,8 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         : existente ? `Marca ${marca.numero} actualizada.` : `Marca ${marca.numero} registrada.`,
     };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: ctx.encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("guardarMarcaCruce", e) };
   }
 }
@@ -3859,7 +3972,7 @@ export async function quitarMarcaCruce(input: {
   /** Clave del tercero, en las marcas del cruce por tercero. */
   clave?: string;
 }): Promise<ActionState> {
-  const ctx = await contextoMarcaCruce(input.encabezadoId);
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
   const porTercero = input.clave != null;
@@ -3883,7 +3996,10 @@ export async function quitarMarcaCruce(input: {
 
     // La BD manda: primero se borra la fila (cascada a los adjuntos) y después los
     // objetos. Al revés, un fallo dejaría registros apuntando a soportes inexistentes.
-    await prisma.marcaCruceModulo.delete({ where: { id: marca.id } });
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      await tx.marcaCruceModulo.delete({ where: { id: marca.id } });
+    });
     await Promise.allSettled(marca.adjuntos.map((a) => eliminarObjeto(a.claveObjeto)));
 
     // La cascada de la FK se lleva las cuentas no modulares: la fila vuelve a su
@@ -3902,6 +4018,8 @@ export async function quitarMarcaCruce(input: {
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Marca ${marca.numero} retirada.` };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("quitarMarcaCruce", e) };
   }
 }
@@ -3911,7 +4029,7 @@ export async function eliminarSoporteMarca(input: {
   encabezadoId: number;
   soporteId: number;
 }): Promise<ActionState> {
-  const ctx = await contextoMarcaCruce(input.encabezadoId);
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
   const soporteId = Number(input.soporteId);
@@ -3935,7 +4053,10 @@ export async function eliminarSoporteMarca(input: {
       return { ok: false, message: "Ese soporte no pertenece a este período." };
     }
 
-    await prisma.adjuntoMarcaCruce.delete({ where: { id: soporteId } });
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      await tx.adjuntoMarcaCruce.delete({ where: { id: soporteId } });
+    });
     await eliminarObjeto(soporte.claveObjeto).catch(() => {});
 
     const deTercero = m.dimension === "tercero";
@@ -3948,6 +4069,8 @@ export async function eliminarSoporteMarca(input: {
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: "Soporte eliminado." };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("eliminarSoporteMarca", e) };
   }
 }
@@ -3974,7 +4097,7 @@ export async function sugerirTrmCierre(input: { fecha: string }): Promise<Action
  * días vencidos y las edades, que se recalculan al leer. No se cambia con la conciliación en firme.
  */
 export async function actualizarFechaCorteModulo(input: { encabezadoId: number; fechaCorte: string }): Promise<ActionState> {
-  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId));
+  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId), "cambiar la fecha de corte");
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const fechaCorte = fechaDeCelda(input?.fechaCorte);
   if (!fechaCorte) return { ok: false, message: "Fecha de corte inválida." };
@@ -3985,13 +4108,11 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
     return { ok: false, message: "Este módulo no maneja fecha de corte." };
   }
   try {
-    const cierre = await prisma.conciliacionModuloCierre.findFirst({
-      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, estado: ESTADO_CIERRE_FIRME },
-      select: { id: true },
-    });
-    if (cierre) return { ok: false, message: "La conciliación del período está en firme: desbloquéala para cambiar la fecha de corte." };
     const anterior = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezado.id }, select: { fechaCorte: true } });
-    await prisma.moduloDatoEncabezado.update({ where: { id: encabezado.id }, data: { fechaCorte: fechaCalendarioPrisma(fechaCorte) } });
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: "cambiar la fecha de corte", enTransaccion: true });
+      await tx.moduloDatoEncabezado.update({ where: { id: encabezado.id }, data: { fechaCorte: fechaCalendarioPrisma(fechaCorte) } });
+    });
     const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",
@@ -4003,6 +4124,8 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Fecha de corte del cargue: ${fechaCorte.split("-").reverse().join("/")}.` };
   } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("actualizarFechaCorteModulo", e) };
   }
 }
@@ -4157,7 +4280,7 @@ async function choqueEntreLados(
 export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerceroSchema>): Promise<ActionState> {
   const parsed = EmparejarTerceroSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Datos inválidos." };
-  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId, OPERACION_EMPAREJAMIENTO);
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const claveModulo = normalizarClaveTercero(parsed.data.claveModulo);
   const claveBalance = normalizarClaveTercero(parsed.data.claveBalance);
@@ -4217,7 +4340,7 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
 export async function emparejarTerceroContable(input: z.input<typeof EmparejarContableSchema>): Promise<ActionState> {
   const parsed = EmparejarContableSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Datos inválidos." };
-  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId, OPERACION_EMPAREJAMIENTO);
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const claveContable = normalizarClaveTercero(parsed.data.claveContable);
   const claveDestino = normalizarClaveTercero(parsed.data.claveDestino);
@@ -4294,7 +4417,7 @@ export async function emparejarTerceroContable(input: z.input<typeof EmparejarCo
 export async function aplicarEmparejamientosSugeridos(input: z.input<typeof AplicarSugeridosSchema>): Promise<ActionState> {
   const parsed = AplicarSugeridosSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Datos inválidos." };
-  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId, OPERACION_EMPAREJAMIENTO);
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const { encabezado } = ctx;
   const periodo = parsed.data.alcance === "todos" ? "" : encabezado.periodo;
@@ -4381,7 +4504,7 @@ export async function aplicarEmparejamientosSugeridos(input: z.input<typeof Apli
 export async function separarTerceroAutomatico(input: z.input<typeof SepararTerceroSchema>): Promise<ActionState> {
   const parsed = SepararTerceroSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Datos inválidos." };
-  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId, OPERACION_EMPAREJAMIENTO);
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const claveModulo = normalizarClaveTercero(parsed.data.claveModulo);
   const claveBalance = normalizarClaveTercero(parsed.data.claveBalance);
@@ -4429,7 +4552,7 @@ export async function separarTerceroAutomatico(input: z.input<typeof SepararTerc
 
 /** Deshace un emparejamiento (o retira una separación): los dos terceros vuelven a verse como antes. */
 export async function quitarEmparejamientoTercero(input: { encabezadoId: number; emparejamientoId: number }): Promise<ActionState> {
-  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId));
+  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId), OPERACION_EMPAREJAMIENTO);
   if (!ctx.ok) return { ok: false, message: ctx.message };
   const emparejamientoId = Number(input?.emparejamientoId);
   if (!Number.isSafeInteger(emparejamientoId) || emparejamientoId <= 0) return { ok: false, message: "Emparejamiento inválido." };
@@ -4536,10 +4659,24 @@ export async function eliminarDatosModulo(input: {
 
       const objetivos = await tx.moduloDatoEncabezado.findMany({
         where: plan.filtroEncabezado,
-        select: { id: true },
+        select: { id: true, periodo: true },
       });
       const ids = objetivos.map((e) => e.id);
       if (ids.length === 0) return { ok: false as const, message: "No se encontraron cargues para eliminar." };
+
+      // Con la conciliación de alguno de esos períodos en firme no se elimina nada: el cierre se
+      // quedaría sin su cargue y sin pantalla desde la que desbloquearlo.
+      const cierresQueImpiden = await tx.conciliacionModuloCierre.findMany({
+        where: {
+          clienteId: referencia.clienteId,
+          moduloCodigo: referencia.moduloCodigo,
+          periodo: { in: [...new Set(objetivos.map((o) => o.periodo))] },
+          estado: ESTADO_CIERRE_FIRME,
+        },
+        select: { moduloCodigo: true, periodo: true, cerradoPor: true, moduloDatoEncabezadoId: true },
+      });
+      const motivoCierre = motivoEliminacionPorCierre(alcance, cierresQueImpiden);
+      if (motivoCierre) return { ok: false as const, message: motivoCierre, cierresQueImpiden };
 
       // Marcas del cruce que quedan sin cédula, con sus soportes (los binarios se
       // borran DESPUÉS del commit: la BD manda).
@@ -4599,7 +4736,18 @@ export async function eliminarDatosModulo(input: {
       };
     }, { timeoutMs: TIMEOUT_TRANSACCION_MODULO_MS });
 
-    if (!resultado.ok) return resultado;
+    if (!resultado.ok) {
+      if ("cierresQueImpiden" in resultado && resultado.cierresQueImpiden) {
+        await logAudit({
+          user: (await getCurrentUser())?.name ?? "Sistema",
+          action: "CONCILIACIÓN EN FIRME · INTENTO BLOQUEADO",
+          entity: referencia.nombreCliente,
+          detail: `eliminar datos del módulo (${alcance}) · ${resultado.cierresQueImpiden.map((c) => `${c.moduloCodigo} ${c.periodo} (cargue #${c.moduloDatoEncabezadoId})`).join(", ")}`,
+          clientId: referencia.clienteId,
+        });
+      }
+      return { ok: false, message: resultado.message };
+    }
 
     // Soportes de las marcas retiradas: best-effort, ya no hay fila que los use.
     if (resultado.claves.length) {
@@ -4661,8 +4809,14 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
   if (!Number.isSafeInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
 
   try {
+    // Cómo estaba el cargue al evaluarlo: el cierre lo vuelve a leer bajo candado y no cierra si una
+    // carga o un borrado lo cambió entretanto (lo que se congela es lo que se evaluó).
+    const firmaCargue = await prisma.moduloDatoEncabezado.findUnique({
+      where: { id: encabezadoId },
+      select: { esOficial: true, filas: true, total: true, ultimaCarga: true },
+    });
     const insumos = await cargarInsumosCruceModulo(encabezadoId);
-    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
+    if (!insumos || !firmaCargue) return { ok: false, message: "El cargue ya no existe." };
     const { encabezado } = insumos;
 
     const authz = await autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId);
@@ -4705,6 +4859,37 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
+    // COPIA CONGELADA: los insumos que se comparten entre meses o se leen en vivo, tal como el cruce
+    // los EVALUÓ. Mientras el cierre esté en firme el cruce, el Consolidado y el Excel del período la
+    // leen a ella, así que lo que se cambie desde otro mes ya no altera esta conciliación.
+    const umbralDescuadre = descriptor?.crucePorTercero.habilitado
+      ? tercero?.umbralDescuadre ?? (await getUmbralesAlertas()).descuadre
+      : null;
+    const copiaCongelada = construirCopiaCierre({
+      origen: "cierre",
+      tomadaEn: new Date(),
+      encabezadoId: encabezado.id,
+      moduloCodigo: encabezado.moduloCodigo,
+      agruparPor: encabezado.agruparPorNomina ?? "codigo",
+      consolidacion: {
+        filas: insumos.consolidacionRows.map((r) => ({
+          clasificador: r.clasificador,
+          cuenta4: r.cuenta4,
+          cuenta6: r.cuenta6 ?? "",
+          agrupador: r.agrupador ?? "",
+          descripcion: r.descripcion ?? null,
+          grupo: r.grupo ?? null,
+          subcuentaPuc: r.subcuentaPuc ?? null,
+          cuentaCliente: r.cuentaCliente ?? "",
+          soloPeriodo: r.soloPeriodo ?? false,
+        })),
+        filasPeriodo: insumos.asignacionesPeriodo,
+      },
+      catalogo: insumos.catalogoPrevalidador,
+      nomina: descriptor?.nomina && insumos.nomina ? insumos.nomina : null,
+      agrupadorasExcluidas: cruce.agrupadorasExcluidas ?? [],
+      umbralDescuadre,
+    });
 
     const resultado = await transaccionSerializable(async (tx) => {
       // Mismo candado que congelar/homologar el balance del período: el detalle que
@@ -4741,6 +4926,20 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       if (cruce.huellaBalance == null || contextoActual.huella !== cruce.huellaBalance || !contextoActual.revision.vigente) {
         return { ok: false as const, message: "El balance del período cambió mientras se cerraba la conciliación. Vuelve a abrir el cruce." };
       }
+      // El cargue evaluado tampoco puede haber cambiado (otro archivo, otra versión o un borrado).
+      const cargueActual = await tx.moduloDatoEncabezado.findUnique({
+        where: { id: encabezado.id },
+        select: { esOficial: true, filas: true, total: true, ultimaCarga: true },
+      });
+      if (
+        !cargueActual
+        || cargueActual.esOficial !== firmaCargue.esOficial
+        || cargueActual.filas !== firmaCargue.filas
+        || !cargueActual.total.equals(firmaCargue.total)
+        || cargueActual.ultimaCarga.getTime() !== firmaCargue.ultimaCarga.getTime()
+      ) {
+        return { ok: false as const, message: "El cargue cambió mientras se cerraba la conciliación. Vuelve a abrir el cruce." };
+      }
       const filasTercero = terceroLigado.loteId
         ? await tx.balanceTerceroDetalle.findMany({
             where: { encabezado: { loteId: terceroLigado.loteId } },
@@ -4772,6 +4971,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         cuentasConciliacion: cuentasConciliacion ? (cuentasConciliacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         subgruposConciliacion: subgruposConciliacion ?? Prisma.DbNull,
         paresDepreciacion: paresDepreciacion ? (paresDepreciacion as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        copiaCongelada: copiaCongelada as unknown as Prisma.InputJsonValue,
         estado: ESTADO_CIERRE_FIRME,
         cerradoPorId: authz.userId,
         cerradoPor: actor,
@@ -4814,7 +5014,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       user: actor,
       action: "CERRÓ CONCILIACIÓN (EN FIRME)",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${(cuentasRussell6 ?? cuentasRussell).join(", ")}${evidenciaTercero ? ` · cruce por tercero: ${evidenciaTercero.terceros} tercero(s), ${evidenciaTercero.marcas.marcadas} marca(s), huella ${evidenciaTercero.huella.slice(0, 12)}` : ""}`,
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${(cuentasRussell6 ?? cuentasRussell).join(", ")}${evidenciaTercero ? ` · cruce por tercero: ${evidenciaTercero.terceros} tercero(s), ${evidenciaTercero.marcas.marcadas} marca(s), huella ${evidenciaTercero.huella.slice(0, 12)}` : ""} · copia congelada ${copiaCongelada.huella.slice(0, 12)}`,
       clientId: encabezado.clienteId,
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);

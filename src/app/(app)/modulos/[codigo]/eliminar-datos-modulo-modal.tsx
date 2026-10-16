@@ -32,6 +32,7 @@ export function EliminarDatosModuloButton({
   perfilesCliente,
   marcasPeriodo,
   marcasCliente,
+  bloqueoCliente = null,
   className,
 }: {
   encabezadoId: number;
@@ -49,6 +50,11 @@ export function EliminarDatosModuloButton({
   marcasPeriodo: number;
   /** Marcas de auditoría del cruce del cliente en este módulo. */
   marcasCliente: number;
+  /**
+   * Por qué no se puede borrar todo el historial del cliente: algún período tiene la conciliación en
+   * firme (el servidor también lo rechaza). null = se puede.
+   */
+  bloqueoCliente?: string | null;
   className?: string;
 }) {
   const router = useRouter();
@@ -154,13 +160,17 @@ export function EliminarDatosModuloButton({
           <div role="radiogroup" aria-label="Alcance de la eliminación" className="space-y-2">
             {opciones.map((opcion) => {
               const seleccionada = alcance === opcion.value;
+              const motivo = opcion.value === "cliente_perfiles" ? bloqueoCliente : null;
               return (
                 <label
                   key={opcion.value}
-                  className={`flex cursor-pointer gap-3 rounded-lg border p-3.5 transition ${
-                    seleccionada
-                      ? "border-err-400 bg-err-50 ring-1 ring-err-200"
-                      : "border-ink-150 hover:border-ink-200 hover:bg-ink-50"
+                  title={motivo ?? undefined}
+                  className={`flex gap-3 rounded-lg border p-3.5 transition ${
+                    motivo
+                      ? "cursor-not-allowed border-ink-150 bg-ink-50 opacity-70"
+                      : seleccionada
+                        ? "cursor-pointer border-err-400 bg-err-50 ring-1 ring-err-200"
+                        : "cursor-pointer border-ink-150 hover:border-ink-200 hover:bg-ink-50"
                   }`}
                 >
                   <input
@@ -168,6 +178,7 @@ export function EliminarDatosModuloButton({
                     name="alcance-eliminacion-modulo"
                     value={opcion.value}
                     checked={seleccionada}
+                    disabled={motivo != null}
                     onChange={() => setAlcance(opcion.value)}
                     className="mt-0.5 h-4 w-4 shrink-0 accent-red-600"
                   />

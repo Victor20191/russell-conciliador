@@ -8,7 +8,7 @@ import { crearExportacionModulo, type ColumnaExportModulo, type CruceNominaExpor
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { cedulaModulo, claveCedula } from "@/lib/modulos/cuentas-modulo";
-import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
+import { cargarInsumosPeriodo } from "@/lib/modulos/insumos-periodo-servidor";
 import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { agruparPorDeEncabezado, etiquetaAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 import { cuentasEfectivasRenglon } from "@/lib/modulos/nomina/consolidado-nomina";
@@ -47,11 +47,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // Misma clave que la pantalla: subgrupo de 4 dígitos, la cuenta Russell completa o una mezcla.
     // La clave no depende de los prefijos del prevalidador, así que no se carga el catálogo.
     const cedula = cedulaModulo(descriptor, []);
-    // El Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período.
-    const [consolidacion, subgrupos] = await Promise.all([
-      cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo, descriptor.nomina ? { agruparPor } : undefined),
+    // El Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período, o la
+    // copia congelada del cierre si la conciliación está en firme (lo mismo que muestra la pantalla).
+    const [insumosPeriodo, subgrupos] = await Promise.all([
+      cargarInsumosPeriodo({ clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo, agruparPor, esNomina: descriptor.nomina != null }),
       prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
     ]);
+    const consolidacion = insumosPeriodo.consolidacion;
     const consolidacionRows = consolidacion.filas;
     const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
     const nombrePorCuenta = new Map([...subgrupos, ...cuentasEstandar].map((s) => [s.codigo, s.nombre]));

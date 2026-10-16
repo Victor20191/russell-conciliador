@@ -27,6 +27,7 @@ export function EliminarBalanceButton({
   versionesPeriodo,
   balancesCliente,
   perfilesCliente,
+  bloqueos,
 }: {
   balanceId: number;
   nombreCliente: string;
@@ -35,11 +36,16 @@ export function EliminarBalanceButton({
   versionesPeriodo: number;
   balancesCliente: number;
   perfilesCliente: number;
+  /** Por qué no se puede eliminar cada alcance (conciliación de un módulo en firme); null = se puede. */
+  bloqueos?: Partial<Record<AlcanceEliminacionBalance, string | null>>;
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
   const [alcance, setAlcance] =
     useState<AlcanceEliminacionBalance>("version");
+  // Esta versión es la conciliada: ningún alcance la deja fuera, así que no se ofrece eliminar.
+  const bloqueoVersion = bloqueos?.version ?? null;
+  const motivoAlcance = (valor: AlcanceEliminacionBalance) => bloqueos?.[valor] ?? null;
   const [eliminando, startEliminar] = useTransition();
 
   const opciones: Opcion[] = [
@@ -81,6 +87,20 @@ export function EliminarBalanceButton({
       router.refresh();
     });
   };
+
+  if (bloqueoVersion) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={bloqueoVersion}
+        aria-label={`Eliminar no disponible: ${bloqueoVersion}`}
+        className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-400"
+      >
+        <Icon name="shield" size={14} /> Eliminar
+      </button>
+    );
+  }
 
   return (
     <>
@@ -144,13 +164,17 @@ export function EliminarBalanceButton({
           >
             {opciones.map((opcion) => {
               const seleccionada = alcance === opcion.value;
+              const motivo = motivoAlcance(opcion.value);
               return (
                 <label
                   key={opcion.value}
-                  className={`flex cursor-pointer gap-3 rounded-lg border p-3.5 transition ${
-                    seleccionada
-                      ? "border-err-400 bg-err-50 ring-1 ring-err-200"
-                      : "border-ink-150 hover:border-ink-200 hover:bg-ink-50"
+                  title={motivo ?? undefined}
+                  className={`flex gap-3 rounded-lg border p-3.5 transition ${
+                    motivo
+                      ? "cursor-not-allowed border-ink-150 bg-ink-50 opacity-70"
+                      : seleccionada
+                        ? "cursor-pointer border-err-400 bg-err-50 ring-1 ring-err-200"
+                        : "cursor-pointer border-ink-150 hover:border-ink-200 hover:bg-ink-50"
                   }`}
                 >
                   <input
@@ -158,6 +182,7 @@ export function EliminarBalanceButton({
                     name="alcance-eliminacion"
                     value={opcion.value}
                     checked={seleccionada}
+                    disabled={motivo != null}
                     onChange={() => setAlcance(opcion.value)}
                     className="mt-0.5 h-4 w-4 accent-red-600"
                   />

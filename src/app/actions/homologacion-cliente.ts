@@ -25,14 +25,21 @@ import type { AlcanceHomologacion } from "@/lib/balance/alcance-homologacion";
 import {
   calcularImpactoHomologacionCliente,
   encabezadosNoCongeladosPorAlcance,
+  type EncabezadoAfectado,
   escribirMemoriaHomologacionCliente,
   filtroDetallePorAlcanceCliente,
+  filasQueMigrarian,
   migrarHomologacionClienteEnTransaccion,
   nombreRecienteDetalleCliente,
   normalizarAlcanceHomologacionCliente,
 } from "@/lib/balance/homologacion-cliente-servidor";
 import type { ActionState } from "@/lib/definitions";
-import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/conciliacion/verificar-bloqueo";
+import {
+  bloqueoMemoriaHomologacion,
+  ErrorConciliacionEnFirme,
+  exigirCambioHomologacionCompatible,
+  registrarIntentoBloqueado,
+} from "@/lib/conciliacion/verificar-bloqueo";
 
 const PATH_MAPEO = "/config/mapeo-cliente";
 const PATH_BALANCE = "/balance";
@@ -112,7 +119,7 @@ export async function guardarHomologacionCliente(
       // una carga nueva contra una homologación manual.
       await tomarCandadoTransaccion(tx, `balance-puc:${clienteId}`);
 
-      let encabezados: { id: number; periodo: string; loteId: string | null }[] = [];
+      let encabezados: EncabezadoAfectado[] = [];
       if (aplicarExistentes) {
         // Descubre los períodos dentro de cada intento de la transacción: una
         // lista anterior al candado podría omitir un balance recién cargado.
@@ -137,6 +144,26 @@ export async function guardarHomologacionCliente(
           cuentaCliente,
         });
         encabezados = frescos.filter((e) => periodosBloqueados.has(e.periodo));
+      }
+
+      // La memoria se vuelve a verificar bajo el candado del PUC: un cierre que se confirme entre la
+      // verificación de arriba y esta transacción también la protege.
+      const bloqueoBajoCandado = await bloqueoMemoriaHomologacion({ clienteId, codigo: codigoMemoria, alcanceGrupo: propagaGrupo }, tx);
+      if (bloqueoBajoCandado) throw new ErrorConciliacionEnFirme(bloqueoBajoCandado.cierres);
+
+      // «Aplicar también a balances existentes»: en cada balance, ninguna cuenta en firme cambia y
+      // ninguna nueva entra con saldo al alcance de un módulo cerrado de su corte (regla 3).
+      if (encabezados.length > 0) {
+        const filas = await filasQueMigrarian(tx, { alcance, codigoMemoria, cuentaCliente, encabezadoIds: encabezados.map((e) => e.id) });
+        for (const encabezado of encabezados) {
+          await exigirCambioHomologacionCompatible({
+            clienteId,
+            balance: encabezado,
+            cambios: filas
+              .filter((f) => f.encabezadoId === encabezado.id)
+              .map((f) => ({ cuenta8: f.cuenta8, cuenta6Anterior: f.cuenta6Russell, cuenta6Nueva: codigo, saldoFinal: f.saldoFinal })),
+          }, tx);
+        }
       }
 
       const migracion = aplicarExistentes
@@ -211,6 +238,16 @@ export async function guardarHomologacionCliente(
 
     return { ok: true, message: mensaje };
   } catch (e) {
+    if (e instanceof ErrorConciliacionEnFirme) {
+      await registrarIntentoBloqueado({
+        clienteId,
+        entidad: codigoMemoria,
+        operacion: `Homologar (PUC) ${codigoMemoria} → ${codigo}${aplicarExistentes ? " y aplicar a balances existentes" : ""}`,
+        cierres: e.cierres,
+        detalle: e.violaciones.slice(0, 5).map((v) => v.cuenta8).join(", ") || undefined,
+      });
+      return { ok: false, message: e.message };
+    }
     return { ok: false, message: mensajeErrorBD("guardarHomologacionCliente", e) };
   }
 }

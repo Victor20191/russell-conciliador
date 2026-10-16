@@ -100,12 +100,18 @@ export function alcanceExplicitoDelCruce(
  *  - sus cuentas propias (la cédula): la lista de 6 con las adicionales, o los subgrupos de 4 con los
  *    abiertos;
  *  - las cuentas que el usuario agregó solo para esa conciliación (`cedulaDelPeriodo`);
+ *  - las cuentas SOLO VISIBLES del módulo (Nómina; 14/Oct/2026): son parte de Filtros de cuentas
+ *    aunque no concilien, y sin esto los pasivos 25xx visibles —que no caen bajo ningún prefijo del
+ *    prevalidador— quedaban fuera del bloqueo;
  * más lo que ya quedaba en firme por tener renglón en el cruce. Cartera deja en firme toda la 13 de
  * su regla (también la 130515), no solo sus tres cuentas. Los cierres anteriores conservan el alcance
  * con que se cerraron.
  */
 export function alcanceDelCierre(
-  cedula: Pick<CedulaModulo, "nivel" | "prefijos" | "lista6" | "lista4" | "adicionales" | "abiertos"> & { delPeriodo?: ReadonlySet<string> },
+  cedula: Pick<CedulaModulo, "nivel" | "prefijos" | "lista6" | "lista4" | "adicionales" | "abiertos"> & {
+    delPeriodo?: ReadonlySet<string>;
+    visibles?: ReadonlySet<string>;
+  },
   cruce: Pick<ResumenCruceContable, "filas">,
 ): string[] {
   const conRenglon = alcanceExplicitoDelCruce(cedula, cruce) ?? cuentasRussellDelCruce(cruce);
@@ -116,6 +122,7 @@ export function alcanceDelCierre(
     ...(cedula.lista4 ?? []),
     ...cedula.abiertos.keys(),
     ...(cedula.delPeriodo?.keys() ?? []),
+    ...(cedula.visibles ?? []),
     ...conRenglon,
   ].map((c) => String(c).replace(/\D/g, ""));
   return [...new Set(todas.filter((c) => c.length === 2 || c.length === 4 || c.length === 6))].sort();
@@ -342,6 +349,112 @@ export function evaluarCambiosBloqueados(
     }
   }
   return violaciones;
+}
+
+/** Una fila de un balance confirmado cuya homologación se quiere cambiar (re-homologar). */
+export type CambioHomologacion = {
+  cuenta8: string;
+  cuenta6Anterior: string | null;
+  cuenta6Nueva: string | null;
+  saldoFinal: number;
+};
+
+/**
+ * Regla de la conciliación en firme para RE-HOMOLOGAR filas existentes: una cuenta en firme no
+ * cambia de homologación, y una cuenta que no lo está no puede entrar CON SALDO al alcance de un
+ * módulo cerrado (regla 3: entraría al cruce sin haber sido conciliada; con saldo final 0 no cambia
+ * ninguna cifra y se admite, como en `evaluarCambiosBloqueados`). Solo cuentan las filas cuya
+ * homologación cambia de verdad.
+ */
+export function violacionesCambioHomologacion(
+  bloqueadas: readonly CuentaBloqueada[],
+  cambios: readonly CambioHomologacion[],
+  alcance: AlcanceCierres,
+): ViolacionBloqueo[] {
+  const enFirme = new Map(bloqueadas.map((b) => [b.cuenta8, b]));
+  const violaciones: ViolacionBloqueo[] = [];
+  const vistas = new Set<string>();
+  for (const c of cambios) {
+    const cuenta8 = c.cuenta8.replace(/\D/g, "");
+    const anterior = c.cuenta6Anterior ?? null;
+    const nueva = c.cuenta6Nueva ?? null;
+    if (!cuenta8 || anterior === nueva || vistas.has(cuenta8)) continue;
+    vistas.add(cuenta8);
+    const bloqueada = enFirme.get(cuenta8);
+    if (bloqueada) {
+      violaciones.push({
+        cuenta8,
+        motivo: "homologacion",
+        detalle: `${cuenta8} cambia de homologación (${bloqueada.cuenta6Russell ?? "sin estándar"} → ${nueva ?? "sin estándar"})`,
+      });
+      continue;
+    }
+    if (redondear(c.saldoFinal) !== 0 && entraEnAlcance(nueva, alcance)) {
+      violaciones.push({ cuenta8, motivo: "nueva_en_modulo", detalle: `${cuenta8} entraría al módulo conciliado (homologada a ${nueva})` });
+    }
+  }
+  return violaciones;
+}
+
+/**
+ * Texto del rechazo cuando se intenta cambiar algo de un período con la conciliación en firme
+ * (cuentas del Consolidado, marcas, repartos, cargar otro archivo, eliminar el cargue…).
+ */
+export function mensajePeriodoEnFirme(
+  cierre: { moduloCodigo: string; periodo: string; cerradoPor: string; moduloDatoEncabezadoId: number },
+  operacion: string,
+): string {
+  return `La conciliación de ${cierre.moduloCodigo} · ${cierre.periodo} está en firme (cargue #${cierre.moduloDatoEncabezadoId}, cerró ${cierre.cerradoPor}): no se puede ${operacion}. Pide al senior o gerente del cliente que la desbloquee para continuar.`;
+}
+
+/**
+ * Qué puede hacer la pantalla de un cargue: con la conciliación de su período en firme queda de solo
+ * lectura aunque el usuario tenga permiso de editar, y el aviso dice por qué y quién la reabre.
+ */
+export function estadoEdicionCargue(p: {
+  puedeEditar: boolean;
+  cierre: { estado: string; cerradoPor: string; cerradoEn: string | Date } | null;
+}): { puedeEditar: boolean; enFirme: boolean; aviso: string | null } {
+  const enFirme = p.cierre?.estado === ESTADO_CIERRE_FIRME;
+  if (!enFirme || !p.cierre) return { puedeEditar: p.puedeEditar, enFirme: false, aviso: null };
+  return {
+    puedeEditar: false,
+    enFirme: true,
+    aviso: `La conciliación de este período está en firme (cerró ${p.cierre.cerradoPor}): el cargue es de solo lectura. Para cambiar cuentas, marcas, repartos o cargar otro archivo, el senior o gerente del cliente tiene que desbloquearla.`,
+  };
+}
+
+/** Una fila del detalle por tercero de un balance, reducida a lo que se compara. */
+export type FilaTerceroEnFirme = { cuenta8: string; tercero: string | null; saldoFinal: number };
+
+/**
+ * Cuentas en firme cuyo detalle por tercero cambia entre el balance conciliado y otra versión: el
+ * saldo final de cada (cuenta, tercero). Al trasladar un cierre con cruce por tercero (Cartera, CxP)
+ * a la versión que se congela, el cruce por tercero cerrado pasa a leer esa versión, así que su
+ * detalle de las cuentas en firme tiene que ser el mismo. Devuelve las cuentas que difieren.
+ */
+export function diferenciasTerceroEnFirme(
+  cuentasEnFirme: ReadonlySet<string>,
+  conciliado: readonly FilaTerceroEnFirme[],
+  nuevo: readonly FilaTerceroEnFirme[],
+): string[] {
+  const agregar = (filas: readonly FilaTerceroEnFirme[]) => {
+    const m = new Map<string, number>();
+    for (const f of filas) {
+      const cuenta8 = f.cuenta8.replace(/\D/g, "");
+      if (!cuentasEnFirme.has(cuenta8)) continue;
+      const clave = `${cuenta8}\u0001${f.tercero ?? ""}`;
+      m.set(clave, redondear((m.get(clave) ?? 0) + f.saldoFinal));
+    }
+    return m;
+  };
+  const antes = agregar(conciliado);
+  const despues = agregar(nuevo);
+  const difieren = new Set<string>();
+  for (const clave of new Set([...antes.keys(), ...despues.keys()])) {
+    if ((antes.get(clave) ?? 0) !== (despues.get(clave) ?? 0)) difieren.add(clave.split("\u0001")[0]);
+  }
+  return [...difieren].sort();
 }
 
 /** Texto único del bloqueo para toasts/errores: nombra módulo, período y cierre. */

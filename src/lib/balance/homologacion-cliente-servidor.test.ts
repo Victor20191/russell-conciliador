@@ -85,7 +85,7 @@ describe("migrarHomologacionClienteEnTransaccion", () => {
       alcance: "grupo",
       codigoMemoria: "110505",
       cuentaCliente: "110505",
-      encabezados: [{ id: 1, periodo: "Enero 2026", loteId: null }],
+      encabezados: [{ id: 1, periodo: "Enero 2026", periodoFin: new Date("2026-01-31T00:00:00Z"), loteId: null }],
     });
 
     expect(resultado.filasActualizadas).toBe(2);
@@ -115,7 +115,7 @@ describe("migrarHomologacionClienteEnTransaccion", () => {
       alcance: "solo",
       codigoMemoria: "11050501",
       cuentaCliente: "11050501",
-      encabezados: [{ id: 1, periodo: "Enero 2026", loteId: null }],
+      encabezados: [{ id: 1, periodo: "Enero 2026", periodoFin: new Date("2026-01-31T00:00:00Z"), loteId: null }],
     });
 
     expect(actualizaciones).toEqual([{ where: { id: 1 }, data: { mapeadas: 0, sinMapear: 0, completitud: 100 } }]);
