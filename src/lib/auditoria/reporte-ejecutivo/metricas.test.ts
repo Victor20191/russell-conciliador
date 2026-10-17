@@ -11,6 +11,8 @@ describe("clasificarFamilia", () => {
   test("clasifica acciones de balance", () => {
     expect(clasificarFamilia("CARGÓ BALANCE")).toBe("balance");
     expect(clasificarFamilia("CONGELÓ BALANCE")).toBe("balance");
+    expect(clasificarFamilia("CERRÓ BALANCE")).toBe("balance");
+    expect(clasificarFamilia("ABRIÓ BALANCE")).toBe("balance");
     expect(clasificarFamilia("GUARDÓ cambios en balance borrador")).toBe("balance");
   });
 

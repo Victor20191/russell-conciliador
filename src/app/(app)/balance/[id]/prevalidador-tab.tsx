@@ -318,7 +318,7 @@ function RevisionPrevalidador({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-[13px] font-semibold text-ink-800">Revisión previa a conciliación</h3>
             <Chip label={estado.label} tone={estado.tone} />
-            {estaCongelado && <Chip label="Balance congelado" tone="blue" />}
+            {estaCongelado && <Chip label="Balance cerrado" tone="blue" />}
           </div>
           <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-ink-600">
             La conciliación exige una aprobación vigente de este informe. Cualquier cambio en saldos, homologación o

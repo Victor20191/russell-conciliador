@@ -10,8 +10,9 @@ import { avisosDescongelar, type CierreAvisoDescongelar } from "@/lib/balance/de
 import { MAX_JUSTIFICACION_DESBLOQUEO, MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 
 /**
- * Descongelar un balance para corregirlo (4/Oct/2026). El modal dice qué pasa —se podrá editar,
- * sigue siendo la oficial si lo era, hay que volver a congelarlo y, si hay conciliaciones en firme
+ * «Abrir balance» (antes «Descongelar», 4/Oct/2026): abre un balance cerrado para corregirlo. El
+ * modal dice qué pasa —queda en proceso y se podrá editar,
+ * sigue siendo la oficial si lo era, hay que volver a cerrarlo y, si hay conciliaciones en firme
  * del corte, que sus cuentas siguen bloqueadas— y exige una justificación, que queda en la auditoría.
  * Se cierra solo con la X (convención de los modales).
  */
@@ -38,11 +39,11 @@ export function DescongelarBalanceButton({
     start(async () => {
       const r = await descongelarBalance({ id, justificacion });
       if (r.ok) {
-        notifySuccess(r.message ?? "Balance descongelado.");
+        notifySuccess(r.message ?? "Balance abierto.");
         setAbierto(false);
         setJustificacion("");
         router.refresh();
-      } else notifyError(r.message ?? "No se pudo descongelar el balance.");
+      } else notifyError(r.message ?? "No se pudo abrir el balance.");
     });
 
   return (
@@ -52,12 +53,12 @@ export function DescongelarBalanceButton({
         onClick={() => setAbierto(true)}
         className="inline-flex items-center gap-1.5 rounded-md border border-warn-500 bg-white px-3 py-2 text-[12.5px] font-semibold text-warn-700 hover:bg-warn-100"
       >
-        <Icon name="edit" size={13} /> Descongelar
+        <Icon name="edit" size={13} /> Abrir balance
       </button>
       <Modal
         open={abierto}
         onClose={() => setAbierto(false)}
-        title={`Descongelar balance · ${titulo}`}
+        title={`Abrir balance · ${titulo}`}
         footer={
           <button
             type="button"
@@ -65,7 +66,7 @@ export function DescongelarBalanceButton({
             disabled={pending || !valida}
             className="inline-flex items-center gap-1.5 rounded-md bg-warn-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-warn-500 disabled:opacity-60"
           >
-            {pending ? "Descongelando…" : "Descongelar"}
+            {pending ? "Abriendo…" : "Abrir balance"}
           </button>
         }
       >

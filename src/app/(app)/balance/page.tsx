@@ -16,6 +16,7 @@ import {
   periodoConAperturasParalelas,
 } from "@/lib/balance/agrupacion-aperturas";
 import { fmtDateTime } from "@/lib/format";
+import { estadoBalance } from "@/lib/balance/estado-balance";
 import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
@@ -40,7 +41,7 @@ export default async function BalancePage() {
       select: {
         _count: { select: { crucesComoCuenta: { where: { inconsistente: true } }, crucesComoTercero: { where: { inconsistente: true } } } },
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true,
-        esOficial: true, estado: true, completitud: true, ultimaCarga: true,
+        esOficial: true, estaCongelado: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
         archivosCargue: true,
       },
@@ -131,7 +132,7 @@ export default async function BalancePage() {
     const filas = filasPorPeriodo.get(claveP)!;
     let p = filas.get(claveFila);
     if (!p) {
-      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0, archivos };
+      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: estadoBalance(b), complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0, archivos };
       filas.set(claveFila, p);
       grupo.rows.push(p);
     }
@@ -139,7 +140,7 @@ export default async function BalancePage() {
     if (inconsistente) p.inconsistentes += 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna versión es oficial
     if (b.esOficial) {
-      p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
+      p.officialId = b.id; p.status = estadoBalance(b); p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
       p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del renglón
       p.archivos = archivos; // los archivos que se indican son los de la versión que abre el renglón
     }

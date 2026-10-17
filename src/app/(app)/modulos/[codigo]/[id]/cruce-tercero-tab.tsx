@@ -521,7 +521,7 @@ export function CruceTerceroTab({
     <div className="flex flex-col gap-4">
       <p className="text-[11.5px] text-ink-500">
         Lado contable: balance <b className="text-ink-700">{balance.descripcion}</b>
-        {balance.esOficial ? " · oficial" : ""}{balance.estaCongelado ? " · congelado" : ""}
+        {balance.esOficial ? " · oficial" : ""}{balance.estaCongelado ? " · cerrado" : ""}
         {cruceTercero.balanceTercero ? <> · detalle por tercero <b className="text-ink-700">{cruceTercero.balanceTercero.version}</b></> : null}
         {" · "}
         <Link href={`/balance/${balance.id}/terceros`} className="font-semibold text-blue-700 hover:underline">Ver por terceros</Link>

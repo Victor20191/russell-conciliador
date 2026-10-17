@@ -281,7 +281,7 @@ describe("Server Actions del prevalidador", () => {
 
     expect(resultado).toEqual({
       ok: false,
-      message: "El balance está congelado: no se puede cambiar su prevalidador.",
+      message: "El balance está cerrado: no se puede cambiar su prevalidador.",
     });
     expect(mocks.tomarCandadoTransaccion).toHaveBeenCalledTimes(2);
     expect(mocks.catalogoFindUnique).not.toHaveBeenCalled();

@@ -8,7 +8,7 @@ vi.mock("@/app/actions/balance", () => ({ freezeBalance: vi.fn() }));
 vi.stubGlobal("React", React);
 
 const traslado: TrasladoCierreVm = {
-  mensaje: "Esta versión conserva 3 cuentas en firme idénticas en saldo final y homologación. Al congelarla como oficial, el cierre de INV · 2025-12 (cargue #38, cerró Camilo Perez Rojo) pasará a esta versión.",
+  mensaje: "Esta versión conserva 3 cuentas en firme idénticas en saldo final y homologación. Al cerrarla, el cierre de INV · 2025-12 (cargue #38, cerró Camilo Perez Rojo) pasará a esta versión.",
   cierres: [{ modulo: "INV", periodo: "2025-12", cargue: 38, cerradoPor: "Camilo Perez Rojo" }],
   cuentasEnFirme: 3,
 };
@@ -16,7 +16,7 @@ const traslado: TrasladoCierreVm = {
 describe("FreezeBalanceButton", () => {
   it("sin conciliación en firme: el botón de siempre, sin confirmación de traslado", () => {
     const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216 }));
-    expect(html).toContain("Congelar como oficial");
+    expect(html).toContain("Cerrar balance");
     expect(html).not.toContain("confirmarTraslado");
     expect(html).not.toContain("trasladar");
   });
@@ -28,9 +28,9 @@ describe("FreezeBalanceButton", () => {
     expect(html).not.toContain("confirmarTraslado");
   });
 
-  it("con traslado: el clic abre un modal en vez de congelar directo (la confirmación no está en el HTML inicial)", () => {
+  it("con traslado: el clic abre un modal en vez de cerrar directo (la confirmación no está en el HTML inicial)", () => {
     const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216, traslado }));
-    expect(html).toContain("Congelar como oficial");
+    expect(html).toContain("Cerrar balance");
     expect(html).not.toContain("confirmarTraslado"); // el modal está cerrado hasta el clic
   });
 });

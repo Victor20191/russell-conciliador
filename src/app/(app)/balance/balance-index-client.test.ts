@@ -9,7 +9,7 @@ vi.mock("./cargar-balance-modal", () => ({ CargarBalanceButton: () => null }));
 vi.stubGlobal("React", React);
 
 const fila = (over: Partial<PeriodRow> & Pick<PeriodRow, "key" | "period">): PeriodRow => ({
-  versions: 1, officialId: 1, status: "Con alertas", complete: 100, lastUpload: "05/Sep/2026 12:31 p. m.",
+  versions: 1, officialId: 1, status: "En proceso con alertas", complete: 100, lastUpload: "05/Sep/2026 12:31 p. m.",
   mapped: 178, unmapped: 0, total: 178, apertura: "tercero", inconsistentes: 0, ...over,
 });
 

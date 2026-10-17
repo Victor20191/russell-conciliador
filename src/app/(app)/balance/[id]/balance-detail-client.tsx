@@ -739,7 +739,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
           </p>
           <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-700">
             {accion === "pendiente" ? (
-              <>La dejas <span className="font-semibold">sin estándar a propósito</span> en vez de homologarla ahora. Sigue contando como sin homologar (bloquea congelar/aprobar/conciliar igual que hoy) pero queda marcada con un badge propio, y la próxima carga NO intentará auto-mapearla.</>
+              <>La dejas <span className="font-semibold">sin estándar a propósito</span> en vez de homologarla ahora. Sigue contando como sin homologar (bloquea cerrar/aprobar/conciliar igual que hoy) pero queda marcada con un badge propio, y la próxima carga NO intentará auto-mapearla.</>
             ) : (
               <>Vuelve a estar <span className="font-semibold">sin mapeo normal</span>: la próxima carga podrá auto-homologarla con la cascada, o puedes asignarla a mano.</>
             )}

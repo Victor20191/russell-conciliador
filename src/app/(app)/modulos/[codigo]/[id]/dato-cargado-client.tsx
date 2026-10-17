@@ -2567,8 +2567,8 @@ function CruceContableTab({
             balance {cruceContable.balanceFuente.descripcion}
           </Link>
           {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
-            ? " · oficial y congelado"
-            : cruceContable.balanceFuente.esOficial ? " · oficial" : " · sin congelar"}
+            ? " · oficial y cerrado"
+            : cruceContable.balanceFuente.esOficial ? " · oficial" : " · en proceso"}
           {cruceContable.bloqueo ? "" : " · prevalidador aprobado"}
           .
         </p>
@@ -3722,7 +3722,7 @@ function ConciliacionEnFirmePanel({
         >
           <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
             <p>
-              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar o congelar un balance con la misma fecha fin que cambie su saldo final y cambiar su homologación. La justificación queda en la bitácora de auditoría.
+              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar o cerrar un balance con la misma fecha fin que cambie su saldo final y cambiar su homologación. La justificación queda en la bitácora de auditoría.
             </p>
             <label className="flex flex-col gap-1">
               <span className="text-[11.5px] font-semibold text-ink-600">Justificación (obligatoria, mínimo {MIN_JUSTIFICACION_DESBLOQUEO} caracteres)</span>

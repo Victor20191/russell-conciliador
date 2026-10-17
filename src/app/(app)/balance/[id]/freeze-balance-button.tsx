@@ -8,7 +8,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { freezeBalance } from "@/app/actions/balance";
 
-/** Lo que el botón necesita saber cuando congelar traslada el cierre de una conciliación en firme. */
+/** Lo que el botón necesita saber cuando cerrar el balance traslada el cierre de una conciliación en firme. */
 export type TrasladoCierreVm = {
   mensaje: string;
   cierres: { modulo: string; periodo: string; cargue: number; cerradoPor: string }[];
@@ -41,7 +41,8 @@ export function ContenidoTrasladoCierre({ traslado }: { traslado: TrasladoCierre
 const CLASE_BOTON = "inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 
 /**
- * Congelar como oficial. Tres formas según el período:
+ * «Cerrar balance» (antes «Congelar como oficial»): lo deja cerrado y como la versión oficial del
+ * período. Tres formas según el período:
  *  - sin conciliación en firme (o el cierre ya apunta a este balance): un clic, como siempre;
  *  - con cierre ajeno y cuentas en firme idénticas (`traslado`): el clic abre un modal que
  *    explica el traslado y confirma con `confirmarTraslado=1` — la acción lo exige;
@@ -64,10 +65,10 @@ export function FreezeBalanceButton({
     return (
       <div className="flex flex-col items-end gap-1">
         <button type="button" disabled title={bloqueo} className={CLASE_BOTON}>
-          <Icon name="check" size={14} /> Congelar como oficial
+          <Icon name="check" size={14} /> Cerrar balance
         </button>
         <span className="max-w-xs text-right text-[11px] text-err-700">
-          Esta versión altera cuentas en firme; no se puede congelar sin desbloquear la conciliación.
+          Esta versión altera cuentas en firme; no se puede cerrar sin desbloquear la conciliación.
         </span>
       </div>
     );
@@ -76,8 +77,8 @@ export function FreezeBalanceButton({
   const formulario = (confirmarTraslado: boolean, etiqueta: string) => (
     <ActionForm
       action={freezeBalance}
-      successMessage="Balance congelado como oficial."
-      errorMessage="No se pudo congelar el balance."
+      successMessage="Balance cerrado: queda como la versión oficial del período."
+      errorMessage="No se pudo cerrar el balance."
       showInlineError={false}
       onSuccess={() => {
         setAbierto(false);
@@ -89,25 +90,25 @@ export function FreezeBalanceButton({
           <input type="hidden" name="id" value={id} />
           {confirmarTraslado && <input type="hidden" name="confirmarTraslado" value="1" />}
           <button type="submit" disabled={pending} className={CLASE_BOTON}>
-            <Icon name="check" size={14} /> {pending ? <EstadoProcesando>Congelando</EstadoProcesando> : etiqueta}
+            <Icon name="check" size={14} /> {pending ? <EstadoProcesando>Cerrando</EstadoProcesando> : etiqueta}
           </button>
         </>
       )}
     </ActionForm>
   );
 
-  if (!traslado) return formulario(false, "Congelar como oficial");
+  if (!traslado) return formulario(false, "Cerrar balance");
 
   return (
     <>
       <button type="button" onClick={() => setAbierto(true)} className={CLASE_BOTON}>
-        <Icon name="check" size={14} /> Congelar como oficial
+        <Icon name="check" size={14} /> Cerrar balance
       </button>
       <Modal
         open={abierto}
         onClose={() => setAbierto(false)}
-        title="Congelar como oficial · conciliación en firme"
-        footer={formulario(true, "Congelar y trasladar el cierre")}
+        title="Cerrar balance · conciliación en firme"
+        footer={formulario(true, "Cerrar y trasladar el cierre")}
       >
         <ContenidoTrasladoCierre traslado={traslado} />
       </Modal>

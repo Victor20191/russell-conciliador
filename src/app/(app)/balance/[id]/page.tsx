@@ -19,6 +19,7 @@ import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
 import { DescongelarBalanceButton } from "./descongelar-balance-button";
 import { quedoDescongelado } from "@/lib/balance/descongelar";
+import { estadoBalance, tonoEstadoBalance } from "@/lib/balance/estado-balance";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
@@ -162,7 +163,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const puedeCongelar = revisarAuth.ok;
   const puedeHomologar = revisarAuth.ok && !balance.estaCongelado;
   const puedeMapear = mapearAuth.ok && !balance.estaCongelado;
-  // Descongelada para corregirla y aún sin volver a congelar: aviso arriba y chip en el encabezado.
+  // En proceso, en proceso con alertas o cerrado: el mismo rótulo del índice de /balance.
+  const estado = estadoBalance(balance);
+  // Abierto para corregirlo y aún sin volver a cerrar: aviso arriba con quién y por qué.
   const descongelada = quedoDescongelado(balance);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
@@ -284,10 +287,10 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 montoFueraDeClase={montoFueraDeClase}
               />
             )}
+            <Chip label={estado} tone={tonoEstadoBalance(estado)} />
             {!balance.estaCongelado && puedeCongelar && (
               <FreezeBalanceButton id={id} traslado={trasladoCongelar} bloqueo={bloqueoCongelar} />
             )}
-            {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
             {balance.estaCongelado && puedeCongelar && (
               <DescongelarBalanceButton
                 id={id}
@@ -296,7 +299,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 cierres={cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor }))}
               />
             )}
-            {descongelada && <Chip label="Descongelado" tone="warn" />}
             {eliminarAuth.ok && (
               <EliminarBalanceButton
                 balanceId={id}
@@ -319,7 +321,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
       <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-500">
         <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> {meta.uploadedBy} · {meta.uploadedAt}</span>
-        {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Congelada por {meta.frozenBy} · {meta.frozenAt}</span>}
+        {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Cerrado por {meta.frozenBy} · {meta.frozenAt}</span>}
         <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
         {/* Apertura declarada al cargar. Los balances anteriores a este dato no la pintan. */}
         {parsearApertura(balance.aperturaBalance) && (
@@ -343,11 +345,11 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         <div role="status" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warn-500 bg-warn-100/40 px-3 py-2 text-[12.5px] text-warn-700">
           <Icon name="edit" size={13} />
           <span>
-            Descongelada por <b>{balance.descongeladoPor ?? "—"}</b> el {balance.descongeladoEn ? fmtDateTime(balance.descongeladoEn) : "—"} para corregirla
+            Abierto por <b>{balance.descongeladoPor ?? "—"}</b> el {balance.descongeladoEn ? fmtDateTime(balance.descongeladoEn) : "—"} para corregirlo
             {balance.motivoDescongelado ? <>: «{balance.motivoDescongelado}»</> : null}.
           </span>
           <span className="font-semibold">
-            Cuando termines, vuelve a congelarla{balance.esOficial ? " (sigue siendo la versión oficial)" : ""}.
+            Cuando termines, vuelve a cerrarlo{balance.esOficial ? " (sigue siendo la versión oficial)" : ""}.
           </span>
         </div>
       )}
@@ -382,7 +384,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
       {!sums && (
         <div className="rounded-lg border border-ink-150 bg-white p-6 text-[13px] text-ink-500">
-          Esta versión no tiene detalle contable cargado. El detalle completo está en la versión oficial congelada.
+          Esta versión no tiene detalle contable cargado. El detalle completo está en la versión oficial cerrada.
           {/* Sin detalle no se monta el detalle (ni su pestaña «Versiones»): sin
               esta salida, la versión sería un callejón sin salida. */}
           {versionOficialId != null && versionOficialId !== id && (

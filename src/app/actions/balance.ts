@@ -68,7 +68,7 @@ import {
   registrarIntentoBloqueado,
 } from "@/lib/conciliacion/verificar-bloqueo";
 import { decidirCongelarConCierres, diferenciasTerceroEnFirme, mensajeConciliacionEnFirme, mensajeTrasladoCierre, validarJustificacionDesbloqueo, type CambioHomologacion, type FilaTerceroEnFirme } from "@/lib/conciliacion/cuentas-bloqueo";
-import { ESTADO_DESCONGELADO } from "@/lib/balance/descongelar";
+import { ESTADO_CERRADO, estadoEnProceso } from "@/lib/balance/estado-balance";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
@@ -1186,7 +1186,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       if (balance.estaCongelado) {
         return {
           ok: true as const,
-          message: "El balance ya estaba congelado.",
+          message: "El balance ya estaba cerrado.",
           balance,
           congelado: false,
         };
@@ -1253,7 +1253,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
               if (!conciliadas) continue; // el balance conciliado no tenía detalle por tercero
               const enFirmeDelCierre = new Set(bloqueadas.filter((b) => b.cierre.id === c.id).map((b) => b.cuenta8));
               if (!nuevas) {
-                return { ok: false as const, message: `${mensajeConciliacionEnFirme([c])} Esta versión no conserva el detalle por tercero con que se concilió ${c.moduloCodigo}: no se puede congelar.`, bloqueadoPor: [c], balance };
+                return { ok: false as const, message: `${mensajeConciliacionEnFirme([c])} Esta versión no conserva el detalle por tercero con que se concilió ${c.moduloCodigo}: no se puede cerrar.`, bloqueadoPor: [c], balance };
               }
               const difieren = diferenciasTerceroEnFirme(enFirmeDelCierre, conciliadas, nuevas);
               if (difieren.length > 0) {
@@ -1271,7 +1271,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           if (formData.get("confirmarTraslado") !== "1") {
             return {
               ok: false as const,
-              message: `${mensajeTrasladoCierre(cierresAjenos, decision.cuentasEnFirme)} Confírmalo desde «Congelar como oficial».`,
+              message: `${mensajeTrasladoCierre(cierresAjenos, decision.cuentasEnFirme)} Confírmalo desde «Cerrar balance».`,
               balance,
             };
           }
@@ -1287,35 +1287,35 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       if (contextoPrevalidador.prevalidador.estado === "sin_catalogo") {
         return {
           ok: false as const,
-          message: "No se puede congelar: el prevalidador no tiene cuentas activas configuradas.",
+          message: "No se puede cerrar el balance: el prevalidador no tiene cuentas activas configuradas.",
         };
       }
       if (contextoPrevalidador.prevalidador.estado === "bloqueado") {
         return {
           ok: false as const,
-          message: `No se puede congelar: quedan ${contextoPrevalidador.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar en el prevalidador.`,
+          message: `No se puede cerrar el balance: quedan ${contextoPrevalidador.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar en el prevalidador.`,
         };
       }
       if (contextoPrevalidador.prevalidador.estado === "no_disponible") {
         return {
           ok: false as const,
-          message: `No se puede congelar: ${contextoPrevalidador.prevalidador.mensaje}`,
+          message: `No se puede cerrar el balance: ${contextoPrevalidador.prevalidador.mensaje}`,
         };
       }
       if (contextoPrevalidador.prevalidador.estado !== "listo") {
-        return { ok: false as const, message: "No se puede congelar: el prevalidador no está listo." };
+        return { ok: false as const, message: "No se puede cerrar el balance: el prevalidador no está listo." };
       }
 
       const revision = contextoPrevalidador.revision;
       if (!revision.vigente) {
         const message =
           revision.estado === "pendiente"
-            ? "No se puede congelar: el prevalidador todavía no ha sido aprobado."
+            ? "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado."
             : revision.estado === "revocada"
-              ? "No se puede congelar: la aprobación del prevalidador fue revocada."
+              ? "No se puede cerrar el balance: la aprobación del prevalidador fue revocada."
               : revision.estado === "desactualizada"
-                ? "No se puede congelar: la aprobación del prevalidador está desactualizada. Vuelve a revisarlo y aprobarlo."
-                : "No se puede congelar: el prevalidador no tiene una aprobación vigente.";
+                ? "No se puede cerrar el balance: la aprobación del prevalidador está desactualizada. Vuelve a revisarlo y aprobarlo."
+                : "No se puede cerrar el balance: el prevalidador no tiene una aprobación vigente.";
         return { ok: false as const, message };
       }
 
@@ -1329,7 +1329,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
         data: {
           esOficial: true,
           estaCongelado: true,
-          estado: "Congelado",
+          estado: ESTADO_CERRADO,
           congeladoPor: user?.name ?? "Sistema",
           congeladoEn: new Date(),
           // Si se había descongelado para corregirla, el aviso desaparece (la historia queda en la auditoría).
@@ -1360,8 +1360,8 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       return {
         ok: true as const,
         message: traslado
-          ? "Balance congelado como oficial. El cierre de la conciliación pasó a esta versión."
-          : "Balance congelado como oficial.",
+          ? "Balance cerrado: queda como la versión oficial del período. El cierre de la conciliación pasó a esta versión."
+          : "Balance cerrado: queda como la versión oficial del período.",
         balance,
         congelado: true,
         traslado,
@@ -1373,7 +1373,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
         await registrarIntentoBloqueado({
           clienteId: resultado.balance.clienteId,
           entidad: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
-          operacion: `Congelar la versión ${resultado.balance.version} como oficial`,
+          operacion: `Cerrar la versión ${resultado.balance.version} como oficial`,
           cierres: resultado.bloqueadoPor,
         });
       }
@@ -1383,14 +1383,14 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
 
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: "CONGELÓ BALANCE",
+      action: "CERRÓ BALANCE",
       entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
       detail: `Versión ${resultado.balance.version} marcada como oficial`,
       clientId: resultado.balance.clienteId,
     });
     await createProcessNotification({
       actor: user?.name,
-      text: "congeló el balance oficial de",
+      text: "cerró el balance oficial de",
       target: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo} · ${resultado.balance.version}`,
     });
     if ("traslado" in resultado && resultado.traslado) {
@@ -1417,12 +1417,14 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
 }
 
 /**
- * DESCONGELA un balance para corregirlo (4/Oct/2026). Lo puede hacer quien puede congelar
- * (`balance:revisar`: el senior asignado o un administrador) y exige una justificación. Solo baja la bandera: la
- * versión conserva su condición de oficial, su detalle y su aprobación del prevalidador (la huella no
- * incluye el congelado); los cierres de conciliación no se tocan y sus cuentas en firme siguen
- * protegidas por su propio guard. Cuando termine de corregirla, el usuario la vuelve a congelar
- * (`freezeBalance`, que exige otra vez el prevalidador vigente y limpia la marca de descongelado).
+ * «Abrir balance» (antes «Descongelar», 4/Oct/2026; renombrado el 17/Oct/2026): abre un balance
+ * cerrado para corregirlo. Lo puede hacer quien puede cerrarlo (`balance:revisar`: el senior asignado
+ * o un administrador) y exige una justificación. Solo baja la bandera y lo devuelve a «En proceso»
+ * (con alertas si su validación las tiene): la versión conserva su condición de oficial, su detalle y
+ * su aprobación del prevalidador (la huella no incluye el cerrado); los cierres de conciliación no se
+ * tocan y sus cuentas en firme siguen protegidas por su propio guard. Cuando termine de corregirla,
+ * el usuario la vuelve a cerrar (`freezeBalance`, que exige otra vez el prevalidador vigente y limpia
+ * la marca de abierto).
  */
 export async function descongelarBalance(input: { id: number; justificacion: string }): Promise<ActionState> {
   const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
@@ -1436,18 +1438,37 @@ export async function descongelarBalance(input: { id: number; justificacion: str
 
   try {
     const user = await getCurrentUser();
+    // Vuelve a «En proceso», con alertas si su validación las tiene hoy (mismo conteo que al
+    // confirmar el cargue). El detalle de un balance cerrado no cambia, así que se calcula antes.
+    const [detalle, cuentasEstandar, umbrales] = await Promise.all([
+      prisma.balancePruebaDetalle.findMany({
+        where: { encabezadoId: id },
+        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      }),
+      getCuentasEstandar(),
+      getUmbralesAlertas(),
+    ]);
+    const alertas = reconstruirBalance(
+      detalle.map((f) => ({
+        cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+      })),
+      cuentasEstandar,
+      umbrales,
+    ).validations.filter((v) => v.status === "warn").length;
+
     const resultado = await transaccionSerializable(async (tx) => {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!referencia) return { ok: false as const, message: "Balance inexistente." };
 
-      // Los mismos candados, en el mismo orden, que congelar: no se cruza con un congelado, una
+      // Los mismos candados, en el mismo orden, que cerrar: no se cruza con un cierre, una
       // edición del balance ni un cambio del catálogo del prevalidador concurrentes.
       await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
       await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
 
       const balance = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!balance) return { ok: false as const, message: "Balance inexistente." };
-      if (!balance.estaCongelado) return { ok: true as const, message: "El balance ya estaba descongelado.", balance, descongelado: false };
+      if (!balance.estaCongelado) return { ok: true as const, message: "El balance ya estaba abierto.", balance, descongelado: false };
 
       // Solo para informar: las cuentas que estos cierres dejaron en firme siguen bloqueadas.
       const cierres = await cierresFirmes(balance.clienteId, balance, tx);
@@ -1455,14 +1476,14 @@ export async function descongelarBalance(input: { id: number; justificacion: str
         where: { id },
         data: {
           estaCongelado: false,
-          estado: ESTADO_DESCONGELADO,
+          estado: estadoEnProceso(alertas),
           descongeladoPor: user?.name ?? "Sistema",
           descongeladoPorId: user?.id ?? null,
           descongeladoEn: new Date(),
           motivoDescongelado: validacion.justificacion,
         },
       });
-      return { ok: true as const, message: "Balance descongelado. Cuando termines de corregirlo, vuelve a congelarlo.", balance, descongelado: true, cierres };
+      return { ok: true as const, message: "Balance abierto: queda en proceso. Cuando termines de corregirlo, vuelve a cerrarlo.", balance, descongelado: true, cierres };
     });
 
     if (!resultado.ok) return { ok: false, message: resultado.message };
@@ -1475,14 +1496,14 @@ export async function descongelarBalance(input: { id: number; justificacion: str
       : "";
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: "DESCONGELÓ BALANCE",
+      action: "ABRIÓ BALANCE",
       entity: `${balance.nombreCliente} · ${balance.periodo}`,
       detail: `Versión ${balance.version}${balance.esOficial ? " (oficial)" : ""}${enFirme} · Justificación: ${validacion.justificacion}`,
       clientId: balance.clienteId,
     });
     await createProcessNotification({
       actor: user?.name,
-      text: "descongeló el balance de",
+      text: "abrió el balance de",
       target: `${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`,
     });
     revalidatePath("/", "layout");
@@ -1545,7 +1566,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
     if (fila.encabezado.estaCongelado) {
-      return { ok: false, message: "No se puede homologar una cuenta de un balance congelado." };
+      return { ok: false, message: "No se puede homologar una cuenta de un balance cerrado." };
     }
 
     // La cuenta estándar debe existir (es de 6 dígitos = nivel 6 del plan).
@@ -1594,7 +1615,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         };
       }
       if (filaActual.encabezado.estaCongelado) {
-        return { ok: false as const, message: "No se puede homologar una cuenta de un balance congelado." };
+        return { ok: false as const, message: "No se puede homologar una cuenta de un balance cerrado." };
       }
       // Conciliación EN FIRME: ni tocar una cuenta conciliada ni homologar una cuenta
       // nueva hacia las cuentas Russell de un módulo cerrado en este período.
@@ -1746,7 +1767,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
     const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
     if (fila.encabezado.estaCongelado) {
-      return { ok: false, message: "No se puede modificar el mapeo de un balance congelado." };
+      return { ok: false, message: "No se puede modificar el mapeo de un balance cerrado." };
     }
 
     const user = await getCurrentUser();
@@ -1781,7 +1802,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
         };
       }
       if (filaActual.encabezado.estaCongelado) {
-        return { ok: false as const, message: "No se puede modificar el mapeo de un balance congelado." };
+        return { ok: false as const, message: "No se puede modificar el mapeo de un balance cerrado." };
       }
       // Conciliación EN FIRME: dejar pendiente retira la homologación de la cuenta.
       const bloqueoFirme = await bloqueoHomologacionBalance({
@@ -2007,7 +2028,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
       return { ok: false as const, message: "El balance cambió mientras se preparaba la operación. Vuelve a intentarlo." };
     }
     if (encabezado.estaCongelado) {
-      return { ok: false as const, message: "No se puede re-homologar un balance congelado." };
+      return { ok: false as const, message: "No se puede re-homologar un balance cerrado." };
     }
 
     const [configRows, detalles] = await Promise.all([
@@ -2172,7 +2193,7 @@ export async function reaplicarMapeoBalancesCliente(formData: FormData): Promise
     ]);
     const congelados = encabezados.filter((e) => e.estaCongelado).length;
     const objetivo = encabezados.filter((e) => !e.estaCongelado);
-    const notaCongelados = congelados > 0 ? ` ${congelados} balance(s) congelado(s) no se modifican.` : "";
+    const notaCongelados = congelados > 0 ? ` ${congelados} balance(s) cerrado(s) no se modifican.` : "";
     if (objetivo.length === 0) {
       return {
         ok: true,
@@ -2212,7 +2233,7 @@ export async function reaplicarMapeoBalancesCliente(formData: FormData): Promise
         user: user?.name ?? "Sistema",
         action: "RE-HOMOLOGÓ BALANCES DEL CLIENTE",
         entity: String(clienteId),
-        detail: `${objetivo.length} balance(s) revisado(s) · ${conCambios} con cambios · ${rehomologadas} re-homologada(s) · ${retiradas} mapeo(s) fuera de clase retirado(s)${congelados > 0 ? ` · ${congelados} congelado(s) omitido(s)` : ""}${fallidos.length > 0 ? ` · ${fallidos.length} con error` : ""}`,
+        detail: `${objetivo.length} balance(s) revisado(s) · ${conCambios} con cambios · ${rehomologadas} re-homologada(s) · ${retiradas} mapeo(s) fuera de clase retirado(s)${congelados > 0 ? ` · ${congelados} cerrado(s) omitido(s)` : ""}${fallidos.length > 0 ? ` · ${fallidos.length} con error` : ""}`,
         clientId: clienteId,
       });
     }
@@ -2756,7 +2777,8 @@ async function persistirCargue(p: {
       select: { id: true, version: true },
     });
     const version = siguienteVersionCargue(previas.map((v) => v.version));
-    const status = alertas > 0 ? "Con alertas" : previas.length > 0 ? "Última" : "Única";
+    // Recién confirmado queda «En proceso» (con alertas si la validación las encontró) hasta que lo cierren.
+    const status = estadoEnProceso(alertas);
 
     // Comparativo contra la versión previa (solo el conteo de cambios; el diff
     // completo se recalcula al abrir la pantalla de diff).
@@ -5642,7 +5664,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
     const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
-    if (fila.encabezado.estaCongelado) return { ok: false, message: "El balance está congelado: no se pueden eliminar cuentas." };
+    if (fila.encabezado.estaCongelado) return { ok: false, message: "El balance está cerrado: no se pueden eliminar cuentas." };
 
     const user = await getCurrentUser();
     await asegurarPerfilBaseCliente(fila.encabezado.clienteId, user?.name ?? null);
@@ -5680,7 +5702,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
         };
       }
       if (filaActual.encabezado.estaCongelado) {
-        return { ok: false as const, message: "El balance está congelado: no se pueden eliminar cuentas." };
+        return { ok: false as const, message: "El balance está cerrado: no se pueden eliminar cuentas." };
       }
       // Conciliación EN FIRME: una cuenta conciliada no se elimina de ninguna versión del período.
       const bloqueoFirme = await bloqueoHomologacionBalance({

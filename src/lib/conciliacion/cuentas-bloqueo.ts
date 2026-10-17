@@ -532,7 +532,7 @@ export function decidirCongelarConCierres(p: {
   return { tipo: "traslado", cierres: ajenos, cuentasEnFirme };
 }
 
-/** Texto único —modal y auditoría— del traslado del cierre a la versión que se congela. */
+/** Texto único —modal y auditoría— del traslado del cierre a la versión que se cierra. */
 export function mensajeTrasladoCierre(
   cierres: readonly Pick<CierreParaCongelar, "moduloCodigo" | "periodo" | "moduloDatoEncabezadoId" | "cerradoPor">[],
   cuentasEnFirme: number,
@@ -541,7 +541,7 @@ export function mensajeTrasladoCierre(
     .map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId}, cerró ${c.cerradoPor})`)
     .join("; ");
   const plural = cuentasEnFirme === 1 ? "cuenta en firme idéntica" : "cuentas en firme idénticas";
-  return `Esta versión conserva ${cuentasEnFirme} ${plural} en saldo final y homologación. Al congelarla como oficial, el cierre de ${lista} pasará a esta versión.`;
+  return `Esta versión conserva ${cuentasEnFirme} ${plural} en saldo final y homologación. Al cerrarla, el cierre de ${lista} pasará a esta versión.`;
 }
 
 /** Validación de la justificación del desbloqueo (obligatoria). */

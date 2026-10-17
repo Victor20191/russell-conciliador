@@ -687,11 +687,13 @@ model BalancePruebaEncabezado {
   periodo                  String    @map("periodo") // display, p. ej. "Enero 2026"
   periodoInicio            DateTime  @map("periodo_inicio") @db.Date
   periodoFin               DateTime  @map("periodo_fin") @db.Date
-  // Versionado (un oficial por cliente/período; congelado bloquea edición).
+  // Versionado (un oficial por cliente/período; cerrado bloquea edición). En pantalla
+  // `estaCongelado` es «Cerrar balance» / «Abrir balance» (17/Oct/2026).
   version                  String    @map("version")
   esOficial                Boolean   @default(false) @map("es_oficial")
   estaCongelado            Boolean   @default(false) @map("esta_congelado")
-  estado                   String    @default("Única") @map("estado")
+  // «En proceso» | «En proceso con alertas» | «Cerrado» (`src/lib/balance/estado-balance.ts`).
+  estado                   String    @default("En proceso") @map("estado")
   completitud              Int       @default(100) @map("completitud")
   // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
   archivo                  String?   @map("archivo")

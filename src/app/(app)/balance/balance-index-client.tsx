@@ -11,6 +11,7 @@ import {
 } from "@/components/pagination-controls";
 import { Card, Chip } from "@/components/ui";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
+import { tonoEstadoBalance } from "@/lib/balance/estado-balance";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
@@ -61,12 +62,8 @@ export type AuditRow = {
 
 type Tab = "clients" | "audit";
 
-function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
-  if (s === "Congelado") return "blue";
-  // Descongelada para corregirla: falta volver a congelarla (4/Oct/2026).
-  if (s === "Con alertas" || s === "Descongelado") return "warn";
-  return "ink";
-}
+// En proceso / en proceso con alertas / cerrado (17/Oct/2026): el loader ya traduce los rótulos viejos.
+const statusTone = tonoEstadoBalance;
 
 function normalizarBusqueda(valor: string) {
   return valor

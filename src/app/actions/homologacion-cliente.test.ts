@@ -465,7 +465,7 @@ describe("guardarHomologacionCliente / consultarImpactoHomologacionCliente", () 
     });
     const r = await guardarHomologacionCliente(undefined, form({ clienteId: "7", cuentaCliente: "1105050001", codigo: "110505", alcance: "solo", aplicarExistentes: "1" }));
     expect(r.ok).toBe(true);
-    expect(r.message).toContain("1 balance(s) congelado(s)");
+    expect(r.message).toContain("1 balance(s) cerrado(s)");
     expect(mocks.state.detalles[0].cuenta6Russell).toBe("999999");
     expect(mocks.dbMock.balancePruebaDetalle.updateMany).not.toHaveBeenCalled();
   });
@@ -585,7 +585,7 @@ describe("guardarHomologacionCliente / consultarImpactoHomologacionCliente", () 
     expect(resultado.ok).toBe(true);
     expect(mocks.state.detalles.find((d) => d.id === 1)?.cuenta6Russell).toBe("110505");
     expect(mocks.state.detalles.find((d) => d.id === 2)?.cuenta6Russell).toBe("999999"); // congelado, intacto
-    if (resultado.ok) expect(resultado.message).toContain("1 balance(s) congelado(s)");
+    if (resultado.ok) expect(resultado.message).toContain("1 balance(s) cerrado(s)");
   });
 
   it("aísla por cliente: no toca datos de otro cliente (tenant isolation)", async () => {

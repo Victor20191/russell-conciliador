@@ -124,6 +124,9 @@ export type ResumenUsoFactual = {
 const PREFIJOS_BALANCE = [
   "CARGÓ BALANCE",
   "CONGELÓ BALANCE",
+  // «Cerrar balance» / «Abrir balance» desde el 17/Oct/2026 (antes congelar/descongelar).
+  "CERRÓ BALANCE",
+  "ABRIÓ BALANCE",
   "ASIGNÓ CUENTA ESTÁNDAR",
   "DESCARTÓ BORRADOR",
   "GUARDÓ cambios en balance",

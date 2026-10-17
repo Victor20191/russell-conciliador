@@ -212,7 +212,7 @@ export async function guardarHomologacionCliente(
     if (aplicarExistentes) {
       partesDetalle.push(`${resultado.encabezadosActualizados} balance(s)/${resultado.filasActualizadas} fila(s) migrado(s)`);
       if (resultado.filasTerceroActualizadas > 0) partesDetalle.push(`${resultado.filasTerceroActualizadas} fila(s) de tercero`);
-      if (resultado.congelados > 0) partesDetalle.push(`${resultado.congelados} balance(s) congelado(s) omitido(s)`);
+      if (resultado.congelados > 0) partesDetalle.push(`${resultado.congelados} balance(s) cerrado(s) omitido(s)`);
     } else {
       partesDetalle.push("solo memoria (sin migrar balances ya cargados)");
     }
@@ -234,7 +234,7 @@ export async function guardarHomologacionCliente(
     const mensaje = aplicarExistentes
       ? `${resultado.encabezadosActualizados} balance(s) (${resultado.filasActualizadas} fila(s)) actualizados a ${codigo}.` +
         (resultado.congelados > 0
-          ? ` ${resultado.congelados} balance(s) congelado(s) no se modificaron.`
+          ? ` ${resultado.congelados} balance(s) cerrado(s) no se modificaron.`
           : "") +
         " Se recordará para las próximas cargas del cliente."
       : `Regla guardada para las próximas cargas del cliente (${codigoMemoria} → ${codigo}). No se modificó ningún balance ya cargado.`;

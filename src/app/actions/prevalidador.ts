@@ -206,7 +206,7 @@ export async function guardarCuentaClientePrevalidador(formData: FormData): Prom
       await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
       const balance = await cargarBalanceConCandado(tx, balanceId);
       if (balance.estaCongelado) {
-        throw new ErrorDominioPrevalidador("El balance está congelado: no se puede cambiar su prevalidador.");
+        throw new ErrorDominioPrevalidador("El balance está cerrado: no se puede cambiar su prevalidador.");
       }
 
       const fila = await tx.prevalidadorCuenta.findUnique({
@@ -301,7 +301,7 @@ export async function restablecerCuentaClientePrevalidador(formData: FormData): 
       await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
       const balance = await cargarBalanceConCandado(tx, balanceId);
       if (balance.estaCongelado) {
-        throw new ErrorDominioPrevalidador("El balance está congelado: no se puede cambiar su prevalidador.");
+        throw new ErrorDominioPrevalidador("El balance está cerrado: no se puede cambiar su prevalidador.");
       }
       const fila = await tx.prevalidadorCuenta.findUnique({
         where: { id: catalogoId },
