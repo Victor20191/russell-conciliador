@@ -57,8 +57,12 @@ async function leerUmbrales(): Promise<UmbralesAlertas> {
  * borrador y del balance, las rutas de exportación y las Server Actions que
  * recalculan validaciones o diagnósticos.
  */
-export function getUmbralesAlertas(): Promise<UmbralesAlertas> {
-  return unstable_cache(leerUmbrales, ["umbrales-alertas-vigentes"], { tags: [UMBRALES_CACHE_TAG] })();
+export async function getUmbralesAlertas(): Promise<UmbralesAlertas> {
+  // La llave lleva las claves del catálogo: el Data Cache sobrevive a reinicios y despliegues, y
+  // una entrada guardada antes de sumar un umbral (17/Oct/2026: `cedula_modulos`) llegaba sin él y
+  // vaciaba la cédula de los módulos. Lo que aun así falte se completa con el valor de fábrica.
+  const cacheados = await unstable_cache(leerUmbrales, ["umbrales-alertas-vigentes", ...CLAVES_UMBRAL], { tags: [UMBRALES_CACHE_TAG] })();
+  return { ...UMBRALES_ALERTAS_DEFECTO, ...cacheados };
 }
 
 export type UmbralVista = {
