@@ -79,6 +79,8 @@ describe("importe con su divisa escrita en la celda (SAP en Redplas)", () => {
   it("sin TRM queda como excepción que pide la TRM", () => {
     const r = transformarModulo(CXP, sugerirSpec(CXP, h), h);
     expect(r.excepciones.map((e) => e.mensaje)).toEqual([expect.stringContaining("Indica la TRM de cierre")]);
+    // La carga se detiene con esto: pide la TRM en vez de dejar el importe fuera en silencio.
+    expect(r.importesSinTrm).toHaveLength(1);
   });
 });
 
@@ -126,6 +128,7 @@ describe("rangos de edades con su divisa escrita (CxP de Redplas, deuda en negat
     const [, giro1] = movimientos(r);
     expect(giro1.familias?.edades?.["31 - 60"]).toBe(0);
     expect(r.excepciones.map((e) => e.mensaje)).toContain("Importe en moneda extranjera sin convertir en «31 - 60»: USD (27,001.00). Indica la TRM de cierre para convertirlo a pesos.");
+    expect(r.importesSinTrm).toContainEqual({ filaNum: expect.any(Number), columna: "31 - 60", texto: "USD (27,001.00)" });
   });
 
   it("en una hoja que ya está en divisa no convierte dos veces", () => {

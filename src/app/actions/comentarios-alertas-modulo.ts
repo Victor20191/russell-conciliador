@@ -10,12 +10,40 @@ import { logAudit } from "@/lib/audit";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fmt } from "@/lib/format";
 import type { ActionState } from "@/lib/definitions";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { alertasQueExigenComentario, esTipoAlertaComentario, validarComentarioAlerta } from "@/lib/modulos/comentarios-alertas";
-import { filasValidablesDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  alertasQueExigenComentario,
+  alertasTerceroQueExigenComentario,
+  contarAlerta,
+  esTipoAlertaComentario,
+  validarComentarioAlerta,
+  type AlertaComentable,
+  type TipoAlertaComentario,
+} from "@/lib/modulos/comentarios-alertas";
+import { cargarValidacionesTercero, filasValidablesDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { autorizarComentarioAlertaModulo, exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
 
 const OPERACION = "comentar las alertas del archivo";
+
+/**
+ * Las alertas del cargue tal como están hoy, recalculadas en el servidor. En Cartera y CxP salen del
+ * auxiliar por tercero; solo el saldo contrario necesita el cruce por tercero (el balance), así que
+ * solo para él se calcula.
+ */
+async function alertasActuales(descriptor: DescriptorModulo, encabezadoId: number, tipo: TipoAlertaComentario): Promise<AlertaComentable[]> {
+  if (!descriptor.crucePorTercero.detalleTercero) {
+    return alertasQueExigenComentario(descriptor, await filasValidablesDelCargue(encabezadoId));
+  }
+  let cruce = null;
+  if (tipo === "saldo_contrario_tercero") {
+    const insumos = await cargarInsumosCruceModulo(encabezadoId);
+    if (insumos) cruce = (await cruceTerceroDeCargue(insumos, await construirCruceContableModulo(insumos)))?.resumen ?? null;
+  }
+  const validaciones = await cargarValidacionesTercero(descriptor, encabezadoId, cruce);
+  return validaciones ? alertasTerceroQueExigenComentario(descriptor, validaciones) : [];
+}
 
 export async function guardarComentarioAlerta(input: { encabezadoId: number; tipo: string; comentario: string }): Promise<ActionState> {
   if (!Number.isSafeInteger(input.encabezadoId)) return { ok: false, message: "Cargue inválido." };
@@ -41,7 +69,7 @@ export async function guardarComentarioAlerta(input: { encabezadoId: number; tip
 
   try {
     // La alerta se recalcula del detalle en el servidor: lo que se congela es lo que hay hoy.
-    const alerta = alertasQueExigenComentario(descriptor, await filasValidablesDelCargue(encabezado.id)).find((a) => a.tipo === tipo);
+    const alerta = (await alertasActuales(descriptor, encabezado.id, tipo)).find((a) => a.tipo === tipo);
     if (!alerta) return { ok: false, message: "Esa alerta ya no aparece en el cargue. Recarga la pantalla." };
 
     const user = await getCurrentUser();
@@ -72,7 +100,7 @@ export async function guardarComentarioAlerta(input: { encabezadoId: number; tip
       user: user?.name ?? "Sistema",
       action: previo ? "EDITÓ COMENTARIO DE ALERTA" : "COMENTÓ ALERTA",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · «${alerta.etiqueta}» (${alerta.referencias} ítem(s), ${fmt(alerta.valor)})`
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · «${alerta.etiqueta}» (${alerta.detalle ?? contarAlerta(alerta.referencias, alerta.unidad)}${alerta.muestraValor ? `, ${fmt(alerta.valor)}` : ""})`
         + (previo && previo.comentario !== validado.texto ? ` · antes: «${previo.comentario}»` : ""),
       clientId: encabezado.clienteId,
     });

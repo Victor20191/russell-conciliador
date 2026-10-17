@@ -22,16 +22,13 @@ import { cargarInsumosPeriodo } from "@/lib/modulos/insumos-periodo-servidor";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, cierreFijadoDe, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
-import { validarAuxiliarTercero } from "@/lib/modulos/cartera/validaciones-tercero";
-import { leerFormatosCartera } from "@/lib/modulos/cartera/tipo-formato";
-import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { CLAVE_MONEDA } from "@/lib/modulos/cartera/detalle-cartera";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { ESTADO_CIERRE_FIRME, estadoEdicionCargue, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
 import { descripcionCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { autorizarCierreConciliacion, autorizarComentarioAlertaModulo } from "@/lib/conciliacion/verificar-bloqueo";
-import { alertasConComentarioDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { alertasConComentarioDelCargue, validacionesTerceroDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
@@ -226,12 +223,8 @@ export default async function DatoModuloPage({
   const negativos = detectarNegativos(descriptor, filasVal);
   const descuadres = detectarDescuadres(descriptor, filasVal);
   const alertasCosto = descriptor.alertasCosto ? detectarAlertasCosto(descriptor, filasVal) : null;
-  // Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios), con el
-  // comentario del período y si quedó por revisar. El cierre evalúa estas mismas.
-  const [alertasComentario, comentarAuth] = await Promise.all([
-    alertasConComentarioDelCargue(descriptor, { id: encabezado.id, clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo }, filasVal),
-    descriptor.alertasConComentario?.length ? autorizarComentarioAlertaModulo(encabezado.clienteId) : Promise.resolve(null),
-  ]);
+  // Quién puede comentar las alertas que lo exigen para cerrar (staff, senior o gerente asignados).
+  const comentarAuth = descriptor.alertasConComentario?.length ? await autorizarComentarioAlertaModulo(encabezado.clienteId) : null;
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
   const novedades: NovedadesVm = {
     negativos: negativos.map((n) => ({ filaNum: n.filaNum, etiqueta: n.etiqueta, referencia: n.referencia, valor: n.valor })),
@@ -375,6 +368,32 @@ export default async function DatoModuloPage({
         umbralDescuadre: insumosPeriodo.umbralDescuadre ?? undefined,
       })
     : null;
+
+  // Cartera y CxP: validaciones del auxiliar por tercero, recalculadas al leer sobre el detalle
+  // y el cruce recién construidos (edades vs total, documentos repetidos, claves, naturaleza). Las
+  // mismas que evalúa el cierre (`cargarValidacionesTercero`).
+  const validacionesTercero = descriptor.crucePorTercero.detalleTercero
+    ? await validacionesTerceroDelCargue({
+        descriptor,
+        encabezado,
+        filas: detalles.map((d) => ({
+          filaNum: d.filaNum,
+          valor: Number(d.valor),
+          imputable: d.imputable,
+          nitCanonico: d.nitCanonico,
+          datos: (d.datos ?? {}) as Record<string, unknown>,
+          nivel: d.nivel,
+        })),
+        cruce: cruceTercero?.resumen ?? null,
+      })
+    : null;
+  // Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios, Cartera y
+  // CxP), con el comentario del período y si quedó por revisar. El cierre evalúa estas mismas.
+  const alertasComentario = await alertasConComentarioDelCargue(
+    descriptor,
+    { id: encabezado.id, clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    { filas: filasVal, validacionesTercero },
+  );
 
   // Conciliación en firme del (cliente, módulo, período): estado + quién puede
   // cerrar/desbloquear (senior o gerente asignado; Superadministrador por alcance).
@@ -547,24 +566,7 @@ export default async function DatoModuloPage({
     : descriptor.crucePorTercero.detalleTercero
     ? {
         ...novedadesBase,
-        tercero: validarAuxiliarTercero({
-          filas: detalles.map((d) => ({
-            filaNum: d.filaNum,
-            valor: Number(d.valor),
-            imputable: d.imputable,
-            nitCanonico: d.nitCanonico,
-            datos: (d.datos ?? {}) as Record<string, unknown>,
-            nivel: d.nivel,
-          })),
-          cruce: cruceTercero?.resumen ?? null,
-          naturaleza: descriptor.crucePorTercero.naturaleza,
-          umbralNaturaleza: (await getUmbralesAlertas()).tercero_naturaleza,
-          fechaCorte,
-          // Tipo de formato de cada archivo: decide qué controles aplican y cuáles no se
-          // pudieron validar. Los cargues anteriores (null) se deducen de sus filas.
-          nivelImputable: encabezado.nivelSaldo === "documento" || encabezado.nivelSaldo === "tercero" ? encabezado.nivelSaldo : undefined,
-          formatos: leerFormatosCartera(encabezado.formatosCartera),
-        }),
+        tercero: validacionesTercero,
       }
     : novedadesBase;
 

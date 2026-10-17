@@ -106,6 +106,11 @@ export type ResultadoTransformModulo = {
   trazasLectura?: TrazaRegistroLectura[];
   erroresLectura?: string[];
   advertenciasLectura?: string[];
+  /**
+   * Cartera y CxP: celdas con su divisa escrita («USD (54,323.40)») que no se convirtieron porque el
+   * cargue no trae TRM de cierre. La carga se detiene y pide la TRM (17/Oct/2026).
+   */
+  importesSinTrm?: { filaNum: number; columna: string; texto: string }[];
 };
 
 /**
@@ -399,10 +404,14 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const divisa = conSigno(enDivisa.valor) ?? 0;
     return { valor: monedaArchivo ? divisa : aPesos(divisa, trmCierre), divisa: { moneda: enDivisa.moneda, valor: divisa } };
   };
-  const avisoSinTrm = (filaNum: number, etiqueta: string, raw: string) => excepciones.push({
-    filaNum,
-    mensaje: "Importe en moneda extranjera sin convertir en «" + etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos.",
-  });
+  const importesSinTrm: { filaNum: number; columna: string; texto: string }[] = [];
+  const avisoSinTrm = (filaNum: number, etiqueta: string, raw: string) => {
+    importesSinTrm.push({ filaNum, columna: etiqueta, texto: raw.trim() });
+    excepciones.push({
+      filaNum,
+      mensaje: "Importe en moneda extranjera sin convertir en «" + etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos.",
+    });
+  };
 
   // El VALOR como FÓRMULA de varias columnas (SAP: «Total sin Descuento» + los «Total Fletes»).
   // Cada término se lee como un importe más —con el signo del archivo y su divisa— y el resultado
@@ -1198,5 +1207,6 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     omitidasMuestra,
     ...(edadesNoSumadas.length > 0 ? { edadesNoSumadas } : {}),
     ...(signoContenido ? { contenido: signoContenido } : {}),
+    ...(importesSinTrm.length > 0 ? { importesSinTrm } : {}),
   };
 }

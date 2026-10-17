@@ -7,50 +7,94 @@
 // valor tenía la alerta cuando se escribió: si una versión nueva o un archivo agregado los cambia,
 // queda «por revisar» y vuelve a impedir el cierre hasta que alguien lo confirme o lo edite.
 //
-// Qué tipos exigen comentario lo declara cada descriptor (`alertasConComentario`); hoy, Inventarios.
+// Qué tipos exigen comentario lo declara cada descriptor (`alertasConComentario`): Inventarios
+// (negativos y costo) y Cartera y CxP (las validaciones del auxiliar por tercero).
 import type { DescriptorModulo } from "./descriptores";
 import { ALERTAS_COSTO, detectarAlertasCosto, detectarNegativos, type FilaValidable, type TipoAlertaCosto } from "./validaciones";
+import type { ValidacionesTercero } from "./cartera/validaciones-tercero";
+import { diasEntre } from "./cartera/fecha-corte";
+
+/** Cartera y CxP: validaciones del auxiliar por tercero que exigen comentario. */
+export type TipoAlertaTercero =
+  | "documentos_vs_cliente"
+  | "edades_vs_total"
+  | "saldo_contrario_tercero"
+  | "dias_vs_corte"
+  | "edad_vs_corte"
+  | "corte_deducido";
 
 /** Tipos de alerta que pueden exigir comentario. */
-export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto;
+export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto | TipoAlertaTercero;
 
-const ETIQUETAS: Record<TipoAlertaComentario, string> = {
-  valores_negativos: "Valores negativos",
-  ...(Object.fromEntries(ALERTAS_COSTO.map((a) => [a.tipo, a.etiqueta])) as Record<TipoAlertaCosto, string>),
-};
+export type UnidadAlerta = { uno: string; varios: string };
+const ITEMS: UnidadAlerta = { uno: "ítem", varios: "ítems" };
+const DOCUMENTOS: UnidadAlerta = { uno: "documento", varios: "documentos" };
 
-/** Orden de presentación. */
-const ORDEN: TipoAlertaComentario[] = ["valores_negativos", ...ALERTAS_COSTO.map((a) => a.tipo)];
+/** Nombre, unidad de lo que se cuenta y si el valor se lee como pesos. En el orden de presentación. */
+const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: UnidadAlerta; muestraValor: boolean }[] = [
+  { tipo: "valores_negativos", etiqueta: "Valores negativos", unidad: ITEMS, muestraValor: false },
+  ...ALERTAS_COSTO.map((a) => ({ tipo: a.tipo, etiqueta: a.etiqueta, unidad: { uno: "referencia", varios: "referencias" }, muestraValor: true })),
+  { tipo: "documentos_vs_cliente", etiqueta: "Documentos vs. total del cliente", unidad: { uno: "tercero", varios: "terceros" }, muestraValor: true },
+  { tipo: "edades_vs_total", etiqueta: "Edades vs. total", unidad: { uno: "fila", varios: "filas" }, muestraValor: true },
+  { tipo: "saldo_contrario_tercero", etiqueta: "Saldo contrario a la naturaleza", unidad: { uno: "saldo", varios: "saldos" }, muestraValor: true },
+  { tipo: "dias_vs_corte", etiqueta: "Días vencidos vs. corte", unidad: DOCUMENTOS, muestraValor: false },
+  { tipo: "edad_vs_corte", etiqueta: "Rango de edad vs. corte", unidad: DOCUMENTOS, muestraValor: false },
+  { tipo: "corte_deducido", etiqueta: "Fecha de corte deducida", unidad: { uno: "fecha", varios: "fechas" }, muestraValor: false },
+];
+const POR_TIPO = new Map(DEFINICIONES.map((d) => [d.tipo, d]));
+const ORDEN: TipoAlertaComentario[] = DEFINICIONES.map((d) => d.tipo);
 
 export const MIN_COMENTARIO_ALERTA = 10;
 export const MAX_COMENTARIO_ALERTA = 2000;
 
 export function esTipoAlertaComentario(valor: unknown): valor is TipoAlertaComentario {
-  return typeof valor === "string" && Object.hasOwn(ETIQUETAS, valor);
+  return typeof valor === "string" && POR_TIPO.has(valor as TipoAlertaComentario);
 }
 
 export function etiquetaAlertaComentario(tipo: TipoAlertaComentario): string {
-  return ETIQUETAS[tipo];
+  return POR_TIPO.get(tipo)!.etiqueta;
 }
 
 /** Una alerta presente en el cargue: cuántas referencias la tienen y su valor (la huella del cambio). */
 export type AlertaComentable = {
   tipo: TipoAlertaComentario;
   etiqueta: string;
-  /** Ítems que la tienen, contados como los lista Novedades. */
+  /** Casos que la tienen, contados como los lista Novedades. */
   referencias: number;
   /**
-   * Costo: Σ del valor total de esas referencias. Negativos: Σ de los valores en negativo. Sirve
-   * para saber si la alerta cambió desde el comentario.
+   * La otra mitad de la huella del cambio. Costo: Σ del valor total; negativos: Σ de los
+   * negativos; documentos y edades: Σ de las diferencias; saldo contrario: Σ de los saldos; fecha
+   * de corte deducida: días entre el corte del cargue y la fecha deducida. Días y rangos: 0.
    */
   valor: number;
+  /** Qué se cuenta («documento» / «documentos»). */
+  unidad: UnidadAlerta;
+  /** El valor se lee como pesos (si no, la pantalla solo muestra el conteo). */
+  muestraValor: boolean;
+  /** Texto que reemplaza el conteo cuando lo dice mejor (la fecha de corte deducida). */
+  detalle?: string;
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
 
+function alerta(tipo: TipoAlertaComentario, referencias: number, valor: number, detalle?: string): AlertaComentable {
+  const def = POR_TIPO.get(tipo)!;
+  return {
+    tipo,
+    etiqueta: def.etiqueta,
+    referencias,
+    valor: redondear(valor),
+    unidad: def.unidad,
+    muestraValor: def.muestraValor,
+    ...(detalle ? { detalle } : {}),
+  };
+}
+
+const ordenar = (alertas: AlertaComentable[]) => alertas.sort((a, b) => ORDEN.indexOf(a.tipo) - ORDEN.indexOf(b.tipo));
+
 /**
- * Las alertas del cargue que exigen comentario, solo las que tienen al menos una referencia, en el
- * orden de presentación. Sobre las mismas filas que pinta Novedades.
+ * Inventarios: las alertas del cargue que exigen comentario, solo las que tienen al menos una
+ * referencia, en el orden de presentación. Sobre las mismas filas que pinta Novedades.
  */
 export function alertasQueExigenComentario(descriptor: DescriptorModulo, filas: FilaValidable[]): AlertaComentable[] {
   const tipos = new Set(descriptor.alertasConComentario ?? []);
@@ -58,28 +102,51 @@ export function alertasQueExigenComentario(descriptor: DescriptorModulo, filas: 
   const salida: AlertaComentable[] = [];
   if (tipos.has("valores_negativos")) {
     const negativos = detectarNegativos(descriptor, filas);
-    if (negativos.length > 0) {
-      salida.push({
-        tipo: "valores_negativos",
-        etiqueta: ETIQUETAS.valores_negativos,
-        referencias: negativos.length,
-        valor: redondear(negativos.reduce((s, n) => s + n.valor, 0)),
-      });
-    }
+    if (negativos.length > 0) salida.push(alerta("valores_negativos", negativos.length, negativos.reduce((s, n) => s + n.valor, 0)));
   }
   const costo = detectarAlertasCosto(descriptor, filas);
   for (const { tipo } of ALERTAS_COSTO) {
     if (!tipos.has(tipo)) continue;
     const propias = costo.filter((a) => a.tipo === tipo);
-    if (propias.length === 0) continue;
-    salida.push({
-      tipo,
-      etiqueta: ETIQUETAS[tipo],
-      referencias: propias.length,
-      valor: redondear(propias.reduce((s, a) => s + (a.total ?? 0), 0)),
-    });
+    if (propias.length > 0) salida.push(alerta(tipo, propias.length, propias.reduce((s, a) => s + (a.total ?? 0), 0)));
   }
-  return salida.sort((a, b) => ORDEN.indexOf(a.tipo) - ORDEN.indexOf(b.tipo));
+  return ordenar(salida);
+}
+
+/**
+ * Cartera y CxP: las validaciones del auxiliar por tercero (las mismas de Novedades) que exigen
+ * comentario y están presentes. La posible colisión de clave sigue solo informando, y el documento
+ * repetido y el vencimiento imposible no se comentan: bloquean aprobar el borrador.
+ */
+export function alertasTerceroQueExigenComentario(descriptor: DescriptorModulo, v: ValidacionesTercero): AlertaComentable[] {
+  const tipos = new Set(descriptor.alertasConComentario ?? []);
+  const salida: AlertaComentable[] = [];
+  const documentos = v.formato.documentosVsCliente;
+  if (tipos.has("documentos_vs_cliente") && documentos && documentos.diferencias.cantidad > 0) {
+    salida.push(alerta("documentos_vs_cliente", documentos.diferencias.cantidad, documentos.totales.diferencia));
+  }
+  if (tipos.has("edades_vs_total") && v.edadesVsTotal.cantidad > 0) {
+    salida.push(alerta("edades_vs_total", v.edadesVsTotal.cantidad, v.edadesVsTotal.suma));
+  }
+  if (tipos.has("saldo_contrario_tercero") && v.saldosContrarios.cantidad > 0) {
+    salida.push(alerta("saldo_contrario_tercero", v.saldosContrarios.cantidad, v.saldosContrarios.suma));
+  }
+  if (tipos.has("dias_vs_corte") && v.diasVsCorte.cantidad > 0) salida.push(alerta("dias_vs_corte", v.diasVsCorte.cantidad, 0));
+  if (tipos.has("edad_vs_corte") && v.edadVsCorte.cantidad > 0) salida.push(alerta("edad_vs_corte", v.edadVsCorte.cantidad, 0));
+  if (tipos.has("corte_deducido") && v.corte.fecha && v.corte.deducido) {
+    salida.push(alerta(
+      "corte_deducido",
+      1,
+      diasEntre(v.corte.fecha, v.corte.deducido.fecha),
+      `El archivo calculó sus días al ${v.corte.deducido.fecha}; el corte del cargue es ${v.corte.fecha}.`,
+    ));
+  }
+  return ordenar(salida);
+}
+
+/** «3 documentos», «1 tercero». */
+export function contarAlerta(n: number, unidad: UnidadAlerta): string {
+  return `${n.toLocaleString("es-CO")} ${n === 1 ? unidad.uno : unidad.varios}`;
 }
 
 /** Valida el comentario escrito; devuelve el texto limpio o el motivo. */

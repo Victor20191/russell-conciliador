@@ -454,6 +454,20 @@ export function nivelCruceModulo(descriptor: Pick<DescriptorModulo, "nivelCruce"
  * Catálogo de descriptores. Se pilotea con Inventarios (INV); los demás módulos se
  * agregan aquí con sus columnas + clasificador/valor y reusan TODO el motor.
  */
+/**
+ * Cartera y CxP: validaciones del auxiliar por tercero que exigen un comentario por tipo para cerrar
+ * la conciliación. El documento repetido entre terceros y el vencimiento imposible no van aquí:
+ * bloquean aprobar el borrador.
+ */
+const ALERTAS_TERCERO_CON_COMENTARIO: TipoAlertaComentario[] = [
+  "documentos_vs_cliente",
+  "edades_vs_total",
+  "saldo_contrario_tercero",
+  "dias_vs_corte",
+  "edad_vs_corte",
+  "corte_deducido",
+];
+
 export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   INV: {
     codigo: "INV",
@@ -583,6 +597,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nivelCruce: 6,
     // Sin `noNegativos`: un saldo negativo es un anticipo o una nota crédito sin cruzar —se
     // alerta como «naturaleza contraria», nunca se rechaza el cargue.
+    // Validaciones del auxiliar que exigen un comentario por tipo para cerrar (17/Oct/2026).
+    alertasConComentario: ALERTAS_TERCERO_CON_COMENTARIO,
     arrastrables: ["nit", "nombre", "cuenta"],
     rolesLlaveItem: ["nit", "documento"],
     // Un renglón de cartera es un DOCUMENTO; los subtotales por tercero o por cuenta lo
@@ -660,6 +676,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Se concilia por cuenta Russell de 6 dígitos (las 13 de `cuentasRussell6`), no por subgrupo.
     nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.
+    alertasConComentario: ALERTAS_TERCERO_CON_COMENTARIO,
     arrastrables: ["nit", "nombre", "cuenta"],
     rolesLlaveItem: ["nit", "documento"],
     rolesDetalle: ["documento", "tipoDocumento"],

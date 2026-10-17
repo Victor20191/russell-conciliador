@@ -13,6 +13,7 @@ import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { guardarComentarioAlerta } from "@/app/actions/comentarios-alertas-modulo";
 import {
+  contarAlerta,
   MAX_COMENTARIO_ALERTA,
   MIN_COMENTARIO_ALERTA,
   type AlertaConComentario,
@@ -25,7 +26,10 @@ const CHIP: Record<EstadoComentarioAlerta, { label: string; tone: "ok" | "warn" 
   comentada: { label: "Comentada", tone: "ok" },
 };
 
-const items = (n: number) => `${n.toLocaleString("es-CO")} ${n === 1 ? "ítem" : "ítems"}`;
+/** «3 documentos · $ 1.200» o el detalle propio de la alerta (la fecha de corte deducida). */
+function cifras(a: Pick<AlertaConComentario, "referencias" | "valor" | "unidad" | "muestraValor">): string {
+  return `${contarAlerta(a.referencias, a.unidad)}${a.muestraValor && a.valor !== 0 ? ` · ${fmtContable(a.valor)}` : ""}`;
+}
 
 export function ComentariosAlertasCard({
   alertas,
@@ -55,10 +59,7 @@ export function ComentariosAlertasCard({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12.5px] font-semibold text-ink-800">{a.etiqueta}</span>
-                <span className="text-[12px] text-ink-500">
-                  {items(a.referencias)}
-                  {a.tipo !== "valores_negativos" && a.valor !== 0 ? ` · ${fmtContable(a.valor)}` : ""}
-                </span>
+                <span className="text-[12px] text-ink-500">{a.detalle ?? cifras(a)}</span>
                 <Chip label={CHIP[a.estado].label} tone={CHIP[a.estado].tone} />
               </div>
               {puedeComentar && (
@@ -78,9 +79,8 @@ export function ComentariosAlertasCard({
                   {a.comentario.comentadoPor ?? "—"} · {a.comentario.comentadoEn}
                   {a.estado === "por_revisar" && (
                     <span className="text-warn-700">
-                      {" "}· cuando se escribió: {items(a.comentario.referencias)}
-                      {a.tipo !== "valores_negativos" ? ` por ${fmtContable(a.comentario.valor)}` : ""}; hoy: {items(a.referencias)}
-                      {a.tipo !== "valores_negativos" ? ` por ${fmtContable(a.valor)}` : a.referencias === a.comentario.referencias ? " con otros valores" : ""}.
+                      {" "}· cuando se escribió: {cifras({ ...a, referencias: a.comentario.referencias, valor: a.comentario.valor })}; hoy: {cifras(a)}
+                      {!a.muestraValor && a.referencias === a.comentario.referencias ? " (cambiaron los casos o las fechas)" : ""}.
                     </span>
                   )}
                 </p>
@@ -142,13 +142,12 @@ function ModalComentarioAlerta({
     >
       <div className="flex flex-col gap-2">
         <p className="text-[12px] text-ink-600">
-          Hoy la alerta tiene {items(alerta.referencias)}
-          {alerta.tipo !== "valores_negativos" && alerta.valor !== 0 ? ` por ${fmtContable(alerta.valor)}` : ""}. El comentario queda para todo el período
-          y se guarda con estas cifras: si una versión nueva las cambia, quedará por revisar.
+          {alerta.detalle ?? <>Hoy la alerta tiene {cifras(alerta)}.</>} El comentario queda para todo el período y se guarda con
+          estas cifras: si una versión nueva las cambia, quedará por revisar.
         </p>
         {alerta.estado === "por_revisar" && alerta.comentario && (
           <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-            La alerta cambió desde que se escribió este comentario ({items(alerta.comentario.referencias)} entonces, {items(alerta.referencias)} hoy). Revísalo y guárdalo de nuevo para confirmarlo.
+            La alerta cambió desde que se escribió este comentario ({cifras({ ...alerta, referencias: alerta.comentario.referencias, valor: alerta.comentario.valor })} entonces, {cifras(alerta)} hoy). Revísalo y guárdalo de nuevo para confirmarlo.
           </p>
         )}
         <textarea

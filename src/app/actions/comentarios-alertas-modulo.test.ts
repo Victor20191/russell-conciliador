@@ -9,7 +9,10 @@ const m = vi.hoisted(() => ({
   upsert: vi.fn(),
   auditoria: vi.fn(),
 }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), unstable_cache: <T extends (...args: never[]) => unknown>(fn: T) => fn }));
+// El cruce por tercero solo se calcula para el saldo contrario de Cartera y CxP: aquí no se usa.
+vi.mock("@/lib/modulos/cruce-contable-servidor", () => ({ cargarInsumosCruceModulo: vi.fn(async () => null), construirCruceContableModulo: vi.fn() }));
+vi.mock("@/lib/modulos/cruce-tercero-servidor", () => ({ cruceTerceroDeCargue: vi.fn(async () => null) }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ id: 8, name: "Ana Staff" })) }));
 vi.mock("@/lib/audit", () => ({ logAudit: m.auditoria }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: (_c: string, e: unknown) => (e instanceof Error ? e.message : String(e)) }));
@@ -73,8 +76,18 @@ describe("guardarComentarioAlerta", () => {
     expect(m.upsert).not.toHaveBeenCalled();
   });
 
+  it("en Cartera y CxP la alerta sale del auxiliar por tercero (días vencidos vs. corte)", async () => {
+    m.encabezado.mockResolvedValue({ ...ENCABEZADO, moduloCodigo: "CXP", fechaCorte: null, nivelSaldo: "documento", formatosCartera: null });
+    m.detalle.mockResolvedValue([
+      { filaNum: 4, valor: 50_000, imputable: true, nitCanonico: "900000001", nivel: "documento", datos: { nit: "900000001", nombre: "PROVEEDOR", documento: "FV-9", vencimiento: "2026-08-31", diasVencidos: 5 } },
+    ]);
+    const r = await guardarComentarioAlerta({ encabezadoId: 74, tipo: "dias_vs_corte", comentario: COMENTARIO });
+    expect(r).toEqual({ ok: true, message: "Comentario guardado." });
+    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ tipo: "dias_vs_corte", referencias: 1, valor: 0 }) }));
+  });
+
   it("un módulo que no exige comentarios no los acepta", async () => {
-    m.encabezado.mockResolvedValue({ ...ENCABEZADO, moduloCodigo: "CAR" });
+    m.encabezado.mockResolvedValue({ ...ENCABEZADO, moduloCodigo: "AFI" });
     const r = await guardarComentarioAlerta({ encabezadoId: 74, tipo: "costo_uno", comentario: COMENTARIO });
     expect(r).toEqual({ ok: false, message: "Esta alerta no exige comentario en este módulo." });
   });

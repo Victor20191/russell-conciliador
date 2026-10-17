@@ -24,6 +24,7 @@ describe("validarAuxiliarTercero · edades vs total", () => {
     expect(r.edadesVsTotal).toEqual({
       cantidad: 1,
       filas: [{ filaNum: 10, tercero: "PROVEEDOR UNO", documento: "FV-1", total: 1_000, sumaEdades: 900, diferencia: 100 }],
+      suma: 100,
     });
     expect(r.total).toBe(1);
   });
@@ -113,6 +114,7 @@ describe("validarAuxiliarTercero · saldo contrario a la naturaleza", () => {
         { clave: "900000003", nombre: "ANTICIPO AL REVÉS", cuenta: "133005", valor: 80_000 },
         { clave: "900000001", nombre: "DEUDA AL REVÉS", cuenta: "220505", valor: -60_000 },
       ],
+      suma: 20_000,
     });
   });
 

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
@@ -204,7 +205,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     ? { aplicativo: nombreErpPropuesta, motivo: null }
     : motivoSinPropuesta ? { aplicativo: null, motivo: motivoSinPropuesta } : null;
 
-  const [resumen, agruparPorConDatos] = await Promise.all([
+  const [resumen, agruparPorConDatos, reporteConErrores] = await Promise.all([
     cargarResumenBorrador({
       loteId,
       descriptor,
@@ -217,6 +218,10 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       clienteId: lote.clienteId,
     }),
     agruparPor ? agruparPorDisponiblesLote(loteId) : Promise.resolve(null),
+    // Cartera y CxP: documento repetido entre terceros o vencimiento imposible bloquean aprobar.
+    descriptor.crucePorTercero.detalleTercero
+      ? reporteConErroresDelLote(loteId, fechaCorteDelBorrador(lote.specJson, periodoSugerido || null))
+      : Promise.resolve(null),
   ]);
   const columnasLote = (lote.specJson as { columnas?: Record<string, number> } | null)?.columnas;
   const mapeadas = agruparPorMapeadas(columnasLote);
@@ -260,6 +265,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         noNegativos={descriptor.noNegativos ?? []}
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
+        reporteConErrores={reporteConErrores}
         alertasConComentario={descriptor.alertasConComentario ?? []}
         resumen={resumen}
         agruparPor={agruparPorVm}

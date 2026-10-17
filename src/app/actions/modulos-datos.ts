@@ -168,7 +168,9 @@ import {
 } from "@/lib/conciliacion/verificar-bloqueo";
 import { construirCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
-import { alertasConComentarioDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { alertasConComentarioDelCargue, cargarValidacionesTercero } from "@/lib/modulos/comentarios-alertas-servidor";
+import { motivoReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
+import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -1679,6 +1681,16 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 
     const resultado = transformarModulo(descriptor, spec, hoja);
     if (resultado.erroresLectura?.length) return marcarNoProcesable(resultado.erroresLectura.join(" "));
+    // Celdas con su divisa escrita y sin TRM de cierre: no se leen como pesos ni se dejan fuera en
+    // silencio. Igual que una hoja en divisa, la carga no sigue hasta que se indique la TRM.
+    const sinTrm = resultado.importesSinTrm ?? [];
+    if (sinTrm.length > 0) {
+      const ejemplo = sinTrm[0];
+      return marcarNoProcesable(
+        `El archivo trae ${sinTrm.length} importe(s) en moneda extranjera (p. ej. fila ${ejemplo.filaNum}, «${ejemplo.columna}»: ${ejemplo.texto}). `
+        + "Indica la TRM de cierre para convertirlos a pesos y vuelve a cargarlo.",
+      );
+    }
     // Un saldo a favor que el archivo imprime como desglose de otro balde no suma: el lote lo
     // guarda así para que el borrador y cualquier reproceso lean lo mismo que esta lectura.
     const edadesNoSumadas = resultado.edadesNoSumadas ?? [];
@@ -2178,6 +2190,13 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     if (faltan.length) return { ok: false, message: "Responde todas las verificaciones antes de cargar." };
     const bloqueoCritico = bloqueoVerificacionesCriticasModulo(descriptor, verificaciones);
     if (bloqueoCritico) return { ok: false, message: bloqueoCritico };
+
+    // Cartera y CxP: un documento repetido entre terceros o un vencimiento imposible dicen que el
+    // reporte del ERP salió mal. Bloquea sin excepción: se corrige el archivo y se vuelve a cargar.
+    if (descriptor.crucePorTercero.detalleTercero) {
+      const motivoReporte = motivoReporteConErrores(await reporteConErroresDelLote(loteId, fechaCorteDelBorrador(lote.specJson, periodo)));
+      if (motivoReporte) return { ok: false, message: motivoReporte };
+    }
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
@@ -4696,8 +4715,12 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     const descriptor = insumos.descriptor;
     const exigeTercero = descriptor?.crucePorTercero.habilitado === true && descriptor.crucePorTercero.exigidoParaCierre === true;
     const tercero = exigeTercero ? await cruceTerceroDeCargue(insumos, cruce) : null;
-    // Alertas del archivo que exigen comentario (Inventarios): las mismas que muestra Novedades.
-    const alertasComentario = descriptor ? await alertasConComentarioDelCargue(descriptor, encabezado) : [];
+    // Alertas del archivo que exigen comentario (Inventarios; Cartera y CxP, sobre el auxiliar por
+    // tercero y su cruce): las mismas que muestra Novedades.
+    const validacionesTercero = descriptor?.crucePorTercero.detalleTercero
+      ? await cargarValidacionesTercero(descriptor, encabezado.id, tercero?.resumen ?? null)
+      : null;
+    const alertasComentario = descriptor ? await alertasConComentarioDelCargue(descriptor, encabezado, { validacionesTercero }) : [];
     const evaluacion = evaluarCierreConciliacion(
       cruce.cruceContable,
       cruce.resumenMarcas,

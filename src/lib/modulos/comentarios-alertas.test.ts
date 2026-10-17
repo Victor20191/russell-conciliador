@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { MODULOS_IMPORT } from "./descriptores";
+import { validarAuxiliarTercero } from "./cartera/validaciones-tercero";
 import {
   alertaCambio,
   alertasQueExigenComentario,
+  alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
   esTipoAlertaComentario,
   validarComentarioAlerta,
@@ -48,6 +50,53 @@ describe("alertasQueExigenComentario (Inventarios)", () => {
   it("un módulo que no declara alertas con comentario no pide ninguna (AFI tiene negativos, pero van por otra vía)", () => {
     const afi = [{ filaNum: 2, clasificador: "1516", datos: { costo: -500 } }];
     expect(alertasQueExigenComentario(MODULOS_IMPORT.AFI, afi)).toEqual([]);
+  });
+});
+
+describe("alertasTerceroQueExigenComentario (Cartera y CxP)", () => {
+  const CXP = MODULOS_IMPORT.CXP;
+  const filaCxp = (filaNum: number, datos: Record<string, unknown>, valor: number) => ({ filaNum, valor, imputable: true, nitCanonico: String(datos.nit), datos });
+
+  it("toma de las validaciones del auxiliar solo los tipos que exigen comentario, con sus cifras", () => {
+    const v = validarAuxiliarTercero({
+      filas: [
+        // Edades que no suman el total (diferencia 100) y días que no corresponden al corte.
+        filaCxp(10, { nit: "900000001", nombre: "PROVEEDOR UNO", documento: "FV-1", vencimiento: "2025-11-30", diasVencidos: 5, total: 1_000, _edades: { "1 - 30": 900 } }, 1_000),
+        // Vencimiento imposible: bloquea el borrador, no se comenta.
+        filaCxp(11, { nit: "900000002", nombre: "PROVEEDOR DOS", documento: "FV-2", vencimiento: "1899-12-31" }, 500),
+      ],
+      cruce: null,
+      naturaleza: "C",
+      umbralNaturaleza: 10_000,
+      fechaCorte: "2025-12-31",
+    });
+    const alertas = alertasTerceroQueExigenComentario(CXP, v);
+    const tipos = alertas.map((a) => a.tipo);
+    expect(tipos).toContain("dias_vs_corte");
+    expect(tipos).not.toContain("documentos_vs_cliente");
+    expect(alertas.find((a) => a.tipo === "dias_vs_corte")).toMatchObject({ referencias: 1, valor: 0, muestraValor: false, unidad: { uno: "documento" } });
+    if (v.edadesVsTotal.cantidad > 0) {
+      expect(alertas.find((a) => a.tipo === "edades_vs_total")).toMatchObject({ referencias: v.edadesVsTotal.cantidad, valor: v.edadesVsTotal.suma });
+    }
+  });
+
+  it("la fecha de corte deducida se comenta con los días de diferencia como huella", () => {
+    const v = {
+      formato: { documentosVsCliente: null },
+      edadesVsTotal: { cantidad: 0, filas: [], suma: 0 },
+      saldosContrarios: { cantidad: 0, filas: [], suma: 0 },
+      diasVsCorte: { cantidad: 0, filas: [] },
+      edadVsCorte: { cantidad: 0, filas: [] },
+      corte: { fecha: "2025-12-31", deducido: { fecha: "2025-12-28", coincidencias: 40, filasConDias: 42 } },
+    } as unknown as Parameters<typeof alertasTerceroQueExigenComentario>[1];
+    const [corte] = alertasTerceroQueExigenComentario(CXP, v);
+    expect(corte).toMatchObject({ tipo: "corte_deducido", referencias: 1, valor: -3 });
+    expect(corte.detalle).toContain("2025-12-28");
+  });
+
+  it("Inventarios no comenta alertas del auxiliar por tercero", () => {
+    const v = { formato: { documentosVsCliente: null }, edadesVsTotal: { cantidad: 3, filas: [], suma: 10 }, saldosContrarios: { cantidad: 0, filas: [], suma: 0 }, diasVsCorte: { cantidad: 0, filas: [] }, edadVsCorte: { cantidad: 0, filas: [] }, corte: { fecha: null, deducido: null } };
+    expect(alertasTerceroQueExigenComentario(INV, v as unknown as Parameters<typeof alertasTerceroQueExigenComentario>[1])).toEqual([]);
   });
 });
 

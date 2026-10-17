@@ -1,5 +1,6 @@
 "use client";
 
+import { hayReporteConErrores, motivoReporteConErrores, type ReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
 import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -136,6 +137,7 @@ export default function BorradorModuloClient({
   productos,
   verificaciones,
   alertasConComentario = [],
+  reporteConErrores = null,
   resumen,
   agruparPor = null,
   reconciliacion,
@@ -166,6 +168,8 @@ export default function BorradorModuloClient({
   verificaciones: { id: string; texto: string }[];
   /** Alertas que, ya cargado, exigirán un comentario por tipo para cerrar la conciliación (Inventarios). */
   alertasConComentario?: string[];
+  /** Cartera y CxP: documento repetido entre terceros o vencimiento imposible; bloquean aprobar. */
+  reporteConErrores?: ReporteConErrores | null;
   /** Agregados del archivo COMPLETO, calculados en el servidor: las filas se piden por grupo. */
   resumen: ResumenBorrador;
   /**
@@ -434,12 +438,15 @@ export default function BorradorModuloClient({
     });
   };
 
+  // Reporte con errores (Cartera y CxP): no se aprueba; se corrige el archivo y se vuelve a cargar.
+  const motivoReporte = motivoReporteConErrores(reporteConErrores);
   const confirmar = () => {
     if (asistenciaSinResolver) { notifyError("Hay una lectura pendiente de resolver. Abre «Corregir lectura», revisa su resultado y aplica la propuesta antes de confirmar."); return; }
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
     if (!periodoValido) { notifyError("Indica el período (AAAA-MM)."); return; }
     if (errorPeriodo) { notifyError(errorPeriodo); return; }
     if (!verifCompletas) { notifyError("Responde todas las verificaciones antes de cargar."); return; }
+    if (motivoReporte) { notifyError(motivoReporte); return; }
     startCargar(async () => {
       const fd = new FormData();
       fd.set("loteId", loteId);
@@ -725,6 +732,8 @@ export default function BorradorModuloClient({
             {resumen.alertasCosto ? "✓ Sin negativos, descuadres de valor ni alertas de costo en los movimientos." : "✓ Sin negativos ni descuadres de valor en los movimientos."}
           </div>
         )}
+
+        {reporteConErrores && hayReporteConErrores(reporteConErrores) && <ReporteConErroresAviso reporte={reporteConErrores} />}
 
         {verificaciones.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
@@ -1187,12 +1196,42 @@ export default function BorradorModuloClient({
               />
             </div>
           )}
-          <button type="button" disabled={cargando || hayCambios || !verifCompletas || asistenciaSinResolver || !!errorPeriodo} onClick={confirmar} title={asistenciaSinResolver ? "Resuelve la lectura pendiente desde «Corregir lectura»" : hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+          <button type="button" disabled={cargando || hayCambios || !verifCompletas || asistenciaSinResolver || !!errorPeriodo || !!motivoReporte} onClick={confirmar} title={motivoReporte ? "El reporte tiene errores: corrige el archivo y vuelve a cargarlo" : asistenciaSinResolver ? "Resuelve la lectura pendiente desde «Corregir lectura»" : hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {cargando ? "Cargando…" : "Confirmar carga"}
           </button>
         </div>
       </div>
       </Card>
+    </div>
+  );
+}
+
+/** Cartera y CxP: el reporte del ERP salió con errores; el borrador no se puede aprobar. */
+function ReporteConErroresAviso({ reporte }: { reporte: ReporteConErrores }) {
+  const { documentosRepetidos: d, vencimientosImposibles: v } = reporte;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
+      <span className="font-semibold">⛔ El reporte tiene errores: este borrador no se puede aprobar. Corrige el archivo en el ERP y vuelve a cargarlo.</span>
+      {d.cantidad > 0 && (
+        <div>
+          <span className="font-semibold">{d.cantidad} documento(s) repetido(s) entre terceros</span> (el mismo documento por el mismo valor):
+          <ul className="ml-4 mt-0.5 list-disc">
+            {d.grupos.slice(0, 5).map((g) => (
+              <li key={`${g.documento}|${g.valor}`}>
+                {g.documento} · {fmtContable(g.valor)} en {g.terceros.map((t) => `${t.nombre ?? t.clave} (fila ${t.filas.join(", ")})`).join("; ")}
+              </li>
+            ))}
+          </ul>
+          {d.cantidad > 5 && <span>… y {d.cantidad - 5} más.</span>}
+        </div>
+      )}
+      {v.cantidad > 0 && (
+        <div>
+          <span className="font-semibold">{v.cantidad} vencimiento(s) imposible(s)</span> (antes de 1990 o más de 30 años después del corte):{" "}
+          {v.filas.slice(0, 8).map((f) => `fila ${f.filaNum} (${f.vencimiento})`).join(", ")}{v.cantidad > 8 ? "…" : ""}.
+        </div>
+      )}
+      <span className="text-[11.5px]">Omitir las filas no quita el bloqueo: el reporte tiene que salir bien del ERP.</span>
     </div>
   );
 }

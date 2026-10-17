@@ -77,15 +77,16 @@ export type EdadFueraDeRango = {
 
 export type VencimientoAtipico = { filaNum: number; tercero: string; documento: string | null; vencimiento: string };
 
-type Lista<T> = { cantidad: number; filas: T[] };
+/** `suma`: Σ de los importes de TODOS los casos (no solo de los listados); solo donde hay importe. */
+type Lista<T> = { cantidad: number; filas: T[]; suma?: number };
 
 export type ValidacionesTercero = {
   /** Controles que pide el tipo de formato del cargue (por documento, por edades o ambos). */
   formato: ControlesFormatoCartera;
-  edadesVsTotal: Lista<DiferenciaEdades>;
+  edadesVsTotal: Lista<DiferenciaEdades> & { suma: number };
   documentosRepetidos: { cantidad: number; grupos: DocumentoRepetido[] };
   posiblesColisiones: PosibleColision[];
-  saldosContrarios: Lista<SaldoContrarioTercero>;
+  saldosContrarios: Lista<SaldoContrarioTercero> & { suma: number };
   /** Fecha de corte del cargue y, cuando es otra, la fecha a la que el archivo calculó sus días. */
   corte: { fecha: string | null; deducido: CorteDeducido | null };
   diasVsCorte: Lista<DiferenciaDias>;
@@ -140,6 +141,57 @@ function fueraDelBalde(rotulo: RotuloEdad, dias: number): boolean {
   return rotulo.hasta != null && dias > rotulo.hasta + TOLERANCIA_DIAS;
 }
 
+/** Fila mínima para las dos validaciones que también corren en el borrador. */
+export type FilaReporteTercero = Pick<FilaValidacionTercero, "filaNum" | "valor" | "nitCanonico" | "datos">;
+
+/**
+ * El MISMO documento por el MISMO valor bajo dos terceros distintos (o más). El número solo no
+ * basta: en CxP es la factura del proveedor y dos proveedores emiten su factura 25 sin error.
+ * Es un reporte con errores: bloquea aprobar el borrador.
+ */
+export function documentosRepetidosEntreTerceros(filas: readonly FilaReporteTercero[]): DocumentoRepetido[] {
+  const porDocumento = new Map<string, { documento: string; valor: number; terceros: Map<string, { clave: string; nombre: string | null; filas: number[] }> }>();
+  for (const f of filas) {
+    const documento = texto(f.datos.documento);
+    // Un número de documento lleva dígitos: «IMPSALDO» o «SALDO INICIAL» son rótulos del ERP.
+    if (!documento || !/\d/.test(documento) || documento.replace(/[^A-Za-z0-9]/g, "").length < 3 || f.valor === 0) continue;
+    const clave = f.nitCanonico ?? claveSinNit(texto(f.datos.nombre));
+    if (!clave) continue;
+    const tipo = texto(f.datos.tipoDocumento);
+    const valor = redondear(f.valor);
+    const llave = `${(tipo ?? "").toUpperCase()}|${documento.toUpperCase().replace(/\s+/g, "")}|${valor}`;
+    const grupo = porDocumento.get(llave) ?? { documento: tipo ? `${tipo} ${documento}` : documento, valor, terceros: new Map() };
+    const tercero = grupo.terceros.get(clave) ?? { clave, nombre: texto(f.datos.nombre), filas: [] };
+    tercero.filas.push(f.filaNum);
+    grupo.terceros.set(clave, tercero);
+    porDocumento.set(llave, grupo);
+  }
+  return [...porDocumento.values()]
+    .filter((g) => g.terceros.size >= 2)
+    .map((g) => ({ documento: g.documento, valor: g.valor, terceros: [...g.terceros.values()] }))
+    .sort((a, b) => b.terceros.length - a.terceros.length || Math.abs(b.valor) - Math.abs(a.valor) || a.documento.localeCompare(b.documento));
+}
+
+/** ¿El año del vencimiento es imposible para el corte? Antes de 1990 o más de 30 años después. */
+export function esVencimientoImposible(vencimiento: string, fechaCorte: string): boolean {
+  const anio = Number(vencimiento.slice(0, 4));
+  return anio < 1990 || anio > Number(fechaCorte.slice(0, 4)) + 30;
+}
+
+/** Documentos con un vencimiento imposible para la fecha de corte. Es un reporte con errores: bloquea aprobar el borrador. */
+export function vencimientosImposibles(filas: readonly FilaReporteTercero[], fechaCorte: string): Lista<VencimientoAtipico> {
+  const lista = nuevaLista<VencimientoAtipico>();
+  for (const f of filas) {
+    const vencimiento = fechaISO(f.datos.vencimiento);
+    if (vencimiento && esVencimientoImposible(vencimiento, fechaCorte)) {
+      agregar(lista, { filaNum: f.filaNum, tercero: terceroDeFila(f), documento: texto(f.datos.documento), vencimiento });
+    }
+  }
+  return lista;
+}
+
+const terceroDeFila = (f: FilaReporteTercero) => texto(f.datos.nombre) ?? f.nitCanonico ?? texto(f.datos.nit) ?? "—";
+
 export function validarAuxiliarTercero(input: {
   filas: readonly FilaValidacionTercero[];
   cruce: ResumenCruceTerceroCartera | null;
@@ -157,7 +209,7 @@ export function validarAuxiliarTercero(input: {
   tipoDeducido?: TipoFormatoCartera;
 }): ValidacionesTercero {
   const imputables = input.filas.filter((f) => f.imputable);
-  const terceroDe = (f: FilaValidacionTercero) => texto(f.datos.nombre) ?? f.nitCanonico ?? texto(f.datos.nit) ?? "—";
+  const terceroDe = terceroDeFila;
 
   // ===== Controles del tipo de formato =====
   const nivelImputable = input.nivelImputable ?? nivelDeFilas(input.filas);
@@ -169,33 +221,16 @@ export function validarAuxiliarTercero(input: {
   });
 
   // ===== Edades vs total ===== (en cualquier archivo que traiga las dos cifras)
-  const edades = nuevaLista<DiferenciaEdades>();
+  const edades = { ...nuevaLista<DiferenciaEdades>(), suma: 0 };
   for (const f of imputables) {
     const diferencia = diferenciaEdadesDeFila(f);
-    if (diferencia) agregar(edades, diferencia);
+    if (!diferencia) continue;
+    agregar(edades, diferencia);
+    edades.suma = redondear(edades.suma + diferencia.diferencia);
   }
 
   // ===== Documento repetido entre terceros =====
-  const porDocumento = new Map<string, { documento: string; valor: number; terceros: Map<string, { clave: string; nombre: string | null; filas: number[] }> }>();
-  for (const f of imputables) {
-    const documento = texto(f.datos.documento);
-    // Un número de documento lleva dígitos: «IMPSALDO» o «SALDO INICIAL» son rótulos del ERP.
-    if (!documento || !/\d/.test(documento) || documento.replace(/[^A-Za-z0-9]/g, "").length < 3 || f.valor === 0) continue;
-    const clave = f.nitCanonico ?? claveSinNit(texto(f.datos.nombre));
-    if (!clave) continue;
-    const tipo = texto(f.datos.tipoDocumento);
-    const valor = redondear(f.valor);
-    const llave = `${(tipo ?? "").toUpperCase()}|${documento.toUpperCase().replace(/\s+/g, "")}|${valor}`;
-    const grupo = porDocumento.get(llave) ?? { documento: tipo ? `${tipo} ${documento}` : documento, valor, terceros: new Map() };
-    const tercero = grupo.terceros.get(clave) ?? { clave, nombre: texto(f.datos.nombre), filas: [] };
-    tercero.filas.push(f.filaNum);
-    grupo.terceros.set(clave, tercero);
-    porDocumento.set(llave, grupo);
-  }
-  const repetidos = [...porDocumento.values()]
-    .filter((g) => g.terceros.size >= 2)
-    .map((g) => ({ documento: g.documento, valor: g.valor, terceros: [...g.terceros.values()] }))
-    .sort((a, b) => b.terceros.length - a.terceros.length || Math.abs(b.valor) - Math.abs(a.valor) || a.documento.localeCompare(b.documento));
+  const repetidos = documentosRepetidosEntreTerceros(imputables);
 
   // ===== Posible colisión de clave =====
   // Identificaciones del archivo (solo dígitos) por clave, con el primer nombre que traen.
@@ -245,13 +280,11 @@ export function validarAuxiliarTercero(input: {
   const edadVsCorte = nuevaLista<EdadFueraDeRango>();
   const atipicos = nuevaLista<VencimientoAtipico>();
   if (fechaCorte) {
-    const anioCorte = Number(fechaCorte.slice(0, 4));
     for (const f of imputables) {
       const vencimiento = fechaISO(f.datos.vencimiento);
       if (!vencimiento) continue;
       const documento = texto(f.datos.documento);
-      const anio = Number(vencimiento.slice(0, 4));
-      if (anio < 1990 || anio > anioCorte + 30) {
+      if (esVencimientoImposible(vencimiento, fechaCorte)) {
         agregar(atipicos, { filaNum: f.filaNum, tercero: terceroDe(f), documento, vencimiento });
         continue;
       }
@@ -282,7 +315,11 @@ export function validarAuxiliarTercero(input: {
     edadesVsTotal: edades,
     documentosRepetidos: { cantidad: repetidos.length, grupos: repetidos.slice(0, MAX_FILAS) },
     posiblesColisiones: colisiones,
-    saldosContrarios: { cantidad: contrarios.length, filas: contrarios.slice(0, MAX_FILAS) },
+    saldosContrarios: {
+      cantidad: contrarios.length,
+      filas: contrarios.slice(0, MAX_FILAS),
+      suma: redondear(contrarios.reduce((t, c) => t + c.valor, 0)),
+    },
     corte: { fecha: fechaCorte, deducido: corteDeducido },
     diasVsCorte,
     edadVsCorte,
