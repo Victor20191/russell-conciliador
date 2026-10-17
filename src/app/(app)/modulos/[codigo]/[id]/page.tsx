@@ -521,7 +521,7 @@ export default async function DatoModuloPage({
   const novedadesVm: NovedadesVm = descriptor.nomina
     ? {
         ...novedades,
-        // Nómina: netos por fila, conceptos sin cuenta / con reparto, deducciones de control,
+        // Nómina: netos por fila, conceptos sin cuenta / con varias cuentas, deducciones de control,
         // cédulas con varios nombres y meses del archivo, sobre el mismo consolidado del cruce.
         nomina: validarNominaConNovedades({
           porFila: await novedadesFilaNominaDelCargue(encabezadoId),

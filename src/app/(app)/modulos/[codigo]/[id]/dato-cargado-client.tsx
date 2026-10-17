@@ -16,8 +16,6 @@ import {
   guardarConsolidacionModuloLote,
   cambiarAgruparPorConsolidado,
   guardarClaseAgrupador,
-  guardarRepartoCruce,
-  aplicarRepartosSugeridos,
   guardarMarcaCruce,
   quitarMarcaCruce,
   cerrarConciliacionModulo,
@@ -33,7 +31,7 @@ import type { AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import { SEPARADOR_AGRUPADOR, SEPARADOR_CUENTA, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
-import type { RepartoAplicadoVm, RepartoPendienteVm, ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
+import type { ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import type { ValidacionesNomina } from "@/lib/modulos/nomina/validaciones-nomina";
 import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-consolidacion";
 import { renglonesSinGuardar } from "@/lib/modulos/consolidado-sin-guardar";
@@ -311,7 +309,7 @@ export type CruceContableVm = {
   avisoContenidoActivos?: string | null;
   /** Conciliación en firme del (cliente, módulo, período). */
   conciliacion: CierreConciliacionVm;
-  /** Solo Nómina: rango, base contable, repartos, vista por subcuenta y control de deducciones. */
+  /** Solo Nómina: rango, base contable, vista por subcuenta y control de deducciones. */
   nomina?: ResultadoCruceNomina | null;
   /** Cuentas fuera de la cédula que el Consolidado asignó solo para este período. */
   cuentasPeriodo?: string[];
@@ -349,7 +347,7 @@ export type NovedadesVm = {
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
   /** Cartera y CxP: validaciones del auxiliar por tercero (reemplazan las de existencias). */
   tercero?: ValidacionesTercero | null;
-  /** Nómina: netos, conceptos sin cuenta / con reparto, control, cédulas y meses. */
+  /** Nómina: netos, conceptos sin cuenta / con varias cuentas, control, cédulas y meses. */
   nomina?: ValidacionesNomina | null;
   /** Total declarado por el archivo vs. Σ cargada, congelado al promover. `null` en los
    *  cargues anteriores a esta validación: ahí el panel no se muestra. */
@@ -864,7 +862,7 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
           {s.cuentas.map((c) => <span key={c} className="mr-1 rounded border border-ink-200 bg-white px-1 font-mono text-ink-700">{c}</span>)}
         </>
       )}
-      {s.via === "multi" && <span className="text-ink-500"> — la porción de cada una la define el auditor en el cruce.</span>}
+      {s.via === "multi" && <span className="text-ink-500"> — en el cruce van juntas, en un renglón agrupado contra la suma de las cuentas; repartir el valor entre ellas es opcional.</span>}
       {s.via === "archivo" && s.origenCuentaArchivo === "estructura" && (
         <span className="ml-1 rounded border border-warn-500 bg-warn-100/40 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
           sin homologar en el balance
@@ -918,7 +916,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, encabezado
         <div className="px-3 pb-3">
           <p className="mb-2 text-[11px] text-ink-500">
             El centro decide la CLASE del gasto (51 administración, 52 ventas, 72 mano de obra directa, 73 indirecta) y el concepto pone la subcuenta:
-            con la clase, la memoria de cada concepto se lleva al centro sin volver a homologar. Sin clase, la porción por clase se define en el cruce.
+            con la clase, la memoria de cada concepto se lleva al centro sin volver a homologar. Sin clase, un concepto con cuentas de varias clases cruza en un renglón agrupado contra la suma de ellas.
           </p>
           <div className="overflow-x-auto">
           <table className="w-full text-[11.5px]">
@@ -1836,7 +1834,7 @@ function ConsolidadoTab({
               Los renglones del Consolidado de este cargue se reagrupan por <b>{agruparPorNomina.opciones.find((o) => o.id === agruparDestino)?.etiqueta.toLocaleLowerCase("es")}</b> en vez de por {agruparPorNomina.etiqueta.toLocaleLowerCase("es")}.
             </p>
             <p>
-              Las cuentas asignadas, los repartos y las marcas del cruce hechos con la agrupación actual dejan de aplicar mientras rija la nueva; no se borran y vuelven si regresas a {agruparPorNomina.etiqueta.toLocaleLowerCase("es")}.
+              Las cuentas asignadas y las marcas del cruce hechas con la agrupación actual dejan de aplicar mientras rija la nueva; no se borran y vuelven si regresas a {agruparPorNomina.etiqueta.toLocaleLowerCase("es")}.
             </p>
             {agruparDestino === "cuenta" && (
               <p className="text-ink-500">
@@ -2425,12 +2423,10 @@ function CruceContableTab({
   // Antes de los retornos tempranos: el orden de los hooks no puede depender del estado del cruce.
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
-  // El clasificador del cruce puede traer el centro («1050 ∥ GYA») o la cuenta del reparto
-  // («1050 → 510506»): el nombre se busca por el concepto, que es lo que el usuario reconoce.
-  const descripcionDeClasificador = (clave: string): string | null => {
-    const base = clave.split(" → ")[0];
-    return descripcionPorClasificador[base] ?? descripcionPorClasificador[base.split(" ∥ ")[0]] ?? null;
-  };
+  // El clasificador del cruce puede traer el centro («1050 ∥ GYA»): el nombre se busca por el
+  // concepto, que es lo que el usuario reconoce.
+  const descripcionDeClasificador = (clave: string): string | null =>
+    descripcionPorClasificador[clave] ?? descripcionPorClasificador[clave.split(" ∥ ")[0]] ?? null;
   const etiquetaConceptoCruce = (clave: string): string => {
     const descripcion = descripcionDeClasificador(clave);
     return `«${clave}${descripcion ? ` ${descripcion}` : ""}»`;
@@ -2576,18 +2572,9 @@ function CruceContableTab({
       {cruceContable.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
-      {cruceContable.nomina && cruceContable.nomina.repartidos > 0 && (
-        <p className="text-[11.5px] text-ink-500">{cruceContable.nomina.repartidos} concepto(s) cruzan por reparto.</p>
-      )}
       {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
 
       <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
-      {cruceContable.nomina && (cruceContable.nomina.repartosAplicados.length > 0 || cruceContable.nomina.repartosIgnorados > 0) && (
-        <RepartosAplicadosNomina aplicados={cruceContable.nomina.repartosAplicados} ignorados={cruceContable.nomina.repartosIgnorados} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
-      )}
-      {cruceContable.nomina && cruceContable.nomina.repartosPendientes.length > 0 && (
-        <RepartosPendientesNomina pendientes={cruceContable.nomina.repartosPendientes} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
-      )}
 
       {/* La cédula en su región: en pantalla completa ocupa el viewport con el encabezado fijo. Las
           marcas llevan a su observación al pie; desde la vista completa, el enlace sale de ella. */}
@@ -2992,281 +2979,9 @@ function CruceContableTab({
   );
 }
 
-// ===== Nómina: reparto (RF-NOM-12), vista por subcuenta PUC (D6) y control de deducciones (D1) =====
+// ===== Nómina: vista por subcuenta PUC (D6) y control de deducciones (D1) =====
 
 const ETIQUETA_ESTADO_SUB: Record<string, string> = { cuadra: "Cuadra", descuadre: "Diferencia", solo_contable: "Solo contabilidad", solo_modulo: "Solo nómina" };
-
-/**
- * Editor en línea del reparto de UN concepto entre sus cuentas candidatas (pendientes y aplicados):
- * la Σ tiene que cerrar con el total del concepto para poder guardar.
- */
-function EditorRepartoNomina({
-  encabezadoId,
-  clasificador,
-  cuentas,
-  total,
-  contablePorCuenta,
-  inicial,
-  onGuardado,
-}: {
-  encabezadoId: number;
-  clasificador: string;
-  cuentas: string[];
-  total: number;
-  contablePorCuenta: Record<string, number>;
-  inicial: Record<string, number>;
-  onGuardado: () => void;
-}) {
-  const router = useRouter();
-  const [valores, setValores] = useState<Record<string, string>>(() => Object.fromEntries(cuentas.map((c) => [c, String(inicial[c] ?? 0)])));
-  const [pending, start] = useTransition();
-  const suma = cuentas.reduce((s, c) => s + (Number(valores[c]) || 0), 0);
-  const cierra = Math.abs(suma - total) <= 0.01;
-  const guardar = () => {
-    start(async () => {
-      const r = await guardarRepartoCruce({ encabezadoId, clasificador, valores: Object.fromEntries(cuentas.map((c) => [c, Number(valores[c]) || 0])) });
-      if (r.ok) { notifySuccess(r.message ?? "Reparto guardado."); onGuardado(); router.refresh(); } else notifyError(r.message ?? "No se pudo guardar el reparto.");
-    });
-  };
-  return (
-    <div className="flex flex-wrap items-end gap-3">
-      {cuentas.map((c) => (
-        <label key={c} className="flex flex-col gap-1 text-[11px] text-ink-600">
-          <span className="font-semibold">{c} <span className="font-normal text-ink-400">(balance {fmtContable(contablePorCuenta[c] ?? 0)})</span></span>
-          <input
-            type="number"
-            step="0.01"
-            value={valores[c] ?? ""}
-            onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))}
-            className="w-40 rounded-md border border-ink-200 bg-white px-2 py-1 text-right text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
-          />
-        </label>
-      ))}
-      <div className={`text-[11.5px] font-semibold ${cierra ? "text-ok-700" : "text-err-700"}`}>
-        Σ {fmtContable(suma)} {cierra ? "= total" : `≠ total ${fmtContable(total)} (falta ${fmtContable(total - suma)})`}
-      </div>
-      <button type="button" disabled={pending || !cierra} onClick={guardar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
-        {pending ? "Guardando…" : "Guardar reparto"}
-      </button>
-    </div>
-  );
-}
-
-/** Concepto (código, centro y nombre) en las tablas de reparto. */
-function ConceptoReparto({ codigo, agrupador, descripcion }: { codigo: string; agrupador: string; descripcion: string | null }) {
-  return (
-    <>
-      <span className="font-medium">{codigo}</span>
-      {agrupador && <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 text-[10.5px] font-semibold text-ink-600">{agrupador}</span>}
-      {descripcion && <div className="text-[11px] text-ink-500">{descripcion}</div>}
-    </>
-  );
-}
-
-/**
- * Cómo quedó cada reparto que rige (RF-NOM-12): el concepto, su total y lo que se llevó cada cuenta.
- * Se edita con el mismo editor de los pendientes; «Quitar» lo retira y el concepto vuelve a pendientes.
- */
-function RepartosAplicadosNomina({ aplicados, ignorados, encabezadoId, puedeEditar }: { aplicados: RepartoAplicadoVm[]; ignorados: number; encabezadoId: number; puedeEditar: boolean }) {
-  const router = useRouter();
-  const [visible, setVisible] = useState(false);
-  const [abierto, setAbierto] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const total = aplicados.reduce((s, p) => s + Math.abs(p.total), 0);
-  const quitar = (p: RepartoAplicadoVm) => {
-    start(async () => {
-      const r = await guardarRepartoCruce({ encabezadoId, clasificador: p.clasificador, valores: {} });
-      if (r.ok) { notifySuccess(`Reparto de ${p.codigo}${p.agrupador ? ` · ${p.agrupador}` : ""} retirado: el concepto vuelve al renglón agrupado de sus cuentas.`); router.refresh(); } else notifyError(r.message ?? "No se pudo quitar el reparto.");
-    });
-  };
-  return (
-    <Card className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-3 py-2 text-[12px]">
-        <div className="text-ink-700">
-          <b>Repartos aplicados</b> · {aplicados.length} concepto{aplicados.length === 1 ? "" : "s"} ({fmtContable(total)}) cruzan por la porción que se le definió a cada cuenta.
-          {ignorados > 0 && (
-            <span className="ml-1 text-ink-500">
-              {ignorados === 1 ? "1 reparto guardado ya no aplica" : `${ignorados} repartos guardados ya no aplican`} porque el concepto cambió de cuentas.
-            </span>
-          )}
-        </div>
-        {aplicados.length > 0 && (
-          <button type="button" onClick={() => setVisible((v) => !v)} aria-expanded={visible} className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
-            <Icon name={chevronDivulgacion(visible)} size={12} />
-            {visible ? "Ocultar reparto" : "Ver reparto"}
-          </button>
-        )}
-      </div>
-      {visible && aplicados.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12px]">
-            <thead className="bg-ink-50 text-left text-ink-500">
-              <tr>
-                <th className="px-3 py-1.5 font-semibold">Concepto</th>
-                <th className="px-3 py-1.5 text-right font-semibold">Total</th>
-                <th className="px-3 py-1.5 font-semibold">Reparto por cuenta</th>
-                <th className="px-3 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {aplicados.map((p) => (
-                <Fragment key={p.clasificador}>
-                  <tr className="border-t border-ink-100">
-                    <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex flex-wrap gap-1.5">
-                        {p.cuentas.map((c) => (
-                          <span key={c} className={`rounded border px-1.5 py-0.5 text-[11px] ${(p.valores[c] ?? 0) === 0 ? "border-ink-150 bg-ink-50 text-ink-400" : "border-blue-200 bg-blue-50 text-blue-800"}`} title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
-                            <span className="font-semibold">{c}</span> · {fmtContable(p.valores[c] ?? 0)}
-                            {p.total !== 0 && <span className="ml-1 text-[10.5px] text-ink-500">({Math.round(((p.valores[c] ?? 0) / p.total) * 100)} %)</span>}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-1.5 text-right">
-                      {puedeEditar && (
-                        <div className="flex justify-end gap-1.5">
-                          <button type="button" disabled={pending} onClick={() => setAbierto((a) => (a === p.clasificador ? null : p.clasificador))} className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
-                            {abierto === p.clasificador ? "Cerrar" : "Editar…"}
-                          </button>
-                          <button type="button" disabled={pending} onClick={() => quitar(p)} className="rounded-md border border-err-100 bg-white px-2 py-1 text-[11px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50">
-                            Quitar
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  {abierto === p.clasificador && (
-                    <tr className="border-t border-ink-100 bg-ink-50/60">
-                      <td colSpan={4} className="px-3 py-2.5">
-                        <EditorRepartoNomina
-                          encabezadoId={encabezadoId}
-                          clasificador={p.clasificador}
-                          cuentas={p.cuentas}
-                          total={p.total}
-                          contablePorCuenta={p.contablePorCuenta}
-                          inicial={p.valores}
-                          onGuardado={() => setAbierto(null)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-/** Conceptos homologados a varias cuentas Russell sin porción definida: editor de reparto. */
-function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { pendientes: RepartoPendienteVm[]; encabezadoId: number; puedeEditar: boolean }) {
-  const router = useRouter();
-  const [abierto, setAbierto] = useState<string | null>(null);
-  // Repartir es opcional y la mayoría no lo usa: el panel llega COLAPSADO, con el resumen a la
-  // vista, y se despliega solo si se va a repartir.
-  const [desplegado, setDesplegado] = useState(false);
-  const [pending, start] = useTransition();
-  const total = pendientes.reduce((s, p) => s + Math.abs(p.total), 0);
-  const editando = pendientes.find((p) => p.clasificador === abierto) ?? null;
-  const aplicarTodos = () => {
-    start(async () => {
-      const r = await aplicarRepartosSugeridos({ encabezadoId });
-      if (r.ok) { notifySuccess(r.message ?? "Repartos aplicados."); router.refresh(); } else notifyError(r.message ?? "No se pudieron aplicar los repartos.");
-    });
-  };
-  return (
-    <Card className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2 text-[12px]">
-        <button
-          type="button"
-          onClick={() => setDesplegado((v) => !v)}
-          aria-expanded={desplegado}
-          className="flex min-w-0 flex-1 items-start gap-1.5 text-left text-ink-600 hover:text-ink-800"
-        >
-          <Icon name={chevronDivulgacion(desplegado)} size={13} className="mt-0.5 shrink-0" />
-          <span className="min-w-0">
-            <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Reparto por cuenta</span>
-            <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell: en la cédula {pendientes.length === 1 ? "va" : "van"} en un renglón agrupado contra la SUMA de esas cuentas, sin repartir. Repartir es opcional: sirve para ver cada cuenta en su propio renglón (RF-NOM-12).
-            {desplegado && (
-              <>
-                {" "}
-                {pendientes.some((p) => p.origenSugerido === "centros")
-                  ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
-                  : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
-              </>
-            )}
-            {!desplegado && <span className="ml-1 font-semibold text-blue-700">Ver para repartir</span>}
-          </span>
-        </button>
-        {puedeEditar && desplegado && (
-          <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:border-navy-700 hover:text-navy-700 disabled:opacity-60">
-            {pending ? "Aplicando…" : "Repartir todos con lo sugerido"}
-          </button>
-        )}
-      </div>
-      <div className={`overflow-x-auto ${desplegado ? "" : "hidden"}`}>
-        <table className="w-full text-[12px]">
-          <thead className="bg-ink-50 text-left text-ink-500">
-            <tr>
-              <th className="px-3 py-1.5 font-semibold">Concepto</th>
-              <th className="px-3 py-1.5 text-right font-semibold">Total</th>
-              <th className="px-3 py-1.5 font-semibold">Cuentas candidatas · sugerido</th>
-              <th className="px-3 py-1.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {pendientes.map((p) => (
-              <Fragment key={p.clasificador}>
-                <tr className="border-t border-ink-100">
-                  <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
-                  <td className="px-3 py-1.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {p.origenSugerido === "centros" && (
-                        <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600" title="El sugerido suma lo que repartiste en los centros de este concepto en el período.">como por centro</span>
-                      )}
-                      {p.cuentas.map((c) => (
-                        <span key={c} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800" title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
-                          <span className="font-semibold">{c}</span> · {fmtContable(p.sugerido[c] ?? 0)}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-3 py-1.5 text-right">
-                    {puedeEditar && (
-                      <button type="button" onClick={() => setAbierto((a) => (a === p.clasificador ? null : p.clasificador))} className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700">
-                        {abierto === p.clasificador ? "Cerrar" : "Repartir…"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {abierto === p.clasificador && editando && (
-                  <tr className="border-t border-ink-100 bg-ink-50/60">
-                    <td colSpan={4} className="px-3 py-2.5">
-                      <EditorRepartoNomina
-                        encabezadoId={encabezadoId}
-                        clasificador={editando.clasificador}
-                        cuentas={editando.cuentas}
-                        total={editando.total}
-                        contablePorCuenta={editando.contablePorCuenta}
-                        inicial={editando.sugerido}
-                        onGuardado={() => setAbierto(null)}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
 
 /**
  * Cuentas SOLO VISIBLES de Nómina (1/Oct/2026): su saldo final contra lo que el archivo les asigna, al
@@ -3436,7 +3151,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
           Cruce por subcuenta de la cuenta del CLIENTE · balance vs {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
         </div>
         <p className="text-[11px] text-ink-500">
-          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase ni reparto; no decide el cierre.
+          Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase; no decide el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -3581,7 +3296,7 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
           )}
           {v.multi.length > 0 && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-blue-800">
-              <b>{v.multi.length}</b> concepto(s) cruzan contra varias cuentas: en el cruce contable van en un renglón agrupado contra la suma de ellas (repartirlos es opcional): {v.multi.slice(0, 12).map((c) => `${c.clasificador} → ${c.cuentas.join("/")}`).join("  ·  ")}{v.multi.length > 12 ? " …" : ""}.
+              <b>{v.multi.length}</b> concepto(s) cruzan contra varias cuentas: en el cruce contable van en un renglón agrupado contra la suma de ellas: {v.multi.slice(0, 12).map((c) => `${c.clasificador} → ${c.cuentas.join("/")}`).join("  ·  ")}{v.multi.length > 12 ? " …" : ""}.
             </div>
           )}
           {(v.cuentaArchivoPorEstructura ?? []).length > 0 && (
@@ -3788,7 +3503,7 @@ function ConciliacionEnFirmePanel({
             Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia (también las solo visibles) y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
           </p>
           <p>
-            Este cargue quedará de <b>solo lectura</b>: no se podrán cambiar sus cuentas del Consolidado, marcas, repartos ni emparejamientos, cargar otro archivo o versión del período, ni eliminarlo. Lo que se cambie desde otro mes en la memoria del cliente tampoco lo alterará: se guarda una copia de lo conciliado.
+            Este cargue quedará de <b>solo lectura</b>: no se podrán cambiar sus cuentas del Consolidado, marcas ni emparejamientos, cargar otro archivo o versión del período, ni eliminarlo. Lo que se cambie desde otro mes en la memoria del cliente tampoco lo alterará: se guarda una copia de lo conciliado.
           </p>
           <p className="text-ink-500">Solo el senior o gerente asignado al cliente podrá desbloquearla, con una justificación que queda en la bitácora.</p>
         </div>

@@ -340,7 +340,7 @@ export type ClavePeriodoModulo = { clienteId: number; moduloCodigo: string; peri
 
 /**
  * Lo lanza `exigirPeriodoAbierto` cuando la conciliación del período está en firme: mientras lo esté,
- * nada de lo que alimenta su cruce se puede cambiar (cuentas del Consolidado, marcas, repartos,
+ * nada de lo que alimenta su cruce se puede cambiar (cuentas del Consolidado, marcas,
  * emparejamientos, cargar otro archivo o versión, eliminar el cargue). Solo «Desbloquear» lo reabre.
  */
 export class ErrorPeriodoEnFirme extends Error {

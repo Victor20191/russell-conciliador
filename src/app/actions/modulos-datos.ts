@@ -31,7 +31,6 @@ import {
 import {
   cedulaModulo,
   cuentaAsignableCedula,
-  cuentasCedula6,
   longitudesCedula,
   prefijosCuentaModulo,
   type CedulaModulo,
@@ -84,7 +83,6 @@ import {
   OPCIONES_AGRUPAR_POR,
   type AgruparPorNomina,
 } from "@/lib/modulos/nomina/agrupar-por";
-import { repartoQuedaViejo, validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
@@ -2940,7 +2938,6 @@ async function auditarConsolidacion(
   moduloCodigo: string,
   filas: { cuentas4: string[] }[],
   delPeriodo: { periodo: string; cuentas: string[] } | null = null,
-  repartosDescartados: readonly string[] = [],
 ) {
   const [user, cliente] = await Promise.all([
     getCurrentUser(),
@@ -2952,8 +2949,7 @@ async function auditarConsolidacion(
     action: "ACTUALIZÓ consolidación de módulo",
     entity: cliente?.name ?? `Cliente ${clienteId}`,
     detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`
-      + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : "")
-      + (repartosDescartados.length ? ` · reparto descartado: ${repartosDescartados.join(", ")}` : ""),
+      + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : ""),
     clientId: clienteId,
   });
 }
@@ -3091,19 +3087,6 @@ async function guardarConsolidacion(args: {
         }
       }
     }
-    // Nómina: un reparto del período que ya no corresponde a las cuentas guardadas del renglón (se
-    // le asignó una sola cuenta, u otras) se descarta; si no, seguía mandando en el cruce.
-    const repartosPrevios = descriptor.nomina && periodo
-      ? await prisma.repartoCruceModulo.findMany({
-          where: { clienteId, moduloCodigo, periodo, clasificador: { in: filas.map((f) => f.clave) } },
-          select: { clasificador: true, cuentaRussell: true },
-        })
-      : [];
-    const cuentasReparto = new Map<string, string[]>();
-    for (const r of repartosPrevios) cuentasReparto.set(r.clasificador, [...(cuentasReparto.get(r.clasificador) ?? []), r.cuentaRussell]);
-    const repartosViejos = separadas
-      .filter((f) => cuentasReparto.has(f.clave) && repartoQuedaViejo([...f.deCedula, ...f.extras], cuentasReparto.get(f.clave)!))
-      .map((f) => f.clave);
     // CUATRO sentencias, vengan 1 o 300 renglones: con dos por renglón, «Guardar propuestas» de
     // un cargue de nómina (33 renglones) agotaba el tiempo de la transacción contra la base
     // remota (P2028). El criterio de qué va a memoria y qué al período no cambia.
@@ -3121,9 +3104,6 @@ async function guardarConsolidacion(args: {
     await prisma.$transaction(
       async (tx) => {
         if (periodo) await exigirPeriodoAbierto(tx, { clienteId, moduloCodigo, periodo }, { operacion: OPERACION_CONSOLIDADO, enTransaccion: true });
-        if (repartosViejos.length > 0) {
-          await tx.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } });
-        }
         if (plan.memoriaBorrar.length > 0) {
           await tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, agruparPor, OR: plan.memoriaBorrar } });
         }
@@ -3148,17 +3128,13 @@ async function guardarConsolidacion(args: {
       moduloCodigo,
       separadas.map((f) => ({ cuentas4: [...f.deCedula, ...f.extras] })),
       periodo ? { periodo, cuentas: extras } : null,
-      repartosViejos,
     );
     revalidatePath(rutaModulo(moduloCodigo));
     const base = filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.`;
     const aviso = extras.length === 0
       ? ""
       : ` ${extras.length === 1 ? `La cuenta ${extras[0]} vale` : `Las cuentas ${extras.join(", ")} valen`} solo para ${periodo}.`;
-    const avisoReparto = repartosViejos.length === 0
-      ? ""
-      : ` Se descartó el reparto del cruce que tenía${repartosViejos.length === 1 ? "" : `n ${repartosViejos.length} conceptos`}: ya no corresponde a sus cuentas.`;
-    return { ok: true, message: base + aviso + avisoReparto };
+    return { ok: true, message: base + aviso };
   } catch (e) {
     const enFirme = await respuestaPeriodoEnFirme(e);
     if (enFirme) return enFirme;
@@ -3463,120 +3439,6 @@ export async function guardarClaseAgrupador(input: { clienteId: number; moduloCo
     const enFirme = await respuestaPeriodoEnFirme(e);
     if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("guardarClaseAgrupador", e) };
-  }
-}
-
-// ============================================================
-// REPARTO del cruce (Nómina, RF-NOM-12 / D4): la porción de un concepto homologado a varias
-// cuentas Russell que va a cada una. Vive por (cliente, módulo, período, clave del
-// consolidado); la sugerencia proporcional al balance la calcula el cruce y el auditor la
-// confirma o la corrige aquí. La Σ del reparto debe cerrar con el total del concepto.
-// ============================================================
-/** Lo que el rechazo dice que no se puede hacer con la conciliación del período en firme. */
-const OPERACION_REPARTO = "cambiar los repartos del cruce";
-
-const RepartoSchema = z.object({
-  encabezadoId: z.number().int().positive(),
-  clasificador: z.string().trim().min(1, "Indica el concepto."),
-  valores: z.record(z.string().regex(/^\d{6}$/, "Cuenta Russell de 6 dígitos."), z.number().finite()),
-});
-
-/** Guarda (o quita, con `valores` vacío) el reparto de UN concepto del cruce de Nómina. */
-export async function guardarRepartoCruce(input: { encabezadoId: number; clasificador: string; valores: Record<string, number> }): Promise<ActionState> {
-  const parsed = RepartoSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { encabezadoId, clasificador, valores } = parsed.data;
-  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true } });
-  if (!encabezado) return { ok: false, message: "El dato no existe." };
-  const descriptor = descriptorModulo(encabezado.moduloCodigo);
-  if (!descriptor?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
-  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const clavePeriodo = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
-  try {
-    await exigirPeriodoAbierto(prisma, clavePeriodo, { operacion: OPERACION_REPARTO });
-    const insumos = await cargarInsumosCruceModulo(encabezadoId);
-    const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
-    const renglon = cruce?.nomina?.renglones.find((r) => r.clasificador === clasificador);
-    if (!renglon) return { ok: false, message: `El concepto «${clasificador}» no está en el consolidado de este cargue.` };
-    const limpios = Object.fromEntries(Object.entries(valores).filter(([, v]) => v !== 0));
-    if (Object.keys(limpios).length > 0) {
-      const invalido = validarReparto(renglon.total, limpios);
-      if (invalido) return { ok: false, message: invalido };
-      // Las cuentas del período (fuera de la cédula) también se pueden repartir en ese período.
-      const cuentasRussell6 = cuentasCedula6(insumos?.descriptor ?? descriptor, cruce?.cuentasPeriodo ?? []);
-      const fuera = Object.keys(limpios).find((c) => !cuentasRussell6.includes(c));
-      if (fuera) return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo de Nómina.` };
-    }
-    const user = await getCurrentUser();
-    const actor = user?.name ?? null;
-    const where = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, clasificador };
-    await prisma.$transaction(async (tx) => {
-      await exigirPeriodoAbierto(tx, clavePeriodo, { operacion: OPERACION_REPARTO, enTransaccion: true });
-      await tx.repartoCruceModulo.deleteMany({ where });
-      if (Object.keys(limpios).length > 0) {
-        await tx.repartoCruceModulo.createMany({ data: Object.entries(limpios).map(([cuentaRussell, valor]) => ({ ...where, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor })) });
-      }
-    });
-    await logAudit({
-      user: actor ?? "Sistema",
-      action: Object.keys(limpios).length > 0 ? "DEFINIÓ reparto del cruce" : "QUITÓ reparto del cruce",
-      entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} · «${clasificador}» → ${Object.entries(limpios).map(([c, v]) => `${c}: ${v}`).join(", ") || "sin reparto"}`,
-      clientId: encabezado.clienteId,
-    });
-    revalidatePath(rutaModulo(encabezado.moduloCodigo));
-    return { ok: true, message: Object.keys(limpios).length > 0 ? "Reparto guardado." : "Reparto retirado." };
-  } catch (e) {
-    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
-    if (enFirme) return enFirme;
-    return { ok: false, message: mensajeErrorBD("guardarRepartoCruce", e) };
-  }
-}
-
-/**
- * Aplica de una vez el reparto SUGERIDO (proporcional al saldo final del balance, D4) a todos
- * los conceptos del cargue que cruzan contra varias cuentas y aún no tienen reparto.
- */
-export async function aplicarRepartosSugeridos(input: { encabezadoId: number }): Promise<ActionState & { aplicados?: number }> {
-  const encabezadoId = Number(input.encabezadoId);
-  if (!Number.isInteger(encabezadoId)) return { ok: false, message: "Dato inválido." };
-  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true } });
-  if (!encabezado) return { ok: false, message: "El dato no existe." };
-  if (!descriptorModulo(encabezado.moduloCodigo)?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
-  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const clavePeriodo = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
-  try {
-    await exigirPeriodoAbierto(prisma, clavePeriodo, { operacion: OPERACION_REPARTO });
-    const insumos = await cargarInsumosCruceModulo(encabezadoId);
-    const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
-    if (!cruce?.nomina || cruce.bloqueo || !cruce.cruceContable) return { ok: false, message: cruce?.bloqueo ?? "El cruce no está disponible: hace falta el balance del período." };
-    const pendientes = cruce.nomina.repartosPendientes.filter((p) => Object.values(p.sugerido).some((v) => v !== 0));
-    if (pendientes.length === 0) return { ok: true, message: "No hay conceptos pendientes de reparto.", aplicados: 0 };
-    const user = await getCurrentUser();
-    const actor = user?.name ?? null;
-    const base = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
-    await prisma.$transaction(async (tx) => {
-      await exigirPeriodoAbierto(tx, clavePeriodo, { operacion: OPERACION_REPARTO, enTransaccion: true });
-      await tx.repartoCruceModulo.deleteMany({ where: { ...base, clasificador: { in: pendientes.map((p) => p.clasificador) } } });
-      await tx.repartoCruceModulo.createMany({
-        data: pendientes.flatMap((p) => Object.entries(p.sugerido).filter(([, v]) => v !== 0).map(([cuentaRussell, valor]) => ({ ...base, clasificador: p.clasificador, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor }))),
-      });
-    });
-    await logAudit({
-      user: actor ?? "Sistema",
-      action: "APLICÓ repartos sugeridos del cruce",
-      entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} · ${pendientes.length} concepto(s) repartidos proporcionalmente al balance`,
-      clientId: encabezado.clienteId,
-    });
-    revalidatePath(rutaModulo(encabezado.moduloCodigo));
-    return { ok: true, message: `${pendientes.length} concepto(s) repartidos según el balance. Revísalos y ajusta los que haga falta.`, aplicados: pendientes.length };
-  } catch (e) {
-    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
-    if (enFirme) return enFirme;
-    return { ok: false, message: mensajeErrorBD("aplicarRepartosSugeridos", e) };
   }
 }
 

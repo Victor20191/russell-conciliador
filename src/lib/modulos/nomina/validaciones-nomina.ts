@@ -18,7 +18,7 @@ export type ValidacionesNomina = {
   netos: NetoDescuadrado[];
   /** Conceptos de gasto sin cuenta Russell resuelta (no cruzan). */
   sinCuenta: { clasificador: string; descripcion: string | null; total: number }[];
-  /** Conceptos que cruzan por reparto o quedaron con varias cuentas. */
+  /** Conceptos que quedaron con varias cuentas (cruzan en un renglón agrupado). */
   multi: { clasificador: string; descripcion: string | null; total: number; cuentas: string[] }[];
   /**
    * Conceptos que cruzan por la cuenta del archivo, pero esa cuenta del cliente no está homologada

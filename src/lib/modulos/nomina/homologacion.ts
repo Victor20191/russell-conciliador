@@ -20,8 +20,8 @@
 //  3c. `memoria_centros` renglón SIN centro (el cargue no se separó por centro de costo) cuyo
 //                       concepto no tiene cuenta Russell guardada sin centro pero sí en los
 //                       centros: se PROPONE lo asignado ahí; no cruza hasta que se guarde.
-//  4. `multi`           la memoria tiene el concepto con varias cuentas y no hay regla: la
-//                       porción de cada lado la decide el auditor (reparto, RF-NOM-12).
+//  4. `multi`           la memoria tiene el concepto con varias cuentas y no hay regla: cruza en
+//                       un renglón agrupado contra la suma de ellas (el reparto se retiró el 14/Oct/2026).
 //  5. `sugerido_nombre` sin memoria: el grupo RF-NOM-02 que sugiere el nombre + la clase del
 //                       agrupador (o 51 por defecto) dan una cuenta A CONFIRMAR.
 //
@@ -78,7 +78,7 @@ export function subcuentaPucDe(cuentaCliente: unknown): string | null {
 /**
  * Clase (2 primeros dígitos) de la cuenta del cliente. «00» (SIIGO deja la clase a cargo del
  * centro de costo) → `null`: la cuenta Russell queda indeterminada entre 51/52/72 hasta que
- * haya regla de clase o reparto, aunque la subcuenta sí se conozca.
+ * haya regla de clase, aunque la subcuenta sí se conozca.
  */
 export function claseDeCuentaCliente(cuentaCliente: unknown): string | null {
   const d = digitosCuenta(cuentaCliente);
@@ -515,7 +515,7 @@ function resolverDesdeMemoria(
     const fueraExacta = claseFuera(exacta);
     if (fueraExacta) return base({ via: "memoria_exacta", destino: "fuera", ...meta, motivo: `Memoria del cliente para «${agrupador}»: cuenta ${meta.cuentaCliente} de la clase ${fueraExacta}, que Nómina no concilia.` });
     if (cuentas.length > 0) {
-      return base({ cuentas, via: cuentas.length > 1 ? "multi" : "memoria_exacta", destino: "gasto", clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : claseRegla, ...meta, motivo: cuentas.length > 1 ? `Memoria del cliente para «${agrupador}» con ${cuentas.length} cuentas: la porción de cada una la define el auditor.` : `Memoria del cliente para «${agrupador}».` });
+      return base({ cuentas, via: cuentas.length > 1 ? "multi" : "memoria_exacta", destino: "gasto", clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : claseRegla, ...meta, motivo: cuentas.length > 1 ? `Memoria del cliente para «${agrupador}» con ${cuentas.length} cuentas.` : `Memoria del cliente para «${agrupador}».` });
     }
   }
 
@@ -537,7 +537,7 @@ function resolverDesdeMemoria(
         destino: "gasto",
         clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : null,
         ...metaDe(filasBase, enCentros),
-        motivo: `Lo que asignaste a este concepto en ${centros.length === 1 ? "el centro" : "los centros"} ${centros.join(", ")}. Guárdalo para usarlo sin centro${cuentas.length > 1 ? "; la porción de cada cuenta se reparte en el cruce" : ""}.`,
+        motivo: `Lo que asignaste a este concepto en ${centros.length === 1 ? "el centro" : "los centros"} ${centros.join(", ")}. Guárdalo para usarlo sin centro${cuentas.length > 1 ? "; con varias cuentas cruza en un renglón agrupado contra la suma de ellas" : ""}.`,
       });
     }
   }
@@ -561,7 +561,7 @@ function resolverDesdeMemoria(
       }
     }
     if (cuentas.length === 1) return base({ cuentas, via: "memoria_exacta", destino: "gasto", clase: claseDeCuentaRussell(cuentas[0]), ...meta, motivo: "Memoria del cliente." });
-    if (cuentas.length > 1) return base({ cuentas, via: "multi", destino: "gasto", clase: claseRegla, ...meta, motivo: `Memoria del cliente con ${cuentas.length} cuentas: la porción de cada una la define el auditor (o una regla de clase para «${agrupador || "el agrupador"}»).` });
+    if (cuentas.length > 1) return base({ cuentas, via: "multi", destino: "gasto", clase: claseRegla, ...meta, motivo: `Memoria del cliente con ${cuentas.length} cuentas${agrupador ? `; asignarle clase a «${agrupador}» la llevaría a la cuenta de esa clase` : ""}.` });
     // Memoria solo con la cuenta del cliente (clase «00»): grupo + clase conocida.
     const grupo = meta.grupo ?? grupoPorSubcuentaPuc(meta.subcuentaPuc) ?? sugerirGrupoConcepto(nombre);
     if (grupo && claseRegla) {
@@ -570,13 +570,13 @@ function resolverDesdeMemoria(
     }
     if (grupo) {
       const candidatas = CLASES_NOMINA.map((cl) => cuentaPorGrupo(grupo, cl)).filter((c): c is string => !!c && delModulo(c));
-      return base({ cuentas: [...new Set(candidatas)], via: "multi", destino: "gasto", ...meta, grupo, motivo: `La cuenta ${meta.cuentaCliente ?? "del cliente"} no fija la clase: la porción por clase la define el auditor cuadrando contra el balance.` });
+      return base({ cuentas: [...new Set(candidatas)], via: "multi", destino: "gasto", ...meta, grupo, motivo: `La cuenta ${meta.cuentaCliente ?? "del cliente"} no fija la clase: van las cuentas del grupo en cada clase posible.` });
     }
   }
 
   // 3b) Memoria del concepto en OTROS centros (el catálogo del ERP viene por área —ADMON,
   //     PRODUCCIÓN— y el archivo trae el centro de costo): con regla de clase se toma la cuenta
-  //     de esa clase; con una sola cuenta distinta se usa; con varias, reparto.
+  //     de esa clase; con una sola cuenta distinta se usa; con varias, renglón agrupado.
   const otras = (idx.get(claveMemoria(clasificador, "*", agruparPor)) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
   if (otras.length > 0 && cuentasDe(otras).length > 0) {
     const meta = metaDe(otras);
@@ -627,31 +627,6 @@ export function esAporteAmbiguo(grupo: string, nombre: unknown): boolean {
   if (grupo !== "aportes_eps" && grupo !== "aportes_pension") return false;
   const t = String(nombre ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
   return SENAL_DEDUCCION.test(t) || !SENAL_EMPRESA.test(t);
-}
-
-// ===== Reparto (RF-NOM-12 / D4) =====
-
-/**
- * Reparto PROPORCIONAL de `total` entre las cuentas candidatas según el movimiento del balance
- * en cada una (D4: «la porción por clase se sugiere cuadrando contra el balance»). Redondea a
- * pesos y deja el residuo en la cuenta de mayor movimiento para que la Σ sea exacta. Si el
- * balance no tiene movimiento en ninguna, reparte por partes iguales.
- */
-export function sugerirReparto(total: number, movimientoPorCuenta: Readonly<Record<string, number>>): Record<string, number> {
-  const cuentas = Object.keys(movimientoPorCuenta);
-  if (cuentas.length === 0) return {};
-  const pesos = cuentas.map((c) => Math.max(0, Math.abs(movimientoPorCuenta[c] ?? 0)));
-  const suma = pesos.reduce((a, b) => a + b, 0);
-  const proporciones = suma > 0 ? pesos.map((p) => p / suma) : cuentas.map(() => 1 / cuentas.length);
-  const reparto: Record<string, number> = {};
-  let asignado = 0;
-  cuentas.forEach((c, i) => {
-    reparto[c] = Math.round(total * proporciones[i]);
-    asignado += reparto[c];
-  });
-  const mayor = cuentas.reduce((m, c, i) => (pesos[i] > pesos[cuentas.indexOf(m)] ? c : m), cuentas[0]);
-  reparto[mayor] = Math.round((reparto[mayor] + (total - asignado)) * 100) / 100;
-  return reparto;
 }
 
 /** Grupos del catálogo que son aportes patronales/provisiones (para el aviso D2). */

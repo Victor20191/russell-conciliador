@@ -5,7 +5,7 @@
 //     18 comisiones, 24 incapacidades, 27 aux. transporte, 45 auxilios, 48 bonificaciones,
 //     60 indemnizaciones…); el lado contable es la Σ de las cuentas del cliente con esa
 //     subcuenta en TODAS las clases (510506 + 520506 + 720506) y el lado módulo la Σ de los
-//     conceptos cuya subcuenta coincide. No exige regla de clase ni reparto: cuadra aunque la
+//     conceptos cuya subcuenta coincide. No exige regla de clase: cuadra aunque la
 //     clase la ponga el centro de costo (SIIGO «00»). Russell 6 no la puede reproducir porque
 //     colapsa esas subcuentas en «xx95 Otros». La subcuenta del concepto es la de su cuenta del
 //     cliente (archivo, catálogo o memoria) y, si no la trae, la de la cuenta Russell que tiene
@@ -23,9 +23,7 @@
 
 import { factorPresentacion } from "@/lib/balance/prevalidador/calcular";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
-import { partirClaveConsolidado } from "./clave-consolidado";
-import { clasificadorCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
-import type { AgruparPorNomina } from "./agrupar-por";
+import { digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
@@ -274,98 +272,21 @@ export function construirControlDeducciones(input: {
   };
 }
 
-/** Concepto «multi» sin reparto guardado, con la sugerencia proporcional al balance (D4). */
-export type RepartoPendienteVm = {
-  clasificador: string;
-  codigo: string;
-  agrupador: string;
-  cuentaArchivo?: string | null;
-  descripcion: string | null;
-  total: number;
-  cuentas: string[];
-  sugerido: Record<string, number>;
-  /** De dónde sale `sugerido`: lo repartido en los centros del concepto o el saldo del balance. */
-  origenSugerido: "centros" | "saldo";
-  /** Saldo contable de cada cuenta candidata (para el editor). */
-  contablePorCuenta: Record<string, number>;
-};
-
-/** Concepto «multi» con su reparto vigente: cómo quedó repartido (para verlo y editarlo). */
-export type RepartoAplicadoVm = {
-  clasificador: string;
-  codigo: string;
-  agrupador: string;
-  cuentaArchivo?: string | null;
-  descripcion: string | null;
-  total: number;
-  cuentas: string[];
-  /** Valor guardado por cuenta, con el signo del concepto (su Σ es el total). */
-  valores: Record<string, number>;
-  /** Saldo contable de cada cuenta candidata (para el editor). */
-  contablePorCuenta: Record<string, number>;
-};
-
-/**
- * Los repartos guardados que RIGEN (`repartoVigente`) con su concepto, para mostrar cómo quedó cada
- * uno; `ignorados` cuenta los guardados que ya no aplican (el concepto tiene hoy una sola cuenta u
- * otras candidatas) o cuyo concepto no está en este cargue.
- */
-export function repartosAplicadosNomina(
-  renglones: readonly RenglonConsolidadoNomina[],
-  repartos: readonly RepartoConcepto[],
-  contablePorCuenta: Readonly<Record<string, number>>,
-): { aplicados: RepartoAplicadoVm[]; ignorados: number } {
-  const porClave = new Map(renglones.map((r) => [r.clasificador, r]));
-  const aplicados: RepartoAplicadoVm[] = [];
-  let ignorados = 0;
-  for (const rep of repartos) {
-    const r = porClave.get(rep.clasificador);
-    if (!r || !repartoVigente(r.sugerencia, rep.valores)) {
-      ignorados++;
-      continue;
-    }
-    aplicados.push({
-      clasificador: r.clasificador,
-      codigo: r.codigo,
-      agrupador: r.agrupador,
-      cuentaArchivo: r.cuentaArchivo,
-      descripcion: r.descripcion,
-      total: r.total,
-      cuentas: [...r.sugerencia.cuentas],
-      valores: Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, redondear(rep.valores[c] ?? 0)])),
-      contablePorCuenta: Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contablePorCuenta[c] ?? 0])),
-    });
-  }
-  aplicados.sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
-  return { aplicados, ignorados };
-}
-
 /** Lo que el cruce de Nómina añade al resultado común (pestaña, exportación y cierre). */
 export type ResultadoCruceNomina = {
   vistaSubcuenta: VistaSubcuentaNomina | null;
   control: ControlDeduccionesNomina | null;
-  repartosPendientes: RepartoPendienteVm[];
-  /** Repartos que rigen, con su concepto: cómo quedó cada uno. */
-  repartosAplicados: RepartoAplicadoVm[];
-  /** Repartos guardados que ya no aplican (el concepto cambió de cuentas). */
-  repartosIgnorados: number;
-  /** Repartos guardados (clave del consolidado → cuenta → valor). */
-  repartos: RepartoConcepto[];
-  /** Conceptos que entraron a la cédula por reparto. */
-  repartidos: number;
   renglones: RenglonConsolidadoNomina[];
 };
 
 // ===== Lado módulo de la cédula formal (Russell 6) =====
-
-export type RepartoConcepto = { clasificador: string; valores: Record<string, number> };
 
 export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4: string[] };
 
 /**
  * Separa las entradas del cruce formal entre la cédula y las cuentas SOLO VISIBLES (1/Oct/2026): una
  * entrada cuyas cuentas son todas visibles se muestra en su renglón visible, sin conciliarse. Si una
- * entrada mezcla una visible con una que concilia (un concepto con varias cuentas sin repartir), esa
+ * entrada mezcla una visible con una que concilia (un concepto con varias cuentas), esa
  * visible se concilia en este cargue (`promovidas`): entra al renglón agrupado con la otra, y con
  * ella las entradas visibles que la comparten. Sin entradas sin cuenta en el lado visible: el saldo
  * sin cuenta siempre se concilia.
@@ -398,35 +319,6 @@ export function separarEntradasVisibles(
 }
 
 /**
- * Pesos para sugerir el reparto de un concepto SIN centro con lo que el auditor ya repartió en
- * sus centros en el mismo período (claves «código ∥ centro»): Σ por cuenta candidata. Un cargue
- * que no se separa por centro vuelve a pedir el reparto del concepto entero; así se propone el
- * mismo que decidió por centro (`sugerirReparto` lo ajusta en proporción si el total cambió).
- * null si el renglón tiene centro o ningún reparto por centro toca sus cuentas. Un renglón con cuenta
- * del archivo solo toma los repartos de esa misma cuenta (o de renglones sin cuenta).
- */
-export function pesosRepartoDeCentros(
-  renglon: { codigo: string; agrupador: string; cuentaArchivo?: string | null },
-  cuentas: readonly string[],
-  repartos: readonly RepartoConcepto[],
-  agruparPor: AgruparPorNomina = "codigo",
-): Record<string, number> | null {
-  if (renglon.agrupador.trim()) return null;
-  const codigo = clasificadorCanonico(agruparPor, renglon.codigo);
-  const candidatas = new Set(cuentas);
-  const pesos: Record<string, number> = Object.fromEntries(cuentas.map((c) => [c, 0]));
-  for (const rep of repartos) {
-    const { clasificador, agrupador, cuentaArchivo } = partirClaveConsolidado(rep.clasificador);
-    if (!agrupador || clasificadorCanonico(agruparPor, clasificador) !== codigo) continue;
-    if (renglon.cuentaArchivo && cuentaArchivo && cuentaArchivo !== renglon.cuentaArchivo) continue;
-    for (const [cuenta, valor] of Object.entries(rep.valores)) {
-      if (candidatas.has(cuenta) && Number.isFinite(valor)) pesos[cuenta] = redondear(pesos[cuenta] + valor);
-    }
-  }
-  return Object.values(pesos).some((v) => v !== 0) ? pesos : null;
-}
-
-/**
  * Valor con que un concepto entra a la fila de SU cuenta en la cédula. El archivo de nómina firma
  * desde el empleado (devengo +, deducción −) y la cédula presenta las cuentas de naturaleza crédito
  * (pasivos, ingresos) en positivo. Una deducción siempre se ABONA a su cuenta (retención 2365,
@@ -440,81 +332,32 @@ export function valorConceptoEnCuenta(cuenta: string, total: number): number {
 }
 
 /**
- * ¿El reparto guardado de un concepto sigue rigiendo? Solo mientras el concepto siga «asignado a
- * varias» (`multi`) y el reparto use solo esas cuentas. Si el auditor le asignó después UNA cuenta
- * (o cambió las candidatas), manda su última decisión: el reparto viejo ya no resuelve nada y
- * aplicarlo llevaba el valor a cuentas que el concepto dejó de tener (Kakaraka, concepto 8 → 519505).
- */
-export function repartoVigente(
-  sugerencia: Pick<RenglonConsolidadoNomina["sugerencia"], "via" | "cuentas">,
-  reparto: Record<string, number> | undefined,
-): reparto is Record<string, number> {
-  if (!reparto || Object.keys(reparto).length === 0 || sugerencia.via !== "multi") return false;
-  const candidatas = new Set(sugerencia.cuentas);
-  // Una cuenta en cero no reparte nada: no hace falta que siga entre las candidatas.
-  return Object.entries(reparto).every(([cuenta, valor]) => valor === 0 || candidatas.has(cuenta));
-}
-
-/**
- * Al guardar las cuentas de un renglón del Consolidado, ¿su reparto del período queda viejo? Sí si
- * el renglón queda con menos de dos cuentas o con otras cuentas que las del reparto.
- */
-export function repartoQuedaViejo(cuentasGuardadas: readonly string[], cuentasReparto: readonly string[]): boolean {
-  const guardadas = new Set(cuentasGuardadas);
-  if (guardadas.size < 2) return true;
-  const reparto = new Set(cuentasReparto);
-  return guardadas.size !== reparto.size || [...reparto].some((c) => !guardadas.has(c));
-}
-
-/**
  * Lo que entra a la cédula Russell 6 desde el consolidado de Nómina. Solo cuentan las vías
  * DETERMINISTAS (cuenta del archivo, memoria exacta, memoria + clase); una sugerencia por
  * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan en un renglón AGRUPADO contra
- * la suma de sus cuentas, como en los demás módulos (1/Oct/2026); repartir es opcional y, donde hay
- * reparto, manda: el concepto se parte en una entrada por cuenta, que ya no agrupa. Un reparto que ya no rige
- * (`repartoVigente`: el concepto tiene hoy una sola cuenta u otras candidatas) se ignora. Control
- * y fuera no entran.
+ * la suma de sus cuentas, como en los demás módulos. Repartir un concepto entre sus cuentas
+ * (RF-NOM-12) se retiró el 14/Oct/2026 porque nadie lo usaba: los repartos guardados en
+ * `reparto_cruce_modulo` ya no se leen. Control y fuera no entran.
+ *
+ * El signo del agrupado sigue la regla de `valorConceptoEnCuenta`: una deducción contra varias
+ * cuentas crédito (retención 236505 + embargos 237025) entra en positivo, como las presenta la
+ * contabilidad. Antes solo el reparto la corregía, cuenta por cuenta. Si las cuentas mezclan
+ * naturalezas no hay una convención única y se deja con el signo del archivo.
  */
-export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidadoNomina[], repartos: readonly RepartoConcepto[]): {
-  entradas: EntradaCruceFormal[];
-  /** Renglones que cruzan por reparto (para la UI). */
-  repartidos: number;
-  /** Renglones «multi» sin reparto. */
-  pendientesReparto: RenglonConsolidadoNomina[];
-} {
-  const repartoPor = new Map(repartos.map((r) => [r.clasificador, r.valores]));
+export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidadoNomina[]): EntradaCruceFormal[] {
   const entradas: EntradaCruceFormal[] = [];
-  const pendientesReparto: RenglonConsolidadoNomina[] = [];
-  let repartidos = 0;
   for (const r of renglones) {
     const s = r.sugerencia;
     if (s.destino !== "gasto") continue;
-    const reparto = repartoPor.get(r.clasificador);
-    if (repartoVigente(s, reparto)) {
-      repartidos++;
-      for (const [cuenta, valor] of Object.entries(reparto)) {
-        if (valor === 0) continue;
-        entradas.push({ clasificador: `${r.clasificador} → ${cuenta}`, total: valorConceptoEnCuenta(cuenta, redondear(valor)), cuentas4: [cuenta] });
-      }
-      continue;
-    }
     if (s.via === "multi") {
-      pendientesReparto.push(r);
-      entradas.push({ clasificador: r.clasificador, total: r.total, cuentas4: [...s.cuentas] });
+      const todasCredito = s.cuentas.length > 0 && s.cuentas.every((c) => factorPresentacion(c) === -1);
+      const total = todasCredito ? valorConceptoEnCuenta(s.cuentas[0], r.total) : r.total;
+      entradas.push({ clasificador: r.clasificador, total, cuentas4: [...s.cuentas] });
       continue;
     }
     const determinista = s.via === "archivo" || s.via === "memoria_exacta" || s.via === "memoria_clase";
     if (determinista && s.cuentas.length === 1) entradas.push({ clasificador: r.clasificador, total: valorConceptoEnCuenta(s.cuentas[0], r.total), cuentas4: [s.cuentas[0]] });
     else entradas.push({ clasificador: r.clasificador, total: r.total, cuentas4: [] });
   }
-  return { entradas, repartidos, pendientesReparto };
-}
-
-/** Σ del reparto vs total del concepto: el reparto debe cerrar al centavo. */
-export function validarReparto(total: number, valores: Record<string, number>, tolerancia = 0.01): string | null {
-  const suma = Object.values(valores).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
-  if (Object.keys(valores).length === 0) return "Indica al menos una cuenta con valor.";
-  if (Object.values(valores).some((v) => !Number.isFinite(v))) return "Todos los valores deben ser números.";
-  if (Math.abs(suma - total) > tolerancia) return `La suma del reparto (${suma.toLocaleString("es-CO")}) no cierra con el total del concepto (${total.toLocaleString("es-CO")}).`;
-  return null;
+  return entradas;
 }

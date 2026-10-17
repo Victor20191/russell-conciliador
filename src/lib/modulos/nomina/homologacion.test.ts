@@ -16,7 +16,6 @@ import {
   subcuentaPucDe,
   subcuentaPucDeCuentaRussell,
   sugerirClaseAgrupador,
-  sugerirReparto,
   transponerClase,
   type ContextoHomologacion,
 } from "./homologacion";
@@ -232,7 +231,7 @@ describe("resolverCuentaConcepto", () => {
     expect(resolverCuentaConcepto({ clasificador: "18", agrupador: "XX" }, ctx)).toMatchObject({ cuentas: ["510539"], via: "memoria_exacta" });
   });
 
-  it("vía 4: memoria con varias cuentas y sin regla → multi (reparto)", () => {
+  it("vía 4: memoria con varias cuentas y sin regla → multi (renglón agrupado)", () => {
     const ctx: ContextoHomologacion = {
       ...ctxVacio,
       memoria: [
@@ -290,23 +289,6 @@ describe("resolverCuentaConcepto", () => {
   });
 });
 
-describe("sugerirReparto", () => {
-  it("proporcional al movimiento del balance y con Σ exacta", () => {
-    const r = sugerirReparto(1_000_001, { "510506": 300, "520506": 700 });
-    expect(r["510506"] + r["520506"]).toBe(1_000_001);
-    expect(r["520506"]).toBe(700_001);
-    expect(r["510506"]).toBe(300_000);
-  });
-  it("sin movimiento reparte por partes iguales", () => {
-    expect(sugerirReparto(100, { a: 0, b: 0 })).toEqual({ a: 50, b: 50 });
-    expect(sugerirReparto(100, {})).toEqual({});
-  });
-  it("valores negativos del balance cuentan por su magnitud", () => {
-    const r = sugerirReparto(-900, { a: -100, b: 200 });
-    expect(r).toEqual({ a: -300, b: -600 });
-  });
-});
-
 describe("destino «fuera» y memoria de otros centros", () => {
   it("INCODOL: la memoria del centro AS va a 61 (asistencial), que el módulo no concilia", () => {
     const ctx: ContextoHomologacion = {
@@ -332,7 +314,7 @@ describe("destino «fuera» y memoria de otros centros", () => {
       ],
       reglasClase: new Map([["100602 - SELLADORES", "72"]]),
     };
-    // Sin regla para el centro y dos cuentas distintas: reparto.
+    // Sin regla para el centro y dos cuentas distintas: renglón agrupado.
     expect(resolverCuentaConcepto({ clasificador: "1", agrupador: "100101 - DIRECTORES" }, ctx)).toMatchObject({ cuentas: ["510506", "720505"], via: "multi" });
     // Con regla de clase: la cuenta de esa clase.
     expect(resolverCuentaConcepto({ clasificador: "1", agrupador: "100602 - SELLADORES" }, ctx)).toMatchObject({ cuentas: ["720505"], via: "memoria_clase", clase: "72" });

@@ -51,16 +51,13 @@ import {
 import { gruposNominaDelCargue, nombresCuentasCliente } from "@/lib/modulos/cargue-servidor";
 import { agruparPorDeEncabezado, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import { agruparDetalleNomina, construirConsolidadoNominaDeGrupos, type GrupoNominaAgregado } from "@/lib/modulos/nomina/consolidado-nomina";
-import { sugerirReparto, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
+import { type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
 import {
   construirControlDeducciones,
   construirVistaSubcuenta,
   entradasCruceFormalNomina,
-  pesosRepartoDeCentros,
-  repartosAplicadosNomina,
   separarEntradasVisibles,
   subcuentasSoloVisibles,
-  type RepartoConcepto,
   type ResultadoCruceNomina,
 } from "@/lib/modulos/nomina/cruce-nomina";
 
@@ -203,7 +200,7 @@ export type ResultadoCruceModulo = {
   sinEmparejarActivos: string[];
   /** Activos fijos: el cargue solo trae costo o solo depreciación y todavía falta el otro archivo. */
   avisoContenidoActivos: string | null;
-  /** Solo Nómina: vista por subcuenta, control de deducciones y repartos. */
+  /** Solo Nómina: vista por subcuenta y control de deducciones. */
   nomina: ResultadoCruceNomina | null;
   /** Cuentas que el usuario agregó solo para este período (fuera de la cédula del módulo). */
   cuentasPeriodo: string[];
@@ -215,7 +212,7 @@ export type ResultadoCruceModulo = {
   agrupadorasExcluidas: string[] | null;
 };
 
-export type { ResultadoCruceNomina, RepartoPendienteVm } from "@/lib/modulos/nomina/cruce-nomina";
+export type { ResultadoCruceNomina } from "@/lib/modulos/nomina/cruce-nomina";
 
 export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<InsumosCruceModulo | null> {
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({
@@ -297,29 +294,17 @@ export function cierreFijadoDe(periodo: Pick<InsumosPeriodo, "cierre" | "agrupad
 
 /**
  * Lo que el cruce de Nómina necesita además de los insumos comunes. Las clases y la homologación
- * llegan resueltas cuando el período está en firme (copia congelada); los repartos son del período
- * y, con la conciliación en firme, ya no pueden cambiar.
+ * llegan resueltas cuando el período está en firme (copia congelada).
  */
 async function cargarInsumosNomina(
   clienteId: number,
   moduloCodigo: string,
-  periodo: string,
   resueltos?: { reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string> } | null,
-): Promise<{ reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string>; repartos: RepartoConcepto[] }> {
-  const [homologacion, repartosRows] = await Promise.all([
-    resueltos ?? leerHomologacionNomina(prisma, clienteId, moduloCodigo),
-    prisma.repartoCruceModulo.findMany({ where: { clienteId, moduloCodigo, periodo }, select: { clasificador: true, cuentaRussell: true, valor: true } }),
-  ]);
-  const repartos = new Map<string, Record<string, number>>();
-  for (const r of repartosRows) {
-    const v = repartos.get(r.clasificador) ?? {};
-    v[r.cuentaRussell] = Number(r.valor);
-    repartos.set(r.clasificador, v);
-  }
+): Promise<{ reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string> }> {
+  const homologacion = resueltos ?? (await leerHomologacionNomina(prisma, clienteId, moduloCodigo));
   return {
     reglasClase: homologacion.reglasClase,
     mapeoCliente: homologacion.mapeoCliente,
-    repartos: [...repartos.entries()].map(([clasificador, valores]) => ({ clasificador, valores })),
   };
 }
 
@@ -392,9 +377,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   const codigosModulo = subgruposCedula(cedula, subgrupos);
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
 
-  // Nómina: consolidado por (concepto, centro) con la homologación resuelta y los repartos
-  // guardados; el lado módulo de la cédula sale de ahí.
-  const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, encabezado.periodo, insumos.nomina) : null;
+  // Nómina: consolidado por (concepto, centro) con la homologación resuelta; el lado módulo de la
+  // cédula sale de ahí.
+  const insumosNomina = descriptor.nomina ? await cargarInsumosNomina(encabezado.clienteId, moduloCodigo, insumos.nomina) : null;
   const agruparPorNomina = encabezado.agruparPorNomina ?? "codigo";
   const consolidadoNomina = descriptor.nomina && insumosNomina
     ? construirConsolidadoNominaDeGrupos({
@@ -408,10 +393,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         nombrePorCuentaCliente: encabezado.nombrePorCuentaCliente,
       })
     : null;
-  const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
+  const formalNomina = consolidadoNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones) : null;
   // Cuentas solo visibles (Nómina): lo que el módulo les asigna va a su resumen aparte. Una visible
-  // que comparte un concepto sin repartir con una que concilia se concilia en este cargue.
-  const separadas = formalNomina && cedula.visibles.size > 0 ? separarEntradasVisibles(formalNomina.entradas, cedula.visibles) : null;
+  // que comparte un concepto de varias cuentas con una que concilia se concilia en este cargue.
+  const separadas = formalNomina && cedula.visibles.size > 0 ? separarEntradasVisibles(formalNomina, cedula.visibles) : null;
   const visiblesDelCargue = new Set([...cedula.visibles].filter((c) => !separadas?.promovidas.has(c)));
   // Las filas de un archivo de SOLO DEPRECIACIÓN no son costo: su valor ya está en el rol
   // relacionado y entra por `entradasValorRelacionado`. Sumarlas aquí las contaría dos veces.
@@ -632,7 +617,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       noModularSinCuenta: excluidosSinCuenta,
       noContabilizadosPorFila,
       consolidado: formalNomina
-        ? separadas?.concilian ?? formalNomina.entradas
+        ? separadas?.concilian ?? formalNomina
         : [
             ...consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
             ...entradasRelacionadas,
@@ -645,8 +630,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
       ordenCuenta: (clave) => ordenClaveCedula(cedula, clave),
       // Un clasificador asignado a varias cuentas cruza contra la suma de ellas en una fila
-      // agrupada. En Nómina también (1/Oct/2026): el reparto es opcional y, guardado, separa el
-      // concepto en entradas de una cuenta cada una, que ya no agrupan.
+      // agrupada. En Nómina también (1/Oct/2026; sin reparto desde el 14/Oct/2026).
       agruparMultiAsignados: true,
     });
     // Las solo visibles: el mismo cálculo, aparte (sin marcas ni no modulares).
@@ -683,19 +667,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       }
       cruceContable = emparejada;
     }
-    // Pesos del reparto sugerido: el saldo de todas las candidatas, concilien o solo se vean.
-    const contableTodas = { ...contableVisiblePorCuenta, ...contablePorCuenta };
-    // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
-    // sugeridos: lo repartido en los centros del concepto en el período (un cargue sin centro) y,
-    // si no hay, proporcionales al saldo contable de las cuentas candidatas (D4).
-    if (consolidadoNomina && formalNomina && insumosNomina) {
+    // Nómina: vista por subcuenta PUC sumando clases y control de deducciones.
+    if (consolidadoNomina) {
       const balanceNomina = contextoBalance.filas
         .filter((d) => !cuentasAgrupadoras.has(d.cuenta8.replace(/\D/g, "")))
         .map((d) => ({ cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, debitos: d.debitos, creditos: d.creditos, saldoFinal: d.saldoFinal }));
-      const repartosVm = repartosAplicadosNomina(consolidadoNomina.renglones, insumosNomina.repartos, contableTodas);
       nomina = {
-        repartosAplicados: repartosVm.aplicados,
-        repartosIgnorados: repartosVm.ignorados,
         vistaSubcuenta: construirVistaSubcuenta({
           balance: balanceNomina,
           renglones: consolidadoNomina.renglones,
@@ -703,24 +680,6 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           subcuentasVisibles: subcuentasSoloVisibles(cedula.lista6 ?? [], cedula.visibles),
         }),
         control: construirControlDeducciones({ balance: balanceNomina, renglones: consolidadoNomina.renglones }),
-        repartosPendientes: formalNomina.pendientesReparto.map((r) => {
-          const porCuenta = Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contableTodas[c] ?? 0]));
-          const deCentros = pesosRepartoDeCentros(r, r.sugerencia.cuentas, insumosNomina.repartos, agruparPorNomina);
-          return {
-            clasificador: r.clasificador,
-            codigo: r.codigo,
-            agrupador: r.agrupador,
-            cuentaArchivo: r.cuentaArchivo,
-            descripcion: r.descripcion,
-            total: r.total,
-            cuentas: [...r.sugerencia.cuentas],
-            sugerido: sugerirReparto(r.total, deCentros ?? porCuenta),
-            origenSugerido: deCentros ? "centros" as const : "saldo" as const,
-            contablePorCuenta: porCuenta,
-          };
-        }),
-        repartos: insumosNomina.repartos,
-        repartidos: formalNomina.repartidos,
         renglones: consolidadoNomina.renglones,
       };
     }
@@ -775,7 +734,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     cedulaActivos: cedula.relacionPorSubgrupo.size > 0,
     sinEmparejarActivos,
     avisoContenidoActivos,
-    nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, repartosPendientes: [], repartosAplicados: [], repartosIgnorados: 0, repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
+    nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, renglones: consolidadoNomina.renglones } : null),
     cuentasPeriodo,
   };
 }

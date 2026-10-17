@@ -3,7 +3,7 @@
 // anteriores).
 //
 // El cruce de un período se recalcula al leer. Lo que es del PERÍODO (detalle del cargue, marcas,
-// repartos, emparejamientos, fecha de corte, agrupar por) queda inmutable con la conciliación en
+// emparejamientos, fecha de corte, agrupar por) queda inmutable con la conciliación en
 // firme por las protecciones de las acciones. Pero varios insumos son del CLIENTE o de la
 // plataforma y se comparten entre meses: la memoria del Consolidado, las clases por centro y la
 // homologación de cuentas de Nómina, las reglas del prevalidador, el umbral del cruce por tercero y

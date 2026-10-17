@@ -398,7 +398,7 @@ export function violacionesCambioHomologacion(
 
 /**
  * Texto del rechazo cuando se intenta cambiar algo de un período con la conciliación en firme
- * (cuentas del Consolidado, marcas, repartos, cargar otro archivo, eliminar el cargue…).
+ * (cuentas del Consolidado, marcas, cargar otro archivo, eliminar el cargue…).
  */
 export function mensajePeriodoEnFirme(
   cierre: { moduloCodigo: string; periodo: string; cerradoPor: string; moduloDatoEncabezadoId: number },
@@ -420,7 +420,7 @@ export function estadoEdicionCargue(p: {
   return {
     puedeEditar: false,
     enFirme: true,
-    aviso: `La conciliación de este período está en firme (cerró ${p.cierre.cerradoPor}): el cargue es de solo lectura. Para cambiar cuentas, marcas, repartos o cargar otro archivo, el senior o gerente del cliente tiene que desbloquearla.`,
+    aviso: `La conciliación de este período está en firme (cerró ${p.cierre.cerradoPor}): el cargue es de solo lectura. Para cambiar cuentas, marcas o cargar otro archivo, el senior o gerente del cliente tiene que desbloquearla.`,
   };
 }
 
