@@ -426,6 +426,24 @@ describe("guardarHomologacionCliente / consultarImpactoHomologacionCliente", () 
     expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
   });
 
+  it("homologar desde la memoria del cliente exige balance:revisar: el Staff (balance:crear) no puede", async () => {
+    mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+      permiso === "balance:revisar"
+        ? { ok: false, message: "No tienes permisos para esta acción." }
+        : { ok: true, userId: 1, role: "Staff" });
+
+    const guardar = await guardarHomologacionCliente(
+      undefined,
+      form({ clienteId: "7", cuentaCliente: "110505", codigo: "110505", alcance: "grupo", aplicarExistentes: "1" }),
+    );
+    const impacto = await consultarImpactoHomologacionCliente({ clienteId: 7, cuentaCliente: "110505", alcance: "grupo" });
+
+    expect(guardar).toEqual({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(impacto).toEqual({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:crear");
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
   it("incluye un período cargado antes de adquirir el candado del PUC", async () => {
     mocks.state.encabezados.push(encabezado({ id: 1, clienteId: 7 }));
     mocks.state.detalles.push(detalle({ id: 1, encabezadoId: 1, cuenta8: "1105050001" }));

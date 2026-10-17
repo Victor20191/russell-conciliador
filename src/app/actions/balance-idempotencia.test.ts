@@ -536,10 +536,17 @@ vi.mock("@/lib/import/balance", () => ({
 import {
   actualizarPeriodoBorrador,
   asignarClienteBorrador,
+  asignarCuentaEstandar,
   cargarBorrador,
   continuarBalanceTransitorioConSpec,
   descartarBorrador,
+  descongelarBalance,
+  freezeBalance,
   leerBalance,
+  marcarCuentaPendiente,
+  quitarPendiente,
+  reaplicarMapeoBalance,
+  reaplicarMapeoBalancesCliente,
 } from "./balance";
 
 function filaStaging(filaNum = 1, loteId = LOTE_ID) {
@@ -1445,5 +1452,39 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(vinculacion.ok).toBe(false);
     expect(mocks.state.lotes).toHaveLength(1);
     expect(mocks.state.staging).toHaveLength(1);
+  });
+});
+
+describe("homologar, re-homologar, congelar y descongelar un balance cargado: Senior asignado", () => {
+  function form(campos: Record<string, string>) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  }
+
+  const acciones: [string, () => Promise<{ ok?: boolean; message?: string }>][] = [
+    ["congelar", () => freezeBalance(form({ id: "41" }))],
+    ["descongelar", () => descongelarBalance({ id: 41, justificacion: "Corrección de la homologación de la 1305" })],
+    ["homologar una cuenta", () => asignarCuentaEstandar(form({ detalleId: "7", codigo: "130505", alcance: "cuenta" }))],
+    ["dejar una cuenta pendiente", () => marcarCuentaPendiente(form({ detalleId: "7", alcance: "cuenta" }))],
+    ["quitar el pendiente", () => quitarPendiente(form({ detalleId: "7", alcance: "cuenta" }))],
+    ["re-homologar el balance", () => reaplicarMapeoBalance(form({ id: "41" }))],
+    ["re-homologar los balances del cliente", () => reaplicarMapeoBalancesCliente(form({ clienteId: "7" }))],
+  ];
+
+  it.each(acciones)("%s exige balance:revisar: el Staff (que carga con balance:crear) no puede", async (_nombre, ejecutar) => {
+    vi.clearAllMocks();
+    mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+      permiso === "balance:revisar"
+        ? { ok: false, message: "No tienes permisos para esta acción." }
+        : { ok: true, role: "Staff" });
+
+    const resultado = await ejecutar();
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("balance:revisar");
+    expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:crear");
+    expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:editar");
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
   });
 });

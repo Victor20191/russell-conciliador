@@ -101,10 +101,13 @@ const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadm
 const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
-// Cargar, editar y congelar balance: el Staff (operativo) + los administradores
-// de plataforma (alcance global). Desde el 31-ago-2026 Administrador/Superadministrador
-// también editan/congelan y aprueban el prevalidador, para que el cruce contable
-// de los módulos pueda habilitarse sin depender de un Staff y un Senior asignados.
+// Cargar balance: el Staff (operativo) + los administradores de plataforma (alcance
+// global). Desde el 31-ago-2026 Administrador/Superadministrador también congelan y
+// aprueban el prevalidador, para que el cruce contable de los módulos pueda habilitarse
+// sin depender de un Staff y un Senior asignados. Desde el 17-oct-2026 homologar las
+// cuentas del balance cargado (también re-homologar y la memoria del cliente en
+// /config/mapeo-cliente), congelarlo y descongelarlo van con `balance:revisar`
+// (Senior asignado + administradores): el Staff ya no los hace.
 const STAFF_Y_ADMIN = ["Staff", "Administrador", "Superadministrador"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
@@ -166,6 +169,10 @@ export const PERMISOS: Permiso[] = [
   { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: SOLO_STAFF },
 
   // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
+  // `balance:revisar` cubre lo que hace el Senior ASIGNADO sobre un balance cargado:
+  // homologar sus cuentas (en el balance, al re-homologar y en la memoria del cliente),
+  // aprobar o revocar el prevalidador, congelarlo y descongelarlo.
+  // Al ser `revisar`, el alcance que se exige es de LECTURA (el Senior no tiene escritura).
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SENIOR_Y_ADMIN },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
   // Conciliación EN FIRME de un módulo contra el balance (Cruce contable): cerrarla

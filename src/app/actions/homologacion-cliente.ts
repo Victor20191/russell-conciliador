@@ -6,8 +6,9 @@
 // que se está viendo), aquí el usuario puede decidir, por cada homologación,
 // si además de memorizarla para las próximas cargas ("cuentas_cliente"),
 // también se APLICA A LOS BALANCES YA CARGADOS (todos los períodos/versiones
-// del cliente que no estén congelados). Gate: `balance:crear` (Staff y
-// Admin), con alcance por cliente (cartera).
+// del cliente que no estén congelados). Gate: `balance:revisar` (senior
+// asignado al cliente y administradores; desde el 17/Oct/2026 el Staff ya no
+// homologa), con alcance por cliente (cartera).
 //
 // La lógica de migración/memoria vive en `homologacion-cliente-servidor.ts`
 // (testeable sin mockear módulos: recibe el cliente Prisma como parámetro).
@@ -44,6 +45,8 @@ import {
 const PATH_MAPEO = "/config/mapeo-cliente";
 const PATH_BALANCE = "/balance";
 const PATH_MODULOS = "/modulos";
+// Senior asignado y administradores, igual que homologar dentro del balance.
+const PERMISO_HOMOLOGACION = "balance:revisar";
 
 const AlcanceSchema = z.enum(["solo", "grupo"], {
   error: "Confirma si deseas homologar solo esta cuenta o todo el grupo.",
@@ -69,7 +72,7 @@ export async function guardarHomologacionCliente(
   _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = GuardarHomologacionSchema.safeParse({
@@ -89,7 +92,7 @@ export async function guardarHomologacionCliente(
   const { alcance, codigoMemoria, origen, propagaGrupo } = normalizado;
 
   // Alcance de escritura sobre el cliente (cartera), antes de cualquier lectura.
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
   try {
@@ -276,7 +279,7 @@ export async function consultarImpactoHomologacionCliente(input: {
   cuentaCliente: string;
   alcance: AlcanceHomologacion;
 }): Promise<ImpactoHomologacionClienteResultado> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = ConsultarImpactoSchema.safeParse(input);
@@ -284,7 +287,7 @@ export async function consultarImpactoHomologacionCliente(input: {
   const { clienteId, cuentaCliente } = parsed.data;
   const alcanceSolicitado = parsed.data.alcance;
 
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
   const normalizado = normalizarAlcanceHomologacionCliente(cuentaCliente, alcanceSolicitado);

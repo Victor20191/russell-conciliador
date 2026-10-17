@@ -38,14 +38,14 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
   }));
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
-  // Memoria de mapeo por cliente: clienteId del cliente seleccionado + flag de
-  // escritura (la action revalida el alcance real).
+  // Memoria de mapeo por cliente: clienteId del cliente seleccionado + si puede
+  // editarla (senior asignado o administrador; la action revalida el alcance real).
   const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
   const [puedeMapear, accounts, standard, historicas, originales] = await Promise.all([
     clienteId
-      ? authorizePermiso("balance:crear", { clientId: clienteId }).then((result) => result.ok)
+      ? authorizePermiso("balance:revisar", { clientId: clienteId }).then((result) => result.ok)
       : Promise.resolve(false),
     clienteId
       ? prisma.clientAccount.findMany({

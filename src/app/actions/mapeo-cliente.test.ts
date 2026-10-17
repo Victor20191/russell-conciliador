@@ -22,7 +22,14 @@ vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ name: "Prueba
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: () => "Error al guardar." }));
 
-import { eliminarMapeoCliente } from "./mapeo-cliente";
+import {
+  alinearMapeoConGrupo,
+  confirmarMapeoCliente,
+  crearMapeoCliente,
+  declararExcepcionMapeo,
+  editarMapeoCliente,
+  eliminarMapeoCliente,
+} from "./mapeo-cliente";
 
 describe("retirar reglas desde el PUC completo", () => {
   beforeEach(() => {
@@ -48,6 +55,34 @@ describe("retirar reglas desde el PUC completo", () => {
   it("rechaza una cuenta fuera de la cartera antes de escribir", async () => {
     mocks.authorize.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, message: "Fuera de cartera" });
     expect(await eliminarMapeoCliente(undefined, formulario())).toEqual({ ok: false, message: "Fuera de cartera" });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("la memoria del cliente la edita el senior asignado", () => {
+  const form = (campos: Record<string, string>) => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(campos)) f.set(k, v);
+    return f;
+  };
+  const acciones: [string, () => Promise<{ ok?: boolean; message?: string }>][] = [
+    ["crear", () => crearMapeoCliente(undefined, form({ clienteId: "23", cuenta6: "110505", codigo: "110505" }))],
+    ["editar", () => editarMapeoCliente(undefined, form({ id: "7", codigo: "110505" }))],
+    ["confirmar", () => confirmarMapeoCliente(form({ id: "7" }))],
+    ["eliminar", () => eliminarMapeoCliente(undefined, form({ id: "7" }))],
+    ["alinear con el grupo", () => alinearMapeoConGrupo(form({ id: "7" }))],
+    ["declarar excepción", () => declararExcepcionMapeo(form({ id: "7" }))],
+  ];
+
+  it.each(acciones)("%s exige balance:revisar: el Staff (balance:crear) no puede", async (_nombre, ejecutar) => {
+    vi.clearAllMocks();
+    mocks.authorize.mockImplementation(async (permiso: string) =>
+      permiso === "balance:revisar" ? { ok: false, message: "No tienes permisos para esta acción." } : { ok: true });
+
+    expect(await ejecutar()).toEqual({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(mocks.authorize).toHaveBeenCalledWith("balance:revisar");
+    expect(mocks.authorize).not.toHaveBeenCalledWith("balance:crear");
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.updateMany).not.toHaveBeenCalled();
   });

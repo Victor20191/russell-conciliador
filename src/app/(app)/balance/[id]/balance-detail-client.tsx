@@ -75,9 +75,11 @@ const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
+  arbol, estandar, puedeMapear, puedeHomologar, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  /** Asignar o cambiar la cuenta Russell de una cuenta: senior asignado o administrador. */
+  puedeHomologar: boolean;
   /** Cuentas (cuenta_8) en firme por una conciliación cerrada de un módulo. */
   bloqueos?: Record<string, BloqueoCuentaVm>;
   /** Pestaña con la que abre la pantalla (viene de `?tab=`). */
@@ -101,7 +103,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
         <TabBtn on={tab === "prevalidador"} onClick={() => setTab("prevalidador")} label="Prevalidador" count={prevalidador.estado === "listo" ? prevalidador.filasConDiferencia : undefined} />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} bloqueos={bloqueos} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeHomologar={puedeHomologar} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} bloqueos={bloqueos} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} balanceId={balanceId} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
@@ -206,7 +208,7 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: U
 
 // El filtro vive en el componente padre para que el prevalidador, cuando está
 // bloqueado, pueda mandar al usuario directo a las cuentas que faltan por homologar.
-function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; bloqueos: Record<string, BloqueoCuentaVm>; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
+function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeHomologar: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; bloqueos: Record<string, BloqueoCuentaVm>; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   // Clase PUC y profundidad son filtros PROPIOS de la tabla y se combinan con el
@@ -447,7 +449,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada, bloqueos))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeHomologar, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada, bloqueos))
             )}
           </tbody>
         </table>
@@ -471,7 +473,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null, filaSeleccionada: string | null, bloqueos: Record<string, BloqueoCuentaVm>): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeHomologar: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null, filaSeleccionada: string | null, bloqueos: Record<string, BloqueoCuentaVm>): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -522,13 +524,13 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
           </button>
         )}
       </td>
-      <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
+      <td className="px-4 py-2">{celdaMapeo(nodo, puedeHomologar, onAsignar)}</td>
       <CeldasImportesBalance anterior={nodo.prevBalance} debito={nodo.debe} credito={nodo.haber} saldo={nodo.balance} variacion={nodo.variation} grupo={esGrupo} validacion={celdaValidacion(nodo, val)} />
     </tr>
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada, bloqueos))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeHomologar, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada, bloqueos))];
 }
 
 /** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón
@@ -575,7 +577,7 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   );
 }
 
-function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
+function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
   if (nodo.nivel === 6) return nodo.mapped ? <Chip label="Russell" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />;
   if (nodo.nivel !== 8) return null;
 
@@ -600,7 +602,7 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
     <Chip label="Asignar" tone="warn" />
   );
 
-  if (!puedeMapear || nodo.detalleId == null) return contenido;
+  if (!puedeHomologar || nodo.detalleId == null) return contenido;
   return (
     <button
       type="button"

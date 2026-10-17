@@ -125,6 +125,19 @@ describe("Revisión, validación y supervisión", () => {
     expect(puede(GERENTE, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
   });
 
+  // `balance:revisar` es el permiso de homologar las cuentas del balance cargado
+  // (también re-homologar y la memoria del cliente), aprobar el prevalidador,
+  // congelarlo y descongelarlo (17/Oct/2026).
+  test("homologar, congelar y descongelar el balance: Senior asignado, no Staff ni Gerente ni Socio", () => {
+    expect(puede(SENIOR, "balance:revisar", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(SENIOR, "balance:revisar", PRUEBA_CLIENTE_FUERA)).toBe(false);
+    for (const u of [STAFF1, STAFF2, GERENTE, SOCIO]) {
+      expect(puede(u, "balance:revisar", PRUEBA_CLIENTE_A)).toBe(false);
+    }
+    expect(tienePermiso(MATRIZ, "Administrador", "balance:revisar")).toBe(true);
+    expect(tienePermiso(MATRIZ, "Superadministrador", "balance:revisar")).toBe(true);
+  });
+
   test("supervisar cartera es de Gerente y Socio (no Senior ni Staff)", () => {
     expect(tienePermiso(MATRIZ, "Gerente", "clientes:supervisar")).toBe(true);
     expect(tienePermiso(MATRIZ, "Socio", "clientes:supervisar")).toBe(true);

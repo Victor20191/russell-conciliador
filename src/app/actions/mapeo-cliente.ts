@@ -25,8 +25,10 @@ import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/con
 // NO modifica balances ya cargados; aplica a futuras cargas (para lo ya cargado:
 // `reaplicarMapeoBalancesCliente` en `balance.ts`). "Eliminar" sólo limpia el
 // mapeo del balance (no borra la fila: puede sostener el mapeo de conciliación).
-// Gate: `balance:crear` (Staff y Admin), por cliente.
+// Gate: `balance:revisar` (senior asignado y administradores; desde el 17/Oct/2026
+// el Staff ya no edita la memoria), por cliente.
 const PATH = "/config/mapeo-cliente";
+const PERMISO_HOMOLOGACION = "balance:revisar";
 
 async function existeEstandar(codigo: string): Promise<boolean> {
   return (await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true } })) != null;
@@ -39,7 +41,7 @@ const CrearSchema = z.object({
 });
 
 export async function crearMapeoCliente(_prev: ActionState | undefined, formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = CrearSchema.safeParse({
     clienteId: formData.get("clienteId"),
@@ -48,7 +50,7 @@ export async function crearMapeoCliente(_prev: ActionState | undefined, formData
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   const { clienteId, cuenta6, codigo } = parsed.data;
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
     if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
@@ -89,7 +91,7 @@ const EditarSchema = z.object({
 });
 
 export async function editarMapeoCliente(_prev: ActionState | undefined, formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = EditarSchema.safeParse({ id: formData.get("id"), codigo: formData.get("codigo") });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
@@ -97,7 +99,7 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
   try {
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true, origenMapeo: true } });
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
     // Editar una EXCEPCIÓN por cuenta la mantiene como excepción: promoverla a
@@ -142,7 +144,7 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
  * `manual` al 100%, para que ya no se recalcule en próximas cargas.
  */
 export async function confirmarMapeoCliente(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Cuenta inexistente." };
@@ -150,7 +152,7 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true, cuenta6Russell: true } });
     if (!row) return { ok: false, message: "La cuenta ya no existe." };
     if (!row.cuenta6Russell) return { ok: false, message: "La cuenta no tiene mapeo estándar para confirmar." };
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     // Confirmar es aceptar la sugerencia AUTOMÁTICA tal cual, no elegir destino:
     // si esa sugerencia cambia de clase contable casi siempre es un error de la
@@ -199,14 +201,14 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
 }
 
 export async function eliminarMapeoCliente(_prev: ActionState | undefined, formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = Number(formData.get("id"));
   if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Regla inexistente." };
   try {
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, cuenta6Russell: true, clienteId: true } });
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (row.clienteId != null) {
       const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId: row.clienteId, codigo: row.code, alcanceGrupo: row.code.length === 6 });
@@ -245,7 +247,7 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
  * fila manual bajo un grupo automático. Solo toca ESA fila.
  */
 export async function alinearMapeoConGrupo(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Cuenta inexistente." };
@@ -259,7 +261,7 @@ export async function alinearMapeoConGrupo(formData: FormData): Promise<ActionSt
     if (row.code.length <= 6) {
       return { ok: false, message: "Solo una cuenta auxiliar se alinea con su grupo: las de 6 dígitos SON la regla del grupo." };
     }
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     const cuenta6 = row.code.slice(0, 6);
     const grupo = await prisma.clientAccount.findMany({
@@ -308,7 +310,7 @@ export async function alinearMapeoConGrupo(formData: FormData): Promise<ActionSt
  * el detalle del balance.
  */
 export async function declararExcepcionMapeo(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_HOMOLOGACION);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Cuenta inexistente." };
@@ -322,7 +324,7 @@ export async function declararExcepcionMapeo(formData: FormData): Promise<Action
       return { ok: false, message: "La cuenta no tiene estándar asignado: asígnalo antes de declararla excepción." };
     }
     if (row.code.length <= 6) return { ok: false, message: "Solo una cuenta auxiliar puede ser excepción de su grupo." };
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (esExcepcionCuenta(row.origenMapeo)) return { ok: true, message: `${row.code} ya es una excepción de solo esta cuenta.` };
     if (row.clienteId != null) {

@@ -62,7 +62,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // (nombres de nivel 4/2), la bitácora y los permisos de UI se cargan en una
   // sola ola después de validar el alcance de lectura.
   const [
-    editarAuth,
     mapearAuth,
     revisarAuth,
     eliminarAuth,
@@ -82,7 +81,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     terceroLigado,
     cierresCliente,
   ] = await Promise.all([
-    authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
     authorizePermiso("balance:revisar", { clientId }),
     authorizePermiso("balance:eliminar", { clientId }),
@@ -157,9 +155,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     };
   }
   const codigosPendientes = new Set(pendienteRows.map((r) => r.code));
-  // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
-  // vuelven a verificarlo al ejecutar.
-  const puedeEditar = editarAuth.ok;
+  // Homologar, re-homologar con la memoria, congelar y descongelar son del senior
+  // asignado (o un administrador, `balance:revisar`); validar alertas, eliminar una
+  // cuenta del detalle y la cuenta alternativa del prevalidador siguen con quien
+  // carga (`balance:crear`, escritura). Las Server Actions vuelven a verificarlo.
+  const puedeCongelar = revisarAuth.ok;
+  const puedeHomologar = revisarAuth.ok && !balance.estaCongelado;
   const puedeMapear = mapearAuth.ok && !balance.estaCongelado;
   // Descongelada para corregirla y aún sin volver a congelar: aviso arriba y chip en el encabezado.
   const descongelada = quedoDescongelado(balance);
@@ -276,18 +277,18 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 <Icon name="log" size={14} /> Diff de versiones
               </a>
             )}
-            {sums && puedeMapear && (
+            {sums && puedeHomologar && (
               <ReaplicarMapeoButton
                 id={id}
                 fueraDeClase={filasFueraDeClase.length}
                 montoFueraDeClase={montoFueraDeClase}
               />
             )}
-            {!balance.estaCongelado && puedeEditar && (
+            {!balance.estaCongelado && puedeCongelar && (
               <FreezeBalanceButton id={id} traslado={trasladoCongelar} bloqueo={bloqueoCongelar} />
             )}
             {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
-            {balance.estaCongelado && puedeEditar && (
+            {balance.estaCongelado && puedeCongelar && (
               <DescongelarBalanceButton
                 id={id}
                 titulo={`${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`}
@@ -413,6 +414,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             arbol={arbol}
             estandar={estandarOpciones}
             puedeMapear={puedeMapear}
+            puedeHomologar={puedeHomologar}
             puedeRevisarPrevalidador={revisarAuth.ok}
             estaCongelado={balance.estaCongelado}
             validations={validations}

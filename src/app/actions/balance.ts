@@ -131,6 +131,13 @@ const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
 // Filas por sentencia al capturar el balance por tercero (un solo parámetro jsonb).
 const LOTE_CAPTURA_TERCERO = 20_000;
 const MAX_CUENTAS_REVISION_MODAL = 200;
+// Homologar las cuentas de un balance cargado, re-homologarlo con la memoria del cliente,
+// congelarlo y descongelarlo son funciones del Senior ASIGNADO al cliente (17/Oct/2026),
+// igual que aprobar el prevalidador. La acción `revisar` exige alcance de LECTURA, que el
+// Senior solo tiene sobre los clientes donde es el responsable; Administrador y
+// Superadministrador pasan por su alcance global. El Staff carga el balance (`balance:crear`)
+// pero ya no lo homologa ni lo congela.
+const PERMISO_REVISION_BALANCE = "balance:revisar";
 const LoteIdSolicitudSchema = z.string().uuid();
 const ContinuarBalanceTransitorioSchema = z.object({
   clienteId: z.coerce.number().int().positive(),
@@ -1157,12 +1164,12 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
 
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
   // Primer gate: sesión + permiso de rol (antes de tocar la BD).
-  const authz = await authorizePermiso("balance:editar");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Balance inexistente." };
-  // Segundo gate: ALCANCE de escritura sobre el cliente del balance (cartera).
-  const alcance = await authorizePermiso("balance:editar", { clientId: await clienteDeBalance(id) });
+  // Segundo gate: ser el senior asignado al cliente del balance (o administrador).
+  const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: await clienteDeBalance(id) });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
@@ -1411,20 +1418,20 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
 
 /**
  * DESCONGELA un balance para corregirlo (4/Oct/2026). Lo puede hacer quien puede congelar
- * (`balance:editar` con alcance de escritura) y exige una justificación. Solo baja la bandera: la
+ * (`balance:revisar`: el senior asignado o un administrador) y exige una justificación. Solo baja la bandera: la
  * versión conserva su condición de oficial, su detalle y su aprobación del prevalidador (la huella no
  * incluye el congelado); los cierres de conciliación no se tocan y sus cuentas en firme siguen
  * protegidas por su propio guard. Cuando termine de corregirla, el usuario la vuelve a congelar
  * (`freezeBalance`, que exige otra vez el prevalidador vigente y limpia la marca de descongelado).
  */
 export async function descongelarBalance(input: { id: number; justificacion: string }): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:editar");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(input?.id);
   if (!id) return { ok: false, message: "Balance inexistente." };
   const validacion = validarJustificacionDesbloqueo(String(input?.justificacion ?? ""));
   if (!validacion.ok) return { ok: false, message: validacion.message };
-  const alcance = await authorizePermiso("balance:editar", { clientId: await clienteDeBalance(id) });
+  const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: await clienteDeBalance(id) });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
@@ -1499,9 +1506,9 @@ export async function descongelarBalance(input: { id: number; justificacion: str
  * grupo de 6 díg. o excepción de esa sola cuenta).
  */
 export async function asignarCuentaEstandar(formData: FormData): Promise<ActionState> {
-  // Mapear una línea del balance al plan estándar lo hacen quienes trabajan el
-  // balance: Staff y Admin (permiso `balance:crear`, scoped por cliente).
-  const authz = await authorizePermiso("balance:crear");
+  // Homologar una línea del balance cargado al plan estándar lo hace el senior
+  // asignado al cliente (o un administrador): `balance:revisar`, scoped por cliente.
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const detalleId = parseId(formData.get("detalleId"));
@@ -1534,8 +1541,8 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
-    // Alcance de escritura sobre el cliente del balance (cartera).
-    const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    // Senior asignado al cliente del balance (o administrador).
+    const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
     if (fila.encabezado.estaCongelado) {
       return { ok: false, message: "No se puede homologar una cuenta de un balance congelado." };
@@ -1712,7 +1719,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
  * pendiente: sobrescribe `origen_mapeo` a `manual`/`manual_cuenta`.
  */
 export async function marcarCuentaPendiente(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const detalleId = parseId(formData.get("detalleId"));
@@ -1736,7 +1743,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
-    const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
     if (fila.encabezado.estaCongelado) {
       return { ok: false, message: "No se puede modificar el mapeo de un balance congelado." };
@@ -1885,7 +1892,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
  * todas las filas que había propagado.
  */
 export async function quitarPendiente(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const detalleId = parseId(formData.get("detalleId"));
@@ -1902,7 +1909,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
-    const scope = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    const scope = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: fila.encabezado.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
 
     const user = await getCurrentUser();
@@ -2106,11 +2113,11 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
  * balance mal homologado era volver a cargar el archivo. Reglas en `rehomologarBalance`.
  */
 export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Balance inexistente." };
-  const alcance = await authorizePermiso("balance:crear", { clientId: await clienteDeBalance(id) });
+  const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: await clienteDeBalance(id) });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
@@ -2146,11 +2153,11 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
  * informan, nunca se tocan.
  */
 export async function reaplicarMapeoBalancesCliente(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!authz.ok) return { ok: false, message: authz.message };
   const clienteId = parseId(formData.get("clienteId"));
   if (!clienteId) return { ok: false, message: "Cliente inexistente." };
-  const alcance = await authorizePermiso("balance:crear", { clientId: clienteId });
+  const alcance = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: clienteId });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
