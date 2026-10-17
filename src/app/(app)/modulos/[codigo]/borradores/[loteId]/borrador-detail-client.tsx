@@ -1,6 +1,7 @@
 "use client";
 
 import { hayReporteConErrores, motivoReporteConErrores, type ReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
+import { motivoCedulasVariosNombres, type CedulaConVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
 import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -138,6 +139,7 @@ export default function BorradorModuloClient({
   verificaciones,
   alertasConComentario = [],
   reporteConErrores = null,
+  cedulasVariosNombres = [],
   resumen,
   agruparPor = null,
   reconciliacion,
@@ -170,6 +172,8 @@ export default function BorradorModuloClient({
   alertasConComentario?: string[];
   /** Cartera y CxP: documento repetido entre terceros o vencimiento imposible; bloquean aprobar. */
   reporteConErrores?: ReporteConErrores | null;
+  /** Nómina: cédulas con más de un nombre de empleado; bloquean aprobar. */
+  cedulasVariosNombres?: CedulaConVariosNombres[];
   /** Agregados del archivo COMPLETO, calculados en el servidor: las filas se piden por grupo. */
   resumen: ResumenBorrador;
   /**
@@ -439,7 +443,7 @@ export default function BorradorModuloClient({
   };
 
   // Reporte con errores (Cartera y CxP): no se aprueba; se corrige el archivo y se vuelve a cargar.
-  const motivoReporte = motivoReporteConErrores(reporteConErrores);
+  const motivoReporte = motivoReporteConErrores(reporteConErrores) ?? motivoCedulasVariosNombres(cedulasVariosNombres);
   const confirmar = () => {
     if (asistenciaSinResolver) { notifyError("Hay una lectura pendiente de resolver. Abre «Corregir lectura», revisa su resultado y aplica la propuesta antes de confirmar."); return; }
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
@@ -734,6 +738,7 @@ export default function BorradorModuloClient({
         )}
 
         {reporteConErrores && hayReporteConErrores(reporteConErrores) && <ReporteConErroresAviso reporte={reporteConErrores} />}
+        {cedulasVariosNombres.length > 0 && <CedulasVariosNombresAviso cedulas={cedulasVariosNombres} />}
 
         {verificaciones.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
@@ -1202,6 +1207,22 @@ export default function BorradorModuloClient({
         </div>
       </div>
       </Card>
+    </div>
+  );
+}
+
+/** Nómina: cédulas con más de un nombre de empleado; el borrador no se puede aprobar. */
+function CedulasVariosNombresAviso({ cedulas }: { cedulas: CedulaConVariosNombres[] }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
+      <span className="font-semibold">⛔ El reporte tiene errores: {cedulas.length} cédula(s) con más de un nombre de empleado. Este borrador no se puede aprobar; corrige el archivo en el ERP y vuelve a cargarlo.</span>
+      <ul className="ml-4 list-disc">
+        {cedulas.slice(0, 8).map((c) => (
+          <li key={c.cedula}>{c.cedula}: {c.nombres.join(" / ")} ({c.filas.toLocaleString("es-CO")} filas)</li>
+        ))}
+      </ul>
+      {cedulas.length > 8 && <span>… y {cedulas.length - 8} más.</span>}
+      <span className="text-[11.5px]">No cuentan las diferencias de tildes, puntuación u orden de palabras. Omitir las filas no quita el bloqueo.</span>
     </div>
   );
 }

@@ -197,6 +197,7 @@ import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca
 import { etiquetaTercero } from "./marca-tercero";
 import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
 import { ComentariosAlertasCard } from "./comentarios-alertas";
+import { ANCLA_CONTROL_DEDUCCIONES, ControlDeduccionesCard } from "./control-deducciones";
 import { ValidacionesActivosCard } from "./validaciones-activos-card";
 import type { ValidacionesActivos } from "@/lib/modulos/activos/validaciones-activos";
 import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
@@ -222,6 +223,7 @@ import {
   destinosMarcaSinRenglon,
   type MarcaCruce,
   type MarcaPeriodo,
+  type FilaControlMarcada,
   type FilaCruceMarcada,
   type HijoModuloSinCuenta,
   type ResumenMarcas,
@@ -311,6 +313,9 @@ export type CruceContableVm = {
   cedulaActivos?: boolean;
   /** Depreciaciones que no se pudieron emparejar porque agrupan activos de renglones distintos. */
   sinEmparejarActivos?: string[];
+  /** Nómina: el control de deducciones con sus marcas (toda diferencia exige marca para cerrar). */
+  controlMarcado?: FilaControlMarcada[];
+  resumenMarcasControl?: ResumenMarcas | null;
   /** Activos fijos: depreciaciones con saldo que ninguna pareja reclama (impiden cerrar). */
   depreciacionSinActivo?: string[];
   /** Activos fijos: desde qué diferencia del detalle (con el neto cuadrado) se exige marca. */
@@ -605,7 +610,7 @@ export default function DatoCargadoClient({
   versionActualId: number;
   tabInicial: "versiones" | "cruceTercero" | null;
 }) {
-  type TabId = "detalle" | "consolidado" | "cruce" | "cruceTercero" | "novedades" | "versiones";
+  type TabId = "detalle" | "consolidado" | "cruce" | "subcuenta" | "cruceTercero" | "novedades" | "versiones";
   const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
   const router = useRouter();
   // El Consolidado decide cuándo se puede salir: con cuentas propuestas sin grabar abre su modal
@@ -645,6 +650,8 @@ export default function DatoCargadoClient({
     "consolidado",
     "detalle",
     "cruce",
+    // Nómina: la vista por subcuenta de las cuentas del CLIENTE va en su propia pestaña (17/Oct/2026).
+    ...(cruceContable.nomina?.vistaSubcuenta ? (["subcuenta"] as const) : []),
     ...(cruceTercero.aplica ? (["cruceTercero"] as const) : []),
     "novedades",
     "versiones",
@@ -656,6 +663,7 @@ export default function DatoCargadoClient({
     t === "consolidado" ? "Consolidado"
     : t === "detalle" ? "Detalle"
     : t === "cruce" ? "Cruce contable"
+    : t === "subcuenta" ? "Cruce por subcuenta - Cuentas cliente"
     : t === "cruceTercero" ? "Cruce por tercero"
     : t === "novedades" ? "Novedades"
     : "Versiones";
@@ -678,7 +686,24 @@ export default function DatoCargadoClient({
   // cruce cita las de la otra para que la numeración compartida se lea sin huecos.
   const filasCuentaMarcadas = new Map(cruceContable.filasMarcadas.map((f) => [f.cuenta4, f]));
   const filasTerceroMarcadas = new Map((cruceTercero.resumen?.filas ?? []).map((f) => [f.clave, f]));
+  const filasControlMarcadas = new Map((cruceContable.controlMarcado ?? []).map((f) => [f.cuentaCliente, f]));
   const referenciasMarcas: ReferenciaMarcaVm[] = marcasPeriodo.map((m) => {
+    if (m.dimension === "control") {
+      const fila = filasControlMarcadas.get(m.llave);
+      return {
+        ...m,
+        etiqueta: `Control de deducciones · ${m.llave}${fila?.nombre ? ` ${fila.nombre}` : ""}`,
+        destino: fila
+          ? {
+              etiqueta: "Control de deducciones",
+              ir: () => {
+                irATab("cruce");
+                setTimeout(() => document.getElementById(ANCLA_CONTROL_DEDUCCIONES)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+              },
+            }
+          : null,
+      };
+    }
     if (m.dimension === "tercero") {
       const fila = filasTerceroMarcadas.get(m.llave);
       return {
@@ -743,6 +768,8 @@ export default function DatoCargadoClient({
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
         <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
+      ) : tab === "subcuenta" && cruceContable.nomina?.vistaSubcuenta ? (
+        <VistaSubcuentaNominaCard vista={cruceContable.nomina.vistaSubcuenta} moduloLabel={moduloLabel} />
       ) : tab === "cruceTercero" ? (
         <div className="flex flex-col gap-4">
           {cruceContable.balanceEncontrado && (
@@ -2926,8 +2953,18 @@ function CruceContableTab({
         onQuitar={quitar}
       />
 
-      {cruceContable.nomina?.vistaSubcuenta && <VistaSubcuentaNominaCard vista={cruceContable.nomina.vistaSubcuenta} moduloLabel={moduloLabel} />}
-      {cruceContable.nomina?.control && cruceContable.nomina.control.filas.length > 0 && <ControlDeduccionesCard control={cruceContable.nomina.control} moduloLabel={moduloLabel} />}
+      {cruceContable.nomina?.control && (cruceContable.controlMarcado?.length ?? 0) > 0 && (
+        <ControlDeduccionesCard
+          filas={cruceContable.controlMarcado ?? []}
+          totales={cruceContable.nomina.control.totales}
+          resumen={cruceContable.resumenMarcasControl ?? null}
+          moduloLabel={moduloLabel}
+          ladoModulo={ladoModuloCruce(moduloLabel)}
+          encabezadoId={encabezadoId}
+          comentarios={comentarios}
+          puedeEditar={puedeEditar}
+        />
+      )}
 
       {((resumen.sinCuentaRelacionado?.length ?? 0) > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable || sinReglaContableFilas > 0 || fueraDelModulo) && (
         <div className="flex flex-col gap-2">
@@ -3175,7 +3212,10 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
     <Card className="p-0">
       <div className="border-b border-ink-100 px-3 py-2">
         <div className="text-[12.5px] font-semibold text-ink-800">
-          Cruce por subcuenta de la cuenta del CLIENTE · balance vs {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
+          Cruce por subcuenta · cuentas del CLIENTE (sin homologar) · balance vs {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
+        </div>
+        <div className="my-1.5 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11.5px] text-blue-800">
+          Aquí <b>no interviene el plan Russell</b>: se comparan los saldos del balance en las cuentas del cliente, tal como él las lleva, contra los conceptos del archivo que traen la cuenta del cliente. La conciliación oficial es la del Cruce contable.
         </div>
         <p className="text-[11px] text-ink-500">
           Los dos lados son cuentas del CLIENTE, agrupadas por los dígitos 5 y 6 de su código (06 sueldos, 15 horas extras, 27 auxilio de transporte…), sumando administración, ventas y producción: contabilidad = Σ de las cuentas del cliente del BALANCE con esa subcuenta; {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")} = Σ de los conceptos del MÓDULO cuya cuenta del cliente tiene esa subcuenta. Un concepto sin cuenta del cliente no entra: se lista al pie. No es el plan Russell, por eso aquí se ven subcuentas que él reúne en «95 otros». Cuadra sin regla de clase; no decide el cierre.
@@ -3260,54 +3300,6 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
 }
 
 /** Deducciones a pasivo/activo/ingreso: por cuenta del cliente contra el balance. Solo informa. */
-function ControlDeduccionesCard({ control, moduloLabel }: { control: NonNullable<ResultadoCruceNomina["control"]>; moduloLabel: string }) {
-  return (
-    <Card className="p-0">
-      <div className="border-b border-ink-100 px-3 py-2">
-        <div className="text-[12.5px] font-semibold text-ink-800">Control de deducciones</div>
-        <p className="text-[11px] text-ink-500">
-          Conceptos cuya cuenta del cliente es de pasivo, activo o ingreso (libranzas, retención, embargos, préstamos, intereses): la Σ de {moduloLabel.toLocaleLowerCase("es")} contra el saldo final de esa cuenta en el balance. No suma al gasto ni bloquea el cierre.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
-          <thead className="bg-ink-50 text-left text-ink-500">
-            <tr>
-              <th className="px-3 py-2 font-semibold">Cuenta del cliente</th>
-              <th className="px-3 py-2 font-semibold">Conceptos</th>
-              <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-              <th className="px-3 py-2 text-right font-semibold">{ladoModuloCruce(moduloLabel)}</th>
-              <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {control.filas.map((f) => (
-              <tr key={f.cuentaCliente} className="border-t border-ink-100">
-                <td className="px-3 py-2 text-ink-800">
-                  <span className="font-mono">{f.cuentaCliente}</span> {f.nombre ?? <span className="text-warn-700">sin cuenta en el balance</span>}
-                  {f.cuentasBalance.length > 1 && <div className="text-[10.5px] text-ink-400">{f.cuentasBalance.join(", ")}</div>}
-                </td>
-                <td className="px-3 py-2 text-[11.5px] text-ink-600">{f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · ")}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{f.contable == null ? <span className="text-ink-300">—</span> : fmtContable(f.contable)}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : f.diferencia == null ? "text-ink-400" : "text-err-700"}`}>{f.diferencia == null ? "—" : fmtContable(f.diferencia)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-              <td className="px-3 py-2" colSpan={2}>Totales</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.contable)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.modulo)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(control.totales.diferencia)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
 /** Nómina · Novedades: validaciones propias del archivo y de la homologación. */
 function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
   const ok = "rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700";

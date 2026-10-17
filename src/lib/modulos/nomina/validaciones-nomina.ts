@@ -36,6 +36,41 @@ export type ValidacionesNomina = {
   total: number;
 };
 
+/**
+ * Forma comparable del nombre de un empleado (17/Oct/2026): sin tildes, sin puntuación, en mayúsculas
+ * y con las palabras ordenadas. «PÉREZ GÓMEZ, JOSÉ» y «Jose Perez Gomez» son el mismo nombre; «JOSE
+ * PEREZ» y «MARIA PEREZ», no. Una cédula con dos nombres distintos así es un reporte con errores y
+ * bloquea aprobar el borrador.
+ */
+export function nombreComparableEmpleado(nombre: unknown): string {
+  return String(nombre ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(" ");
+}
+
+/**
+ * De las cédulas con más de un nombre escrito, las que siguen teniendo varios al compararlos con
+ * `nombreComparableEmpleado`. La base agrupa por el nombre en mayúsculas; aquí se descartan las que
+ * solo difieren en tildes, puntuación u orden de palabras.
+ */
+export function filtrarCedulasConVariosNombres(candidatas: readonly CedulaConVariosNombres[]): CedulaConVariosNombres[] {
+  return candidatas.filter((c) => new Set(c.nombres.map(nombreComparableEmpleado).filter(Boolean)).size > 1);
+}
+
+/** Por qué no se puede aprobar el borrador de Nómina; null si ninguna cédula tiene varios nombres. */
+export function motivoCedulasVariosNombres(cedulas: readonly CedulaConVariosNombres[]): string | null {
+  if (cedulas.length === 0) return null;
+  const ejemplo = cedulas[0];
+  return `El reporte tiene errores: ${cedulas.length} cédula(s) con más de un nombre de empleado (p. ej. ${ejemplo.cedula}: ${ejemplo.nombres.slice(0, 3).join(" / ")}). Corrige el archivo en el ERP y vuelve a cargarlo; este borrador no se puede aprobar.`;
+}
+
 const num = (v: unknown): number | null => {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, ""));
@@ -83,9 +118,9 @@ export function novedadesPorFila(detalle: readonly FilaDetalleValidacion[], tole
     const mes = f.datos.periodoDesde;
     if (typeof mes === "string" && /^\d{4}-\d{2}$/.test(mes)) meses.add(mes);
   }
-  const cedulas: CedulaConVariosNombres[] = [...nombresPorCedula.entries()]
+  const cedulas: CedulaConVariosNombres[] = filtrarCedulasConVariosNombres([...nombresPorCedula.entries()]
     .filter(([, m]) => m.size > 1)
-    .map(([cedula, m]) => ({ cedula, nombres: [...m.keys()].sort(), filas: [...m.values()].reduce((a, b) => a + b, 0) }))
+    .map(([cedula, m]) => ({ cedula, nombres: [...m.keys()].sort(), filas: [...m.values()].reduce((a, b) => a + b, 0) })))
     .sort((a, b) => b.filas - a.filas);
   return { netos, cedulas, meses: [...meses].sort() };
 }

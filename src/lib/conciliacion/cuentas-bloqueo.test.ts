@@ -191,6 +191,22 @@ describe("evaluarCierreConciliacion", () => {
     expect(evaluarCierreConciliacion(cruce, resumen, null, [], [])).toEqual({ ok: true });
   });
 
+  it("Nómina: el control de deducciones con diferencias sin marca o desactualizadas impide cerrar", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "510506": 100 },
+      consolidado: [{ clasificador: "A", total: 100, cuentas4: ["510506"] }],
+      nombrePorCuenta: () => null,
+    });
+    const { resumen } = anotarCruceConMarcas(cruce.filas, []);
+    const control = (over: Partial<{ conDiferencia: number; marcadas: number; pendientes: number; desactualizadas: number }>) =>
+      ({ conDiferencia: 1, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, ...over });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ pendientes: 1 })))
+      .toMatchObject({ ok: false, motivo: expect.stringContaining("control de deducciones sin marca") });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ marcadas: 1, desactualizadas: 1 })))
+      .toMatchObject({ ok: false, motivo: expect.stringContaining("quedaron desactualizadas") });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ marcadas: 1 }))).toEqual({ ok: true });
+  });
+
   it("las alertas del archivo que exigen comentario impiden cerrar hasta tenerlo vigente", () => {
     const cruce = construirCruceContable({
       contablePorCuenta: { "1435": 100 },

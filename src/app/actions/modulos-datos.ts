@@ -173,6 +173,8 @@ import { UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { alertasConComentarioDelCargue, cargarValidacionesTercero } from "@/lib/modulos/comentarios-alertas-servidor";
 import { motivoReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
 import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
+import { motivoCedulasVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
+import { cedulasConVariosNombresDelLote } from "@/lib/modulos/nomina/reporte-con-errores-servidor";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -2199,6 +2201,12 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const motivoReporte = motivoReporteConErrores(await reporteConErroresDelLote(loteId, fechaCorteDelBorrador(lote.specJson, periodo)));
       if (motivoReporte) return { ok: false, message: motivoReporte };
     }
+    // Nómina: una cédula con más de un nombre de empleado (sin contar tildes, puntuación ni orden de
+    // palabras) también es un reporte con errores.
+    if (descriptor.nomina) {
+      const motivoNomina = motivoCedulasVariosNombres(await cedulasConVariosNombresDelLote(loteId));
+      if (motivoNomina) return { ok: false, message: motivoNomina };
+    }
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
@@ -3581,11 +3589,13 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   const ctx = await contextoMarcaCruce(encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
-  const dimension: DimensionMarca = formData.get("dimension") === "tercero" ? "tercero" : "cuenta4";
+  const dimensionCruda = formData.get("dimension");
+  const dimension: DimensionMarca = dimensionCruda === "tercero" ? "tercero" : dimensionCruda === "control" ? "control" : "cuenta4";
   const cuenta4 = dimension === "cuenta4" ? cuentaMarcable(String(formData.get("cuenta4") ?? "")) : null;
-  const clave = dimension === "tercero" ? normalizarClaveTercero(formData.get("clave")) : null;
+  const clave = dimension !== "cuenta4" ? normalizarClaveTercero(formData.get("clave")) : null;
   if (dimension === "cuenta4" && !cuenta4) return { ok: false, message: "Cuenta inválida." };
   if (dimension === "tercero" && !clave) return { ok: false, message: "Tercero inválido." };
+  if (dimension === "control" && !clave) return { ok: false, message: "Cuenta del control inválida." };
   // Pasar una marca sin renglón a este renglón (solo en la cédula contable).
   const origenCrudo = dimension === "cuenta4" ? String(formData.get("cuenta4Origen") ?? "").trim() : "";
   const cuenta4Origen = origenCrudo ? cuentaMarcable(origenCrudo) : null;
@@ -3675,6 +3685,11 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         diferencia = filaVigente.columnas!.costo.diferencia;
       }
     }
+  } else if (dimension === "control") {
+    // Nómina: el renglón del control de deducciones (toda diferencia exige marca).
+    const filaControl = cruceVigente.controlMarcado.find((f) => f.cuentaCliente === clave);
+    if (!filaControl) return { ok: false, message: "Esa cuenta ya no aparece en el control de deducciones. Recarga la pantalla." };
+    diferencia = filaControl.diferenciaEfectiva;
   } else {
     const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
     if (!tercero?.resumen) {
@@ -3687,9 +3702,11 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
   const llaveMarca = cuenta4
     ? { dimension: "cuenta4" as const, cuenta4, clave: null }
-    : { dimension: "tercero" as const, cuenta4: null, clave: clave as string };
-  const objetivo = cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : cuenta4 ? `cuenta ${cuenta4}` : `tercero ${clave}`;
-  const cruceDeLaMarca = cuenta4 ? "cruce contable" : "cruce por tercero";
+    : { dimension: dimension === "control" ? ("control" as const) : ("tercero" as const), cuenta4: null, clave: clave as string };
+  const objetivo = cuenta4 === CLAVE_SIN_CUENTA
+    ? "saldo sin cuenta"
+    : cuenta4 ? `cuenta ${cuenta4}` : dimension === "control" ? `cuenta del cliente ${clave}` : `tercero ${clave}`;
+  const cruceDeLaMarca = cuenta4 ? "cruce contable" : dimension === "control" ? "control de deducciones" : "cruce por tercero";
 
   try {
     const existente = await prisma.marcaCruceModulo.findFirst({
@@ -3859,8 +3876,10 @@ async function persistirSoportesMarca(
 export async function quitarMarcaCruce(input: {
   encabezadoId: number;
   cuenta4?: string;
-  /** Clave del tercero, en las marcas del cruce por tercero. */
+  /** Clave del tercero, en las marcas del cruce por tercero; cuenta del cliente en las del control. */
   clave?: string;
+  /** «control»: la marca es del control de deducciones de Nómina (con `clave`). */
+  dimension?: "control";
 }): Promise<ActionState> {
   const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
@@ -3878,7 +3897,7 @@ export async function quitarMarcaCruce(input: {
         clienteId: encabezado.clienteId,
         moduloCodigo: encabezado.moduloCodigo,
         periodo: encabezado.periodo,
-        ...(clave ? { dimension: "tercero", clave } : { dimension: "cuenta4", cuenta4: cuenta4 ?? undefined }),
+        ...(clave ? { dimension: input.dimension === "control" ? "control" : "tercero", clave } : { dimension: "cuenta4", cuenta4: cuenta4 ?? undefined }),
       },
       select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true } } },
     });
@@ -3896,8 +3915,12 @@ export async function quitarMarcaCruce(input: {
     // diferencia bruta en el siguiente render.
     await auditarMarcaCruce(
       encabezado,
-      clave ? "RETIRÓ la marca del cruce por tercero" : "RETIRÓ la marca del cruce contable",
-      clave ? `tercero ${clave}` : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
+      clave
+        ? input.dimension === "control" ? "RETIRÓ la marca del control de deducciones" : "RETIRÓ la marca del cruce por tercero"
+        : "RETIRÓ la marca del cruce contable",
+      clave
+        ? input.dimension === "control" ? `cuenta del cliente ${clave}` : `tercero ${clave}`
+        : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
       ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`
         + (marca._count.clasificadoresNoModulares
           ? cuenta4 === CLAVE_SIN_CUENTA
@@ -3950,10 +3973,11 @@ export async function eliminarSoporteMarca(input: {
     await eliminarObjeto(soporte.claveObjeto).catch(() => {});
 
     const deTercero = m.dimension === "tercero";
+    const deControl = m.dimension === "control";
     await auditarMarcaCruce(
       encabezado,
-      `ELIMINÓ un soporte de la marca del cruce ${deTercero ? "por tercero" : "contable"}`,
-      deTercero ? `tercero ${m.clave}` : `cuenta ${m.cuenta4}`,
+      deControl ? "ELIMINÓ un soporte de la marca del control de deducciones" : `ELIMINÓ un soporte de la marca del cruce ${deTercero ? "por tercero" : "contable"}`,
+      deControl ? `cuenta del cliente ${m.clave}` : deTercero ? `tercero ${m.clave}` : `cuenta ${m.cuenta4}`,
       ` · marca ${m.numero} · ${soporte.nombreArchivo}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
@@ -4737,6 +4761,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         : null,
       alertasComentario,
       cruce.bloqueosCierre,
+      cruce.resumenMarcasControl,
     );
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 

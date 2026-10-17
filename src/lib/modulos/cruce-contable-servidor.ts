@@ -35,7 +35,15 @@ import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type 
 import { emparejarCedulaActivos, motivoDepreciacionSinPareja } from "@/lib/modulos/activos/cedula-activos";
 import { entradasOpcionalesActivos } from "@/lib/modulos/activos/validaciones-activos";
 import { avisoContenidoIncompleto, contenidoDelCargue, filaEsSoloDepreciacion } from "@/lib/modulos/activos/contenido-archivo";
-import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import {
+  anotarControlConMarcas,
+  anotarCruceConMarcas,
+  type FilaControlMarcada,
+  type FilaCruceMarcada,
+  type HijoModuloSinCuenta,
+  type MarcaCruce,
+  type ResumenMarcas,
+} from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -220,6 +228,9 @@ export type ResultadoCruceModulo = {
    * evalúan la página y el cierre con `evaluarCierreConciliacion`.
    */
   bloqueosCierre: string[];
+  /** Nómina: el control de deducciones con sus marcas (toda diferencia exige marca para cerrar). */
+  controlMarcado: FilaControlMarcada[];
+  resumenMarcasControl: ResumenMarcas | null;
   /** Activos fijos: el cargue solo trae costo o solo depreciación y todavía falta el otro archivo. */
   avisoContenidoActivos: string | null;
   /** Solo Nómina: vista por subcuenta y control de deducciones. */
@@ -773,6 +784,11 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       })
     : null;
   const motivoSinPareja = cruceContable ? motivoDepreciacionSinPareja({ sinEmparejar: sinEmparejarActivos, sinActivo: depreciacionSinActivo }) : null;
+  // Nómina: el control de deducciones exige marca en toda diferencia (desde 1 centavo).
+  const controlFilas = nomina?.control?.filas ?? [];
+  const controlAnotado = controlFilas.length > 0
+    ? anotarControlConMarcas(controlFilas, await marcasControlDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo))
+    : null;
 
   return {
     balanceEmparejado,
@@ -792,6 +808,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     // Infinito (copia anterior al parámetro) no viaja: para la pantalla y la copia es «sin regla».
     toleranciaDetalleActivos: toleranciaDetalleActivos != null && Number.isFinite(toleranciaDetalleActivos) ? toleranciaDetalleActivos : null,
     depreciacionSinActivo,
+    controlMarcado: controlAnotado?.filas ?? [],
+    resumenMarcasControl: controlAnotado?.resumen ?? null,
     bloqueosCierre: motivoSinPareja ? [motivoSinPareja] : [],
     fueraDelModulo: cruceContable && fuera.filas > 0
       ? {
@@ -808,6 +826,32 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, renglones: consolidadoNomina.renglones } : null),
     cuentasPeriodo,
   };
+}
+
+/** Marcas del control de deducciones del período (Nómina): la cuenta del cliente va en `clave`. */
+async function marcasControlDelPeriodo(clienteId: number, moduloCodigo: string, periodo: string): Promise<MarcaCruce[]> {
+  const filas = await prisma.marcaCruceModulo.findMany({
+    where: { clienteId, moduloCodigo, periodo, dimension: "control" },
+    orderBy: { numero: "asc" },
+    select: {
+      clave: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
+      adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
+    },
+  });
+  return filas.map((m) => ({
+    dimension: "control",
+    cuenta4: "",
+    clave: m.clave,
+    numero: m.numero,
+    nota: m.nota,
+    referenciaAnexo: m.referenciaAnexo,
+    diferencia: Number(m.diferencia),
+    comentarioId: m.comentarioId,
+    marcadoPor: m.marcadoPor,
+    marcadoEn: fmtDateTime(m.marcadoEn),
+    adjuntos: m.adjuntos,
+    noModulares: [],
+  }));
 }
 
 function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | null): ResultadoCruceModulo {
@@ -828,6 +872,8 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     toleranciaCedula: null,
     toleranciaDetalleActivos: null,
     depreciacionSinActivo: [],
+    controlMarcado: [],
+    resumenMarcasControl: null,
     bloqueosCierre: [],
     fueraDelModulo: null,
     soloVisibles: null,

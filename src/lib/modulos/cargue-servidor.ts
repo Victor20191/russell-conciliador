@@ -15,6 +15,7 @@ import { poolLectura } from "./pool-lectura";
 import type { DescriptorModulo } from "./descriptores";
 import type { GrupoNominaAgregado } from "./nomina/consolidado-nomina";
 import { claveConsolidado } from "./nomina/clave-consolidado";
+import { filtrarCedulasConVariosNombres } from "./nomina/validaciones-nomina";
 import { expresionSqlClaveNomina, type AgruparPorNomina } from "./nomina/agrupar-por";
 import { SIN_CLASIFICAR } from "./promocion";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
@@ -169,7 +170,9 @@ export async function novedadesFilaNominaDelCargue(encabezadoId: number, toleran
       const neto = Number(r.neto);
       return { filaNum: r.fila_num, cedula: r.cedula, devengo, deduccion, neto, esperado: devengo - Math.abs(deduccion) };
     }),
-    cedulas: cedulas.rows.map((r) => ({ cedula: r.cedula, nombres: r.nombres, filas: Number(r.filas) })),
+    // La base agrupa por el nombre en mayúsculas; se descartan las que solo difieren en tildes,
+    // puntuación u orden de palabras (la misma regla que bloquea el borrador).
+    cedulas: filtrarCedulasConVariosNombres(cedulas.rows.map((r) => ({ cedula: r.cedula, nombres: r.nombres, filas: Number(r.filas) }))),
     meses: meses.rows.map((r) => r.mes),
   };
 }

@@ -8,6 +8,7 @@ import {
   anclaCruce,
   anclaCruceTercero,
   anclaObservacionMarca,
+  anotarControlConMarcas,
   anotarCruceConMarcas,
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
@@ -187,6 +188,44 @@ describe("anotarCruceConMarcas", () => {
   it("ignora una marca de una cuenta que ya no está en el cruce", () => {
     const { resumen } = anotarCruceConMarcas(cruce(), [marca({ cuenta4: "9999" })]);
     expect(resumen).toMatchObject({ conDiferencia: 2, marcadas: 0 });
+  });
+});
+
+describe("marcas del control de deducciones (Nómina)", () => {
+  const filaControl = (cuentaCliente: string, contable: number | null, modulo: number) => ({
+    cuentaCliente,
+    nombre: contable == null ? null : `Cuenta ${cuentaCliente}`,
+    cuentasBalance: contable == null ? [] : [cuentaCliente],
+    contable,
+    modulo,
+    diferencia: contable == null ? null : Math.round((contable - modulo) * 100) / 100,
+    cuadra: contable != null && Math.abs(contable - modulo) <= 0.01,
+    conceptos: [],
+  });
+
+  it("toda diferencia desde un centavo exige marca; sin la cuenta en el balance, contra cero", () => {
+    const { filas, resumen } = anotarControlConMarcas([
+      filaControl("236505", -1_000, -1_000),
+      filaControl("237005", -500, -500.02),
+      filaControl("237025", null, -300),
+    ], []);
+    expect(filas.map((f) => [f.cuentaCliente, f.diferenciaEfectiva, f.requiereMarca])).toEqual([
+      ["236505", 0, false],
+      ["237005", 0.02, true],
+      ["237025", 300, true],
+    ]);
+    expect(resumen).toMatchObject({ conDiferencia: 2, pendientes: 2, marcadas: 0 });
+  });
+
+  it("la marca se pega por la cuenta del cliente y queda desactualizada si cambia la diferencia", () => {
+    const marcaControl = marca({ dimension: "control", cuenta4: "", clave: "237025", diferencia: 300, numero: 7 });
+    const vigente = anotarControlConMarcas([filaControl("237025", null, -300)], [marcaControl]);
+    expect(vigente.filas[0]).toMatchObject({ marca: { numero: 7 }, desactualizada: false });
+    expect(vigente.resumen).toMatchObject({ marcadas: 1, pendientes: 0 });
+    const cambio = anotarControlConMarcas([filaControl("237025", null, -450)], [marcaControl]);
+    expect(cambio.resumen).toMatchObject({ desactualizadas: 1 });
+    // Una marca de cuenta con la misma clave no se confunde con la del control.
+    expect(anotarControlConMarcas([filaControl("237025", null, -300)], [marca({ cuenta4: "237025" })]).filas[0].marca).toBeNull();
   });
 });
 

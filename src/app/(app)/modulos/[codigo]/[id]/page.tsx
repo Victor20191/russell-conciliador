@@ -124,8 +124,8 @@ export default async function DatoModuloPage({
   ]);
   const marcasPeriodo: MarcaPeriodo[] = marcasPeriodoRows.map((m) => ({
     numero: m.numero,
-    dimension: m.dimension === "tercero" ? "tercero" : "cuenta4",
-    llave: (m.dimension === "tercero" ? m.clave : m.cuenta4) ?? "",
+    dimension: m.dimension === "tercero" ? "tercero" : m.dimension === "control" ? "control" : "cuenta4",
+    llave: (m.dimension === "tercero" || m.dimension === "control" ? m.clave : m.cuenta4) ?? "",
     nota: m.nota,
     diferencia: Number(m.diferencia),
     marcadoPor: m.marcadoPor,
@@ -428,6 +428,7 @@ export default async function DatoModuloPage({
           : null,
         alertasComentario,
         cruce.bloqueosCierre,
+        cruce.resumenMarcasControl,
       )
     : null;
   const cierreVm: CierreConciliacionVm = {
@@ -494,6 +495,8 @@ export default async function DatoModuloPage({
     cedulaActivos: cruce.cedulaActivos,
     sinEmparejarActivos: cruce.sinEmparejarActivos,
     depreciacionSinActivo: cruce.depreciacionSinActivo,
+    controlMarcado: cruce.controlMarcado,
+    resumenMarcasControl: cruce.resumenMarcasControl,
     toleranciaDetalleActivos: cruce.toleranciaDetalleActivos,
     avisoContenidoActivos: cruce.avisoContenidoActivos,
     conciliacion: cierreVm,

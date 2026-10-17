@@ -17,6 +17,7 @@
  */
 import { CLAVE_SIN_CUENTA, cuentasDeClaveCruce, type FilaCruceContable, type HijoContableCruce } from "./cruce-contable";
 import type { FilaCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
+import type { FilaControlDeducciones } from "./nomina/cruce-nomina";
 import { requiereMarcaPorUmbral } from "@/lib/balance/umbrales-alertas";
 
 /** Tolerancia por defecto del cruce (la misma de `construirCruceContable`): decide si la fila cuadra. */
@@ -38,8 +39,11 @@ export type CuentaNoModular = {
   valorAlMarcar: number;
 };
 
-/** Qué explica una marca: una cuenta de la cédula contable o un tercero del cruce por tercero. */
-export type DimensionMarca = "cuenta4" | "tercero";
+/**
+ * Qué explica una marca: una cuenta de la cédula contable, un tercero del cruce por tercero o una
+ * cuenta del cliente del control de deducciones de Nómina (`control`, 17/Oct/2026).
+ */
+export type DimensionMarca = "cuenta4" | "tercero" | "control";
 
 export type MarcaCruce = {
   /** Sin valor, una marca de cuenta (las marcas anteriores al cruce por tercero). */
@@ -442,6 +446,72 @@ export function anotarCruceTerceroConMarcas(
   );
 
   return { filas: anotadas, resumen };
+}
+
+// ===== Marcas del CONTROL DE DEDUCCIONES (Nómina) =====
+
+/** Un renglón del control de deducciones con su marca. */
+export type FilaControlMarcada = FilaControlDeducciones & {
+  /** La diferencia que se concilia: sin la cuenta en el balance, la contabilidad cuenta como cero. */
+  diferenciaEfectiva: number;
+  admiteMarca: boolean;
+  /** Toda diferencia desde 1 centavo exige marca para cerrar (la hoja de alertas). */
+  requiereMarca: boolean;
+  marca: MarcaCruce | null;
+  desactualizada: boolean;
+};
+
+/** Diferencia de un renglón del control: sin la cuenta en el balance, todo el valor del módulo. */
+export function diferenciaControl(fila: Pick<FilaControlDeducciones, "diferencia" | "modulo">): number {
+  return fila.diferencia ?? redondear(0 - fila.modulo);
+}
+
+/**
+ * Pega a cada renglón del control de deducciones su marca y resume lo pendiente. A diferencia de la
+ * cédula no hay tolerancia parametrizable: toda diferencia de más de un centavo exige marca, también
+ * la de una cuenta del cliente que no está en el balance.
+ */
+export function anotarControlConMarcas(
+  filas: readonly FilaControlDeducciones[],
+  marcas: readonly MarcaCruce[],
+  opciones?: { tolerancia?: number },
+): { filas: FilaControlMarcada[]; resumen: ResumenMarcas } {
+  const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
+  const porClave = new Map(marcas.filter((m) => m.dimension === "control" && m.clave).map((m) => [m.clave as string, m]));
+  const anotadas: FilaControlMarcada[] = filas.map((fila) => {
+    const diferenciaEfectiva = diferenciaControl(fila);
+    const marca = porClave.get(fila.cuentaCliente) ?? null;
+    const admite = Math.abs(diferenciaEfectiva) > tolerancia;
+    return {
+      ...fila,
+      diferenciaEfectiva,
+      admiteMarca: admite,
+      requiereMarca: admite,
+      marca,
+      desactualizada: marca != null && admite && Math.abs(diferenciaEfectiva - marca.diferencia) > tolerancia,
+    };
+  });
+  const resumen = anotadas.reduce<ResumenMarcas>(
+    (acc, fila) => {
+      if (!fila.requiereMarca) return acc;
+      acc.conDiferencia += 1;
+      if (fila.marca) {
+        acc.marcadas += 1;
+        if (fila.desactualizada) acc.desactualizadas += 1;
+      } else {
+        acc.pendientes += 1;
+        acc.montoPendiente = redondear(acc.montoPendiente + fila.diferenciaEfectiva);
+      }
+      return acc;
+    },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
+  );
+  return { filas: anotadas, resumen };
+}
+
+/** Ancla del hilo de comentarios de un renglón del control (`control:236505`). */
+export function anclaControl(cuentaCliente: string): string {
+  return `control:${cuentaCliente}`;
 }
 
 /**

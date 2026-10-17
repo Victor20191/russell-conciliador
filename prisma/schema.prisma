@@ -1453,7 +1453,8 @@ model MarcaCruceModulo {
   moduloCodigo    String                 @map("modulo_codigo")
   periodo         String                 @map("periodo") // etiqueta del período (p. ej. "2025-12")
   numero          Int                    @map("numero") // correlativo de la marca dentro del período
-  /// `cuenta4` (una cuenta de la cédula contable) o `tercero` (un tercero del cruce por tercero).
+  /// `cuenta4` (una cuenta de la cédula contable), `tercero` (un tercero del cruce por tercero) o
+  /// `control` (una cuenta del cliente del control de deducciones de Nómina, en `clave`).
   dimension       String                 @default("cuenta4") @map("dimension")
   cuenta4         String?                @map("cuenta_4") // cuenta Russell de 4 dígitos; null en las marcas de tercero
   /// Clave del tercero en las marcas de dimensión `tercero`; null en las de cuenta.

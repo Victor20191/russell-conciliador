@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
-import { validarNomina, validarNominaConNovedades } from "./validaciones-nomina";
+import {
+  filtrarCedulasConVariosNombres,
+  motivoCedulasVariosNombres,
+  nombreComparableEmpleado,
+  validarNomina,
+  validarNominaConNovedades,
+} from "./validaciones-nomina";
+
+describe("cédula con varios nombres (bloquea aprobar el borrador)", () => {
+  it("compara sin tildes, puntuación ni orden de palabras", () => {
+    expect(nombreComparableEmpleado("PÉREZ GÓMEZ, JOSÉ")).toBe(nombreComparableEmpleado("Jose Perez Gomez"));
+    expect(nombreComparableEmpleado("  maría   peña ")).toBe("MARIA PENA");
+    expect(nombreComparableEmpleado("JOSE PEREZ")).not.toBe(nombreComparableEmpleado("MARIA PEREZ"));
+  });
+
+  it("solo quedan las cédulas con nombres de verdad distintos", () => {
+    const cedulas = filtrarCedulasConVariosNombres([
+      { cedula: "1", nombres: ["PÉREZ JOSÉ", "JOSE PEREZ"], filas: 4 },
+      { cedula: "2", nombres: ["LUIS", "LUIS PÉREZ"], filas: 2 },
+    ]);
+    expect(cedulas.map((c) => c.cedula)).toEqual(["2"]);
+    expect(motivoCedulasVariosNombres(cedulas)).toContain("1 cédula(s) con más de un nombre");
+    expect(motivoCedulasVariosNombres([])).toBeNull();
+  });
+});
 
 const renglon = (clasificador: string, total: number, s: Partial<RenglonConsolidadoNomina["sugerencia"]>): RenglonConsolidadoNomina => ({
   clasificador, codigo: clasificador, agrupador: "", cuentaArchivo: null, descripcion: null, total, filas: 1, cuentas: [],

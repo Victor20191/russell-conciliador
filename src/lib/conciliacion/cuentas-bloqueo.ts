@@ -240,10 +240,24 @@ export function evaluarCierreConciliacion(
    * configuración o en el archivo, así que se informan antes que lo demás.
    */
   bloqueos?: readonly string[] | null,
+  /** Nómina: el control de deducciones, donde toda diferencia exige marca vigente. */
+  controlDeducciones?: ResumenMarcas | null,
 ): EvaluacionCierre {
   if (cruce && cruce.filas.length > 0 && bloqueos && bloqueos.length > 0) return { ok: false, motivo: bloqueos[0] };
   const evaluacion = evaluarCruceParaCierre(cruce, resumenMarcas, tercero);
   if (!evaluacion.ok) return evaluacion;
+  if (controlDeducciones && controlDeducciones.pendientes > 0) {
+    return {
+      ok: false,
+      motivo: `Quedan ${controlDeducciones.pendientes} diferencia(s) del control de deducciones sin marca de auditoría. Márcalas antes de cerrar la conciliación.`,
+    };
+  }
+  if (controlDeducciones && controlDeducciones.desactualizadas > 0) {
+    return {
+      ok: false,
+      motivo: `${controlDeducciones.desactualizadas} marca(s) del control de deducciones quedaron desactualizadas: la diferencia cambió después de escribirlas. Revísalas antes de cerrar.`,
+    };
+  }
   const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente").map((a) => `«${a.etiqueta}»`);
   if (pendientes.length > 0) {
     return {
