@@ -189,6 +189,42 @@ describe("anotarCruceConMarcas", () => {
   });
 });
 
+describe("anotarCruceConMarcas con la tolerancia de la cédula", () => {
+  // 1405: −1.999,99 · 1410: −2.000 · 1435: 500 · 1440: cuadra.
+  const conTolerancia = () =>
+    construirCruceContable({
+      contablePorCuenta: { "1405": 0, "1410": 0, "1435": 500, "1440": 300 },
+      consolidado: [
+        { clasificador: "A", total: 1_999.99, cuentas4: ["1405"] },
+        { clasificador: "B", total: 2_000, cuentas4: ["1410"] },
+        { clasificador: "D", total: 300, cuentas4: ["1440"] },
+      ],
+      nombrePorCuenta: (cod) => `Cuenta ${cod}`,
+    }).filas;
+
+  it("exige marca desde la tolerancia inclusive; por debajo es opcional y cuenta aparte", () => {
+    const { filas, resumen } = anotarCruceConMarcas(conTolerancia(), [], { toleranciaMarca: 2_000 });
+    const por = (c: string) => filas.find((f) => f.cuenta4 === c);
+
+    expect(por("1405")).toMatchObject({ admiteMarca: true, requiereMarca: false });
+    expect(por("1410")).toMatchObject({ admiteMarca: true, requiereMarca: true });
+    expect(por("1435")).toMatchObject({ admiteMarca: true, requiereMarca: false });
+    expect(por("1440")).toMatchObject({ admiteMarca: false, requiereMarca: false });
+    expect(resumen).toEqual({ conDiferencia: 1, marcadas: 0, pendientes: 1, desactualizadas: 0, montoPendiente: -2_000, bajoUmbral: 2 });
+  });
+
+  it("una marca dentro de la tolerancia se conserva, aunque quede desactualizada no bloquea", () => {
+    const { filas, resumen } = anotarCruceConMarcas(conTolerancia(), [marca({ cuenta4: "1435", diferencia: 100 })], { toleranciaMarca: 2_000 });
+    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ requiereMarca: false, desactualizada: true });
+    expect(resumen).toMatchObject({ marcadas: 0, desactualizadas: 0, bajoUmbral: 2 });
+  });
+
+  it("sin tolerancia toda diferencia exige marca, como antes del parámetro", () => {
+    const { resumen } = anotarCruceConMarcas(conTolerancia(), []);
+    expect(resumen).toMatchObject({ conDiferencia: 3, pendientes: 3, bajoUmbral: 0 });
+  });
+});
+
 describe("observacionesDeMarcas", () => {
   it("lista solo las filas marcadas, ordenadas por número", () => {
     const { filas } = anotarCruceConMarcas(cruce(), [

@@ -2,8 +2,8 @@ import "server-only";
 
 // Insumos del cruce de UN período que se comparten entre meses o se leen en vivo: el Consolidado
 // (memoria del cliente + asignación del período), las reglas del prevalidador, las clases por
-// centro y la homologación de cuentas de Nómina, el umbral del cruce por tercero y las agrupadoras
-// excluidas del balance. Con la conciliación del período EN FIRME salen de la copia congelada del
+// centro y la homologación de cuentas de Nómina, el umbral del cruce por tercero, la tolerancia de la
+// cédula y las agrupadoras excluidas del balance. Con la conciliación del período EN FIRME salen de la copia congelada del
 // cierre (`copia-cierre.ts`), así lo que se cambie desde otro mes no altera lo conciliado; si no, en
 // vivo, como siempre. Una sola puerta para la página, el cruce, las acciones y el Excel.
 import prisma from "@/lib/prisma";
@@ -39,6 +39,8 @@ export type InsumosPeriodo = {
   nomina: { reglasClase: Map<string, ClaseNomina>; mapeoCliente: Map<string, string> } | null;
   /** Del cierre: el umbral con que se cerró el cruce por tercero. null = el vigente. */
   umbralDescuadre: number | null;
+  /** Del cierre: la tolerancia de la cédula con que se cerró. null = la vigente. */
+  toleranciaCedula: number | null;
   /** Del cierre: las cuentas agrupadoras que se excluyeron. null = calcularlas del balance. */
   agrupadorasExcluidas: Set<string> | null;
 };
@@ -75,6 +77,7 @@ export async function cargarInsumosPeriodo(p: {
       catalogoPrevalidador: desdeCopia.catalogoPrevalidador,
       nomina: p.esNomina ? desdeCopia.nomina ?? { reglasClase: new Map(), mapeoCliente: new Map() } : null,
       umbralDescuadre: desdeCopia.umbralDescuadre,
+      toleranciaCedula: desdeCopia.toleranciaCedula,
       agrupadorasExcluidas: desdeCopia.agrupadorasExcluidas,
     };
   }
@@ -86,5 +89,5 @@ export async function cargarInsumosPeriodo(p: {
     getCatalogoPrevalidador(),
     p.esNomina ? leerHomologacionNomina(prisma, p.clienteId, p.moduloCodigo) : Promise.resolve(null),
   ]);
-  return { cierre, consolidacion, catalogoPrevalidador, nomina, umbralDescuadre: null, agrupadorasExcluidas: null };
+  return { cierre, consolidacion, catalogoPrevalidador, nomina, umbralDescuadre: null, toleranciaCedula: null, agrupadorasExcluidas: null };
 }

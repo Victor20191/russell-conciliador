@@ -17,8 +17,9 @@
  */
 import { CLAVE_SIN_CUENTA, cuentasDeClaveCruce, type FilaCruceContable, type HijoContableCruce } from "./cruce-contable";
 import type { FilaCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
+import { requiereMarcaPorUmbral } from "@/lib/balance/umbrales-alertas";
 
-/** Tolerancia por defecto del cruce (la misma de `construirCruceContable`). */
+/** Tolerancia por defecto del cruce (la misma de `construirCruceContable`): decide si la fila cuadra. */
 export const TOLERANCIA_CRUCE = 0.01;
 
 /** Soporte adjunto a una marca (el anexo digital). */
@@ -77,6 +78,11 @@ export type HijoModuloSinCuenta = { clasificador: string; total: number; noModul
 export type FilaCruceMarcada = FilaCruceContable & {
   /** Solo las filas que NO cuadran admiten marca. */
   admiteMarca: boolean;
+  /**
+   * La diferencia alcanza la tolerancia de la cédula (`cedula_modulos` de `/config/parametros`):
+   * sin marca, impide cerrar. Por debajo la marca es opcional.
+   */
+  requiereMarca: boolean;
   marca: MarcaCruce | null;
   /** Hay marca, pero la diferencia cambió desde que se escribió. */
   desactualizada: boolean;
@@ -92,7 +98,7 @@ export type ResumenMarcas = {
   desactualizadas: number;
   /** Suma de las diferencias todavía sin marcar. */
   montoPendiente: number;
-  /** Cruce por tercero: diferencias por debajo del umbral de descuadre, que no exigen marca. */
+  /** Diferencias por debajo de la tolerancia (cédula) o del umbral (tercero): no exigen marca. */
   bajoUmbral?: number;
 };
 
@@ -109,13 +115,18 @@ export function admiteMarca(fila: Pick<FilaCruceContable, "cuadra">): boolean {
  * La marca de una cuenta que YA cuadra no se pierde ni estorba: la fila deja de admitir
  * marca y no cuenta como pendiente, pero la observación sigue viajando en la fila para que
  * la pantalla la muestre como antecedente.
+ *
+ * `toleranciaMarca` es la tolerancia de la cédula: una diferencia por debajo admite marca pero
+ * no la exige (cuenta en `bajoUmbral`). Desde el monto, inclusive, la exige. Sin ella, toda
+ * diferencia la exige, como antes del parámetro.
  */
 export function anotarCruceConMarcas(
   filas: readonly FilaCruceContable[],
   marcas: readonly MarcaCruce[],
-  opciones?: { tolerancia?: number },
+  opciones?: { tolerancia?: number; toleranciaMarca?: number },
 ): { filas: FilaCruceMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
+  const toleranciaMarca = opciones?.toleranciaMarca ?? 0;
   const porCuenta = new Map(marcas.filter((m) => (m.dimension ?? "cuenta4") === "cuenta4").map((m) => [m.cuenta4, m]));
 
   const anotadas: FilaCruceMarcada[] = filas.map((fila) => {
@@ -124,6 +135,7 @@ export function anotarCruceConMarcas(
     return {
       ...fila,
       admiteMarca: admite,
+      requiereMarca: admite && requiereMarcaPorUmbral(fila.diferencia, toleranciaMarca),
       marca,
       desactualizada: marca != null && admite && Math.abs(fila.diferencia - marca.diferencia) > tolerancia,
     };
@@ -132,6 +144,10 @@ export function anotarCruceConMarcas(
   const resumen = anotadas.reduce<ResumenMarcas>(
     (acc, fila) => {
       if (!fila.admiteMarca) return acc;
+      if (!fila.requiereMarca) {
+        acc.bajoUmbral = (acc.bajoUmbral ?? 0) + 1;
+        return acc;
+      }
       acc.conDiferencia += 1;
       if (fila.marca) {
         acc.marcadas += 1;
@@ -142,7 +158,7 @@ export function anotarCruceConMarcas(
       }
       return acc;
     },
-    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0 },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
   );
 
   return { filas: anotadas, resumen };
@@ -311,7 +327,7 @@ export function validarReferenciaAnexo(
 export type FilaCruceTerceroMarcada = FilaCruceTerceroCartera & {
   /** No cuadra: admite marca, también las diferencias pequeñas que el auditor quiera explicar. */
   admiteMarca: boolean;
-  /** La diferencia alcanza el umbral de descuadre de `/config/parametros`: sin marca, impide cerrar. */
+  /** La diferencia alcanza «Diferencia por tercero» de `/config/parametros`: sin marca, impide cerrar. */
   requiereMarca: boolean;
   marca: MarcaCruce | null;
   desactualizada: boolean;
@@ -333,7 +349,7 @@ export function anclaCruceTercero(clave: string): string {
 /**
  * Pega a cada tercero del cruce su marca y resume lo pendiente. Toda diferencia admite marca
  * —también los terceros que solo están en un lado—, pero para cerrar solo se exige en las que
- * alcanzan el umbral de descuadre: por debajo se informan en `bajoUmbral`.
+ * alcanzan el umbral «Diferencia por tercero»: por debajo se informan en `bajoUmbral`.
  */
 export function anotarCruceTerceroConMarcas(
   filas: readonly FilaCruceTerceroCartera[],
@@ -351,7 +367,7 @@ export function anotarCruceTerceroConMarcas(
     return {
       ...fila,
       admiteMarca: admite,
-      requiereMarca: admite && Math.abs(fila.diferencia) >= opciones.umbralDescuadre,
+      requiereMarca: admite && requiereMarcaPorUmbral(fila.diferencia, opciones.umbralDescuadre),
       marca,
       desactualizada: marca != null && admite && Math.abs(fila.diferencia - marca.diferencia) > tolerancia,
     };

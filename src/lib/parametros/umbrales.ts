@@ -13,6 +13,7 @@ import {
   UMBRALES_ALERTAS_DEFECTO,
   CLAVES_UMBRAL,
   type ClaveUmbral,
+  type SeccionUmbral,
   type UmbralesAlertas,
 } from "@/lib/balance/umbrales-alertas";
 
@@ -62,6 +63,7 @@ export function getUmbralesAlertas(): Promise<UmbralesAlertas> {
 
 export type UmbralVista = {
   clave: ClaveUmbral;
+  seccion: SeccionUmbral;
   nombre: string;
   descripcion: string;
   dondeAplica: string;
@@ -89,6 +91,7 @@ export async function getUmbralesVista(): Promise<UmbralVista[]> {
     const predeterminado = aMonto(fila?.predeterminado) ?? def.defecto;
     return {
       clave: def.clave,
+      seccion: def.seccion,
       nombre: def.nombre,
       descripcion: def.descripcion,
       dondeAplica: def.dondeAplica,

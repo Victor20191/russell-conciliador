@@ -8,6 +8,7 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import { actualizarUmbral, restaurarUmbral } from "@/app/actions/parametros";
 import type { ActionState } from "@/lib/definitions";
+import type { SeccionUmbral } from "@/lib/balance/umbrales-alertas";
 import type { UmbralVista } from "@/lib/parametros/umbrales";
 
 /** Solo dígitos: el input acepta pegar «$ 50.000» y se queda con 50000. */
@@ -15,17 +16,39 @@ const soloDigitos = (s: string) => s.replace(/[^\d]/g, "");
 /** Miles con punto mientras se escribe (es-CO), sin símbolo de moneda. */
 const conSeparadores = (s: string) => (s === "" ? "" : Number(s).toLocaleString("es-CO"));
 
+const SECCIONES: { seccion: SeccionUmbral; titulo: string; retroactivo: string }[] = [
+  {
+    seccion: "balance",
+    titulo: "Balance de comprobación",
+    retroactivo:
+      "como las validaciones se recalculan cada vez que se abre un balance, subir o bajar un umbral cambia al instante las alertas de todos los borradores y balances existentes, incluidos los cerrados.",
+  },
+  {
+    seccion: "modulos",
+    titulo: "Módulos de conciliación",
+    retroactivo:
+      "los cruces se recalculan al abrir cada cargue, así que el cambio rige de inmediato para todas las conciliaciones abiertas. Una conciliación en firme conserva el monto con que se cerró.",
+  },
+];
+
 export default function ParametrosClient({ umbrales }: { umbrales: UmbralVista[] }) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
-        Los cambios son <span className="font-semibold">retroactivos</span>: como las validaciones se recalculan
-        cada vez que se abre un balance, subir o bajar un umbral cambia al instante las alertas de todos los
-        borradores y balances existentes, incluidos los oficiales y congelados.
-      </div>
-      {umbrales.map((u) => (
-        <UmbralEditor key={u.clave} umbral={u} />
-      ))}
+    <div className="flex flex-col gap-6">
+      {SECCIONES.map(({ seccion, titulo, retroactivo }) => {
+        const propios = umbrales.filter((u) => u.seccion === seccion);
+        if (propios.length === 0) return null;
+        return (
+          <section key={seccion} className="flex flex-col gap-4">
+            <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">{titulo}</h2>
+            <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
+              Los cambios son <span className="font-semibold">retroactivos</span>: {retroactivo}
+            </div>
+            {propios.map((u) => (
+              <UmbralEditor key={u.clave} umbral={u} />
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -64,7 +87,7 @@ function UmbralEditor({ umbral }: { umbral: UmbralVista }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Icon name="settings" size={15} />
-            <h2 className="text-[14px] font-semibold text-ink-900">{umbral.nombre}</h2>
+            <h3 className="text-[14px] font-semibold text-ink-900">{umbral.nombre}</h3>
             <Chip label={umbral.esPredeterminado ? "Predeterminado" : "Personalizado"} tone={umbral.esPredeterminado ? "ink" : "ai"} />
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{umbral.descripcion}</p>

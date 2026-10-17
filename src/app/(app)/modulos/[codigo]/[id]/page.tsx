@@ -331,6 +331,7 @@ export default async function DatoModuloPage({
     nomina: insumosPeriodo.nomina,
     cierreFijado: cierreFijadoDe(insumosPeriodo),
     umbralDescuadre: insumosPeriodo.umbralDescuadre,
+    toleranciaCedula: insumosPeriodo.toleranciaCedula,
   });
   const balanceEmparejado = cruce.balanceEmparejado;
 
@@ -450,6 +451,7 @@ export default async function DatoModuloPage({
       ? cruce.marcas.filter((m) => !cruce.filasMarcadas.some((f) => f.cuenta4 === m.cuenta4))
       : [],
     resumenMarcas: cruce.resumenMarcas,
+    toleranciaCedula: cruce.toleranciaCedula,
     detalleContablePorCuenta: cruce.detalleContablePorCuenta,
     detalleSinCuenta: cruce.detalleSinCuenta,
     fueraDelModulo: cruce.fueraDelModulo,
@@ -542,7 +544,7 @@ export default async function DatoModuloPage({
           })),
           cruce: cruceTercero?.resumen ?? null,
           naturaleza: descriptor.crucePorTercero.naturaleza,
-          umbralNaturaleza: (await getUmbralesAlertas()).naturaleza,
+          umbralNaturaleza: (await getUmbralesAlertas()).tercero_naturaleza,
           fechaCorte,
           // Tipo de formato de cada archivo: decide qué controles aplican y cuáles no se
           // pudieron validar. Los cargues anteriores (null) se deducen de sus filas.

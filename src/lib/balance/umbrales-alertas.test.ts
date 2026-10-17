@@ -8,6 +8,7 @@ import {
   esMagnitudAccionable,
   esMagnitudInformativo,
   getUmbralDef,
+  requiereMarcaPorUmbral,
   UMBRALES_ALERTAS_DEFECTO,
   UMBRALES_CATALOGO,
   type UmbralesAlertas,
@@ -35,8 +36,8 @@ describe("umbrales de alertas contables", () => {
 describe("umbrales parametrizados desde /config/parametros", () => {
   // Los mismos montos cambian de veredicto al mover el umbral: es la garantía de
   // que la parametrización manda y no queda ningún valor de fábrica cableado.
-  const SUBIDOS: UmbralesAlertas = { descuadre: 100_000, naturaleza: 1_000_000 };
-  const EN_CERO: UmbralesAlertas = { descuadre: 0, naturaleza: 0 };
+  const SUBIDOS: UmbralesAlertas = { ...FABRICA, descuadre: 100_000, naturaleza: 1_000_000 };
+  const EN_CERO: UmbralesAlertas = { ...FABRICA, descuadre: 0, naturaleza: 0 };
 
   it("subir el umbral degrada a informativas alertas que antes eran accionables", () => {
     expect(esDescuadreAccionable(50_000, FABRICA)).toBe(true);
@@ -60,10 +61,30 @@ describe("umbrales parametrizados desde /config/parametros", () => {
 });
 
 describe("catálogo de umbrales", () => {
-  it("expone las dos claves conocidas con sus valores de fábrica", () => {
-    expect(UMBRALES_CATALOGO.map((u) => u.clave)).toEqual(["descuadre", "naturaleza"]);
+  it("expone las claves conocidas con sus valores de fábrica y su sección", () => {
+    expect(UMBRALES_CATALOGO.map((u) => u.clave)).toEqual([
+      "descuadre",
+      "naturaleza",
+      "cedula_modulos",
+      "tercero_diferencia",
+      "tercero_naturaleza",
+    ]);
     expect(getUmbralDef("descuadre")?.defecto).toBe(2_000);
     expect(getUmbralDef("naturaleza")?.defecto).toBe(50_000);
+    expect(getUmbralDef("cedula_modulos")?.defecto).toBe(2_000);
+    expect(getUmbralDef("tercero_diferencia")?.defecto).toBe(2_000);
+    expect(getUmbralDef("tercero_naturaleza")?.defecto).toBe(10_000);
+    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "balance").map((u) => u.clave)).toEqual(["descuadre", "naturaleza"]);
+    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "modulos")).toHaveLength(3);
+  });
+
+  it("exige marca desde el umbral inclusive, con cualquier signo", () => {
+    expect(requiereMarcaPorUmbral(1_999.99, 2_000)).toBe(false);
+    expect(requiereMarcaPorUmbral(2_000, 2_000)).toBe(true);
+    expect(requiereMarcaPorUmbral(-2_000, 2_000)).toBe(true);
+    expect(requiereMarcaPorUmbral(-1_999.99, 2_000)).toBe(false);
+    // Con el umbral en cero, cualquier diferencia exige marca.
+    expect(requiereMarcaPorUmbral(0.02, 0)).toBe(true);
   });
 
   it("rechaza claves desconocidas (la Server Action no debe escribirlas)", () => {

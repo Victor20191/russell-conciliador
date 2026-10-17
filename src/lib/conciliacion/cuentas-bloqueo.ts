@@ -220,10 +220,13 @@ export type CierreCruceTercero = {
 };
 
 /**
- * Precondición del cierre: el cruce cuadra, o TODAS sus diferencias tienen marca de
- * auditoría vigente (una marca cuyo monto cambió después de escribirse no explica la
- * cifra actual: cuenta como pendiente). Donde el módulo exige el cruce por tercero, además
- * tiene que estar disponible y con marca en toda diferencia que alcance el umbral.
+ * Precondición del cierre: el cruce cuadra, o TODAS sus diferencias que alcanzan la
+ * tolerancia de la cédula tienen marca de auditoría vigente (una marca cuyo monto cambió
+ * después de escribirse no explica la cifra actual: cuenta como pendiente). Lo que exige
+ * marca lo decide `anotarCruceConMarcas` (`pendientes`/`desactualizadas` no cuentan las
+ * diferencias por debajo de la tolerancia); sin ese resumen, cualquier diferencia impide
+ * cerrar. Donde el módulo exige el cruce por tercero, además tiene que estar disponible y
+ * con marca en toda diferencia que alcance su umbral.
  */
 export function evaluarCierreConciliacion(
   cruce: Pick<ResumenCruceContable, "filas"> | null,

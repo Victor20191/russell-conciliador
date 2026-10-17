@@ -41,6 +41,11 @@ export type CopiaCierreV1 = {
   agrupadorasExcluidas: string[];
   /** Umbral de descuadre del cruce por tercero (Cartera, CxP); null en los demás módulos. */
   umbralDescuadre: number | null;
+  /**
+   * Tolerancia de la cédula contable con que se evaluó el cierre (`cedula_modulos`). Ausente en las
+   * copias anteriores al parámetro (17/Oct/2026): se cerraron exigiendo marca en toda diferencia.
+   */
+  toleranciaCedula?: number;
   /** SHA-256 del contenido (sin origen, fecha ni la propia huella). */
   huella: string;
 };
@@ -51,6 +56,7 @@ export type InsumosCopiaCierre = {
   nomina: { reglasClase: Map<string, ClaseNomina>; mapeoCliente: Map<string, string> } | null;
   agrupadorasExcluidas: Set<string>;
   umbralDescuadre: number | null;
+  toleranciaCedula: number;
 };
 
 const comparar = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -91,6 +97,7 @@ export function construirCopiaCierre(p: {
   nomina: { reglasClase: ReadonlyMap<string, ClaseNomina>; mapeoCliente: ReadonlyMap<string, string> } | null;
   agrupadorasExcluidas: Iterable<string>;
   umbralDescuadre: number | null;
+  toleranciaCedula?: number;
 }): CopiaCierreV1 {
   const contenido = {
     version: 1 as const,
@@ -130,6 +137,9 @@ export function construirCopiaCierre(p: {
       : null,
     agrupadorasExcluidas: [...new Set(p.agrupadorasExcluidas)].sort(comparar),
     umbralDescuadre: p.umbralDescuadre,
+    // Sin valor la llave no entra en la huella (jsonCanonico descarta undefined), así que una copia
+    // anterior al parámetro conserva la suya.
+    toleranciaCedula: p.toleranciaCedula,
   };
   return { ...contenido, origen: p.origen, tomadaEn: p.tomadaEn.toISOString(), huella: huellaCopiaCierre(contenido) };
 }
@@ -193,6 +203,7 @@ export function leerCopiaCierre(json: unknown, moduloCodigo: string): LecturaCop
     ))
     && Array.isArray(c.agrupadorasExcluidas) && c.agrupadorasExcluidas.every(esTexto)
     && (c.umbralDescuadre === null || (typeof c.umbralDescuadre === "number" && Number.isFinite(c.umbralDescuadre)))
+    && (c.toleranciaCedula === undefined || (typeof c.toleranciaCedula === "number" && Number.isFinite(c.toleranciaCedula) && c.toleranciaCedula >= 0))
     && esTexto(c.huella);
   if (!valida) return { ok: false, motivo: "invalida" };
   const copia = json as CopiaCierreV1;
@@ -219,6 +230,7 @@ export function insumosDesdeCopia(copia: CopiaCierreV1): InsumosCopiaCierre {
       : null,
     agrupadorasExcluidas: new Set(copia.agrupadorasExcluidas),
     umbralDescuadre: copia.umbralDescuadre,
+    toleranciaCedula: copia.toleranciaCedula ?? 0,
   };
 }
 

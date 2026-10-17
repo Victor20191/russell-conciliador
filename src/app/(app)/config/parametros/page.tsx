@@ -13,7 +13,7 @@ export default async function ParametrosPage() {
     <div>
       <PageHeader
         title="Parámetros de alertas"
-        subtitle="Montos a partir de los cuales una diferencia deja de ser un aviso informativo y pasa a contar como alerta. Aplican a toda la plataforma y de inmediato, también sobre los balances ya cargados."
+        subtitle="Montos a partir de los cuales una diferencia deja de ser un aviso informativo y pasa a contar como alerta, en el balance de comprobación y en los cruces de los módulos. Aplican a toda la plataforma y de inmediato, también sobre lo ya cargado."
       />
       <ParametrosClient umbrales={umbrales} />
     </div>

@@ -293,6 +293,8 @@ export type CruceContableVm = {
   /** Marcas de cuenta del período cuyo renglón ya no aparece en el cruce. */
   marcasSinRenglon?: MarcaCruce[];
   resumenMarcas: ResumenMarcas | null;
+  /** Tolerancia de la cédula (`/config/parametros` o la del cierre): desde ella una diferencia exige marca. */
+  toleranciaCedula?: number | null;
   /** Cuentas del cliente que componen cada fila: el desglose que se ve al expandirla. */
   detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
   /** Clasificadores del renglón del saldo sin cuenta, con los marcados no modulares. */
@@ -2482,7 +2484,9 @@ function CruceContableTab({
   // Renglón del saldo del módulo sin cuenta: sus hijos son clasificadores, no cuentas del cliente.
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
-  const conDiferencia = filasMarcadas.filter((f) => !f.cuadra).length;
+  // Las que exigen marca para cerrar y las que no cuadran pero quedan dentro de la tolerancia.
+  const conDiferencia = filasMarcadas.filter((f) => f.requiereMarca).length;
+  const dentroTolerancia = filasMarcadas.filter((f) => f.admiteMarca && !f.requiereMarca).length;
   // Filtros por columna de la cédula: la cuenta por texto y las cifras con >, <, =.
   const columnasFiltroCedula = {
     cuenta: { texto: (f: FilaCruceMarcada) => `${f.cuenta4} ${f.nombre ?? ""}` },
@@ -2572,7 +2576,9 @@ function CruceContableTab({
       {cruceContable.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
-      {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
+      {resumenMarcas && (resumenMarcas.conDiferencia > 0 || (resumenMarcas.bajoUmbral ?? 0) > 0) && (
+        <ResumenMarcasBanner resumen={resumenMarcas} tolerancia={cruceContable.toleranciaCedula ?? null} />
+      )}
 
       <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
 
@@ -2584,7 +2590,8 @@ function CruceContableTab({
             <span className="font-semibold text-ink-700">{filasMarcadas.length.toLocaleString("es-CO")}</span> {filasMarcadas.length === 1 ? "renglón" : "renglones"} en la cédula
             {filasMarcadas.length > 0 && (conDiferencia > 0
               ? <> · <span className="font-semibold text-err-700">{conDiferencia.toLocaleString("es-CO")} con diferencia</span></>
-              : <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
+              : dentroTolerancia === 0 && <> · <span className="font-semibold text-ok-700">todo cuadra</span></>)}
+            {dentroTolerancia > 0 && <> · <span className="font-semibold text-ink-700">{dentroTolerancia.toLocaleString("es-CO")}</span> dentro de la tolerancia</>}
             {hayFiltrosCedula && <> · <span className="font-semibold text-ink-700">{filasOrdenadas.length.toLocaleString("es-CO")}</span> con los filtros</>}
             {enCero > 0 && <> · <span className="font-semibold text-ink-700">{enCero.toLocaleString("es-CO")}</span> en cero</>}
           </span>
@@ -3512,8 +3519,11 @@ function ConciliacionEnFirmePanel({
   );
 }
 
-function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
+function ResumenMarcasBanner({ resumen, tolerancia }: { resumen: ResumenMarcas; tolerancia: number | null }) {
   const todo = resumen.pendientes === 0 && resumen.desactualizadas === 0;
+  const bajoTolerancia = resumen.bajoUmbral ?? 0;
+  // Con tolerancia en cero toda diferencia exige marca: no hace falta nombrar el monto.
+  const desde = tolerancia != null && tolerancia > 0 ? ` desde ${fmtContable(tolerancia)}` : "";
   return (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
@@ -3521,7 +3531,7 @@ function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
       }`}
     >
       <span className="font-semibold">
-        {resumen.marcadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia marcada" : "diferencias marcadas"}
+        {resumen.marcadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia" : "diferencias"}{desde} con marca
       </span>
       {resumen.pendientes > 0 && (
         <span>
@@ -3533,7 +3543,12 @@ function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
           Por revisar: <b>{resumen.desactualizadas}</b>
         </span>
       )}
-      {todo && <span>Todas las diferencias del período están marcadas.</span>}
+      {todo && resumen.conDiferencia > 0 && <span>Todas las diferencias que exigen marca están marcadas.</span>}
+      {bajoTolerancia > 0 && (
+        <span className="text-ink-500">
+          {bajoTolerancia.toLocaleString("es-CO")} dentro de la tolerancia{tolerancia != null ? ` (menos de ${fmtContable(tolerancia)})` : ""}: la marca es opcional y no impide cerrar.
+        </span>
+      )}
     </div>
   );
 }
@@ -3820,17 +3835,25 @@ function CeldaMarca({
   }
 
   if (!fila.marca) {
+    // Dentro de la tolerancia de la cédula: se puede marcar, pero no hace falta para cerrar.
+    const opcional = !fila.requiereMarca;
     return (
       <div className="flex items-center justify-center gap-1">
         {puedeEditar ? (
           <button
             type="button"
             onClick={onMarcar}
-            title="Poner una marca a esta diferencia"
-            className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed border-ink-300 px-1 text-ink-400 transition hover:border-navy-700 hover:text-navy-700"
+            title={opcional ? "Dentro de la tolerancia: la marca es opcional y no impide cerrar" : "Poner una marca a esta diferencia"}
+            className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed px-1 transition hover:border-navy-700 hover:text-navy-700 ${
+              opcional ? "border-ink-200 text-ink-300" : "border-ink-300 text-ink-400"
+            }`}
           >
             <Icon name="plus" size={12} />
           </button>
+        ) : opcional ? (
+          <span title="Dentro de la tolerancia: no exige marca" className="text-[11.5px] font-semibold text-ink-300">
+            —
+          </span>
         ) : (
           <span title="Diferencia sin marca" className="text-[11.5px] font-semibold text-warn-700">
             —
@@ -3990,6 +4013,7 @@ function ObservacionMarca({
             </span>
           )}
           {!fila.admiteMarca && <Chip label="Ya cuadra" tone="ok" />}
+          {fila.admiteMarca && !fila.requiereMarca && <Chip label="Dentro de la tolerancia · marca opcional" tone="ink" />}
         </div>
 
         <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>

@@ -157,6 +157,27 @@ describe("evaluarCierreConciliacion", () => {
     const cedula = cedulaModulo(MODULOS_IMPORT.AFI, ["15"]);
     expect(alcanceExplicitoDelCruce(cedula, cruce)).not.toContain(CLAVE_SIN_CUENTA);
   });
+
+  it("las diferencias dentro de la tolerancia de la cédula no impiden cerrar; desde ella, sí", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "1435": 100_000, "1405": 50_000 },
+      consolidado: [
+        { clasificador: "A", total: 98_500, cuentas4: ["1435"] },
+        { clasificador: "B", total: 48_000, cuentas4: ["1405"] },
+        // Saldo sin cuenta por debajo de la tolerancia: sigue la misma regla.
+        { clasificador: "SIN", total: 700, cuentas4: [] },
+      ],
+      nombrePorCuenta: () => null,
+    });
+    // 1435: 1.500 (tolerada) · 1405: 2.000 (exige marca) · sin cuenta: −700 (tolerada).
+    const sinMarca = anotarCruceConMarcas(cruce.filas, [], { toleranciaMarca: 2_000 }).resumen;
+    expect(evaluarCierreConciliacion(cruce, sinMarca)).toMatchObject({ ok: false, motivo: expect.stringContaining("Quedan 1 diferencia") });
+    const marcada = anotarCruceConMarcas(cruce.filas, [marca("1405", 2_000)], { toleranciaMarca: 2_000 }).resumen;
+    expect(evaluarCierreConciliacion(cruce, marcada)).toEqual({ ok: true });
+    // Subir la tolerancia por encima de todas las diferencias deja cerrar sin ninguna marca.
+    const holgada = anotarCruceConMarcas(cruce.filas, [], { toleranciaMarca: 2_000.01 }).resumen;
+    expect(evaluarCierreConciliacion(cruce, holgada)).toEqual({ ok: true });
+  });
 });
 
 describe("evaluarCambiosBloqueados", () => {

@@ -556,7 +556,7 @@ export function CruceTerceroTab({
             <span title="La diferencia cambió después de escribir la marca.">Por revisar: <b>{resumenMarcas.desactualizadas}</b></span>
           )}
           {(resumenMarcas.bajoUmbral ?? 0) > 0 && (
-            <span className="text-ink-500">{contar(resumenMarcas.bajoUmbral ?? 0)} bajo el umbral: la marca es opcional.</span>
+            <span className="text-ink-500">{contar(resumenMarcas.bajoUmbral ?? 0)} por debajo de {fmtContable(cruceTercero.umbralDescuadre)}: la marca es opcional.</span>
           )}
         </div>
       )}

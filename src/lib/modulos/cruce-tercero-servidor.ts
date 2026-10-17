@@ -83,7 +83,7 @@ export type InsumosCruceTercero = {
    * terceros del balance y los saldos del auxiliar asignados a ellas), solo para este período.
    */
   asignacionesPeriodo: InsumosCruceModulo["asignacionesPeriodo"];
-  /** Umbral de descuadre ya resuelto por quien llama; sin él se lee de `/config/parametros`. */
+  /** Umbral ya resuelto por quien llama (el del cierre); sin él, «Diferencia por tercero» de `/config/parametros`. */
   umbralDescuadre?: number;
   /** Arma también el alcance por cuenta (panel «Cuentas en este cruce»); solo lo pide la página. */
   conAlcance?: boolean;
@@ -123,7 +123,7 @@ export type ResultadoCruceTerceroModulo = {
   /** Diferencias por tercero que exigen marca para cerrar, y cuántas la tienen. */
   resumenMarcas: ResumenMarcas | null;
   emparejamientos: EmparejamientoTerceroVm[];
-  /** Umbral de descuadre de `/config/parametros` desde el que una diferencia exige marca. */
+  /** «Diferencia por tercero» de `/config/parametros` (o la del cierre): desde ella una diferencia exige marca. */
   umbralDescuadre: number;
   /** Filas contables del módulo sin homologación Russell o sin regla activa. */
   contableExcluidoFilas: number;
@@ -262,7 +262,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const adicionales = [...cedula.adicionales];
   const delPeriodo = (russell: string) => esCuentaDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4)) || cedula.adicionales.has(russell.slice(0, 6));
 
-  const [crudas, emparejamientos, marcas, umbrales, noModularesRows] = await Promise.all([
+  const [crudas, emparejamientos, marcas, umbralDiferencia, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: {
         encabezadoId: balanceTercero.id,
@@ -280,7 +280,8 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     }),
     emparejamientosDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     marcasTerceroDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
-    insumos.umbralDescuadre != null ? Promise.resolve({ descuadre: insumos.umbralDescuadre }) : getUmbralesAlertas(),
+    // «Diferencia por tercero» de /config/parametros, o la congelada en el cierre del período.
+    insumos.umbralDescuadre != null ? Promise.resolve(insumos.umbralDescuadre) : getUmbralesAlertas().then((u) => u.tercero_diferencia),
     // Cuentas del cliente marcadas «no modulares» en el cruce contable del período (la misma marca).
     prisma.cuentaNoModularCruce.findMany({
       where: { marca: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, dimension: "cuenta4" } },
@@ -409,7 +410,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       .filter((e) => e.tipo === "union_contable")
       .map((e) => ({ claveContable: e.claveModulo, claveDestino: e.claveBalance })),
   });
-  const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbrales.descuadre });
+  const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbralDiferencia });
 
   let alcance: AlcanceCruceTercero | null = null;
   if (insumos.conAlcance) {
@@ -438,7 +439,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     resumen: { ...cruce, filas: anotado.filas },
     resumenMarcas: anotado.resumen,
     emparejamientos,
-    umbralDescuadre: umbrales.descuadre,
+    umbralDescuadre: umbralDiferencia,
     contableExcluidoFilas,
     contableNoModular: { total: redondear(contableNoModular.total), filas: contableNoModular.cuentas.size, cuentas: [...contableNoModular.cuentas].sort() },
     moduloDerivadoDelDetalle,

@@ -17,7 +17,8 @@ const PERMISO = "parametros:administrar";
 // Rutas que muestran alertas calculadas con estos umbrales. Al cambiarlos hay que
 // revalidarlas: sus loaders RSC leen `getUmbralesAlertas()` y los agregados se
 // RECALCULAN al leer, así que el cambio es retroactivo para todo lo ya cargado.
-const RUTAS_AFECTADAS = ["/balance", "/balance/borradores"];
+// Los cruces de los módulos leen la tolerancia de la cédula y los del tercero.
+const RUTAS_AFECTADAS = ["/balance", "/balance/borradores", "/modulos"];
 
 /**
  * Edita el valor de un umbral de alertas. Upsert por `clave`: al crear la fila

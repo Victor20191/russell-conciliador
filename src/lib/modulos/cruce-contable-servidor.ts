@@ -36,6 +36,7 @@ import { avisoContenidoIncompleto, contenidoDelCargue, filaEsSoloDepreciacion } 
 import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import {
@@ -139,6 +140,8 @@ export type InsumosCruceModulo = {
   } | null;
   /** Umbral de descuadre del cruce por tercero con que se cerró (Cartera, CxP). Ausente = el vigente. */
   umbralDescuadre?: number | null;
+  /** Tolerancia de la cédula con que se cerró. Ausente o null = la vigente de `/config/parametros`. */
+  toleranciaCedula?: number | null;
 };
 
 export type BalanceFuenteCruce = {
@@ -177,6 +180,11 @@ export type ResultadoCruceModulo = {
   marcas: MarcaCruce[];
   filasMarcadas: FilaCruceMarcada[];
   resumenMarcas: ResumenMarcas | null;
+  /**
+   * Tolerancia de la cédula con que se anotaron las marcas: desde ella (inclusive) una diferencia
+   * exige marca para cerrar. La congela el cierre. null si no hubo cruce.
+   */
+  toleranciaCedula: number | null;
   /**
    * Del saldo contable de las cuentas de 4 dígitos, lo que está en cuentas Russell de seis que
    * el módulo no concilia (en Cartera, 130515 de trabajadores). Informativo: una cédula a 4
@@ -279,6 +287,7 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     nomina: periodo.nomina,
     cierreFijado: cierreFijadoDe(periodo),
     umbralDescuadre: periodo.umbralDescuadre,
+    toleranciaCedula: periodo.toleranciaCedula,
   };
 }
 
@@ -706,7 +715,13 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
     clasificadoresNoModulares: m.clasificadoresNoModulares.map((c) => ({ clasificador: c.clasificador, totalAlMarcar: Number(c.totalAlMarcar) })),
   }));
-  const anotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
+  // Tolerancia de la cédula: la congelada en el cierre o la vigente. Decide qué diferencia exige marca.
+  const toleranciaCedula = cruceContable
+    ? insumos.toleranciaCedula ?? (await getUmbralesAlertas()).cedula_modulos
+    : null;
+  const anotado = cruceContable && toleranciaCedula != null
+    ? anotarCruceConMarcas(cruceContable.filas, marcas, { toleranciaMarca: toleranciaCedula })
+    : null;
 
   return {
     balanceEmparejado,
@@ -722,6 +737,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     marcas,
     filasMarcadas: anotado?.filas ?? [],
     resumenMarcas: anotado?.resumen ?? null,
+    toleranciaCedula,
     fueraDelModulo: cruceContable && fuera.filas > 0
       ? {
           total: Math.round(fuera.total * 100) / 100,
@@ -754,6 +770,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     marcas: [],
     filasMarcadas: [],
     resumenMarcas: null,
+    toleranciaCedula: null,
     fueraDelModulo: null,
     soloVisibles: null,
     cedulaActivos: false,

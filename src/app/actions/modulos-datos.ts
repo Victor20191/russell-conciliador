@@ -4690,7 +4690,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       return { ok: false, message: "No hay balance de comprobación confirmado para este período: no hay nada que cerrar." };
     }
     // Donde el módulo lo exige (Cartera, CxP), el cruce por tercero también tiene que estar
-    // conciliado: disponible y con marca en toda diferencia desde el umbral de descuadre.
+    // conciliado: disponible y con marca en toda diferencia desde «Diferencia por tercero».
     // Las cuentas con que se calculó el cruce (las vigentes: un período en firme no se vuelve a cerrar).
     const descriptor = insumos.descriptor;
     const exigeTercero = descriptor?.crucePorTercero.habilitado === true && descriptor.crucePorTercero.exigidoParaCierre === true;
@@ -4725,7 +4725,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     // los EVALUÓ. Mientras el cierre esté en firme el cruce, el Consolidado y el Excel del período la
     // leen a ella, así que lo que se cambie desde otro mes ya no altera esta conciliación.
     const umbralDescuadre = descriptor?.crucePorTercero.habilitado
-      ? tercero?.umbralDescuadre ?? (await getUmbralesAlertas()).descuadre
+      ? tercero?.umbralDescuadre ?? (await getUmbralesAlertas()).tercero_diferencia
       : null;
     const copiaCongelada = construirCopiaCierre({
       origen: "cierre",
@@ -4751,6 +4751,8 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       nomina: descriptor?.nomina && insumos.nomina ? insumos.nomina : null,
       agrupadorasExcluidas: cruce.agrupadorasExcluidas ?? [],
       umbralDescuadre,
+      // La tolerancia con que se decidió qué diferencias exigían marca (`cruce.cruceContable` existe).
+      toleranciaCedula: cruce.toleranciaCedula ?? undefined,
     });
 
     const resultado = await transaccionSerializable(async (tx) => {

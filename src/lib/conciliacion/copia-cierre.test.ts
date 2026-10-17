@@ -111,6 +111,27 @@ describe("copia congelada del cierre", () => {
     expect([...conCopia.cedula.delPeriodo.keys()]).toEqual([...conVivo.cedula.delPeriodo.keys()]);
   });
 
+  it("congela la tolerancia de la cédula; una copia anterior al parámetro sigue válida y exige marca en toda diferencia", () => {
+    // Copia anterior: sin la llave, su huella es la de siempre y se lee con tolerancia 0.
+    const vieja = construirCopiaCierre(base());
+    const leidaVieja = leerCopiaCierre(JSON.parse(JSON.stringify(vieja)), "NOM");
+    expect(leidaVieja.ok).toBe(true);
+    if (!leidaVieja.ok) return;
+    expect("toleranciaCedula" in leidaVieja.copia).toBe(false);
+    expect(insumosDesdeCopia(leidaVieja.copia).toleranciaCedula).toBe(0);
+
+    const nueva = construirCopiaCierre({ ...base(), toleranciaCedula: 2_000 });
+    expect(nueva.huella).not.toBe(vieja.huella);
+    const leidaNueva = leerCopiaCierre(JSON.parse(JSON.stringify(nueva)), "NOM");
+    expect(leidaNueva.ok).toBe(true);
+    if (!leidaNueva.ok) return;
+    expect(insumosDesdeCopia(leidaNueva.copia).toleranciaCedula).toBe(2_000);
+
+    // La huella cubre la tolerancia: cambiarla después invalida la copia.
+    expect(leerCopiaCierre({ ...JSON.parse(JSON.stringify(nueva)), toleranciaCedula: 50_000 }, "NOM")).toEqual({ ok: false, motivo: "invalida" });
+    expect(leerCopiaCierre({ ...JSON.parse(JSON.stringify(nueva)), toleranciaCedula: -1 }, "NOM")).toEqual({ ok: false, motivo: "invalida" });
+  });
+
   it("describe de dónde salen los insumos", () => {
     const fmt = (iso: string) => iso.slice(0, 10);
     expect(descripcionCopiaCierre({ origen: "cierre", tomadaEn: "2026-10-14T15:00:00Z" }, fmt)).toBe("Insumos congelados al cerrar (2026-10-14).");
