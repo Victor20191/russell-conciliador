@@ -196,6 +196,8 @@ import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
 import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
 import { etiquetaTercero } from "./marca-tercero";
 import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
+import { ComentariosAlertasCard } from "./comentarios-alertas";
+import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
 import { ValidacionArchivo } from "../validacion-archivo";
@@ -354,6 +356,10 @@ export type NovedadesVm = {
   /** Total declarado por el archivo vs. Σ cargada, congelado al promover. `null` en los
    *  cargues anteriores a esta validación: ahí el panel no se muestra. */
   validacionArchivo: ValidacionCargue | null;
+  /** Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios). */
+  comentariosAlertas?: AlertaConComentario[];
+  /** Staff, senior o gerente asignados, con la conciliación abierta. */
+  puedeComentarAlertas?: boolean;
 };
 export type VersionModuloVm = {
   id: number;
@@ -520,7 +526,7 @@ function ChipSoloPeriodo({ periodo }: { periodo: string }) {
   );
 }
 
-const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r === "no" ? "No" : r === "na" ? "N/A" : "—");
+const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r === "no" ? "No" : r === "na" ? "No aplica" : "—");
 
 export default function DatoCargadoClient({
   moduloCodigo,
@@ -737,7 +743,7 @@ export default function DatoCargadoClient({
           <CruceTerceroTab cruceTercero={cruceTercero} cuentasPeriodo={cruceContable.cuentasPeriodo ?? []} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} onIrConsolidado={() => irATab("consolidado")} />
         </div>
       ) : tab === "novedades" ? (
-        <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />
+        <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} encabezadoId={encabezadoId} />
       ) : (
         <VersionesTab moduloCodigo={moduloCodigo} versiones={versiones} versionActualId={versionActualId} />
       )}
@@ -4368,10 +4374,17 @@ function ModalMarca({
   );
 }
 
-function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: string | null }) {
+function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: NovedadesVm; titulo?: string | null; encabezadoId: number }) {
   return (
     <div className="flex flex-col gap-4">
       {titulo && <h2 className="text-[15px] font-semibold text-ink-800">{titulo}</h2>}
+      {novedades.comentariosAlertas && novedades.comentariosAlertas.length > 0 && (
+        <ComentariosAlertasCard
+          alertas={novedades.comentariosAlertas}
+          encabezadoId={encabezadoId}
+          puedeComentar={novedades.puedeComentarAlertas === true}
+        />
+      )}
       {novedades.validacionArchivo && (
         <Card className="p-4">
           <ValidacionArchivo

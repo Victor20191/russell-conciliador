@@ -168,6 +168,7 @@ import {
 } from "@/lib/conciliacion/verificar-bloqueo";
 import { construirCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { alertasConComentarioDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -4695,12 +4696,15 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     const descriptor = insumos.descriptor;
     const exigeTercero = descriptor?.crucePorTercero.habilitado === true && descriptor.crucePorTercero.exigidoParaCierre === true;
     const tercero = exigeTercero ? await cruceTerceroDeCargue(insumos, cruce) : null;
+    // Alertas del archivo que exigen comentario (Inventarios): las mismas que muestra Novedades.
+    const alertasComentario = descriptor ? await alertasConComentarioDelCargue(descriptor, encabezado) : [];
     const evaluacion = evaluarCierreConciliacion(
       cruce.cruceContable,
       cruce.resumenMarcas,
       exigeTercero
         ? { exigido: true, estado: tercero?.estado ?? "sin_balance", mensaje: tercero?.mensaje ?? null, resumenMarcas: tercero?.resumenMarcas ?? null }
         : null,
+      alertasComentario,
     );
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 

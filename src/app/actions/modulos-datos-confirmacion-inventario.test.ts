@@ -39,7 +39,7 @@ function formulario(revision: string | null = "3") {
   const fd = new FormData();
   fd.set("loteId", ID);
   fd.set("periodo", "2026-09");
-  fd.set("verificaciones", JSON.stringify({ consignacion_recibida: { respuesta: "no" }, consignacion_entregada: { respuesta: "no" } }));
+  fd.set("verificaciones", JSON.stringify({ consignacion_recibida: { respuesta: "no" }, consignacion_entregada: { respuesta: "no" }, mercancia_transito: { respuesta: "na" } }));
   if (revision != null) fd.set("revisionAsistenciaEsperada", revision);
   return fd;
 }

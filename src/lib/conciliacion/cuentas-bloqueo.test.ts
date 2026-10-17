@@ -178,6 +178,32 @@ describe("evaluarCierreConciliacion", () => {
     const holgada = anotarCruceConMarcas(cruce.filas, [], { toleranciaMarca: 2_000.01 }).resumen;
     expect(evaluarCierreConciliacion(cruce, holgada)).toEqual({ ok: true });
   });
+
+  it("las alertas del archivo que exigen comentario impiden cerrar hasta tenerlo vigente", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "1435": 100 },
+      consolidado: [{ clasificador: "A", total: 100, cuentas4: ["1435"] }],
+      nombrePorCuenta: () => null,
+    });
+    const { resumen } = anotarCruceConMarcas(cruce.filas, []);
+    const pendiente = evaluarCierreConciliacion(cruce, resumen, null, [
+      { etiqueta: "Valores negativos", estado: "pendiente" },
+      { etiqueta: "Costo unitario 1", estado: "comentada" },
+    ]);
+    expect(pendiente).toMatchObject({ ok: false, motivo: expect.stringContaining("«Valores negativos»") });
+    const porRevisar = evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Costo unitario 1", estado: "por_revisar" }]);
+    expect(porRevisar).toMatchObject({ ok: false, motivo: expect.stringContaining("quedó por revisar") });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Costo unitario 1", estado: "comentada" }])).toEqual({ ok: true });
+    // Primero se explica lo del cruce: una diferencia sin marca se reporta antes que los comentarios.
+    const descuadre = construirCruceContable({
+      contablePorCuenta: { "1435": 100 },
+      consolidado: [{ clasificador: "A", total: 80, cuentas4: ["1435"] }],
+      nombrePorCuenta: () => null,
+    });
+    const sinMarca = anotarCruceConMarcas(descuadre.filas, []).resumen;
+    expect(evaluarCierreConciliacion(descuadre, sinMarca, null, [{ etiqueta: "Valores negativos", estado: "pendiente" }]))
+      .toMatchObject({ ok: false, motivo: expect.stringContaining("sin marca de auditoría") });
+  });
 });
 
 describe("evaluarCambiosBloqueados", () => {

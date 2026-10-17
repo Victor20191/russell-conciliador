@@ -1405,6 +1405,33 @@ model ModuloDatoEncabezado {
   @@map("modulo_dato_encabezado")
 }
 
+/// COMENTARIO de una ALERTA del archivo que lo exige para cerrar la conciliación del módulo
+/// (17/Oct/2026; Inventarios: valores negativos y las tres alertas de costo). Uno por TIPO de
+/// alerta y período —no por fila—, anclado al período como las marcas, así que sobrevive a las
+/// versiones nuevas. `referencias` y `valor` congelan cómo estaba la alerta al escribirlo: si una
+/// versión nueva o un archivo agregado los cambia, el comentario queda «por revisar» y vuelve a
+/// impedir el cierre hasta que alguien lo confirme o lo edite. FK suaves a cliente y usuario.
+model ComentarioAlertaModulo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  moduloCodigo   String   @map("modulo_codigo")
+  periodo        String   @map("periodo")
+  /// Tipo de alerta (`TipoAlertaComentario`): «valores_negativos», «costo_uno»…
+  tipo           String   @map("tipo")
+  comentario     String   @map("comentario")
+  /// Ítems que tenían la alerta cuando se escribió (o se confirmó) el comentario.
+  referencias    Int      @map("referencias")
+  /// Valor de la alerta en ese momento (Σ del valor total; en negativos, Σ de los negativos).
+  valor          Decimal  @default(0) @map("valor") @db.Decimal(18, 2)
+  comentadoPor   String?  @map("comentado_por")
+  comentadoPorId Int?     @map("comentado_por_id")
+  comentadoEn    DateTime @default(now()) @map("comentado_en") @db.Timestamptz(3)
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, periodo, tipo], map: "comentario_alerta_modulo_unico")
+  @@map("comentario_alerta_modulo")
+}
+
 /// MARCA DE AUDITORÍA sobre una DIFERENCIA del cruce contable de un módulo (saldo del
 /// balance de comprobación vs. valor consolidado de los archivos del módulo), por cuenta
 /// Russell de 4 dígitos. Sustituye a la antigua «justificación» de la misma tabla.

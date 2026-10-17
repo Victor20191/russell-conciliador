@@ -15,6 +15,7 @@
  */
 import { cuentasDeClaveCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
 import type { CedulaModulo } from "@/lib/modulos/cuentas-modulo";
 
 export const ESTADO_CIERRE_FIRME = "firme";
@@ -226,9 +227,35 @@ export type CierreCruceTercero = {
  * marca lo decide `anotarCruceConMarcas` (`pendientes`/`desactualizadas` no cuentan las
  * diferencias por debajo de la tolerancia); sin ese resumen, cualquier diferencia impide
  * cerrar. Donde el módulo exige el cruce por tercero, además tiene que estar disponible y
- * con marca en toda diferencia que alcance su umbral.
+ * con marca en toda diferencia que alcance su umbral. Y cada alerta del archivo que exige
+ * comentario (`comentarios-alertas.ts`) tiene que tenerlo vigente.
  */
 export function evaluarCierreConciliacion(
+  cruce: Pick<ResumenCruceContable, "filas"> | null,
+  resumenMarcas: ResumenMarcas | null,
+  tercero?: CierreCruceTercero | null,
+  alertas?: readonly Pick<AlertaConComentario, "etiqueta" | "estado">[] | null,
+): EvaluacionCierre {
+  const evaluacion = evaluarCruceParaCierre(cruce, resumenMarcas, tercero);
+  if (!evaluacion.ok) return evaluacion;
+  const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente").map((a) => `«${a.etiqueta}»`);
+  if (pendientes.length > 0) {
+    return {
+      ok: false,
+      motivo: `Falta el comentario de ${pendientes.length === 1 ? "la alerta" : `${pendientes.length} alertas`} ${pendientes.join(", ")}. Escríbelo en la pestaña Novedades antes de cerrar la conciliación.`,
+    };
+  }
+  const porRevisar = (alertas ?? []).filter((a) => a.estado === "por_revisar").map((a) => `«${a.etiqueta}»`);
+  if (porRevisar.length > 0) {
+    return {
+      ok: false,
+      motivo: `El comentario de ${porRevisar.join(", ")} quedó por revisar: la alerta cambió después de escribirlo. Confírmalo o edítalo en la pestaña Novedades antes de cerrar.`,
+    };
+  }
+  return { ok: true };
+}
+
+function evaluarCruceParaCierre(
   cruce: Pick<ResumenCruceContable, "filas"> | null,
   resumenMarcas: ResumenMarcas | null,
   tercero?: CierreCruceTercero | null,

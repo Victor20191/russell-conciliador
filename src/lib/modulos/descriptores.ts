@@ -11,6 +11,7 @@
 
 import { esRotuloEdad } from "./cartera/edades";
 import { etiquetaAgruparPor, OPCIONES_AGRUPAR_POR, rolDeAgruparPor, type AgruparPorNomina } from "./nomina/agrupar-por";
+import type { TipoAlertaComentario } from "./comentarios-alertas";
 
 // "numero" = cantidad/conteo (miles, sin $); "moneda" = monto en pesos (con $).
 export type TipoColumna = "texto" | "numero" | "moneda" | "fecha";
@@ -218,6 +219,11 @@ export type DescriptorModulo = {
    * total; sin este bloque el módulo no calcula estas alertas. Solo informan.
    */
   alertasCosto?: { cantidad: string; unitario: string; total: string };
+  /**
+   * Alertas que, presentes en el cargue, exigen un comentario por tipo para cerrar la conciliación
+   * (`comentarios-alertas.ts`). No bloquean la carga ni el cruce.
+   */
+  alertasConComentario?: TipoAlertaComentario[];
   /**
    * Qué hacer con las filas en NEGRITA (subtotales del ERP) al importar:
    *  - sin bandera → se marcan `agrupadora` (no imputan, no se pueden rescatar por fila).
@@ -469,6 +475,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     },
     noNegativos: ["cantidad", "valorUnitario", "valorTotal"],
     alertasCosto: { cantidad: "cantidad", unitario: "valorUnitario", total: "valorTotal" },
+    // Para cerrar la conciliación, un comentario por cada tipo presente (17/Oct/2026).
+    alertasConComentario: ["valores_negativos", "costo_cero_con_existencias", "sin_existencias_con_costo", "costo_uno"],
     // La negrita en los inventarios NO es confiable como «es un subtotal»: se omite por
     // defecto (excluida del total) pero queda rescatable desde el borrador.
     negritaComoOmitida: true,
@@ -481,6 +489,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     verificaciones: [
       { id: "consignacion_recibida", texto: "Confirme si la compañía maneja mercancías recibidas en consignación." },
       { id: "consignacion_entregada", texto: "Verifique la existencia de bienes entregados en consignación." },
+      { id: "mercancia_transito", texto: "Confirme si la compañía tiene mercancía en tránsito." },
     ],
   },
 

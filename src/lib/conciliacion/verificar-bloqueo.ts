@@ -446,6 +446,28 @@ export async function registrarIntentoBloqueado(p: {
  * sobre el cliente + ser senior o gerente ASIGNADO (los roles de alcance global
  * —Superadministrador— pasan sin asignación).
  */
+/**
+ * ¿Puede comentar las alertas del archivo que exigen comentario para cerrar? El staff (quien edita
+ * el módulo con alcance de escritura, como las marcas) y también el senior o gerente asignado, que
+ * solo tiene lectura sobre el cliente. Los roles de alcance global pasan por el permiso de lectura.
+ */
+export async function autorizarComentarioAlertaModulo(clienteId: number): Promise<AuthzResult> {
+  const edicion = await authorizePermiso("modulos_datos:editar", { clientId: clienteId });
+  if (edicion.ok) return edicion;
+  const lectura = await authorizePermiso("modulos_datos:ver", { clientId: clienteId, modo: "lectura" });
+  if (!lectura.ok) return edicion;
+  const session = await verifySession();
+  if (ROLES_ALCANCE_GLOBAL.has(session.role)) return lectura;
+  const asignaciones = await prisma.clientAssignment.findMany({
+    where: { clientId: clienteId, userId: session.userId, role: { in: ["senior", "gerente"] } },
+    select: { role: true, userId: true, active: true, validFrom: true, validUntil: true },
+  });
+  if (!esResponsableSeniorOGerente(asignaciones, session.userId)) {
+    return { ok: false, message: "Solo el staff, el senior o el gerente asignados al cliente pueden comentar las alertas." };
+  }
+  return lectura;
+}
+
 export async function autorizarCierreConciliacion(
   permiso: "conciliaciones:cerrar" | "conciliaciones:desbloquear",
   clienteId: number,

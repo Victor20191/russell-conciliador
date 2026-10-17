@@ -119,6 +119,9 @@ function MenuVersionesBorradorModulo({
   );
 }
 
+/** Las alertas de Inventarios no bloquean la carga, pero el comentario se exige al cerrar. */
+const AVISO_COMENTARIO_CIERRE = "Al cerrar la conciliación se pedirá un comentario sobre esta alerta (en Novedades del cargue).";
+
 export default function BorradorModuloClient({
   moduloCodigo,
   loteId,
@@ -132,6 +135,7 @@ export default function BorradorModuloClient({
   noNegativos,
   productos,
   verificaciones,
+  alertasConComentario = [],
   resumen,
   agruparPor = null,
   reconciliacion,
@@ -160,6 +164,8 @@ export default function BorradorModuloClient({
   noNegativos: string[];
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
+  /** Alertas que, ya cargado, exigirán un comentario por tipo para cerrar la conciliación (Inventarios). */
+  alertasConComentario?: string[];
   /** Agregados del archivo COMPLETO, calculados en el servidor: las filas se piden por grupo. */
   resumen: ResumenBorrador;
   /**
@@ -695,6 +701,7 @@ export default function BorradorModuloClient({
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {resumen.negativosFilas} ítem(s) con existencias o costos negativos.</span>
             <span className="ml-1">Filas: {[...new Set(negativos.slice(0, 8).map((n) => `${n.filaNum} (${n.etiqueta})`))].join(", ")}{resumen.negativosFilas > 8 ? "…" : ""}.</span>
+            {alertasConComentario.includes("valores_negativos") && <span className="ml-1">{AVISO_COMENTARIO_CIERRE}</span>}
           </div>
         )}
         {descuadres.length > 0 && (
@@ -710,6 +717,7 @@ export default function BorradorModuloClient({
               {a.valorTotal !== 0 ? ` (valor total ${fmtContable(a.valorTotal)})` : ""}.
             </span>
             <span className="ml-1">Filas: {a.filas.join(", ")}{a.referencias > a.filas.length ? "…" : ""}.</span>
+            {alertasConComentario.includes(a.tipo) && <span className="ml-1">{AVISO_COMENTARIO_CIERRE}</span>}
           </div>
         ))}
         {negativos.length === 0 && descuadres.length === 0 && alertasCosto.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
@@ -758,7 +766,7 @@ export default function BorradorModuloClient({
                           ? "border-warn-500 bg-white text-warn-800 hover:bg-warn-100"
                           : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
                     }`}>
-                    {op === "si" ? "Sí" : op === "no" ? "No" : "N/A"}
+                    {op === "si" ? "Sí" : op === "no" ? "No" : "No aplica"}
                   </button>
                 ))}
                 <input value={respuestas[v.id]?.nota ?? ""} onChange={(e) => setNota(v.id, e.target.value)} placeholder="Observación (opcional)"
@@ -776,7 +784,7 @@ export default function BorradorModuloClient({
         {!verifCompletas && verificaciones.length > 0 && (
           <div className="flex items-start gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] font-medium text-warn-700 sm:items-center">
             <span className="shrink-0"><Icon name="warn" size={14} /></span>
-            Responde todas las verificaciones (Sí / No / N/A) para poder confirmar la carga.
+            Responde todas las verificaciones (Sí / No / No aplica) para poder confirmar la carga.
           </div>
         )}
       </Card>

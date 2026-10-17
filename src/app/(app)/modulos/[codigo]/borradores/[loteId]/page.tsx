@@ -260,6 +260,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         noNegativos={descriptor.noNegativos ?? []}
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
+        alertasConComentario={descriptor.alertasConComentario ?? []}
         resumen={resumen}
         agruparPor={agruparPorVm}
         reconciliacion={reconciliacion}

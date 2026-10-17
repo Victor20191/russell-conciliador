@@ -30,7 +30,8 @@ import { CLAVE_MONEDA } from "@/lib/modulos/cartera/detalle-cartera";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { ESTADO_CIERRE_FIRME, estadoEdicionCargue, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
 import { descripcionCopiaCierre } from "@/lib/conciliacion/copia-cierre";
-import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
+import { autorizarCierreConciliacion, autorizarComentarioAlertaModulo } from "@/lib/conciliacion/verificar-bloqueo";
+import { alertasConComentarioDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
@@ -225,6 +226,12 @@ export default async function DatoModuloPage({
   const negativos = detectarNegativos(descriptor, filasVal);
   const descuadres = detectarDescuadres(descriptor, filasVal);
   const alertasCosto = descriptor.alertasCosto ? detectarAlertasCosto(descriptor, filasVal) : null;
+  // Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios), con el
+  // comentario del período y si quedó por revisar. El cierre evalúa estas mismas.
+  const [alertasComentario, comentarAuth] = await Promise.all([
+    alertasConComentarioDelCargue(descriptor, { id: encabezado.id, clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo }, filasVal),
+    descriptor.alertasConComentario?.length ? autorizarComentarioAlertaModulo(encabezado.clienteId) : Promise.resolve(null),
+  ]);
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
   const novedades: NovedadesVm = {
     negativos: negativos.map((n) => ({ filaNum: n.filaNum, etiqueta: n.etiqueta, referencia: n.referencia, valor: n.valor })),
@@ -393,6 +400,7 @@ export default async function DatoModuloPage({
         exigeTercero
           ? { exigido: true, estado: cruceTercero?.estado ?? "sin_balance", mensaje: cruceTercero?.mensaje ?? null, resumenMarcas: cruceTercero?.resumenMarcas ?? null }
           : null,
+        alertasComentario,
       )
     : null;
   const cierreVm: CierreConciliacionVm = {
@@ -520,9 +528,15 @@ export default async function DatoModuloPage({
 
   // Cartera y CxP: validaciones del auxiliar por tercero, recalculadas al leer sobre el detalle
   // y el cruce recién construidos (edades vs total, documentos repetidos, claves, naturaleza).
+  const novedadesBase: NovedadesVm = {
+    ...novedades,
+    comentariosAlertas: alertasComentario,
+    // Comenta el staff, el senior o el gerente asignados; con la conciliación en firme, nadie.
+    puedeComentarAlertas: comentarAuth?.ok === true && !edicion.enFirme,
+  };
   const novedadesVm: NovedadesVm = descriptor.nomina
     ? {
-        ...novedades,
+        ...novedadesBase,
         // Nómina: netos por fila, conceptos sin cuenta / con varias cuentas, deducciones de control,
         // cédulas con varios nombres y meses del archivo, sobre el mismo consolidado del cruce.
         nomina: validarNominaConNovedades({
@@ -532,7 +546,7 @@ export default async function DatoModuloPage({
       }
     : descriptor.crucePorTercero.detalleTercero
     ? {
-        ...novedades,
+        ...novedadesBase,
         tercero: validarAuxiliarTercero({
           filas: detalles.map((d) => ({
             filaNum: d.filaNum,
@@ -552,7 +566,7 @@ export default async function DatoModuloPage({
           formatos: leerFormatosCartera(encabezado.formatosCartera),
         }),
       }
-    : novedades;
+    : novedadesBase;
 
   // Columnas de la tabla de detalle: las del descriptor más, cuando el archivo las trajo,
   // una por cada rango de vencimiento. Ver `columnas-cartera.ts`.
