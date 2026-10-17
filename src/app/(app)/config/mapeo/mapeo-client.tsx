@@ -21,6 +21,7 @@ import {
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import type { StdAccount, StdLogRow, Subgrupo } from "@/lib/balance/tipos-mapeo";
 import { colapsarPucHastaNivel, construirPucRussell, filasVisiblesPuc, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
+import { AYUDA_COMODIN, coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
@@ -68,10 +69,12 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
   const needle = q.trim().toLowerCase();
   // Una búsqueda numérica se interpreta SIEMPRE como prefijo del código PUC
   // (escribir «23» debe traer 23xxxx, no cualquier cuenta cuyo texto contenga
-  // «23»). El texto libre sigue buscando en todas las columnas.
+  // «23»). Un `*` vale un dígito en esa posición («**05» → 110505, 220510…).
+  // El texto libre sigue buscando en todas las columnas.
   const esPrefijoCodigo = /^\d+$/.test(needle);
   const rows = std.filter((s) => {
     if (!needle) return true;
+    if (tieneComodin(needle)) return coincideComodin(s.code, needle);
     if (esPrefijoCodigo) return s.code.startsWith(needle);
     return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
       .some((value) => value?.toLowerCase().includes(needle));
@@ -91,7 +94,8 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
               setQ(e.target.value);
               pg.resetToFirstPage();
             }}
-            placeholder="código (23…) o texto: rubro, soporte"
+            placeholder="código (23… o **05) o texto: rubro, soporte"
+            title={AYUDA_COMODIN}
             className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
           />
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
@@ -513,7 +517,7 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
         <div><h2 className="text-[13px] font-semibold text-ink-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => { setQ(e.target.value); setColapsadosBusqueda(new Set()); }} placeholder="Código o nombre de cuenta…" className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
+          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => { setQ(e.target.value); setColapsadosBusqueda(new Set()); }} placeholder="Código (11… o **05) o nombre de cuenta…" title={AYUDA_COMODIN} className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
           {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva Cuenta</button>}
         </div>
       </div>

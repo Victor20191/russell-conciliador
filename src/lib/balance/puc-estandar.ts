@@ -1,3 +1,5 @@
+import { coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
+
 /** Árbol del catálogo Russell compartido por pantalla y descarga. */
 export type CuentaEstandarPuc = { code: string; name: string; nature: string };
 export type CuentaCuatroPuc = { codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
@@ -42,11 +44,15 @@ export function construirPucRussell(estandar: readonly CuentaEstandarPuc[], cuen
   return [...filas.values()].sort((a, b) => a.codigo.localeCompare(b.codigo));
 }
 
-/** Una búsqueda conserva padres y los descendientes del grupo encontrado. */
+/**
+ * Una búsqueda conserva padres y los descendientes del grupo encontrado. Un número es prefijo del
+ * código y un `*` vale un dígito en esa posición («**05» trae 1105, 110510, 2205…).
+ */
 export function filtrarPucRussell(filas: readonly FilaPucRussell[], busqueda: string): FilaPucRussell[] {
   const q = busqueda.trim().toLocaleLowerCase("es");
   if (!q) return [...filas];
-  const encontradas = filas.filter((f) => /^\d+$/.test(q) ? f.codigo.startsWith(q) : `${f.codigo} ${f.nombre}`.toLocaleLowerCase("es").includes(q));
+  const encontradas = filas.filter((f) => tieneComodin(q) ? coincideComodin(f.codigo, q)
+    : /^\d+$/.test(q) ? f.codigo.startsWith(q) : `${f.codigo} ${f.nombre}`.toLocaleLowerCase("es").includes(q));
   return filas.filter((f) => encontradas.some((e) => e.codigo.startsWith(f.codigo) || f.codigo.startsWith(e.codigo)));
 }
 

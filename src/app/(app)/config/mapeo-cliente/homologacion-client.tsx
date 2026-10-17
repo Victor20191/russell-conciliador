@@ -13,6 +13,8 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { fmtDateTimeLong } from "@/lib/format";
 import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
+import { coincideBusquedaPuc, normalizarBusqueda } from "@/lib/balance/busqueda-puc";
+import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import type { AnomaliaMapeo } from "@/lib/balance/anomalias-mapeo";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { consultarImpactoHomologacionCliente, guardarHomologacionCliente } from "@/app/actions/homologacion-cliente";
@@ -52,7 +54,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   const cruces = accounts.filter((a) => cruzaClaseContable(a.code, a.cuenta6Russell)).length;
   const sinAsignar = accounts.filter((a) => a.tipoFila !== "agrupadora" && !a.cuenta6Russell).length;
   const agrupadoras = accounts.filter((a) => a.tipoFila === "agrupadora").length;
-  const needle = q.trim().toLowerCase();
+  const needle = normalizarBusqueda(q);
   const rows = useMemo(() => accounts.filter((a) => {
     if (nivel !== "all" && a.level !== Number(nivel)) return false;
     if (revisar && !anomalias.has(a.code)) return false;
@@ -61,7 +63,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
     if (origen === "sinasignar" && (a.cuenta6Russell || a.tipoFila === "agrupadora")) return false;
     if (origen === "manual" && !esMapeoManual(a.origenMapeo)) return false;
     if (origen === "automatico" && a.origenMapeo !== "automatico") return false;
-    return !needle || [a.code, a.name, a.cuenta6Russell, nombres.get(a.cuenta6Russell ?? "")].some((v) => v?.toLowerCase().includes(needle));
+    return coincideBusquedaPuc(a, needle, nombres);
   }), [accounts, nivel, revisar, confirmar, cruce, origen, needle, nombres, anomalias]);
   const pg = usePagination(rows, 50);
   const filtro = (set: (v: boolean) => void, value: boolean) => { set(!value); pg.resetToFirstPage(); };
@@ -107,7 +109,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <input aria-label="Buscar cuenta del cliente" value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Buscar código, nombre o estándar…" className={`${INPUT} min-w-48 flex-1 sm:max-w-sm`} />
+        <input aria-label="Buscar cuenta del cliente" value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Buscar código (prefijo o **25), nombre o estándar…" title={AYUDA_COMODIN} className={`${INPUT} min-w-48 flex-1 sm:max-w-sm`} />
         <select aria-label="Nivel de la cuenta" value={nivel} onChange={(e) => { setNivel(e.target.value); pg.resetToFirstPage(); }} className="rounded-md border border-ink-200 px-2 py-2 text-[12px]">
           <option value="all">Todos los niveles</option>
           {niveles.map((n) => <option key={n} value={n}>N{n} · {n} dígitos</option>)}

@@ -26,6 +26,12 @@ describe("PUC Russell completo", () => {
   it("buscar una subcuenta conserva sus padres sin incluir sus hermanas", () => {
     expect(filtrarPucRussell(construirPucRussell(subcuentas, cuentas), "menores").map((f) => f.codigo)).toEqual(["1", "11", "1105", "110510"]);
   });
+  it("un * vale un dígito en esa posición y conserva los padres", () => {
+    const arbol = construirPucRussell(subcuentas, cuentas);
+    expect(filtrarPucRussell(arbol, "**05").map((f) => f.codigo)).toEqual(["1", "11", "1105", "110505", "110510", "2", "22", "2205", "220505"]);
+    expect(filtrarPucRussell(arbol, "**0505").map((f) => f.codigo)).toEqual(["1", "11", "1105", "110505", "2", "22", "2205", "220505"]);
+    expect(filtrarPucRussell(arbol, "**10").map((f) => f.codigo)).toEqual(["1", "11", "1110"]);
+  });
   it("buscar el nombre de un grupo incluye su árbol completo", () => {
     expect(filtrarPucRussell(construirPucRussell(subcuentas, cuentas), "Disponible").map((f) => f.codigo)).toEqual(["1", "11", "1105", "110505", "110510", "1110"]);
   });

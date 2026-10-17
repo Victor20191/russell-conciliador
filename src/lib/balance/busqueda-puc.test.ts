@@ -31,6 +31,27 @@ describe("coincideBusquedaPuc", () => {
     expect(coincideBusquedaPuc(cuenta("61656010", "MAQUINARIA", null), "1520")).toBe(false);
   });
 
+  it("con comodín manda la posición: «**05» trae las de 0 y 5 en los dígitos 3 y 4", () => {
+    expect(coincideBusquedaPuc(cuenta("110510", "CAJAS MENORES"), "**05")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("11051001", "MANRIQUE"), "**05")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("1105", "CAJA"), "**05")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("110805", "OTRA"), "**05")).toBe(false);
+    expect(coincideBusquedaPuc(cuenta("4135", "COMERCIO"), "**05")).toBe(false);
+    expect(coincideBusquedaPuc(cuenta("11", "DISPONIBLE"), "**05")).toBe(false);
+  });
+
+  it("«?» vale lo mismo que «*»", () => {
+    expect(coincideBusquedaPuc(cuenta("110510", "CAJAS MENORES"), "??05")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("110510", "CAJAS MENORES"), "1?0510")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("110510", "CAJAS MENORES"), "1?0610")).toBe(false);
+  });
+
+  it("el comodín también prueba la cuenta estándar, pero nunca los nombres", () => {
+    expect(coincideBusquedaPuc(cuenta("61656010", "MAQUINARIA", "520505"), "**05")).toBe(true);
+    expect(coincideBusquedaPuc(cuenta("61656010", "MAQUINARIA", null), "**05")).toBe(false);
+    expect(coincideBusquedaPuc(cuenta("61656010", "**05 EN EL NOMBRE"), "**05")).toBe(false);
+  });
+
   it("un término con letras busca en el nombre del ERP sin tildes ni mayúsculas", () => {
     expect(coincideBusquedaPuc(cuenta("616560", "DEPRECIACION EDIFICIOS"), normalizarBusqueda("depreciación"))).toBe(true);
     expect(coincideBusquedaPuc(cuenta("616560", "DEPRECIACION EDIFICIOS"), "caja")).toBe(false);
