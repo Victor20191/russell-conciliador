@@ -179,6 +179,18 @@ describe("evaluarCierreConciliacion", () => {
     expect(evaluarCierreConciliacion(cruce, holgada)).toEqual({ ok: true });
   });
 
+  it("un bloqueo estructural (depreciación sin pareja) impide cerrar aunque todo esté marcado", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "1435": 100 },
+      consolidado: [{ clasificador: "A", total: 100, cuentas4: ["1435"] }],
+      nombrePorCuenta: () => null,
+    });
+    const { resumen } = anotarCruceConMarcas(cruce.filas, []);
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [], ["Hay depreciación sin activo emparejado (159299)."]))
+      .toEqual({ ok: false, motivo: "Hay depreciación sin activo emparejado (159299)." });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [], [])).toEqual({ ok: true });
+  });
+
   it("las alertas del archivo que exigen comentario impiden cerrar hasta tenerlo vigente", () => {
     const cruce = construirCruceContable({
       contablePorCuenta: { "1435": 100 },

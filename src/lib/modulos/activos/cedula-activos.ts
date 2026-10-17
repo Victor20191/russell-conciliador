@@ -97,14 +97,21 @@ const esFilaDepreciacion = (clave: string, prefijos: ReadonlySet<string>): boole
  *   activo y no cambie de sitio cuando el costo aparezca.
  * - Una fila de depreciación AGRUPADA cuyas cuentas pertenecen a activos distintos no se puede
  *   partir: se deja como está y se informa en `sinEmparejar`.
+ * - El renglón de una cuenta CORRECTORA fija (el deterioro, 1599) no se funde con ningún activo:
+ *   va en la columna de depreciación (que también resta), con su neto negativo.
+ *
+ * `sinEmparejar` y `sinActivo` (las depreciaciones sin pareja que tienen saldo o valor) impiden
+ * cerrar la conciliación (17/Oct/2026): se corrigen las parejas, no se marcan.
  */
 export function emparejarCedulaActivos(
   resumen: ResumenCruceContable,
   pares: ReadonlyMap<string, string>,
-  opciones?: { tolerancia?: number },
-): ResumenCruceContable & { sinEmparejar: string[] } {
+  opciones?: { tolerancia?: number; prefijosCorrectora?: ReadonlySet<string> },
+): ResumenCruceContable & { sinEmparejar: string[]; sinActivo: string[] } {
   const tolerancia = opciones?.tolerancia ?? 0.01;
-  if (pares.size === 0) return { ...resumen, sinEmparejar: [] };
+  if (pares.size === 0) return { ...resumen, sinEmparejar: [], sinActivo: [] };
+  const prefijosCorrectora = opciones?.prefijosCorrectora ?? new Set<string>();
+  const esCorrectora = (clave: string) => prefijosCorrectora.size > 0 && esFilaDepreciacion(clave, prefijosCorrectora);
 
   // Los subgrupos de depreciación salen de las propias parejas (hoy, solo el 1592).
   const prefijosDepreciacion = new Set([...pares.values()].map((c) => c.slice(0, 4)));
@@ -114,7 +121,7 @@ export function emparejarCedulaActivos(
   // Qué renglón del cruce contiene cada subgrupo de activo, para saber a cuál llevar la depreciación.
   const filaDeActivo = new Map<string, FilaCruceContable>();
   for (const f of resumen.filas) {
-    if (f.cuenta4 === CLAVE_SIN_CUENTA || esFilaDepreciacion(f.cuenta4, prefijosDepreciacion)) continue;
+    if (f.cuenta4 === CLAVE_SIN_CUENTA || esFilaDepreciacion(f.cuenta4, prefijosDepreciacion) || esCorrectora(f.cuenta4)) continue;
     for (const cuenta of cuentasDeClaveCruce(f.cuenta4)) filaDeActivo.set(cuenta, f);
   }
 
@@ -196,8 +203,20 @@ export function emparejarCedulaActivos(
   };
 
   const filas: FilaCruceContable[] = [];
+  const sinActivo: string[] = [];
   for (const f of resumen.filas) {
     if (absorbidas.has(f)) continue;
+    if (esCorrectora(f.cuenta4)) {
+      // Deterioro: su saldo crédito llega en negativo; en la columna de depreciación va en magnitud,
+      // que es como resta del neto. El neto de la fila (`contable`/`inventario`) no cambia.
+      const propia = columnaDeFila(f, tolerancia);
+      const enMagnitud = cifras(
+        { contable: -propia.contable, inventario: -propia.inventario, noModular: -propia.noModular, noModularModulo: -propia.noModularModulo },
+        tolerancia,
+      );
+      filas.push({ ...f, columnas: { costo: CIFRAS_EN_CERO, depreciacion: { ...enMagnitud, cuentas: [] } } });
+      continue;
+    }
     if (f.cuenta4 === CLAVE_SIN_CUENTA) {
       // El saldo sin cuenta no tiene depreciación que emparejar: todo su valor es costo.
       filas.push({ ...f, columnas: { costo: columnaDeFila(f, tolerancia), depreciacion: { ...CIFRAS_EN_CERO, cuentas: [] } } });
@@ -206,6 +225,7 @@ export function emparejarCedulaActivos(
     if (huerfanas.has(f)) {
       // Depreciación sin pareja: toda su cifra va a la columna de depreciación, no a la de costo.
       filas.push(fusionar(null, [f], f.cuenta4, f.nombre));
+      if (f.contable !== 0 || f.inventario !== 0) sinActivo.push(f.cuenta4);
       continue;
     }
     const deps = depreciacionPorFila.get(f.cuenta4) ?? [];
@@ -242,7 +262,21 @@ export function emparejarCedulaActivos(
       diferencia: redondear(totales.diferencia),
     },
     sinEmparejar: [...new Set(sinEmparejar)].sort(),
+    sinActivo: [...new Set(sinActivo)].sort(),
   };
+}
+
+/**
+ * Por qué la depreciación sin pareja impide cerrar; null si no hay. No se destraba con una marca:
+ * se ajustan las parejas activo → depreciación (Filtros de cuentas › Activos fijos), el Consolidado
+ * o la homologación del balance.
+ */
+export function motivoDepreciacionSinPareja(p: { sinEmparejar: readonly string[]; sinActivo: readonly string[] }): string | null {
+  const partes: string[] = [];
+  if (p.sinEmparejar.length > 0) partes.push(`depreciación agrupada entre activos de renglones distintos (${p.sinEmparejar.join(", ")})`);
+  if (p.sinActivo.length > 0) partes.push(`depreciación sin activo emparejado (${p.sinActivo.join(", ")})`);
+  if (partes.length === 0) return null;
+  return `Hay ${partes.join(" y ")}. Ajusta las parejas activo → depreciación en Filtros de cuentas › Activos fijos, el Consolidado o la homologación del balance: esto no se resuelve con una marca.`;
 }
 
 /**

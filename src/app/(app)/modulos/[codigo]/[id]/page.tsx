@@ -28,7 +28,8 @@ import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { ESTADO_CIERRE_FIRME, estadoEdicionCargue, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
 import { descripcionCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { autorizarCierreConciliacion, autorizarComentarioAlertaModulo } from "@/lib/conciliacion/verificar-bloqueo";
-import { alertasConComentarioDelCargue, validacionesTerceroDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { alertasConComentarioDelCargue, comentaValidacionesActivos, validacionesTerceroDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import { validarActivos } from "@/lib/modulos/activos/validaciones-activos";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 import { construirConsolidadoNominaDeGrupos } from "@/lib/modulos/nomina/consolidado-nomina";
 import { validarNominaConNovedades } from "@/lib/modulos/nomina/validaciones-nomina";
@@ -332,6 +333,7 @@ export default async function DatoModuloPage({
     cierreFijado: cierreFijadoDe(insumosPeriodo),
     umbralDescuadre: insumosPeriodo.umbralDescuadre,
     toleranciaCedula: insumosPeriodo.toleranciaCedula,
+    toleranciaDetalleActivos: insumosPeriodo.toleranciaDetalleActivos,
   });
   const balanceEmparejado = cruce.balanceEmparejado;
 
@@ -389,10 +391,15 @@ export default async function DatoModuloPage({
     : null;
   // Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios, Cartera y
   // CxP), con el comentario del período y si quedó por revisar. El cierre evalúa estas mismas.
+  // Activos fijos: costo o neto negativo por activo, depreciación sin costo y neto del archivo
+  // contra el calculado (costo + adiciones + mejoras + valorización − depreciación − deterioro).
+  const validacionesActivos = comentaValidacionesActivos(descriptor)
+    ? validarActivos(detalles.map((d) => ({ filaNum: d.filaNum, valor: Number(d.valor), imputable: d.imputable, datos: (d.datos ?? {}) as Record<string, unknown> })))
+    : null;
   const alertasComentario = await alertasConComentarioDelCargue(
     descriptor,
     { id: encabezado.id, clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
-    { filas: filasVal, validacionesTercero },
+    { filas: filasVal, validacionesTercero, validacionesActivos },
   );
 
   // Conciliación en firme del (cliente, módulo, período): estado + quién puede
@@ -420,6 +427,7 @@ export default async function DatoModuloPage({
           ? { exigido: true, estado: cruceTercero?.estado ?? "sin_balance", mensaje: cruceTercero?.mensaje ?? null, resumenMarcas: cruceTercero?.resumenMarcas ?? null }
           : null,
         alertasComentario,
+        cruce.bloqueosCierre,
       )
     : null;
   const cierreVm: CierreConciliacionVm = {
@@ -485,6 +493,8 @@ export default async function DatoModuloPage({
     soloVisibles: cruce.soloVisibles,
     cedulaActivos: cruce.cedulaActivos,
     sinEmparejarActivos: cruce.sinEmparejarActivos,
+    depreciacionSinActivo: cruce.depreciacionSinActivo,
+    toleranciaDetalleActivos: cruce.toleranciaDetalleActivos,
     avisoContenidoActivos: cruce.avisoContenidoActivos,
     conciliacion: cierreVm,
     nomina: cruce.nomina,
@@ -550,6 +560,7 @@ export default async function DatoModuloPage({
   const novedadesBase: NovedadesVm = {
     ...novedades,
     comentariosAlertas: alertasComentario,
+    activos: validacionesActivos,
     // Comenta el staff, el senior o el gerente asignados; con la conciliación en firme, nadie.
     puedeComentarAlertas: comentarAuth?.ok === true && !edicion.enFirme,
   };

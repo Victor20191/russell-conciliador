@@ -191,6 +191,17 @@ export interface ConfiguracionCedula {
   cuentasVisibles?: readonly string[];
   subgruposAbiertos?: readonly SubgrupoAbiertoCedula[];
   valorRelacionado?: ValorRelacionadoCedula;
+  /**
+   * Roles monetarios que se capitalizan en la cuenta del activo y SUMAN a su costo en la cédula
+   * (Activos fijos: adiciones, mejoras y valorización, 17/Oct/2026). El valor del archivo (y su
+   * control de total) sigue siendo solo el costo.
+   */
+  sumaAlCosto?: readonly string[];
+  /**
+   * Rol que cruza contra una cuenta correctora fija y RESTA del neto (Activos fijos: el deterioro
+   * contra la 159916, renglón 1599). Se presenta en negativo, como el saldo crédito del balance.
+   */
+  correctoraFija?: { rol: string; cuenta6: string };
 }
 
 export type DescriptorModulo = {
@@ -521,13 +532,23 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       col("placa", "Placa / código", "texto", true, ["placa", "codigo", "activo", "id", "referencia"]),
       col("descripcion", "Descripción", "texto", false, ["descripcion", "detalle", "nombre"]),
       col("fechaAdquisicion", "Fecha de adquisición", "fecha", false, ["fecha", "adquisicion", "compra", "ingreso"]),
-      col("costo", "Costo histórico", "moneda", true, ["costo", "valor", "costo historico", "valor adquisicion", "valor compra"]),
+      col("costo", "Costo de adquisición", "moneda", true, ["costo", "valor", "costo historico", "costo adquisicion", "valor adquisicion", "valor compra"]),
       col("depreciacion", "Depreciación acumulada", "moneda", false, ["depreciacion", "dep acumulada", "depreciacion acumulada"]),
-      col("valorNeto", "Valor neto en libros", "moneda", false, ["neto", "valor neto", "valor en libros", "saldo"]),
+      // Opcionales (17/Oct/2026): adiciones, mejoras y valorización suman al costo en la cédula; el
+      // deterioro cruza contra la 159916 y resta. Costo neto = costo + adiciones + mejoras +
+      // valorización − depreciación − deterioro.
+      col("adiciones", "Adiciones", "moneda", false, ["adiciones", "adicion"]),
+      col("mejoras", "Mejoras", "moneda", false, ["mejoras", "mejora"]),
+      col("valorizacion", "Valorización", "moneda", false, ["valorizacion", "valorizaciones", "revaluacion"]),
+      col("deterioro", "Deterioro", "moneda", false, ["deterioro", "deterioros", "deterioro acumulado"]),
+      col("valorNeto", "Costo neto", "moneda", false, ["neto", "valor neto", "costo neto", "valor en libros", "saldo"]),
     ],
     clasificador: "grupo",
     valor: "costo",
     noNegativos: ["costo"],
+    // Para cerrar, un comentario por tipo: activos con costo o neto negativo, y depreciación sin
+    // costo de adquisición en el cargue (17/Oct/2026).
+    alertasConComentario: ["activos_negativos", "falta_costo"],
     // El grupo del activo suele traer pegada la cuenta del cliente: se extrae y se homologa.
     cuentaDesdeClasificador: true,
     // El costo y la depreciación pueden venir en el mismo archivo o en dos: se pregunta al cargar.
@@ -535,6 +556,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     cedula: {
       subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },
+      sumaAlCosto: ["adiciones", "mejoras", "valorizacion"],
+      correctoraFija: { rol: "deterioro", cuenta6: "159916" },
     },
     crucePorTercero: { habilitado: false },
     // Sin verificaciones manuales en el borrador (4/Oct/2026, decisión del usuario), como Ingresos

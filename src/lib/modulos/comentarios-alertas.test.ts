@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { MODULOS_IMPORT } from "./descriptores";
 import { validarAuxiliarTercero } from "./cartera/validaciones-tercero";
+import { validarActivos } from "./activos/validaciones-activos";
 import {
   alertaCambio,
+  alertasActivosQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
@@ -97,6 +99,23 @@ describe("alertasTerceroQueExigenComentario (Cartera y CxP)", () => {
   it("Inventarios no comenta alertas del auxiliar por tercero", () => {
     const v = { formato: { documentosVsCliente: null }, edadesVsTotal: { cantidad: 3, filas: [], suma: 10 }, saldosContrarios: { cantidad: 0, filas: [], suma: 0 }, diasVsCorte: { cantidad: 0, filas: [] }, edadVsCorte: { cantidad: 0, filas: [] }, corte: { fecha: null, deducido: null } };
     expect(alertasTerceroQueExigenComentario(INV, v as unknown as Parameters<typeof alertasTerceroQueExigenComentario>[1])).toEqual([]);
+  });
+});
+
+describe("alertasActivosQueExigenComentario (Activos fijos)", () => {
+  it("activos con costo o neto negativo y depreciación sin costo", () => {
+    const v = validarActivos([
+      { filaNum: 2, valor: 300, imputable: true, datos: { costo: 300, depreciacion: 300, _soloDepreciacion: 1 } },
+      { filaNum: 3, valor: 0, imputable: true, datos: { placa: "X", costo: 0, valorNeto: -40 } },
+    ]);
+    const alertas = alertasActivosQueExigenComentario(MODULOS_IMPORT.AFI, v);
+    expect(alertas.map((a) => [a.tipo, a.referencias, a.valor])).toEqual([
+      ["activos_negativos", 1, -40],
+      ["falta_costo", 1, 0],
+    ]);
+    expect(alertas[1].detalle).toContain("ningún costo de adquisición");
+    // Inventarios no las pide.
+    expect(alertasActivosQueExigenComentario(INV, v)).toEqual([]);
   });
 });
 

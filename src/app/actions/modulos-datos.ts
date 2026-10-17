@@ -107,6 +107,7 @@ import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   diferenciaAjustada,
+  marcaPorDetalle,
   diferenciaAjustadaModulo,
   MAX_NOTA_MARCA,
   normalizarClaveTercero,
@@ -168,6 +169,7 @@ import {
 } from "@/lib/conciliacion/verificar-bloqueo";
 import { construirCopiaCierre } from "@/lib/conciliacion/copia-cierre";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { alertasConComentarioDelCargue, cargarValidacionesTercero } from "@/lib/modulos/comentarios-alertas-servidor";
 import { motivoReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
 import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
@@ -3666,6 +3668,12 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       if (!noContabilizados.ok) return { ok: false, message: noContabilizados.message };
       clasificadoresExcluidos = conceptos.filter((c) => noContabilizados.clasificadores.includes(c.clasificador));
       diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8, totalNoContabilizado(conceptos, noContabilizados.clasificadores));
+      // Activos fijos con el neto dentro de la tolerancia: la marca explica el DETALLE y congela la
+      // diferencia del costo (la misma regla con que la cédula decide si quedó desactualizada).
+      const sinExclusiones = excluidas.length === 0 && clasificadoresExcluidos.length === 0;
+      if (marcaPorDetalle({ ...filaVigente, diferencia }, cruceVigente.toleranciaCedula ?? UMBRAL_CEDULA_MODULOS, sinExclusiones)) {
+        diferencia = filaVigente.columnas!.costo.diferencia;
+      }
     }
   } else {
     const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
@@ -4728,6 +4736,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         ? { exigido: true, estado: tercero?.estado ?? "sin_balance", mensaje: tercero?.mensaje ?? null, resumenMarcas: tercero?.resumenMarcas ?? null }
         : null,
       alertasComentario,
+      cruce.bloqueosCierre,
     );
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 
@@ -4780,6 +4789,8 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       umbralDescuadre,
       // La tolerancia con que se decidió qué diferencias exigían marca (`cruce.cruceContable` existe).
       toleranciaCedula: cruce.toleranciaCedula ?? undefined,
+      // Activos fijos: desde qué diferencia del detalle (con el neto cuadrado) se exigía marca.
+      toleranciaDetalleActivos: cruce.toleranciaDetalleActivos ?? undefined,
     });
 
     const resultado = await transaccionSerializable(async (tx) => {

@@ -197,6 +197,8 @@ import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca
 import { etiquetaTercero } from "./marca-tercero";
 import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
 import { ComentariosAlertasCard } from "./comentarios-alertas";
+import { ValidacionesActivosCard } from "./validaciones-activos-card";
+import type { ValidacionesActivos } from "@/lib/modulos/activos/validaciones-activos";
 import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
@@ -309,6 +311,10 @@ export type CruceContableVm = {
   cedulaActivos?: boolean;
   /** Depreciaciones que no se pudieron emparejar porque agrupan activos de renglones distintos. */
   sinEmparejarActivos?: string[];
+  /** Activos fijos: depreciaciones con saldo que ninguna pareja reclama (impiden cerrar). */
+  depreciacionSinActivo?: string[];
+  /** Activos fijos: desde qué diferencia del detalle (con el neto cuadrado) se exige marca. */
+  toleranciaDetalleActivos?: number | null;
   /** El cargue solo trae costo o solo depreciación: todavía falta el otro archivo. */
   avisoContenidoActivos?: string | null;
   /** Conciliación en firme del (cliente, módulo, período). */
@@ -360,6 +366,8 @@ export type NovedadesVm = {
   comentariosAlertas?: AlertaConComentario[];
   /** Staff, senior o gerente asignados, con la conciliación abierta. */
   puedeComentarAlertas?: boolean;
+  /** Activos fijos: validaciones por activo (negativos, neto del archivo vs calculado, lados). */
+  activos?: ValidacionesActivos | null;
 };
 export type VersionModuloVm = {
   id: number;
@@ -2620,6 +2628,7 @@ function CruceContableTab({
         <div className={claseScrollTabla(pantallaCompleta, null)}>
           {cruceContable.cedulaActivos ? (
             <TablaCedulaActivos
+              toleranciaDetalle={cruceContable.toleranciaDetalleActivos ?? null}
               filas={filasOrdenadas}
               encabezado={encabezado}
               filtros={filtrosCedula}
@@ -2887,8 +2896,13 @@ function CruceContableTab({
           </div>
         )}
         {(cruceContable.sinEmparejarActivos?.length ?? 0) > 0 && (
-          <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-warn-700">
-            No se pudo juntar con su activo la depreciación de {cruceContable.sinEmparejarActivos!.join(", ")}: agrupa activos que hoy están en renglones distintos. Queda en su propio renglón.
+          <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-err-700">
+            No se pudo juntar con su activo la depreciación de {cruceContable.sinEmparejarActivos!.join(", ")}: agrupa activos que hoy están en renglones distintos. <b>Impide cerrar la conciliación</b> y no se resuelve con una marca: ajusta las parejas en Filtros de cuentas › Activos fijos o las cuentas del Consolidado.
+          </div>
+        )}
+        {(cruceContable.depreciacionSinActivo?.length ?? 0) > 0 && (
+          <div className="border-t border-ink-100 px-3 py-2 text-[11.5px] text-err-700">
+            La depreciación de {cruceContable.depreciacionSinActivo!.join(", ")} no tiene activo emparejado. <b>Impide cerrar la conciliación</b> y no se resuelve con una marca: agrégale su pareja en Filtros de cuentas › Activos fijos o revisa la homologación del balance.
           </div>
         )}
       </div>
@@ -3586,6 +3600,7 @@ function TablaCedulaActivos({
   encabezadoId,
   onMarcar,
   totales,
+  toleranciaDetalle,
 }: {
   filas: readonly FilaCruceMarcada[];
   encabezado: (label: string, columna: ColumnaCruceContable, alineacion: "left" | "right", title: string) => ReactNode;
@@ -3603,6 +3618,8 @@ function TablaCedulaActivos({
   encabezadoId: number;
   onMarcar: (fila: FilaCruceMarcada) => void;
   totales: ResumenCruceContable["totales"];
+  /** Desde qué diferencia del costo o la depreciación (con el neto cuadrado) se exige marca. */
+  toleranciaDetalle: number | null;
 }) {
   const totalesColumnas = totalesColumnasActivos(filas);
   // Cada columna lleva su propia diferencia: se muestra bajo el lado del módulo cuando no cuadra.
@@ -3733,7 +3750,13 @@ function TablaCedulaActivos({
                     {f.estado === "solo_contable" && <Chip label={`Sin ${moduloLabel.toLocaleLowerCase("es")}`} tone="warn" />}
                     {f.estado === "solo_inventario" && !sinCuenta && <Chip label="Sin contabilidad" tone="warn" />}
                     {reclasificacion && (
-                      <span title="El neto cuadra, pero el costo y la depreciación no: suele ser una reclasificación entre las dos columnas. No exige marca.">
+                      <span
+                        title={`El neto cuadra, pero el costo y la depreciación no: suele ser una reclasificación entre las dos columnas. ${
+                          toleranciaDetalle != null
+                            ? `Desde ${fmtContable(toleranciaDetalle)} de diferencia en una columna exige marca para cerrar; por debajo es opcional.`
+                            : "No exige marca."
+                        }`}
+                      >
                         <Chip label="Revisar columnas" tone="warn" />
                       </span>
                     )}
@@ -4378,6 +4401,7 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
   return (
     <div className="flex flex-col gap-4">
       {titulo && <h2 className="text-[15px] font-semibold text-ink-800">{titulo}</h2>}
+      {novedades.activos && <ValidacionesActivosCard v={novedades.activos} />}
       {novedades.comentariosAlertas && novedades.comentariosAlertas.length > 0 && (
         <ComentariosAlertasCard
           alertas={novedades.comentariosAlertas}

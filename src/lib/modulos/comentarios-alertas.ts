@@ -13,6 +13,7 @@ import type { DescriptorModulo } from "./descriptores";
 import { ALERTAS_COSTO, detectarAlertasCosto, detectarNegativos, type FilaValidable, type TipoAlertaCosto } from "./validaciones";
 import type { ValidacionesTercero } from "./cartera/validaciones-tercero";
 import { diasEntre } from "./cartera/fecha-corte";
+import type { ValidacionesActivos } from "./activos/validaciones-activos";
 
 /** Cartera y CxP: validaciones del auxiliar por tercero que exigen comentario. */
 export type TipoAlertaTercero =
@@ -23,8 +24,11 @@ export type TipoAlertaTercero =
   | "edad_vs_corte"
   | "corte_deducido";
 
+/** Activos fijos: validaciones por activo que exigen comentario. */
+export type TipoAlertaActivos = "activos_negativos" | "falta_costo";
+
 /** Tipos de alerta que pueden exigir comentario. */
-export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto | TipoAlertaTercero;
+export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto | TipoAlertaTercero | TipoAlertaActivos;
 
 export type UnidadAlerta = { uno: string; varios: string };
 const ITEMS: UnidadAlerta = { uno: "ítem", varios: "ítems" };
@@ -40,6 +44,8 @@ const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: Unid
   { tipo: "dias_vs_corte", etiqueta: "Días vencidos vs. corte", unidad: DOCUMENTOS, muestraValor: false },
   { tipo: "edad_vs_corte", etiqueta: "Rango de edad vs. corte", unidad: DOCUMENTOS, muestraValor: false },
   { tipo: "corte_deducido", etiqueta: "Fecha de corte deducida", unidad: { uno: "fecha", varios: "fechas" }, muestraValor: false },
+  { tipo: "activos_negativos", etiqueta: "Activos con costo o neto negativo", unidad: { uno: "activo", varios: "activos" }, muestraValor: true },
+  { tipo: "falta_costo", etiqueta: "Depreciación sin costo de adquisición", unidad: { uno: "cargue", varios: "cargues" }, muestraValor: false },
 ];
 const POR_TIPO = new Map(DEFINICIONES.map((d) => [d.tipo, d]));
 const ORDEN: TipoAlertaComentario[] = DEFINICIONES.map((d) => d.tipo);
@@ -140,6 +146,22 @@ export function alertasTerceroQueExigenComentario(descriptor: DescriptorModulo, 
       diasEntre(v.corte.fecha, v.corte.deducido.fecha),
       `El archivo calculó sus días al ${v.corte.deducido.fecha}; el corte del cargue es ${v.corte.fecha}.`,
     ));
+  }
+  return ordenar(salida);
+}
+
+/**
+ * Activos fijos: activos con costo o neto negativo, y un cargue que trae depreciación sin ningún
+ * costo de adquisición (el caso contrario solo informa).
+ */
+export function alertasActivosQueExigenComentario(descriptor: DescriptorModulo, v: ValidacionesActivos): AlertaComentable[] {
+  const tipos = new Set(descriptor.alertasConComentario ?? []);
+  const salida: AlertaComentable[] = [];
+  if (tipos.has("activos_negativos") && v.negativos.cantidad > 0) {
+    salida.push(alerta("activos_negativos", v.negativos.cantidad, v.negativos.suma));
+  }
+  if (tipos.has("falta_costo") && v.faltaCosto) {
+    salida.push(alerta("falta_costo", 1, 0, "El cargue trae la depreciación y ningún costo de adquisición: la cédula compara el neto contra un costo en cero."));
   }
   return ordenar(salida);
 }

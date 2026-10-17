@@ -132,6 +132,15 @@ describe("copia congelada del cierre", () => {
     expect(leerCopiaCierre({ ...JSON.parse(JSON.stringify(nueva)), toleranciaCedula: -1 }, "NOM")).toEqual({ ok: false, motivo: "invalida" });
   });
 
+  it("Activos fijos: congela la tolerancia del detalle; una copia anterior la lee como regla apagada", () => {
+    const vieja = leerCopiaCierre(JSON.parse(JSON.stringify(construirCopiaCierre(base()))), "NOM");
+    if (!vieja.ok) throw new Error("copia inválida");
+    expect(insumosDesdeCopia(vieja.copia).toleranciaDetalleActivos).toBe(Number.POSITIVE_INFINITY);
+    const nueva = leerCopiaCierre(JSON.parse(JSON.stringify(construirCopiaCierre({ ...base(), toleranciaDetalleActivos: 10_000 }))), "NOM");
+    if (!nueva.ok) throw new Error("copia inválida");
+    expect(insumosDesdeCopia(nueva.copia).toleranciaDetalleActivos).toBe(10_000);
+  });
+
   it("describe de dónde salen los insumos", () => {
     const fmt = (iso: string) => iso.slice(0, 10);
     expect(descripcionCopiaCierre({ origen: "cierre", tomadaEn: "2026-10-14T15:00:00Z" }, fmt)).toBe("Insumos congelados al cerrar (2026-10-14).");

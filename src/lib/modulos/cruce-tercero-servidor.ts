@@ -43,6 +43,7 @@ import {
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { UMBRAL_TERCERO_DIFERENCIA } from "@/lib/balance/umbrales-alertas";
 import { cargarCuentasEstandarCruce, type BalanceFuenteCruce, type InsumosCruceModulo, type ResultadoCruceModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { alcanceCruceTercero, type AlcanceCruceTercero } from "@/lib/modulos/cartera/alcance-cruce-tercero";
 
@@ -281,7 +282,10 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     emparejamientosDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     marcasTerceroDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     // «Diferencia por tercero» de /config/parametros, o la congelada en el cierre del período.
-    insumos.umbralDescuadre != null ? Promise.resolve(insumos.umbralDescuadre) : getUmbralesAlertas().then((u) => u.tercero_diferencia),
+    // Sin valor (una caché vieja sin la clave) rige el de fábrica: nunca «ninguna diferencia exige marca».
+    insumos.umbralDescuadre != null
+      ? Promise.resolve(insumos.umbralDescuadre)
+      : getUmbralesAlertas().then((u) => (Number.isFinite(u.tercero_diferencia) ? u.tercero_diferencia : UMBRAL_TERCERO_DIFERENCIA)),
     // Cuentas del cliente marcadas «no modulares» en el cruce contable del período (la misma marca).
     prisma.cuentaNoModularCruce.findMany({
       where: { marca: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, dimension: "cuenta4" } },

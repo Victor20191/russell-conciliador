@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { construirCruceContable, type ClasificadorCruce } from "../cruce-contable";
-import { emparejarCedulaActivos, hayReclasificacionEntreColumnas, totalesColumnasActivos } from "./cedula-activos";
+import { emparejarCedulaActivos, hayReclasificacionEntreColumnas, motivoDepreciacionSinPareja, totalesColumnasActivos } from "./cedula-activos";
 
 // Las parejas de fábrica del módulo (RELACION_DEPRECIACION_AFI).
 const PARES = new Map([
@@ -158,6 +158,51 @@ describe("emparejarCedulaActivos", () => {
     const r = emparejarCedulaActivos(base, new Map());
     expect(r.filas).toEqual(base.filas);
     expect(r.totales).toEqual(base.totales);
+  });
+});
+
+describe("deterioro y depreciación sin pareja (17/Oct/2026)", () => {
+  it("el renglón del deterioro (1599) va en la columna correctora, en magnitud, sin cambiar su neto", () => {
+    const r = emparejarCedulaActivos(
+      cruce({ "1516": 1_000, "159205": 300, "1599": -50 }, [
+        costo("EDIFICIOS", 1_000, ["1516"]),
+        dep("EDIFICIOS · depreciación", 300, ["159205"]),
+        costo("EDIFICIOS · deterioro", -50, ["1599"]),
+      ]),
+      PARES,
+      { prefijosCorrectora: new Set(["1599"]) },
+    );
+    const deterioro = r.filas.find((f) => f.cuenta4 === "1599")!;
+    expect(deterioro).toMatchObject({ contable: -50, inventario: -50, cuadra: true });
+    expect(deterioro.columnas).toMatchObject({
+      costo: { contable: 0, inventario: 0 },
+      depreciacion: { contable: 50, inventario: 50, cuentas: [] },
+    });
+    // El neto total resta el deterioro: 1.000 − 300 − 50.
+    expect(r.totales).toMatchObject({ contable: 650, inventario: 650 });
+    expect(r.sinActivo).toEqual([]);
+  });
+
+  it("una 1592 con saldo que ninguna pareja reclama impide cerrar; en cero, no", () => {
+    const conSaldo = emparejarCedulaActivos(cruce({ "1516": 1_000, "159299": 80 }, [costo("EDIFICIOS", 1_000, ["1516"])]), PARES);
+    expect(conSaldo.sinActivo).toEqual(["159299"]);
+    expect(motivoDepreciacionSinPareja(conSaldo)).toContain("sin activo emparejado (159299)");
+    const enCero = emparejarCedulaActivos(cruce({ "1516": 1_000, "159299": 0 }, [costo("EDIFICIOS", 1_000, ["1516"])]), PARES);
+    expect(enCero.sinActivo).toEqual([]);
+    expect(motivoDepreciacionSinPareja(enCero)).toBeNull();
+  });
+
+  it("la depreciación agrupada entre activos de renglones distintos también impide cerrar", () => {
+    const r = emparejarCedulaActivos(
+      cruce({ "1516": 1_000, "1520": 500, "159205": 300, "159210": 100 }, [
+        costo("EDIFICIOS", 1_000, ["1516"]),
+        costo("MAQUINARIA", 500, ["1520"]),
+        dep("TODO · depreciación", 400, ["159205", "159210"]),
+      ]),
+      PARES,
+    );
+    expect(r.sinEmparejar.length).toBe(1);
+    expect(motivoDepreciacionSinPareja(r)).toContain("agrupada entre activos de renglones distintos");
   });
 });
 

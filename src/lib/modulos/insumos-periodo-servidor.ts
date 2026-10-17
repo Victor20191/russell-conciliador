@@ -41,6 +41,8 @@ export type InsumosPeriodo = {
   umbralDescuadre: number | null;
   /** Del cierre: la tolerancia de la cédula con que se cerró. null = la vigente. */
   toleranciaCedula: number | null;
+  /** Del cierre: desde qué diferencia del detalle de Activos fijos se exigía marca. null = la vigente. */
+  toleranciaDetalleActivos: number | null;
   /** Del cierre: las cuentas agrupadoras que se excluyeron. null = calcularlas del balance. */
   agrupadorasExcluidas: Set<string> | null;
 };
@@ -78,6 +80,7 @@ export async function cargarInsumosPeriodo(p: {
       nomina: p.esNomina ? desdeCopia.nomina ?? { reglasClase: new Map(), mapeoCliente: new Map() } : null,
       umbralDescuadre: desdeCopia.umbralDescuadre,
       toleranciaCedula: desdeCopia.toleranciaCedula,
+      toleranciaDetalleActivos: desdeCopia.toleranciaDetalleActivos,
       agrupadorasExcluidas: desdeCopia.agrupadorasExcluidas,
     };
   }
@@ -89,5 +92,5 @@ export async function cargarInsumosPeriodo(p: {
     getCatalogoPrevalidador(),
     p.esNomina ? leerHomologacionNomina(prisma, p.clienteId, p.moduloCodigo) : Promise.resolve(null),
   ]);
-  return { cierre, consolidacion, catalogoPrevalidador, nomina, umbralDescuadre: null, toleranciaCedula: null, agrupadorasExcluidas: null };
+  return { cierre, consolidacion, catalogoPrevalidador, nomina, umbralDescuadre: null, toleranciaCedula: null, toleranciaDetalleActivos: null, agrupadorasExcluidas: null };
 }

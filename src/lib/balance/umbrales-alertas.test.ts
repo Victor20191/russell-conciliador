@@ -68,14 +68,16 @@ describe("catálogo de umbrales", () => {
       "cedula_modulos",
       "tercero_diferencia",
       "tercero_naturaleza",
+      "afi_detalle",
     ]);
     expect(getUmbralDef("descuadre")?.defecto).toBe(2_000);
     expect(getUmbralDef("naturaleza")?.defecto).toBe(50_000);
     expect(getUmbralDef("cedula_modulos")?.defecto).toBe(2_000);
     expect(getUmbralDef("tercero_diferencia")?.defecto).toBe(2_000);
     expect(getUmbralDef("tercero_naturaleza")?.defecto).toBe(10_000);
+    expect(getUmbralDef("afi_detalle")?.defecto).toBe(10_000);
     expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "balance").map((u) => u.clave)).toEqual(["descuadre", "naturaleza"]);
-    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "modulos")).toHaveLength(3);
+    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "modulos")).toHaveLength(4);
   });
 
   it("exige marca desde el umbral inclusive, con cualquier signo", () => {

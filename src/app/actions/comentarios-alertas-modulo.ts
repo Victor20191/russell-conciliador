@@ -12,6 +12,7 @@ import { fmt } from "@/lib/format";
 import type { ActionState } from "@/lib/definitions";
 import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import {
+  alertasActivosQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   contarAlerta,
@@ -20,7 +21,12 @@ import {
   type AlertaComentable,
   type TipoAlertaComentario,
 } from "@/lib/modulos/comentarios-alertas";
-import { cargarValidacionesTercero, filasValidablesDelCargue } from "@/lib/modulos/comentarios-alertas-servidor";
+import {
+  cargarValidacionesActivos,
+  cargarValidacionesTercero,
+  comentaValidacionesActivos,
+  filasValidablesDelCargue,
+} from "@/lib/modulos/comentarios-alertas-servidor";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { autorizarComentarioAlertaModulo, exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
@@ -33,6 +39,9 @@ const OPERACION = "comentar las alertas del archivo";
  * solo para él se calcula.
  */
 async function alertasActuales(descriptor: DescriptorModulo, encabezadoId: number, tipo: TipoAlertaComentario): Promise<AlertaComentable[]> {
+  if (comentaValidacionesActivos(descriptor)) {
+    return alertasActivosQueExigenComentario(descriptor, await cargarValidacionesActivos(encabezadoId));
+  }
   if (!descriptor.crucePorTercero.detalleTercero) {
     return alertasQueExigenComentario(descriptor, await filasValidablesDelCargue(encabezadoId));
   }

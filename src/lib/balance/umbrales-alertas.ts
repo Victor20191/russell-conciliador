@@ -19,6 +19,8 @@ export type UmbralesAlertas = {
   tercero_diferencia: number;
   /** Cartera y CxP · saldo contable por tercero contrario a la naturaleza: por encima, se informa. */
   tercero_naturaleza: number;
+  /** Activos fijos · el neto cuadra pero costo o depreciación difieren: desde este monto, exige marca. */
+  afi_detalle: number;
 };
 
 export type ClaveUmbral = keyof UmbralesAlertas;
@@ -30,6 +32,7 @@ export const UMBRAL_NATURALEZA_ALERTA = 50_000;
 export const UMBRAL_CEDULA_MODULOS = 2_000;
 export const UMBRAL_TERCERO_DIFERENCIA = 2_000;
 export const UMBRAL_TERCERO_NATURALEZA = 10_000;
+export const UMBRAL_AFI_DETALLE = 10_000;
 // Un movimiento (débito o crédito) que vino con signo CONTRARIO al dominante de su
 // columna se sube en NEGATIVO. Ese negativo es la "alerta de magnitud".
 export const UMBRAL_MAGNITUD_ALERTA = 50_000;
@@ -40,6 +43,7 @@ export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   cedula_modulos: UMBRAL_CEDULA_MODULOS,
   tercero_diferencia: UMBRAL_TERCERO_DIFERENCIA,
   tercero_naturaleza: UMBRAL_TERCERO_NATURALEZA,
+  afi_detalle: UMBRAL_AFI_DETALLE,
 };
 
 /** Dónde vive el umbral: lo usa la pantalla de parámetros para agruparlos. */
@@ -117,6 +121,17 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
       "Monto por encima del cual un saldo contable por tercero del lado opuesto a la naturaleza de su cuenta aparece en las novedades.",
     dondeAplica: "Novedades de Cartera y Cuentas por pagar («Saldo contrario a la naturaleza»).",
     defecto: UMBRAL_TERCERO_NATURALEZA,
+    minimo: 0,
+    maximo: UMBRAL_MAXIMO,
+  },
+  {
+    clave: "afi_detalle",
+    seccion: "modulos",
+    nombre: "Detalle de Activos fijos (neto cuadra)",
+    descripcion:
+      "Cuando el costo neto de un renglón cuadra pero su costo o su depreciación no (típicamente una reclasificación entre ellas), desde este monto (inclusive) el renglón exige marca de auditoría para poder cerrar. Por debajo solo se avisa «Revisar columnas».",
+    dondeAplica: "Cédula contable de Activos fijos (columnas de costo y depreciación de cada renglón).",
+    defecto: UMBRAL_AFI_DETALLE,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
   },

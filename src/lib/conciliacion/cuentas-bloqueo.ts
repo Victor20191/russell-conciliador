@@ -235,7 +235,13 @@ export function evaluarCierreConciliacion(
   resumenMarcas: ResumenMarcas | null,
   tercero?: CierreCruceTercero | null,
   alertas?: readonly Pick<AlertaConComentario, "etiqueta" | "estado">[] | null,
+  /**
+   * Bloqueos que ninguna marca destraba (Activos fijos: depreciación sin pareja). Se corrigen en la
+   * configuración o en el archivo, así que se informan antes que lo demás.
+   */
+  bloqueos?: readonly string[] | null,
 ): EvaluacionCierre {
+  if (cruce && cruce.filas.length > 0 && bloqueos && bloqueos.length > 0) return { ok: false, motivo: bloqueos[0] };
   const evaluacion = evaluarCruceParaCierre(cruce, resumenMarcas, tercero);
   if (!evaluacion.ok) return evaluacion;
   const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente").map((a) => `«${a.etiqueta}»`);

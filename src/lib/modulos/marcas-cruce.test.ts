@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { construirCruceContable } from "./cruce-contable";
 import type { HijoContableCruce } from "./cruce-contable";
 import { construirCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
+import { emparejarCedulaActivos } from "./activos/cedula-activos";
 import {
   admiteMarca,
   anclaCruce,
@@ -217,6 +218,36 @@ describe("anotarCruceConMarcas con la tolerancia de la cédula", () => {
     const { filas, resumen } = anotarCruceConMarcas(conTolerancia(), [marca({ cuenta4: "1435", diferencia: 100 })], { toleranciaMarca: 2_000 });
     expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ requiereMarca: false, desactualizada: true });
     expect(resumen).toMatchObject({ marcadas: 0, desactualizadas: 0, bajoUmbral: 2 });
+  });
+
+  it("Activos fijos: con el neto cuadrado, el detalle exige marca desde su tolerancia y la marca congela el costo", () => {
+    const afi = (costoModulo: number, depModulo: number) => {
+      const cruce = construirCruceContable({
+        contablePorCuenta: { "1516": 100_000, "159205": 30_000 },
+        consolidado: [
+          { clasificador: "EDIFICIOS", total: costoModulo, cuentas4: ["1516"] },
+          { clasificador: "EDIFICIOS · depreciación", total: depModulo, cuentas4: ["159205"], relacionado: true },
+        ],
+        nombrePorCuenta: () => null,
+      });
+      return emparejarCedulaActivos(cruce, new Map([["1516", "159205"]])).filas;
+    };
+    // Reclasificación de 12.000 entre costo y depreciación: el neto cuadra.
+    const reclasificada = afi(88_000, 18_000);
+    const { filas, resumen } = anotarCruceConMarcas(reclasificada, [], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
+    expect(filas[0]).toMatchObject({ cuadra: true, admiteMarca: true, requiereMarca: true });
+    expect(resumen).toMatchObject({ conDiferencia: 1, pendientes: 1 });
+    // Por debajo de la tolerancia del detalle la marca es opcional.
+    const chica = anotarCruceConMarcas(afi(95_000, 25_000), [], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
+    expect(chica.filas[0]).toMatchObject({ admiteMarca: true, requiereMarca: false });
+    expect(chica.resumen.bajoUmbral).toBe(1);
+    // La marca congela la diferencia del costo: si la reclasificación cambia, queda desactualizada.
+    const vigente = anotarCruceConMarcas(reclasificada, [marca({ cuenta4: "1516", diferencia: 12_000 })], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
+    expect(vigente.filas[0].desactualizada).toBe(false);
+    const cambio = anotarCruceConMarcas(afi(80_000, 10_000), [marca({ cuenta4: "1516", diferencia: 12_000 })], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
+    expect(cambio.filas[0]).toMatchObject({ requiereMarca: true, desactualizada: true });
+    // Sin la tolerancia del detalle (cierre anterior), el detalle solo admite marca opcional.
+    expect(anotarCruceConMarcas(reclasificada, [], { toleranciaMarca: 2_000 }).filas[0]).toMatchObject({ admiteMarca: true, requiereMarca: false });
   });
 
   it("sin tolerancia toda diferencia exige marca, como antes del parámetro", () => {

@@ -13,7 +13,9 @@ import { validarAuxiliarTercero, type FilaValidacionTercero, type ValidacionesTe
 import type { ResumenCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
 import { leerFormatosCartera } from "./cartera/tipo-formato";
 import { finDePeriodo } from "./cartera/fecha-corte";
+import { validarActivos, type ValidacionesActivos } from "./activos/validaciones-activos";
 import {
+  alertasActivosQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
@@ -49,6 +51,21 @@ export async function filasValidablesDelCargue(encabezadoId: number): Promise<Fi
     orderBy: { filaNum: "asc" },
   });
   return filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, datos: (f.datos ?? {}) as Record<string, unknown> }));
+}
+
+/** Activos fijos: las validaciones por activo de un cargue (lee su detalle). */
+export async function cargarValidacionesActivos(encabezadoId: number): Promise<ValidacionesActivos> {
+  const filas = await prisma.moduloDatoDetalle.findMany({
+    where: { encabezadoId },
+    select: { filaNum: true, valor: true, imputable: true, datos: true },
+    orderBy: { filaNum: "asc" },
+  });
+  return validarActivos(filas.map((f) => ({ filaNum: f.filaNum, valor: Number(f.valor), imputable: f.imputable, datos: (f.datos ?? {}) as Record<string, unknown> })));
+}
+
+/** ¿El módulo comenta validaciones por activo (Activos fijos)? */
+export function comentaValidacionesActivos(descriptor: DescriptorModulo): boolean {
+  return (descriptor.alertasConComentario ?? []).some((t) => t === "activos_negativos" || t === "falta_costo");
 }
 
 /** Lo del encabezado que necesitan las validaciones del auxiliar por tercero. */
@@ -117,18 +134,21 @@ export async function cargarValidacionesTercero(
 /**
  * Alertas del cargue que exigen comentario, con el comentario del período y su estado. Vacío en
  * los módulos que no declaran `alertasConComentario`. Inventarios las calcula de sus filas (`filas`
- * evita releer el detalle); Cartera y CxP, de las validaciones del auxiliar por tercero.
+ * evita releer el detalle); Cartera y CxP, de las validaciones del auxiliar por tercero; Activos fijos,
+ * de las validaciones por activo.
  */
 export async function alertasConComentarioDelCargue(
   descriptor: DescriptorModulo,
   encabezado: { id: number; clienteId: number; moduloCodigo: string; periodo: string },
-  fuente?: { filas?: FilaValidable[]; validacionesTercero?: ValidacionesTercero | null },
+  fuente?: { filas?: FilaValidable[]; validacionesTercero?: ValidacionesTercero | null; validacionesActivos?: ValidacionesActivos | null },
 ): Promise<AlertaConComentario[]> {
   if (!descriptor.alertasConComentario?.length) return [];
   let alertas: AlertaComentable[];
   if (descriptor.crucePorTercero.detalleTercero) {
     if (!fuente?.validacionesTercero) return [];
     alertas = alertasTerceroQueExigenComentario(descriptor, fuente.validacionesTercero);
+  } else if (comentaValidacionesActivos(descriptor)) {
+    alertas = alertasActivosQueExigenComentario(descriptor, fuente?.validacionesActivos ?? (await cargarValidacionesActivos(encabezado.id)));
   } else {
     alertas = alertasQueExigenComentario(descriptor, fuente?.filas ?? (await filasValidablesDelCargue(encabezado.id)));
   }

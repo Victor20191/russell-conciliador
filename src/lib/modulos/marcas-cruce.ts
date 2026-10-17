@@ -104,10 +104,48 @@ export type ResumenMarcas = {
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
 
-/** ¿La fila del cruce admite marca? Solo las que no cuadran. */
-export function admiteMarca(fila: Pick<FilaCruceContable, "cuadra">): boolean {
-  return !fila.cuadra;
+/**
+ * Activos fijos: ¿el costo o la depreciación del renglón difieren, aunque el neto cuadre? Es la
+ * reclasificación entre columnas que la cédula avisa con «Revisar columnas».
+ */
+function detalleDescuadrado(fila: Pick<FilaCruceContable, "columnas">, tolerancia: number): boolean {
+  const c = fila.columnas;
+  return !!c && (Math.abs(c.costo.diferencia) > tolerancia || Math.abs(c.depreciacion.diferencia) > tolerancia);
 }
+
+/**
+ * ¿La fila del cruce admite marca? Las que no cuadran y, en Activos fijos, también las que cuadran
+ * por el neto pero tienen el costo o la depreciación descuadrados.
+ */
+export function admiteMarca(fila: Pick<FilaCruceContable, "cuadra"> & Partial<Pick<FilaCruceContable, "columnas">>, tolerancia = TOLERANCIA_CRUCE): boolean {
+  return !fila.cuadra || detalleDescuadrado(fila, tolerancia);
+}
+
+/**
+ * ¿La marca de esta fila se apoya en el DETALLE (Activos fijos) y no en el neto? Cuando el neto queda
+ * dentro de la tolerancia de la cédula y el costo difiere, la marca explica la reclasificación: congela
+ * la diferencia del costo y por ella sabe si quedó desactualizada. Con cuentas excluidas o conceptos
+ * no contabilizados se queda en el neto, que es lo que esas exclusiones ajustan.
+ */
+export function marcaPorDetalle(
+  fila: Pick<FilaCruceContable, "cuadra" | "diferencia"> & Partial<Pick<FilaCruceContable, "columnas">>,
+  toleranciaMarca: number,
+  sinExclusiones: boolean,
+): boolean {
+  const netoTolerado = fila.cuadra || !requiereMarcaPorUmbral(fila.diferencia, toleranciaMarca);
+  return sinExclusiones && netoTolerado && !!fila.columnas && Math.abs(fila.columnas.costo.diferencia) > TOLERANCIA_CRUCE;
+}
+
+/** La cifra que una marca congela (y contra la que se compara): el neto o, por detalle, el costo. */
+export function diferenciaQueCongelaLaMarca(
+  fila: Pick<FilaCruceContable, "cuadra" | "diferencia"> & Partial<Pick<FilaCruceContable, "columnas">>,
+  toleranciaMarca: number,
+  sinExclusiones: boolean,
+): number {
+  return marcaPorDetalle(fila, toleranciaMarca, sinExclusiones) ? fila.columnas!.costo.diferencia : fila.diferencia;
+}
+
+const marcaSinExclusiones = (m: MarcaCruce) => m.noModulares.length === 0 && (m.clasificadoresNoModulares?.length ?? 0) === 0;
 
 /**
  * Pega a cada fila del cruce su marca (si existe) y resume lo pendiente.
@@ -119,25 +157,35 @@ export function admiteMarca(fila: Pick<FilaCruceContable, "cuadra">): boolean {
  * `toleranciaMarca` es la tolerancia de la cédula: una diferencia por debajo admite marca pero
  * no la exige (cuenta en `bajoUmbral`). Desde el monto, inclusive, la exige. Sin ella, toda
  * diferencia la exige, como antes del parámetro.
+ *
+ * `toleranciaDetalle` (Activos fijos, «Detalle de Activos fijos» de `/config/parametros`): con el
+ * neto dentro de la tolerancia, si el costo o la depreciación difieren desde ese monto el renglón
+ * también exige marca. Sin ella, el detalle solo admite marca opcional.
  */
 export function anotarCruceConMarcas(
   filas: readonly FilaCruceContable[],
   marcas: readonly MarcaCruce[],
-  opciones?: { tolerancia?: number; toleranciaMarca?: number },
+  opciones?: { tolerancia?: number; toleranciaMarca?: number; toleranciaDetalle?: number },
 ): { filas: FilaCruceMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
   const toleranciaMarca = opciones?.toleranciaMarca ?? 0;
+  const toleranciaDetalle = opciones?.toleranciaDetalle;
   const porCuenta = new Map(marcas.filter((m) => (m.dimension ?? "cuenta4") === "cuenta4").map((m) => [m.cuenta4, m]));
 
   const anotadas: FilaCruceMarcada[] = filas.map((fila) => {
     const marca = porCuenta.get(fila.cuenta4) ?? null;
-    const admite = admiteMarca(fila);
+    const admite = admiteMarca(fila, tolerancia);
+    const netoExige = !fila.cuadra && requiereMarcaPorUmbral(fila.diferencia, toleranciaMarca);
+    const detalleExige = !netoExige && toleranciaDetalle != null && !!fila.columnas
+      && detalleDescuadrado(fila, tolerancia)
+      && (requiereMarcaPorUmbral(fila.columnas.costo.diferencia, toleranciaDetalle) || requiereMarcaPorUmbral(fila.columnas.depreciacion.diferencia, toleranciaDetalle));
+    const congelada = marca ? diferenciaQueCongelaLaMarca(fila, toleranciaMarca, marcaSinExclusiones(marca)) : 0;
     return {
       ...fila,
       admiteMarca: admite,
-      requiereMarca: admite && requiereMarcaPorUmbral(fila.diferencia, toleranciaMarca),
+      requiereMarca: admite && (netoExige || detalleExige),
       marca,
-      desactualizada: marca != null && admite && Math.abs(fila.diferencia - marca.diferencia) > tolerancia,
+      desactualizada: marca != null && admite && Math.abs(congelada - marca.diferencia) > tolerancia,
     };
   });
 

@@ -24,6 +24,7 @@ import {
   fueraDeListaCedula,
   opcionesCedula,
   ordenClaveCedula,
+  subgrupoDeLaCedula,
   subgruposCedula,
 } from "@/lib/modulos/cuentas-modulo";
 import { cedulaDelCargue, type FilaAsignacionPeriodo } from "@/lib/modulos/asignacion-periodo";
@@ -31,12 +32,14 @@ import { cargarInsumosPeriodo, type InsumosPeriodo } from "@/lib/modulos/insumos
 import { leerHomologacionNomina } from "@/lib/modulos/insumos-periodo-lectura";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
-import { emparejarCedulaActivos } from "@/lib/modulos/activos/cedula-activos";
+import { emparejarCedulaActivos, motivoDepreciacionSinPareja } from "@/lib/modulos/activos/cedula-activos";
+import { entradasOpcionalesActivos } from "@/lib/modulos/activos/validaciones-activos";
 import { avisoContenidoIncompleto, contenidoDelCargue, filaEsSoloDepreciacion } from "@/lib/modulos/activos/contenido-archivo";
 import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { UMBRAL_AFI_DETALLE, UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import {
@@ -142,6 +145,8 @@ export type InsumosCruceModulo = {
   umbralDescuadre?: number | null;
   /** Tolerancia de la cédula con que se cerró. Ausente o null = la vigente de `/config/parametros`. */
   toleranciaCedula?: number | null;
+  /** Activos fijos: tolerancia del detalle con que se cerró. Ausente o null = la vigente. */
+  toleranciaDetalleActivos?: number | null;
 };
 
 export type BalanceFuenteCruce = {
@@ -206,6 +211,15 @@ export type ResultadoCruceModulo = {
   cedulaActivos: boolean;
   /** Depreciaciones que no se pudieron emparejar porque agrupan activos de renglones distintos. */
   sinEmparejarActivos: string[];
+  /** Depreciaciones (1592xx) con saldo o valor que ninguna pareja reclama. */
+  depreciacionSinActivo: string[];
+  /** Activos fijos: tolerancia del detalle con que se anotaron las marcas (la congela el cierre). */
+  toleranciaDetalleActivos: number | null;
+  /**
+   * Lo que impide cerrar sin que una marca lo destrabe (Activos fijos: depreciación sin pareja). Lo
+   * evalúan la página y el cierre con `evaluarCierreConciliacion`.
+   */
+  bloqueosCierre: string[];
   /** Activos fijos: el cargue solo trae costo o solo depreciación y todavía falta el otro archivo. */
   avisoContenidoActivos: string | null;
   /** Solo Nómina: vista por subcuenta y control de deducciones. */
@@ -288,6 +302,7 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
     cierreFijado: cierreFijadoDe(periodo),
     umbralDescuadre: periodo.umbralDescuadre,
     toleranciaCedula: periodo.toleranciaCedula,
+    toleranciaDetalleActivos: periodo.toleranciaDetalleActivos,
   };
 }
 
@@ -427,6 +442,21 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     cuentasPorClasificador,
     etiquetaRelacionado.toLowerCase(),
   );
+  // Activos fijos: adiciones, mejoras y valorización suman al costo del activo, y el deterioro cruza
+  // contra su correctora (159916, renglón 1599) restando. Sin ese renglón en la cédula, al saldo sin cuenta.
+  const etiquetaRol = (rol: string) => (descriptor.columnas.find((c) => c.nombre === rol)?.etiqueta ?? rol).toLowerCase();
+  const correctoraCfg = descriptor.cedula?.correctoraFija ?? null;
+  const claveCorrectora = correctoraCfg && subgrupoDeLaCedula(cedula, correctoraCfg.cuenta6.slice(0, 4))
+    ? claveCedula(cedula, correctoraCfg.cuenta6)
+    : null;
+  const entradasOpcionales = descriptor.cedula?.sumaAlCosto?.length || correctoraCfg
+    ? entradasOpcionalesActivos({
+        detalles: encabezado.detalles,
+        cuentasPorClasificador,
+        sumaAlCosto: (descriptor.cedula?.sumaAlCosto ?? []).map((rol) => ({ rol, etiqueta: etiquetaRol(rol) })),
+        correctora: correctoraCfg ? { rol: correctoraCfg.rol, etiqueta: etiquetaRol(correctoraCfg.rol), clave: claveCorrectora } : null,
+      })
+    : [];
 
   // Balance del período: uno confirmado que TERMINE en el mes de corte del cargue, el oficial si
   // existe y, si no, la versión más reciente (congelar NO es requisito para conciliar). Todos los
@@ -476,6 +506,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   let soloVisibles: ResumenCruceContable | null = null;
   /** Activos fijos: depreciaciones agrupadas entre activos de renglones distintos (no se parten). */
   let sinEmparejarActivos: string[] = [];
+  let depreciacionSinActivo: string[] = [];
   let sinMapeoContable: { total: number; filas: number } | null = null;
   let sinReglaContableFilas = 0;
   const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
@@ -630,6 +661,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         : [
             ...consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
             ...entradasRelacionadas,
+            ...entradasOpcionales,
           ],
       // La cédula se muestra COMPLETA: sus cuentas llevan renglón aunque estén en cero por los dos
       // lados. Las solo visibles (Nómina) no, que tienen su propio resumen aparte.
@@ -662,8 +694,11 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     // ACTIVOS FIJOS: cada depreciación 1592xx se funde con el renglón de su activo y el renglón
     // pasa a presentarse por el NETO (costo − depreciación), con las dos columnas en `columnas`.
     if (cedula.relacionPorSubgrupo.size > 0) {
-      const emparejada = emparejarCedulaActivos(cruceContable, cedula.relacionPorSubgrupo);
+      const emparejada = emparejarCedulaActivos(cruceContable, cedula.relacionPorSubgrupo, {
+        prefijosCorrectora: claveCorrectora ? new Set([claveCorrectora.slice(0, 4)]) : undefined,
+      });
       sinEmparejarActivos = emparejada.sinEmparejar;
+      depreciacionSinActivo = emparejada.sinActivo;
       // El desglose del renglón suma las cuentas del cliente del costo y las de la depreciación;
       // estas últimas en NEGATIVO, que es como restan del neto. Así Σ del desglose = `contable`
       // y marcar una cuenta no modular sigue cuadrando con la diferencia ajustada.
@@ -715,13 +750,29 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
     clasificadoresNoModulares: m.clasificadoresNoModulares.map((c) => ({ clasificador: c.clasificador, totalAlMarcar: Number(c.totalAlMarcar) })),
   }));
-  // Tolerancia de la cédula: la congelada en el cierre o la vigente. Decide qué diferencia exige marca.
+  // Tolerancia de la cédula: la congelada en el cierre o la vigente. Decide qué diferencia exige
+  // marca, nunca si hay cédula: un valor que no llegue (una caché vieja sin la clave) cae al de
+  // fábrica en vez de dejar el cruce sin filas.
+  const toleranciaVigente = cruceContable ? insumos.toleranciaCedula ?? (await getUmbralesAlertas()).cedula_modulos : null;
   const toleranciaCedula = cruceContable
-    ? insumos.toleranciaCedula ?? (await getUmbralesAlertas()).cedula_modulos
+    ? typeof toleranciaVigente === "number" && Number.isFinite(toleranciaVigente) && toleranciaVigente >= 0 ? toleranciaVigente : UMBRAL_CEDULA_MODULOS
     : null;
-  const anotado = cruceContable && toleranciaCedula != null
-    ? anotarCruceConMarcas(cruceContable.filas, marcas, { toleranciaMarca: toleranciaCedula })
+  // Activos fijos: con el neto dentro de la tolerancia, desde qué diferencia del costo o la
+  // depreciación el renglón exige marca. La del cierre o la vigente; fuera de Activos fijos, nada.
+  const cedulaActivos = cedula.relacionPorSubgrupo.size > 0;
+  const detalleVigente = cruceContable && cedulaActivos
+    ? insumos.toleranciaDetalleActivos ?? (await getUmbralesAlertas()).afi_detalle
     : null;
+  const toleranciaDetalleActivos = cruceContable && cedulaActivos
+    ? typeof detalleVigente === "number" && !Number.isNaN(detalleVigente) && detalleVigente >= 0 ? detalleVigente : UMBRAL_AFI_DETALLE
+    : null;
+  const anotado = cruceContable
+    ? anotarCruceConMarcas(cruceContable.filas, marcas, {
+        toleranciaMarca: toleranciaCedula ?? UMBRAL_CEDULA_MODULOS,
+        ...(toleranciaDetalleActivos != null ? { toleranciaDetalle: toleranciaDetalleActivos } : {}),
+      })
+    : null;
+  const motivoSinPareja = cruceContable ? motivoDepreciacionSinPareja({ sinEmparejar: sinEmparejarActivos, sinActivo: depreciacionSinActivo }) : null;
 
   return {
     balanceEmparejado,
@@ -738,6 +789,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     filasMarcadas: anotado?.filas ?? [],
     resumenMarcas: anotado?.resumen ?? null,
     toleranciaCedula,
+    // Infinito (copia anterior al parámetro) no viaja: para la pantalla y la copia es «sin regla».
+    toleranciaDetalleActivos: toleranciaDetalleActivos != null && Number.isFinite(toleranciaDetalleActivos) ? toleranciaDetalleActivos : null,
+    depreciacionSinActivo,
+    bloqueosCierre: motivoSinPareja ? [motivoSinPareja] : [],
     fueraDelModulo: cruceContable && fuera.filas > 0
       ? {
           total: Math.round(fuera.total * 100) / 100,
@@ -771,6 +826,9 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     filasMarcadas: [],
     resumenMarcas: null,
     toleranciaCedula: null,
+    toleranciaDetalleActivos: null,
+    depreciacionSinActivo: [],
+    bloqueosCierre: [],
     fueraDelModulo: null,
     soloVisibles: null,
     cedulaActivos: false,
