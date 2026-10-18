@@ -16,10 +16,10 @@ La novedad central es **Cargar balance**: en lugar de exigir una plantilla rígi
 
 ## 2. Qué se puede hacer en esta sección
 
-- **Ver** los balances por cliente, organizados por período y versión, con su estado (única, última, con alertas, congelada) y su nivel de completitud.
+- **Ver** los balances por cliente, agrupados por **fecha de corte** (el mensual, el anual y el «por terceros» que terminan el mismo día van juntos), con el período completo de cada uno, su estado («En proceso», «En proceso con alertas» o «Cerrado») y si sus saldos finales coinciden con los demás del corte.
 - **Cargar** un nuevo balance (función asistida por IA, descrita abajo).
 - **Comparar versiones** de un mismo período para ver qué cambió.
-- **Congelar** una versión como la oficial del período (queda como referencia para los demás módulos).
+- **Cerrar** un balance para que los módulos concilien contra él (exige que los balances del mismo corte coincidan en saldos finales) y **abrirlo** para corregirlo.
 - **Consultar** el plan de cuentas estándar y la bitácora de actividad.
 
 Cada usuario ve únicamente los balances de **sus clientes** (los responsables de la plataforma ven todos).
@@ -29,7 +29,7 @@ Cada usuario ve únicamente los balances de **sus clientes** (los responsables d
 ## 3. Quién puede cargar balances
 
 - **Cargar un balance:** el equipo operativo (Staff) y los administradores de la plataforma.
-- **Congelar la versión oficial:** el equipo operativo (Staff).
+- **Cerrar y abrir un balance:** el senior asignado al cliente y los administradores.
 - **Ver y comentar:** todos los roles, siempre sobre los clientes que tienen a cargo.
 
 Si un usuario no tiene permiso para cargar, simplemente no verá el botón.
@@ -123,12 +123,15 @@ Algunos archivos no son balances de comprobación completos y la plataforma los 
 
 ---
 
-## 9. Después de cargar: detalle, comparación y oficialización
+## 9. Después de cargar: detalle, comparación y cierre
 
 - **Ver el balance:** muestra los grandes totales (activo, pasivo, patrimonio, utilidad), el detalle por grupos de cuentas con su mapeo al estándar, las validaciones y el historial de versiones.
 - **Exportar el balance homologado:** genera un Excel donde el número y la descripción del nivel, el código de cuenta y la descripción de la cuenta aparecen en columnas independientes.
 - **Comparar versiones:** evidencia qué cuentas se agregaron, se quitaron o cambiaron entre una versión y otra.
-- **Congelar como oficial:** fija la versión definitiva del período (la que consume DIAN y la que prefieren las conciliaciones de los módulos). No es un requisito para conciliar: sin oficial, el cruce de un módulo usa la versión más reciente del período, y al cerrar la conciliación quedan en firme solo las cuentas de ese módulo.
+- **Balances del mismo corte:** todos los balances que terminan en la misma fecha deben tener los mismos saldos finales, porque los módulos concilian contra esa columna. La pantalla del balance compara cada uno con los demás del corte y muestra las cuentas que difieren. El borrador hace la misma comparación antes de confirmar: se puede cargar igual, y el balance queda inconsistente hasta que se elimine uno de los dos.
+- **Cerrar balance:** lo deja inmutable y habilita a los módulos a conciliar contra él. Solo se cierra la versión vigente de su línea, cuando todos los balances del corte coinciden en saldos finales y el prevalidador está aprobado. Si hay diferencias, el aviso dice con qué balances y cómo resolverlo: el que sobra se elimina (si está cerrado, primero se abre) y uno con una conciliación de módulo en firme solo se **reemplaza**: la conciliación pasa al nuevo, el viejo se elimina y el nuevo queda cerrado, todo en un paso, siempre que sus cuentas en firme sean idénticas en saldo final y homologación.
+- **Versión nueva:** para cargar una versión nueva de un balance cerrado, primero se abre la vigente con «Abrir balance». Así nunca quedan versiones viejas cerradas.
+- **Módulos:** solo concilian contra un balance cerrado del mes del cargue (Cartera y Cuentas por pagar, además, «Por terceros»). Sin él, el cruce no se calcula y la pestaña explica qué falta.
 
 ---
 

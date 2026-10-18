@@ -3,7 +3,6 @@ import {
   aperturaDeListado,
   aperturasDeclaradasPorGrupo,
   claveRenglonApertura,
-  periodoConAperturasParalelas,
   type EncabezadoAgrupable,
 } from "./agrupacion-aperturas";
 
@@ -36,28 +35,6 @@ describe("aperturasDeclaradasPorGrupo", () => {
       { clave: "7|Enero 2025", aperturaBalance: "tercero" },
     ]);
     expect(porGrupo.size).toBe(2);
-  });
-});
-
-describe("periodoConAperturasParalelas", () => {
-  it("parte el período solo con dos aperturas declaradas distintas", () => {
-    // Caso real: FUNDACION INFANTIL SANTIAGO CORAZON · Enero 2025 (v1 cuenta, v2 tercero).
-    expect(periodoConAperturasParalelas(declaradasDe("cuenta", "tercero"))).toBe(true);
-  });
-
-  it("NO parte cuando todas las versiones comparten apertura", () => {
-    expect(periodoConAperturasParalelas(declaradasDe("cuenta", "cuenta", "cuenta"))).toBe(false);
-  });
-
-  it("NO parte por los cargues legados sin apertura declarada", () => {
-    // Caso real: IVANAGRO S.A. · Junio 2026 (v1..v6 sin declarar, v7 cuenta). Partirlo
-    // sacaría un renglón fantasma con los datos viejos.
-    expect(periodoConAperturasParalelas(declaradasDe(null, null, null, null, null, null, "cuenta"))).toBe(false);
-  });
-
-  it("NO parte un período enteramente legado, ni uno inexistente", () => {
-    expect(periodoConAperturasParalelas(declaradasDe(null, null))).toBe(false);
-    expect(periodoConAperturasParalelas(undefined)).toBe(false);
   });
 });
 

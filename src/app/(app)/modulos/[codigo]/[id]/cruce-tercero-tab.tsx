@@ -43,7 +43,7 @@ export type CruceTerceroVm = {
   estado: "sin_balance" | "sin_detalle_tercero" | "bloqueado" | "listo";
   mensaje: string | null;
   /** Balance de comprobación del período (el mismo del cruce contable). */
-  balance: { id: number; version: string; periodoFin: string; esOficial: boolean; estaCongelado: boolean; descripcion: string } | null;
+  balance: { id: number; version: string; periodoFin: string; estaCongelado: boolean; descripcion: string } | null;
   /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
   avisoBalance: string | null;
   balanceTercero: { id: number; version: string } | null;
@@ -457,8 +457,10 @@ export function CruceTerceroTab({
 
   if (cruceTercero.estado === "sin_balance" || !balance) {
     return (
-      <EstadoVacio titulo="No hay balance de comprobación confirmado para este período" enlace={{ href: "/balance", texto: "Ir a Balance de comprobación →" }}>
-        No hay un balance confirmado para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>. El cruce por tercero usa el mismo balance que el cruce contable.
+      <EstadoVacio titulo="No hay un balance cerrado para este período" enlace={{ href: "/balance", texto: "Ir a Balance de comprobación →" }}>
+        {cruceTercero.mensaje
+          ?? <>No hay un balance cerrado con detalle por tercero para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>.</>}{" "}
+        El cruce por tercero usa el mismo balance que el cruce contable.
       </EstadoVacio>
     );
   }
@@ -521,7 +523,7 @@ export function CruceTerceroTab({
     <div className="flex flex-col gap-4">
       <p className="text-[11.5px] text-ink-500">
         Lado contable: balance <b className="text-ink-700">{balance.descripcion}</b>
-        {balance.esOficial ? " · oficial" : ""}{balance.estaCongelado ? " · cerrado" : ""}
+        {balance.estaCongelado ? " · cerrado" : " · abierto después de conciliar"}
         {cruceTercero.balanceTercero ? <> · detalle por tercero <b className="text-ink-700">{cruceTercero.balanceTercero.version}</b></> : null}
         {" · "}
         <Link href={`/balance/${balance.id}/terceros`} className="font-semibold text-blue-700 hover:underline">Ver por terceros</Link>

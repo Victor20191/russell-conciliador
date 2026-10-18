@@ -62,15 +62,20 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
   );
 }
 
-/** Distintivo de cuenta bloqueada en la hoja del árbol del balance. */
-export function DistintivoCuentaEnFirme({ bloqueo }: { bloqueo: BloqueoCuentaVm }) {
+/**
+ * Distintivo de cuenta bloqueada. `compacto` (18/Oct/2026) es el que va bajo el saldo final del
+ * árbol del balance —lo que queda en firme es esa columna y la homologación—, con el detalle en el
+ * título.
+ */
+export function DistintivoCuentaEnFirme({ bloqueo, compacto = false }: { bloqueo: BloqueoCuentaVm; compacto?: boolean }) {
+  const titulo = `Saldo final y homologación en firme por ${bloqueo.moduloCodigo} · cargue #${bloqueo.moduloDatoEncabezadoId} · cerró ${bloqueo.cerradoPor} · ${bloqueo.cerradoEn}`;
   return (
     <span
-      title={`En firme por ${bloqueo.moduloCodigo} · cargue #${bloqueo.moduloDatoEncabezadoId} · cerró ${bloqueo.cerradoPor} · ${bloqueo.cerradoEn}`}
+      title={titulo}
       className="inline-flex items-center gap-1 rounded border border-navy-700/30 bg-navy-700/10 px-1.5 py-px text-[10px] font-semibold text-navy-700"
     >
-      <Icon name="check" size={9} /> En firme · {bloqueo.moduloCodigo} #{bloqueo.moduloDatoEncabezadoId}
-      <span className="font-normal text-ink-500">· {bloqueo.cerradoPor} · {bloqueo.cerradoEn}</span>
+      <Icon name="check" size={9} /> En firme · {bloqueo.moduloCodigo}{compacto ? null : <> #{bloqueo.moduloDatoEncabezadoId}</>}
+      {!compacto && <span className="font-normal text-ink-500">· {bloqueo.cerradoPor} · {bloqueo.cerradoEn}</span>}
     </span>
   );
 }

@@ -11,28 +11,28 @@ import { MAX_JUSTIFICACION_DESBLOQUEO, MIN_JUSTIFICACION_DESBLOQUEO } from "@/li
 
 /**
  * «Abrir balance» (antes «Descongelar», 4/Oct/2026): abre un balance cerrado para corregirlo. El
- * modal dice qué pasa —queda en proceso y se podrá editar,
- * sigue siendo la oficial si lo era, hay que volver a cerrarlo y, si hay conciliaciones en firme
- * del corte, que sus cuentas siguen bloqueadas— y exige una justificación, que queda en la auditoría.
- * Se cierra solo con la X (convención de los modales).
+ * modal dice qué pasa —queda en proceso y se podrá editar, los módulos dejan de cruzar contra él,
+ * hay que volver a cerrarlo y, si hay conciliaciones en firme del corte, que sus cuentas siguen
+ * bloqueadas— y exige una justificación, que queda en la auditoría. Se cierra solo con la X
+ * (convención de los modales). `compacto` lo pinta como el botón pequeño de una fila (panel del corte).
  */
 export function DescongelarBalanceButton({
   id,
   titulo,
-  esOficial,
   cierres,
+  compacto = false,
 }: {
   id: number;
   /** «Cliente · período · versión», para el título del modal. */
   titulo: string;
-  esOficial: boolean;
   cierres: CierreAvisoDescongelar[];
+  compacto?: boolean;
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
   const [justificacion, setJustificacion] = useState("");
   const [pending, start] = useTransition();
-  const avisos = avisosDescongelar({ esOficial, cierres });
+  const avisos = avisosDescongelar({ cierres });
   const valida = justificacion.replace(/\s+/g, " ").trim().length >= MIN_JUSTIFICACION_DESBLOQUEO;
 
   const descongelar = () =>
@@ -51,9 +51,11 @@ export function DescongelarBalanceButton({
       <button
         type="button"
         onClick={() => setAbierto(true)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-warn-500 bg-white px-3 py-2 text-[12.5px] font-semibold text-warn-700 hover:bg-warn-100"
+        className={compacto
+          ? "inline-flex items-center gap-1 rounded border border-warn-500 bg-white px-2 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100"
+          : "inline-flex items-center gap-1.5 rounded-md border border-warn-500 bg-white px-3 py-2 text-[12.5px] font-semibold text-warn-700 hover:bg-warn-100"}
       >
-        <Icon name="edit" size={13} /> Abrir balance
+        <Icon name="edit" size={compacto ? 12 : 13} /> Abrir balance
       </button>
       <Modal
         open={abierto}

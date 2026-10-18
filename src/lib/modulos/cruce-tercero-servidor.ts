@@ -6,8 +6,8 @@ import "server-only";
  * Es el cálculo de la pestaña «Cruce por tercero» de `/modulos/[codigo]/[id]`, de su
  * exportación y el que verifican las Server Actions al marcar, emparejar y CERRAR la
  * conciliación. Se apoya en lo que ya resolvió el cruce contable (`cruce-contable-servidor.ts`):
- * el MISMO balance de comprobación del período (el oficial o, si no lo hay, la versión más
- * reciente: congelar no es requisito) y sus MISMAS compuertas
+ * el MISMO balance de comprobación del período (uno CERRADO y vigente, con detalle por tercero en
+ * Cartera y CxP) y sus MISMAS compuertas
  * (prevalidador, verificaciones críticas). Del balance toma el detalle por tercero LIGADO por
  * `loteId` —la captura que se hizo al confirmarlo—, nunca uno parecido del mismo mes.
  *
@@ -245,8 +245,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     return resultado(
       "sin_detalle_tercero",
       `El balance ${balanceEmparejado.descripcion} no conserva detalle por tercero. `
-        + (descriptor.crucePorTercero.preferirBalanceConTerceros ? "Ninguna otra versión del balance que termina en el período lo conserva. " : "")
-        + "Se captura al confirmar el borrador del balance declarando la apertura «Por terceros»: vuelve a cargarlo así para cruzar por tercero.",
+        + "Se captura al confirmar el borrador del balance declarando la apertura «Por terceros»: carga y cierra una versión declarada «Por terceros» para cruzar por tercero.",
     );
   }
   const ref = { id: balanceTercero.id, version: balanceTercero.version };

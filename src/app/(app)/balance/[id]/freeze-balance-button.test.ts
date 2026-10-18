@@ -1,45 +1,54 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ContenidoTrasladoCierre, FreezeBalanceButton, type TrasladoCierreVm } from "./freeze-balance-button";
+import { ContenidoCierreBloqueado, FreezeBalanceButton } from "./freeze-balance-button";
+import type { BloqueoCierreBalance } from "@/lib/balance/cierre-balance";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/app/actions/balance", () => ({ freezeBalance: vi.fn() }));
 // El runner sin plugin React transforma JSX con el runtime clásico.
 vi.stubGlobal("React", React);
 
-const traslado: TrasladoCierreVm = {
-  mensaje: "Esta versión conserva 3 cuentas en firme idénticas en saldo final y homologación. Al cerrarla, el cierre de INV · 2025-12 (cargue #38, cerró Camilo Perez Rojo) pasará a esta versión.",
-  cierres: [{ modulo: "INV", periodo: "2025-12", cargue: 38, cerradoPor: "Camilo Perez Rojo" }],
-  cuentasEnFirme: 3,
-};
+const render = (bloqueo: BloqueoCierreBalance) => renderToStaticMarkup(React.createElement(ContenidoCierreBloqueado, { bloqueo }));
 
 describe("FreezeBalanceButton", () => {
-  it("sin conciliación en firme: el botón de siempre, sin confirmación de traslado", () => {
+  it("sin bloqueo: el formulario de siempre, con el id del balance", () => {
     const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216 }));
     expect(html).toContain("Cerrar balance");
-    expect(html).not.toContain("confirmarTraslado");
-    expect(html).not.toContain("trasladar");
+    expect(html).toContain('name="id"');
+    expect(html).toContain('value="216"');
   });
 
-  it("bloqueado: el botón sale deshabilitado, con la razón y sin formulario", () => {
-    const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216, bloqueo: "El balance está en firme por la conciliación cerrada de INV · 2025-12" }));
-    expect(html).toContain("disabled");
-    expect(html).toContain("INV · 2025-12");
-    expect(html).not.toContain("confirmarTraslado");
-  });
-
-  it("con traslado: el clic abre un modal en vez de cerrar directo (la confirmación no está en el HTML inicial)", () => {
-    const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216, traslado }));
+  it("con bloqueo: un botón que abre el modal, sin formulario", () => {
+    const html = renderToStaticMarkup(React.createElement(FreezeBalanceButton, { id: 216, bloqueo: { tipo: "prevalidador", mensaje: "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado." } }));
     expect(html).toContain("Cerrar balance");
-    expect(html).not.toContain("confirmarTraslado"); // el modal está cerrado hasta el clic
+    expect(html).not.toContain('name="id"');
+    expect(html).not.toMatch(/\sdisabled[=\s>]/); // el botón no se deshabilita: abre el modal
   });
 });
 
-describe("ContenidoTrasladoCierre", () => {
-  it("explica el traslado: mensaje, cierre, cargue, quién cerró y cuántas cuentas", () => {
-    const html = renderToStaticMarkup(React.createElement(ContenidoTrasladoCierre, { traslado }));
-    for (const texto of ["3 cuentas en firme idénticas", "INV · 2025-12", "cargue #38", "Camilo Perez Rojo", "3 cuenta(s) en firme", "no se desbloquea"]) {
+describe("ContenidoCierreBloqueado", () => {
+  it("diferencias: nombra cada balance, sus cuentas, la acción que lo resuelve y el panel del corte", () => {
+    const html = render({
+      tipo: "inconsistente",
+      balances: [
+        { id: 7, version: "v2", nombre: "Diciembre 2025 · Por cuenta", cuentas: 3, accion: "abrir_y_eliminar" },
+        { id: 9, version: "v1", nombre: "Enero 2025 – Diciembre 2025", cuentas: 1, accion: "reemplazar" },
+      ],
+    });
+    for (const texto of ["Diciembre 2025 · Por cuenta v2", "difiere en 3 cuenta(s)", "ábrelo y elimínalo", "Reemplazar el balance conciliado", "/balance/9", "#corte"]) {
       expect(html).toContain(texto);
     }
+  });
+
+  it("versión anterior: enlaza la vigente", () => {
+    const html = render({ tipo: "no_vigente", vigente: { id: 31, version: "v4" } });
+    expect(html).toContain("versión anterior");
+    expect(html).toContain("/balance/31");
+  });
+
+  it("versión anterior cerrada, sin comparar y prevalidador", () => {
+    expect(render({ tipo: "version_anterior_cerrada", cerradas: [{ id: 5, version: "v1" }] })).toContain("ábrela antes de cerrar esta");
+    expect(render({ tipo: "sin_comparar", pendientes: [{ id: 6, version: "v1", nombre: "Diciembre 2025" }] })).toContain("Revisar comparación");
+    expect(render({ tipo: "prevalidador", mensaje: "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado." })).toContain("todavía no ha sido aprobado");
   });
 });

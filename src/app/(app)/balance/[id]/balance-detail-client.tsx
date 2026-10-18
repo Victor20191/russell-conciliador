@@ -57,7 +57,7 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null; inconsistenteAperturas?: boolean };
+export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión VIGENTE de su línea (la que entra a la comparación del corte)? */ vigente: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null };
 
 // Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
 // `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
@@ -481,6 +481,8 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   const pad = 16 + depth * 18;
   // Contadores de alertas del subárbol (solo en nodos de agrupación: clase/subgrupo/cuenta estándar).
   const c = tieneHijos ? conteos.get(nodo.key) : undefined;
+  // Cuenta del cliente en firme por una conciliación de módulo: su saldo final y su homologación.
+  const bloqueo = nodo.nivel === 8 ? bloqueos[nodo.code] : undefined;
 
   const fila = (
     <tr
@@ -504,7 +506,6 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
         {nodo.name}
         {nodo.critical && nodo.nivel === 8 && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}
-        {nodo.nivel === 8 && bloqueos[nodo.code] && <span className="ml-2 inline-block align-middle"><DistintivoCuentaEnFirme bloqueo={bloqueos[nodo.code]} /></span>}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
@@ -513,7 +514,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
         >
           <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
         </button>
-        {onEliminar && nodo.nivel === 8 && nodo.detalleId != null && !nodo.std && (
+        {onEliminar && nodo.nivel === 8 && nodo.detalleId != null && !nodo.std && !bloqueo && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onEliminar(nodo); }}
@@ -524,8 +525,11 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
           </button>
         )}
       </td>
-      <td className="px-4 py-2">{celdaMapeo(nodo, puedeHomologar, onAsignar)}</td>
-      <CeldasImportesBalance anterior={nodo.prevBalance} debito={nodo.debe} credito={nodo.haber} saldo={nodo.balance} variacion={nodo.variation} grupo={esGrupo} validacion={celdaValidacion(nodo, val)} />
+      <td className="px-4 py-2">{celdaMapeo(nodo, puedeHomologar, onAsignar, bloqueo)}</td>
+      <CeldasImportesBalance
+        anterior={nodo.prevBalance} debito={nodo.debe} credito={nodo.haber} saldo={nodo.balance} variacion={nodo.variation} grupo={esGrupo} validacion={celdaValidacion(nodo, val)}
+        saldoAdjunto={bloqueo ? <DistintivoCuentaEnFirme bloqueo={bloqueo} compacto /> : undefined}
+      />
     </tr>
   );
 
@@ -577,7 +581,7 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   );
 }
 
-function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
+function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: NodoBalance) => void, bloqueo?: BloqueoCuentaVm): React.ReactNode {
   if (nodo.nivel === 6) return nodo.mapped ? <Chip label="Russell" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />;
   if (nodo.nivel !== 8) return null;
 
@@ -602,6 +606,15 @@ function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: N
     <Chip label="Asignar" tone="warn" />
   );
 
+  // Homologación en firme: se ve, pero no se ofrece cambiarla (la acción también lo rechaza).
+  if (bloqueo) {
+    return (
+      <span className="inline-flex items-center gap-1" title={`Homologación en firme por la conciliación de ${bloqueo.moduloCodigo} (cargue #${bloqueo.moduloDatoEncabezadoId}). Para cambiarla, el senior o gerente debe desbloquearla.`}>
+        {contenido}
+        <Icon name="shield" size={11} className="text-navy-700" />
+      </span>
+    );
+  }
   if (!puedeHomologar || nodo.detalleId == null) return contenido;
   return (
     <button
@@ -1075,18 +1088,18 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                       ellas escribiendo la URL a mano). */}
                   {v.id === balanceId ? (
                     <span className="inline-flex items-center gap-1.5">
-                      <Chip label={v.esOficial ? `${v.v} · oficial` : v.v} tone={v.esOficial ? "ok" : "ink"} />
+                      <Chip label={v.vigente ? `${v.v} · vigente` : v.v} tone={v.vigente ? "ok" : "ink"} />
                       <span className="text-[10.5px] text-ink-400">esta</span>
                     </span>
                   ) : (
                     <Link href={`/balance/${v.id}`} title={`Abrir la versión ${v.v}`} className="inline-flex">
-                      <Chip label={v.esOficial ? `${v.v} · oficial` : v.v} tone={v.esOficial ? "ok" : "blue"} />
+                      <Chip label={v.vigente ? `${v.v} · vigente` : v.v} tone={v.vigente ? "ok" : "blue"} />
                     </Link>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
-                <td className="px-4 py-2.5 text-ink-600">{v.file}{v.inconsistenteAperturas && <div className="mt-1"><a href={`/balance/${v.id}#cruce-aperturas`}><Chip label="Inconsistente entre aperturas" tone="err" /></a></div>}<div className="text-[11px] text-ink-400">{v.size}</div></td>
+                <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
                 <td className="px-4 py-2.5">
                   {/* Apertura DECLARADA por quien cargó cada versión (no una heurística). */}
                   {parsearApertura(v.apertura) ? (

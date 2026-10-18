@@ -138,8 +138,8 @@ async function main() {
       prisma.prevalidadorCuenta.count({ where: { module: { code: c.moduloCodigo }, actualizadoEn: { gt: c.cerradoEn } } }),
       prisma.balancePruebaEncabezado.findMany({
         where: { clienteId: c.clienteId },
-        select: { id: true, periodoInicio: true, periodoFin: true, esOficial: true, estaCongelado: true },
-        orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
+        select: { id: true, periodoInicio: true, periodoFin: true, estaCongelado: true },
+        orderBy: [{ periodoFin: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
       }),
     ]);
     const vivo = seleccionarBalanceCruceModulo(balancesCorte, c.periodo);

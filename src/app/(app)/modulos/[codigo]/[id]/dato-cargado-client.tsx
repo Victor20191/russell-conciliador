@@ -281,14 +281,15 @@ export type CruceContableVm = {
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
   bloqueo: string | null;
-  /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
+  /** Con la conciliación en firme: hoy se elegiría otro balance cerrado del mes (el cruce sigue contra el conciliado). */
   avisoBalance: string | null;
+  /** Por qué no hay balance contra el que cruzar: solo cruza uno CERRADO del mes (con terceros en Cartera y CxP). */
+  motivoSinBalance?: string | null;
   balanceFuente: {
     id: number;
     version: string;
     periodoInicio: string;
     periodoFin: string;
-    esOficial: boolean;
     estaCongelado: boolean;
     descripcion: string;
   } | null;
@@ -2507,9 +2508,13 @@ function CruceContableTab({
       <div className="flex flex-col gap-4">
       {panelFirme}
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
-        <div className="text-[13px] font-semibold text-ink-800">No hay balance de comprobación confirmado para este período</div>
+        <div className="text-[13px] font-semibold text-ink-800">No hay un balance cerrado para este período</div>
         <p className="max-w-md text-[12.5px] text-ink-500">
-          No hay un balance de comprobación confirmado (fuera de borrador) para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga y confirma un balance de ese período para ver el cruce.
+          {cruceContable.motivoSinBalance
+            ?? <>No hay un balance de comprobación cerrado para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga el balance de ese período y ciérralo para ver el cruce.</>}
+        </p>
+        <p className="max-w-md text-[11.5px] text-ink-400">
+          Los módulos concilian solo contra un balance cerrado: cerrarlo exige que todos los balances del mismo corte coincidan en saldos finales.
         </p>
         <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
           Ir a Balance de comprobación →
@@ -2607,9 +2612,7 @@ function CruceContableTab({
           >
             balance {cruceContable.balanceFuente.descripcion}
           </Link>
-          {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
-            ? " · oficial y cerrado"
-            : cruceContable.balanceFuente.esOficial ? " · oficial" : " · en proceso"}
+          {cruceContable.balanceFuente.estaCongelado ? " · cerrado" : " · abierto después de conciliar"}
           {cruceContable.bloqueo ? "" : " · prevalidador aprobado"}
           .
         </p>

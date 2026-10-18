@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip } from "@/components/ui";
@@ -33,10 +32,14 @@ import {
   parsearRevisionesReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
-import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
+import { cargarVistaCorte } from "@/lib/balance/comparacion-corte-servidor";
+import { CortePanel } from "./corte-panel";
 import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-bloqueo";
 import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
-import { decidirCongelarConCierres, mensajeConciliacionEnFirme, mensajeTrasladoCierre } from "@/lib/conciliacion/cuentas-bloqueo";
+import { evaluarCierreBalance, mensajePrevalidadorParaCerrar } from "@/lib/balance/cierre-balance";
+import { evaluarReemplazoBalance } from "@/lib/balance/reemplazo-balance";
+import { EliminarBalanceCorteButton, ReemplazarBalanceButton, type ReemplazoVm } from "./acciones-corte";
+import type { ReactNode } from "react";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string; tab?: string }> }) {
   await requirePermiso("balance:ver");
@@ -76,11 +79,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     perfilesCliente,
     contextoPrevalidador,
     pendienteRows,
-    crucesAperturas,
+    vistaCorte,
     cierresPeriodo,
     bloqueadasPeriodo,
     terceroLigado,
     cierresCliente,
+    cerradosCliente,
   ] = await Promise.all([
     authorizePermiso("balance:crear", { clientId }),
     authorizePermiso("balance:revisar", { clientId }),
@@ -90,7 +94,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { _count: { select: { crucesComoCuenta: { where: { inconsistente: true } }, crucesComoTercero: { where: { inconsistente: true } } } }, id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, aperturaBalance: true, creadoEn: true },
+      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, aperturaBalance: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -119,7 +123,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       where: { clienteId: balance.clienteId, origenMapeo: ORIGEN_PENDIENTE },
       select: { code: true },
     }),
-    cargarEstadoCrucesAperturas(id, clientId),
+    // Balances con la misma fecha de corte y si sus saldos finales coinciden (fail-closed).
+    cargarVistaCorte({ id, clienteId: clientId, periodoFin: balance.periodoFin }),
     // Conciliación EN FIRME del mes de corte del balance (cualquier módulo, aunque se haya
     // conciliado contra un balance de otro período con la misma fecha fin): cierres + cuentas.
     cierresFirmes(clientId, balance),
@@ -134,6 +139,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Todas las conciliaciones en firme del cliente: deciden qué alcances de «Eliminar» se ofrecen
     // (el balance con que se cerró una no se elimina hasta desbloquearla).
     cierresFirmes(clientId),
+    // Balances cerrados del cliente: se abren antes de eliminarlos.
+    prisma.balancePruebaEncabezado.findMany({ where: { clienteId: clientId, estaCongelado: true }, select: { id: true, periodo: true, version: true } }),
   ]);
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
@@ -178,27 +185,28 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
-  // Congelar en un período con conciliación en firme: qué debe pintar el botón. La
-  // decisión que manda es la de la acción, dentro de su transacción; esto solo evita
-  // ofrecer un clic que va a fallar y explica el traslado antes de confirmarlo.
-  const decisionCongelar = !balance.estaCongelado && cierresPeriodo.length > 0
-    ? decidirCongelarConCierres({
-        balanceId: id,
-        cierres: cierresPeriodo,
-        bloqueadas: bloqueadasPeriodo.map((b) => ({ ...b, cierreId: b.cierre.id })),
-        filasNuevas: filas,
-      })
-    : null;
-  const trasladoCongelar = decisionCongelar?.tipo === "traslado"
-    ? {
-        mensaje: mensajeTrasladoCierre(decisionCongelar.cierres, decisionCongelar.cuentasEnFirme),
-        cierres: decisionCongelar.cierres.map((c) => ({ modulo: c.moduloCodigo, periodo: c.periodo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor })),
-        cuentasEnFirme: decisionCongelar.cuentasEnFirme,
-      }
-    : null;
-  const bloqueoCongelar = decisionCongelar?.tipo === "bloqueado"
-    ? mensajeConciliacionEnFirme(decisionCongelar.cierres, decisionCongelar.violaciones)
-    : null;
+  // Qué impide cerrar el balance (versión anterior, diferencias con otro balance del corte o
+  // prevalidador). Solo anticipa: la acción recalcula el corte y decide en su transacción, así que un
+  // par «sin comparar» no deshabilita el botón.
+  const mensajePrevalidadorCierre = contextoPrevalidador.ok
+    ? mensajePrevalidadorParaCerrar(contextoPrevalidador.value)
+    : "No se puede cerrar el balance: no fue posible leer el prevalidador.";
+  const evaluacionCierre = evaluarCierreBalance({
+    balanceId: id,
+    vigenteDeMiLinea: vistaCorte.vigenteDeMiLinea,
+    anterioresCerradas: vistaCorte.anterioresCerradas,
+    otros: vistaCorte.otros.map((o) => ({
+      id: o.id,
+      version: o.version,
+      nombre: o.nombre,
+      estaCongelado: o.estaCongelado,
+      enFirme: o.enFirme.length > 0,
+      comparacion: o.comparacion ? { inconsistente: o.comparacion.inconsistente, cuentas: o.comparacion.diferencias.length } : null,
+    })),
+    mensajePrevalidador: mensajePrevalidadorCierre,
+    ignorarSinComparar: true,
+  });
+  const bloqueoCierre = evaluacionCierre.ok ? null : evaluacionCierre.bloqueo;
   // Cuentas homologadas a otra clase contable (validación V6): alimentan el badge
   // del botón de re-homologar, porque son las que la acción viene a resolver.
   const filasFueraDeClase = filas.filter((f) => cruzaClaseContable(f.cuenta8, f.cuenta6Russell));
@@ -235,10 +243,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // La constancia de cada versión se compone al LEER: nota aclaratoria (texto) +
   // reubicaciones aprobadas (JSON estructurado). En la bitácora va resumida; el
   // banner de esta versión las pinta con la misma ficha que mostró el borrador.
+  // Vigentes del corte: la versión más reciente de cada línea (período + apertura).
+  const idsVigentes = new Set([...vistaCorte.otros.map((o) => o.id), ...(vistaCorte.esVigente ? [id] : [])]);
   const versions: Version[] = hermanos.map((h) => {
     const reubicaciones = parsearRevisionesReubicacionBalance(h.reubicacionesAprobadas);
     return {
-      id: h.id, v: h.version, esOficial: h.esOficial,
+      id: h.id, v: h.version, vigente: idsVigentes.has(h.id),
       date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
       file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
       balanced: h.cuadrado, note: h.nota ?? "",
@@ -247,14 +257,60 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         : construirNotasAprobacionBalance(h.comentarioAprobacion, reubicaciones) ?? "",
       changes: h.cambios,
       apertura: h.aperturaBalance,
-      inconsistenteAperturas: h._count.crucesComoCuenta + h._count.crucesComoTercero > 0,
     };
   });
-  const versionOficialId = hermanos.find((h) => h.esOficial)?.id ?? null;
+  const versionVigenteId = vistaCorte.vigenteDeMiLinea?.id ?? null;
+  const conDiferencias = vistaCorte.otros.filter((o) => o.comparacion?.inconsistente);
   const reubicacionesAprobadas = parsearRevisionesReubicacionBalance(balance.reubicacionesAprobadas);
   // Hay diff si existe una versión anterior a esta (cargada antes).
   const esta = hermanos.find((h) => h.id === id);
   const hasDiff = esta != null && hermanos.some((h) => h.creadoEn < esta.creadoEn);
+
+  // Botones del panel del corte para resolver una diferencia: abrir el otro (si está cerrado),
+  // eliminarlo (abierto y sin conciliación en firme) o reemplazarlo (con conciliación en firme, solo
+  // desde la versión vigente que queda). Cada acción vuelve a comprobarlo todo en el servidor.
+  const cierresAvisoCorte = cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor }));
+  const reemplazoDe = (viejo: { id: number; nombre: string; version: string }): ReemplazoVm => {
+    const cierresViejo = cierresPeriodo.filter((c) => c.balanceEncabezadoId === viejo.id);
+    const idsCierres = new Set(cierresViejo.map((c) => c.id));
+    const evaluacion = evaluarReemplazoBalance({
+      viejo: { id: viejo.id, clienteId: clientId, periodoFin: balance.periodoFin },
+      nuevo: { id, clienteId: clientId, periodoFin: balance.periodoFin, esVigente: vistaCorte.esVigente },
+      cierresDelViejo: cierresViejo,
+      bloqueadas: bloqueadasPeriodo.filter((b) => idsCierres.has(b.cierre.id)).map((b) => ({ ...b, cierreId: b.cierre.id })),
+      filasNuevas: filas,
+      tercero: [],
+      mensajePrevalidador: mensajePrevalidadorCierre,
+      conciliacionesFormales: 0,
+    });
+    return {
+      viejo,
+      nuevo: { id, version: balance.version },
+      cierres: cierresViejo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, periodo: c.periodo, cargue: c.moduloDatoEncabezadoId })),
+      cuentasEnFirme: evaluacion.ok ? evaluacion.cuentasEnFirme : new Set(bloqueadasPeriodo.filter((b) => idsCierres.has(b.cierre.id)).map((b) => b.cuenta8)).size,
+      motivo: evaluacion.ok ? null : evaluacion.mensaje,
+    };
+  };
+  const accionesCorte: Record<number, ReactNode> = {};
+  if (vistaCorte.disponible && vistaCorte.esVigente) {
+    for (const o of vistaCorte.otros) {
+      if (!o.comparacion?.inconsistente) continue;
+      if (o.enFirme.length > 0) {
+        if (puedeCongelar && eliminarAuth.ok) accionesCorte[o.id] = <ReemplazarBalanceButton reemplazo={reemplazoDe(o)} />;
+      } else if (o.estaCongelado) {
+        if (puedeCongelar) {
+          accionesCorte[o.id] = (
+            <DescongelarBalanceButton id={o.id} titulo={`${balance.nombreCliente} · ${o.periodo} · ${o.version}`} cierres={cierresAvisoCorte} compacto />
+          );
+        }
+      } else if (eliminarAuth.ok) {
+        accionesCorte[o.id] = <EliminarBalanceCorteButton balanceId={o.id} nombre={`${o.nombre} ${o.version}`} />;
+      }
+    }
+    if (puedeCongelar && eliminarAuth.ok) {
+      for (const a of vistaCorte.anterioresEnFirme) accionesCorte[a.id] = <ReemplazarBalanceButton reemplazo={reemplazoDe(a)} />;
+    }
+  }
 
   const meta: Meta = {
     rows: balance.filasTotales, mapped: balance.mapeadas, unmapped: balance.sinMapear, critical: balance.criticas,
@@ -268,7 +324,18 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
   return (
     <div>
-      {cargado && <FlashToast tone={crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente ? "info" : "success"} title="Balance cargado" message={crucesAperturas.pares.some((p) => p.inconsistente) ? "Se detectaron inconsistencias entre aperturas. Ambos archivos quedan marcados; revisa el detalle en Terceros." : crucesAperturas.pendiente ? "La carga se completó. La validación entre archivos está pendiente; puedes reintentarla desde Terceros." : "El borrador se confirmó como balance."} clearParam="cargado" />}
+      {cargado && (
+        <FlashToast
+          tone={conDiferencias.length > 0 || vistaCorte.estado === "sin_comparar" || !vistaCorte.disponible ? "info" : "success"}
+          title="Balance cargado"
+          message={conDiferencias.length > 0
+            ? `Sus saldos finales difieren de ${conDiferencias.length} balance(s) del mismo corte: revisa «Balances del mismo corte».`
+            : vistaCorte.estado === "sin_comparar" || !vistaCorte.disponible
+              ? "La carga se completó. La comparación con los balances del mismo corte está pendiente; usa «Revisar comparación»."
+              : "El borrador se confirmó como balance."}
+          clearParam="cargado"
+        />
+      )}
       <PageHeader
         title={balance.nombreCliente}
         subtitle={`${balance.periodo} · versión ${balance.version}`}
@@ -289,14 +356,13 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             )}
             <Chip label={estado} tone={tonoEstadoBalance(estado)} />
             {!balance.estaCongelado && puedeCongelar && (
-              <FreezeBalanceButton id={id} traslado={trasladoCongelar} bloqueo={bloqueoCongelar} />
+              <FreezeBalanceButton id={id} bloqueo={bloqueoCierre} />
             )}
             {balance.estaCongelado && puedeCongelar && (
               <DescongelarBalanceButton
                 id={id}
                 titulo={`${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`}
-                esOficial={balance.esOficial}
-                cierres={cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor }))}
+                cierres={cierresAvisoCorte}
               />
             )}
             {eliminarAuth.ok && (
@@ -312,6 +378,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                   balanceId: id,
                   idsPeriodo: hermanos.map((h) => h.id),
                   cierresCliente: cierresCliente,
+                  cerradosCliente,
                 })}
               />
             )}
@@ -349,25 +416,17 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             {balance.motivoDescongelado ? <>: «{balance.motivoDescongelado}»</> : null}.
           </span>
           <span className="font-semibold">
-            Cuando termines, vuelve a cerrarlo{balance.esOficial ? " (sigue siendo la versión oficial)" : ""}.
+            Cuando termines, vuelve a cerrarlo: mientras esté abierto, los módulos no concilian contra él.
           </span>
         </div>
       )}
 
-      {(crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente) && (
-        <section id="cruce-aperturas" aria-label="Estado de validación entre aperturas" className={`my-4 flex scroll-mt-20 flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 font-semibold sm:rounded-full ${crucesAperturas.pares.some((p) => p.inconsistente) ? "bg-err-100 text-err-700" : "bg-warn-100 text-warn-700"}`}>
-          <p className="text-[13px]">
-            {crucesAperturas.pares.some((p) => p.inconsistente)
-              ? "Hay inconsistencias entre los archivos del balance. Consulta el detalle en Terceros."
-              : "La validación entre archivos está pendiente. Puedes revisarla en Terceros."}
-          </p>
-          <Link href={`/balance/${id}/terceros`} className="text-[13px] font-semibold underline underline-offset-2 hover:no-underline">
-            Revisar en Terceros
-          </Link>
-        </section>
-      )}
-
       {cierresVm.length > 0 && <ConciliacionEnFirmeBanner cierres={cierresVm} balanceId={id} periodo={balance.periodo} />}
+
+      {/* Balances con la misma fecha de corte: un balance único, vigente y consultable no necesita el panel. */}
+      {(!vistaCorte.disponible || !vistaCorte.esVigente || vistaCorte.otros.length > 0 || vistaCorte.anterioresEnFirme.length > 0) && (
+        <CortePanel balanceId={id} vista={vistaCorte} puedeRevisar={mapearAuth.ok || puedeCongelar} accionesPorBalance={accionesCorte} />
+      )}
 
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
@@ -384,12 +443,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
       {!sums && (
         <div className="rounded-lg border border-ink-150 bg-white p-6 text-[13px] text-ink-500">
-          Esta versión no tiene detalle contable cargado. El detalle completo está en la versión oficial cerrada.
+          Esta versión no tiene detalle contable cargado. El detalle completo está en la versión vigente de su línea.
           {/* Sin detalle no se monta el detalle (ni su pestaña «Versiones»): sin
               esta salida, la versión sería un callejón sin salida. */}
-          {versionOficialId != null && versionOficialId !== id && (
+          {versionVigenteId != null && versionVigenteId !== id && (
             <a
-              href={`/balance/${versionOficialId}?tab=versiones`}
+              href={`/balance/${versionVigenteId}?tab=versiones`}
               className="ml-1 font-medium text-blue-500 hover:underline"
             >
               Ver las {hermanos.length} versiones del período

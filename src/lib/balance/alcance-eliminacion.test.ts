@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bloqueosEliminacionBalance,
+  motivoEliminacionCerrados,
   parseAlcanceEliminacionBalance,
   resolverAlcanceEliminacionBalance,
 } from "./alcance-eliminacion";
@@ -63,5 +64,28 @@ describe("bloqueosEliminacionBalance", () => {
     const otraVersion = bloqueosEliminacionBalance({ balanceId: 211, idsPeriodo: [210, 211], cierresCliente: [cierre] });
     expect(otraVersion.version).toBeNull();
     expect(otraVersion.periodo).not.toBeNull();
+  });
+
+  it("un balance cerrado se abre antes de eliminarlo, en cualquier alcance que lo incluya", () => {
+    const cerrado = { id: 210, periodo: "Diciembre 2025", version: "v1" };
+    const r = bloqueosEliminacionBalance({ balanceId: 210, idsPeriodo: [210, 211], cierresCliente: [], cerradosCliente: [cerrado] });
+    expect(r.version).toBe("No se puede eliminar esta versión: el balance v1 de Diciembre 2025 está cerrado. Ábrelo primero con «Abrir balance».");
+    expect(r.periodo).not.toBeNull();
+    expect(r.cliente_perfiles).not.toBeNull();
+    // Otra versión abierta del período sí se elimina sola.
+    expect(bloqueosEliminacionBalance({ balanceId: 211, idsPeriodo: [210, 211], cierresCliente: [], cerradosCliente: [cerrado] }).version).toBeNull();
+  });
+
+  it("la conciliación en firme manda sobre el aviso de cerrado", () => {
+    const r = bloqueosEliminacionBalance({ balanceId: 210, idsPeriodo: [210], cierresCliente: [cierre], cerradosCliente: [{ id: 210, periodo: "Diciembre 2025", version: "v1" }] });
+    expect(r.version).toContain("cerró la conciliación");
+  });
+});
+
+describe("motivoEliminacionCerrados", () => {
+  it("null sin cerrados; plural con varios", () => {
+    expect(motivoEliminacionCerrados("este período", [])).toBeNull();
+    expect(motivoEliminacionCerrados("este período", [{ periodo: "Diciembre 2025", version: "v1" }, { periodo: "Diciembre 2025", version: "v2" }]))
+      .toBe("No se puede eliminar este período: los balances v1 de Diciembre 2025, v2 de Diciembre 2025 están cerrados. Ábrelo primero con «Abrir balance».");
   });
 });

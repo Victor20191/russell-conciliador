@@ -2,23 +2,21 @@ import { describe, expect, it } from "vitest";
 import { avisosDescongelar, quedoDescongelado } from "./descongelar";
 
 describe("abrir un balance cerrado", () => {
-  it("avisa que queda en proceso, si sigue siendo la oficial y que hay que volver a cerrarlo", () => {
-    const avisos = avisosDescongelar({ esOficial: true, cierres: [] });
+  it("avisa que queda en proceso, que los módulos dejan de cruzar y que hay que volver a cerrarlo", () => {
+    const avisos = avisosDescongelar({ cierres: [] });
     expect(avisos).toHaveLength(3);
     expect(avisos[0]).toContain("queda en proceso");
     expect(avisos[0]).toContain("editar otra vez");
-    expect(avisos[1]).toContain("Sigue siendo la versión oficial");
+    expect(avisos[1]).toBe("Los módulos dejan de cruzar contra este balance hasta que lo vuelvas a cerrar.");
     expect(avisos[2]).toContain("vuelve a cerrarlo");
     expect(avisos[2]).toContain("prevalidador");
-    expect(avisosDescongelar({ esOficial: false, cierres: [] })[1]).toContain("No es la versión oficial");
   });
 
   it("lista las conciliaciones en firme del corte y aclara que sus cuentas siguen bloqueadas", () => {
-    const una = avisosDescongelar({ esOficial: true, cierres: [{ modulo: "Cartera", cargue: 41, cerradoPor: "Ana" }] });
+    const una = avisosDescongelar({ cierres: [{ modulo: "Cartera", cargue: 41, cerradoPor: "Ana" }] });
     expect(una).toHaveLength(4);
     expect(una[3]).toBe("Hay una conciliación en firme en este corte: Cartera (cargue #41, cerró Ana). Sus cuentas siguen bloqueadas aunque el balance quede abierto.");
     const dos = avisosDescongelar({
-      esOficial: true,
       cierres: [{ modulo: "Cartera", cargue: 41, cerradoPor: "Ana" }, { modulo: "Nómina", cargue: 88, cerradoPor: "Luis" }],
     });
     expect(dos[3]).toContain("Hay conciliaciones en firme");

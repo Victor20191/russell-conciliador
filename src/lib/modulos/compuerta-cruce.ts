@@ -3,16 +3,17 @@ import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balanc
 // COMPUERTA Y SELECCIÓN DEL BALANCE del cruce de un módulo — puro.
 //
 // Todos los módulos se concilian contra el SALDO FINAL del balance (21/Sep/2026, también Ingresos
-// y Nómina): sirve cualquier balance confirmado que TERMINE en el mes de corte del cargue, sin
-// importar desde cuándo arranca (mensual, trimestral o acumulado del año). Ya no se exige un
-// balance que cubra exactamente el mes ni el rango del cargue.
+// y Nómina): sirve un balance que TERMINE en el mes de corte del cargue, sin importar desde cuándo
+// arranca (mensual, trimestral o acumulado del año). Desde el 18/Oct/2026 ese balance tiene que estar
+// CERRADO y ser la versión vigente de su línea: cerrar exige que todos los balances del corte
+// coincidan en saldos finales, así que cualquier cerrado del corte da el mismo cruce. Cartera y CxP
+// exigen además que conserve el detalle por tercero, porque su cruce por tercero lo lee.
 
 export type ContextoCompuertaCruce = {
   balance: {
     clienteId: number;
     periodoInicio: Date;
     periodoFin: Date;
-    esOficial: boolean;
     estaCongelado: boolean;
   };
   prevalidador:
@@ -31,9 +32,9 @@ export type ContextoCompuertaCruce = {
 };
 
 export type CandidatoBalanceCruce = {
+  id: number;
   periodoInicio: Date;
   periodoFin: Date;
-  esOficial: boolean;
   estaCongelado: boolean;
   /** El balance conserva su detalle por tercero (captura ligada por `loteId`). */
   conDetalleTercero?: boolean;
@@ -49,33 +50,56 @@ export function balanceTerminaEnPeriodo(periodoFin: Date, periodoModulo: string)
   return periodoFin.getUTCFullYear() === anio && periodoFin.getUTCMonth() + 1 === mes;
 }
 
-/** El oficial (congelado) del período si lo hay; si no, el primero en el orden recibido (la versión más reciente). */
-function preferirOficial<T extends CandidatoBalanceCruce>(candidatos: readonly T[]): T | null {
-  return candidatos.find((c) => c.esOficial) ?? candidatos[0] ?? null;
-}
+export type OpcionesBalanceCruce = {
+  /** Cartera y CxP: solo sirve un balance que conserve el detalle por tercero. */
+  exigirDetalleTercero?: boolean;
+  /** Ids de las versiones vigentes de su línea; ausente = no se filtra (pruebas, datos ya filtrados). */
+  vigentes?: ReadonlySet<number>;
+};
 
 /**
- * Balance contra el que cruza un cargue: uno confirmado que termine en su mes de corte. Congelar
- * NO es requisito: se usa el oficial (congelado) del período si existe y, si no, la versión más
- * reciente confirmada (los candidatos llegan con el oficial primero y luego por recencia).
- *
- * Con `preferirDetalleTercero` (Cartera y CxP) antes se queda con las versiones del mes que
- * conservan el detalle por tercero, si alguna lo hace: el cruce por tercero solo lee el detalle
- * LIGADO al balance elegido, y así las dos pestañas cruzan contra el mismo balance aunque la
- * oficial sea «Por cuenta».
+ * Balance contra el que cruza un cargue: uno CERRADO y vigente que termine en su mes de corte (con
+ * detalle por tercero si el módulo lo exige). Los candidatos llegan del más reciente al más antiguo
+ * (fecha de corte, fecha de carga, id) y gana el primero. null = no hay contra qué cruzar
+ * (`motivoSinBalanceCruce` dice por qué).
  */
 export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   candidatos: readonly T[],
   periodoModulo: string,
-  opciones: { preferirDetalleTercero?: boolean } = {},
+  opciones: OpcionesBalanceCruce = {},
 ): T | null {
-  const terminanEnPeriodo = candidatos.filter((candidato) => balanceTerminaEnPeriodo(candidato.periodoFin, periodoModulo));
-  if (terminanEnPeriodo.length === 0) return null;
-  const conDetalle = opciones.preferirDetalleTercero ? terminanEnPeriodo.filter((c) => c.conDetalleTercero === true) : [];
-  return preferirOficial(conDetalle.length > 0 ? conDetalle : terminanEnPeriodo);
+  return candidatos.find((c) =>
+    balanceTerminaEnPeriodo(c.periodoFin, periodoModulo)
+    && c.estaCongelado
+    && (!opciones.vigentes || opciones.vigentes.has(c.id))
+    && (!opciones.exigirDetalleTercero || c.conDetalleTercero === true),
+  ) ?? null;
 }
 
-export type BalanceDescribible = CandidatoBalanceCruce & { id: unknown; version: string; aperturaBalance?: string | null };
+export type MotivoSinBalanceCruce = "sin_balance_en_mes" | "sin_balance_cerrado" | "sin_balance_cerrado_por_terceros";
+
+/** Por qué un cargue no tiene balance contra el que cruzar (null = sí lo tiene). */
+export function motivoSinBalanceCruce<T extends CandidatoBalanceCruce>(
+  candidatos: readonly T[],
+  periodoModulo: string,
+  opciones: OpcionesBalanceCruce & { modulo?: string } = {},
+): { motivo: MotivoSinBalanceCruce; mensaje: string } | null {
+  if (seleccionarBalanceCruceModulo(candidatos, periodoModulo, opciones)) return null;
+  const delMes = candidatos.filter((c) => balanceTerminaEnPeriodo(c.periodoFin, periodoModulo));
+  if (delMes.length === 0) {
+    return { motivo: "sin_balance_en_mes", mensaje: `No hay un balance con corte en ${periodoModulo}. Carga el balance del período en /balance y ciérralo para conciliar contra él.` };
+  }
+  const cerrados = delMes.filter((c) => c.estaCongelado && (!opciones.vigentes || opciones.vigentes.has(c.id)));
+  if (cerrados.length === 0) {
+    return { motivo: "sin_balance_cerrado", mensaje: `No hay un balance cerrado con corte en ${periodoModulo}. Cierra el balance del período en /balance para conciliar contra él.` };
+  }
+  return {
+    motivo: "sin_balance_cerrado_por_terceros",
+    mensaje: `El balance cerrado con corte en ${periodoModulo} no conserva el detalle por tercero, que ${opciones.modulo ?? "este módulo"} necesita. Carga uno «Por terceros» del mismo corte y ciérralo.`,
+  };
+}
+
+export type BalanceDescribible = Omit<CandidatoBalanceCruce, "id"> & { id: unknown; version: string; aperturaBalance?: string | null };
 
 const fechaISO = (fecha: Date): string => fecha.toISOString().slice(0, 10);
 
@@ -83,31 +107,6 @@ const fechaISO = (fecha: Date): string => fecha.toISOString().slice(0, 10);
 export function describirBalanceCruce(balance: Pick<BalanceDescribible, "version" | "aperturaBalance" | "periodoInicio" | "periodoFin">): string {
   const apertura = parsearApertura(balance.aperturaBalance);
   return `${balance.version}${apertura ? ` «${etiquetaApertura(apertura)}»` : ""} (${fechaISO(balance.periodoInicio)} a ${fechaISO(balance.periodoFin)})`;
-}
-
-/**
- * Lo que hay que saber de la elección del balance: que el mes de corte tiene VARIAS oficiales o
- * (Cartera y CxP) que no se usó la oficial porque no trae el detalle por tercero. Lo primero pasa
- * porque congelar desmarca solo las versiones con el mismo TEXTO de período —«Diciembre 2025» y
- * «Enero 2025 – Diciembre 2025» quedan oficiales las dos— mientras el cruce toma todo balance
- * que termina en el mes. Sin nada que avisar devuelve null.
- */
-export function avisoSeleccionBalance<T extends BalanceDescribible>(
-  candidatos: readonly T[],
-  elegido: T | null,
-  periodoModulo: string,
-): string | null {
-  if (!elegido) return null;
-  const oficiales = candidatos.filter((c) => c.esOficial && balanceTerminaEnPeriodo(c.periodoFin, periodoModulo));
-  const lista = oficiales.map((c) => describirBalanceCruce(c)).join(", ");
-  const porDetalle = elegido.conDetalleTercero === true && oficiales.some((c) => c.conDetalleTercero !== true);
-  if (oficiales.length > 1) {
-    return `Hay ${oficiales.length} balances oficiales que terminan en ${periodoModulo}: ${lista}. Se cruza contra el ${describirBalanceCruce(elegido)}, ${porDetalle ? "el que conserva el detalle por tercero" : "el cargado más recientemente"}.`;
-  }
-  if (!elegido.esOficial && oficiales.length === 1 && porDetalle) {
-    return `Se cruza contra el balance ${describirBalanceCruce(elegido)} porque conserva el detalle por tercero; el oficial del período, ${lista}, no lo trae.`;
-  }
-  return null;
 }
 
 /**
@@ -140,8 +139,8 @@ export function validarBalanceFijado(contexto: ContextoCompuertaCruce, clientId:
 }
 
 /**
- * Aviso cuando hoy el cruce elegiría otro balance que el de la conciliación en firme (se cargó o
- * congeló otra versión del mes): el cruce se sigue mostrando contra el conciliado.
+ * Aviso cuando hoy el cruce elegiría otro balance que el de la conciliación en firme (se cerró otro
+ * balance del mes): el cruce se sigue mostrando contra el conciliado.
  */
 export function avisoBalanceFijado<T extends BalanceDescribible>(fijado: T, vivo: T | null): string | null {
   if (!vivo || vivo.id === fijado.id) return null;
@@ -161,12 +160,9 @@ export function cuentasAgrupadorasExcluidas(
 }
 
 /**
- * Compuerta compartida por el conciliador formal y el cruce dentro del módulo.
- *
- * Congelar el balance NO es requisito para conciliar: lo que queda en firme son las
- * cuentas del módulo, y eso lo hace el CIERRE de la conciliación (`cerrarConciliacionModulo`),
- * no un congelado previo de toda la versión. La compuerta solo exige que el balance sea del
- * cliente, que el prevalidador esté listo para el módulo y que conserve una aprobación vigente.
+ * Compuerta compartida por el conciliador formal y el cruce dentro del módulo: el balance (ya
+ * elegido entre los CERRADOS del mes, `seleccionarBalanceCruceModulo`) tiene que ser del cliente,
+ * tener el prevalidador listo para el módulo y conservar una aprobación vigente.
  */
 export function validarCompuertaPrevalidador(
   contexto: ContextoCompuertaCruce,

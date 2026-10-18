@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const LOTE_ID = "11111111-1111-4111-8111-111111111111";
 const LOTE_ID_NUEVO = "22222222-2222-4222-8222-222222222222";
-const controlAperturas = vi.hoisted(() => vi.fn(async () => true));
-vi.mock("@/lib/balance/cruce-aperturas-servidor", () => ({ revisarCrucesAperturasSeguro: controlAperturas }));
+const controlCorte = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@/lib/balance/comparacion-corte-servidor", () => ({ recalcularComparacionesDelCorteSeguro: controlCorte, auditarInconsistenciasCorte: vi.fn(async () => undefined) }));
 
 const mocks = vi.hoisted(() => {
   type AjustesCargaMock = {
@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => {
     advertenciaArchivoFuente: boolean;
     diferenciaArchivoFuente: number | null;
     aperturaBalance: string | null;
+    estaCongelado?: boolean;
+    creadoEn?: Date;
   };
   type Lote = {
     loteId: string;
@@ -113,8 +115,10 @@ const mocks = vi.hoisted(() => {
     state.balances.find((b) =>
       where.loteId != null ? b.loteId === where.loteId : b.id === where.id,
     ) ?? null);
-  const balanceFindMany = vi.fn(async ({ where }: { where: { clienteId: number; periodo: string } }) =>
-    state.balances.filter((b) => b.clienteId === where.clienteId && b.periodo === where.periodo));
+  // Por período (versionado) o por corte (`periodoFin`): en estas pruebas todos los balances del
+  // cliente comparten la fecha de corte, así que el filtro por corte devuelve los del cliente.
+  const balanceFindMany = vi.fn(async ({ where }: { where: { clienteId: number; periodo?: string; periodoFin?: Date } }) =>
+    state.balances.filter((b) => b.clienteId === where.clienteId && (where.periodo === undefined || b.periodo === where.periodo)));
   const balanceCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
     const balance: Balance = {
       id: state.balances.length + 1,
@@ -831,7 +835,7 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
   });
 
   it("ejecuta el control solo después del commit y un fallo del control no revierte la carga", async () => {
-    controlAperturas.mockImplementationOnce(async () => {
+    controlCorte.mockImplementationOnce(async () => {
       expect(mocks.state.balances).toHaveLength(1);
       expect(mocks.state.staging).toHaveLength(0);
       expect(mocks.state.lotes).toHaveLength(0);
@@ -839,7 +843,29 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     });
     await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
     expect(mocks.state.balances).toHaveLength(1);
-    expect(controlAperturas).toHaveBeenCalledWith(1, 7, "Analista");
+    expect(controlCorte).toHaveBeenCalledWith(7, expect.any(Date), "Analista");
+  });
+
+  it("rechaza una versión nueva si la vigente de la misma línea está cerrada y conserva el borrador", async () => {
+    mocks.state.balances.push({
+      id: 50, loteId: "anterior", clienteId: 7, periodo: "Enero 2026", version: "v1", aperturaBalance: "cuenta",
+      advertenciaArchivoFuente: false, diferenciaArchivoFuente: null, estaCongelado: true, creadoEn: new Date(Date.UTC(2026, 1, 1)),
+    });
+    const r = await cargarBorrador({}, formPromocion());
+    expect(r).toMatchObject({ ok: false, message: "La versión v1 de Enero 2026 · Por cuenta está cerrada: ábrela con «Abrir balance» antes de cargar una versión nueva." });
+    expect(mocks.state.balances).toHaveLength(1);
+    expect(mocks.state.staging).toHaveLength(1);
+    expect(mocks.state.lotes).toHaveLength(1);
+    expect(controlCorte).not.toHaveBeenCalled();
+  });
+
+  it("carga una versión nueva cuando la vigente de la misma línea está abierta", async () => {
+    mocks.state.balances.push({
+      id: 50, loteId: "anterior", clienteId: 7, periodo: "Enero 2026", version: "v1", aperturaBalance: "cuenta",
+      advertenciaArchivoFuente: false, diferenciaArchivoFuente: null, estaCongelado: false, creadoEn: new Date(Date.UTC(2026, 1, 1)),
+    });
+    await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/2?cargado=1");
+    expect(mocks.state.balances.map((b) => b.version)).toEqual(["v1", "v2"]);
   });
 
   it("conserva agrupadoras originales y enlaza la procedencia antes de purgar el borrador", async () => {

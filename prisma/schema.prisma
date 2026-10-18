@@ -687,9 +687,12 @@ model BalancePruebaEncabezado {
   periodo                  String    @map("periodo") // display, p. ej. "Enero 2026"
   periodoInicio            DateTime  @map("periodo_inicio") @db.Date
   periodoFin               DateTime  @map("periodo_fin") @db.Date
-  // Versionado (un oficial por cliente/período; cerrado bloquea edición). En pantalla
-  // `estaCongelado` es «Cerrar balance» / «Abrir balance» (17/Oct/2026).
+  // Versionado por (cliente, texto del período); cerrado bloquea edición. En pantalla
+  // `estaCongelado` es «Cerrar balance» / «Abrir balance» (17/Oct/2026). Los balances se
+  // agrupan y comparan por FECHA DE CORTE (`periodoFin`): ver `balance_comparacion_corte`.
   version                  String    @map("version")
+  // Sin uso desde el 18/Oct/2026: cerrar ya no marca una «oficial» (varios cerrados del mismo
+  // corte son idénticos en saldos finales). La columna se conserva; los cargues escriben false.
   esOficial                Boolean   @default(false) @map("es_oficial")
   estaCongelado            Boolean   @default(false) @map("esta_congelado")
   // «En proceso» | «En proceso con alertas» | «Cerrado» (`src/lib/balance/estado-balance.ts`).
@@ -757,8 +760,8 @@ model BalancePruebaEncabezado {
   prevalidadorOverrides      PrevalidadorCuentaBalance[]
   prevalidadorRevisiones     PrevalidadorRevisionBalance[]
   conciliacionesPrevalidadas Reconciliation[]
-  crucesComoCuenta           BalanceCruceApertura[]        @relation("CruceAperturaCuenta")
-  crucesComoTercero          BalanceCruceApertura[]        @relation("CruceAperturaTercero")
+  comparacionesComoA         BalanceComparacionCorte[]     @relation("ComparacionCorteA")
+  comparacionesComoB         BalanceComparacionCorte[]     @relation("ComparacionCorteB")
 
   @@unique([clienteId, periodo, version])
   @@index([clienteId, periodo])
@@ -766,22 +769,28 @@ model BalancePruebaEncabezado {
   @@map("balance_prueba_encabezado")
 }
 
-// Evidencia por PAREJA de archivos confirmados. Una inconsistencia es permanente
-// hasta eliminar uno de sus archivos (FK CASCADE); no modifica oficialidad/cuadre.
-model BalanceCruceApertura {
-  id               Int                     @id @default(autoincrement()) @map("id")
-  balanceCuentaId  Int                     @map("balance_cuenta_id")
-  balanceTerceroId Int                     @map("balance_tercero_id")
-  balanceCuenta    BalancePruebaEncabezado @relation("CruceAperturaCuenta", fields: [balanceCuentaId], references: [id], onDelete: Cascade)
-  balanceTercero   BalancePruebaEncabezado @relation("CruceAperturaTercero", fields: [balanceTerceroId], references: [id], onDelete: Cascade)
-  inconsistente    Boolean                 @default(false) @map("inconsistente")
-  resultado        Json                    @map("resultado")
-  creadoEn         DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn    DateTime                @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+// Comparación de SALDOS FINALES entre dos balances VIGENTES del mismo corte (cliente + fecha fin
+// exacta), 18/Oct/2026. Par ordenado (a < b). Se recalcula al cargar, eliminar, cerrar y con
+// «Revisar»; no es pegajosa. `resultado` guarda solo las cuentas con diferencia
+// (`src/lib/balance/comparacion-corte.ts`). Cae en cascada con cualquiera de los dos balances.
+model BalanceComparacionCorte {
+  id                Int                     @id @default(autoincrement()) @map("id")
+  clienteId         Int                     @map("cliente_id")
+  periodoFin        DateTime                @map("periodo_fin") @db.Date
+  balanceAId        Int                     @map("balance_a_id")
+  balanceBId        Int                     @map("balance_b_id")
+  balanceA          BalancePruebaEncabezado @relation("ComparacionCorteA", fields: [balanceAId], references: [id], onDelete: Cascade)
+  balanceB          BalancePruebaEncabezado @relation("ComparacionCorteB", fields: [balanceBId], references: [id], onDelete: Cascade)
+  inconsistente     Boolean                 @default(false) @map("inconsistente")
+  cuentasComparadas Int                     @default(0) @map("cuentas_comparadas")
+  resultado         Json                    @map("resultado")
+  creadoEn          DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn     DateTime                @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  @@unique([balanceCuentaId, balanceTerceroId])
-  @@index([balanceTerceroId])
-  @@map("balance_cruce_aperturas")
+  @@unique([balanceAId, balanceBId])
+  @@index([clienteId, periodoFin])
+  @@index([balanceBId])
+  @@map("balance_comparacion_corte")
 }
 
 model BalancePruebaDetalle {

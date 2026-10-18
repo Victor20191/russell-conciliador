@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink, Card, EmptyState } from "@/components/ui";
 import { parseId } from "@/lib/ids";
 import { etiquetaApertura } from "@/lib/balance/apertura-balance";
@@ -9,8 +9,7 @@ import { construirArbolVisorTerceros } from "@/lib/balance/arbol-visor-terceros"
 import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/balance/identidad-tercero";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import TercerosClient from "./terceros-client";
-import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
-import { CruceAperturasPanel } from "../cruce-aperturas-panel";
+import Link from "next/link";
 
 /**
  * Visor interno de SOLO LECTURA: compara el detalle del balance por cuenta (esta
@@ -41,8 +40,6 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
   // de cargar cualquier detalle (fail-closed). Quien no alcanza el cliente no ve
   // ni siquiera si existe un balance por tercero vinculado.
   await requirePermiso("balance:ver", { clientId: balance.clienteId });
-
-  const [cruces, crearAuth, editarAuth] = await Promise.all([cargarEstadoCrucesAperturas(id, balance.clienteId), authorizePermiso("balance:crear", { clientId: balance.clienteId }), authorizePermiso("balance:editar", { clientId: balance.clienteId })]);
 
   const filasBalanceRaw = await prisma.balancePruebaDetalle.findMany({
     where: { encabezadoId: id },
@@ -126,7 +123,10 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         subtitle={`${balance.nombreCliente} · ${balance.periodo} · versión ${balance.version} · apertura ${etiquetaApertura(balance.aperturaBalance)}`}
       />
 
-      <CruceAperturasPanel balanceId={id} estado={cruces} puedeRevisar={crearAuth.ok || editarAuth.ok} />
+      <p className="mb-4 text-[12px] text-ink-500">
+        La comparación de saldos finales con los demás balances de la misma fecha de corte está en{" "}
+        <Link href={`/balance/${id}#corte`} className="font-medium text-blue-600 hover:underline">Balances del mismo corte</Link>.
+      </p>
 
       {motivoSinVinculo ? (
         <Card>

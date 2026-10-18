@@ -1,7 +1,10 @@
 "use server";
 
 import { procedenciaBalance } from "@/lib/balance/procedencia-mapeo";
-import { revisarCrucesAperturasSeguro } from "@/lib/balance/cruce-aperturas-servidor";
+import { auditarInconsistenciasCorte, recalcularComparacionesDelCorteSeguro } from "@/lib/balance/comparacion-corte-servidor";
+import { ErrorVersionSobreCerrada, etiquetaCorte, lineasDelCorte, motivoVersionSobreCerrada, nombreLinea, vigenteCerradaDeLaLinea } from "@/lib/balance/corte";
+import { encabezadosDelCorte, insumosCierreBalanceEn, recalcularComparacionesDelCorteEn, saldosFinalesDe, SELECT_ENCABEZADO_CORTE } from "@/lib/balance/comparacion-corte-datos";
+import { compararSaldosFinales, type DiferenciaCorte } from "@/lib/balance/comparacion-corte";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -13,6 +16,7 @@ import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { parseAlcanceHomologacion, resolverAlcanceHomologacion } from "@/lib/balance/alcance-homologacion";
 import {
+  motivoEliminacionCerrados,
   parseAlcanceEliminacionBalance,
   resolverAlcanceEliminacionBalance,
   type AlcanceEliminacionBalance,
@@ -65,11 +69,14 @@ import {
   ErrorConciliacionEnFirme,
   exigirCambioHomologacionCompatible,
   exigirCargueCompatibleConCierres,
+  filasTerceroEnFirmeDeBalance,
   registrarIntentoBloqueado,
 } from "@/lib/conciliacion/verificar-bloqueo";
-import { decidirCongelarConCierres, diferenciasTerceroEnFirme, mensajeConciliacionEnFirme, mensajeTrasladoCierre, validarJustificacionDesbloqueo, type CambioHomologacion, type FilaTerceroEnFirme } from "@/lib/conciliacion/cuentas-bloqueo";
-import { ESTADO_CERRADO, estadoEnProceso } from "@/lib/balance/estado-balance";
+import { mensajeConciliacionEnFirme, validarJustificacionDesbloqueo, type CambioHomologacion } from "@/lib/conciliacion/cuentas-bloqueo";
+import { evaluarCierreBalance, mensajeCierreBloqueado, mensajePrevalidadorParaCerrar } from "@/lib/balance/cierre-balance";
+import { descripcionReemplazo, evaluarReemplazoBalance } from "@/lib/balance/reemplazo-balance";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { ESTADO_CERRADO, estadoEnProceso } from "@/lib/balance/estado-balance";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
@@ -1155,13 +1162,21 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       },
     };
   } catch (e) {
-    // El bloqueo por conciliación en firme es un rechazo de negocio, no un fallo
-    // de BD: el usuario debe ver qué módulo y qué cuentas lo impiden.
-    if (e instanceof ErrorConciliacionEnFirme) return { ok: false, message: e.message };
+    // El bloqueo por conciliación en firme y la versión nueva sobre una vigente cerrada son
+    // rechazos de negocio, no fallos de BD: el usuario debe ver qué lo impide.
+    if (e instanceof ErrorConciliacionEnFirme || e instanceof ErrorVersionSobreCerrada) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD(contexto, e) };
   }
 }
 
+/**
+ * «Cerrar balance» (18/Oct/2026): deja el balance inmutable y habilita a los módulos a conciliar
+ * contra él. Ya no hay «versión oficial» ni traslado del cierre de una conciliación: un balance se
+ * cierra cuando es la versión vigente de su línea, todos los vigentes de su corte coinciden con él en
+ * saldos finales y el prevalidador está aprobado (`evaluarCierreBalance`). Todo se decide dentro de
+ * la transacción: primero se recalculan las comparaciones del corte, así un par «sin comparar» se
+ * resuelve aquí mismo y una diferencia nueva no se escapa.
+ */
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
   // Primer gate: sesión + permiso de rol (antes de tocar la BD).
   const authz = await authorizePermiso(PERMISO_REVISION_BALANCE);
@@ -1178,238 +1193,112 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!referencia) return { ok: false as const, message: "Balance inexistente." };
 
+      // Orden global: prevalidador-catalogo → balance-oficial → conciliacion-cierre → balance-corte.
       await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
       await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
 
       const balance = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!balance) return { ok: false as const, message: "Balance inexistente." };
       if (balance.estaCongelado) {
-        return {
-          ok: true as const,
-          message: "El balance ya estaba cerrado.",
-          balance,
-          congelado: false,
-        };
+        return { ok: true as const, message: "El balance ya estaba cerrado.", balance, congelado: false };
       }
-      // Conciliación EN FIRME. Congelar otra versión cambia el balance oficial sobre el
-      // que se cerró el cruce de un módulo, así que se juzga con el MISMO predicado que
-      // ya admite o rechaza CARGAR esa versión (`evaluarCambiosBloqueados`): si las
-      // cuentas en firme son idénticas, se congela y el cierre se traslada a esta versión
-      // —con confirmación explícita del usuario—; si alguna cambia, se rechaza con el
-      // detalle. La decisión se toma aquí dentro, en la transacción; la UI solo anticipa.
-      // Los cierres son los del MES DE CORTE del balance (su fecha fin), no solo los de su período:
-      // congelar «Diciembre 2025» se juzga contra lo conciliado con «Enero – Diciembre 2025».
-      const cierresPeriodo = await cierresFirmes(balance.clienteId, balance, tx);
-      const cierresAjenos = cierresPeriodo.filter((c) => c.balanceEncabezadoId !== id);
-      let traslado: { cierres: typeof cierresAjenos; cuentasEnFirme: number } | null = null;
+
+      // Defensa en firme: una conciliación del mismo mes de corte cerrada contra OTRO balance (otro
+      // día del mes, o la versión anterior de esta línea) no puede quedar contradicha por este. Es el
+      // mismo predicado que admite o rechaza cargar la versión (`evaluarCambiosBloqueados`).
+      const cierresAjenos = (await cierresFirmes(balance.clienteId, balance, tx)).filter((c) => c.balanceEncabezadoId !== id);
       if (cierresAjenos.length > 0) {
         // Mismo candado que toma el desbloqueo: no cruzarse con uno concurrente.
-        for (const c of cierresAjenos) {
-          await tomarCandadoTransaccion(tx, `conciliacion-cierre:${balance.clienteId}:${c.moduloCodigo}:${c.periodo}`);
-        }
-        const [bloqueadas, filasNuevas] = await Promise.all([
-          cuentasBloqueadas(balance.clienteId, balance, undefined, tx),
-          tx.balancePruebaDetalle.findMany({
-            where: { encabezadoId: id },
-            select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-          }),
-        ]);
-        const decision = decidirCongelarConCierres({
-          balanceId: id,
-          cierres: cierresPeriodo,
-          bloqueadas: bloqueadas.map((b) => ({ ...b, cierreId: b.cierre.id })),
-          filasNuevas: filasNuevas.map((f) => ({
+        const candados = [...new Set(cierresAjenos.map((c) => `conciliacion-cierre:${balance.clienteId}:${c.moduloCodigo}:${c.periodo}`))].sort();
+        for (const clave of candados) await tomarCandadoTransaccion(tx, clave);
+        const filas = await tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: id },
+          select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        });
+        try {
+          await exigirCargueCompatibleConCierres(balance.clienteId, balance, filas.map((f) => ({
             cuenta8: f.cuenta8, cuenta6Russell: f.cuenta6Russell,
             saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-          })),
-        });
-        if (decision.tipo === "bloqueado") {
-          return { ok: false as const, message: mensajeConciliacionEnFirme(cierresAjenos, decision.violaciones), bloqueadoPor: cierresAjenos, balance };
-        }
-        if (decision.tipo === "traslado") {
-          // Un cierre con cruce por tercero (Cartera, CxP) se fija a su balance: trasladarlo a esta
-          // versión hace que su cruce por tercero lea ESTE detalle por tercero, así que tiene que
-          // conservarlo y ser idéntico en las cuentas en firme.
-          const conTercero = cierresAjenos.filter((c) => descriptorModulo(c.moduloCodigo)?.crucePorTercero.habilitado === true);
-          if (conTercero.length > 0) {
-            const lotes = await tx.balancePruebaEncabezado.findMany({
-              where: { id: { in: [id, ...conTercero.map((c) => c.balanceEncabezadoId)] } },
-              select: { id: true, loteId: true },
-            });
-            const loteDe = new Map(lotes.map((l) => [l.id, l.loteId]));
-            const filasTercero = async (loteId: string | null | undefined): Promise<FilaTerceroEnFirme[] | null> => {
-              if (!loteId) return null;
-              const captura = await tx.balanceTerceroEncabezado.findFirst({ where: { loteId }, select: { id: true } });
-              if (!captura) return null;
-              const filas = await tx.balanceTerceroDetalle.findMany({
-                where: { encabezadoId: captura.id },
-                select: { cuenta8: true, claveTercero: true, nitTercero: true, saldoFinal: true },
-              });
-              return filas.map((f) => ({ cuenta8: f.cuenta8, tercero: f.claveTercero ?? f.nitTercero, saldoFinal: Number(f.saldoFinal) }));
-            };
-            const nuevas = await filasTercero(loteDe.get(id));
-            for (const c of conTercero) {
-              const conciliadas = await filasTercero(loteDe.get(c.balanceEncabezadoId));
-              if (!conciliadas) continue; // el balance conciliado no tenía detalle por tercero
-              const enFirmeDelCierre = new Set(bloqueadas.filter((b) => b.cierre.id === c.id).map((b) => b.cuenta8));
-              if (!nuevas) {
-                return { ok: false as const, message: `${mensajeConciliacionEnFirme([c])} Esta versión no conserva el detalle por tercero con que se concilió ${c.moduloCodigo}: no se puede cerrar.`, bloqueadoPor: [c], balance };
-              }
-              const difieren = diferenciasTerceroEnFirme(enFirmeDelCierre, conciliadas, nuevas);
-              if (difieren.length > 0) {
-                return {
-                  ok: false as const,
-                  message: mensajeConciliacionEnFirme([c], difieren.slice(0, 3).map((cuenta8) => ({ cuenta8, motivo: "valores" as const, detalle: `${cuenta8} cambia su detalle por tercero` }))),
-                  bloqueadoPor: [c],
-                  balance,
-                };
-              }
-            }
-          }
-          // Fail-closed: sin la confirmación del formulario no se traslada nada. No es un
-          // intento de manipulación, así que no se audita como bloqueado.
-          if (formData.get("confirmarTraslado") !== "1") {
-            return {
-              ok: false as const,
-              message: `${mensajeTrasladoCierre(cierresAjenos, decision.cuentasEnFirme)} Confírmalo desde «Cerrar balance».`,
-              balance,
-            };
-          }
-          traslado = { cierres: cierresAjenos, cuentasEnFirme: decision.cuentasEnFirme };
+          })), tx);
+        } catch (e) {
+          if (e instanceof ErrorConciliacionEnFirme) return { ok: false as const, message: e.message, bloqueadoPor: e.cierres, balance };
+          throw e;
         }
       }
 
-      // Congelar vuelve inmutable la versión oficial: dentro del MISMO candado y
-      // transacción se recalcula el prevalidador y se contrasta su huella con la
-      // última revisión. La verificación no confía en el estado que mostró la UI,
-      // porque homologación, catálogo u overrides pudieron cambiar entre clics.
+      // Comparaciones del corte al día (toma el candado `balance-corte`, el último del orden).
+      const recalculo = await recalcularComparacionesDelCorteEn(tx, balance.clienteId, balance.periodoFin);
+      const insumos = await insumosCierreBalanceEn(tx, balance);
+      // El prevalidador se recalcula en la MISMA transacción y se contrasta su huella con la última
+      // revisión: no se confía en lo que mostró la pantalla.
       const contextoPrevalidador = await cargarContextoPrevalidadorBalance(id, tx);
-      if (contextoPrevalidador.prevalidador.estado === "sin_catalogo") {
-        return {
-          ok: false as const,
-          message: "No se puede cerrar el balance: el prevalidador no tiene cuentas activas configuradas.",
-        };
-      }
-      if (contextoPrevalidador.prevalidador.estado === "bloqueado") {
-        return {
-          ok: false as const,
-          message: `No se puede cerrar el balance: quedan ${contextoPrevalidador.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar en el prevalidador.`,
-        };
-      }
-      if (contextoPrevalidador.prevalidador.estado === "no_disponible") {
-        return {
-          ok: false as const,
-          message: `No se puede cerrar el balance: ${contextoPrevalidador.prevalidador.mensaje}`,
-        };
-      }
-      if (contextoPrevalidador.prevalidador.estado !== "listo") {
-        return { ok: false as const, message: "No se puede cerrar el balance: el prevalidador no está listo." };
-      }
-
-      const revision = contextoPrevalidador.revision;
-      if (!revision.vigente) {
-        const message =
-          revision.estado === "pendiente"
-            ? "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado."
-            : revision.estado === "revocada"
-              ? "No se puede cerrar el balance: la aprobación del prevalidador fue revocada."
-              : revision.estado === "desactualizada"
-                ? "No se puede cerrar el balance: la aprobación del prevalidador está desactualizada. Vuelve a revisarlo y aprobarlo."
-                : "No se puede cerrar el balance: el prevalidador no tiene una aprobación vigente.";
-        return { ok: false as const, message };
-      }
-
-      // La versión oficial es única por (cliente, período): se desmarca cualquier otra.
-      await tx.balancePruebaEncabezado.updateMany({
-        where: { clienteId: balance.clienteId, periodo: balance.periodo, esOficial: true },
-        data: { esOficial: false },
+      const evaluacion = evaluarCierreBalance({
+        balanceId: id,
+        ...insumos,
+        mensajePrevalidador: mensajePrevalidadorParaCerrar(contextoPrevalidador),
       });
+      if (!evaluacion.ok) {
+        // Lo recalculado se guarda igual (la transacción no se revierte): la pantalla ya lo verá.
+        return { ok: false as const, message: mensajeCierreBloqueado(evaluacion.bloqueo), balance, nuevasInconsistencias: recalculo.nuevasInconsistencias };
+      }
+
       await tx.balancePruebaEncabezado.update({
         where: { id },
         data: {
-          esOficial: true,
           estaCongelado: true,
           estado: ESTADO_CERRADO,
           congeladoPor: user?.name ?? "Sistema",
           congeladoEn: new Date(),
-          // Si se había descongelado para corregirla, el aviso desaparece (la historia queda en la auditoría).
+          // Si se había abierto para corregirlo, el aviso desaparece (la historia queda en la auditoría).
           descongeladoPor: null,
           descongeladoPorId: null,
           descongeladoEn: null,
           motivoDescongelado: null,
         },
       });
-
-      // Traslado del cierre: el balance conciliado pasa a ser esta versión. La foto por
-      // cuenta no cambia (idéntica por el predicado); la protección contra eliminar el
-      // balance conciliado y el enlace «Ver balance» del módulo siguen al nuevo oficial.
-      if (traslado) {
-        // El cierre puede venir de un balance con otro período y la misma fecha fin: pasa a nombrar
-        // el de esta versión, igual que sus cuentas en firme.
-        const cierreIds = traslado.cierres.map((c) => c.id);
-        await tx.conciliacionModuloCierre.updateMany({
-          where: { id: { in: cierreIds } },
-          data: { balanceEncabezadoId: id, balancePeriodo: balance.periodo },
-        });
-        await tx.cuentaBloqueadaConciliacion.updateMany({
-          where: { cierreId: { in: cierreIds } },
-          data: { periodo: balance.periodo },
-        });
-      }
-
       return {
         ok: true as const,
-        message: traslado
-          ? "Balance cerrado: queda como la versión oficial del período. El cierre de la conciliación pasó a esta versión."
-          : "Balance cerrado: queda como la versión oficial del período.",
+        message: "Balance cerrado: los módulos ya pueden conciliar contra él.",
         balance,
         congelado: true,
-        traslado,
+        nuevasInconsistencias: recalculo.nuevasInconsistencias,
       };
     });
 
+    if ("nuevasInconsistencias" in resultado && resultado.nuevasInconsistencias && resultado.balance) {
+      await auditarInconsistenciasCorte(resultado.balance.clienteId, resultado.balance.periodoFin, resultado.nuevasInconsistencias, user?.name ?? "Sistema");
+    }
     if (!resultado.ok) {
       if ("bloqueadoPor" in resultado && resultado.bloqueadoPor) {
         await registrarIntentoBloqueado({
           clienteId: resultado.balance.clienteId,
           entidad: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
-          operacion: `Cerrar la versión ${resultado.balance.version} como oficial`,
+          operacion: `Cerrar la versión ${resultado.balance.version} del balance`,
           cierres: resultado.bloqueadoPor,
         });
       }
+      if ("balance" in resultado && resultado.balance) revalidatePath(`/balance/${id}`);
       return { ok: false, message: resultado.message };
     }
     if (!resultado.congelado) return { ok: true, message: resultado.message };
 
+    const { balance } = resultado;
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "CERRÓ BALANCE",
-      entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
-      detail: `Versión ${resultado.balance.version} marcada como oficial`,
-      clientId: resultado.balance.clienteId,
+      entity: `${balance.nombreCliente} · ${balance.periodo}`,
+      detail: `Versión ${balance.version} · corte ${fechaCalendarioISO(balance.periodoFin)}`,
+      clientId: balance.clienteId,
     });
     await createProcessNotification({
       actor: user?.name,
-      text: "cerró el balance oficial de",
-      target: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo} · ${resultado.balance.version}`,
+      text: "cerró el balance de",
+      target: `${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`,
     });
-    if ("traslado" in resultado && resultado.traslado) {
-      // Una entrada por cierre trasladado, con el balance de origen y el de destino.
-      for (const c of resultado.traslado.cierres) {
-        await logAudit({
-          user: user?.name ?? "Sistema",
-          action: "TRASLADÓ CIERRE DE CONCILIACIÓN",
-          entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
-          detail: `${c.moduloCodigo} · ${c.periodo} · cargue #${c.moduloDatoEncabezadoId} · balance #${c.balanceEncabezadoId} → #${id} (${resultado.balance.version}) · ${resultado.traslado.cuentasEnFirme} cuenta(s) en firme idéntica(s) · cerró ${c.cerradoPor}`,
-          clientId: resultado.balance.clienteId,
-        });
-        revalidatePath(`/balance/${c.balanceEncabezadoId}`);
-      }
-      revalidatePath("/modulos/[codigo]/[id]", "page");
-    }
     revalidatePath("/", "layout");
     revalidatePath("/balance");
     revalidatePath(`/balance/${id}`);
+    revalidatePath("/modulos/[codigo]/[id]", "page");
     return { ok: true, message: resultado.message };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("freezeBalance", e) };
@@ -1420,9 +1309,10 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
  * «Abrir balance» (antes «Descongelar», 4/Oct/2026; renombrado el 17/Oct/2026): abre un balance
  * cerrado para corregirlo. Lo puede hacer quien puede cerrarlo (`balance:revisar`: el senior asignado
  * o un administrador) y exige una justificación. Solo baja la bandera y lo devuelve a «En proceso»
- * (con alertas si su validación las tiene): la versión conserva su condición de oficial, su detalle y
- * su aprobación del prevalidador (la huella no incluye el cerrado); los cierres de conciliación no se
- * tocan y sus cuentas en firme siguen protegidas por su propio guard. Cuando termine de corregirla,
+ * (con alertas si su validación las tiene): la versión conserva su detalle y su aprobación del
+ * prevalidador (la huella no incluye el cerrado), y los módulos dejan de cruzar contra ella hasta que
+ * se vuelva a cerrar; los cierres de conciliación no se tocan y sus cuentas en firme siguen
+ * protegidas por su propio guard. Cuando termine de corregirla,
  * el usuario la vuelve a cerrar (`freezeBalance`, que exige otra vez el prevalidador vigente y limpia
  * la marca de abierto).
  */
@@ -1498,7 +1388,7 @@ export async function descongelarBalance(input: { id: number; justificacion: str
       user: user?.name ?? "Sistema",
       action: "ABRIÓ BALANCE",
       entity: `${balance.nombreCliente} · ${balance.periodo}`,
-      detail: `Versión ${balance.version}${balance.esOficial ? " (oficial)" : ""}${enFirme} · Justificación: ${validacion.justificacion}`,
+      detail: `Versión ${balance.version} · corte ${fechaCalendarioISO(balance.periodoFin)}${enFirme} · Justificación: ${validacion.justificacion}`,
       clientId: balance.clienteId,
     });
     await createProcessNotification({
@@ -1509,6 +1399,8 @@ export async function descongelarBalance(input: { id: number; justificacion: str
     revalidatePath("/", "layout");
     revalidatePath("/balance");
     revalidatePath(`/balance/${id}`);
+    // Los módulos dejan de cruzar contra un balance abierto.
+    revalidatePath("/modulos/[codigo]/[id]", "page");
     return { ok: true, message: resultado.message };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("descongelarBalance", e) };
@@ -2769,6 +2661,18 @@ async function persistirCargue(p: {
       tx,
     );
 
+    // Una versión nueva de una línea (mismo período y apertura) solo entra si la vigente de esa
+    // línea está ABIERTA: así nunca quedan versiones viejas cerradas (18/Oct/2026).
+    const periodoFinCargue = fechaCalendarioPrisma(p.periodos.final);
+    const delCorte = await tx.balancePruebaEncabezado.findMany({
+      where: { clienteId: p.clientId, periodoFin: periodoFinCargue },
+      select: SELECT_ENCABEZADO_CORTE,
+    });
+    const vigenteCerrada = vigenteCerradaDeLaLinea(delCorte, {
+      clienteId: p.clientId, periodo: p.period, periodoFin: periodoFinCargue, aperturaBalance: p.aperturaBalance,
+    });
+    if (vigenteCerrada) throw new ErrorVersionSobreCerrada(motivoVersionSobreCerrada(vigenteCerrada));
+
     // Versionado correlativo por (cliente, período). El candado evita que dos
     // cargues simultáneos calculen la misma versión antes de insertar.
     const previas = await tx.balancePruebaEncabezado.findMany({
@@ -2898,9 +2802,9 @@ async function persistirCargue(p: {
     throw e;
   });
 
-  // Control posterior al commit: solo lee importes confirmados. Un descuadre o
-  // un fallo de este control no cambia la promoción ni el procesamiento del borrador.
-  await revisarCrucesAperturasSeguro(creado.id, p.clientId, p.uploadedBy);
+  // Control posterior al commit: compara los saldos finales de los balances vigentes del corte.
+  // Una diferencia o un fallo de este control no cambia la promoción ni el procesamiento del borrador.
+  await recalcularComparacionesDelCorteSeguro(p.clientId, fechaCalendarioPrisma(p.periodos.final), p.uploadedBy);
 
   if (!creado.reutilizado) {
     await logAudit({
@@ -4210,6 +4114,118 @@ export async function reprocesarBalanceConSpec(
   }
 }
 
+/** Un balance del mismo corte comparado contra el borrador, antes de cargarlo. */
+export type BalanceCorteBorradorVm = {
+  id: number;
+  version: string;
+  nombre: string;
+  estaCongelado: boolean;
+  /** Es la vigente de la MISMA línea (período + apertura): la versión nueva la reemplaza. */
+  mismaLinea: boolean;
+  coincide: boolean;
+  cuentasComparadas: number;
+  totalDiferencias: number;
+  /** Saldo del archivo (A) contra el del balance cargado (B); a lo sumo 500. */
+  diferencias: DiferenciaCorte[];
+};
+
+export type ComparacionBorradorCorte =
+  | {
+      ok: true;
+      etiqueta: string;
+      balances: BalanceCorteBorradorVm[];
+      /** Si la vigente de la misma línea está cerrada, la carga se rechaza: hay que abrirla primero. */
+      bloqueo: { balanceId: number; mensaje: string } | null;
+    }
+  | { ok: false; message: string };
+
+const TOPE_DIFERENCIAS_BORRADOR = 500;
+const ComparacionBorradorSchema = z.object({
+  loteId: z.string().trim().min(1),
+  clienteId: z.coerce.number().int().positive(),
+  periodoInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodoFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  aperturaBalance: z.string().nullable(),
+});
+
+/**
+ * COMPARACIÓN PREVIA del borrador con los balances del mismo corte (18/Oct/2026): saldo final
+ * por cuenta del staging (con la homologación determinista que se usaría al cargar, sin IA)
+ * contra cada balance vigente del cliente con la misma fecha fin. Solo informa —se puede cargar
+ * igual y el balance queda inconsistente— salvo cuando la vigente de la misma línea está cerrada:
+ * esa carga se rechaza y la pantalla lo anticipa. La comparación definitiva se calcula al cargar.
+ */
+export async function compararBorradorConCorte(input: {
+  loteId: string; clienteId: number; periodoInicio: string; periodoFin: string; aperturaBalance: string | null;
+}): Promise<ComparacionBorradorCorte> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const parsed = ComparacionBorradorSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos para comparar el borrador." };
+  const { loteId, clienteId, periodoInicio, periodoFin, aperturaBalance } = parsed.data;
+  try {
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, cargadoPorId: true } }),
+      contextoAccesoBorradorActual(),
+    ]);
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) return { ok: false, message: "No tienes permiso para revisar ese borrador." };
+    if (lote.clienteId != null && lote.clienteId !== clienteId) return { ok: false, message: "El cliente elegido no corresponde al borrador." };
+    const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const cuentas = await cuentasDesdeStaging(loteId);
+    if (cuentas.length === 0) return { ok: false, message: "El borrador no tiene cuentas para comparar." };
+    const [cuentasEstandar, configRows, pendienteRows] = await Promise.all([
+      getCuentasEstandar(),
+      prisma.clientAccount.findMany({
+        where: { clienteId, cuenta6Russell: { not: null } },
+        select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+      }),
+      prisma.clientAccount.findMany({ where: { clienteId, origenMapeo: ORIGEN_PENDIENTE }, select: { code: true } }),
+    ]);
+    const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, construirConfigMapeoCliente(configRows), undefined, new Set(pendienteRows.map((r) => r.code)));
+    const filasArchivo = aFilasDetalle(calc.breakdown).map((f) => ({ cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, saldoFinal: f.saldoFinal }));
+
+    const fechaFin = fechaCalendarioPrisma(periodoFin);
+    const encabezados = await prisma.balancePruebaEncabezado.findMany({
+      where: { clienteId, periodoFin: fechaFin },
+      select: SELECT_ENCABEZADO_CORTE,
+    });
+    const nuevo = { clienteId, periodo: etiquetaPeriodo(periodoInicio, periodoFin), periodoFin: fechaFin, aperturaBalance: parsearApertura(aperturaBalance) };
+    const lineas = lineasDelCorte(encabezados);
+    const cerrada = vigenteCerradaDeLaLinea(encabezados, nuevo);
+    // La vigente de la misma línea del cargue: la que la versión nueva va a reemplazar.
+    const mismaLinea = lineasDelCorte([...encabezados, { ...nuevo, id: -1, creadoEn: new Date(8.64e15), estaCongelado: false, version: "" }])
+      .find((l) => l.versiones.some((v) => v.id === -1))?.versiones.find((v) => v.id !== -1)?.id ?? null;
+    const vigentes = lineas.map((l) => ({ vigente: l.vigente, apertura: l.apertura }));
+    const saldos = await saldosFinalesDe(prisma, vigentes.map((v) => v.vigente.id));
+
+    const balances: BalanceCorteBorradorVm[] = vigentes.map(({ vigente, apertura }) => {
+      const r = compararSaldosFinales(filasArchivo, saldos.get(vigente.id) ?? []);
+      return {
+        id: vigente.id,
+        version: vigente.version,
+        nombre: nombreLinea({ periodo: vigente.periodo, apertura }),
+        estaCongelado: vigente.estaCongelado,
+        mismaLinea: vigente.id === mismaLinea,
+        coincide: r.coincide,
+        cuentasComparadas: r.cuentasComparadas,
+        totalDiferencias: r.diferencias.length,
+        diferencias: r.diferencias.slice(0, TOPE_DIFERENCIAS_BORRADOR),
+      };
+    });
+    return {
+      ok: true,
+      etiqueta: etiquetaCorte(fechaFin),
+      balances,
+      bloqueo: cerrada ? { balanceId: cerrada.id, mensaje: motivoVersionSobreCerrada(cerrada) } : null,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("compararBorradorConCorte", e) };
+  }
+}
+
 /**
  * AUDITORÍA RÁPIDA pre-carga (determinista, sin IA): dado el cliente elegido y las
  * cuentas leídas, evidencia (a) **posibles omisiones** —cuentas imputables del
@@ -4531,7 +4547,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   // confirmar. Reautoriza por el cliente REAL antes de redirigir.
   const promovido = await prisma.balancePruebaEncabezado.findUnique({
     where: { loteId },
-    select: { id: true, clienteId: true },
+    select: { id: true, clienteId: true, periodoFin: true },
   });
   if (promovido) {
     const scopePromovido = await authorizePermiso("balance:crear", {
@@ -4541,7 +4557,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
     if (promovido.clienteId !== clientId) {
       return { ok: false, message: "El borrador ya fue cargado para otro cliente." };
     }
-    await revisarCrucesAperturasSeguro(promovido.id, promovido.clienteId);
+    await recalcularComparacionesDelCorteSeguro(promovido.clienteId, promovido.periodoFin);
     redirect(`/balance/${promovido.id}?cargado=1`);
   }
 
@@ -5816,11 +5832,14 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
         cuenta8: filaActual.cuenta8,
         nombreCuenta: filaActual.nombreCuenta,
         clienteId: filaActual.encabezado.clienteId,
+        periodoFin: filaActual.encabezado.periodoFin,
       };
     });
 
     if (!resultado.ok) return resultado;
 
+    // Cambió un saldo final del balance: se vuelve a comparar con los demás del corte.
+    await recalcularComparacionesDelCorteSeguro(resultado.clienteId, resultado.periodoFin, user?.name ?? "Sistema");
     await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: resultado.cuenta8, detail: `${resultado.cuenta8} — ${resultado.nombreCuenta}`, clientId: resultado.clienteId });
     revalidatePath(`/balance/${resultado.encId}`);
     revalidatePath("/config/perfiles-carga");
@@ -5830,13 +5849,47 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
   }
 }
 
+/**
+ * Borra balances (ya validados por el llamador: sin cierres en firme, abiertos y sin conciliaciones
+ * formales). `balance_id` y la conversación polimórfica son referencias suaves: se limpian
+ * explícitamente; el detalle cae por ON DELETE CASCADE. Los cargues por tercero LIGADOS mueren con
+ * su balance (no tienen acción de borrado propia desde el retiro de /balance/terceros); tras
+ * borrarlos se asciende la versión restante de cada período para que el cruce por tercero de los
+ * módulos conserve un vigente. Cargues legados sin loteId no se tocan.
+ */
+async function eliminarBalancesEnTransaccion(
+  tx: TransactionClient,
+  objetivos: readonly { id: number; loteId: string | null }[],
+): Promise<{ count: number }> {
+  const ids = objetivos.map((o) => o.id);
+  await tx.validacionAlerta.deleteMany({ where: { balanceId: { in: ids } } });
+  await tx.comment.deleteMany({ where: { entityType: "balance", entityId: { in: ids } } });
+  const balances = await tx.balancePruebaEncabezado.deleteMany({ where: { id: { in: ids } } });
+  const loteIds = objetivos.flatMap((b) => (b.loteId ? [b.loteId] : []));
+  if (loteIds.length > 0) {
+    const terceros = await tx.balanceTerceroEncabezado.findMany({
+      where: { loteId: { in: loteIds } },
+      select: { id: true, clienteId: true, periodo: true },
+    });
+    if (terceros.length > 0) {
+      await tx.balanceTerceroEncabezado.deleteMany({ where: { id: { in: terceros.map((t) => t.id) } } });
+      const periodosAfectados = [...new Set(terceros.map((t) => `${t.clienteId}|${t.periodo}`))];
+      for (const clave of periodosAfectados) {
+        const sep = clave.indexOf("|");
+        await ascenderTerceroVigenteEnTransaccion(tx, Number(clave.slice(0, sep)), clave.slice(sep + 1));
+      }
+    }
+  }
+  return balances;
+}
+
 export type EliminarBalanceState = ActionState & {
   balancesEliminados?: number;
   perfilesEliminados?: number;
 };
 
 /**
- * Elimina balances oficiales con un alcance elegido explícitamente:
+ * Elimina balances con un alcance elegido explícitamente:
  * una versión, todas las versiones del período o todo el historial del cliente
  * junto con sus perfiles de estructura. Los comentarios/validaciones son FKs
  * suaves al encabezado y se purgan de forma explícita antes del balance.
@@ -5906,7 +5959,7 @@ export async function eliminarBalance(input: {
       const plan = resolverAlcanceEliminacionBalance(alcance, vigente);
       const objetivos = await tx.balancePruebaEncabezado.findMany({
         where: plan.filtroBalance,
-        select: { id: true, loteId: true },
+        select: { id: true, loteId: true, periodoFin: true, periodo: true, version: true, estaCongelado: true },
       });
       const ids = objetivos.map((balance) => balance.id);
       if (ids.length === 0) {
@@ -5930,6 +5983,16 @@ export async function eliminarBalance(input: {
         };
       }
 
+      // Un balance cerrado se ABRE antes de eliminarlo (18/Oct/2026): nunca desaparece sin rastro un
+      // balance contra el que los módulos estaban conciliando.
+      const motivoCerrados = motivoEliminacionCerrados(
+        alcance === "version" ? "esta versión" : alcance === "periodo" ? "este período" : "el historial del cliente",
+        objetivos.filter((o) => o.estaCongelado),
+      );
+      if (motivoCerrados) {
+        return { ok: false as const, message: motivoCerrados, balancesEliminados: 0, perfilesEliminados: 0 };
+      }
+
       const conciliacionesVinculadas = await tx.reconciliation.count({
         where: { balancePrevalidadoId: { in: ids } },
       });
@@ -5942,55 +6005,36 @@ export async function eliminarBalance(input: {
         };
       }
 
-      // `balance_id` y la conversación polimórfica son referencias suaves:
-      // se limpian explícitamente; el detalle sí cae por ON DELETE CASCADE.
-      await tx.validacionAlerta.deleteMany({
-        where: { balanceId: { in: ids } },
-      });
-      await tx.comment.deleteMany({
-        where: { entityType: "balance", entityId: { in: ids } },
-      });
-      const balances = await tx.balancePruebaEncabezado.deleteMany({
-        where: { id: { in: ids } },
-      });
-      // Los cargues por tercero LIGADOS mueren con su balance (no tienen acción
-      // de borrado propia desde el retiro de /balance/terceros); tras borrarlos
-      // se asciende la versión restante de cada período para que el cruce por
-      // tercero de los módulos conserve un vigente. Cargues legados sin loteId
-      // no se tocan.
-      const loteIds = objetivos.flatMap((b) => (b.loteId ? [b.loteId] : []));
-      if (loteIds.length > 0) {
-        const terceros = await tx.balanceTerceroEncabezado.findMany({
-          where: { loteId: { in: loteIds } },
-          select: { id: true, clienteId: true, periodo: true },
-        });
-        if (terceros.length > 0) {
-          await tx.balanceTerceroEncabezado.deleteMany({
-            where: { id: { in: terceros.map((t) => t.id) } },
-          });
-          const periodosAfectados = [...new Set(terceros.map((t) => `${t.clienteId}|${t.periodo}`))];
-          for (const clave of periodosAfectados) {
-            const sep = clave.indexOf("|");
-            await ascenderTerceroVigenteEnTransaccion(tx, Number(clave.slice(0, sep)), clave.slice(sep + 1));
-          }
-        }
-      }
+      const balances = await eliminarBalancesEnTransaccion(tx, objetivos);
       const perfiles = plan.eliminaPerfiles
         ? await tx.perfilCargaBalance.deleteMany({
             where: { clienteId: referencia.clienteId },
           })
         : { count: 0 };
 
+      // Al eliminar una versión, la anterior de su línea vuelve a ser la vigente del corte: se
+      // recalculan las comparaciones de cada corte tocado, en la misma transacción.
+      const cortes = [...new Map(objetivos.map((o) => [o.periodoFin.getTime(), o.periodoFin])).values()];
+      const inconsistencias: { periodoFin: Date; nuevas: Awaited<ReturnType<typeof recalcularComparacionesDelCorteEn>>["nuevasInconsistencias"] }[] = [];
+      for (const periodoFin of cortes) {
+        const recalculo = await recalcularComparacionesDelCorteEn(tx, referencia.clienteId, periodoFin);
+        if (recalculo.nuevasInconsistencias.length > 0) inconsistencias.push({ periodoFin, nuevas: recalculo.nuevasInconsistencias });
+      }
+
       return {
         ok: true as const,
         balancesEliminados: balances.count,
         perfilesEliminados: perfiles.count,
+        inconsistencias,
       };
-    });
+    }, { timeoutMs: 60_000 });
 
     if (!resultado.ok) return resultado;
 
     const user = await getCurrentUser();
+    for (const corte of resultado.inconsistencias) {
+      await auditarInconsistenciasCorte(referencia.clienteId, corte.periodoFin, corte.nuevas, user?.name ?? "Sistema");
+    }
     const descripcionAlcance =
       alcance === "version"
         ? `versión ${referencia.version} de ${referencia.periodo}`
@@ -6009,6 +6053,8 @@ export async function eliminarBalance(input: {
     });
 
     revalidatePath("/balance");
+    // La versión anterior vuelve a ser la vigente y los paneles del corte cambian.
+    revalidatePath("/balance/[id]", "page");
     revalidatePath("/dashboard");
     if (alcance === "cliente_perfiles") revalidatePath("/config/perfiles-carga");
 
@@ -6026,5 +6072,210 @@ export async function eliminarBalance(input: {
       ok: false,
       message: mensajeErrorBD("eliminarBalance", e),
     };
+  }
+}
+
+/** Rechazo de negocio dentro de la transacción del reemplazo: revierte todo y se muestra tal cual. */
+class ErrorReemplazoBalance extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErrorReemplazoBalance";
+  }
+}
+
+/**
+ * «Reemplazar el balance conciliado» (18/Oct/2026). Un balance con una conciliación de módulo en
+ * firme no se elimina; si en su mismo corte hay otro que debe quedar en su lugar, se REEMPLAZA en
+ * un solo acto: la conciliación pasa al nuevo, el viejo se elimina y el nuevo queda cerrado. Solo si
+ * el nuevo es la versión vigente de su línea, tiene el prevalidador aprobado y sus cuentas en firme
+ * son idénticas en saldo final y homologación (también su detalle por tercero en Cartera y CxP:
+ * `evaluarReemplazoBalance`), y si, sin el viejo, todos los vigentes del corte coinciden con él
+ * (`evaluarCierreBalance`). Exige poder cerrar (`balance:revisar`) y eliminar (`balance:eliminar`)
+ * balances del cliente.
+ */
+export async function reemplazarBalanceConciliado(input: { balanceNuevoId: number; balanceViejoId: number }): Promise<ActionState> {
+  const [revisar, eliminar] = await Promise.all([authorizePermiso(PERMISO_REVISION_BALANCE), authorizePermiso("balance:eliminar")]);
+  if (!revisar.ok) return { ok: false, message: revisar.message };
+  if (!eliminar.ok) return { ok: false, message: eliminar.message };
+  const nuevoId = parseId(input?.balanceNuevoId);
+  const viejoId = parseId(input?.balanceViejoId);
+  if (!nuevoId || !viejoId) return { ok: false, message: "Balance inexistente." };
+  if (nuevoId === viejoId) return { ok: false, message: "Elige otro balance para reemplazar." };
+
+  const referencias = await prisma.balancePruebaEncabezado.findMany({
+    where: { id: { in: [nuevoId, viejoId] } },
+    select: { id: true, clienteId: true, periodo: true },
+  });
+  const refNuevo = referencias.find((r) => r.id === nuevoId);
+  const refViejo = referencias.find((r) => r.id === viejoId);
+  if (!refNuevo || !refViejo) return { ok: false, message: "Alguno de los dos balances ya no existe." };
+  if (refNuevo.clienteId !== refViejo.clienteId) return { ok: false, message: "Los dos balances deben ser del mismo cliente." };
+  const clienteId = refNuevo.clienteId;
+  const [alcanceRevisar, alcanceEliminar] = await Promise.all([
+    authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: clienteId }),
+    authorizePermiso("balance:eliminar", { clientId: clienteId }),
+  ]);
+  if (!alcanceRevisar.ok) return { ok: false, message: alcanceRevisar.message };
+  if (!alcanceEliminar.ok) return { ok: false, message: alcanceEliminar.message };
+
+  try {
+    const user = await getCurrentUser();
+    const actor = user?.name ?? "Sistema";
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Orden global: prevalidador-catalogo → balance-eliminar → balance-oficial (ordenados) →
+      // conciliacion-cierre (ordenados) → balance-corte.
+      await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
+      await tomarCandadoTransaccion(tx, `balance-eliminar:${clienteId}`);
+      for (const texto of [...new Set([refNuevo.periodo, refViejo.periodo])].sort()) {
+        await tomarCandadoTransaccion(tx, `balance-oficial:${clienteId}:${texto}`);
+      }
+
+      const [nuevo, viejo] = await Promise.all([
+        tx.balancePruebaEncabezado.findUnique({ where: { id: nuevoId } }),
+        tx.balancePruebaEncabezado.findUnique({ where: { id: viejoId } }),
+      ]);
+      if (!nuevo || !viejo || nuevo.clienteId !== clienteId || viejo.clienteId !== clienteId) {
+        throw new ErrorReemplazoBalance("Alguno de los dos balances ya no existe.");
+      }
+
+      const cierresDelViejo = await cierresFirmesDeBalance([viejo.id], tx);
+      for (const clave of [...new Set(cierresDelViejo.map((c) => `conciliacion-cierre:${clienteId}:${c.moduloCodigo}:${c.periodo}`))].sort()) {
+        await tomarCandadoTransaccion(tx, clave);
+      }
+      // Relectura bajo candado: un desbloqueo concurrente pudo retirar alguno.
+      const cierres = await cierresFirmesDeBalance([viejo.id], tx);
+      const idsCierres = new Set(cierres.map((c) => c.id));
+
+      const lineaDelNuevo = lineasDelCorte(await encabezadosDelCorte(tx, clienteId, nuevo.periodoFin))
+        .find((l) => l.versiones.some((v) => v.id === nuevo.id));
+      const conTercero = cierres.filter((c) => descriptorModulo(c.moduloCodigo)?.crucePorTercero.habilitado === true);
+      const [bloqueadas, filasNuevas, contextoPrevalidador, conciliacionesFormales, terceroViejo, terceroNuevo] = await Promise.all([
+        cuentasBloqueadas(clienteId, viejo, undefined, tx),
+        tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: nuevo.id },
+          select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        }),
+        cargarContextoPrevalidadorBalance(nuevo.id, tx),
+        tx.reconciliation.count({ where: { balancePrevalidadoId: viejo.id } }),
+        conTercero.length > 0 ? filasTerceroEnFirmeDeBalance(tx, viejo.id) : Promise.resolve(null),
+        conTercero.length > 0 ? filasTerceroEnFirmeDeBalance(tx, nuevo.id) : Promise.resolve(null),
+      ]);
+      const filas = filasNuevas.map((f) => ({
+        cuenta8: f.cuenta8, cuenta6Russell: f.cuenta6Russell,
+        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+      }));
+      const mensajePrevalidador = mensajePrevalidadorParaCerrar(contextoPrevalidador);
+      const evaluacion = evaluarReemplazoBalance({
+        viejo,
+        nuevo: { id: nuevo.id, clienteId: nuevo.clienteId, periodoFin: nuevo.periodoFin, esVigente: lineaDelNuevo?.vigente.id === nuevo.id },
+        cierresDelViejo: cierres,
+        bloqueadas: bloqueadas.filter((b) => idsCierres.has(b.cierre.id)).map((b) => ({ ...b, cierreId: b.cierre.id })),
+        filasNuevas: filas,
+        tercero: conTercero.map((cierre) => ({ cierre, conciliado: terceroViejo, nuevo: terceroNuevo })),
+        mensajePrevalidador,
+        conciliacionesFormales,
+      });
+      if (!evaluacion.ok) throw new ErrorReemplazoBalance(evaluacion.mensaje);
+
+      // Las demás conciliaciones del mes de corte (contra otros balances) tampoco pueden quedar
+      // contradichas por el nuevo.
+      try {
+        await exigirCargueCompatibleConCierres(clienteId, nuevo, filas, tx);
+      } catch (e) {
+        if (e instanceof ErrorConciliacionEnFirme) throw new ErrorReemplazoBalance(e.message);
+        throw e;
+      }
+
+      // 1. La conciliación pasa al nuevo (su foto por cuenta no cambia: es idéntica).
+      const cierreIds = [...idsCierres];
+      await tx.conciliacionModuloCierre.updateMany({
+        where: { id: { in: cierreIds } },
+        data: { balanceEncabezadoId: nuevo.id, balancePeriodo: nuevo.periodo },
+      });
+      await tx.cuentaBloqueadaConciliacion.updateMany({
+        where: { cierreId: { in: cierreIds } },
+        data: { periodo: nuevo.periodo },
+      });
+      // 2. El viejo se abre (si estaba cerrado, su detalle es inmutable) y se elimina.
+      if (viejo.estaCongelado) {
+        await tx.balancePruebaEncabezado.update({ where: { id: viejo.id }, data: { estaCongelado: false } });
+      }
+      await eliminarBalancesEnTransaccion(tx, [viejo]);
+      // 3. Sin el viejo, el nuevo tiene que poder cerrarse: comparaciones del corte al día.
+      const recalculo = await recalcularComparacionesDelCorteEn(tx, clienteId, nuevo.periodoFin);
+      const cierre = evaluarCierreBalance({ balanceId: nuevo.id, ...(await insumosCierreBalanceEn(tx, nuevo)), mensajePrevalidador });
+      if (!cierre.ok) throw new ErrorReemplazoBalance(`No se reemplazó: ${mensajeCierreBloqueado(cierre.bloqueo)}`);
+      // 4. El nuevo queda cerrado.
+      if (!nuevo.estaCongelado) {
+        await tx.balancePruebaEncabezado.update({
+          where: { id: nuevo.id },
+          data: {
+            estaCongelado: true,
+            estado: ESTADO_CERRADO,
+            congeladoPor: actor,
+            congeladoEn: new Date(),
+            descongeladoPor: null,
+            descongeladoPorId: null,
+            descongeladoEn: null,
+            motivoDescongelado: null,
+          },
+        });
+      }
+
+      const nombreDe = (b: { periodo: string; aperturaBalance: string | null }) => nombreLinea(b);
+      return {
+        nuevo,
+        viejo,
+        cierres,
+        nuevasInconsistencias: recalculo.nuevasInconsistencias,
+        descripcion: descripcionReemplazo({
+          viejo: { id: viejo.id, version: viejo.version, nombre: nombreDe(viejo) },
+          nuevo: { id: nuevo.id, version: nuevo.version, nombre: nombreDe(nuevo) },
+          cierres,
+          cuentasEnFirme: evaluacion.cuentasEnFirme,
+        }),
+      };
+    }, { timeoutMs: 60_000 });
+
+    const { nuevo, viejo } = resultado;
+    await auditarInconsistenciasCorte(clienteId, nuevo.periodoFin, resultado.nuevasInconsistencias, actor);
+    await logAudit({
+      user: actor,
+      action: "REEMPLAZÓ BALANCE CONCILIADO",
+      entity: `${nuevo.nombreCliente} · ${nuevo.periodo}`,
+      detail: resultado.descripcion,
+      clientId: clienteId,
+    });
+    await logAudit({
+      user: actor,
+      action: "ELIMINÓ BALANCE",
+      entity: nuevo.nombreCliente,
+      detail: `versión ${viejo.version} de ${viejo.periodo} · reemplazada por la ${nuevo.version} de ${nuevo.periodo} (#${nuevo.id})`,
+      clientId: clienteId,
+    });
+    if (!nuevo.estaCongelado) {
+      await logAudit({
+        user: actor,
+        action: "CERRÓ BALANCE",
+        entity: `${nuevo.nombreCliente} · ${nuevo.periodo}`,
+        detail: `Versión ${nuevo.version} · corte ${fechaCalendarioISO(nuevo.periodoFin)} · al reemplazar el balance conciliado #${viejo.id}`,
+        clientId: clienteId,
+      });
+    }
+    await createProcessNotification({
+      actor: user?.name,
+      text: "reemplazó el balance conciliado de",
+      target: `${nuevo.nombreCliente} · ${viejo.periodo} ${viejo.version} → ${nuevo.periodo} ${nuevo.version}`,
+    });
+    revalidatePath("/", "layout");
+    revalidatePath("/balance");
+    revalidatePath(`/balance/${nuevo.id}`);
+    revalidatePath(`/balance/${viejo.id}`);
+    revalidatePath("/modulos/[codigo]/[id]", "page");
+    const modulos = [...new Set(resultado.cierres.map((c) => c.moduloCodigo))].join(", ");
+    return { ok: true, message: `Balance reemplazado: la conciliación de ${modulos} pasó a la ${nuevo.version}, la ${viejo.version} se eliminó y la ${nuevo.version} quedó cerrada.` };
+  } catch (e) {
+    if (e instanceof ErrorReemplazoBalance) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("reemplazarBalanceConciliado", e) };
   }
 }

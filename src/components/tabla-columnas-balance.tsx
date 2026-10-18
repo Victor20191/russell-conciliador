@@ -148,14 +148,19 @@ function FiltroTextoColumna({
 }
 
 
-export function CeldasImportesBalance({ anterior, debito, credito, saldo, variacion, grupo = false, validacion }: {
+export function CeldasImportesBalance({ anterior, debito, credito, saldo, variacion, grupo = false, validacion, saldoAdjunto }: {
   anterior: number; debito: number; credito: number; saldo: number; variacion: number | null; grupo?: boolean; validacion?: ReactNode;
+  /** Se pinta bajo el saldo final (p. ej. el distintivo «En firme»: lo que queda en firme es esa columna). */
+  saldoAdjunto?: ReactNode;
 }) {
   return <>
     <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-400">{fmt(anterior)}</td>
     <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(debito)}</td>
     <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(credito)}</td>
-    <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${grupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(saldo)}</td>
+    <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${grupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
+      {fmt(saldo)}
+      {saldoAdjunto && <div className="mt-0.5 flex justify-end font-sans">{saldoAdjunto}</div>}
+    </td>
     <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${variacion != null && Math.abs(variacion) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(variacion)}</td>
     <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2">{validacion}</td>
   </>;

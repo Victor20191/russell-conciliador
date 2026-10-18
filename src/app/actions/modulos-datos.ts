@@ -4859,16 +4859,20 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
           where: { encabezadoId: balance.id },
           select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
         }),
-        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true } }),
+        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true, estaCongelado: true } }),
       ]);
       if (!terceroLigado) {
         return { ok: false as const, message: "El balance del período ya no existe. Vuelve a abrir el cruce." };
       }
-      // Congelar el balance NO es requisito para conciliar: lo que vuelve inmutables las
-      // cuentas del módulo es ESTE cierre. Como la versión sigue editable entre que se
-      // calculó el cruce y este commit, se releen bajo el candado el prevalidador y su
-      // huella (detalle, homologación, catálogo y overrides) y se exige que sean los mismos
-      // que vio el usuario, con la aprobación todavía vigente.
+      // Desde el 18/Oct/2026 solo se concilia contra un balance CERRADO: si alguien lo abrió entre
+      // el cruce que vio el usuario y este commit, no se cierra (bajo el candado `balance-oficial`,
+      // el mismo que toman cerrar y abrir el balance).
+      if (!terceroLigado.estaCongelado) {
+        return { ok: false as const, message: "El balance del período se abrió mientras se cerraba la conciliación: ciérralo de nuevo en /balance y vuelve a abrir el cruce." };
+      }
+      // Además se releen bajo el candado el prevalidador y su huella (detalle, homologación,
+      // catálogo y overrides) y se exige que sean los mismos que vio el usuario, con la
+      // aprobación todavía vigente.
       const contextoActual = await cargarContextoPrevalidadorBalance(balance.id, tx);
       if (cruce.huellaBalance == null || contextoActual.huella !== cruce.huellaBalance || !contextoActual.revision.vigente) {
         return { ok: false as const, message: "El balance del período cambió mientras se cerraba la conciliación. Vuelve a abrir el cruce." };

@@ -50,13 +50,15 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { UMBRAL_AFI_DETALLE, UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { agruparPorCorte, balancesVigentesDelCorte } from "@/lib/balance/corte";
 import {
   avisoBalanceFijado,
   balanceFijadoDelCierre,
   cuentasAgrupadorasExcluidas,
   seleccionarBalanceCruceModulo,
-  avisoSeleccionBalance,
+  motivoSinBalanceCruce,
   describirBalanceCruce,
+  type MotivoSinBalanceCruce,
   validarBalanceFijado,
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
@@ -163,7 +165,6 @@ export type BalanceFuenteCruce = {
   periodo: string;
   periodoInicio: string;
   periodoFin: string;
-  esOficial: boolean;
   estaCongelado: boolean;
   /** Apertura declarada («cuenta» | «tercero»); null en cargues anteriores a ese dato. */
   aperturaBalance: string | null;
@@ -174,13 +175,18 @@ export type BalanceFuenteCruce = {
 export type ResultadoCruceModulo = {
   balanceEmparejado: BalanceFuenteCruce | null;
   bloqueo: string | null;
-  /** Por qué se cruza contra esta versión: el mes tiene varias oficiales o (Cartera y CxP) la oficial no trae el detalle por tercero. */
+  /** Con la conciliación en firme: hoy se elegiría otro balance cerrado del mes, pero el cruce sigue contra el conciliado. */
   avisoBalance: string | null;
   /**
+   * Por qué no hay balance contra el que cruzar (18/Oct/2026: solo cruza un balance CERRADO y
+   * vigente del mes; Cartera y CxP, además, con detalle por tercero). null si lo hay.
+   */
+  motivoSinBalance: { motivo: MotivoSinBalanceCruce; mensaje: string } | null;
+  /**
    * Huella del prevalidador del balance emparejado (detalle, homologación, catálogo y
-   * overrides) tal como se calculó el cruce. El cierre la relee bajo candado: como el
-   * balance NO tiene que estar congelado, es la prueba de que no cambió entre el cruce que
-   * vio el usuario y el commit. `null` si no hubo balance o la compuerta lo bloqueó antes.
+   * overrides) tal como se calculó el cruce. El cierre la relee bajo candado (junto con que el
+   * balance siga cerrado): es la prueba de que no cambió entre el cruce que vio el usuario y el
+   * commit. `null` si no hubo balance o la compuerta lo bloqueó antes.
    */
   huellaBalance: string | null;
   cruceContable: ResumenCruceContable | null;
@@ -469,20 +475,22 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       })
     : [];
 
-  // Balance del período: uno confirmado que TERMINE en el mes de corte del cargue, el oficial si
-  // existe y, si no, la versión más reciente (congelar NO es requisito para conciliar). Todos los
-  // módulos comparan saldos finales, así que no importa desde cuándo arranca el balance. Después,
-  // la compuerta común exige que conserve una aprobación vigente del prevalidador.
+  // Balance del período (18/Oct/2026): uno CERRADO y vigente de su línea que TERMINE en el mes de
+  // corte del cargue. Todos los módulos comparan saldos finales, así que no importa desde cuándo
+  // arranca; y como cerrar exige que los balances del corte coincidan, cualquier cerrado da el mismo
+  // cruce (gana el de corte y carga más recientes). Sin él, la cédula no se calcula y la pestaña dice
+  // por qué. Después, la compuerta común exige la aprobación vigente del prevalidador.
   const balancesDelCliente = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId: encabezado.clienteId },
-    select: { id: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, esOficial: true, estaCongelado: true, loteId: true, aperturaBalance: true },
-    orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
+    select: { id: true, clienteId: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, estaCongelado: true, loteId: true, aperturaBalance: true, creadoEn: true },
+    orderBy: [{ periodoFin: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
   });
-  // Cartera y CxP: gana la versión del mes con detalle por tercero (el cruce por tercero solo lee
-  // el LIGADO por `loteId`), y se avisa si con eso no es la oficial o si el mes tiene varias.
-  const preferirDetalleTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.preferirBalanceConTerceros === true;
+  const vigentes = new Set([...agruparPorCorte(balancesDelCliente).values()].flatMap((delCorte) => balancesVigentesDelCorte(delCorte).map((b) => b.id)));
+  // Cartera y CxP: solo sirve un balance con detalle por tercero (el cruce por tercero lee el
+  // LIGADO por `loteId`), así las dos pestañas cruzan contra el mismo balance.
+  const exigirDetalleTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.exigirBalanceConTerceros === true;
   const lotesConTerceros = new Set<string>();
-  const lotes = preferirDetalleTercero ? balancesDelCliente.map((b) => b.loteId).filter((l): l is string => l != null) : [];
+  const lotes = exigirDetalleTercero ? balancesDelCliente.map((b) => b.loteId).filter((l): l is string => l != null) : [];
   if (lotes.length > 0) {
     const capturas = await prisma.balanceTerceroEncabezado.findMany({
       where: { clienteId: encabezado.clienteId, loteId: { in: lotes } },
@@ -491,14 +499,14 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     for (const captura of capturas) if (captura.loteId) lotesConTerceros.add(captura.loteId);
   }
   const balancesConfirmados = balancesDelCliente.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && lotesConTerceros.has(b.loteId) }));
-  const elegidoVivo = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, { preferirDetalleTercero });
-  // Con la conciliación en firme el cruce se fija al balance con que se cerró: otra versión del mes,
-  // cargada o congelada después, no cambia contra qué se concilió.
+  const opcionesBalance = { exigirDetalleTercero, vigentes, modulo: descriptor.label };
+  const elegidoVivo = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, opcionesBalance);
+  // Con la conciliación en firme el cruce se fija al balance con que se cerró: otro balance del mes,
+  // cerrado después, no cambia contra qué se concilió (aunque el conciliado se haya abierto).
   const fijado = insumos.cierreFijado ?? null;
   const emparejado = fijado ? balanceFijadoDelCierre(balancesConfirmados, fijado.balanceEncabezadoId) : elegidoVivo;
-  const avisoBalance = fijado
-    ? emparejado ? avisoBalanceFijado(emparejado, elegidoVivo) : null
-    : avisoSeleccionBalance(balancesConfirmados, emparejado, encabezado.periodo);
+  const avisoBalance = fijado && emparejado ? avisoBalanceFijado(emparejado, elegidoVivo) : null;
+  const motivoSinBalance = fijado ? null : motivoSinBalanceCruce(balancesConfirmados, encabezado.periodo, opcionesBalance);
   const balanceEmparejado: BalanceFuenteCruce | null = emparejado
     ? {
         id: emparejado.id,
@@ -506,7 +514,6 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         periodo: emparejado.periodo,
         periodoInicio: emparejado.periodoInicio.toISOString().slice(0, 10),
         periodoFin: emparejado.periodoFin.toISOString().slice(0, 10),
-        esOficial: emparejado.esOficial,
         estaCongelado: emparejado.estaCongelado,
         aperturaBalance: emparejado.aperturaBalance,
         descripcion: describirBalanceCruce(emparejado),
@@ -794,6 +801,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     balanceEmparejado,
     bloqueo,
     avisoBalance,
+    motivoSinBalance,
     huellaBalance: contextoBalance && !bloqueo ? contextoBalance.huella : null,
     agrupadorasExcluidas: cuentasAgrupadoras ? [...cuentasAgrupadoras].sort() : null,
     cruceContable,
@@ -859,6 +867,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     balanceEmparejado,
     bloqueo,
     avisoBalance: null,
+    motivoSinBalance: null,
     huellaBalance: null,
     agrupadorasExcluidas: null,
     cruceContable: null,

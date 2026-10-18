@@ -110,7 +110,7 @@ function SxsView({ rows, version }: { rows: DiffRow[]; version: string }) {
         </div>
       </Card>
       <Card>
-        <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">{version} <Chip label="oficial" tone="ok" /></div>
+        <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">{version} <Chip label="esta versión" tone="ok" /></div>
         <div className="max-h-[520px] overflow-y-auto">
           <table className="w-full text-[12.5px]">
             <tbody>

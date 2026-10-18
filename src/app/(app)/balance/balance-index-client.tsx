@@ -12,42 +12,48 @@ import {
 import { Card, Chip } from "@/components/ui";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { tonoEstadoBalance } from "@/lib/balance/estado-balance";
+import { etiquetaEstadoCorte, type EstadoCorte } from "@/lib/balance/corte";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
-export type PeriodRow = {
-  /** Clave estable del renglón (período + apertura). Dos aperturas del mismo período
-   *  son dos renglones, así que el nombre del período ya no alcanza como `key`. */
+/**
+ * Un balance VIGENTE del corte: la versión más reciente de su línea (texto del período +
+ * apertura). Las versiones anteriores se ven desde el conteo de versiones.
+ */
+export type CorteRow = {
+  /** Clave estable de la línea dentro del corte. */
   key: string;
-  period: string; versions: number; officialId: number | null;
+  /** Id de la versión vigente: el renglón la abre. */
+  id: number;
+  /** Período COMPLETO del balance («Diciembre 2025», «Enero 2025 – Diciembre 2025»). */
+  period: string;
+  versions: number;
   status: string; complete: number; lastUpload: string;
   mapped: number; unmapped: number; total: number;
-  /** Apertura bajo la que se lista el renglón (`cuenta` | `tercero`); null cuando el
-   *  cargue es anterior a este dato y el período no permite deducirla. */
+  /** Apertura de la línea (`cuenta` | `tercero`); null en cargues anteriores a este dato. */
   apertura: string | null;
-  /** Versiones de ESTE renglón que el cruce marcó inconsistentes contra la otra apertura. */
-  inconsistentes: number;
-  /** Archivos que formaron la versión listada cuando el ERP entregó el balance partido
-   *  (vacío o ausente = un solo archivo). */
+  /** Sus saldos finales difieren de otro balance vigente del mismo corte. */
+  inconsistente: boolean;
+  /** Módulos con la conciliación en firme contra este balance. */
+  enFirme: string[];
+  /** Archivos que formaron la versión cuando el ERP entregó el balance partido. */
   archivos?: string[];
 };
 /**
- * Un período del cliente. Casi siempre trae un solo renglón; trae dos cuando el cliente
- * entregó el mismo período POR CUENTA y POR TERCEROS, que no son versiones sucesivas
- * sino dos archivos que coexisten y se validan entre sí. En ese caso el período se
- * rotula UNA vez y las aperturas cuelgan debajo, para que ninguna quede oculta detrás
- * de la otra: antes ganaba la más reciente y la otra desaparecía del listado, aun
- * estando marcada como inconsistente.
+ * Un CORTE del cliente (18/Oct/2026): los balances que terminan en la misma fecha —mensual,
+ * anual, por cuenta, por terceros— van juntos porque los módulos concilian contra el saldo
+ * final y esos saldos tienen que coincidir entre todos.
  */
-export type PeriodGroup = {
-  period: string;
-  /** El período trae las dos aperturas: se rotula aparte y sus renglones van colgados. */
-  paralelo: boolean;
-  rows: PeriodRow[];
+export type CorteGroup = {
+  key: string;
+  /** «31/12/2025». */
+  fechaCorte: string;
+  estado: EstadoCorte;
+  rows: CorteRow[];
 };
 export type ClientGroup = {
   clientId: number; clientName: string; clientNit: string;
-  periodList: PeriodGroup[];
+  cortes: CorteGroup[];
 };
 export type AuditRow = {
   date: string;
@@ -160,7 +166,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
             <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
             <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <span className="text-[11px] text-ink-400">{c.periodList.length} período(s)</span>
+              <span className="text-[11px] text-ink-400">{c.cortes.length} corte(s)</span>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -178,10 +184,10 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                 </tr>
               </thead>
               <tbody>
-                {c.periodList.map((g) => (
-                  <Fragment key={g.period}>
-                    {g.paralelo && <FilaRotuloPeriodo grupo={g} />}
-                    {g.rows.map((p) => <FilaPeriodo key={p.key} p={p} colgada={g.paralelo} />)}
+                {c.cortes.map((g) => (
+                  <Fragment key={g.key}>
+                    {g.rows.length > 1 && <FilaRotuloCorte grupo={g} />}
+                    {g.rows.map((p) => <FilaCorte key={p.key} p={p} fechaCorte={g.fechaCorte} colgada={g.rows.length > 1} />)}
                   </Fragment>
                 ))}
               </tbody>
@@ -203,44 +209,45 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
   );
 }
 
+const TONO_ESTADO_CORTE: Record<EstadoCorte, "ok" | "err" | "warn" | "ink"> = {
+  consistente: "ok", inconsistente: "err", sin_comparar: "warn", unico: "ink",
+};
+
 /**
- * Rótulo de un período que llegó con las dos aperturas: lo nombra una sola vez y avisa
- * si los archivos no cuadran entre sí. El aviso cuenta APERTURAS marcadas (no versiones),
- * que es lo que el usuario ve colgando debajo.
+ * Rótulo de un corte con varios balances vigentes: la fecha de corte, cuántos son y si sus
+ * saldos finales coinciden. Enlaza al panel «Balances del mismo corte» del primero.
  */
-function FilaRotuloPeriodo({ grupo }: { grupo: PeriodGroup }) {
-  const marcadas = grupo.rows.filter((r) => r.inconsistentes > 0).length;
-  const destino = grupo.rows.find((r) => r.officialId)?.officialId ?? null;
+function FilaRotuloCorte({ grupo }: { grupo: CorteGroup }) {
   return (
     <tr className="border-b border-ink-50 bg-ink-50/70">
-      <td className="px-4 py-2.5 font-medium text-ink-800">{grupo.period}</td>
-      <td className="px-4 py-2.5" />
-      <td className="px-4 py-2.5 text-[11px] text-ink-500">{grupo.rows.length} aperturas</td>
+      <td className="px-4 py-2.5 font-medium text-ink-800" colSpan={2}>Corte {grupo.fechaCorte}</td>
+      <td className="px-4 py-2.5 text-[11px] text-ink-500">{grupo.rows.length} balances</td>
       <td className="px-4 py-2.5" colSpan={5}>
-        {marcadas > 0 && destino && (
-          <Link
-            href={`/balance/${destino}#cruce-aperturas`}
-            title="Los archivos del período no cuadran entre sí. Abre la validación cruzada por apertura."
-          >
-            <Chip label={`${marcadas} apertura${marcadas === 1 ? "" : "s"} inconsistente${marcadas === 1 ? "" : "s"}`} tone="err" />
-          </Link>
-        )}
+        <Link
+          href={`/balance/${grupo.rows[0].id}#corte`}
+          title="Los balances con la misma fecha de corte deben coincidir en sus saldos finales. Abre la comparación."
+        >
+          <Chip label={etiquetaEstadoCorte(grupo.estado)} tone={TONO_ESTADO_CORTE[grupo.estado]} />
+        </Link>
       </td>
     </tr>
   );
 }
 
-/** Un renglón del listado. `colgada` = pende de un rótulo de período que ya lo nombró. */
-function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
+/**
+ * Un balance vigente del listado: siempre con su período completo. `colgada` = pende del
+ * rótulo de un corte con varios balances.
+ */
+function FilaCorte({ p, fechaCorte, colgada }: { p: CorteRow; fechaCorte: string; colgada: boolean }) {
   const apertura = parsearApertura(p.apertura);
-  const etiquetaFila = colgada ? `${p.period} · ${etiquetaApertura(p.apertura)}` : p.period;
+  const etiquetaFila = apertura ? `${p.period} · ${etiquetaApertura(p.apertura)}` : p.period;
   return (
     <tr className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
       <td className={`px-4 py-2.5 font-medium text-ink-800 ${colgada ? "pl-9" : ""}`}>
         <span className="flex flex-wrap items-center gap-1.5">
-          {colgada
-            ? <><span aria-hidden className="text-ink-300">└</span><span className="sr-only">{p.period}</span></>
-            : p.period}
+          {colgada && <span aria-hidden className="text-ink-300">└</span>}
+          <span>{p.period}</span>
+          {!colgada && <span className="text-[11px] font-normal text-ink-400">· corte {fechaCorte}</span>}
           {/* AVISO de balance partido, igual que la carga fraccionada de los módulos:
               la versión listada no salió de un solo archivo. */}
           {(p.archivos?.length ?? 0) > 1 && (
@@ -251,19 +258,15 @@ function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
         </span>
       </td>
       <td className="px-4 py-2.5 text-right font-mono text-ink-600">
-        {/* El conteo abre la bitácora de versiones del período, desde donde se entra y
-            se descarga cada versión (no solo la oficial). */}
-        {p.officialId ? (
-          <Link
-            href={`/balance/${p.officialId}?tab=versiones`}
-            title={`Ver las ${p.versions} versión(es) de ${etiquetaFila}`}
-            className="text-blue-500 hover:underline"
-          >
-            {p.versions}
-          </Link>
-        ) : (
-          p.versions
-        )}
+        {/* El conteo abre la bitácora de versiones de la línea, desde donde se entra y
+            se descarga cada versión. */}
+        <Link
+          href={`/balance/${p.id}?tab=versiones`}
+          title={`Ver las ${p.versions} versión(es) de ${etiquetaFila}`}
+          className="text-blue-500 hover:underline"
+        >
+          {p.versions}
+        </Link>
       </td>
       <td className="px-4 py-2.5">
         {/* Lo declaró quien cargó el archivo; en un período partido es la clave del renglón. */}
@@ -273,15 +276,20 @@ function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
       </td>
       <td className="px-4 py-2.5">
         <Chip label={p.status} tone={statusTone(p.status)} />
-        {p.inconsistentes > 0 && p.officialId ? (
+        {p.inconsistente && (
           <Link
-            href={`/balance/${p.officialId}#cruce-aperturas`}
+            href={`/balance/${p.id}#corte`}
             className="mt-1 block"
-            title="Este archivo no cuadra contra el de la otra apertura."
+            title="Sus saldos finales difieren de otro balance con la misma fecha de corte."
           >
-            <Chip label={colgada ? "Inconsistente" : `${p.inconsistentes} archivo(s) inconsistente(s)`} tone="err" />
+            <Chip label="Inconsistente" tone="err" />
           </Link>
-        ) : null}
+        )}
+        {p.enFirme.length > 0 && (
+          <span className="mt-1 block" title={`Conciliación en firme contra este balance: ${p.enFirme.join(", ")}.`}>
+            <Chip label={`En firme · ${p.enFirme.join(", ")}`} tone="blue" />
+          </span>
+        )}
       </td>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-2">
@@ -297,11 +305,9 @@ function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
       </td>
       <td className="px-4 py-2.5 text-ink-500">{p.lastUpload}</td>
       <td className="px-4 py-2.5 text-right">
-        {p.officialId && (
-          <Link href={`/balance/${p.officialId}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
-            Ver <Icon name="chev-r" size={12} />
-          </Link>
-        )}
+        <Link href={`/balance/${p.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
+          Ver <Icon name="chev-r" size={12} />
+        </Link>
       </td>
     </tr>
   );

@@ -27,6 +27,7 @@ import {
   type CambioHomologacion,
   type CuentaBloqueada,
   type FilaDetalleBloqueo,
+  type FilaTerceroEnFirme,
   type ViolacionBloqueo,
 } from "./cuentas-bloqueo";
 
@@ -124,6 +125,22 @@ export async function cierresFirmes(clienteId: number, balance?: BalanceDelCorte
     orderBy: { id: "asc" },
   });
   return rows.map(aCierre);
+}
+
+/**
+ * Detalle por tercero ligado a un balance (misma llave `loteId` que la captura), reducido a lo que
+ * se compara en las cuentas en firme. null = el balance no conserva detalle por tercero.
+ */
+export async function filasTerceroEnFirmeDeBalance(db: Db, balanceId: number): Promise<FilaTerceroEnFirme[] | null> {
+  const balance = await db.balancePruebaEncabezado.findUnique({ where: { id: balanceId }, select: { loteId: true } });
+  if (!balance?.loteId) return null;
+  const captura = await db.balanceTerceroEncabezado.findFirst({ where: { loteId: balance.loteId }, select: { id: true } });
+  if (!captura) return null;
+  const filas = await db.balanceTerceroDetalle.findMany({
+    where: { encabezadoId: captura.id },
+    select: { cuenta8: true, claveTercero: true, nitTercero: true, saldoFinal: true },
+  });
+  return filas.map((f) => ({ cuenta8: f.cuenta8, tercero: f.claveTercero ?? f.nitTercero, saldoFinal: Number(f.saldoFinal) }));
 }
 
 /** Cierre en firme que referencia un balance concreto (cualquier módulo). */

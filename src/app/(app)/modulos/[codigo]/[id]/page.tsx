@@ -470,13 +470,13 @@ export default async function DatoModuloPage({
     sinReglaContableFilas: cruce.sinReglaContableFilas,
     bloqueo: cruce.bloqueo,
     avisoBalance: cruce.avisoBalance,
+    motivoSinBalance: cruce.motivoSinBalance?.mensaje ?? null,
     balanceFuente: balanceEmparejado
       ? {
           id: balanceEmparejado.id,
           version: balanceEmparejado.version,
           periodoInicio: balanceEmparejado.periodoInicio,
           periodoFin: balanceEmparejado.periodoFin,
-          esOficial: balanceEmparejado.esOficial,
           estaCongelado: balanceEmparejado.estaCongelado,
           descripcion: balanceEmparejado.descripcion,
         }
@@ -516,14 +516,13 @@ export default async function DatoModuloPage({
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
     estado: cruceTercero?.estado ?? "sin_balance",
-    mensaje: cruceTercero?.mensaje ?? null,
+    mensaje: cruceTercero?.mensaje ?? cruce.motivoSinBalance?.mensaje ?? null,
     avisoBalance: cruce.avisoBalance,
     balance: balanceEmparejado
       ? {
           id: balanceEmparejado.id,
           version: balanceEmparejado.version,
           periodoFin: balanceEmparejado.periodoFin,
-          esOficial: balanceEmparejado.esOficial,
           estaCongelado: balanceEmparejado.estaCongelado,
           descripcion: balanceEmparejado.descripcion,
         }

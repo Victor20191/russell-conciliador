@@ -11,7 +11,6 @@ import {
   entraEnAlcance,
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
-  decidirCongelarConCierres,
   esResponsableSeniorOGerente,
   diferenciasTerceroEnFirme,
   estadoEdicionCargue,
@@ -19,11 +18,9 @@ import {
   evaluarCierreConciliacion,
   mensajeConciliacionEnFirme,
   mensajePeriodoEnFirme,
-  mensajeTrasladoCierre,
   mesDeCorteBalance,
   validarJustificacionDesbloqueo,
   violacionesCambioHomologacion,
-  type CierreParaCongelar,
   type FilaDetalleBloqueo,
 } from "./cuentas-bloqueo";
 
@@ -298,80 +295,6 @@ describe("evaluarCambiosBloqueados", () => {
   });
 });
 
-// Congelar en un período con conciliación en firme usa el MISMO predicado que cargar
-// (`evaluarCambiosBloqueados`): si las cuentas en firme son idénticas, se congela y el
-// cierre se traslada; si cambian, se bloquea con el detalle.
-describe("decidirCongelarConCierres", () => {
-  const bloqueadas = cuentasBloqueoDelModulo(detalle, ["1435", "1405"]);
-  const cierre = (over: Partial<CierreParaCongelar> = {}): CierreParaCongelar => ({
-    id: 7, moduloCodigo: "INV", periodo: "2026-03", balancePeriodo: "Marzo 2026",
-    balanceEncabezadoId: 215, moduloDatoEncabezadoId: 38, cerradoPor: "Camilo", cuentasRussell: ["1435", "1405"],
-    ...over,
-  });
-
-  it("sin cierres en el período, se congela como siempre", () => {
-    expect(decidirCongelarConCierres({ balanceId: 216, cierres: [], bloqueadas, filasNuevas: detalle })).toEqual({ tipo: "sin_cierres" });
-  });
-
-  it("si todo cierre ya apunta al balance que se congela, se congela como siempre", () => {
-    expect(decidirCongelarConCierres({ balanceId: 215, cierres: [cierre()], bloqueadas, filasNuevas: detalle })).toEqual({ tipo: "mismo_balance" });
-  });
-
-  it("traslada cuando las cuentas en firme son idénticas aunque cambien otras cuentas", () => {
-    // Igual que al cargar: caja cambia, Inventarios no.
-    const nueva = detalle.map((f) => (f.cuenta8 === "11050501" ? { ...f, saldoFinal: 999 } : f));
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre()], bloqueadas, filasNuevas: nueva });
-    expect(d.tipo).toBe("traslado");
-    if (d.tipo !== "traslado") return;
-    expect(d.cierres.map((c) => c.id)).toEqual([7]);
-    expect(d.cuentasEnFirme).toBe(3); // 14350501, 14350502, 14050101
-  });
-
-  it("bloquea si una cuenta en firme cambia un centavo en el saldo", () => {
-    const nueva = detalle.map((f) => (f.cuenta8 === "14350501" ? { ...f, saldoFinal: 100.01 } : f));
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre()], bloqueadas, filasNuevas: nueva });
-    expect(d).toMatchObject({ tipo: "bloqueado", violaciones: [expect.objectContaining({ cuenta8: "14350501", motivo: "valores" })] });
-  });
-
-  it("bloquea si una cuenta en firme cambia de homologación", () => {
-    const nueva = detalle.map((f) => (f.cuenta8 === "14350502" ? { ...f, cuenta6Russell: "143510" } : f));
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre()], bloqueadas, filasNuevas: nueva });
-    expect(d).toMatchObject({ tipo: "bloqueado", violaciones: [expect.objectContaining({ cuenta8: "14350502", motivo: "homologacion" })] });
-  });
-
-  it("bloquea si aparece una cuenta nueva homologada al módulo cerrado", () => {
-    const nueva = [...detalle, fila("14350599", "143505", { saldoFinal: 1 })];
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre()], bloqueadas, filasNuevas: nueva });
-    expect(d).toMatchObject({ tipo: "bloqueado", violaciones: [expect.objectContaining({ cuenta8: "14350599", motivo: "nueva_en_modulo" })] });
-  });
-
-  it("con un cierre propio y uno ajeno, solo el ajeno decide y se traslada", () => {
-    const propio = cierre({ id: 1, moduloCodigo: "CAR", balanceEncabezadoId: 216, cuentasRussell: ["1305"] });
-    const ajeno = cierre({ id: 2, moduloCodigo: "INV", balanceEncabezadoId: 215 });
-    const conCierre = [
-      ...cuentasBloqueoDelModulo(detalle, ["1305"]).map((b) => ({ ...b, cierreId: 1 })),
-      ...bloqueadas.map((b) => ({ ...b, cierreId: 2 })),
-    ];
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [propio, ajeno], bloqueadas: conCierre, filasNuevas: detalle });
-    expect(d.tipo).toBe("traslado");
-    if (d.tipo !== "traslado") return;
-    expect(d.cierres.map((c) => c.id)).toEqual([2]);
-    expect(d.cuentasEnFirme).toBe(3); // solo las del cierre ajeno; la de Cartera no se traslada
-  });
-});
-
-describe("mensajeTrasladoCierre", () => {
-  it("nombra módulo, período, cargue, quién cerró y cuántas cuentas, con el plural correcto", () => {
-    const cierres = [{ moduloCodigo: "INV", periodo: "2025-12", moduloDatoEncabezadoId: 38, cerradoPor: "Camilo Perez Rojo" }];
-    const msg = mensajeTrasladoCierre(cierres, 3);
-    expect(msg).toContain("3 cuentas en firme idénticas en saldo final y homologación");
-    expect(msg).toContain("INV · 2025-12");
-    expect(msg).toContain("cargue #38");
-    expect(msg).toContain("Camilo Perez Rojo");
-    expect(mensajeTrasladoCierre(cierres, 1)).toContain("1 cuenta en firme idéntica ");
-  });
-});
-
 describe("mensajeConciliacionEnFirme", () => {
   it("nombra módulo, período y cierre, y resume las violaciones", () => {
     const msg = mensajeConciliacionEnFirme(
@@ -587,12 +510,6 @@ describe("alcance del cierre: prevalidador + cédula + cuentas del período (los
     const porDosCierres = [{ ...anticipo, cierreId: 1 }, { ...anticipo, cierreId: 2 }];
     const cerradas = alcanceDeCierres([{ cuentasRussell: [], cuentasRussell6: ["13"] }, { cuentasRussell: [], cuentasRussell6: ["133005"] }]);
     expect(evaluarCambiosBloqueados(porDosCierres, [{ ...anticipo, saldoFinal: 15 }], cerradas)).toHaveLength(1);
-    const cierre = (id: number, moduloCodigo: string): CierreParaCongelar => ({
-      id, moduloCodigo, periodo: "2026-03", balancePeriodo: "Marzo 2026", balanceEncabezadoId: 215,
-      moduloDatoEncabezadoId: 38, cerradoPor: "Camilo", cuentasRussell: [], cuentasRussell6: moduloCodigo === "CAR" ? ["13"] : ["133005"],
-    });
-    const d = decidirCongelarConCierres({ balanceId: 216, cierres: [cierre(1, "CAR"), cierre(2, "CXP")], bloqueadas: porDosCierres, filasNuevas: [anticipo] });
-    expect(d).toMatchObject({ tipo: "traslado", cuentasEnFirme: 1 });
   });
 
   it("los cierres anteriores conservan el alcance con que se cerraron", () => {

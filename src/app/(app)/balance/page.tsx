@@ -4,19 +4,14 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
   type ClientGroup,
-  type PeriodGroup,
-  type PeriodRow,
+  type CorteGroup,
+  type CorteRow,
   type AuditRow,
 } from "./balance-index-client";
-import { compararApertura } from "@/lib/balance/apertura-balance";
-import {
-  aperturaDeListado,
-  aperturasDeclaradasPorGrupo,
-  claveRenglonApertura,
-  periodoConAperturasParalelas,
-} from "@/lib/balance/agrupacion-aperturas";
 import { fmtDateTime } from "@/lib/format";
 import { estadoBalance } from "@/lib/balance/estado-balance";
+import { agruparPorCorte, estadoDelCorte, fechaCorteISO, lineasDelCorte } from "@/lib/balance/corte";
+import { cargarComparacionesDeClientes } from "@/lib/balance/comparacion-corte-servidor";
 import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
@@ -34,14 +29,13 @@ export default async function BalancePage() {
   ]);
   const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria] = await Promise.all([
+  const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria, comparaciones, cierresEnFirme] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
       select: {
-        _count: { select: { crucesComoCuenta: { where: { inconsistente: true } }, crucesComoTercero: { where: { inconsistente: true } } } },
-        id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true,
-        esOficial: true, estaCongelado: true, estado: true, completitud: true, ultimaCarga: true,
+        id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, periodoFin: true, version: true,
+        estaCongelado: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
         archivosCargue: true,
       },
@@ -72,93 +66,64 @@ export default async function BalancePage() {
     prisma.user.findMany({
       select: { name: true, role: true },
     }),
+    // Pares de saldos finales guardados (null si la consulta falló: el corte se ve «sin comparar»).
+    cargarComparacionesDeClientes(whereCliente),
+    // Conciliaciones en firme: el balance contra el que se cerró lleva el distintivo.
+    prisma.conciliacionModuloCierre.findMany({
+      where: { estado: "firme", ...whereCliente },
+      select: { balanceEncabezadoId: true, moduloCodigo: true },
+    }),
   ]);
   // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
   // por cliente se verifica de nuevo en la Server Action al enviar.
   const uploadClients = canUpload ? carteraClientes : [];
 
-  // Agrupar por cliente → períodos → renglones. La clave de cliente es el clienteId
-  // (NO el nombre, que es denormalizado: dos clientes homónimos no deben fusionarse y
-  // un cliente renombrado no debe partirse). El mapeo (mapeadas/sinMapear/total) se
-  // lleva a nivel de RENGLÓN (su versión oficial), no de cliente, para no mezclar
-  // períodos. A la frontera RSC→client se pasan SOLO objetos planos serializables.
-  //
-  // Un período se PARTE en un renglón por apertura cuando el cliente entregó las dos
-  // («por cuenta» y «por terceros»): son dos archivos que coexisten y se cruzan entre
-  // sí, no versiones sucesivas del mismo, y antes el más reciente ocultaba al otro —
-  // incluso estando ambos marcados como inconsistentes. La regla (y el cuidado con los
-  // cargues legados sin apertura declarada) vive en `agrupacion-aperturas.ts`.
-  const clavePeriodo = (b: { clienteId: number; periodo: string }) => `${b.clienteId}::${b.periodo}`;
-  const aperturasPorPeriodo = aperturasDeclaradasPorGrupo(
-    encabezados.map((b) => ({ clave: clavePeriodo(b), aperturaBalance: b.aperturaBalance })),
-  );
+  // Agrupar por cliente → corte → balances vigentes (18/Oct/2026). La clave de cliente es el
+  // clienteId (NO el nombre, que es denormalizado). Un corte reúne los balances que terminan en
+  // la misma fecha —mensual, anual, por cuenta, por terceros—; cada renglón es la versión
+  // VIGENTE de una línea (texto del período + apertura) y muestra su período completo. Las
+  // reglas de líneas y vigentes viven en `corte.ts`. Solo objetos planos cruzan al cliente.
+  const pares = comparaciones ?? [];
+  const firmesPorBalance = new Map<number, string[]>();
+  for (const c of cierresEnFirme) firmesPorBalance.set(c.balanceEncabezadoId, [...(firmesPorBalance.get(c.balanceEncabezadoId) ?? []), c.moduloCodigo]);
+  const porCliente = new Map<number, typeof encabezados>();
+  for (const b of encabezados) porCliente.set(b.clienteId, [...(porCliente.get(b.clienteId) ?? []), b]);
 
-  type Agg = {
-    clientId: number; clientName: string; clientNit: string;
-    periods: Map<string, PeriodGroup>;
-    // Sello de orden por última carga/recarga: el `creadoEn` más reciente de cada
-    // período y del cliente entero (cada cargue/recargue crea un encabezado nuevo).
-    periodTs: Map<string, number>; lastTs: number;
-  };
-  const byClient = new Map<number, Agg>();
-  // Índice auxiliar de renglones por período: `PeriodGroup.rows` viaja como arreglo
-  // plano al cliente, pero acá hace falta ubicarlos por apertura mientras se agregan.
-  const filasPorPeriodo = new Map<string, Map<string, PeriodRow>>();
-  for (const b of encabezados) {
-    const ts = b.creadoEn.getTime();
-    let g = byClient.get(b.clienteId);
-    if (!g) {
-      g = { clientId: b.clienteId, clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map(), periodTs: new Map(), lastTs: ts };
-      byClient.set(b.clienteId, g);
-    }
-    g.lastTs = Math.max(g.lastTs, ts);
-    g.periodTs.set(b.periodo, Math.max(g.periodTs.get(b.periodo) ?? 0, ts));
-
-    const claveP = clavePeriodo(b);
-    const declaradas = aperturasPorPeriodo.get(claveP);
-    const apertura = aperturaDeListado(b.aperturaBalance, declaradas);
-    const claveFila = claveRenglonApertura(claveP, apertura);
-    // Marcado por el cruce de aperturas: este archivo no cuadra contra su contraparte.
-    const inconsistente = b._count.crucesComoCuenta + b._count.crucesComoTercero > 0;
-    // Balance partido en varios archivos: nombres de las partes de ESTA versión.
-    const archivos = leerPartesArchivo(b.archivosCargue).map((parte) => parte.archivoNombre);
-
-    let grupo = g.periods.get(b.periodo);
-    if (!grupo) {
-      grupo = { period: b.periodo, paralelo: periodoConAperturasParalelas(declaradas), rows: [] };
-      g.periods.set(b.periodo, grupo);
-      filasPorPeriodo.set(claveP, new Map());
-    }
-    const filas = filasPorPeriodo.get(claveP)!;
-    let p = filas.get(claveFila);
-    if (!p) {
-      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: estadoBalance(b), complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0, archivos };
-      filas.set(claveFila, p);
-      grupo.rows.push(p);
-    }
-    p.versions += 1;
-    if (inconsistente) p.inconsistentes += 1;
-    if (!p.officialId) p.officialId = b.id; // fallback si ninguna versión es oficial
-    if (b.esOficial) {
-      p.officialId = b.id; p.status = estadoBalance(b); p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
-      p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del renglón
-      p.archivos = archivos; // los archivos que se indican son los de la versión que abre el renglón
-    }
-    // `p.apertura` NO se repisa con la versión oficial: es la clave del renglón, y en un
-    // período partido cada renglón tiene la suya por construcción.
-  }
-
-  // Orden por última carga/recarga (más reciente primero): tanto los clientes como los
-  // períodos dentro de cada cliente. Dentro de un período partido, las aperturas van en
-  // orden estable («Por cuenta», «Por terceros», y los cargues sin declarar al final).
-  const clients: ClientGroup[] = [...byClient.values()]
-    .sort((a, b) => b.lastTs - a.lastTs)
-    .map((g) => ({
-      clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
-      periodList: [...g.periods.values()]
-        .sort((x, y) => (g.periodTs.get(y.period) ?? 0) - (g.periodTs.get(x.period) ?? 0))
-        .map((grupo) => ({ ...grupo, rows: [...grupo.rows].sort((x, y) => compararApertura(x.apertura, y.apertura)) })),
-    }));
+  const clients: ClientGroup[] = [...porCliente.values()]
+    // Clientes por su última carga (el listado viene por `creadoEn desc`).
+    .sort((a, b) => b[0].creadoEn.getTime() - a[0].creadoEn.getTime())
+    .map((delCliente) => {
+      const primero = delCliente[0];
+      const cortes: CorteGroup[] = [...agruparPorCorte(delCliente).entries()]
+        // Corte más reciente primero.
+        .sort(([, a], [, b]) => b[0].periodoFin.getTime() - a[0].periodoFin.getTime())
+        .map(([clave, delCorte]) => {
+          const lineas = lineasDelCorte(delCorte);
+          const vigentes = lineas.map((l) => l.vigente);
+          const idsVigentes = new Set(vigentes.map((v) => v.id));
+          const paresDelCorte = pares.filter((p) => idsVigentes.has(p.balanceAId) && idsVigentes.has(p.balanceBId));
+          const rows: CorteRow[] = lineas.map((l) => {
+            const b = l.vigente;
+            return {
+              key: l.clave, id: b.id, period: b.periodo, apertura: l.apertura, versions: l.versiones.length,
+              status: estadoBalance(b), complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "",
+              mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales,
+              inconsistente: paresDelCorte.some((p) => p.inconsistente && (p.balanceAId === b.id || p.balanceBId === b.id)),
+              enFirme: [...new Set(firmesPorBalance.get(b.id) ?? [])],
+              // Balance partido en varios archivos: nombres de las partes de ESTA versión.
+              archivos: leerPartesArchivo(b.archivosCargue).map((parte) => parte.archivoNombre),
+            };
+          });
+          const [anio, mes, dia] = fechaCorteISO(delCorte[0].periodoFin).split("-");
+          return {
+            key: clave,
+            fechaCorte: `${dia}/${mes}/${anio}`,
+            estado: comparaciones ? estadoDelCorte(vigentes, paresDelCorte) : vigentes.length > 1 ? "sin_comparar" : "unico",
+            rows,
+          };
+        });
+      return { clientId: primero.clienteId, clientName: primero.nombreCliente, clientNit: primero.nit ?? "", cortes };
+    });
 
   const clientePorId = new Map(carteraClientes.map((cliente) => [cliente.id, cliente.name]));
   const rolPorUsuario = new Map(usuariosAuditoria.map((usuario) => [usuario.name, usuario.role]));

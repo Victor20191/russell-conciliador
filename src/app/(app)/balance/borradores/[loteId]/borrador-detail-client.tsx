@@ -18,7 +18,8 @@ import {
   usePantallaCompletaTabla,
 } from "@/components/tabla-pantalla-completa";
 import { fmt, fmtContable } from "@/lib/format";
-import { actualizarAperturaBorrador, actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import { actualizarAperturaBorrador, actualizarPeriodoBorrador, cargarBorrador, compararBorradorConCorte, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor, type ComparacionBorradorCorte } from "@/app/actions/balance";
+import { BalancesDelMismoCorte } from "./balances-del-mismo-corte";
 import {
   aperturaSugerida,
   etiquetaApertura,
@@ -767,6 +768,27 @@ export default function BorradorDetailClient({
   }, [filas, soloHojas, override]);
   const nCambios = Object.keys(overrideEfectivo).length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
+  // Comparación previa con los balances del mismo corte (18/Oct/2026): se pide con el cliente y el
+  // período confirmados, sobre lo GUARDADO (sin cambios pendientes), y se repite cuando cambian el
+  // período, la apertura o las filas guardadas. Una respuesta vieja se descarta.
+  const claveCorte = clienteSelId != null && periodoListo && !hayCambios
+    ? `${clienteSelId}|${periodoIni}|${periodoFin}|${aperturaBalance ?? ""}`
+    : null;
+  const [respuestaCorte, setRespuestaCorte] = useState<{ clave: string; filas: FilasCompactas; resultado: ComparacionBorradorCorte } | null>(null);
+  useEffect(() => {
+    if (claveCorte == null || clienteSelId == null) return;
+    let vigente = true;
+    const guardar = (resultado: ComparacionBorradorCorte) => { if (vigente) setRespuestaCorte({ clave: claveCorte, filas: filasCompactas, resultado }); };
+    compararBorradorConCorte({ loteId, clienteId: clienteSelId, periodoInicio: periodoIni, periodoFin, aperturaBalance })
+      .then(guardar)
+      .catch(() => guardar({ ok: false, message: "Vuelve a intentarlo." }));
+    return () => { vigente = false; };
+  }, [claveCorte, loteId, clienteSelId, periodoIni, periodoFin, aperturaBalance, filasCompactas]);
+  const comparacionCorte = claveCorte != null && respuestaCorte?.clave === claveCorte && respuestaCorte.filas === filasCompactas
+    ? respuestaCorte.resultado
+    : null;
+  const comparandoCorte = claveCorte != null && comparacionCorte == null;
+  const bloqueoCorte = comparacionCorte?.ok ? comparacionCorte.bloqueo : null;
   const padresVista = useMemo(
     () => ({ ...padresConfirmadosLocalmente, ...padres }),
     [padres, padresConfirmadosLocalmente],
@@ -1616,6 +1638,7 @@ export default function BorradorDetailClient({
               />
             </div>
           )}
+          <BalancesDelMismoCorte resultado={comparacionCorte} cargando={comparandoCorte} />
           {/* La lectura del archivo ya tiene una sospecha (detección de terceros):
               se ofrece como sugerencia, pero la respuesta la da el analista. */}
           <p id="ayuda-tipo-balance" className="text-[11px] text-ink-500">
@@ -1686,7 +1709,7 @@ export default function BorradorDetailClient({
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={cargando || asignandoCliente || guardandoPeriodo || guardandoApertura || hayCambios || clienteSelId == null || !periodoListo || aperturaBalance == null || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
+              disabled={cargando || asignandoCliente || guardandoPeriodo || guardandoApertura || hayCambios || clienteSelId == null || !periodoListo || aperturaBalance == null || faltaComentarioPromocion || manipulacionesPendientes.length > 0 || bloqueoCorte != null}
               title={
                 clienteSelId == null || !periodoIni || !periodoFin
                   ? "Falta el cliente o el período"
@@ -1702,6 +1725,8 @@ export default function BorradorDetailClient({
                       ? "Falta el comentario obligatorio"
                       : manipulacionesPendientes.length > 0
                         ? "Hay reubicaciones entre clases contables pendientes de revisión"
+                      : bloqueoCorte
+                        ? bloqueoCorte.mensaje
                       : undefined
               }
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"

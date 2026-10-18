@@ -1,8 +1,8 @@
 // Estado de un balance cargado (17/Oct/2026) — puro, sin BD.
 //
 // Al pasar un borrador a balance, la versión queda «En proceso» o «En proceso con alertas» (si la
-// validación del cargue encontró alertas). «Cerrar balance» la deja «Cerrado»: la versión oficial
-// del período, inmutable. «Abrir balance» la devuelve a «En proceso» para corregirla.
+// validación del cargue encontró alertas). «Cerrar balance» la deja «Cerrado»: inmutable y disponible
+// para que los módulos concilien contra ella. «Abrir balance» la devuelve a «En proceso» para corregirla.
 //
 // Lo que manda es la bandera `estaCongelado` (el nombre interno no cambió); la columna `estado`
 // solo recuerda si la versión abierta tiene alertas. Los cargues anteriores guardaron «Única»,
