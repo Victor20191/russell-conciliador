@@ -10,6 +10,12 @@
 // Las notas crédito van a un renglón PROPIO del Consolidado por concepto («Notas crédito ·
 // Ventas nacionales»), para asignarlas a la 417505 o a la cuenta de la venta.
 //
+// Desde el 17/Oct/2026 el signo no se adivina: con notas crédito en el archivo (mixto o solo notas)
+// la carga pregunta SIEMPRE con qué signo vienen. «En positivo» invierte el archivo de solo notas
+// entero y, en un archivo mixto, las filas cuyo concepto o documento nombra una nota crédito (si no
+// se reconoce ninguna, la carga no sigue). Si lo declarado contradice lo que trae el archivo, el
+// borrador lo avisa (contenido dudoso) sin cambiar la declaración.
+//
 // Puro y sin dependencias del motor: lo usan la transformación, la acción y las pantallas.
 
 export const CONTENIDOS_ARCHIVO = ["mixto", "facturas", "notas_credito"] as const;
@@ -35,6 +41,24 @@ export const INFO_CONTENIDO_ARCHIVO: Record<ContenidoArchivo, { rotulo: string; 
 
 export function esContenidoArchivo(v: unknown): v is ContenidoArchivo {
   return typeof v === "string" && (CONTENIDOS_ARCHIVO as readonly string[]).includes(v);
+}
+
+/** Con qué signo trae el archivo sus notas crédito (lo declara el analista en cada carga). */
+export const SIGNOS_NOTAS_CREDITO = ["negativo", "positivo"] as const;
+export type SignoNotasCredito = (typeof SIGNOS_NOTAS_CREDITO)[number];
+
+export const INFO_SIGNO_NOTAS_CREDITO: Record<SignoNotasCredito, { opcion: string; ayuda: string }> = {
+  negativo: { opcion: "En negativo (ya restan)", ayuda: "Se leen con el signo del archivo." },
+  positivo: { opcion: "En positivo (hay que cambiarlas a negativo)", ayuda: "Se cambian a negativo para que resten." },
+};
+
+export function esSignoNotasCredito(v: unknown): v is SignoNotasCredito {
+  return typeof v === "string" && (SIGNOS_NOTAS_CREDITO as readonly string[]).includes(v);
+}
+
+/** ¿El contenido declarado trae notas crédito? Entonces se pregunta su signo. */
+export function exigeSignoNotasCredito(contenido: ContenidoArchivo | null | undefined): boolean {
+  return contenido === "mixto" || contenido === "notas_credito";
 }
 
 export type ConteoSignos = { positivos: number; negativos: number; suma: number };
@@ -67,6 +91,13 @@ export type SignoContenido = {
   invertido: boolean;
   positivos: number;
   negativos: number;
+  /** Signo declarado de las notas crédito (cargas desde el 17/Oct/2026). */
+  declarado?: SignoNotasCredito;
+  /**
+   * Archivo mixto: filas reconocidas como notas crédito (por su concepto o documento), cuántas venían
+   * en positivo y cuántas se cambiaron de signo por la declaración.
+   */
+  notasCredito?: { reconocidas: number; enPositivo: number; invertidas: number };
 };
 
 export const PREFIJO_NOTAS_CREDITO = "Notas crédito";
@@ -77,7 +108,17 @@ const normalizar = (s: string): string =>
 /** ¿El texto ya nombra una nota crédito («Nota Crédito» de SAP, «NC ventas», «Notas crédito · …»)? */
 export function nombraNotaCredito(texto: string | null | undefined): boolean {
   const n = normalizar(texto ?? "");
-  return /\bnotas? (de )?credito\b/.test(n) || /^n c\b/.test(n) || /^nc\b/.test(n);
+  return /\bnotas? (de )?credito\b/.test(n) || /^n c\b/.test(n) || /^nc(\b|\d)/.test(n);
+}
+
+/**
+ * Archivo mixto: ¿la fila es una nota crédito? Lo es si su concepto o su documento lo dice
+ * («Nota Crédito», «NC-1043», «N.C. 12»). Es la única forma de separarlas cuando el ERP las imprime
+ * en positivo junto a las facturas.
+ */
+export function esFilaNotaCredito(concepto: unknown, documento: unknown): boolean {
+  const texto = (v: unknown) => (v == null ? "" : String(v));
+  return nombraNotaCredito(texto(concepto)) || nombraNotaCredito(texto(documento));
 }
 
 /**
@@ -102,7 +143,15 @@ export function leerContenidoDeLote(specJson: unknown): SignoContenido | null {
   if (crudo == null || typeof crudo !== "object") return null;
   const o = crudo as Record<string, unknown>;
   if (!esContenidoArchivo(o.contenido)) return null;
-  return { contenido: o.contenido, invertido: o.invertido === true, positivos: entero(o.positivos), negativos: entero(o.negativos) };
+  const nc = o.notasCredito != null && typeof o.notasCredito === "object" ? (o.notasCredito as Record<string, unknown>) : null;
+  return {
+    contenido: o.contenido,
+    invertido: o.invertido === true,
+    positivos: entero(o.positivos),
+    negativos: entero(o.negativos),
+    ...(esSignoNotasCredito(o.declarado) ? { declarado: o.declarado } : {}),
+    ...(nc ? { notasCredito: { reconocidas: entero(nc.reconocidas), enPositivo: entero(nc.enPositivo), invertidas: entero(nc.invertidas) } } : {}),
+  };
 }
 
 const plural = (n: number, uno: string, varios: string) => `${n.toLocaleString("es-CO")} ${n === 1 ? uno : varios}`;
@@ -110,7 +159,10 @@ const plural = (n: number, uno: string, varios: string) => `${n.toLocaleString("
 /** Texto para la bitácora: « · contenido: Notas crédito (signo invertido)». */
 export function detalleAuditoriaContenido(s: SignoContenido | null): string {
   if (!s) return "";
-  const base = ` · contenido: ${INFO_CONTENIDO_ARCHIVO[s.contenido].rotulo}`;
+  const base = ` · contenido: ${INFO_CONTENIDO_ARCHIVO[s.contenido].rotulo}${s.declarado ? ` · notas crédito declaradas en ${s.declarado}` : ""}`;
+  if (s.contenido === "mixto" && s.notasCredito) {
+    return `${base} (${plural(s.notasCredito.reconocidas, "nota crédito reconocida", "notas crédito reconocidas")}${s.notasCredito.invertidas ? `, ${s.notasCredito.invertidas} con el signo cambiado` : ""})`;
+  }
   if (s.contenido !== "notas_credito") return base;
   const conteo = `${plural(s.positivos, "valor en positivo", "valores en positivo")}, ${plural(s.negativos, "en negativo", "en negativo")}`;
   return `${base} (${s.invertido ? "signo invertido" : "signo del archivo"}: ${conteo})`;
@@ -121,6 +173,34 @@ export type AvisoContenido = { tono: "info" | "aviso"; texto: string };
 /** Lo que el borrador cuenta sobre el contenido declarado y el signo. */
 export function avisosContenido(s: SignoContenido): AvisoContenido[] {
   const avisos: AvisoContenido[] = [];
+  // Contenido dudoso: lo declarado contradice lo que trae el archivo. Solo informa.
+  if (s.contenido === "notas_credito" && s.declarado) {
+    if (s.declarado === "positivo" && s.negativos > s.positivos) {
+      avisos.push({
+        tono: "aviso",
+        texto: `Declaraste que las notas crédito vienen en positivo, pero la mayoría venía en negativo (${plural(s.negativos, "fila", "filas")}): al cambiarles el signo quedaron SUMANDO. Si te equivocaste, descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_NOTAS_CREDITO.negativo.opcion}».`,
+      });
+    } else if (s.declarado === "negativo" && s.positivos > s.negativos) {
+      avisos.push({
+        tono: "aviso",
+        texto: `Declaraste que las notas crédito vienen en negativo, pero la mayoría venía en positivo (${plural(s.positivos, "fila", "filas")}): se dejaron con su signo y quedaron SUMANDO. Si te equivocaste, descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_NOTAS_CREDITO.positivo.opcion}».`,
+      });
+    }
+  }
+  if (s.contenido === "mixto" && s.notasCredito) {
+    const nc = s.notasCredito;
+    if (s.declarado === "positivo" && nc.invertidas > 0) {
+      avisos.push({
+        tono: "info",
+        texto: `Se reconocieron ${plural(nc.reconocidas, "nota crédito", "notas crédito")} por su concepto o documento y, como declaraste que vienen en positivo, se cambiaron a negativo (${plural(nc.invertidas, "fila", "filas")}).`,
+      });
+    } else if (s.declarado === "negativo" && nc.enPositivo > 0) {
+      avisos.push({
+        tono: "aviso",
+        texto: `${plural(nc.enPositivo, "nota crédito viene", "notas crédito vienen")} en positivo y ${nc.enPositivo === 1 ? "quedó" : "quedaron"} SUMANDO, aunque declaraste que vienen en negativo. Si son reversas está bien; si no, descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_NOTAS_CREDITO.positivo.opcion}».`,
+      });
+    }
+  }
   if (s.contenido === "notas_credito") {
     if (s.invertido) {
       avisos.push({

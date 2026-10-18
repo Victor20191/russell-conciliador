@@ -59,6 +59,8 @@ import {
   agregarContenidoArchivo,
   detalleAuditoriaContenido,
   esContenidoArchivo,
+  esSignoNotasCredito,
+  exigeSignoNotasCredito,
   INFO_CONTENIDO_ARCHIVO,
   leerContenidoArchivos,
   leerContenidoDeLote,
@@ -1183,6 +1185,16 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   if (descriptor.confirmarContenidoEnCarga && !esContenidoArchivo(contenidoRespuesta)) {
     return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
+  // Con notas crédito en el archivo, con qué signo vienen (17/Oct/2026): se declara siempre.
+  const signoNotasCreditoRespuesta = String(formData.get("signoNotasCredito") ?? "").trim();
+  if (
+    descriptor.confirmarContenidoEnCarga
+    && esContenidoArchivo(contenidoRespuesta)
+    && exigeSignoNotasCredito(contenidoRespuesta)
+    && !esSignoNotasCredito(signoNotasCreditoRespuesta)
+  ) {
+    return { ok: false, message: "Indica con qué signo vienen las notas crédito del archivo: en negativo o en positivo." };
+  }
   // Activos fijos: lo mismo con el costo y la depreciación, que pueden venir en dos archivos.
   const contenidoActivosRespuesta = String(formData.get("contenidoActivos") ?? "").trim();
   if (descriptor.confirmarContenidoActivosEnCarga && !esContenidoActivos(contenidoActivosRespuesta)) {
@@ -1621,7 +1633,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = agruparCarga.spec;
     // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
-    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta);
+    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta, signoNotasCreditoRespuesta);
     if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
     spec = contenidoCarga.spec;
     // Activos fijos: qué trae ESTE archivo (costo / depreciación / ambos). Manda el modal.
@@ -1687,6 +1699,14 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     if (resultado.erroresLectura?.length) return marcarNoProcesable(resultado.erroresLectura.join(" "));
     // Celdas con su divisa escrita y sin TRM de cierre: no se leen como pesos ni se dejan fuera en
     // silencio. Igual que una hoja en divisa, la carga no sigue hasta que se indique la TRM.
+    // Ingresos, archivo mixto con las notas crédito declaradas en positivo: si ninguna fila las
+    // nombra (concepto o documento), no hay a cuáles cambiar el signo.
+    if (resultado.sinNotasCreditoReconocidas) {
+      return marcarNoProcesable(
+        "Declaraste que las notas crédito vienen en positivo, pero ninguna fila del archivo se reconoce como nota crédito por su concepto o su documento («Nota crédito», «NC…»). "
+        + "Carga las notas crédito en un archivo aparte eligiendo «Solo notas crédito», o revisa la declaración.",
+      );
+    }
     const sinTrm = resultado.importesSinTrm ?? [];
     if (sinTrm.length > 0) {
       const ejemplo = sinTrm[0];

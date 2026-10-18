@@ -329,6 +329,11 @@ describe("regresión: los módulos sin familias no cambian", () => {
     expect(normalizarSpecModulo(ING, conContenido).contenidoArchivo).toBeUndefined();
     // Otro módulo no lo conserva ni en el lote.
     expect(normalizarSpecModuloArchivo(MODULOS_IMPORT.INV, { ...specDe("INV"), contenidoArchivo: "notas_credito" }).contenidoArchivo).toBeUndefined();
+    // El signo declarado de las notas crédito, igual: del cargue, nunca del perfil.
+    const conSigno = { ...conContenido, signoNotasCredito: "positivo" as const };
+    expect(normalizarSpecModuloArchivo(ING, conSigno).signoNotasCredito).toBe("positivo");
+    expect(normalizarSpecModulo(ING, conSigno).signoNotasCredito).toBeUndefined();
+    expect(normalizarSpecModuloArchivo(ING, { ...conSigno, contenidoArchivo: "facturas" }).signoNotasCredito).toBeUndefined();
   });
 
   it("Cuentas por Pagar traduce su perfil anterior y conserva los campos del detalle por tercero", () => {

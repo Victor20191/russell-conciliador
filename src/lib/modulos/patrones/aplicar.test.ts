@@ -444,8 +444,18 @@ describe("aplicarContenidoDeCarga (Ingresos: qué trae el archivo)", () => {
   const specIng: SpecModulo = { hoja: "Ventas", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { concepto: 1, valor: 3 } };
 
   it("fija la respuesta del formulario y pisa lo que trajera el spec", () => {
-    const r = aplicarContenidoDeCarga(ING, { ...specIng, contenidoArchivo: "facturas" }, "notas_credito");
-    expect(r).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "notas_credito" }, contenido: "notas_credito" });
+    const r = aplicarContenidoDeCarga(ING, { ...specIng, contenidoArchivo: "facturas" }, "notas_credito", "positivo");
+    expect(r).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "notas_credito", signoNotasCredito: "positivo" }, contenido: "notas_credito" });
+  });
+
+  it("con notas crédito en el archivo exige su signo; solo facturas no lo pide y retira el que trajera", () => {
+    for (const contenido of ["mixto", "notas_credito"] as const) {
+      const sinSigno = aplicarContenidoDeCarga(ING, specIng, contenido);
+      expect(sinSigno.ok).toBe(false);
+      if (!sinSigno.ok) expect(sinSigno.message).toMatch(/con qué signo vienen las notas crédito/);
+    }
+    const facturas = aplicarContenidoDeCarga(ING, { ...specIng, signoNotasCredito: "positivo" }, "facturas", "positivo");
+    expect(facturas).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "facturas" }, contenido: "facturas" });
   });
 
   it("sin respuesta válida, pide que se indique", () => {

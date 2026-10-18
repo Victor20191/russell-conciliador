@@ -38,6 +38,10 @@ import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import { fmt } from "@/lib/format";
 import {
   CONTENIDOS_ARCHIVO,
+  exigeSignoNotasCredito,
+  INFO_SIGNO_NOTAS_CREDITO,
+  SIGNOS_NOTAS_CREDITO,
+  type SignoNotasCredito,
   INFO_CONTENIDO_ARCHIVO,
   ofertaAnexo,
   type ContenidoArchivo,
@@ -465,12 +469,17 @@ function ConfirmarContenidoActivos({
 function ConfirmarContenidoCarga({
   contenido,
   onContenido,
+  signo,
+  onSigno,
   vigente,
   destino,
   onDestino,
 }: {
   contenido: ContenidoArchivo | null;
   onContenido: (valor: ContenidoArchivo) => void;
+  /** Con notas crédito en el archivo: con qué signo vienen (se declara siempre). */
+  signo: SignoNotasCredito | null;
+  onSigno: (valor: SignoNotasCredito) => void;
   /** Cargue vigente del período; null en «Agregar archivo» o si el período no tiene cargue. */
   vigente: VigentePeriodoModulo | null;
   destino: DestinoCarga | null;
@@ -492,6 +501,28 @@ function ConfirmarContenidoCarga({
       </div>
       {contenido && (
         <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ARCHIVO[contenido].ayuda}</span>
+      )}
+      {exigeSignoNotasCredito(contenido) && (
+        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+          <span className="text-[11px] font-medium text-ink-700">
+            ¿Con qué signo vienen las notas crédito en el archivo? <span className="text-err-600">*</span>
+          </span>
+          <div className="flex flex-col gap-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Con qué signo vienen las notas crédito?">
+            {SIGNOS_NOTAS_CREDITO.map((op) => (
+              <label key={op} className="inline-flex items-center gap-1.5">
+                <input type="radio" name="signo-notas-credito" checked={signo === op} onChange={() => onSigno(op)} />
+                {INFO_SIGNO_NOTAS_CREDITO[op].opcion}
+              </label>
+            ))}
+          </div>
+          {signo && (
+            <span className="text-[11px] leading-snug text-ink-500">
+              {contenido === "mixto" && signo === "positivo"
+                ? "Las notas crédito se reconocen por su concepto o su documento («Nota crédito», «NC…») y esas filas se cambian a negativo. Si no se reconoce ninguna, la carga no sigue."
+                : INFO_SIGNO_NOTAS_CREDITO[signo].ayuda}
+            </span>
+          )}
+        </div>
       )}
       {oferta.ofrecer && vigente && (
         <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
@@ -675,6 +706,7 @@ function CargarModal({
     : analisis?.agruparPorUltimo?.agruparPor === agruparPor ? analisis.agruparPorUltimo.origen : "propuesta";
   // «¿Qué trae este archivo?» (solo este cargue, Ingresos) y, si se ofrece, a dónde va.
   const [contenido, setContenido] = useState<ContenidoArchivo | null>(null);
+  const [signoNotasCredito, setSignoNotasCredito] = useState<SignoNotasCredito | null>(null);
   const [contenidoActivos, setContenidoActivos] = useState<ContenidoActivos | null>(null);
   const [destinoCarga, setDestinoCarga] = useState<DestinoCarga | null>(null);
   // El aplicativo no tiene patrón y quien carga configura la lectura en este modal (no Inventarios,
@@ -704,6 +736,7 @@ function CargarModal({
     setSepararCentro(null);
     setAgruparElegido(null);
     setContenido(null);
+    setSignoNotasCredito(null);
     setContenidoActivos(null);
     setDestinoCarga(null);
     setConfigurando(false);
@@ -880,6 +913,7 @@ function CargarModal({
         setSepararCentro(null);
         setAgruparElegido(null);
         setContenido(null);
+        setSignoNotasCredito(null);
         setContenidoActivos(null);
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
@@ -957,6 +991,7 @@ function CargarModal({
     const ofertaActivos = ofertaAnexoActivos(contenidoActivos, vigentePeriodo ? { ...vigentePeriodo, lados: vigentePeriodo.lados ?? null } : null);
     const oferta = ofertaAnexo(contenido, vigentePeriodo);
     if (confirmarContenido && contenido == null) { notifyError("Indica qué trae este archivo."); return; }
+    if (confirmarContenido && exigeSignoNotasCredito(contenido) && signoNotasCredito == null) { notifyError("Indica con qué signo vienen las notas crédito del archivo."); return; }
     if (confirmarContenidoActivos && contenidoActivos == null) { notifyError("Indica qué trae este archivo: costo, depreciación o ambos."); return; }
     if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga == null) { notifyError("Indica si el archivo se agrega al cargue que ya existe o crea una versión nueva."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
@@ -1000,6 +1035,7 @@ function CargarModal({
       fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
+      if (confirmarContenido && exigeSignoNotasCredito(contenido) && signoNotasCredito) fd.set("signoNotasCredito", signoNotasCredito);
       if (confirmarContenidoActivos && contenidoActivos) fd.set("contenidoActivos", contenidoActivos);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       else if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
@@ -1042,6 +1078,8 @@ function CargarModal({
     <ConfirmarContenidoCarga
       contenido={contenido}
       onContenido={elegirContenido}
+      signo={signoNotasCredito}
+      onSigno={setSignoNotasCredito}
       vigente={anexo ? null : analisis.vigentePeriodo ?? null}
       destino={destinoCarga}
       onDestino={setDestinoCarga}

@@ -12,7 +12,7 @@ export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from
 import { descripcionModoSubtotales } from "./subtotales";
 import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
-import { esContenidoArchivo } from "./ingresos/contenido-archivo";
+import { esContenidoArchivo, esSignoNotasCredito, exigeSignoNotasCredito } from "./ingresos/contenido-archivo";
 import { LecturaEstructuradaSchema } from "./extraccion/lectura-estructurada";
 import { sanearRangosCodigos, textoRangosCodigos } from "./nomina/codigos-deduccion";
 import { esAgruparPor } from "./nomina/agrupar-por";
@@ -167,6 +167,10 @@ function normalizarSpecModuloInterno(
   // Qué trae ESTE archivo (Ingresos: facturas / notas crédito): es del cargue, nunca del perfil.
   if (descriptor.confirmarContenidoEnCarga && conservarCoordenadaArchivo && esContenidoArchivo(spec.contenidoArchivo)) {
     normalizado.contenidoArchivo = spec.contenidoArchivo;
+    // Y el signo declarado de sus notas crédito, también del cargue.
+    if (exigeSignoNotasCredito(spec.contenidoArchivo) && esSignoNotasCredito(spec.signoNotasCredito)) {
+      normalizado.signoNotasCredito = spec.signoNotasCredito;
+    }
   }
   // Nómina: por qué dimensión se agrupa el Consolidado de ESTE cargue. Es del cargue, nunca del perfil.
   if (descriptor.consolidado && conservarCoordenadaArchivo && esAgruparPor(spec.agruparPor)) {

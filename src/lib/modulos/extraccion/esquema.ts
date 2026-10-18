@@ -3,7 +3,7 @@
 // 0 = «no existe») tiene cada rol del módulo, más la hoja y las filas de encabezado/datos.
 // Es lo que el wizard edita, el perfil guarda por huella, y el transform aplica.
 import * as z from "zod";
-import { CONTENIDOS_ARCHIVO } from "../ingresos/contenido-archivo";
+import { CONTENIDOS_ARCHIVO, SIGNOS_NOTAS_CREDITO } from "../ingresos/contenido-archivo";
 import { CONTENIDOS_ACTIVOS } from "../activos/contenido-archivo";
 import { OPCIONES_AGRUPAR_POR } from "../nomina/agrupar-por";
 import { LecturaEstructuradaSchema } from "./lectura-estructurada";
@@ -118,6 +118,9 @@ export const SpecModuloSchema = z.object({
   // guarda en el perfil ni en el patrón. Con «notas_credito» el motor decide el signo del archivo
   // entero y rotula sus renglones (`ingresos/contenido-archivo.ts`).
   contenidoArchivo: z.enum(CONTENIDOS_ARCHIVO).optional(),
+  // Con notas crédito en el archivo (mixto o solo notas): con qué signo vienen. Lo declara el
+  // analista en cada carga (17/Oct/2026); como el contenido, es del cargue y no del formato.
+  signoNotasCredito: z.enum(SIGNOS_NOTAS_CREDITO).optional(),
   // Fila ROTULADA de tercero (SEVEN): «PROVEEDOR | NIT | nombre» en columnas de otros roles, con
   // los documentos debajo. El identificador solo existe en esas filas.
   filaTercero: z.object({

@@ -10,7 +10,7 @@ import { detectarFamilias } from "../extraccion/sugerir";
 import { tieneValorFormula, type TerminoFormula } from "../extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
-import { esContenidoArchivo, type ContenidoArchivo } from "../ingresos/contenido-archivo";
+import { esContenidoArchivo, esSignoNotasCredito, exigeSignoNotasCredito, type ContenidoArchivo } from "../ingresos/contenido-archivo";
 import { esContenidoActivos, type ContenidoActivos } from "../activos/contenido-archivo";
 import { esAgruparPor, type AgruparPorNomina } from "../nomina/agrupar-por";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
@@ -365,22 +365,29 @@ export type ContenidoDeCarga =
 
 /**
  * Aplica al spec de ESTE archivo la respuesta a «¿Qué trae este archivo?» (Ingresos,
- * `confirmarContenidoEnCarga`). Se pregunta en TODA carga —con patrón y con archivo manual—, así
- * que la respuesta del formulario manda siempre sobre lo que traiga el spec. Sin la bandera el
- * campo se retira: ningún otro módulo lo interpreta.
+ * `confirmarContenidoEnCarga`) y, si trae notas crédito, a «¿Con qué signo vienen?» (17/Oct/2026).
+ * Se pregunta en TODA carga —con patrón y con archivo manual—, así que la respuesta del formulario
+ * manda siempre sobre lo que traiga el spec. Sin la bandera los campos se retiran: ningún otro
+ * módulo los interpreta.
  */
 export function aplicarContenidoDeCarga(
   descriptor: DescriptorModulo,
   spec: SpecModulo,
   respuesta: unknown,
+  signo?: unknown,
 ): ContenidoDeCarga {
-  const { contenidoArchivo: _previo, ...sinContenido } = spec;
+  const { contenidoArchivo: _previo, signoNotasCredito: _signoPrevio, ...sinContenido } = spec;
   void _previo;
+  void _signoPrevio;
   if (!descriptor.confirmarContenidoEnCarga) return { ok: true, spec: sinContenido, contenido: null };
   if (!esContenidoArchivo(respuesta)) {
     return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
-  return { ok: true, spec: { ...sinContenido, contenidoArchivo: respuesta }, contenido: respuesta };
+  if (!exigeSignoNotasCredito(respuesta)) return { ok: true, spec: { ...sinContenido, contenidoArchivo: respuesta }, contenido: respuesta };
+  if (!esSignoNotasCredito(signo)) {
+    return { ok: false, message: "Indica con qué signo vienen las notas crédito del archivo: en negativo o en positivo." };
+  }
+  return { ok: true, spec: { ...sinContenido, contenidoArchivo: respuesta, signoNotasCredito: signo }, contenido: respuesta };
 }
 
 export type ContenidoActivosDeCarga =

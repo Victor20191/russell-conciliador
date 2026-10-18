@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { avisosContenido as avisosSigno, esFilaNotaCredito, exigeSignoNotasCredito, leerContenidoDeLote as leerSigno } from "./contenido-archivo";
 import {
   agregarContenidoArchivo,
   avisosContenido,
@@ -164,5 +165,38 @@ describe("lo que cuenta el borrador y la bitácora", () => {
     expect(detalleAuditoriaContenido({ contenido: "facturas", invertido: false, positivos: 3, negativos: 0 })).toBe(" · contenido: Facturas");
     expect(detalleAuditoriaContenido({ contenido: "notas_credito", invertido: true, positivos: 3, negativos: 1 }))
       .toBe(" · contenido: Notas crédito (signo invertido: 3 valores en positivo, 1 en negativo)");
+  });
+});
+
+describe("signo declarado de las notas crédito (17/Oct/2026)", () => {
+  it("se pregunta con notas crédito en el archivo", () => {
+    expect(exigeSignoNotasCredito("mixto")).toBe(true);
+    expect(exigeSignoNotasCredito("notas_credito")).toBe(true);
+    expect(exigeSignoNotasCredito("facturas")).toBe(false);
+  });
+
+  it("reconoce la nota crédito por el concepto o el documento", () => {
+    expect(esFilaNotaCredito("Nota Crédito", "D-1")).toBe(true);
+    expect(esFilaNotaCredito("Ventas", "NC-1043")).toBe(true);
+    expect(esFilaNotaCredito("Ventas", "NC1043")).toBe(true);
+    expect(esFilaNotaCredito("Ventas", "N.C. 12")).toBe(true);
+    expect(esFilaNotaCredito("Ventas", "F-1043")).toBe(false);
+    expect(esFilaNotaCredito("Ventas nacionales", null)).toBe(false);
+  });
+
+  it("contenido dudoso: lo declarado contradice lo que trae el archivo", () => {
+    const dudoso = avisosSigno({ contenido: "notas_credito", invertido: true, positivos: 1, negativos: 5, declarado: "positivo" });
+    expect(dudoso.some((a) => a.tono === "aviso" && /quedaron SUMANDO/.test(a.texto))).toBe(true);
+    const mixto = avisosSigno({ contenido: "mixto", invertido: false, positivos: 3, negativos: 0, declarado: "negativo", notasCredito: { reconocidas: 2, enPositivo: 2, invertidas: 0 } });
+    expect(mixto.some((a) => a.tono === "aviso" && /quedaron SUMANDO/.test(a.texto))).toBe(true);
+    const bien = avisosSigno({ contenido: "mixto", invertido: false, positivos: 3, negativos: 0, declarado: "positivo", notasCredito: { reconocidas: 2, enPositivo: 2, invertidas: 2 } });
+    expect(bien).toEqual([expect.objectContaining({ tono: "info" })]);
+  });
+
+  it("el spec del lote conserva la declaración y lo hecho en el mixto", () => {
+    expect(leerSigno({ signoContenido: { contenido: "mixto", invertido: false, positivos: 2, negativos: 0, declarado: "positivo", notasCredito: { reconocidas: 1, enPositivo: 1, invertidas: 1 } } }))
+      .toEqual({ contenido: "mixto", invertido: false, positivos: 2, negativos: 0, declarado: "positivo", notasCredito: { reconocidas: 1, enPositivo: 1, invertidas: 1 } });
+    // Un lote anterior no trae la declaración.
+    expect(leerSigno({ signoContenido: { contenido: "notas_credito", invertido: true, positivos: 2, negativos: 0 } })).not.toHaveProperty("declarado");
   });
 });

@@ -39,6 +39,9 @@ import {
   contarSignos,
   esContenidoArchivo,
   invertirNotasCredito,
+  esFilaNotaCredito,
+  esSignoNotasCredito,
+  exigeSignoNotasCredito,
   type ContenidoArchivo,
   type SignoContenido,
 } from "../ingresos/contenido-archivo";
@@ -111,6 +114,11 @@ export type ResultadoTransformModulo = {
    * cargue no trae TRM de cierre. La carga se detiene y pide la TRM (17/Oct/2026).
    */
   importesSinTrm?: { filaNum: number; columna: string; texto: string }[];
+  /**
+   * Ingresos, archivo mixto declarado con las notas crédito en positivo, sin ninguna fila cuyo
+   * concepto o documento nombre una nota crédito: no hay a qué aplicar el signo. La carga se detiene.
+   */
+  sinNotasCreditoReconocidas?: true;
 };
 
 /**
@@ -456,9 +464,17 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       }
     }
     const conteo = contarSignos(crudos);
-    const invertido = contenidoArchivo === "notas_credito" && invertirNotasCredito(conteo);
+    // El signo DECLARADO manda (17/Oct/2026); sin declaración (lotes anteriores) decide la mayoría.
+    const declarado = exigeSignoNotasCredito(contenidoArchivo) && esSignoNotasCredito(spec.signoNotasCredito) ? spec.signoNotasCredito : undefined;
+    const invertido = contenidoArchivo === "notas_credito" && (declarado ? declarado === "positivo" : invertirNotasCredito(conteo));
     if (invertido) factorSigno = -factorSigno;
-    signoContenido = { contenido: contenidoArchivo, invertido, positivos: conteo.positivos, negativos: conteo.negativos };
+    signoContenido = {
+      contenido: contenidoArchivo,
+      invertido,
+      positivos: conteo.positivos,
+      negativos: conteo.negativos,
+      ...(declarado ? { declarado } : {}),
+    };
   }
 
   // ===== NÓMINA (ver `ConfiguracionNomina`) =====
@@ -1164,6 +1180,40 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // venta. Se rotula al final, después de detectar subtotales —que comparan «Total <grupo>» con el
   // clasificador del bloque—, y el subtotal de cada grupo junto con sus filas, así el control
   // del archivo sigue emparejándolos. El gran total no es de ningún grupo y no se rotula.
+  // INGRESOS · archivo MIXTO: las notas crédito se reconocen por su concepto o su documento. Si se
+  // declaró que vienen en positivo, esas filas cambian de signo para que resten; si se declaró que
+  // vienen en negativo, solo se cuentan las que aun así vienen en positivo (el borrador lo avisa).
+  // Declarar «positivo» sin que se reconozca ninguna detiene la carga: no habría a qué aplicarlo.
+  let sinNotasCreditoReconocidas = false;
+  if (signoContenido?.contenido === "mixto" && signoContenido.declarado) {
+    const rolDocumento = descriptor.columnas.some((c) => c.nombre === "documento") ? "documento" : null;
+    let reconocidas = 0;
+    let enPositivo = 0;
+    let invertidas = 0;
+    const negar = (v: ValorCelda): ValorCelda => (typeof v === "number" && Number.isFinite(v) ? -v + 0 : v);
+    for (let i = 0; i < filas.length; i++) {
+      const f = filas[i];
+      if (f.tipoFila !== "movimiento") continue;
+      if (!esFilaNotaCredito(f.clasificador, rolDocumento ? f.datos[rolDocumento] : null)) continue;
+      reconocidas += 1;
+      if (f.valor > 0) enPositivo += 1;
+      if (signoContenido.declarado !== "positivo" || f.valor === 0) continue;
+      invertidas += 1;
+      filas[i] = {
+        ...f,
+        valor: -f.valor + 0,
+        datos: { ...f.datos, [descriptor.valor]: negar(f.datos[descriptor.valor] ?? null) },
+        // El aporte de cada término de la fórmula cambia con el valor, para que el desglose cuadre.
+        ...(f.terminosFormula
+          ? { terminosFormula: Object.fromEntries(Object.entries(f.terminosFormula).map(([k, v]) => [k, -v + 0])) }
+          : {}),
+        signoInvertido: true,
+      };
+    }
+    signoContenido = { ...signoContenido, notasCredito: { reconocidas, enPositivo, invertidas } };
+    sinNotasCreditoReconocidas = signoContenido.declarado === "positivo" && reconocidas === 0;
+  }
+
   if (signoContenido?.contenido === "notas_credito") {
     for (let i = 0; i < filas.length; i++) {
       const f = filas[i];
@@ -1208,5 +1258,6 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     ...(edadesNoSumadas.length > 0 ? { edadesNoSumadas } : {}),
     ...(signoContenido ? { contenido: signoContenido } : {}),
     ...(importesSinTrm.length > 0 ? { importesSinTrm } : {}),
+    ...(sinNotasCreditoReconocidas ? { sinNotasCreditoReconocidas: true as const } : {}),
   };
 }

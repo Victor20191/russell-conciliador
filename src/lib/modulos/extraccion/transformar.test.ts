@@ -929,6 +929,48 @@ describe("transformarModulo (ING) · qué trae el archivo: facturas o notas cré
     ]);
   });
 
+  it("el signo DECLARADO manda sobre la mayoría en un archivo de solo notas crédito", () => {
+    const grid = hojaIng([["Ventas", "NC-1", -50], ["Ventas", "NC-2", -30]]);
+    // Declaradas en positivo aunque vengan en negativo: se invierten igual (el borrador lo avisa).
+    const positivo = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito", signoNotasCredito: "positivo" }, grid);
+    expect(positivo.contenido).toMatchObject({ invertido: true, declarado: "positivo", negativos: 2 });
+    expect(imputables(positivo.filas).map((f) => f.valor)).toEqual([50, 30]);
+    const negativo = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito", signoNotasCredito: "negativo" }, grid);
+    expect(negativo.contenido).toMatchObject({ invertido: false, declarado: "negativo" });
+    expect(imputables(negativo.filas).map((f) => f.valor)).toEqual([-50, -30]);
+  });
+
+  it("archivo mixto con notas crédito en positivo: se invierten las que su concepto o documento nombra", () => {
+    const grid = hojaIng([
+      ["Ventas", "F-1", 1_000],
+      ["Ventas", "NC-1", 80],
+      ["Nota Crédito", "D-7", 20],
+      ["Ventas", "NC12", 5],
+    ]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoNotasCredito: "positivo" }, grid);
+    expect(imputables(r.filas).map((f) => [f.clasificador, f.valor, f.signoInvertido ?? false])).toEqual([
+      ["Ventas", 1_000, false],
+      ["Ventas", -80, true],
+      ["Nota Crédito", -20, true],
+      ["Ventas", -5, true],
+    ]);
+    expect(r.contenido).toMatchObject({ declarado: "positivo", notasCredito: { reconocidas: 3, enPositivo: 3, invertidas: 3 } });
+    expect(r.sinNotasCreditoReconocidas).toBeUndefined();
+  });
+
+  it("archivo mixto declarado en positivo sin ninguna nota crédito reconocible detiene la carga", () => {
+    const grid = hojaIng([["Ventas", "F-1", 1_000], ["Ventas", "F-2", 80]]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoNotasCredito: "positivo" }, grid);
+    expect(r.sinNotasCreditoReconocidas).toBe(true);
+  });
+
+  it("archivo mixto declarado en negativo: no cambia nada y cuenta las que aun así vienen en positivo", () => {
+    const grid = hojaIng([["Ventas", "F-1", 1_000], ["Ventas", "NC-1", 80], ["Ventas", "NC-2", -30]]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoNotasCredito: "negativo" }, grid);
+    expect(imputables(r.filas).map((f) => f.valor)).toEqual([1_000, 80, -30]);
+    expect(r.contenido).toMatchObject({ notasCredito: { reconocidas: 2, enPositivo: 1, invertidas: 0 } });
+  });
+
   it("facturas y archivo mixto se leen exactamente como antes", () => {
     const grid = hojaIng([["Ventas", "F-1", 1_000], ["Ventas", "NC-1", -80], ["Total", null, 920]]);
     const antes = transformarModulo(ING, SPEC_ING, grid);
