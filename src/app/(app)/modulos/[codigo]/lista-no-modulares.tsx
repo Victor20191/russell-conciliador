@@ -5,6 +5,57 @@ import { Chip } from "@/components/ui";
 import type { HijoContableCruce } from "@/lib/modulos/cruce-contable";
 import type { ClasificadorNoModular, CuentaNoModular, HijoModuloSinCuenta } from "@/lib/modulos/marcas-cruce";
 
+/** La selección con todas las `claves` marcadas (`marcar`) o desmarcadas; el resto no cambia. */
+export function conSeleccionMasiva(previa: ReadonlySet<string>, claves: readonly string[], marcar: boolean): Set<string> {
+  const siguiente = new Set(previa);
+  for (const clave of claves) {
+    if (marcar) siguiente.add(clave);
+    else siguiente.delete(clave);
+  }
+  return siguiente;
+}
+
+/**
+ * Primera fila de una lista con casillas: marca o desmarca TODAS de una vez (hay renglones con
+ * decenas de cuentas del cliente). Con solo algunas marcadas la casilla queda a medias y un clic
+ * las marca todas. Va como primer `<li>` de la lista.
+ */
+export function FilaSeleccionarTodas({
+  claves,
+  seleccion,
+  masculino = false,
+  onSeleccionarTodas,
+}: {
+  claves: readonly string[];
+  seleccion: ReadonlySet<string>;
+  /** Cuentas → «Seleccionar todas»; saldos o conceptos → «Seleccionar todos». */
+  masculino?: boolean;
+  onSeleccionarTodas: (claves: readonly string[], marcar: boolean) => void;
+}) {
+  const marcadas = claves.filter((c) => seleccion.has(c)).length;
+  const todas = marcadas === claves.length;
+  const vocal = masculino ? "o" : "a";
+  return (
+    <li className="bg-ink-50">
+      <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 transition hover:bg-ink-100">
+        <input
+          type="checkbox"
+          checked={todas}
+          ref={(casilla) => {
+            if (casilla) casilla.indeterminate = marcadas > 0 && !todas;
+          }}
+          onChange={() => onSeleccionarTodas(claves, !todas)}
+          className="size-3.5 shrink-0 accent-navy-700"
+        />
+        <span className="flex-1 text-[12px] font-semibold text-ink-700">Seleccionar tod{vocal}s</span>
+        <span className="shrink-0 text-[11.5px] tabular-nums text-ink-500">
+          {marcadas} de {claves.length} marcad{vocal}{marcadas === 1 ? "" : "s"}
+        </span>
+      </label>
+    </li>
+  );
+}
+
 /**
  * Las cuentas del cliente que componen una fila del cruce, con la opción de marcarlas
  * como NO MODULARES (no hacen parte de la conciliación del módulo: su saldo se resta).
@@ -17,11 +68,14 @@ export function ListaNoModulares({
   hijos,
   seleccion,
   onAlternar,
+  onSeleccionarTodas,
 }: {
   hijos: readonly HijoContableCruce[];
   seleccion: ReadonlySet<string>;
   /** Ausente → solo lectura (sin checkboxes). */
   onAlternar?: (cuenta8: string) => void;
+  /** Con dos o más cuentas en edición, agrega «Seleccionar todas» arriba. */
+  onSeleccionarTodas?: (cuentas8: readonly string[], marcar: boolean) => void;
 }) {
   if (hijos.length === 0) {
     return <p className="text-[11.5px] text-ink-400">Esta cuenta no tiene desglose por cuenta del cliente.</p>;
@@ -29,6 +83,9 @@ export function ListaNoModulares({
 
   return (
     <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+      {onAlternar && onSeleccionarTodas && hijos.length > 1 && (
+        <FilaSeleccionarTodas claves={hijos.map((h) => h.cuenta8)} seleccion={seleccion} onSeleccionarTodas={onSeleccionarTodas} />
+      )}
       {hijos.map((h) => {
         const marcada = seleccion.has(h.cuenta8);
         const contenido = (
@@ -98,15 +155,21 @@ export function ListaSinCuentaNoModulares({
   hijos,
   seleccion,
   onAlternar,
+  onSeleccionarTodas,
 }: {
   hijos: readonly HijoModuloSinCuenta[];
   seleccion: ReadonlySet<string>;
   /** Ausente → solo lectura (sin checkboxes). */
   onAlternar?: (clasificador: string) => void;
+  /** Con dos o más saldos en edición, agrega «Seleccionar todos» arriba. */
+  onSeleccionarTodas?: (clasificadores: readonly string[], marcar: boolean) => void;
 }) {
   if (hijos.length === 0) return <p className="text-[11.5px] text-ink-400">No hay saldo del módulo sin cuenta.</p>;
   return (
     <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+      {onAlternar && onSeleccionarTodas && hijos.length > 1 && (
+        <FilaSeleccionarTodas claves={hijos.map((h) => h.clasificador)} seleccion={seleccion} masculino onSeleccionarTodas={onSeleccionarTodas} />
+      )}
       {hijos.map((h) => {
         const marcado = seleccion.has(h.clasificador);
         const contenido = (

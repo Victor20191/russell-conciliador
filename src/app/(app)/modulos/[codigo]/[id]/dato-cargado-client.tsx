@@ -141,7 +141,7 @@ function FilaConceptoAgrupado({ grupo, abierto, columnas, onAlternar, selecciona
  * De dónde sale la columna del módulo en una fila del cruce: los clasificadores del archivo que
  * suman a ella, de mayor a menor. Va al lado de las cuentas del cliente, que explican el otro lado.
  */
-function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlternar }: {
+function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlternar, onSeleccionarTodos }: {
   detalle: readonly { clasificador: string; total: number }[];
   etiqueta: string;
   descripcionDe: (clasificador: string) => string | null;
@@ -149,6 +149,8 @@ function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlte
   excluidos?: ReadonlySet<string>;
   /** Ausente → solo lectura (sin casillas): la selección se hace en la marca. */
   onAlternar?: (clasificador: string) => void;
+  /** Con dos o más conceptos en edición, agrega «Seleccionar todos» arriba. */
+  onSeleccionarTodos?: (clasificadores: readonly string[], marcar: boolean) => void;
 }) {
   if (detalle.length === 0) {
     return <p className="text-[11.5px] text-ink-400">Esta fila no tiene saldo del módulo que desglosar.</p>;
@@ -159,6 +161,14 @@ function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlte
         {etiqueta} · {detalle.length} {detalle.length === 1 ? "concepto" : "conceptos"}
       </span>
       <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+        {onAlternar && onSeleccionarTodos && detalle.length > 1 && (
+          <FilaSeleccionarTodas
+            claves={detalle.map((d) => d.clasificador)}
+            seleccion={excluidos ?? new Set<string>()}
+            masculino
+            onSeleccionarTodas={onSeleccionarTodos}
+          />
+        )}
         {detalle.map((d) => {
           const descripcion = descripcionDe(d.clasificador);
           const fuera = excluidos?.has(d.clasificador) === true;
@@ -191,7 +201,14 @@ function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlte
   );
 }
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
-import { ListaNoModulares, ListaSinCuentaNoModulares, ResumenClasificadoresNoModulares, ResumenNoModulares } from "../lista-no-modulares";
+import {
+  conSeleccionMasiva,
+  FilaSeleccionarTodas,
+  ListaNoModulares,
+  ListaSinCuentaNoModulares,
+  ResumenClasificadoresNoModulares,
+  ResumenNoModulares,
+} from "../lista-no-modulares";
 import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
 import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
 import { etiquetaTercero } from "./marca-tercero";
@@ -4196,6 +4213,8 @@ function ModalMarca({
       else siguiente.add(cuenta8);
       return siguiente;
     });
+  const seleccionarTodasNoModulares = (claves: readonly string[], marcar: boolean) =>
+    setNoModulares((previas) => conSeleccionMasiva(previas, claves, marcar));
   // Conceptos del archivo que la contabilidad no registra en esta cuenta: bajan el lado del módulo.
   const conceptos = ladoModulo ? [] : fila.detalleModulo ?? [];
   const [noContabilizados, setNoContabilizados] = useState<Set<string>>(
@@ -4208,6 +4227,8 @@ function ModalMarca({
       else siguiente.add(clasificador);
       return siguiente;
     });
+  const seleccionarTodosNoContabilizados = (claves: readonly string[], marcar: boolean) =>
+    setNoContabilizados((previos) => conSeleccionMasiva(previos, claves, marcar));
   const totalNoContabilizado = conceptos.reduce((suma, c) => (noContabilizados.has(c.clasificador) ? suma + c.total : suma), 0);
   // Vista previa en vivo: lo que el servidor recalculará al guardar.
   // Del lado módulo (saldo sin cuenta) lo excluido se resta del módulo: la diferencia SUBE.
@@ -4322,7 +4343,12 @@ function ModalMarca({
             <span className="text-[12px] font-semibold text-ink-700">
               Saldos no modulares <span className="font-normal text-ink-400">(no hacen parte de la conciliación: se restan del lado del módulo)</span>
             </span>
-            <ListaSinCuentaNoModulares hijos={hijosSinCuenta} seleccion={noModulares} onAlternar={alternarNoModular} />
+            <ListaSinCuentaNoModulares
+              hijos={hijosSinCuenta}
+              seleccion={noModulares}
+              onAlternar={alternarNoModular}
+              onSeleccionarTodas={seleccionarTodasNoModulares}
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -4330,7 +4356,7 @@ function ModalMarca({
               <span className="text-[12px] font-semibold text-ink-700">
                 Cuentas no modulares <span className="font-normal text-ink-400">(están en la contabilidad y no hacen parte de la conciliación: su saldo se resta de Contabilidad)</span>
               </span>
-              <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} />
+              <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} onSeleccionarTodas={seleccionarTodasNoModulares} />
             </div>
             {conceptos.length > 0 && (
               <div className="flex flex-col gap-1.5">
@@ -4343,6 +4369,7 @@ function ModalMarca({
                   descripcionDe={descripcionDeClasificador}
                   excluidos={noContabilizados}
                   onAlternar={alternarNoContabilizado}
+                  onSeleccionarTodos={seleccionarTodosNoContabilizados}
                 />
               </div>
             )}
