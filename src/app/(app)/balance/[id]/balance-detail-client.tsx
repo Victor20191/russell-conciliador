@@ -32,6 +32,7 @@ import type { Tab } from "./tabs";
 import PrevalidadorTab from "./prevalidador-tab";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
+import type { RevisionHistorialVM } from "@/lib/balance/prevalidador/historial";
 import {
   FILTROS_COLUMNAS_DETALLE_INICIALES,
   filtrarArbolDetallePorColumnas,
@@ -75,7 +76,7 @@ const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, puedeHomologar, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
+  arbol, estandar, puedeMapear, puedeHomologar, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, historialPrevalidador, tabInicial = null,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
   /** Asignar o cambiar la cuenta Russell de una cuenta: senior asignado o administrador. */
@@ -89,6 +90,8 @@ export default function BalanceDetailClient({
   /** Informe del prevalidador de homologación (recalculado al leer). */
   prevalidador: PrevalidadorVM;
   revisionPrevalidador: RevisionPrevalidadorVM;
+  /** Aprobaciones y revocaciones del prevalidador, de la más reciente a la más antigua. */
+  historialPrevalidador: RevisionHistorialVM[];
 }) {
   const [tab, setTab] = useState<Tab>(tabInicial ?? "breakdown");
   const [filtro, setFiltro] = useState<Filtro>("todo");
@@ -115,6 +118,7 @@ export default function BalanceDetailClient({
           puedeRevisar={puedeRevisarPrevalidador}
           estaCongelado={estaCongelado}
           revision={revisionPrevalidador}
+          historial={historialPrevalidador}
           onIrADetalle={irAAlertas}
         />
       )}

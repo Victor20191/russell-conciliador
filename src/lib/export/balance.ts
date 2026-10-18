@@ -9,6 +9,11 @@
 import ExcelJS from "exceljs";
 import type { NodoBalance, RussellGroup } from "@/lib/balance/calcular";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
+import {
+  etiquetaAccionRevision,
+  etiquetaSituacionRevision,
+  type RevisionHistorialVM,
+} from "@/lib/balance/prevalidador/historial";
 import { fmtDateTime } from "@/lib/format";
 
 export type TipoExportBalance = "homologado" | "comparativo" | "prevalidador";
@@ -335,12 +340,40 @@ function hojaTrazabilidadPrevalidador(
   };
 }
 
+/** Todas las aprobaciones y revocaciones, de la más reciente a la más antigua. */
+function hojaHistorialPrevalidador(wb: ExcelJS.Workbook, historial: RevisionHistorialVM[], meta: MetaExportBalance) {
+  const ws = wb.addWorksheet("Historial prevalidador");
+  ws.mergeCells("A1:D1");
+  ws.getCell("A1").value = `Historial de revisiones del prevalidador — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
+  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.addRow([]);
+  const header = ws.addRow(["Fecha", "Usuario", "Acción", "Comentario"]);
+  header.font = { bold: true };
+  header.eachCell((c) => (c.fill = HEADER_FILL));
+  if (historial.length === 0) {
+    const vacio = ws.addRow(["Sin aprobaciones ni revocaciones registradas."]);
+    vacio.font = { italic: true, color: { argb: "FF667085" } };
+  }
+  for (const h of historial) {
+    const situacion = etiquetaSituacionRevision(h.situacion);
+    const accion = etiquetaAccionRevision(h.accion) + (situacion ? ` (${situacion.toLowerCase()})` : "");
+    const row = ws.addRow([fmtDateTime(h.fecha), h.usuario, accion, h.comentario]);
+    row.alignment = { vertical: "top" };
+    row.getCell(4).alignment = { vertical: "top", wrapText: true };
+    row.getCell(3).font = { bold: true, color: { argb: h.accion === "aprobada" ? "FF18794E" : "FFB42318" } };
+  }
+  [22, 28, 26, 90].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  ws.views = [{ state: "frozen", ySplit: 3 }];
+}
+
 export async function crearExportacionBalance(
   datos: {
     arbol: NodoBalance[];
     grupos: RussellGroup[];
     prevalidador?: PrevalidadorVM;
     revisionPrevalidador?: RevisionPrevalidadorExport;
+    /** Aprobaciones y revocaciones del prevalidador (solo la exportación del prevalidador). */
+    historialPrevalidador?: RevisionHistorialVM[];
   },
   meta: MetaExportBalance,
   tipo: TipoExportBalance,
@@ -353,6 +386,7 @@ export async function crearExportacionBalance(
     if (!datos.prevalidador) throw new Error("Faltan los datos del prevalidador.");
     hojaPrevalidador(wb, datos.prevalidador, meta);
     hojaTrazabilidadPrevalidador(wb, datos.revisionPrevalidador, meta);
+    if (datos.historialPrevalidador) hojaHistorialPrevalidador(wb, datos.historialPrevalidador, meta);
   } else {
     // Homologado + pestaña de VALIDACIÓN con fórmulas vivas sobre sus subtotales.
     const clases = hojaHomologado(wb, datos.arbol, meta);

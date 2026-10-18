@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import { agruparJerarquia, agruparPorRussell, type CuentaEstandar } from "@/lib/balance/calcular";
 import { construirPrevalidador } from "@/lib/balance/prevalidador/calcular";
+import { fmtDateTime } from "@/lib/format";
 import { crearExportacionBalance } from "./balance";
 
 const STD: CuentaEstandar[] = [
@@ -161,6 +162,10 @@ describe("crearExportacionBalance", () => {
           justificacion: "Diferencias revisadas",
           huella: "a".repeat(64),
         },
+        historialPrevalidador: [
+          { id: 3, accion: "aprobada", fecha: "2026-08-01T15:00:00.000Z", usuario: "Ana Auditora", comentario: "Diferencias revisadas", situacion: "vigente" },
+          { id: 2, accion: "revocada", fecha: "2026-07-30T15:00:00.000Z", usuario: "Luis Senior", comentario: "Falta homologar la 4175", situacion: null },
+        ],
       },
       META,
       "prevalidador",
@@ -182,5 +187,9 @@ describe("crearExportacionBalance", () => {
     expect(trazabilidad.getCell("B3").value).toBe("APROBADO Y VIGENTE");
     expect(trazabilidad.getCell("B5").value).toBe("Ana Auditora");
     expect(trazabilidad.getCell("B8").value).toBe("a".repeat(64));
+    const historial = wb.getWorksheet("Historial prevalidador")!;
+    expect(historial.getRow(3).values).toEqual([, "Fecha", "Usuario", "Acción", "Comentario"]);
+    expect(historial.getRow(4).values).toEqual([, fmtDateTime("2026-08-01T15:00:00.000Z"), "Ana Auditora", "Aprobación (vigente)", "Diferencias revisadas"]);
+    expect(historial.getRow(5).values).toEqual([, fmtDateTime("2026-07-30T15:00:00.000Z"), "Luis Senior", "Revocación", "Falta homologar la 4175"]);
   });
 });

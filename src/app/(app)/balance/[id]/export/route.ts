@@ -7,7 +7,8 @@ import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { crearExportacionBalance, type TipoExportBalance } from "@/lib/export/balance";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
-import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { cargarContextoPrevalidadorBalance, cargarHistorialRevisionesPrevalidador } from "@/lib/balance/prevalidador/servidor";
+import { construirHistorialRevisiones } from "@/lib/balance/prevalidador/historial";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const generadoEn = new Date();
 
     if (tipo === "prevalidador") {
-      const contexto = await cargarContextoPrevalidadorBalance(id);
+      const [contexto, historialCrudo] = await Promise.all([
+        cargarContextoPrevalidadorBalance(id),
+        cargarHistorialRevisionesPrevalidador(id),
+      ]);
       if (contexto.prevalidador.estado !== "listo") {
         const mensaje =
           contexto.prevalidador.estado === "bloqueado"
@@ -51,6 +55,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           grupos: [],
           prevalidador: contexto.prevalidador,
           revisionPrevalidador: contexto.revision,
+          historialPrevalidador: construirHistorialRevisiones(historialCrudo, contexto.revision.estado),
         },
         { cliente: balance.nombreCliente, periodo: balance.periodo, version: balance.version, generadoEn },
         tipo,

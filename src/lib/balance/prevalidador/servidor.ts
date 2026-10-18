@@ -2,8 +2,10 @@ import "server-only";
 
 import prisma from "@/lib/prisma";
 import { leerDatosPrevalidador, resolverContextoPrevalidador, type ContextoPrevalidador, type DbPrevalidador } from "./contexto";
+import { SELECT_HISTORIAL_REVISION, type RevisionHistorialCruda } from "./historial";
 
 export type { CatalogoCongeladoVM, ContextoPrevalidador, RevisionPrevalidadorVM } from "./contexto";
+export type { RevisionHistorialVM } from "./historial";
 
 /**
  * Cargador estricto y único del prevalidador. No usa caché ni catálogo de fábrica:
@@ -19,4 +21,16 @@ export async function cargarContextoPrevalidadorBalance(
   db: DbPrevalidador = prisma,
 ): Promise<ContextoPrevalidador> {
   return resolverContextoPrevalidador(await leerDatosPrevalidador(db, balanceId));
+}
+
+/**
+ * Todas las aprobaciones y revocaciones del prevalidador de un balance, tal como quedaron
+ * (la tabla es append-only). Se rotulan con `construirHistorialRevisiones`.
+ */
+export async function cargarHistorialRevisionesPrevalidador(balanceId: number): Promise<RevisionHistorialCruda[]> {
+  return prisma.prevalidadorRevisionBalance.findMany({
+    where: { balanceId },
+    select: SELECT_HISTORIAL_REVISION,
+    orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+  });
 }

@@ -29,7 +29,9 @@ import {
   type PrevalidadorVM,
 } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
+import type { RevisionHistorialVM } from "@/lib/balance/prevalidador/historial";
 import type { ActionState } from "@/lib/definitions";
+import { HistorialRevisionesPrevalidador } from "./historial-revisiones-prevalidador";
 
 export default function PrevalidadorTab({
   prevalidador,
@@ -38,6 +40,7 @@ export default function PrevalidadorTab({
   puedeRevisar,
   estaCongelado,
   revision,
+  historial,
   onIrADetalle,
 }: {
   prevalidador: PrevalidadorVM;
@@ -46,6 +49,8 @@ export default function PrevalidadorTab({
   puedeRevisar: boolean;
   estaCongelado: boolean;
   revision: RevisionPrevalidadorVM;
+  /** Aprobaciones y revocaciones, de la más reciente a la más antigua. */
+  historial: RevisionHistorialVM[];
   /** Salta a «Detalle por niveles», donde se homologan las cuentas pendientes. */
   onIrADetalle: () => void;
 }) {
@@ -54,13 +59,14 @@ export default function PrevalidadorTab({
       <Card>
         <div className="flex items-start gap-2.5 px-4 py-5">
           <span className="mt-0.5 text-err-700"><Icon name="warn" size={16} /></span>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-ink-800">Prevalidador no disponible</p>
             <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-ink-600">{prevalidador.mensaje}</p>
             <p className="mt-1 text-[11.5px] text-ink-500">
               Por seguridad no se reemplazaron las cuentas del balance con valores predeterminados.
             </p>
           </div>
+          <HistorialRevisionesPrevalidador historial={historial} />
         </div>
       </Card>
     );
@@ -69,9 +75,13 @@ export default function PrevalidadorTab({
   if (prevalidador.estado === "sin_catalogo") {
     return (
       <Card>
-        <div className="px-4 py-6 text-[12.5px] text-ink-500">
-          No hay cuentas configuradas para el prevalidador. Un administrador las define en{" "}
-          <span className="font-medium text-ink-700">Configuración › Filtros de cuentas</span>, en la página de cada módulo.
+        <div className="flex items-start gap-3 px-4 py-6">
+          <div className="min-w-0 flex-1 text-[12.5px] text-ink-500">
+            No hay cuentas configuradas para el prevalidador. Un administrador las define en{" "}
+            <span className="font-medium text-ink-700">Configuración › Filtros de cuentas</span>, en la página de cada
+            módulo.
+          </div>
+          <HistorialRevisionesPrevalidador historial={historial} />
         </div>
       </Card>
     );
@@ -86,7 +96,7 @@ export default function PrevalidadorTab({
             <span className="mt-0.5 text-warn-700">
               <Icon name="warn" size={16} />
             </span>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold text-ink-800">El prevalidador está bloqueado</p>
               <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-ink-600">
                 Quedan <span className="font-semibold text-ink-800">{cuentas} cuenta(s) sin homologar</span> por{" "}
@@ -95,6 +105,7 @@ export default function PrevalidadorTab({
                 cliente, así que cualquier diferencia sería falsa.
               </p>
             </div>
+            <HistorialRevisionesPrevalidador historial={historial} />
           </div>
           <button
             type="button"
@@ -137,6 +148,7 @@ export default function PrevalidadorTab({
       <RevisionPrevalidador
         balanceId={balanceId}
         revision={revision}
+        historial={historial}
         puedeRevisar={puedeRevisar}
         estaCongelado={estaCongelado}
         hallazgos={filasConDiferencia}
@@ -276,12 +288,14 @@ export default function PrevalidadorTab({
 function RevisionPrevalidador({
   balanceId,
   revision,
+  historial,
   puedeRevisar,
   estaCongelado,
   hallazgos,
 }: {
   balanceId: number;
   revision: RevisionPrevalidadorVM;
+  historial: RevisionHistorialVM[];
   puedeRevisar: boolean;
   estaCongelado: boolean;
   hallazgos: number;
@@ -339,6 +353,7 @@ function RevisionPrevalidador({
             </p>
           )}
         </div>
+        <HistorialRevisionesPrevalidador historial={historial} />
       </div>
 
       {puedeRevisar && !revision.vigente && (

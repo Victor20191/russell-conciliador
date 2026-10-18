@@ -9,7 +9,8 @@ import { ORIGEN_PENDIENTE } from "@/lib/balance/mapeo-cliente-config";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
-import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { cargarContextoPrevalidadorBalance, cargarHistorialRevisionesPrevalidador } from "@/lib/balance/prevalidador/servidor";
+import { construirHistorialRevisiones } from "@/lib/balance/prevalidador/historial";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -85,6 +86,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     terceroLigado,
     cierresCliente,
     cerradosCliente,
+    historialRevisionesCrudo,
   ] = await Promise.all([
     authorizePermiso("balance:crear", { clientId }),
     authorizePermiso("balance:revisar", { clientId }),
@@ -141,6 +143,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     cierresFirmes(clientId),
     // Balances cerrados del cliente: se abren antes de eliminarlos.
     prisma.balancePruebaEncabezado.findMany({ where: { clienteId: clientId, estaCongelado: true }, select: { id: true, periodo: true, version: true } }),
+    // Aprobaciones y revocaciones del prevalidador de este balance (pestaña Prevalidador › Historial).
+    cargarHistorialRevisionesPrevalidador(id),
   ]);
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
@@ -232,6 +236,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         instantaneaDisponible: false,
         catalogoCongelado: null,
       };
+  const historialPrevalidador = construirHistorialRevisiones(historialRevisionesCrudo, revisionPrevalidador.estado);
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;
   // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
@@ -499,6 +504,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             umbrales={umbrales}
             prevalidador={prevalidador}
             revisionPrevalidador={revisionPrevalidador}
+            historialPrevalidador={historialPrevalidador}
           />
         </>
       )}
