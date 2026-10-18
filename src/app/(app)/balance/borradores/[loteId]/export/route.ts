@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
+import { contextoAccesoBorradorActual, puedeVerBorrador } from "@/lib/balance/autorizacion-borrador";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { aplanarArbolFiltrado, type FilaBorrador } from "@/lib/balance/borrador";
 import { crearExportacionBorrador } from "@/lib/export/borrador";
@@ -13,14 +14,20 @@ export const dynamic = "force-dynamic";
 /** Descarga el árbol crudo del borrador a Excel. `?filtro=2,24,2408` exporta solo
  *  esas ramas (mismo filtro visual del árbol). Mismo permiso que la página. */
 export async function GET(req: Request, { params }: { params: Promise<{ loteId: string }> }) {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return NextResponse.json({ message: authz.message }, { status: 403 });
+  // Quien carga y el senior asignado que abre el borrador para revisarlo (18/Oct/2026).
+  const [carga, revisa] = await Promise.all([authorizePermiso("balance:crear"), authorizePermiso("balance:revisar")]);
+  if (!carga.ok && !revisa.ok) return NextResponse.json({ message: carga.message }, { status: 403 });
   const { loteId } = await params;
   try {
-    const [lote, filasStaging] = await Promise.all([
+    const [lote, filasStaging, contexto] = await Promise.all([
       prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
       prisma.balanceImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
+      contextoAccesoBorradorActual(),
     ]);
+    // Misma visibilidad que la página: el borrador de un cliente ajeno no se descarga.
+    if (lote ? !puedeVerBorrador(lote, contexto) : !contexto.alcance.todos) {
+      return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
+    }
     if (filasStaging.length === 0) return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
 
     const filas: FilaBorrador[] = filasStaging.map((f) => ({

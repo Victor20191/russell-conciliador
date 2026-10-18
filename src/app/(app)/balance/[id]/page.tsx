@@ -24,7 +24,7 @@ import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { ExportarBalance } from "./exportar-balance";
 import { EliminarBalanceButton } from "./eliminar-balance-button";
-import { bloqueosEliminacionBalance } from "@/lib/balance/alcance-eliminacion";
+import { alcancesEliminacionPermitidos, bloqueosEliminacionBalance } from "@/lib/balance/alcance-eliminacion";
 import { FlashToast } from "@/components/flash-toast";
 import { ComentarioAprobacion } from "./comentario-aprobacion";
 import {
@@ -170,6 +170,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const puedeCongelar = revisarAuth.ok;
   const puedeHomologar = revisarAuth.ok && !balance.estaCongelado;
   const puedeMapear = mapearAuth.ok && !balance.estaCongelado;
+  // Eliminar: los administradores (cualquier alcance) y el senior asignado (una versión o un
+  // período). Un balance cerrado se abre antes y uno con conciliación en firme no se elimina.
+  const puedeEliminarBalance = eliminarAuth.ok || revisarAuth.ok;
   // En proceso, en proceso con alertas o cerrado: el mismo rótulo del índice de /balance.
   const estado = estadoBalance(balance);
   // Abierto para corregirlo y aún sin volver a cerrar: aviso arriba con quién y por qué.
@@ -296,18 +299,18 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     for (const o of vistaCorte.otros) {
       if (!o.comparacion?.inconsistente) continue;
       if (o.enFirme.length > 0) {
-        if (puedeCongelar && eliminarAuth.ok) accionesCorte[o.id] = <ReemplazarBalanceButton reemplazo={reemplazoDe(o)} />;
+        if (puedeCongelar) accionesCorte[o.id] = <ReemplazarBalanceButton reemplazo={reemplazoDe(o)} />;
       } else if (o.estaCongelado) {
         if (puedeCongelar) {
           accionesCorte[o.id] = (
             <DescongelarBalanceButton id={o.id} titulo={`${balance.nombreCliente} · ${o.periodo} · ${o.version}`} cierres={cierresAvisoCorte} compacto />
           );
         }
-      } else if (eliminarAuth.ok) {
+      } else if (puedeEliminarBalance) {
         accionesCorte[o.id] = <EliminarBalanceCorteButton balanceId={o.id} nombre={`${o.nombre} ${o.version}`} />;
       }
     }
-    if (puedeCongelar && eliminarAuth.ok) {
+    if (puedeCongelar) {
       for (const a of vistaCorte.anterioresEnFirme) accionesCorte[a.id] = <ReemplazarBalanceButton reemplazo={reemplazoDe(a)} />;
     }
   }
@@ -365,7 +368,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 cierres={cierresAvisoCorte}
               />
             )}
-            {eliminarAuth.ok && (
+            {puedeEliminarBalance && (
               <EliminarBalanceButton
                 balanceId={id}
                 nombreCliente={balance.nombreCliente}
@@ -374,6 +377,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
                 versionesPeriodo={hermanos.length}
                 balancesCliente={balancesCliente}
                 perfilesCliente={perfilesCliente}
+                alcances={alcancesEliminacionPermitidos(eliminarAuth.ok)}
                 bloqueos={bloqueosEliminacionBalance({
                   balanceId: id,
                   idsPeriodo: hermanos.map((h) => h.id),

@@ -10,7 +10,7 @@ import {
   notifyError,
   notifySuccess,
 } from "@/lib/client-notifications";
-import type { AlcanceEliminacionBalance } from "@/lib/balance/alcance-eliminacion";
+import { ALCANCES_ELIMINACION_BALANCE, type AlcanceEliminacionBalance } from "@/lib/balance/alcance-eliminacion";
 
 type Opcion = {
   value: AlcanceEliminacionBalance;
@@ -27,6 +27,7 @@ export function EliminarBalanceButton({
   versionesPeriodo,
   balancesCliente,
   perfilesCliente,
+  alcances = ALCANCES_ELIMINACION_BALANCE,
   bloqueos,
 }: {
   balanceId: number;
@@ -36,6 +37,8 @@ export function EliminarBalanceButton({
   versionesPeriodo: number;
   balancesCliente: number;
   perfilesCliente: number;
+  /** Alcances que puede elegir quien elimina: el senior asignado no ve el historial con perfiles. */
+  alcances?: readonly AlcanceEliminacionBalance[];
   /** Por qué no se puede eliminar cada alcance (conciliación de un módulo en firme); null = se puede. */
   bloqueos?: Partial<Record<AlcanceEliminacionBalance, string | null>>;
 }) {
@@ -48,7 +51,7 @@ export function EliminarBalanceButton({
   const motivoAlcance = (valor: AlcanceEliminacionBalance) => bloqueos?.[valor] ?? null;
   const [eliminando, startEliminar] = useTransition();
 
-  const opciones: Opcion[] = [
+  const todas: Opcion[] = [
     {
       value: "version",
       titulo: "Solo esta versión",
@@ -69,6 +72,7 @@ export function EliminarBalanceButton({
       conteo: `${balancesCliente} balance(s) · ${perfilesCliente} perfil(es)`,
     },
   ];
+  const opciones = todas.filter((opcion) => alcances.includes(opcion.value));
 
   const confirmar = () => {
     startEliminar(async () => {

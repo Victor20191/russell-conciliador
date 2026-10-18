@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import { fmtCalendarDate, fmtDate, fmtHora12 } from "@/lib/format";
 import {
@@ -14,7 +15,13 @@ import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
 
 export default async function BorradoresPage() {
-  await requirePermiso("balance:crear");
+  // Quien carga revisa y descarta sus borradores; el senior asignado (`balance:revisar`, 18/Oct/2026)
+  // los ve, los abre en modo consulta y los descarta. La cartera de cada uno filtra qué borradores ve.
+  const [carga, revisa] = await Promise.all([
+    authorizePermiso("balance:crear"),
+    authorizePermiso("balance:revisar"),
+  ]);
+  if (!carga.ok && !revisa.ok) redirect("/dashboard");
   const contextoAcceso = await contextoAccesoBorradorActual();
   const filtroClientes = contextoAcceso.alcance.todos
     ? {}

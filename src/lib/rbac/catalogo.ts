@@ -171,7 +171,10 @@ export const PERMISOS: Permiso[] = [
   // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
   // `balance:revisar` cubre lo que hace el Senior ASIGNADO sobre un balance cargado:
   // homologar sus cuentas (en el balance, al re-homologar y en la memoria del cliente),
-  // aprobar o revocar el prevalidador, congelarlo y descongelarlo.
+  // aprobar o revocar el prevalidador, congelarlo y descongelarlo; desde el 18-oct-2026
+  // también eliminar una versión o un período (no el historial con perfiles, que sigue
+  // con `balance:eliminar`), reemplazar el balance conciliado y abrir en modo consulta y
+  // descartar los borradores de sus clientes.
   // Al ser `revisar`, el alcance que se exige es de LECTURA (el Senior no tiene escritura).
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SENIOR_Y_ADMIN },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },

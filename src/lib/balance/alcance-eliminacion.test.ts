@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  alcancesEliminacionPermitidos,
   bloqueosEliminacionBalance,
   motivoEliminacionCerrados,
   parseAlcanceEliminacionBalance,
@@ -13,6 +14,11 @@ const referencia = {
 };
 
 describe("alcance de eliminación de balances", () => {
+  it("el senior asignado elimina una versión o un período; el historial con perfiles es de los administradores", () => {
+    expect(alcancesEliminacionPermitidos(false)).toEqual(["version", "periodo"]);
+    expect(alcancesEliminacionPermitidos(true)).toEqual(["version", "periodo", "cliente_perfiles"]);
+  });
+
   it("rechaza un alcance que no fue confirmado", () => {
     expect(parseAlcanceEliminacionBalance(undefined)).toBeNull();
     expect(parseAlcanceEliminacionBalance("todos")).toBeNull();

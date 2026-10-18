@@ -188,7 +188,8 @@ export function CuentasRepetidasPartesAviso({
   onOmitir,
 }: {
   repetidas: CuentaRepetidaEntrePartes[];
-  onOmitir: (filaNum: number) => void;
+  /** Ausente en modo consulta: el aviso solo informa. */
+  onOmitir?: (filaNum: number) => void;
 }) {
   const [verTodas, setVerTodas] = useState(false);
   if (repetidas.length === 0) return null;
@@ -217,7 +218,7 @@ export function CuentasRepetidasPartesAviso({
               <span className="text-ink-500">
                 {r.ocurrencias.map((o) => `parte ${o.parte}: ${fmtContable(o.saldoFinal)}`).join(" · ")}
               </span>
-              {r.importesIguales && (
+              {r.importesIguales && onOmitir && (
                 <button
                   type="button"
                   onClick={() => onOmitir(ultima.filaNum)}

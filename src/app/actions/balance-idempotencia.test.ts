@@ -542,15 +542,18 @@ import {
   asignarClienteBorrador,
   asignarCuentaEstandar,
   cargarBorrador,
+  compararBorradorConCorte,
   continuarBalanceTransitorioConSpec,
   descartarBorrador,
   descongelarBalance,
+  eliminarBalance,
   freezeBalance,
   leerBalance,
   marcarCuentaPendiente,
   quitarPendiente,
   reaplicarMapeoBalance,
   reaplicarMapeoBalancesCliente,
+  reemplazarBalanceConciliado,
 } from "./balance";
 
 function filaStaging(filaNum = 1, loteId = LOTE_ID) {
@@ -1512,5 +1515,102 @@ describe("homologar, re-homologar, congelar y descongelar un balance cargado: Se
     expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:crear");
     expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:editar");
     expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+});
+
+describe("eliminar, reemplazar y borradores: también el senior asignado", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.state.balances.length = 0;
+    mocks.state.lotes.splice(0, mocks.state.lotes.length, loteBorrador());
+    mocks.state.staging.splice(0, mocks.state.staging.length, filaStaging());
+    mocks.flags.fallarPurgaLote = false;
+    mocks.puedeVerBorrador.mockReturnValue(true);
+    mocks.getCurrentUser.mockResolvedValue({ id: 5, name: "Senior", role: "Senior" });
+  });
+
+  // El senior asignado tiene `balance:revisar`; no tiene `balance:crear` ni `balance:eliminar`.
+  const comoSenior = (fueraDeCartera = false) =>
+    mocks.authorizePermiso.mockImplementation(async (permiso: string, opciones?: { clientId?: number }) =>
+      permiso !== "balance:revisar"
+        ? { ok: false, message: "No tienes permisos para esta acción." }
+        : fueraDeCartera && opciones?.clientId
+          ? { ok: false, message: "No tienes alcance sobre este cliente." }
+          : { ok: true, role: "Senior" });
+
+  it("el Staff (sin eliminar ni revisar) no elimina balances", async () => {
+    mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+      permiso === "balance:crear" ? { ok: true, role: "Staff" } : { ok: false, message: "No tienes permisos para esta acción." });
+
+    const resultado = await eliminarBalance({ balanceId: 41, alcance: "version" });
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it("el senior no elimina el historial del cliente con sus perfiles de carga", async () => {
+    comoSenior();
+
+    const resultado = await eliminarBalance({ balanceId: 41, alcance: "cliente_perfiles" });
+
+    expect(resultado).toMatchObject({ ok: false, message: "Eliminar todo el historial del cliente con sus perfiles de carga lo hace un administrador." });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it("el senior elimina una versión solo de un cliente de su cartera", async () => {
+    mocks.state.balances.push({ id: 41, loteId: null, clienteId: 7, periodo: "Enero 2026", version: "v1", advertenciaArchivoFuente: false, diferenciaArchivoFuente: null, aperturaBalance: null });
+    comoSenior(true);
+
+    const resultado = await eliminarBalance({ balanceId: 41, alcance: "version" });
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes alcance sobre este cliente." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("balance:revisar", { clientId: 7 });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it("el senior compara el borrador con su corte (solo lectura) dentro de su cartera", async () => {
+    comoSenior(true);
+
+    const resultado = await compararBorradorConCorte({ loteId: LOTE_ID, clienteId: 7, periodoInicio: "2026-01-01", periodoFin: "2026-01-31", aperturaBalance: null });
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes alcance sobre este cliente." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("balance:revisar", { clientId: 7 });
+  });
+
+  it("el senior reemplaza un balance conciliado sin pedir `balance:eliminar`", async () => {
+    comoSenior(true);
+    mocks.tx.balancePruebaEncabezado.findMany.mockResolvedValueOnce([
+      { id: 41, clienteId: 7, periodo: "Diciembre 2025" },
+      { id: 42, clienteId: 7, periodo: "Enero 2025 – Diciembre 2025" },
+    ] as never);
+
+    const resultado = await reemplazarBalanceConciliado({ balanceNuevoId: 42, balanceViejoId: 41 });
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes alcance sobre este cliente." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("balance:revisar", { clientId: 7 });
+    expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:eliminar");
+    expect(mocks.authorizePermiso).not.toHaveBeenCalledWith("balance:eliminar", { clientId: 7 });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it("el Staff no reemplaza un balance conciliado", async () => {
+    mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+      permiso === "balance:crear" ? { ok: true, role: "Staff" } : { ok: false, message: "No tienes permisos para esta acción." });
+
+    const resultado = await reemplazarBalanceConciliado({ balanceNuevoId: 42, balanceViejoId: 41 });
+
+    expect(resultado).toMatchObject({ ok: false, message: "No tienes permisos para esta acción." });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it("el senior descarta un borrador de su cliente", async () => {
+    comoSenior();
+
+    const resultado = await descartarBorrador(LOTE_ID);
+
+    expect(resultado).toMatchObject({ ok: true });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("balance:revisar", { clientId: 7 });
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
   });
 });

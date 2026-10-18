@@ -17,6 +17,19 @@ export function parseAlcanceEliminacionBalance(
     : null;
 }
 
+/**
+ * Alcances que puede elegir quien elimina (18/Oct/2026): el senior asignado (`balance:revisar`) una
+ * versión o un período; los administradores (`balance:eliminar`) además el historial del cliente con
+ * sus perfiles de carga, que son parametrización de la herramienta. Las reglas de cerrado y de
+ * conciliación en firme son las mismas para los dos.
+ */
+export function alcancesEliminacionPermitidos(administra: boolean): readonly AlcanceEliminacionBalance[] {
+  return administra ? ALCANCES_ELIMINACION_BALANCE : ["version", "periodo"];
+}
+
+export const MENSAJE_HISTORIAL_SOLO_ADMIN =
+  "Eliminar todo el historial del cliente con sus perfiles de carga lo hace un administrador.";
+
 export function resolverAlcanceEliminacionBalance(
   alcance: AlcanceEliminacionBalance,
   referencia: { id: number; clienteId: number; periodo: string },

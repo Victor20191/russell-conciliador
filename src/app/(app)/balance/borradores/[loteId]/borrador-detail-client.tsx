@@ -643,7 +643,7 @@ function NotasCargaCliente({
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, aperturaGuardada = null, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [], partes = [], archivoTam = null,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, aperturaGuardada = null, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [], partes = [], archivoTam = null, soloLectura = false,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -671,6 +671,11 @@ export default function BorradorDetailClient({
   version?: number | null;
   /** Las demás versiones del mismo (cliente, período), de la más nueva a la más vieja. */
   hermanos?: VersionHermanaBorrador[];
+  /**
+   * Modo consulta del senior asignado (18/Oct/2026): revisa el borrador y lo puede descartar,
+   * pero no lo edita, no vincula cliente ni período y no lo carga (eso es de quien carga).
+   */
+  soloLectura?: boolean;
 }) {
   const router = useRouter();
   // Una sola expansión por payload; el resto del componente trabaja con las filas
@@ -692,7 +697,8 @@ export default function BorradorDetailClient({
   // guarda QUÉ período se confirmó («desde|hasta»): cambiar una fecha vuelve a preguntar.
   const [periodoConfirmado, setPeriodoConfirmado] = useState<string | null>(null);
   const errorPeriodo = motivoPeriodoBalance(periodoIni, periodoFin);
-  const periodoListo = !!periodoIni && !!periodoFin && !errorPeriodo && periodoConfirmado === `${periodoIni}|${periodoFin}`;
+  // En modo consulta no se confirma nada: se compara con el período guardado del borrador.
+  const periodoListo = !!periodoIni && !!periodoFin && !errorPeriodo && (soloLectura || periodoConfirmado === `${periodoIni}|${periodoFin}`);
   const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
   const guardadoPeriodo = useEstadoGuardado();
   const guardadoApertura = useEstadoGuardado();
@@ -708,7 +714,7 @@ export default function BorradorDetailClient({
   const [comentarioPromocion, setComentarioPromocion] = useState("");
   // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
   // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
-  const [gateAbierto, setGateAbierto] = useState(clienteSugeridoId == null);
+  const [gateAbierto, setGateAbierto] = useState(!soloLectura && clienteSugeridoId == null);
 
   // Cambios TEMPORALES (en el navegador) hasta Guardar/Descartar.
   const [override, setOverride] = useState<Record<string, "agrupadora" | "movimiento">>({});
@@ -936,7 +942,8 @@ export default function BorradorDetailClient({
   // Auto-activa la corrección UNA vez al abrir (si verifica). Reversible: el usuario puede
   // deshacerla desde el aviso o el panel avanzado, y no se vuelve a aplicar (autoAplicadoRef).
   useEffect(() => {
-    if (!autoAplicadoRef.current && analisisSoloHojas?.ayuda) {
+    // En modo consulta se ve lo guardado: no se proponen cambios que nadie va a guardar.
+    if (!soloLectura && !autoAplicadoRef.current && analisisSoloHojas?.ayuda) {
       autoAplicadoRef.current = true;
       // Queda en el historial para que «descartar el último cambio» también
       // pueda revertirla (además del botón «Deshacer auto-corrección»).
@@ -947,7 +954,7 @@ export default function BorradorDetailClient({
     // `registrarCambio` se recrea en cada render; incluirlo solo re-dispararía el
     // efecto sin efecto real (lo guarda `autoAplicadoRef`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analisisSoloHojas]);
+  }, [analisisSoloHojas, soloLectura]);
 
   const forzarSoloHojasManualmente = () => {
     // Si el análisis diferido termina después del clic, no debe convertir una
@@ -1250,11 +1257,11 @@ export default function BorradorDetailClient({
   // revierte la selección y abre la compuerta.
   const autoVinculoRef = useRef(false);
   useEffect(() => {
-    if (autoVinculoRef.current || clientePersistido || clienteSugeridoId == null) return;
+    if (soloLectura || autoVinculoRef.current || clientePersistido || clienteSugeridoId == null) return;
     autoVinculoRef.current = true;
     asignarCliente(clienteSugeridoId, null, { silencioso: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientePersistido, clienteSugeridoId]);
+  }, [clientePersistido, clienteSugeridoId, soloLectura]);
 
   // Notas / observaciones de carga del cliente (per-cliente).
   const [guardandoNotas, startGuardarNotas] = useTransition();
@@ -1290,6 +1297,18 @@ export default function BorradorDetailClient({
       if (r.ok) { notifySuccess(r.message ?? "Borrador descartado."); router.push("/balance/borradores"); }
       else notifyError(r.message ?? "No se pudo descartar.");
     });
+  const botonesDescarte = confirmarDescarte ? (
+    <span className="inline-flex items-center gap-2">
+      <button type="button" onClick={onDescartar} disabled={descartando} className="rounded-md bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-200 disabled:opacity-60">
+        {descartando ? <EstadoProcesando>Descartando</EstadoProcesando> : "Confirmar descarte"}
+      </button>
+      <button type="button" onClick={() => setConfirmarDescarte(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button>
+    </span>
+  ) : (
+    <button type="button" onClick={() => setConfirmarDescarte(true)} className="rounded-md border border-err-200 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-50">
+      Descartar borrador
+    </button>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -1298,7 +1317,7 @@ export default function BorradorDetailClient({
         subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <AgregarParteBalance
+            {!soloLectura && <AgregarParteBalance
               loteId={loteId}
               partes={partes.length > 0 ? partes : [{ numero: 1, archivoNombre, archivoTam, filas: filas.length }]}
               bloqueo={
@@ -1310,7 +1329,7 @@ export default function BorradorDetailClient({
                       ? "El balance se está cargando"
                       : null
               }
-            />
+            />}
             {(nitTachados > 0 || filasOcultas > 0) && (
               // El detalle de por qué se tacharon/ocultaron filas es largo y solo se
               // consulta cuando algo no cuadra: vive tras este botón y el contenido
@@ -1331,7 +1350,7 @@ export default function BorradorDetailClient({
       <PartesBalanceResumen partes={partes} />
       <CuentasRepetidasPartesAviso
         repetidas={cuentasRepetidasPartes}
-        onOmitir={(filaNum) => onOmitir(filaNum, false)}
+        onOmitir={soloLectura ? undefined : (filaNum) => onOmitir(filaNum, false)}
       />
       {porTercero && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
@@ -1392,8 +1411,8 @@ export default function BorradorDetailClient({
         <ManipulacionesRiesgosasPanel
           riesgos={manipulacionesPendientes}
           validacion={validacion}
-          onRevisar={(filaNum) => setMover({ filaNum, revisar: true })}
-          onDeshacer={(filaNum) => aplicarReubicacion(filaNum, null)}
+          onRevisar={soloLectura ? undefined : (filaNum) => setMover({ filaNum, revisar: true })}
+          onDeshacer={soloLectura ? undefined : (filaNum) => aplicarReubicacion(filaNum, null)}
         />
       )}
       {reubicacionesAprobadas.length > 0 && (
@@ -1407,7 +1426,7 @@ export default function BorradorDetailClient({
         explicacionesClase={explicacionesClase}
         onAyuda={() => setAyudaValidaciones(true)}
       />
-      {advertenciaArchivoFuente ? (
+      {soloLectura ? null : advertenciaArchivoFuente ? (
         <AdvertenciaArchivoFuente
           diferencia={validacion.ecuacionDiff}
           comentario={comentarioPromocion}
@@ -1467,14 +1486,14 @@ export default function BorradorDetailClient({
               </a>
             </div>
           </div>
-          <ProteccionSubtotalesPanel
+          {!soloLectura && <ProteccionSubtotalesPanel
             perfilSoloHojas={perfilSoloHojas}
             soloHojas={soloHojas}
             autoCorregido={autoCorregido}
             analisis={analisisSoloHojas}
             onForzar={forzarSoloHojasManualmente}
             onDeshacer={autoCorregido ? deshacerAutoCorreccion : quitarSoloHojas}
-          />
+          />}
         </div>
         <AvisoPropagacionReubicacion
           propagaciones={propagacionesReubicacion}
@@ -1484,6 +1503,12 @@ export default function BorradorDetailClient({
             ajuste empujaría la tabla ~37 px hacia abajo (y al guardar la subiría de vuelta),
             justo mientras el usuario trabaja en ella. Va en UNA sola línea (`truncate`) para
             que su alto no dependa del ancho de la ventana ni del estado. */}
+        {soloLectura ? (
+          <div className="flex items-center gap-2 border-b border-ink-100 bg-white px-3 py-2 text-[12px] text-ink-500">
+            <Icon name="eye" size={13} />
+            <span className="min-w-0 flex-1 truncate">Solo consulta: puedes revisar este borrador y descartarlo. Editarlo y cargarlo lo hace quien carga el balance.</span>
+          </div>
+        ) : (
         <div className={`flex items-center gap-2 border-b px-3 py-2 text-[12px] ${hayCambios ? "border-warn-200 bg-warn-50" : "border-ink-100 bg-white"}`}>
           {hayCambios && <Icon name="warn" size={13} />}
           <span
@@ -1514,7 +1539,8 @@ export default function BorradorDetailClient({
             />
           </div>
         </div>
-        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} loteId={loteId} hermanos={hermanos} />
+        )}
+        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} loteId={loteId} hermanos={hermanos} soloLectura={soloLectura} />
       </Card>
 
       {mover != null && (
@@ -1577,7 +1603,33 @@ export default function BorradorDetailClient({
         />
       )}
 
-      {/* Cargar / Descartar */}
+      {/* Cargar / Descartar. En modo consulta solo se ve con qué datos quedó y se puede descartar. */}
+      {soloLectura ? (
+        <Card className="p-4">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Borrador en revisión</div>
+          <dl className="grid grid-cols-1 gap-3 text-[12.5px] sm:grid-cols-3">
+            <div>
+              <dt className="text-[11.5px] font-medium text-ink-600">Cliente</dt>
+              <dd className="text-ink-800">{clientes.find((c) => c.id === clienteSelId)?.name ?? "Sin cliente"}</dd>
+            </div>
+            <div>
+              <dt className="text-[11.5px] font-medium text-ink-600">Período</dt>
+              <dd className="text-ink-800">{periodoIni && periodoFin ? nombreRangoFechas(periodoIni, periodoFin) : "Sin período"}</dd>
+            </div>
+            <div>
+              <dt className="text-[11.5px] font-medium text-ink-600">Tipo de balance</dt>
+              <dd className="text-ink-800">{aperturaBalance ? etiquetaApertura(aperturaBalance) : "Sin declarar"}</dd>
+            </div>
+          </dl>
+          <div className="mt-3">
+            <BalancesDelMismoCorte resultado={comparacionCorte} cargando={comparandoCorte} />
+          </div>
+          <p className="mt-3 text-[11px] text-ink-500">
+            Cargarlo como balance lo hace quien carga el balance. Si este borrador no debe cargarse, puedes descartarlo.
+          </p>
+          <div className="mt-3 flex items-center gap-2">{botonesDescarte}</div>
+        </Card>
+      ) : (
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cargar como balance oficial</div>
         <NotasCargaCliente
@@ -1737,21 +1789,11 @@ export default function BorradorDetailClient({
                   ? "Comprobar y continuar"
                   : "Cargar balance"}
             </button>
-            {confirmarDescarte ? (
-              <span className="inline-flex items-center gap-2">
-                <button type="button" onClick={onDescartar} disabled={descartando} className="rounded-md bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-200 disabled:opacity-60">
-                  {descartando ? <EstadoProcesando>Descartando</EstadoProcesando> : "Confirmar descarte"}
-                </button>
-                <button type="button" onClick={() => setConfirmarDescarte(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button>
-              </span>
-            ) : (
-              <button type="button" onClick={() => setConfirmarDescarte(true)} className="rounded-md border border-err-200 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-50">
-                Descartar borrador
-              </button>
-            )}
+            {botonesDescarte}
           </div>
         </form>
       </Card>
+      )}
     </div>
   );
 }
@@ -2091,8 +2133,9 @@ function ManipulacionesRiesgosasPanel({
 }: {
   riesgos: ManipulacionRiesgosaBorrador[];
   validacion: ValidacionContable;
-  onRevisar: (filaNum: number) => void;
-  onDeshacer: (filaNum: number) => void;
+  /** Ausentes en modo consulta: el panel solo informa. */
+  onRevisar?: (filaNum: number) => void;
+  onDeshacer?: (filaNum: number) => void;
 }) {
   const diferenciaClase = (clase: string): number | null => ({
     "1": validacion.activoDiff,
@@ -2151,14 +2194,14 @@ function ManipulacionesRiesgosasPanel({
                   </div>
                 )}
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              {onRevisar && onDeshacer && <div className="flex shrink-0 flex-wrap gap-2">
                 <button type="button" onClick={() => onRevisar(riesgo.filaNum)} className="rounded-md border border-warn-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-warn-800 hover:bg-warn-50">
                   Revisar y justificar
                 </button>
                 <button type="button" onClick={() => onDeshacer(riesgo.filaNum)} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
                   Deshacer y no repetir
                 </button>
-              </div>
+              </div>}
             </div>
           );
         })}
@@ -3026,7 +3069,7 @@ function MenuAccionesCuenta({
   );
 }
 
-function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales, loteId, hermanos = [] }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (filaNum: number, codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: EnfoqueCambioEstructural | null; umbrales: UmbralesAlertas; loteId: string; hermanos?: VersionHermanaBorrador[] }) {
+function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales, loteId, hermanos = [], soloLectura = false }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (filaNum: number, codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: EnfoqueCambioEstructural | null; umbrales: UmbralesAlertas; loteId: string; hermanos?: VersionHermanaBorrador[]; soloLectura?: boolean }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
@@ -3435,7 +3478,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                 <Chip label="↳ movida aquí" tone="blue" />
               </button>
             )}
-            {accionesCuenta.length > 0 && (
+            {!soloLectura && accionesCuenta.length > 0 && (
               <MenuAccionesCuenta
                 filaNum={n.filaNum}
                 codigo={n.codigoCrudo || n.codigo}

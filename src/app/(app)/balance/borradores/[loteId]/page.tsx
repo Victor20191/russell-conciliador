@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { BackLink } from "@/components/ui";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
@@ -21,7 +21,13 @@ import BorradorDetailClient from "./borrador-detail-client";
 export const maxDuration = 1800;
 
 export default async function BorradorDetailPage({ params }: { params: Promise<{ loteId: string }> }) {
-  await requirePermiso("balance:crear");
+  // Quien carga revisa, edita y carga el borrador; el senior asignado (`balance:revisar`, 18/Oct/2026)
+  // lo abre en modo consulta y puede descartarlo, aunque no lo haya cargado él.
+  const [carga, revisa] = await Promise.all([
+    authorizePermiso("balance:crear"),
+    authorizePermiso("balance:revisar"),
+  ]);
+  if (!carga.ok && !revisa.ok) redirect("/dashboard");
   const { loteId } = await params;
 
   // El staging es la fuente del borrador; el encabezado (si existe) solo enriquece
@@ -200,6 +206,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         umbrales={umbrales}
         version={versionActual?.claveGrupo ? versionActual.version : null}
         hermanos={hermanosBorrador}
+        soloLectura={!carga.ok}
       />
     </div>
   );

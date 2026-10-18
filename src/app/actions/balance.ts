@@ -16,6 +16,8 @@ import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { parseAlcanceHomologacion, resolverAlcanceHomologacion } from "@/lib/balance/alcance-homologacion";
 import {
+  alcancesEliminacionPermitidos,
+  MENSAJE_HISTORIAL_SOLO_ADMIN,
   motivoEliminacionCerrados,
   parseAlcanceEliminacionBalance,
   resolverAlcanceEliminacionBalance,
@@ -4158,8 +4160,13 @@ const ComparacionBorradorSchema = z.object({
 export async function compararBorradorConCorte(input: {
   loteId: string; clienteId: number; periodoInicio: string; periodoFin: string; aperturaBalance: string | null;
 }): Promise<ComparacionBorradorCorte> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
+  // Solo lee: la usa quien carga y también el senior asignado que abre el borrador para revisarlo.
+  const [carga, revisa] = await Promise.all([
+    authorizePermiso("balance:crear"),
+    authorizePermiso(PERMISO_REVISION_BALANCE),
+  ]);
+  if (!carga.ok && !revisa.ok) return { ok: false, message: carga.message };
+  const permiso = carga.ok ? "balance:crear" : PERMISO_REVISION_BALANCE;
   const parsed = ComparacionBorradorSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Datos inválidos para comparar el borrador." };
   const { loteId, clienteId, periodoInicio, periodoFin, aperturaBalance } = parsed.data;
@@ -4171,7 +4178,7 @@ export async function compararBorradorConCorte(input: {
     if (!lote) return { ok: false, message: "El borrador ya no existe." };
     if (!puedeVerBorrador(lote, contexto)) return { ok: false, message: "No tienes permiso para revisar ese borrador." };
     if (lote.clienteId != null && lote.clienteId !== clienteId) return { ok: false, message: "El cliente elegido no corresponde al borrador." };
-    const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+    const scope = await authorizePermiso(permiso, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
 
     const cuentas = await cuentasDesdeStaging(loteId);
@@ -4812,10 +4819,18 @@ export async function actualizarAperturaBorrador(
   }
 }
 
-/** Descarta (elimina) un borrador: borra su staging + encabezado. */
+/**
+ * Descarta (elimina) un borrador: borra su staging + encabezado. Lo hace quien carga
+ * (`balance:crear`) y, desde el 18/Oct/2026, el senior asignado al cliente del borrador
+ * (`balance:revisar`).
+ */
 export async function descartarBorrador(loteId: string): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
+  const [carga, revisa] = await Promise.all([
+    authorizePermiso("balance:crear"),
+    authorizePermiso(PERMISO_REVISION_BALANCE),
+  ]);
+  if (!carga.ok && !revisa.ok) return { ok: false, message: carga.message };
+  const permiso = carga.ok ? "balance:crear" : PERMISO_REVISION_BALANCE;
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
@@ -4833,7 +4848,7 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
       return { ok: false, message: "No tienes permiso para descartar ese borrador." };
     }
     if (lote?.clienteId != null) {
-      const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
+      const scope = await authorizePermiso(permiso, { clientId: lote.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
     }
     // Captura la intervención antes de purgar; el diagnóstico se cierra después
@@ -5895,16 +5910,24 @@ export type EliminarBalanceState = ActionState & {
  * suaves al encabezado y se purgan de forma explícita antes del balance.
  *
  * No elimina el cliente, borradores, preferencias generales, correcciones por
- * cuenta ni memoria de homologación. El permiso `balance:eliminar` es
- * independiente de cargar/editar y se vuelve a comprobar con alcance al cliente.
+ * cuenta ni memoria de homologación. Eliminan los administradores
+ * (`balance:eliminar`, cualquier alcance) y, desde el 18/Oct/2026, el senior
+ * asignado al cliente (`balance:revisar`) una versión o un período; el permiso
+ * se vuelve a comprobar con alcance al cliente. Para los dos rige lo mismo: un
+ * balance cerrado se abre antes y uno con conciliación de módulo en firme no se
+ * elimina.
  */
 export async function eliminarBalance(input: {
   balanceId: number;
   alcance: AlcanceEliminacionBalance;
 }): Promise<EliminarBalanceState> {
   // Primer gate antes de validar o consultar datos enviados por el cliente.
-  const authz = await authorizePermiso("balance:eliminar");
-  if (!authz.ok) return { ok: false, message: authz.message };
+  const [administra, revisa] = await Promise.all([
+    authorizePermiso("balance:eliminar"),
+    authorizePermiso(PERMISO_REVISION_BALANCE),
+  ]);
+  if (!administra.ok && !revisa.ok) return { ok: false, message: administra.message };
+  const permiso = administra.ok ? "balance:eliminar" : PERMISO_REVISION_BALANCE;
 
   const balanceId = Number(input?.balanceId);
   const alcance = parseAlcanceEliminacionBalance(input?.alcance);
@@ -5913,6 +5936,9 @@ export async function eliminarBalance(input: {
       ok: false,
       message: "Selecciona de nuevo qué información deseas eliminar.",
     };
+  }
+  if (!alcancesEliminacionPermitidos(administra.ok).includes(alcance)) {
+    return { ok: false, message: MENSAJE_HISTORIAL_SOLO_ADMIN };
   }
 
   try {
@@ -5930,7 +5956,7 @@ export async function eliminarBalance(input: {
       return { ok: false, message: "El balance ya no existe." };
     }
 
-    const scope = await authorizePermiso("balance:eliminar", {
+    const scope = await authorizePermiso(permiso, {
       clientId: referencia.clienteId,
     });
     if (!scope.ok) return { ok: false, message: scope.message };
@@ -6090,13 +6116,13 @@ class ErrorReemplazoBalance extends Error {
  * el nuevo es la versión vigente de su línea, tiene el prevalidador aprobado y sus cuentas en firme
  * son idénticas en saldo final y homologación (también su detalle por tercero en Cartera y CxP:
  * `evaluarReemplazoBalance`), y si, sin el viejo, todos los vigentes del corte coinciden con él
- * (`evaluarCierreBalance`). Exige poder cerrar (`balance:revisar`) y eliminar (`balance:eliminar`)
- * balances del cliente.
+ * (`evaluarCierreBalance`, con las comparaciones del corte recalculadas en la misma transacción).
+ * Lo hace quien puede cerrar balances del cliente (`balance:revisar`): el senior asignado y los
+ * administradores (18/Oct/2026; antes exigía además `balance:eliminar`, solo de administradores).
  */
 export async function reemplazarBalanceConciliado(input: { balanceNuevoId: number; balanceViejoId: number }): Promise<ActionState> {
-  const [revisar, eliminar] = await Promise.all([authorizePermiso(PERMISO_REVISION_BALANCE), authorizePermiso("balance:eliminar")]);
+  const revisar = await authorizePermiso(PERMISO_REVISION_BALANCE);
   if (!revisar.ok) return { ok: false, message: revisar.message };
-  if (!eliminar.ok) return { ok: false, message: eliminar.message };
   const nuevoId = parseId(input?.balanceNuevoId);
   const viejoId = parseId(input?.balanceViejoId);
   if (!nuevoId || !viejoId) return { ok: false, message: "Balance inexistente." };
@@ -6111,12 +6137,8 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
   if (!refNuevo || !refViejo) return { ok: false, message: "Alguno de los dos balances ya no existe." };
   if (refNuevo.clienteId !== refViejo.clienteId) return { ok: false, message: "Los dos balances deben ser del mismo cliente." };
   const clienteId = refNuevo.clienteId;
-  const [alcanceRevisar, alcanceEliminar] = await Promise.all([
-    authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: clienteId }),
-    authorizePermiso("balance:eliminar", { clientId: clienteId }),
-  ]);
+  const alcanceRevisar = await authorizePermiso(PERMISO_REVISION_BALANCE, { clientId: clienteId });
   if (!alcanceRevisar.ok) return { ok: false, message: alcanceRevisar.message };
-  if (!alcanceEliminar.ok) return { ok: false, message: alcanceEliminar.message };
 
   try {
     const user = await getCurrentUser();

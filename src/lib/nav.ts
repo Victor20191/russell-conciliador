@@ -7,6 +7,8 @@ export type NavChild = {
   href: string;
   count?: number;
   permiso?: string;
+  /** Otro permiso con el que la página también deja entrar (basta uno de los dos). */
+  permisoAlterno?: string;
   modulo?: string;
   roles?: readonly string[];
 };
@@ -35,7 +37,8 @@ export const workNav: NavItem[] = [
     modulo: "balance",
     children: [
       { label: "Balance", href: "/balance", permiso: "balance:ver", modulo: "balance" },
-      { label: "Borrador Balance", href: "/balance/borradores", permiso: "balance:crear", modulo: "balance" },
+      // El senior asignado entra a revisar (en modo consulta) y descartar borradores (`balance:revisar`).
+      { label: "Borrador Balance", href: "/balance/borradores", permiso: "balance:crear", permisoAlterno: "balance:revisar", modulo: "balance" },
       // Cargue AISLADO (CxC/CxP): no pasa por borradores ni por `/balance`, así que
       // necesita su propia entrada para no quedar invisible.
     ],
