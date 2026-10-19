@@ -24,6 +24,20 @@ export function parseAlcanceEliminacionModulo(
     : null;
 }
 
+/**
+ * Alcances que puede elegir quien elimina (19/Oct/2026), como en el balance: el senior asignado
+ * (`modulos_datos:eliminar`) una versión o un período; quien administra los perfiles de carga
+ * (`perfiles_carga:administrar`, los administradores) además el historial del cliente con sus
+ * perfiles de formato, que son parametrización de la herramienta. La regla de la conciliación en
+ * firme es la misma para todos.
+ */
+export function alcancesEliminacionModuloPermitidos(administraPerfiles: boolean): readonly AlcanceEliminacionModulo[] {
+  return administraPerfiles ? ALCANCES_ELIMINACION_MODULO : ["version", "periodo"];
+}
+
+export const MENSAJE_HISTORIAL_MODULO_SOLO_ADMIN =
+  "Eliminar todo el historial del cliente en este módulo con sus perfiles de carga lo hace un administrador.";
+
 export type ReferenciaEliminacionModulo = {
   id: number;
   clienteId: number;

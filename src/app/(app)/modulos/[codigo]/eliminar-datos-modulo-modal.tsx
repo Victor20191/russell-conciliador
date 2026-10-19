@@ -12,7 +12,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import type { AlcanceEliminacionModulo } from "@/lib/modulos/alcance-eliminacion";
+import { ALCANCES_ELIMINACION_MODULO, type AlcanceEliminacionModulo } from "@/lib/modulos/alcance-eliminacion";
 
 type Opcion = {
   value: AlcanceEliminacionModulo;
@@ -33,6 +33,7 @@ export function EliminarDatosModuloButton({
   marcasPeriodo,
   marcasCliente,
   bloqueoCliente = null,
+  alcances = ALCANCES_ELIMINACION_MODULO,
   className,
 }: {
   encabezadoId: number;
@@ -55,6 +56,8 @@ export function EliminarDatosModuloButton({
    * firme (el servidor también lo rechaza). null = se puede.
    */
   bloqueoCliente?: string | null;
+  /** Alcances que puede elegir quien elimina: el senior, una versión o un período (19/Oct/2026). */
+  alcances?: readonly AlcanceEliminacionModulo[];
   className?: string;
 }) {
   const router = useRouter();
@@ -63,7 +66,7 @@ export function EliminarDatosModuloButton({
   const [eliminando, startEliminar] = useTransition();
 
   const modulo = moduloLabel.toLowerCase();
-  const opciones: Opcion[] = [
+  const todas: Opcion[] = [
     {
       value: "version",
       titulo: "Solo esta versión",
@@ -89,6 +92,7 @@ export function EliminarDatosModuloButton({
       }`,
     },
   ];
+  const opciones = todas.filter((opcion) => alcances.includes(opcion.value));
 
   const confirmar = () => {
     startEliminar(async () => {

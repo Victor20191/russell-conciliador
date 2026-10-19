@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  alcancesEliminacionModuloPermitidos,
   motivoEliminacionPorCierre,
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
 } from "./alcance-eliminacion";
 
 const REF = { id: 42, clienteId: 7, moduloCodigo: "INV", periodo: "2026-03" };
+
+describe("alcancesEliminacionModuloPermitidos", () => {
+  it("quien administra los perfiles de carga elige los tres alcances", () => {
+    expect(alcancesEliminacionModuloPermitidos(true)).toEqual(["version", "periodo", "cliente_perfiles"]);
+  });
+
+  it("el senior elimina una versión o un período, nunca el historial con perfiles", () => {
+    expect(alcancesEliminacionModuloPermitidos(false)).toEqual(["version", "periodo"]);
+  });
+});
 
 describe("parseAlcanceEliminacionModulo", () => {
   it("acepta los tres alcances conocidos", () => {

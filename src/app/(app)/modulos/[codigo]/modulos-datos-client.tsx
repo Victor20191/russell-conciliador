@@ -24,6 +24,7 @@ import {
   filtrarGruposPorEstado,
   type EstadoPeriodoModulo,
 } from "@/lib/modulos/listado";
+import { alcancesEliminacionModuloPermitidos } from "@/lib/modulos/alcance-eliminacion";
 import { EliminarDatosModuloButton } from "./eliminar-datos-modulo-modal";
 import { AgregarArchivoButton, CargarModuloButton, type ClienteModulo, type OpcionAgruparPor, type RolModulo } from "./cargar-modulo-modal";
 import {
@@ -140,7 +141,7 @@ export default function ModulosDatosClient({
   gruposCargados: GrupoClienteRow[];
   /** `modulos_datos:crear`: controla las entradas visibles al flujo de carga. */
   puedeCrear: boolean;
-  /** `modulos_datos:eliminar` (solo administradores): pinta la papelera del cargue. */
+  /** `modulos_datos:eliminar` (administradores y, desde el 19/Oct/2026, el senior): pinta la papelera del cargue. */
   puedeEliminar: boolean;
   /** `perfiles_carga:administrar`: la carga ofrece «Crear patrón» cuando un archivo no coincide. */
   puedeAdministrarPatrones: boolean;
@@ -566,6 +567,7 @@ function CargadosPorCliente({
                                 ? `No se puede eliminar el historial del cliente: hay conciliaciones de ${moduloLabel} en firme (${grupo.periodos.filter((x) => x.conciliacionCerrada).map((x) => x.periodo).join(", ")}). Pide al senior o gerente que las desbloquee primero.`
                                 : null
                             }
+                            alcances={alcancesEliminacionModuloPermitidos(puedeAdministrarPatrones)}
                             encabezadoId={p.id}
                             moduloLabel={moduloLabel}
                             clienteNombre={grupo.clienteNombre}

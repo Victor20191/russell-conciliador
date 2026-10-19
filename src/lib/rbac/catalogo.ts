@@ -194,7 +194,10 @@ export const PERMISOS: Permiso[] = [
   { code: "modulos_datos:ver", module: "modulos_datos", action: "ver", label: "Ver datos de módulos", roles: TODOS },
   { code: "modulos_datos:crear", module: "modulos_datos", action: "crear", label: "Cargar datos de módulos", roles: OPERATIVO_Y_ADMIN },
   { code: "modulos_datos:editar", module: "modulos_datos", action: "editar", label: "Editar consolidación de módulos", roles: OPERATIVO_Y_ADMIN },
-  { code: "modulos_datos:eliminar", module: "modulos_datos", action: "eliminar", label: "Eliminar datos de módulos", roles: SOLO_ADMIN },
+  // Eliminar un cargue de módulo (19-oct-2026): también el Senior asignado, una versión o un período,
+  // siempre que la conciliación no esté en firme. Todo el historial con sus perfiles de formato sigue
+  // siendo de los administradores (lo decide `perfiles_carga:administrar`, ver alcance-eliminacion.ts).
+  { code: "modulos_datos:eliminar", module: "modulos_datos", action: "eliminar", label: "Eliminar datos de módulos", roles: SENIOR_Y_ADMIN },
 
   // ===== Supervisión — Gerente y Socio =====
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },

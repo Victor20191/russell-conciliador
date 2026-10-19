@@ -27,7 +27,7 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 // recarga porque la entrada v9 quedó cacheada ANTES de sembrar los permisos de
 // conexiones en `roles_permisos` y los negaba hasta por una hora; v11: retirar
 // `entorno:administrar` al eliminar la pantalla de variables de entorno; v12: el
-// Senior recibe los permisos operativos del Staff, 19/Oct/2026): una clave nueva
+// Senior recibe los permisos operativos del Staff y elimina cargues de módulo, 19/Oct/2026): una clave nueva
 // evita que el despliegue siga sirviendo la matriz anterior desde el Data Cache.
 export const RBAC_CACHE_TAG = "rbac-matriz-v12";
 

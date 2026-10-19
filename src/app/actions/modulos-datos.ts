@@ -23,6 +23,8 @@ import {
   type DescriptorModulo,
 } from "@/lib/modulos/descriptores";
 import {
+  alcancesEliminacionModuloPermitidos,
+  MENSAJE_HISTORIAL_MODULO_SOLO_ADMIN,
   motivoEliminacionPorCierre,
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
@@ -4548,7 +4550,9 @@ export async function quitarEmparejamientoTercero(input: { encabezadoId: number;
 // Alcance explícito —una versión, todo el período o todo el historial del cliente
 // junto con sus perfiles de formato—, resuelto en `alcance-eliminacion.ts` (puro).
 // El permiso `modulos_datos:eliminar` es independiente de cargar/editar y se
-// vuelve a comprobar con alcance sobre el cliente del cargue.
+// vuelve a comprobar con alcance sobre el cliente del cargue. Lo tienen los
+// administradores y, desde el 19/Oct/2026, el senior asignado (una versión o un
+// período); el historial con perfiles exige además `perfiles_carga:administrar`.
 //
 // NO se tocan: el cliente, sus borradores, sus preferencias de carga, sus
 // correcciones por fila ni la consolidación clasificador→cuenta (configuración,
@@ -4573,6 +4577,10 @@ export async function eliminarDatosModulo(input: {
   const alcance = parseAlcanceEliminacionModulo(input?.alcance);
   if (!Number.isInteger(encabezadoId) || encabezadoId <= 0 || !alcance) {
     return { ok: false, message: "Selecciona de nuevo qué información deseas eliminar." };
+  }
+  const administraPerfiles = (await authorizePermiso("perfiles_carga:administrar")).ok;
+  if (!alcancesEliminacionModuloPermitidos(administraPerfiles).includes(alcance)) {
+    return { ok: false, message: MENSAJE_HISTORIAL_MODULO_SOLO_ADMIN };
   }
 
   try {

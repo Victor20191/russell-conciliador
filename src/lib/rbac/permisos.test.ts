@@ -104,6 +104,16 @@ describe("Operación — Staff y Senior escriben sus clientes asignados", () => 
     expect(faltantes).toEqual([]);
   });
 
+  test("el Senior elimina cargues de módulo de sus clientes; el Staff y el Gerente no (19/Oct/2026)", () => {
+    expect(puede(SENIOR, "modulos_datos:eliminar", PRUEBA_CLIENTE_A)).toBe(true);
+    expect(puede(SENIOR, "modulos_datos:eliminar", PRUEBA_CLIENTE_FUERA)).toBe(false);
+    for (const u of [STAFF1, GERENTE, SOCIO]) {
+      expect(puede(u, "modulos_datos:eliminar", PRUEBA_CLIENTE_A)).toBe(false);
+    }
+    // El historial con perfiles de formato sigue siendo de quien administra los perfiles de carga.
+    expect(tienePermiso(MATRIZ, "Senior", "perfiles_carga:administrar")).toBe(false);
+  });
+
   test("al revés no: el Staff no gana lo propio del Senior", () => {
     for (const permiso of ["balance:revisar", "conciliaciones:revisar", "conciliaciones:cerrar", "conciliaciones:desbloquear", "clientes:editar"]) {
       expect(tienePermiso(MATRIZ, "Senior", permiso)).toBe(true);

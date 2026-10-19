@@ -77,8 +77,9 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       where: { moduloCodigo, estado: ESTADO_CIERRE_FIRME, ...filtroCliente },
       select: { clienteId: true, periodo: true, moduloDatoEncabezadoId: true, cerradoPor: true, cerradoEn: true },
     }),
-    // `modulos_datos:eliminar` es SOLO_ADMIN (alcance global): basta el permiso de rol
-    // para pintar el botón; la acción revalida permiso Y alcance sobre el cliente.
+    // `modulos_datos:eliminar` (administradores y el senior asignado): basta el permiso de rol para
+    // pintar el botón, porque la lista ya viene filtrada por la cartera; la acción revalida permiso Y
+    // alcance sobre el cliente.
     authorizePermiso("modulos_datos:eliminar"),
     // Pestaña «Borradores»: mismo permiso que su pantalla.
     authorizePermiso("modulos_datos:crear"),
