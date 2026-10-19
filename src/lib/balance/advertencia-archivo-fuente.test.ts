@@ -132,6 +132,17 @@ describe("validarComentarioPromocion", () => {
     });
   });
 
+  it("exige el comentario de un borrador descuadrado que no es del archivo fuente, con su propio mensaje", () => {
+    expect(validarComentarioPromocion("", true, "descuadre")).toEqual({
+      ok: false,
+      message: "El borrador está descuadrado: escribe un comentario de aprobación para cargarlo.",
+    });
+    expect(validarComentarioPromocion(" Revisado con el cliente. ", true, "descuadre")).toEqual({
+      ok: true,
+      comentario: "Revisado con el cliente.",
+    });
+  });
+
   it("recorta y conserva el comentario diligenciado", () => {
     expect(
       validarComentarioPromocion("  Diferencia revisada con el cliente.  ", true),

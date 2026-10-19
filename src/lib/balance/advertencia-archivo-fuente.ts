@@ -50,6 +50,8 @@ export function esDescuadreDelArchivoFuente(
 export function validarComentarioPromocion(
   valor: unknown,
   requerido: boolean,
+  /** Por qué es obligatorio: la diferencia del archivo fuente o un borrador descuadrado. */
+  motivo: "archivo_fuente" | "descuadre" = "archivo_fuente",
 ): ValidacionComentarioPromocion {
   const comentario = typeof valor === "string" ? valor.trim() : "";
 
@@ -62,7 +64,9 @@ export function validarComentarioPromocion(
   if (requerido && comentario.length === 0) {
     return {
       ok: false,
-      message: "Escribe un comentario para cargar este balance con la diferencia del archivo fuente.",
+      message: motivo === "descuadre"
+        ? "El borrador está descuadrado: escribe un comentario de aprobación para cargarlo."
+        : "Escribe un comentario para cargar este balance con la diferencia del archivo fuente.",
     };
   }
 

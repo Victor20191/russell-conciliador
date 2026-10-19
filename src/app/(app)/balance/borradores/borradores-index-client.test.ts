@@ -8,10 +8,10 @@ import {
   EstadoCuadreCelda,
   ordenarBorradoresListado,
   ordenarBorradoresPorColumna,
-  textoMotivoDescuadre,
   type BorradorRow,
 } from "./borradores-index-client";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
+import { textoMotivoDescuadre } from "@/lib/balance/cuadre-borrador-texto";
 
 const fila = {
   archivoNombre: "Balance por tercero GRUPO FORMARTE (1).xlsx",

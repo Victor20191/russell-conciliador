@@ -63,7 +63,9 @@ import { esParteAceptable, esTransformacionAceptable } from "@/lib/balance/extra
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
+  evaluarCuadreBorrador,
   filasBorradorDeStaging,
+  resumirCuadreBorrador,
   reubicacionesAprobadasDeStaging,
   resumenCuadreDeFilas,
   SELECT_STAGING_CUADRE,
@@ -1083,9 +1085,16 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       vistaFuente.partidaDoble,
       hallazgosFuente,
     );
+    // Cualquier otro descuadre (las 4 condiciones de la lista, con los umbrales vigentes)
+    // también exige comentario: antes solo lo pedía la diferencia del archivo fuente.
+    const veredictoFuente = evaluarCuadreBorrador(
+      resumirCuadreBorrador(vistaFuente, filasBorrador, filasAprobadas, 0),
+      umbrales,
+    );
     const comentarioFuente = validarComentarioPromocion(
       p.comentarioPromocion,
-      advertenciaArchivoFuente,
+      advertenciaArchivoFuente || veredictoFuente.estado === "descuadrado",
+      advertenciaArchivoFuente ? "archivo_fuente" : "descuadre",
     );
     if (!comentarioFuente.ok) {
       return { ok: false, message: comentarioFuente.message };

@@ -104,6 +104,8 @@ import {
 } from "@/lib/balance/recuperacion-red";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { NotaOpcionalPromocion } from "./nota-opcional-promocion";
+import { ComentarioDescuadre } from "./comentario-descuadre";
+import { evaluarCuadreBorrador, resumirCuadreBorrador } from "@/lib/balance/cuadre-borrador";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import {
   acotarRevelado,
@@ -883,8 +885,24 @@ export default function BorradorDetailClient({
     partidaDoble,
     hallazgosPendientes,
   );
+  // El mismo veredicto de la lista (4 condiciones, umbrales vigentes), sobre la vista en
+  // pantalla: si el borrador está «Descuadrado», cargarlo exige comentario aunque la
+  // diferencia no sea del archivo fuente.
+  const veredictoCuadre = useMemo(
+    () => evaluarCuadreBorrador(
+      resumirCuadreBorrador(
+        { validacion, partidaDoble, arbol, filasContabilizadas },
+        filasEditadas,
+        new Set(revisionesGuardadasVigentes.keys()),
+        0,
+      ),
+      umbrales,
+    ),
+    [validacion, partidaDoble, arbol, filasContabilizadas, filasEditadas, revisionesGuardadasVigentes, umbrales],
+  );
+  const descuadreConComentario = !advertenciaArchivoFuente && veredictoCuadre.estado === "descuadrado";
   const faltaComentarioPromocion =
-    advertenciaArchivoFuente && comentarioPromocion.trim().length === 0;
+    (advertenciaArchivoFuente || descuadreConComentario) && comentarioPromocion.trim().length === 0;
   const guardarPeriodo = (inicio = periodoIni, fin = periodoFin) => {
     // Una fecha futura no se guarda: el campo ya muestra por qué.
     if (!inicio || !fin || motivoPeriodoBalance(inicio, fin)) return;
@@ -1432,6 +1450,12 @@ export default function BorradorDetailClient({
           comentario={comentarioPromocion}
           onComentarioChange={setComentarioPromocion}
         />
+      ) : descuadreConComentario ? (
+        <ComentarioDescuadre
+          motivos={veredictoCuadre.motivos}
+          comentario={comentarioPromocion}
+          onComentarioChange={setComentarioPromocion}
+        />
       ) : (
         // Sin advertencia obligatoria del archivo fuente no hay razón para negar
         // la nota: una diferencia que ya se explicó en un período anterior (p. ej.
@@ -1750,7 +1774,9 @@ export default function BorradorDetailClient({
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           {faltaComentarioPromocion ? (
             <p className="text-[11.5px] font-medium text-warn-700">
-              Escribe el comentario obligatorio en la advertencia del archivo fuente para continuar.
+              {advertenciaArchivoFuente
+                ? "Escribe el comentario obligatorio en la advertencia del archivo fuente para continuar."
+                : "El borrador está descuadrado: escribe el comentario de aprobación para continuar."}
             </p>
           ) : null}
           {manipulacionesPendientes.length > 0 ? (

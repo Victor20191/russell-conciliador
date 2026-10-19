@@ -480,6 +480,10 @@ vi.mock("@/lib/balance/cuadre-borrador", async (importOriginal) => ({
   resumenCuadreDeFilas: vi.fn((_filas: unknown, _aprobadas: unknown, revision: number) => ({
     v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 0, clases: [], agrupadoras: [], agrupadorasTotal: 0,
   })),
+  // El veredicto al cargar se evalúa con la función real sobre un resumen cuadrado.
+  resumirCuadreBorrador: vi.fn((_vista: unknown, _filas: unknown, _aprobadas: unknown, revision: number) => ({
+    v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 0, clases: [], agrupadoras: [], agrupadorasTotal: 0,
+  })),
 }));
 vi.mock("@/lib/balance/borrador", () => ({
   detectarManipulacionesRiesgosas: vi.fn(() => []),
