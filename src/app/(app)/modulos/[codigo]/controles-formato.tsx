@@ -28,6 +28,8 @@ function Mas({ cantidad, mostradas }: { cantidad: number; mostradas: number }) {
 }
 
 const plural = (n: number, uno: string, varios: string) => `${fmtNum(n)} ${n === 1 ? uno : varios}`;
+/** «, 3 documentos» cuando la diferencia es de todo el bloque del cliente. */
+const documentosDelBloque = (n: number | undefined) => (n != null && n > 1 ? `, ${fmtNum(n)} documentos` : "");
 
 export function ControlesFormato({
   controles,
@@ -173,17 +175,26 @@ export function ControlesFormato({
       {edades && (
         <div className={`rounded-md border px-3 py-2 text-[12px] ${TONO[edades.estado]}`}>
           <span className="font-semibold">Edades vs total — {VEREDICTO[edades.estado]}:</span>{" "}
+          {edades.estado !== "no_validado" && edades.saldoEnPrimeraFila && (
+            <>el archivo trae el saldo de cada cliente solo en su primera fila, así que se compara contra las edades de todos sus documentos: </>
+          )}
           {edades.estado === "no_validado" ? (
             edades.motivo
           ) : edades.estado === "cuadra" ? (
-            <>en {edades.comparadas === 1 ? "la fila" : `las ${fmtNum(edades.comparadas)} filas`} con edades y total, las edades suman el total.</>
+            edades.saldoEnPrimeraFila ? (
+              <>en {edades.comparadas === 1 ? "el cliente" : `los ${fmtNum(edades.comparadas)} clientes`} con edades y saldo, las edades suman el saldo.</>
+            ) : (
+              <>en {edades.comparadas === 1 ? "la fila" : `las ${fmtNum(edades.comparadas)} filas`} con edades y total, las edades suman el total.</>
+            )
           ) : (
             <>
-              en {plural(edades.diferencias.cantidad, "fila", "filas")} de {fmtNum(edades.comparadas)} la suma de las edades no es el total.
+              {edades.saldoEnPrimeraFila
+                ? <>en {plural(edades.diferencias.cantidad, "cliente", "clientes")} de {fmtNum(edades.comparadas)} la suma de las edades no es el saldo.</>
+                : <>en {plural(edades.diferencias.cantidad, "fila", "filas")} de {fmtNum(edades.comparadas)} la suma de las edades no es el total.</>}
               {!detalle && (
                 <>
                   {" "}
-                  {edades.diferencias.filas.slice(0, EN_RESUMEN).map((f) => `fila ${f.filaNum} (${f.tercero}): total ${fmtContable(f.total)} vs Σ ${fmtContable(f.sumaEdades)}`).join("; ")}
+                  {edades.diferencias.filas.slice(0, EN_RESUMEN).map((f) => `fila ${f.filaNum} (${f.tercero}${documentosDelBloque(f.documentos)}): total ${fmtContable(f.total)} vs Σ ${fmtContable(f.sumaEdades)}`).join("; ")}
                   {edades.diferencias.cantidad > EN_RESUMEN ? "…" : "."}
                 </>
               )}
@@ -210,7 +221,10 @@ export function ControlesFormato({
                   <tr key={f.filaNum} className="border-t border-ink-100">
                     <td className={`whitespace-nowrap ${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
                     <td className={`${celda} text-ink-700`}>{f.tercero}</td>
-                    <td className={`${celda} text-ink-700`}>{f.documento ?? "—"}</td>
+                    <td className={`${celda} text-ink-700`}>
+                      {f.documento ?? "—"}
+                      {f.documentos != null && f.documentos > 1 && <span className="text-ink-500"> y {plural(f.documentos - 1, "documento más", "documentos más")}</span>}
+                    </td>
                     <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.total)}</td>
                     <td className={`${celda} whitespace-nowrap text-right tabular-nums text-ink-700`}>{fmtContable(f.sumaEdades)}</td>
                     <td className={`${celda} whitespace-nowrap text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>

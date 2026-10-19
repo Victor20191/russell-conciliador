@@ -28,6 +28,18 @@ describe("validarAuxiliarTercero · edades vs total", () => {
     });
     expect(r.total).toBe(1);
   });
+
+  it("con el saldo del cliente en su primera fila no acusa a los clientes de varios documentos", () => {
+    // SIIGO (Kakaraka 2025-12): 630.000 en la primera factura, 0 en la segunda; el «Total» del cliente cierra el bloque.
+    const datos = (total: number, suma: number) => ({ nombre: "SEMINARIO", [CLAVE_SALDO_REPORTADO]: total, [CLAVE_SUMA_EDADES]: suma, [CLAVE_EDADES]: { "0 ==>": suma } });
+    const r = validar([
+      fila({ filaNum: 20, valor: 450_000, nitCanonico: "800088662", datos: { ...datos(630_000, 450_000), documento: "F-21268" } }),
+      fila({ filaNum: 21, valor: 180_000, nitCanonico: "800088662", datos: { ...datos(0, 180_000), documento: "F-21422" } }),
+      fila({ filaNum: 22, imputable: false, nitCanonico: "800088662", datos: datos(630_000, 630_000) }),
+    ]);
+    expect(r.edadesVsTotal).toEqual({ cantidad: 0, filas: [], suma: 0 });
+    expect(r.formato.edadesVsTotal).toMatchObject({ estado: "cuadra", comparadas: 1, saldoEnPrimeraFila: true });
+  });
 });
 
 describe("validarAuxiliarTercero · documento repetido entre terceros", () => {

@@ -4,7 +4,8 @@
 // ninguna bloquea: son lo que el auditor tiene que mirar antes de cerrar.
 //  - Edades vs total: el archivo trae las dos cosas y no coinciden (RF-CXP-11). Cuando manda
 //    la columna (CxP) las edades deberían explicarla; cuando mandan las edades (Cartera) es la
-//    columna la que se desvía. En ambos casos faltan baldes o alguien sumó mal.
+//    columna la que se desvía. En ambos casos faltan baldes o alguien sumó mal. Si la columna
+//    trae el saldo del cliente solo en su primera fila (SIIGO), se compara por cliente.
 //  - Documento repetido entre terceros: el MISMO documento por el MISMO valor bajo dos
 //    terceros distintos. El número solo no basta: en CxP es la factura del proveedor, y dos
 //    proveedores emiten su factura 25 sin que nada esté mal.
@@ -18,7 +19,7 @@
 //    la del cargue, los documentos cuyos días no corresponden al corte, los que están en un
 //    balde de edad que no es el suyo y los vencimientos imposibles.
 import { claveNit } from "@/lib/nit";
-import { controlesFormatoCartera, diferenciaEdadesDeFila, nivelDeFilas, tipoFormatoDeFilas, type ControlesFormatoCartera, type DiferenciaEdadesFila } from "./controles-formato";
+import { controlesFormatoCartera, diferenciasEdadesVsTotal, nivelDeFilas, tipoFormatoDeFilas, type ControlesFormatoCartera, type DiferenciaEdadesFila } from "./controles-formato";
 import { leerEdades } from "./detalle-cartera";
 import { esRotuloEdad, type RotuloEdad } from "./edades";
 import { deducirFechaCorte, diasEntre, fechaISO, type CorteDeducido } from "./fecha-corte";
@@ -220,11 +221,10 @@ export function validarAuxiliarTercero(input: {
     tipoDeducido: input.tipoDeducido ?? tipoFormatoDeFilas(input.filas, nivelImputable),
   });
 
-  // ===== Edades vs total ===== (en cualquier archivo que traiga las dos cifras)
+  // ===== Edades vs total ===== (en cualquier archivo que traiga las dos cifras; por cliente si
+  // el archivo imprime su saldo solo en la primera fila, la misma regla de «Validación del archivo»)
   const edades = { ...nuevaLista<DiferenciaEdades>(), suma: 0 };
-  for (const f of imputables) {
-    const diferencia = diferenciaEdadesDeFila(f);
-    if (!diferencia) continue;
+  for (const diferencia of diferenciasEdadesVsTotal(input.filas).diferencias) {
     agregar(edades, diferencia);
     edades.suma = redondear(edades.suma + diferencia.diferencia);
   }

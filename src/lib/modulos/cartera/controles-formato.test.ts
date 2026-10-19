@@ -101,6 +101,69 @@ describe("controles por tipo de formato", () => {
   });
 });
 
+// SIIGO «Módulo CxC» (Kakaraka 2025-12): la columna de total trae el saldo del cliente solo en su
+// primera factura, 0 en las demás, y el importe de cada documento va en sus edades.
+const factura = (nit: string, total: number, edades: number, extra: Record<string, unknown> = {}): FilaControlFormato => ({
+  filaNum: ++fila, valor: edades, imputable: true, nivel: "documento",
+  datos: { nit, nombre: `Cliente ${nit}`, documento: `F-${fila}`, sucursal: "0", ...conEdades(total, edades), ...extra },
+});
+
+describe("edades vs total con el saldo del cliente en su primera fila", () => {
+  it("compara el saldo contra las edades de todos los documentos del cliente", () => {
+    const filas = [
+      factura("800088662", 630000, 450000), factura("800088662", 0, 180000), totalCliente("800088662", 630000),
+      factura("70786170", 200000, 200000), totalCliente("70786170", 200000),
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "cuadra", comparadas: 2, saldoEnPrimeraFila: true, diferencias: { cantidad: 0 } });
+    expect(r.documentosVsCliente?.estado).toBe("cuadra");
+    expect(r.alertas).toBe(0);
+  });
+
+  it("cada sucursal es un bloque con su propio saldo", () => {
+    const filas = [
+      factura("811045607", 300, 100), factura("811045607", 0, 200), totalCliente("811045607", 300),
+      factura("811045607", 50, 20, { sucursal: "1" }), factura("811045607", 0, 30, { sucursal: "1" }), totalCliente("811045607", 50),
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "cuadra", comparadas: 2, saldoEnPrimeraFila: true });
+  });
+
+  it("un cliente cuyas edades no suman su saldo se acusa una vez, en su primera fila", () => {
+    const filas = [
+      factura("800088662", 630000, 450000), factura("800088662", 0, 180000), totalCliente("800088662", 630000),
+      factura("800110498", 1000000, 600000), factura("800110498", 0, 300000), totalCliente("800110498", 900000),
+    ];
+    const primeraDelDescuadre = filas[3].filaNum;
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "descuadre", comparadas: 2, saldoEnPrimeraFila: true, diferencias: { cantidad: 1 } });
+    expect(r.edadesVsTotal?.diferencias.filas[0]).toEqual({
+      filaNum: primeraDelDescuadre, tercero: "Cliente 800110498", documento: `F-${primeraDelDescuadre}`,
+      total: 1000000, sumaEdades: 900000, diferencia: 100000, documentos: 2,
+    });
+  });
+
+  it("con el total de cada documento sigue comparando fila a fila", () => {
+    // La segunda factura trae su propio total: no es el saldo del cliente en la primera fila.
+    const filas = [
+      factura("900123456", 630000, 450000), factura("900123456", 180000, 180000), totalCliente("900123456", 630000),
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "descuadre", comparadas: 2, diferencias: { cantidad: 1 } });
+    expect(r.edadesVsTotal?.saldoEnPrimeraFila).toBeUndefined();
+    expect(r.edadesVsTotal?.diferencias.filas[0]).toMatchObject({ total: 630000, sumaEdades: 450000, diferencia: 180000 });
+    expect(r.edadesVsTotal?.diferencias.filas[0].documentos).toBeUndefined();
+  });
+
+  it("sin un bloque que lo demuestre no cambia la regla", () => {
+    // La primera fila trae SU total y las demás vienen en cero: no hay evidencia de saldo del cliente.
+    const filas = [factura("900123456", 450000, 450000), factura("900123456", 0, 180000), totalCliente("900123456", 630000)];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "cuadra", comparadas: 1 });
+    expect(r.edadesVsTotal?.saldoEnPrimeraFila).toBeUndefined();
+  });
+});
+
 // Por cuenta y NIT (SIESA «Reporte de estado de cuentas»): la cuenta encabeza el bloque con su
 // total y debajo cuelga un renglón por tercero.
 const cuenta = (codigo: string, total: number, nombre: string | null = null): FilaControlFormato => ({

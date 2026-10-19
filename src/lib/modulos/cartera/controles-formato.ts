@@ -2,7 +2,8 @@
 //
 // Cada tipo de archivo se valida distinto (`tipo-formato.ts`):
 //  - por documento          → Σ de los documentos de cada cliente contra el total del cliente;
-//  - por edades             → Σ de las edades contra el total de cada fila;
+//  - por edades             → Σ de las edades contra el total de cada fila (o de cada cliente,
+//                             si el archivo imprime su saldo solo en la primera fila);
 //  - por documento y edades → los dos;
 //  - por cuenta y NIT       → Σ de los terceros de cada cuenta contra el total de la cuenta.
 // Si el archivo no trae con qué comparar, el control queda «no validado» y lo dice: no se da por
@@ -36,6 +37,8 @@ export type DiferenciaEdadesFila = {
   total: number;
   sumaEdades: number;
   diferencia: number;
+  /** Con el saldo del cliente en su primera fila: cuántos documentos suma su bloque (esta fila y las de abajo). */
+  documentos?: number;
 };
 
 export type ControlDocumentosCliente = {
@@ -73,9 +76,11 @@ export type ControlTercerosCuenta = {
 export type ControlEdadesTotal = {
   estado: EstadoControlFormato;
   motivo: string | null;
-  /** Filas que traen a la vez edades y total. */
+  /** Filas que traen a la vez edades y total (clientes, con el saldo del cliente en su primera fila). */
   comparadas: number;
   diferencias: { cantidad: number; filas: DiferenciaEdadesFila[] };
+  /** La columna de total trae el saldo del cliente solo en su primera fila: se compara por cliente. */
+  saldoEnPrimeraFila?: boolean;
 };
 
 export type ControlesFormatoCartera = {
@@ -98,6 +103,7 @@ export type FilaControlFormato = {
   imputable: boolean;
   datos: Record<string, unknown>;
   nivel?: string | null;
+  nitCanonico?: string | null;
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
@@ -122,15 +128,120 @@ export function diferenciaEdadesDeFila(fila: { filaNum: number; datos: Record<st
   const suma = numero(fila.datos[CLAVE_SUMA_EDADES]);
   if (total == null || total === 0 || suma == null || suma === 0) return null;
   const diferencia = redondear(total - suma);
-  if (Math.abs(diferencia) <= Math.max(1, Math.abs(total) * 0.001)) return null;
+  if (!fueraDeHolgura(total, diferencia)) return null;
   return {
     filaNum: fila.filaNum,
-    tercero: texto(fila.datos.nombre) ?? fila.nitCanonico ?? texto(fila.datos.nit) ?? "—",
+    tercero: terceroDeFila(fila),
     documento: texto(fila.datos.documento),
     total,
     sumaEdades: suma,
     diferencia,
   };
+}
+
+/** Holgura del control de edades: un peso o el 0,1 % del total. */
+const fueraDeHolgura = (total: number, diferencia: number): boolean => Math.abs(diferencia) > Math.max(1, Math.abs(total) * 0.001);
+
+const terceroDeFila = (fila: { datos: Record<string, unknown>; nitCanonico?: string | null }): string =>
+  texto(fila.datos.nombre) ?? fila.nitCanonico ?? texto(fila.datos.nit) ?? "—";
+
+type FilaEdades = { filaNum: number; imputable: boolean; datos: Record<string, unknown>; nitCanonico?: string | null };
+
+const totalDe = (f: FilaEdades): number => numero(f.datos[CLAVE_SALDO_REPORTADO]) ?? 0;
+const sumaEdadesDe = (f: FilaEdades): number => numero(f.datos[CLAVE_SUMA_EDADES]) ?? 0;
+
+/**
+ * Documentos seguidos de un mismo cliente, cuenta y sucursal, en el orden del archivo. Una fila que
+ * no imputa —el «Total» del cliente, una cabecera— cierra el bloque: SIIGO imprime un bloque por
+ * sucursal, cada uno con su total.
+ */
+function bloquesDeCliente<F extends FilaEdades>(filas: readonly F[]): F[][] {
+  const bloques: F[][] = [];
+  let actual: F[] = [];
+  let llaveActual: string | null = null;
+  for (const f of [...filas].sort((a, b) => a.filaNum - b.filaNum)) {
+    if (!f.imputable) {
+      if (actual.length > 0) bloques.push(actual);
+      actual = [];
+      llaveActual = null;
+      continue;
+    }
+    const d = f.datos ?? {};
+    const llave = [f.nitCanonico ?? texto(d.nit) ?? texto(d.nombre) ?? "", texto(d.cuenta) ?? "", texto(d.sucursal) ?? ""].join("|");
+    if (llave !== llaveActual && actual.length > 0) {
+      bloques.push(actual);
+      actual = [];
+    }
+    llaveActual = llave;
+    actual.push(f);
+  }
+  if (actual.length > 0) bloques.push(actual);
+  return bloques;
+}
+
+/**
+ * ¿La columna de total trae el SALDO DEL CLIENTE, y solo en su primera fila? SIIGO («Módulo CxC»,
+ * Kakaraka 2025-12) imprime 630.000 en la primera factura del cliente y 0 en la segunda, y el
+ * importe de cada documento en sus edades (450.000 y 180.000). Comparado fila a fila, cada cliente
+ * con más de un documento parecía descuadrado por lo que suman los demás. Se decide por ARCHIVO y
+ * con evidencia: ninguna fila que no sea la primera de su bloque trae total, y al menos un bloque
+ * de varios documentos solo cuadra sumándolos todos. Un archivo con el total de cada documento
+ * tiene totales en las filas de continuación y sigue comparándose fila a fila.
+ */
+function saldoClienteEnPrimeraFila(bloques: readonly (readonly FilaEdades[])[]): boolean {
+  let evidencia = 0;
+  for (const bloque of bloques) {
+    if (bloque.length < 2) continue;
+    if (bloque.slice(1).some((f) => totalDe(f) !== 0)) return false;
+    const total = totalDe(bloque[0]);
+    if (total === 0) continue;
+    const delBloque = redondear(bloque.reduce((s, f) => s + sumaEdadesDe(f), 0));
+    if (!fueraDeHolgura(total, total - delBloque) && fueraDeHolgura(total, total - sumaEdadesDe(bloque[0]))) evidencia += 1;
+  }
+  return evidencia > 0;
+}
+
+/**
+ * Edades contra el total, en las filas que imputan. Lo usan «Validación del archivo» y las Novedades
+ * del auxiliar, para que digan lo mismo. Por defecto fila a fila; si el archivo trae el saldo del
+ * cliente en su primera fila (`saldoClienteEnPrimeraFila`), ese saldo se compara contra la suma de
+ * las edades de todos los documentos de su bloque y la diferencia se ancla en esa primera fila.
+ */
+export function diferenciasEdadesVsTotal(filas: readonly FilaEdades[]): {
+  saldoEnPrimeraFila: boolean;
+  comparadas: number;
+  diferencias: DiferenciaEdadesFila[];
+} {
+  const bloques = bloquesDeCliente(filas);
+  if (!saldoClienteEnPrimeraFila(bloques)) {
+    const imputables = filas.filter((f) => f.imputable);
+    return {
+      saldoEnPrimeraFila: false,
+      comparadas: imputables.filter((f) => comparableEdades(f.datos)).length,
+      diferencias: imputables.map(diferenciaEdadesDeFila).filter((d): d is DiferenciaEdadesFila => d != null),
+    };
+  }
+  let comparadas = 0;
+  const diferencias: DiferenciaEdadesFila[] = [];
+  for (const bloque of bloques) {
+    const primera = bloque[0];
+    const total = totalDe(primera);
+    const suma = redondear(bloque.reduce((s, f) => s + sumaEdadesDe(f), 0));
+    if (total === 0 || suma === 0) continue;
+    comparadas += 1;
+    const diferencia = redondear(total - suma);
+    if (!fueraDeHolgura(total, diferencia)) continue;
+    diferencias.push({
+      filaNum: primera.filaNum,
+      tercero: terceroDeFila(primera),
+      documento: texto(primera.datos.documento),
+      total,
+      sumaEdades: suma,
+      diferencia,
+      documentos: bloque.length,
+    });
+  }
+  return { saldoEnPrimeraFila: true, comparadas, diferencias };
 }
 
 // Roles de Cartera y CxP que nombran la cuenta que agrupa a los terceros y el saldo de la fila
@@ -301,15 +412,10 @@ export function controlesFormatoCartera(input: {
   // ===== Σ de las edades contra el total de la fila =====
   let edadesVsTotal: ControlEdadesTotal | null = null;
   if (tipos.some(tipoConEdades)) {
-    const imputables = filas.filter((f) => f.imputable);
-    const comparadas = imputables.filter((f) => comparableEdades(f.datos)).length;
-    const diferencias = { cantidad: 0, filas: [] as DiferenciaEdadesFila[] };
-    for (const f of imputables) {
-      const d = diferenciaEdadesDeFila(f);
-      if (!d) continue;
-      diferencias.cantidad += 1;
-      if (diferencias.filas.length < MAX_FILAS) diferencias.filas.push(d);
-    }
+    const calculadas = diferenciasEdadesVsTotal(filas);
+    const comparadas = calculadas.comparadas;
+    const diferencias = { cantidad: calculadas.diferencias.length, filas: calculadas.diferencias.slice(0, MAX_FILAS) };
+    const enPrimeraFila = calculadas.saldoEnPrimeraFila ? { saldoEnPrimeraFila: true } : {};
     const conColumnaTotal = conocidos
       ? conocidos.some((f) => tipoConEdades(f.tipo) && f.conColumnaTotal)
       : comparadas > 0;
@@ -320,7 +426,7 @@ export function controlesFormatoCartera(input: {
     } else if (comparadas === 0) {
       edadesVsTotal = { estado: "no_validado", motivo: "Ninguna fila trae a la vez sus edades y su total.", comparadas: 0, diferencias };
     } else {
-      edadesVsTotal = { estado: diferencias.cantidad > 0 ? "descuadre" : "cuadra", motivo: null, comparadas, diferencias };
+      edadesVsTotal = { estado: diferencias.cantidad > 0 ? "descuadre" : "cuadra", motivo: null, comparadas, diferencias, ...enPrimeraFila };
     }
   }
 
