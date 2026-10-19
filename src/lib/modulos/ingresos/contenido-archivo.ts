@@ -16,6 +16,16 @@
 // se reconoce ninguna, la carga no sigue). Si lo declarado contradice lo que trae el archivo, el
 // borrador lo avisa (contenido dudoso) sin cambiar la declaración.
 //
+// Desde el 19/Oct/2026 también se declara el signo de las VENTAS (con facturas en el archivo, mixto
+// o solo facturas). Hay ERP que exportan el auxiliar con el signo CONTABLE —los ingresos son
+// créditos y salen en negativo; las devoluciones, en positivo— y la cédula presenta la clase 4 en
+// positivo: el cruce mostraba el módulo con el signo contrario y una diferencia del doble (Kakaraka,
+// dic-2025: −71.338 millones contra 71.489 millones). «En negativo» invierte el archivo ENTERO antes
+// de leerlo, por la misma vía que las notas crédito; así las ventas quedan sumando y lo que venía en
+// positivo (devoluciones, notas crédito) queda restando. El signo de las notas crédito de un archivo
+// mixto se lee FRENTE al de las ventas: solo las que vienen con el mismo signo hay que reconocerlas
+// y cambiarlas.
+//
 // Puro y sin dependencias del motor: lo usan la transformación, la acción y las pantallas.
 
 export const CONTENIDOS_ARCHIVO = ["mixto", "facturas", "notas_credito"] as const;
@@ -61,6 +71,50 @@ export function exigeSignoNotasCredito(contenido: ContenidoArchivo | null | unde
   return contenido === "mixto" || contenido === "notas_credito";
 }
 
+/** Con qué signo trae el archivo sus VENTAS (facturas); lo declara el analista en cada carga. */
+export const SIGNOS_VENTAS = ["positivo", "negativo"] as const;
+export type SignoVentas = (typeof SIGNOS_VENTAS)[number];
+
+export const INFO_SIGNO_VENTAS: Record<SignoVentas, { opcion: string; ayuda: string }> = {
+  positivo: { opcion: "En positivo", ayuda: "Se leen con el signo del archivo." },
+  negativo: {
+    opcion: "En negativo (signo contable: los ingresos son créditos)",
+    ayuda: "Se invierte el archivo entero: las ventas quedan en positivo y lo que venía en positivo (devoluciones, notas crédito) queda restando.",
+  },
+};
+
+export function esSignoVentas(v: unknown): v is SignoVentas {
+  return typeof v === "string" && (SIGNOS_VENTAS as readonly string[]).includes(v);
+}
+
+/** ¿El contenido declarado trae ventas? Entonces se pregunta su signo. */
+export function exigeSignoVentas(contenido: ContenidoArchivo | null | undefined): boolean {
+  return contenido === "mixto" || contenido === "facturas";
+}
+
+/**
+ * Archivo mixto: ¿las notas crédito vienen con el MISMO signo que las ventas? Entonces hay que
+ * reconocerlas por su concepto o documento y cambiarles el signo para que resten. Sin signo de las
+ * ventas declarado (cargas anteriores al 19/Oct/2026) las ventas se toman en positivo.
+ */
+export function notasConSignoDeVentas(notas: SignoNotasCredito, ventas: SignoVentas | null | undefined): boolean {
+  return notas === (ventas ?? "positivo");
+}
+
+/**
+ * Opción y ayuda del signo de las notas crédito, dichas frente al de las ventas: con las ventas en
+ * negativo, notas «en positivo» ya restan (el archivo se invierte) y «en negativo» hay que cambiarlas.
+ */
+export function infoSignoNotasCredito(
+  signo: SignoNotasCredito,
+  ventas: SignoVentas | null | undefined,
+): { opcion: string; ayuda: string } {
+  if (ventas !== "negativo") return INFO_SIGNO_NOTAS_CREDITO[signo];
+  return signo === "positivo"
+    ? { opcion: "En positivo, al revés de las ventas (ya restan)", ayuda: "Al invertir el archivo quedan en negativo y restan." }
+    : { opcion: "En negativo, igual que las ventas (hay que cambiarles el signo)", ayuda: "Se les cambia el signo para que resten." };
+}
+
 export type ConteoSignos = { positivos: number; negativos: number; suma: number };
 
 /** Cuántos valores vienen en positivo y cuántos en negativo (los vacíos y los ceros no cuentan). */
@@ -88,14 +142,22 @@ export function invertirNotasCredito(c: ConteoSignos): boolean {
 /** Lo que la lectura hizo con el signo de ESTE archivo; viaja en el spec del lote. */
 export type SignoContenido = {
   contenido: ContenidoArchivo;
+  /**
+   * El archivo ENTERO cambió de signo: solo notas crédito que venían en positivo o, desde el
+   * 19/Oct/2026, ventas declaradas en negativo (mixto o solo facturas).
+   */
   invertido: boolean;
+  /** Valores en positivo y en negativo TAL COMO VENÍAN en el archivo (antes de invertir). */
   positivos: number;
   negativos: number;
   /** Signo declarado de las notas crédito (cargas desde el 17/Oct/2026). */
   declarado?: SignoNotasCredito;
+  /** Signo declarado de las ventas (cargas desde el 19/Oct/2026). */
+  ventas?: SignoVentas;
   /**
-   * Archivo mixto: filas reconocidas como notas crédito (por su concepto o documento), cuántas venían
-   * en positivo y cuántas se cambiaron de signo por la declaración.
+   * Archivo mixto: filas reconocidas como notas crédito (por su concepto o documento), cuántas
+   * quedaban SUMANDO después de invertir el archivo (las que venían en positivo, si no se invirtió)
+   * y cuántas se cambiaron de signo por la declaración.
    */
   notasCredito?: { reconocidas: number; enPositivo: number; invertidas: number };
 };
@@ -150,6 +212,7 @@ export function leerContenidoDeLote(specJson: unknown): SignoContenido | null {
     positivos: entero(o.positivos),
     negativos: entero(o.negativos),
     ...(esSignoNotasCredito(o.declarado) ? { declarado: o.declarado } : {}),
+    ...(esSignoVentas(o.ventas) ? { ventas: o.ventas } : {}),
     ...(nc ? { notasCredito: { reconocidas: entero(nc.reconocidas), enPositivo: entero(nc.enPositivo), invertidas: entero(nc.invertidas) } } : {}),
   };
 }
@@ -159,7 +222,8 @@ const plural = (n: number, uno: string, varios: string) => `${n.toLocaleString("
 /** Texto para la bitácora: « · contenido: Notas crédito (signo invertido)». */
 export function detalleAuditoriaContenido(s: SignoContenido | null): string {
   if (!s) return "";
-  const base = ` · contenido: ${INFO_CONTENIDO_ARCHIVO[s.contenido].rotulo}${s.declarado ? ` · notas crédito declaradas en ${s.declarado}` : ""}`;
+  const ventas = s.ventas ? ` · ventas declaradas en ${s.ventas}${s.invertido ? " (archivo invertido)" : ""}` : "";
+  const base = `${` · contenido: ${INFO_CONTENIDO_ARCHIVO[s.contenido].rotulo}`}${ventas}${s.declarado ? ` · notas crédito declaradas en ${s.declarado}` : ""}`;
   if (s.contenido === "mixto" && s.notasCredito) {
     return `${base} (${plural(s.notasCredito.reconocidas, "nota crédito reconocida", "notas crédito reconocidas")}${s.notasCredito.invertidas ? `, ${s.notasCredito.invertidas} con el signo cambiado` : ""})`;
   }
@@ -187,17 +251,44 @@ export function avisosContenido(s: SignoContenido): AvisoContenido[] {
       });
     }
   }
-  if (s.contenido === "mixto" && s.notasCredito) {
-    const nc = s.notasCredito;
-    if (s.declarado === "positivo" && nc.invertidas > 0) {
-      avisos.push({
-        tono: "info",
-        texto: `Se reconocieron ${plural(nc.reconocidas, "nota crédito", "notas crédito")} por su concepto o documento y, como declaraste que vienen en positivo, se cambiaron a negativo (${plural(nc.invertidas, "fila", "filas")}).`,
-      });
-    } else if (s.declarado === "negativo" && nc.enPositivo > 0) {
+  // Ventas: lo declarado contra lo que trae el archivo (mayoría de filas, como las notas crédito).
+  if (exigeSignoVentas(s.contenido) && s.ventas) {
+    if (s.ventas === "positivo" && s.negativos > s.positivos) {
       avisos.push({
         tono: "aviso",
-        texto: `${plural(nc.enPositivo, "nota crédito viene", "notas crédito vienen")} en positivo y ${nc.enPositivo === 1 ? "quedó" : "quedaron"} SUMANDO, aunque declaraste que vienen en negativo. Si son reversas está bien; si no, descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_NOTAS_CREDITO.positivo.opcion}».`,
+        texto: `Declaraste que las ventas vienen en positivo, pero la mayoría de los valores venía en negativo (${plural(s.negativos, "fila", "filas")}): el total quedó en negativo y en el cruce se verá con el signo contrario a la contabilidad. Si el archivo trae el signo contable (los ingresos en negativo), descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_VENTAS.negativo.opcion}»${s.contenido === "facturas" ? `; si es un archivo de notas crédito, elige «${INFO_CONTENIDO_ARCHIVO.notas_credito.opcion}»` : ""}.`,
+      });
+    } else if (s.ventas === "negativo" && s.positivos > s.negativos) {
+      avisos.push({
+        tono: "aviso",
+        texto: `Declaraste que las ventas vienen en negativo, pero la mayoría de los valores venía en positivo (${plural(s.positivos, "fila", "filas")}): al invertir el archivo quedaron RESTANDO. Si te equivocaste, descarta el borrador y vuelve a cargarlo eligiendo «${INFO_SIGNO_VENTAS.positivo.opcion}».`,
+      });
+    } else if (s.ventas === "negativo") {
+      const restan = s.positivos > 0
+        ? ` y ${plural(s.positivos, "fila que venía en positivo (devolución o nota crédito) quedó", "filas que venían en positivo (devoluciones, notas crédito) quedaron")} restando`
+        : "";
+      avisos.push({
+        tono: "info",
+        texto: `Declaraste que las ventas vienen en negativo (signo contable): se invirtió el archivo entero, así las ventas quedaron en positivo${restan}.`,
+      });
+    }
+  }
+  if (s.contenido === "mixto" && s.notasCredito && s.declarado) {
+    const nc = s.notasCredito;
+    const ventasNegativas = s.ventas === "negativo";
+    if (notasConSignoDeVentas(s.declarado, s.ventas)) {
+      if (nc.invertidas > 0) {
+        avisos.push({
+          tono: "info",
+          texto: `Se reconocieron ${plural(nc.reconocidas, "nota crédito", "notas crédito")} por su concepto o documento y, como declaraste que vienen en ${s.declarado}${ventasNegativas ? ", igual que las ventas" : ""}, se les cambió el signo para que resten (${plural(nc.invertidas, "fila", "filas")}).`,
+        });
+      }
+    } else if (nc.enPositivo > 0) {
+      // Notas que quedaron sumando: venían con el MISMO signo de las ventas aunque se declaró el contrario.
+      const opuesto: SignoNotasCredito = s.declarado === "positivo" ? "negativo" : "positivo";
+      avisos.push({
+        tono: "aviso",
+        texto: `${plural(nc.enPositivo, "nota crédito viene", "notas crédito vienen")} en ${opuesto}${ventasNegativas ? ", igual que las ventas," : ""} y ${nc.enPositivo === 1 ? "quedó" : "quedaron"} SUMANDO, aunque declaraste que vienen en ${s.declarado}. Si son reversas está bien; si no, descarta el borrador y vuelve a cargarlo eligiendo «${infoSignoNotasCredito(opuesto, s.ventas).opcion}».`,
       });
     }
   }
@@ -225,7 +316,8 @@ export function avisosContenido(s: SignoContenido): AvisoContenido[] {
         });
       }
     }
-  } else if (s.contenido === "facturas" && s.negativos > s.positivos) {
+  } else if (s.contenido === "facturas" && !s.ventas && s.negativos > s.positivos) {
+    // Lote anterior a la declaración del signo de las ventas.
     avisos.push({
       tono: "aviso",
       texto: `Declaraste solo facturas, pero la mayoría de los valores viene en negativo (${plural(s.negativos, "fila", "filas")}). Si el archivo es de notas crédito, descarta este borrador y vuelve a cargarlo eligiendo «${INFO_CONTENIDO_ARCHIVO.notas_credito.opcion}».`,

@@ -41,7 +41,10 @@ import {
   invertirNotasCredito,
   esFilaNotaCredito,
   esSignoNotasCredito,
+  esSignoVentas,
   exigeSignoNotasCredito,
+  exigeSignoVentas,
+  notasConSignoDeVentas,
   type ContenidoArchivo,
   type SignoContenido,
 } from "../ingresos/contenido-archivo";
@@ -115,8 +118,9 @@ export type ResultadoTransformModulo = {
    */
   importesSinTrm?: { filaNum: number; columna: string; texto: string }[];
   /**
-   * Ingresos, archivo mixto declarado con las notas crédito en positivo, sin ninguna fila cuyo
-   * concepto o documento nombre una nota crédito: no hay a qué aplicar el signo. La carga se detiene.
+   * Ingresos, archivo mixto declarado con las notas crédito del MISMO signo que las ventas, sin
+   * ninguna fila cuyo concepto o documento nombre una nota crédito: no hay a qué aplicar el signo.
+   * La carga se detiene.
    */
   sinNotasCreditoReconocidas?: true;
 };
@@ -466,7 +470,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const conteo = contarSignos(crudos);
     // El signo DECLARADO manda (17/Oct/2026); sin declaración (lotes anteriores) decide la mayoría.
     const declarado = exigeSignoNotasCredito(contenidoArchivo) && esSignoNotasCredito(spec.signoNotasCredito) ? spec.signoNotasCredito : undefined;
-    const invertido = contenidoArchivo === "notas_credito" && (declarado ? declarado === "positivo" : invertirNotasCredito(conteo));
+    // Ventas declaradas en negativo (19/Oct/2026): el archivo trae el signo CONTABLE —los ingresos
+    // son créditos— y se invierte ENTERO por la misma vía, como un archivo de notas crédito en
+    // positivo. Sin declaración (lotes anteriores) se lee con el signo del archivo, como siempre.
+    const ventas = exigeSignoVentas(contenidoArchivo) && esSignoVentas(spec.signoVentas) ? spec.signoVentas : undefined;
+    const invertido = contenidoArchivo === "notas_credito"
+      ? (declarado ? declarado === "positivo" : invertirNotasCredito(conteo))
+      : ventas === "negativo";
     if (invertido) factorSigno = -factorSigno;
     signoContenido = {
       contenido: contenidoArchivo,
@@ -474,6 +484,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       positivos: conteo.positivos,
       negativos: conteo.negativos,
       ...(declarado ? { declarado } : {}),
+      ...(ventas ? { ventas } : {}),
     };
   }
 
@@ -1188,11 +1199,25 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // clasificador del bloque—, y el subtotal de cada grupo junto con sus filas, así el control
   // del archivo sigue emparejándolos. El gran total no es de ningún grupo y no se rotula.
   // INGRESOS · archivo MIXTO: las notas crédito se reconocen por su concepto o su documento. Si se
-  // declaró que vienen en positivo, esas filas cambian de signo para que resten; si se declaró que
-  // vienen en negativo, solo se cuentan las que aun así vienen en positivo (el borrador lo avisa).
-  // Declarar «positivo» sin que se reconozca ninguna detiene la carga: no habría a qué aplicarlo.
+  // declaró que vienen con el MISMO signo de las ventas (en positivo con las ventas en positivo, o
+  // en negativo con las ventas en negativo), esas filas cambian de signo para que resten; si se
+  // declaró el contrario ya restan —con las ventas en negativo, por la inversión del archivo— y
+  // solo se cuentan las que aun así quedaron sumando (el borrador lo avisa). Declarar el mismo signo
+  // sin que se reconozca ninguna detiene la carga: no habría a qué aplicarlo. Los valores de `filas`
+  // ya traen el archivo invertido, si se invirtió.
+  //
+  // Con las ventas declaradas en negativo cada fila con valor quedó con el signo contrario al del
+  // archivo: se marca (`_signoInvertido`) como en un archivo de notas crédito invertido.
+  if (signoContenido?.invertido && signoContenido.contenido !== "notas_credito") {
+    for (let i = 0; i < filas.length; i++) {
+      const f = filas[i];
+      if (f.valor === 0 || (f.tipoFila !== "movimiento" && f.tipoFila !== "total")) continue;
+      filas[i] = { ...f, signoInvertido: true };
+    }
+  }
   let sinNotasCreditoReconocidas = false;
   if (signoContenido?.contenido === "mixto" && signoContenido.declarado) {
+    const cambiarNotas = notasConSignoDeVentas(signoContenido.declarado, signoContenido.ventas);
     const rolDocumento = descriptor.columnas.some((c) => c.nombre === "documento") ? "documento" : null;
     let reconocidas = 0;
     let enPositivo = 0;
@@ -1204,21 +1229,24 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       if (!esFilaNotaCredito(f.clasificador, rolDocumento ? f.datos[rolDocumento] : null)) continue;
       reconocidas += 1;
       if (f.valor > 0) enPositivo += 1;
-      if (signoContenido.declarado !== "positivo" || f.valor === 0) continue;
+      if (!cambiarNotas || f.valor === 0) continue;
       invertidas += 1;
+      const { signoInvertido: _marcaPrevia, ...sinMarca } = f;
+      void _marcaPrevia;
       filas[i] = {
-        ...f,
+        ...sinMarca,
         valor: -f.valor + 0,
         datos: { ...f.datos, [descriptor.valor]: negar(f.datos[descriptor.valor] ?? null) },
         // El aporte de cada término de la fórmula cambia con el valor, para que el desglose cuadre.
         ...(f.terminosFormula
           ? { terminosFormula: Object.fromEntries(Object.entries(f.terminosFormula).map(([k, v]) => [k, -v + 0])) }
           : {}),
-        signoInvertido: true,
+        // Con el archivo invertido, cambiarla otra vez la deja con el signo que traía el archivo.
+        ...(signoContenido.invertido ? {} : { signoInvertido: true }),
       };
     }
     signoContenido = { ...signoContenido, notasCredito: { reconocidas, enPositivo, invertidas } };
-    sinNotasCreditoReconocidas = signoContenido.declarado === "positivo" && reconocidas === 0;
+    sinNotasCreditoReconocidas = cambiarNotas && reconocidas === 0;
   }
 
   if (signoContenido?.contenido === "notas_credito") {

@@ -683,7 +683,9 @@ export default function BorradorModuloClient({
         {contenido && (
           <div className="flex flex-col gap-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
             <span>
-              <span className="font-semibold">Contenido declarado:</span> {INFO_CONTENIDO_ARCHIVO[contenido.contenido].rotulo}.
+              <span className="font-semibold">Contenido declarado:</span> {INFO_CONTENIDO_ARCHIVO[contenido.contenido].rotulo}
+              {contenido.ventas ? ` · ventas en ${contenido.ventas}` : ""}
+              {contenido.declarado ? ` · notas crédito en ${contenido.declarado}` : ""}.
             </span>
             {avisosContenido(contenido).map((a) => (
               <span key={a.texto} className={a.tono === "aviso" ? "font-medium text-warn-700" : undefined}>{a.texto}</span>

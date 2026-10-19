@@ -53,14 +53,16 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarAgrupadorDeCarga, aplicarAgruparPorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
+import { aplicarAgrupadorDeCarga, aplicarAgruparPorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, MENSAJE_SIGNO_NOTAS_CREDITO, MENSAJE_SIGNO_VENTAS } from "@/lib/modulos/patrones/aplicar";
 import { esContenidoActivos, INFO_CONTENIDO_ACTIVOS } from "@/lib/modulos/activos/contenido-archivo";
 import {
   agregarContenidoArchivo,
   detalleAuditoriaContenido,
   esContenidoArchivo,
   esSignoNotasCredito,
+  esSignoVentas,
   exigeSignoNotasCredito,
+  exigeSignoVentas,
   INFO_CONTENIDO_ARCHIVO,
   leerContenidoArchivos,
   leerContenidoDeLote,
@@ -1185,6 +1187,16 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   if (descriptor.confirmarContenidoEnCarga && !esContenidoArchivo(contenidoRespuesta)) {
     return { ok: false, message: "Indica qué trae este archivo: facturas y notas crédito, solo facturas o solo notas crédito." };
   }
+  // Con facturas en el archivo, con qué signo vienen las ventas (19/Oct/2026): se declara siempre.
+  const signoVentasRespuesta = String(formData.get("signoVentas") ?? "").trim();
+  if (
+    descriptor.confirmarContenidoEnCarga
+    && esContenidoArchivo(contenidoRespuesta)
+    && exigeSignoVentas(contenidoRespuesta)
+    && !esSignoVentas(signoVentasRespuesta)
+  ) {
+    return { ok: false, message: MENSAJE_SIGNO_VENTAS };
+  }
   // Con notas crédito en el archivo, con qué signo vienen (17/Oct/2026): se declara siempre.
   const signoNotasCreditoRespuesta = String(formData.get("signoNotasCredito") ?? "").trim();
   if (
@@ -1193,7 +1205,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     && exigeSignoNotasCredito(contenidoRespuesta)
     && !esSignoNotasCredito(signoNotasCreditoRespuesta)
   ) {
-    return { ok: false, message: "Indica con qué signo vienen las notas crédito del archivo: en negativo o en positivo." };
+    return { ok: false, message: MENSAJE_SIGNO_NOTAS_CREDITO };
   }
   // Activos fijos: lo mismo con el costo y la depreciación, que pueden venir en dos archivos.
   const contenidoActivosRespuesta = String(formData.get("contenidoActivos") ?? "").trim();
@@ -1636,7 +1648,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = agruparCarga.spec;
     // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
-    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta, signoNotasCreditoRespuesta);
+    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta, signoNotasCreditoRespuesta, signoVentasRespuesta);
     if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
     spec = contenidoCarga.spec;
     // Activos fijos: qué trae ESTE archivo (costo / depreciación / ambos). Manda el modal.
@@ -1702,11 +1714,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     if (resultado.erroresLectura?.length) return marcarNoProcesable(resultado.erroresLectura.join(" "));
     // Celdas con su divisa escrita y sin TRM de cierre: no se leen como pesos ni se dejan fuera en
     // silencio. Igual que una hoja en divisa, la carga no sigue hasta que se indique la TRM.
-    // Ingresos, archivo mixto con las notas crédito declaradas en positivo: si ninguna fila las
-    // nombra (concepto o documento), no hay a cuáles cambiar el signo.
+    // Ingresos, archivo mixto con las notas crédito declaradas con el mismo signo de las ventas: si
+    // ninguna fila las nombra (concepto o documento), no hay a cuáles cambiar el signo.
     if (resultado.sinNotasCreditoReconocidas) {
+      const declarado = resultado.contenido?.declarado ?? "positivo";
+      const igualQueVentas = resultado.contenido?.ventas === "negativo" ? ", igual que las ventas," : "";
       return marcarNoProcesable(
-        "Declaraste que las notas crédito vienen en positivo, pero ninguna fila del archivo se reconoce como nota crédito por su concepto o su documento («Nota crédito», «NC…»). "
+        `Declaraste que las notas crédito vienen en ${declarado}${igualQueVentas} pero ninguna fila del archivo se reconoce como nota crédito por su concepto o su documento («Nota crédito», «NC…»). `
         + "Carga las notas crédito en un archivo aparte eligiendo «Solo notas crédito», o revisa la declaración.",
       );
     }

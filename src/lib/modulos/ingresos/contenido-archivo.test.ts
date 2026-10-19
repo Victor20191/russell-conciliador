@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { avisosContenido as avisosSigno, esFilaNotaCredito, exigeSignoNotasCredito, leerContenidoDeLote as leerSigno } from "./contenido-archivo";
+import {
+  avisosContenido as avisosSigno,
+  esFilaNotaCredito,
+  exigeSignoNotasCredito,
+  exigeSignoVentas,
+  infoSignoNotasCredito,
+  leerContenidoDeLote as leerSigno,
+  notasConSignoDeVentas,
+} from "./contenido-archivo";
 import {
   agregarContenidoArchivo,
   avisosContenido,
@@ -198,5 +206,61 @@ describe("signo declarado de las notas crédito (17/Oct/2026)", () => {
       .toEqual({ contenido: "mixto", invertido: false, positivos: 2, negativos: 0, declarado: "positivo", notasCredito: { reconocidas: 1, enPositivo: 1, invertidas: 1 } });
     // Un lote anterior no trae la declaración.
     expect(leerSigno({ signoContenido: { contenido: "notas_credito", invertido: true, positivos: 2, negativos: 0 } })).not.toHaveProperty("declarado");
+  });
+});
+
+describe("signo declarado de las ventas (19/Oct/2026)", () => {
+  it("se pregunta con facturas en el archivo", () => {
+    expect(exigeSignoVentas("mixto")).toBe(true);
+    expect(exigeSignoVentas("facturas")).toBe(true);
+    expect(exigeSignoVentas("notas_credito")).toBe(false);
+    expect(exigeSignoVentas(null)).toBe(false);
+  });
+
+  it("las notas crédito se cambian solo si vienen con el mismo signo de las ventas", () => {
+    expect(notasConSignoDeVentas("positivo", "positivo")).toBe(true);
+    expect(notasConSignoDeVentas("negativo", "positivo")).toBe(false);
+    expect(notasConSignoDeVentas("negativo", "negativo")).toBe(true);
+    expect(notasConSignoDeVentas("positivo", "negativo")).toBe(false);
+    // Lote anterior, sin el signo de las ventas: se toman en positivo, como antes.
+    expect(notasConSignoDeVentas("positivo", undefined)).toBe(true);
+  });
+
+  it("las opciones de las notas crédito se dicen frente a las ventas", () => {
+    expect(infoSignoNotasCredito("positivo", "positivo").opcion).toBe("En positivo (hay que cambiarlas a negativo)");
+    expect(infoSignoNotasCredito("positivo", null).opcion).toBe("En positivo (hay que cambiarlas a negativo)");
+    expect(infoSignoNotasCredito("positivo", "negativo").opcion).toMatch(/al revés de las ventas \(ya restan\)/);
+    expect(infoSignoNotasCredito("negativo", "negativo").opcion).toMatch(/igual que las ventas/);
+  });
+
+  it("ventas en negativo coherentes con el archivo: informa la inversión", () => {
+    const avisos = avisosSigno({ contenido: "mixto", invertido: true, positivos: 2263, negativos: 22314, ventas: "negativo", declarado: "positivo", notasCredito: { reconocidas: 0, enPositivo: 0, invertidas: 0 } });
+    expect(avisos).toEqual([expect.objectContaining({ tono: "info", texto: expect.stringMatching(/se invirtió el archivo entero.*2\.263 filas que venían en positivo/) })]);
+  });
+
+  it("contenido dudoso: las ventas declaradas contradicen el archivo", () => {
+    // Kakaraka: declaradas en positivo y la mayoría venía en negativo → en el cruce saldría al revés.
+    const alReves = avisosSigno({ contenido: "mixto", invertido: false, positivos: 2263, negativos: 22314, ventas: "positivo", declarado: "negativo", notasCredito: { reconocidas: 0, enPositivo: 0, invertidas: 0 } });
+    expect(alReves.some((a) => a.tono === "aviso" && /signo contrario a la contabilidad/.test(a.texto) && /«En negativo \(signo contable/.test(a.texto))).toBe(true);
+    const negativoDeMas = avisosSigno({ contenido: "facturas", invertido: true, positivos: 10, negativos: 1, ventas: "negativo" });
+    expect(negativoDeMas.some((a) => a.tono === "aviso" && /quedaron RESTANDO/.test(a.texto))).toBe(true);
+    // Solo facturas declaradas en positivo con la mayoría en negativo: también sugiere notas crédito.
+    const facturas = avisosSigno({ contenido: "facturas", invertido: false, positivos: 1, negativos: 9, ventas: "positivo" });
+    expect(facturas).toHaveLength(1);
+    expect(facturas[0].texto).toMatch(/Solo notas crédito/);
+  });
+
+  it("archivo mixto con ventas en negativo: notas que quedaron sumando se nombran frente a las ventas", () => {
+    const avisos = avisosSigno({ contenido: "mixto", invertido: true, positivos: 1, negativos: 9, ventas: "negativo", declarado: "positivo", notasCredito: { reconocidas: 2, enPositivo: 1, invertidas: 0 } });
+    expect(avisos.some((a) => a.tono === "aviso" && /viene en negativo, igual que las ventas, y quedó SUMANDO/.test(a.texto) && /«En negativo, igual que las ventas/.test(a.texto))).toBe(true);
+    const cambiadas = avisosSigno({ contenido: "mixto", invertido: true, positivos: 0, negativos: 10, ventas: "negativo", declarado: "negativo", notasCredito: { reconocidas: 2, enPositivo: 2, invertidas: 2 } });
+    expect(cambiadas.some((a) => a.tono === "info" && /igual que las ventas, se les cambió el signo/.test(a.texto))).toBe(true);
+  });
+
+  it("el lote y la bitácora conservan el signo de las ventas", () => {
+    const lote = { signoContenido: { contenido: "mixto", invertido: true, positivos: 1, negativos: 3, ventas: "negativo", declarado: "positivo" } };
+    expect(leerSigno(lote)).toMatchObject({ ventas: "negativo", invertido: true });
+    expect(leerSigno({ signoContenido: { ...lote.signoContenido, ventas: "al revés" } })).not.toHaveProperty("ventas");
+    expect(detalleAuditoriaContenido(leerSigno(lote))).toBe(" · contenido: Facturas y notas crédito · ventas declaradas en negativo (archivo invertido) · notas crédito declaradas en positivo");
   });
 });

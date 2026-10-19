@@ -458,12 +458,26 @@ describe("aplicarContenidoDeCarga (Ingresos: qué trae el archivo)", () => {
 
   it("con notas crédito en el archivo exige su signo; solo facturas no lo pide y retira el que trajera", () => {
     for (const contenido of ["mixto", "notas_credito"] as const) {
-      const sinSigno = aplicarContenidoDeCarga(ING, specIng, contenido);
+      const sinSigno = aplicarContenidoDeCarga(ING, specIng, contenido, undefined, "positivo");
       expect(sinSigno.ok).toBe(false);
       if (!sinSigno.ok) expect(sinSigno.message).toMatch(/con qué signo vienen las notas crédito/);
     }
-    const facturas = aplicarContenidoDeCarga(ING, { ...specIng, signoNotasCredito: "positivo" }, "facturas", "positivo");
-    expect(facturas).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "facturas" }, contenido: "facturas" });
+    const facturas = aplicarContenidoDeCarga(ING, { ...specIng, signoNotasCredito: "positivo" }, "facturas", "positivo", "positivo");
+    expect(facturas).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "facturas", signoVentas: "positivo" }, contenido: "facturas" });
+  });
+
+  it("con facturas en el archivo exige el signo de las ventas; solo notas crédito no lo pide y retira el que trajera (19/Oct/2026)", () => {
+    for (const contenido of ["mixto", "facturas"] as const) {
+      const sinVentas = aplicarContenidoDeCarga(ING, specIng, contenido, "positivo");
+      expect(sinVentas.ok).toBe(false);
+      if (!sinVentas.ok) expect(sinVentas.message).toMatch(/con qué signo vienen las ventas/);
+    }
+    const mixto = aplicarContenidoDeCarga(ING, specIng, "mixto", "positivo", "negativo");
+    expect(mixto).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "mixto", signoVentas: "negativo", signoNotasCredito: "positivo" }, contenido: "mixto" });
+    const notas = aplicarContenidoDeCarga(ING, { ...specIng, signoVentas: "negativo" }, "notas_credito", "positivo", "negativo");
+    expect(notas).toEqual({ ok: true, spec: { ...specIng, contenidoArchivo: "notas_credito", signoNotasCredito: "positivo" }, contenido: "notas_credito" });
+    const invalido = aplicarContenidoDeCarga(ING, specIng, "facturas", undefined, "al revés");
+    expect(invalido.ok).toBe(false);
   });
 
   it("sin respuesta válida, pide que se indique", () => {

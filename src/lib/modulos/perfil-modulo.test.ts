@@ -334,6 +334,11 @@ describe("regresión: los módulos sin familias no cambian", () => {
     expect(normalizarSpecModuloArchivo(ING, conSigno).signoNotasCredito).toBe("positivo");
     expect(normalizarSpecModulo(ING, conSigno).signoNotasCredito).toBeUndefined();
     expect(normalizarSpecModuloArchivo(ING, { ...conSigno, contenidoArchivo: "facturas" }).signoNotasCredito).toBeUndefined();
+    // Y el de las ventas (19/Oct/2026): solo con facturas en el archivo.
+    const conVentas = { ...specDe("ING"), contenidoArchivo: "mixto" as const, signoVentas: "negativo" as const };
+    expect(normalizarSpecModuloArchivo(ING, conVentas).signoVentas).toBe("negativo");
+    expect(normalizarSpecModulo(ING, conVentas).signoVentas).toBeUndefined();
+    expect(normalizarSpecModuloArchivo(ING, { ...conVentas, contenidoArchivo: "notas_credito" }).signoVentas).toBeUndefined();
   });
 
   it("Cuentas por Pagar traduce su perfil anterior y conserva los campos del detalle por tercero", () => {

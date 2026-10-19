@@ -77,7 +77,7 @@ function RotuloContenido({ contenido, invertido }: { contenido: ContenidoArchivo
         ? invertido
           ? "Archivo de notas crédito: venía en positivo y se cambió a negativo para que reste."
           : "Archivo de notas crédito: ya venía en negativo y se dejó con su signo."
-        : `Archivo declarado como «${INFO_CONTENIDO_ARCHIVO[contenido].rotulo}» al cargarlo.`}
+        : `Archivo declarado como «${INFO_CONTENIDO_ARCHIVO[contenido].rotulo}» al cargarlo.${invertido ? " Las ventas venían en negativo (signo contable) y se invirtió el archivo entero." : ""}`}
     >
       {INFO_CONTENIDO_ARCHIVO[contenido].rotulo}
     </span>

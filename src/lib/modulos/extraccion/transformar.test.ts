@@ -1013,6 +1013,63 @@ describe("transformarModulo (ING) · qué trae el archivo: facturas o notas cré
     expect(antes.contenido).toBeUndefined();
   });
 
+  it("ventas en NEGATIVO (signo contable, Kakaraka): invierte el archivo entero, el total incluido", () => {
+    // SIIGO exporta las ventas como créditos y las devoluciones como débitos.
+    const grid = hojaIng([
+      ["Ventas", "38451", -1_000_000],
+      ["Ventas", "38452", -500_000],
+      ["Devoluciones", "5663", 25_000],
+      ["Devoluciones", "410", 200_000],
+      ["Total", null, -1_275_000],
+    ]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoVentas: "negativo", signoNotasCredito: "positivo" }, grid);
+    expect(imputables(r.filas).map((f) => [f.clasificador, f.valor, f.signoInvertido ?? false])).toEqual([
+      ["Ventas", 1_000_000, true],
+      ["Ventas", 500_000, true],
+      ["Devoluciones", -25_000, true],
+      ["Devoluciones", -200_000, true],
+    ]);
+    expect(r.filas.find((f) => f.tipoFila === "total")).toMatchObject({ valor: 1_275_000, signoInvertido: true });
+    expect(control(r).granTotal).toMatchObject({ subtotalArchivo: 1_275_000, sumaMovimientos: 1_275_000, estado: "cuadra" });
+    // Las notas «en positivo» con las ventas en negativo ya restan: no hace falta reconocerlas.
+    expect(r.contenido).toEqual({
+      contenido: "mixto", invertido: true, positivos: 2, negativos: 2, declarado: "positivo", ventas: "negativo",
+      notasCredito: { reconocidas: 0, enPositivo: 0, invertidas: 0 },
+    });
+    expect(r.sinNotasCreditoReconocidas).toBeUndefined();
+  });
+
+  it("solo facturas en negativo también se invierten; en positivo se leen como antes", () => {
+    const grid = hojaIng([["Ventas", "F-1", -1_000], ["Ventas", "F-2", -200]]);
+    const negativo = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "facturas", signoVentas: "negativo" }, grid);
+    expect(imputables(negativo.filas).map((f) => f.valor)).toEqual([1_000, 200]);
+    expect(negativo.contenido).toMatchObject({ invertido: true, ventas: "negativo" });
+    const positivo = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "facturas", signoVentas: "positivo" }, grid);
+    expect(positivo.filas).toEqual(transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "facturas" }, grid).filas);
+    expect(positivo.contenido).toMatchObject({ invertido: false, ventas: "positivo" });
+    // El signo de las ventas no aplica a un archivo de solo notas crédito.
+    const notas = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "notas_credito", signoNotasCredito: "negativo", signoVentas: "negativo" }, hojaIng([["Ventas", "NC-1", -50]]));
+    expect(imputables(notas.filas).map((f) => f.valor)).toEqual([-50]);
+    expect(notas.contenido).not.toHaveProperty("ventas");
+  });
+
+  it("mixto con ventas y notas crédito en negativo: se invierte el archivo y a las notas se les devuelve el signo", () => {
+    const grid = hojaIng([["Ventas", "F-1", -1_000], ["Ventas", "NC-1", -80]]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoVentas: "negativo", signoNotasCredito: "negativo" }, grid);
+    expect(imputables(r.filas).map((f) => [f.valor, f.signoInvertido ?? false])).toEqual([[1_000, true], [-80, false]]);
+    expect(r.contenido).toMatchObject({ notasCredito: { reconocidas: 1, enPositivo: 1, invertidas: 1 } });
+    // Mismo signo que las ventas y ninguna reconocible: la carga no sigue.
+    const sinNotas = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoVentas: "negativo", signoNotasCredito: "negativo" }, hojaIng([["F", "1", -1_000]]));
+    expect(sinNotas.sinNotasCreditoReconocidas).toBe(true);
+  });
+
+  it("mixto con ventas en negativo: una nota que vino como las ventas queda sumando y se cuenta", () => {
+    const grid = hojaIng([["Ventas", "F-1", -1_000], ["Ventas", "NC-1", 30], ["Ventas", "NC-2", -20]]);
+    const r = transformarModulo(ING, { ...SPEC_ING, contenidoArchivo: "mixto", signoVentas: "negativo", signoNotasCredito: "positivo" }, grid);
+    expect(imputables(r.filas).map((f) => f.valor)).toEqual([1_000, -30, 20]);
+    expect(r.contenido).toMatchObject({ notasCredito: { reconocidas: 2, enPositivo: 1, invertidas: 0 } });
+  });
+
   it("un módulo que no pregunta el contenido lo ignora", () => {
     const grid = hoja([ENC, ["Materia prima", "REF-1", "Tornillo", 10, 100, 1000]]);
     const conCampo = transformarModulo(INV, { ...SPEC, contenidoArchivo: "notas_credito" }, grid);

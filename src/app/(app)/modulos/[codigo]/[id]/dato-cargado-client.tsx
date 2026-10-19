@@ -56,6 +56,7 @@ import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { esEncabezadoTercero, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
 import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, cuentasDeClaveCruce, type ColumnaCifrasCruce, type CuentaDisparCruce, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { resumenSignoContrario, type ResumenSignoContrario, type SignoContrarioFila } from "@/lib/modulos/signo-contrario-cruce";
 import { hayReclasificacionEntreColumnas, totalesColumnasActivos } from "@/lib/modulos/activos/cedula-activos";
 
 /** Renglón sintético que cierra una fila agrupada con el total de sus cuentas. */
@@ -785,7 +786,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
+        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloCodigo={moduloCodigo} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
       ) : tab === "subcuenta" && cruceContable.nomina?.vistaSubcuenta ? (
         <VistaSubcuentaNominaCard vista={cruceContable.nomina.vistaSubcuenta} moduloLabel={moduloLabel} />
       ) : tab === "cruceTercero" ? (
@@ -2435,8 +2436,45 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
 // La cédula se lee como un papel de trabajo: la fila con diferencia lleva una MARCA
 // numerada —①②③— y la explicación entera (detalle, anexo y soportes) vive al pie, en
 // observaciones. La marca de la tabla es un enlace a su observación.
+/**
+ * El módulo es casi igual a la contabilidad con el signo contrario (19/Oct/2026): la diferencia que
+ * se ve es casi el doble del saldo y una marca no la explica. Se dice qué quedaría con el signo
+ * invertido y cómo se corrige (Ingresos: volver a cargar declarando las ventas en negativo).
+ */
+function AvisoSignoContrario({ resumen, moduloCodigo, moduloLabel }: { resumen: ResumenSignoContrario; moduloCodigo: string; moduloLabel: string }) {
+  const etiqueta = (clave: string) => {
+    const cuentas = cuentasDeClaveCruce(clave);
+    return cuentas.length > 1 ? `R - ${cuentas[0]} y ${cuentas.length - 1} más` : `R - ${clave}`;
+  };
+  const una = resumen.filas.length === 1 ? resumen.filas[0] : null;
+  return (
+    <div role="alert" className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">
+      <span className="font-semibold">
+        El archivo de {moduloLabel.toLocaleLowerCase("es")} parece venir con el signo contrario a la contabilidad
+      </span>{" "}
+      en {una ? "el renglón" : `${resumen.filas.length} renglones`} {unirConY(resumen.filas.map((f) => etiqueta(f.clave)))}
+      {una && <>: el archivo suma <b className="tabular-nums">{fmtContable(una.modulo)}</b> y la contabilidad <b className="tabular-nums">{fmtContable(una.contable)}</b></>}.
+      {" "}Con el signo invertido la diferencia sería <b className="tabular-nums">{fmtContable(resumen.diferenciaInvertida)}</b>, no <span className="tabular-nums">{fmtContable(resumen.diferencia)}</span>.
+      {" "}
+      {moduloCodigo === "ING"
+        ? "Si el archivo trae el signo contable (ventas en negativo, devoluciones en positivo), vuelve a cargarlo eligiendo «En negativo» en «¿Con qué signo vienen las ventas?»: una marca no corrige el signo."
+        : "Revisa el signo del archivo antes de marcar la diferencia: una marca no corrige el signo."}
+    </div>
+  );
+}
+
+/** El renglón con el módulo en el signo contrario, junto a su diferencia. */
+function ChipSignoContrario({ fila }: { fila: SignoContrarioFila }) {
+  return (
+    <span title={`El módulo es casi igual a la contabilidad con el signo contrario: con el signo invertido la diferencia sería ${fmtContable(fila.diferenciaInvertida)}.`}>
+      <Chip label="¿Signo contrario?" tone="warn" />
+    </span>
+  );
+}
+
 function CruceContableTab({
   onIrConsolidado,
+  moduloCodigo,
   moduloLabel,
   nivelCruce,
   cruceContable,
@@ -2448,6 +2486,7 @@ function CruceContableTab({
 }: {
   /** Lleva a la pestaña Consolidado (para asignar cuenta al saldo sin cuenta). */
   onIrConsolidado?: () => void;
+  moduloCodigo: string;
   moduloLabel: string;
   nivelCruce: NivelCruce;
   cruceContable: CruceContableVm;
@@ -2550,6 +2589,9 @@ function CruceContableTab({
   // Las que exigen marca para cerrar y las que no cuadran pero quedan dentro de la tolerancia.
   const conDiferencia = filasMarcadas.filter((f) => f.requiereMarca).length;
   const dentroTolerancia = filasMarcadas.filter((f) => f.admiteMarca && !f.requiereMarca).length;
+  // Renglones con el módulo casi igual a la contabilidad pero con el signo contrario: solo informa.
+  const signoContrario = resumenSignoContrario(filasMarcadas, cruceContable.toleranciaCedula ?? 0);
+  const signoContrarioDe = new Map((signoContrario?.filas ?? []).map((s) => [s.clave, s]));
   // Filtros por columna de la cédula: la cuenta por texto y las cifras con >, <, =.
   const columnasFiltroCedula = {
     cuenta: { texto: (f: FilaCruceMarcada) => `${f.cuenta4} ${f.nombre ?? ""}` },
@@ -2637,6 +2679,7 @@ function CruceContableTab({
       {cruceContable.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
+      {signoContrario && <AvisoSignoContrario resumen={signoContrario} moduloCodigo={moduloCodigo} moduloLabel={moduloLabel} />}
       {resumenMarcas && (resumenMarcas.conDiferencia > 0 || (resumenMarcas.bajoUmbral ?? 0) > 0) && (
         <ResumenMarcasBanner resumen={resumenMarcas} tolerancia={cruceContable.toleranciaCedula ?? null} />
       )}
@@ -2818,6 +2861,7 @@ function CruceContableTab({
                               <div className="flex flex-wrap items-center justify-end gap-1.5">
                                 {f.estado === "solo_contable" && <Chip label={`Sin ${moduloEnMinuscula}`} tone="warn" />}
                                 {f.estado === "solo_inventario" && !sinCuenta && <Chip label="Sin contabilidad" tone="warn" />}
+                                {signoContrarioDe.has(f.cuenta4) && <ChipSignoContrario fila={signoContrarioDe.get(f.cuenta4)!} />}
                                 <span className={`whitespace-nowrap tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
                               </div>
                             </td>
@@ -4520,7 +4564,7 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
                       {a.previo
                         ? "Cargado antes de registrar el contenido"
                         : a.contenido
-                          ? `${INFO_CONTENIDO_ARCHIVO[a.contenido].rotulo}${a.contenido === "notas_credito" ? (a.signoInvertido ? " · venían en positivo, se cambiaron a negativo" : " · ya venían en negativo") : ""}`
+                          ? `${INFO_CONTENIDO_ARCHIVO[a.contenido].rotulo}${a.contenido === "notas_credito" ? (a.signoInvertido ? " · venían en positivo, se cambiaron a negativo" : " · ya venían en negativo") : a.signoInvertido ? " · las ventas venían en negativo, se invirtió el archivo" : ""}`
                           : "No declarado"}
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{a.filas.toLocaleString("es-CO")}</td>
