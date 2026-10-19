@@ -12,6 +12,8 @@ import {
 import { asignarVersionesBorrador } from "@/lib/balance/versiones-borrador";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
+import { leerResumenCuadre, veredictoBorradorLista } from "@/lib/balance/cuadre-borrador";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
 
 export default async function BorradoresPage() {
@@ -31,7 +33,10 @@ export default async function BorradoresPage() {
   // todas las filas de cada Excel. El staging puede superar fácilmente las cien mil
   // filas; agruparlo en PostgreSQL mantiene la detección de lotes huérfanos sin
   // transferirlos ni ejecutar el costoso view-model contable 83+ veces por visita.
-  const [headersConsultados, clientes] = await Promise.all([
+  // El veredicto «Cuadrado / Descuadrado» se evalúa aquí con los umbrales VIGENTES
+  // sobre el resumen guardado del lote (`cuadre-borrador.ts`): cambiar un parámetro
+  // en /config/parametros cambia la lista igual que el detalle.
+  const [headersConsultados, clientes, umbrales] = await Promise.all([
     prisma.balanceImportacionLote.findMany({
       where: filtroLotesVisibles(contextoAcceso),
       select: {
@@ -44,7 +49,9 @@ export default async function BorradoresPage() {
         periodoFinal: true,
         cuentasMovimiento: true,
         partidaDobleDiff: true,
-        cuadrado: true,
+        ecuacionDiff: true,
+        revisionContenido: true,
+        resumenCuadre: true,
         aperturaBalance: true,
         cargadoPor: true,
         creadoEn: true,
@@ -55,6 +62,7 @@ export default async function BorradoresPage() {
       where: filtroClientes,
       select: { id: true, name: true, nit: true },
     }),
+    getUmbralesAlertas(),
   ]);
   // Defensa adicional en memoria: el mismo predicado protege cualquier cambio
   // futuro que amplíe accidentalmente la consulta.
@@ -117,8 +125,16 @@ export default async function BorradoresPage() {
       cliente,
       periodo: h?.periodoInicial && h?.periodoFinal ? `${fmtCalendarDate(h.periodoInicial)} → ${fmtCalendarDate(h.periodoFinal)}` : "—",
       cuentasMovimiento: resumen.cuentasMovimiento,
-      cuadrado: h?.cuadrado ?? Math.abs(partidaDobleDiff) <= 1,
-      partidaDobleDiff,
+      // Sin encabezado (lote recuperado del staging) solo se conoce la partida doble.
+      cuadre: veredictoBorradorLista(
+        {
+          resumen: leerResumenCuadre(h?.resumenCuadre),
+          revisionLote: h?.revisionContenido ?? null,
+          ecuacionDiff: h ? Number(h.ecuacionDiff) : null,
+          partidaDobleDiff,
+        },
+        umbrales,
+      ),
       apertura: h?.aperturaBalance ?? null,
       cargadoPor: h?.cargadoPor ?? null,
       creadoEn: creadoEn?.toISOString() ?? null,

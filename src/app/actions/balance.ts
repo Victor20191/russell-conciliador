@@ -62,6 +62,12 @@ import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesd
 import { esParteAceptable, esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
+import {
+  filasBorradorDeStaging,
+  reubicacionesAprobadasDeStaging,
+  resumenCuadreDeFilas,
+  SELECT_STAGING_CUADRE,
+} from "@/lib/balance/cuadre-borrador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import {
   bloqueoHomologacionBalance,
@@ -548,6 +554,9 @@ async function nombresGrupoDesdeStaging(loteId: string): Promise<Map<string, str
  * Mantiene actualizado el snapshot ligero que consume la LISTA de borradores.
  * El cálculo completo se paga una sola vez al guardar cambios del borrador, no
  * cada vez que cualquier usuario abre `/balance/borradores`.
+ *
+ * Llamar DESPUÉS de incrementar `revision_contenido`: el resumen del cuadre guarda
+ * la revisión con que se calculó y la lista lo descarta si no coincide.
  */
 type ClienteResumenBorrador = Pick<
   TransactionClient,
@@ -558,44 +567,19 @@ async function actualizarResumenLoteBorrador(
   loteId: string,
   db: ClienteResumenBorrador = prisma,
 ) {
-  const staged = await db.balanceImportacionStaging.findMany({
-    where: { loteId },
-    orderBy: { filaNum: "asc" },
-    select: {
-      filaNum: true,
-      codigo: true,
-      codigoCrudo: true,
-      nombre: true,
-      nivel: true,
-      tipoFila: true,
-      tipoFilaForzado: true,
-      desacoplada: true,
-      omitida: true,
-      padreManual: true,
-      saldoInicial: true,
-      debitos: true,
-      creditos: true,
-      saldoFinal: true,
-    },
-  });
-  if (staged.length === 0) return;
+  const [staged, lote] = await Promise.all([
+    db.balanceImportacionStaging.findMany({
+      where: { loteId },
+      orderBy: { filaNum: "asc" },
+      select: SELECT_STAGING_CUADRE,
+    }),
+    db.balanceImportacionLote.findUnique({ where: { loteId }, select: { revisionContenido: true } }),
+  ]);
+  if (staged.length === 0 || !lote) return;
 
-  const filas: FilaBorrador[] = staged.map((fila) => ({
-    filaNum: fila.filaNum,
-    codigo: fila.codigo,
-    codigoCrudo: fila.codigoCrudo,
-    nombre: fila.nombre,
-    nivel: fila.nivel,
-    tipoFila: fila.tipoFila as TipoFila,
-    tipoFilaForzado: fila.tipoFilaForzado === "agrupadora" || fila.tipoFilaForzado === "movimiento" ? fila.tipoFilaForzado : null,
-    desacoplada: fila.desacoplada,
-    omitida: fila.omitida ?? undefined,
-    padreManual: fila.padreManual,
-    saldoInicial: Number(fila.saldoInicial),
-    debitos: Number(fila.debitos),
-    creditos: Number(fila.creditos),
-    saldoFinal: Number(fila.saldoFinal),
-  }));
+  const filas = filasBorradorDeStaging(staged);
+  // Antes del diagnóstico, que MUTA `filas`.
+  const resumenCuadre = resumenCuadreDeFilas(filas, reubicacionesAprobadasDeStaging(staged), lote.revisionContenido);
   // Mismo criterio que la vista de detalle: una agrupadora forzada a mano no se
   // revierte aunque quede sin hijas, así los contadores de la lista coinciden.
   const diagnostico = construirVistaBorrador(filas, { preservarAgrupadorasForzadas: true }).diagnostico;
@@ -608,6 +592,7 @@ async function actualizarResumenLoteBorrador(
       partidaDobleDiff: diagnostico.partidaDobleDiff,
       ecuacionDiff: diagnostico.ecuacionDiff,
       cuadrado: diagnostico.cuadrado,
+      resumenCuadre,
     },
   });
 }
@@ -3697,6 +3682,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     // cliente — igual que la vista de detalle y el resumen del lote.
     { preservarAgrupadorasForzadas: true },
   ).diagnostico;
+  // Resumen del veredicto «Cuadrado / Descuadrado» de la lista (revisión 0: el lote
+  // nace aquí y todavía no tiene reubicaciones aprobadas).
+  const resumenCuadre = resumenCuadreDeFilas(filasBorrador, new Set(), 0);
   // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
   // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
   // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
@@ -3854,6 +3842,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         cuentasMovimiento: diagFinal.movimientos, filasLeidas: diagFinal.filas, filasExcluidas: extr.resumen.filasExcluidas,
         partidaDobleDiff: diagFinal.partidaDobleDiff, ecuacionDiff: diagFinal.ecuacionDiff,
         cuadrado: diagFinal.cuadrado,
+        resumenCuadre,
         correccionesAplicadas: preparacionCorrecciones.cantidad,
         revisionContenido: 0,
         cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
@@ -5442,7 +5431,6 @@ export async function aplicarCambiosBorrador(
         });
       }
       }
-      await actualizarResumenLoteBorrador(id, tx);
       const revisionActualizada = await tx.balanceImportacionLote.updateMany({
         where: { loteId: id, clienteId: cid },
         data: { revisionContenido: { increment: 1 } },
@@ -5450,6 +5438,7 @@ export async function aplicarCambiosBorrador(
       if (revisionActualizada.count !== 1) {
         throw new Error("No se pudo versionar el contenido corregido del borrador.");
       }
+      await actualizarResumenLoteBorrador(id, tx);
       const nMemorizadas = await memorizarCorreccionesCliente(
         cid,
         correcciones,

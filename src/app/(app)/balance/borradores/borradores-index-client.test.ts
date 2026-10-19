@@ -5,8 +5,10 @@ import {
   ClienteBorradorCelda,
   coincideBusquedaBorrador,
   direccionInicialColumna,
+  EstadoCuadreCelda,
   ordenarBorradoresListado,
   ordenarBorradoresPorColumna,
+  textoMotivoDescuadre,
   type BorradorRow,
 } from "./borradores-index-client";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
@@ -36,8 +38,7 @@ function filaListado(
     cliente,
     periodo: "Mayo 2026",
     cuentasMovimiento: 10,
-    cuadrado: true,
-    partidaDobleDiff: 0,
+    cuadre: { estado: "cuadrado", motivos: [] },
     apertura,
     cargadoPor: "Analista",
     creadoEn,
@@ -211,8 +212,7 @@ describe("ordenarBorradoresPorColumna", () => {
       cliente: baseCliente,
       periodo: "01/Ene/2026 → 31/Ene/2026",
       cuentasMovimiento: 10,
-      cuadrado: true,
-      partidaDobleDiff: 0,
+      cuadre: { estado: "cuadrado", motivos: [] },
       apertura: "cuenta",
       cargadoPor: "Analista",
       creadoEn: "2026-07-01T12:00:00.000Z",
@@ -247,14 +247,59 @@ describe("ordenarBorradoresPorColumna", () => {
     ).toEqual(["mucho", "medio", "poco"]);
   });
 
-  it("ordena estado como texto (Cuadrado / Descuadrado)", () => {
+  it("ordena estado como texto (Cuadrado / Descuadrado / Sin verificar) y desempata por condiciones y monto", () => {
     const rows = [
-      fila({ loteId: "ok", cuadrado: true }),
-      fila({ loteId: "malo", cuadrado: false, partidaDobleDiff: 100 }),
+      fila({ loteId: "sin", cuadre: { estado: "sin_verificar", motivos: [] } }),
+      fila({
+        loteId: "dos",
+        cuadre: {
+          estado: "descuadrado",
+          motivos: [{ tipo: "ecuacion", monto: 5_000 }, { tipo: "partida_doble", monto: 5_000 }],
+        },
+      }),
+      fila({ loteId: "grande", cuadre: { estado: "descuadrado", motivos: [{ tipo: "ecuacion", monto: -90_000 }] } }),
+      fila({ loteId: "chico", cuadre: { estado: "descuadrado", motivos: [{ tipo: "ecuacion", monto: 3_000 }] } }),
+      fila({ loteId: "ok" }),
     ];
     expect(
       ordenarBorradoresPorColumna(rows, "estado", "asc").map((r) => r.loteId),
-    ).toEqual(["ok", "malo"]);
+    ).toEqual(["ok", "chico", "grande", "dos", "sin"]);
+  });
+
+  it("muestra bajo «Descuadrado» una línea por cada condición que falla", () => {
+    const html = renderToStaticMarkup(createElement(EstadoCuadreCelda, {
+      cuadre: {
+        estado: "descuadrado",
+        motivos: [
+          { tipo: "ecuacion", monto: 1_500 },
+          { tipo: "partida_doble", monto: -2_500 },
+          { tipo: "clases", clases: [{ clase: "Activo", diff: 3_000 }, { clase: "Pasivo", diff: -3_000 }] },
+          { tipo: "agrupadoras", cantidad: 3, masDe: false, codigos: ["11", "1105", "13"] },
+        ],
+      },
+    }));
+    expect(html).toContain("Descuadrado");
+    expect(html).toContain("Ecuación · Δ");
+    expect(html).toContain("Partida doble · Δ");
+    expect(html).toContain("Clases vs archivo · Activo, Pasivo");
+    expect(html).toContain("Agrupadoras · 3 sin cuadrar");
+    expect(html).not.toContain("DB−CR");
+  });
+
+  it("rotula «Sin verificar» y «Cuadrado» sin líneas de motivo", () => {
+    expect(renderToStaticMarkup(createElement(EstadoCuadreCelda, { cuadre: { estado: "sin_verificar", motivos: [] } })))
+      .toContain("Sin verificar");
+    expect(renderToStaticMarkup(createElement(EstadoCuadreCelda, { cuadre: { estado: "cuadrado", motivos: [] } })))
+      .toContain("Cuadrado");
+  });
+
+  it("resume en «N clases» cuando fallan más de dos y avisa «más de» en agrupadoras recortadas", () => {
+    expect(textoMotivoDescuadre({
+      tipo: "clases",
+      clases: [{ clase: "Activo", diff: 3_000 }, { clase: "Pasivo", diff: 3_000 }, { clase: "Gastos", diff: 3_000 }],
+    }).texto).toBe("Clases vs archivo · 3 clases");
+    expect(textoMotivoDescuadre({ tipo: "agrupadoras", cantidad: 200, masDe: true, codigos: ["11"] }).texto)
+      .toBe("Agrupadoras · más de 200 sin cuadrar");
   });
 
   it("ordena el tipo de balance y deja al final los borradores sin declarar", () => {

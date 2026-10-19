@@ -951,6 +951,10 @@ model BalanceImportacionLote {
   partidaDobleDiff      Decimal   @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
   ecuacionDiff          Decimal   @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
   cuadrado              Boolean   @default(false) @map("cuadrado")
+  // Resumen de las cuatro condiciones del veredicto «Cuadrado / Descuadrado» de la
+  // lista (`ResumenCuadreBorrador`, lib/balance/cuadre-borrador.ts), evaluado al leer
+  // con los umbrales vigentes. null = lote anterior: la lista lo muestra «sin verificar».
+  resumenCuadre         Json?     @map("resumen_cuadre")
   cargadoPor            String?   @map("cargado_por")
   cargadoPorId          Int?      @map("cargado_por_id") // dueño del borrador (FK suave a User)
   // Trazabilidad de la extracción (el PERFIL se guarda al asociar la lectura):

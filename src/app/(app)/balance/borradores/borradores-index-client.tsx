@@ -17,6 +17,7 @@ import { fmt } from "@/lib/format";
 import { claveNit } from "@/lib/nit";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
 import { compararApertura, etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
+import type { MotivoDescuadre, VeredictoCuadreBorrador } from "@/lib/balance/cuadre-borrador";
 import { descartarBorrador } from "@/app/actions/balance";
 import { notifySuccess, notifyError } from "@/lib/client-notifications";
 
@@ -31,8 +32,9 @@ export type BorradorRow = {
   cliente: VinculoClienteBorrador;
   periodo: string;
   cuentasMovimiento: number;
-  cuadrado: boolean;
-  partidaDobleDiff: number;
+  /** Veredicto con las cuatro condiciones (ver `lib/balance/cuadre-borrador.ts`),
+   *  evaluado en el servidor con los umbrales vigentes. */
+  cuadre: VeredictoCuadreBorrador;
   /** Apertura DECLARADA en el borrador (`cuenta` | `tercero`); null = aún sin declarar. */
   apertura: string | null;
   cargadoPor: string | null;
@@ -85,6 +87,56 @@ function nombreClienteOrden(cliente: VinculoClienteBorrador): string {
 
 function compararTexto(a: string, b: string): number {
   return a.localeCompare(b, "es", { sensitivity: "base", numeric: true });
+}
+
+const ETIQUETA_CUADRE: Record<VeredictoCuadreBorrador["estado"], string> = {
+  cuadrado: "Cuadrado",
+  descuadrado: "Descuadrado",
+  sin_verificar: "Sin verificar",
+};
+
+/** Mayor diferencia en pesos entre las condiciones que fallan (para ordenar). */
+function magnitudDescuadre(v: VeredictoCuadreBorrador): number {
+  let max = 0;
+  for (const m of v.motivos) {
+    const monto = m.tipo === "ecuacion" || m.tipo === "partida_doble"
+      ? Math.abs(m.monto)
+      : m.tipo === "clases"
+        ? Math.max(...m.clases.map((c) => Math.abs(c.diff)))
+        : 0;
+    max = Math.max(max, monto);
+  }
+  return max;
+}
+
+/** Una línea por condición que falla, bajo el chip «Descuadrado». */
+export function textoMotivoDescuadre(m: MotivoDescuadre): { texto: string; titulo: string } {
+  switch (m.tipo) {
+    case "ecuacion":
+      return {
+        texto: `Ecuación · Δ ${fmt(m.monto)}`,
+        titulo: `Activo = Pasivo + Patrimonio + Resultado no cuadra: diferencia ${fmt(m.monto)}.`,
+      };
+    case "partida_doble":
+      return {
+        texto: `Partida doble · Δ ${fmt(m.monto)}`,
+        titulo: `Total débitos ≠ total créditos: diferencia ${fmt(m.monto)}.`,
+      };
+    case "clases":
+      return {
+        texto: m.clases.length <= 2
+          ? `Clases vs archivo · ${m.clases.map((c) => c.clase).join(", ")}`
+          : `Clases vs archivo · ${m.clases.length} clases`,
+        titulo: `Total del archivo ≠ suma del detalle: ${m.clases.map((c) => `${c.clase} Δ ${fmt(c.diff)}`).join(" · ")}.`,
+      };
+    case "agrupadoras": {
+      const cantidad = `${m.masDe ? "más de " : ""}${m.cantidad}`;
+      return {
+        texto: `Agrupadoras · ${cantidad} sin cuadrar`,
+        titulo: `${m.cantidad === 1 && !m.masDe ? "Una agrupadora no cuadra" : `${cantidad} agrupadoras no cuadran`} con su desglose: ${m.codigos.join(", ")}${m.cantidad > m.codigos.length || m.masDe ? "…" : ""}.`,
+      };
+    }
+  }
 }
 
 /**
@@ -150,13 +202,12 @@ export function ordenarBorradoresPorColumna(
         cmp = a.cuentasMovimiento - b.cuentasMovimiento;
         break;
       case "estado":
-        // Texto: Cuadrado / Descuadrado; desempate por magnitud del descuadre.
+        // Texto: Cuadrado / Descuadrado / Sin verificar; desempate por cuántas
+        // condiciones fallan y luego por la mayor diferencia.
         cmp =
-          compararTexto(
-            a.cuadrado ? "Cuadrado" : "Descuadrado",
-            b.cuadrado ? "Cuadrado" : "Descuadrado",
-          )
-          || Math.abs(a.partidaDobleDiff) - Math.abs(b.partidaDobleDiff);
+          compararTexto(ETIQUETA_CUADRE[a.cuadre.estado], ETIQUETA_CUADRE[b.cuadre.estado])
+          || a.cuadre.motivos.length - b.cuadre.motivos.length
+          || magnitudDescuadre(a.cuadre) - magnitudDescuadre(b.cuadre);
         break;
       case "fecha":
         cmp = fechaOrdenBorrador(a.creadoEn) - fechaOrdenBorrador(b.creadoEn);
@@ -381,6 +432,35 @@ export function TipoBalanceCelda({
   );
 }
 
+/** «Cuadrado», «Descuadrado» con una línea por condición que falla, o «Sin verificar»
+ *  cuando el borrador no tiene resumen vigente de las clases y las agrupadoras. */
+export function EstadoCuadreCelda({ cuadre }: { cuadre: VeredictoCuadreBorrador }) {
+  if (cuadre.estado === "cuadrado") return <Chip label="Cuadrado" tone="ok" />;
+  if (cuadre.estado === "sin_verificar") {
+    return (
+      <span
+        className="inline-flex w-fit"
+        title="La partida doble y la ecuación cuadran, pero las clases y las agrupadoras no se han revisado con el criterio actual: se revisan al guardar el borrador."
+      >
+        <Chip label="Sin verificar" tone="ink" />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <Chip label="Descuadrado" tone="warn" />
+      {cuadre.motivos.map((m) => {
+        const { texto, titulo } = textoMotivoDescuadre(m);
+        return (
+          <span key={m.tipo} className="whitespace-nowrap text-[10px] text-warn-700" title={titulo}>
+            {texto}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] }) {
   const router = useRouter();
   const [descartando, startDescartar] = useTransition();
@@ -558,14 +638,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{r.cuentasMovimiento}</td>
                   <td className="px-3 py-2">
-                    {r.cuadrado ? (
-                      <Chip label="Cuadrado" tone="ok" />
-                    ) : (
-                      <span className="inline-flex flex-col gap-0.5">
-                        <Chip label="Descuadrado" tone="warn" />
-                        <span className="text-[10px] text-warn-700">DB−CR {fmt(r.partidaDobleDiff)}</span>
-                      </span>
-                    )}
+                    <EstadoCuadreCelda cuadre={r.cuadre} />
                   </td>
                   <td className="px-3 py-2 text-[11px] text-ink-500">
                     <span className="block whitespace-nowrap">{r.fecha}</span>

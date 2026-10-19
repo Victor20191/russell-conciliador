@@ -474,6 +474,13 @@ vi.mock("@/lib/balance/mapeo-cliente-config", async (importOriginal) => ({
 vi.mock("@/lib/balance/borrador-vm", () => ({
   construirVistaBorrador: mocks.construirVistaBorrador,
 }));
+// El resumen del cuadre construye su propia vista: aquí basta uno vacío.
+vi.mock("@/lib/balance/cuadre-borrador", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/balance/cuadre-borrador")>()),
+  resumenCuadreDeFilas: vi.fn((_filas: unknown, _aprobadas: unknown, revision: number) => ({
+    v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 0, clases: [], agrupadoras: [], agrupadorasTotal: 0,
+  })),
+}));
 vi.mock("@/lib/balance/borrador", () => ({
   detectarManipulacionesRiesgosas: vi.fn(() => []),
   reclasificarHuerfanas: vi.fn(() => []),
