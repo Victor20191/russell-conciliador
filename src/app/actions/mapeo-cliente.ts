@@ -25,6 +25,9 @@ import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/con
 // NO modifica balances ya cargados; aplica a futuras cargas (para lo ya cargado:
 // `reaplicarMapeoBalancesCliente` en `balance.ts`). "Eliminar" sólo limpia el
 // mapeo del balance (no borra la fila: puede sostener el mapeo de conciliación).
+// Una cuenta en firme en algún corte se edita igual (19/Oct/2026): lo conciliado lo
+// protege el cargue, balance por balance; solo la bloquea una Nómina en firme que aún
+// lee la memoria en vivo (`bloqueoMemoriaHomologacion`).
 // Gate: `balance:revisar` (senior asignado y administradores; desde el 17/Oct/2026
 // el Staff ya no edita la memoria), por cliente.
 const PATH = "/config/mapeo-cliente";

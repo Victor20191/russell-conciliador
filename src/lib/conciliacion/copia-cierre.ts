@@ -224,6 +224,17 @@ export function leerCopiaCierre(json: unknown, moduloCodigo: string): LecturaCop
   return { ok: true, copia };
 }
 
+/**
+ * ¿El cruce de este cierre en firme lee EN VIVO la memoria de homologación del cliente
+ * (`cuentas_cliente`)? Solo Nómina la usa (homologa las cuentas de su archivo), y deja de leerla en
+ * vivo cuando el cierre tiene una copia congelada válida. Una copia inválida bloquea el cruce, pero
+ * cuenta como «en vivo» (fail-closed). Es el único caso en que editar la memoria cambiaría lo
+ * conciliado: los demás cruces usan la homologación guardada en el balance del cierre.
+ */
+export function cierreLeeMemoriaEnVivo(cierre: { moduloCodigo: string; copiaCongelada: unknown }, esNomina: boolean): boolean {
+  return esNomina && !leerCopiaCierre(cierre.copiaCongelada, cierre.moduloCodigo).ok;
+}
+
 /** Los insumos del cruce reconstruidos de la copia, con la misma forma que los leídos en vivo. */
 export function insumosDesdeCopia(copia: CopiaCierreV1): InsumosCopiaCierre {
   return {

@@ -106,9 +106,10 @@ export async function guardarHomologacionCliente(
     const user = await getCurrentUser();
     const actualizadoPor = user?.name ?? null;
 
-    // Conciliación EN FIRME: la memoria no distingue período, así que una cuenta (o
-    // grupo) conciliada en cualquier período del cliente no cambia de homologación
-    // hasta que el senior o gerente desbloquee la conciliación.
+    // Conciliación EN FIRME: la memoria solo rige los cargues siguientes, así que se edita aunque la
+    // cuenta esté en firme en algún corte (lo conciliado lo protegen el cargue y «Aplicar también a
+    // balances existentes», balance por balance). Solo la bloquea una Nómina en firme que todavía la
+    // lee en vivo (sin copia congelada), hasta que el senior o gerente la desbloquee.
     const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId, codigo: codigoMemoria, alcanceGrupo: propagaGrupo });
     if (bloqueoFirme) {
       await registrarIntentoBloqueado({ clienteId, entidad: cliente.name, operacion: `Homologar (PUC) ${codigoMemoria} → ${codigo}`, cierres: bloqueoFirme.cierres });

@@ -14,6 +14,8 @@ import { getCurrentUser, verifySession } from "@/lib/dal";
 import { authorizePermiso, type AuthzResult } from "@/lib/rbac";
 import { ROLES_ALCANCE_GLOBAL } from "@/lib/rbac/jerarquia";
 import { tomarCandadoTransaccion, type TransactionClient } from "@/lib/concurrency";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { cierreLeeMemoriaEnVivo } from "./copia-cierre";
 import {
   alcanceDeCierres,
   entraEnAlcance,
@@ -307,26 +309,41 @@ export async function bloqueoHomologacionBalance(
 }
 
 /**
- * Enforcement para la MEMORIA de homologación (/config/mapeo), que no distingue
- * período: bloquea si la cuenta o su grupo están en firme en cualquier período del
- * cliente. Devuelve el mensaje o null.
+ * Enforcement para la MEMORIA de homologación (/config/mapeo-cliente, «Homologar (PUC)»). La memoria
+ * no distingue período y solo decide cómo se homologan los cargues SIGUIENTES; desde el 19/Oct/2026
+ * se juzga como el detalle del balance: lo que está en firme lo protegen el cargue
+ * (`exigirCargueCompatibleConCierres`) y «Aplicar también a balances existentes»
+ * (`exigirCambioHomologacionCompatible`), cada balance por su corte. Aquí solo se bloquea la cuenta o
+ * grupo en firme en una conciliación cuyo cruce todavía LEE la memoria en vivo: Nómina sin copia
+ * congelada válida (`cierreLeeMemoriaEnVivo`). Devuelve el mensaje o null.
  */
 export async function bloqueoMemoriaHomologacion(
   p: { clienteId: number; codigo: string; alcanceGrupo: boolean },
   db: Db = prisma,
 ): Promise<{ message: string; cierres: CierreFirme[] } | null> {
-  const bloqueadas = await cuentasBloqueadasCliente(
+  const enFirme = (await cuentasBloqueadasCliente(
     p.clienteId,
     p.alcanceGrupo || p.codigo.length <= 6 ? { prefijo: p.codigo } : { cuentas: [p.codigo] },
     db,
-  );
+  )).filter((b) => descriptorModulo(b.cierre.moduloCodigo)?.nomina != null);
+  if (enFirme.length === 0) return null;
+  const copias = await db.conciliacionModuloCierre.findMany({
+    where: { id: { in: cierresUnicos(enFirme).map((c) => c.id) } },
+    select: { id: true, moduloCodigo: true, copiaCongelada: true },
+  });
+  const enVivo = new Set(copias.filter((c) => cierreLeeMemoriaEnVivo(c, true)).map((c) => c.id));
+  const bloqueadas = enFirme.filter((b) => enVivo.has(b.cierre.id));
   if (bloqueadas.length === 0) return null;
   const cierres = cierresUnicos(bloqueadas);
   return {
     cierres,
     message: mensajeConciliacionEnFirme(
       cierres,
-      bloqueadas.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion", detalle: `${b.cuenta8} está conciliada en ${b.cierre.balancePeriodo}` })),
+      bloqueadas.slice(0, 3).map((b) => ({
+        cuenta8: b.cuenta8,
+        motivo: "homologacion",
+        detalle: `${b.cuenta8} está conciliada en ${b.cierre.balancePeriodo} y esa conciliación de Nómina aún lee esta memoria (no tiene copia congelada)`,
+      })),
     ),
   };
 }

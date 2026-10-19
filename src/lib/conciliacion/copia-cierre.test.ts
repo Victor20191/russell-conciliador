@@ -3,6 +3,7 @@ import type { FilaCatalogoPrevalidador } from "@/lib/balance/prevalidador/catalo
 import { cedulaDelCargue } from "@/lib/modulos/asignacion-periodo";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 import {
+  cierreLeeMemoriaEnVivo,
   construirCopiaCierre,
   descripcionCopiaCierre,
   huellaCopiaCierre,
@@ -81,6 +82,16 @@ describe("copia congelada del cierre", () => {
     const otra = base();
     otra.consolidacion.filas[0] = fila("2", "510595", { agrupador: "GYA" });
     expect(construirCopiaCierre(otra).huella).not.toBe(a.huella);
+  });
+
+  it("solo una Nómina en firme sin copia válida lee la memoria del cliente en vivo", () => {
+    const copia = JSON.parse(JSON.stringify(construirCopiaCierre(base())));
+    expect(cierreLeeMemoriaEnVivo({ moduloCodigo: "NOM", copiaCongelada: null }, true)).toBe(true);
+    expect(cierreLeeMemoriaEnVivo({ moduloCodigo: "NOM", copiaCongelada: copia }, true)).toBe(false);
+    // Alterada: el cruce se bloquea, pero la memoria se protege igual (fail-closed).
+    expect(cierreLeeMemoriaEnVivo({ moduloCodigo: "NOM", copiaCongelada: { ...copia, huella: "x" } }, true)).toBe(true);
+    // Los demás módulos usan la homologación guardada en el balance del cierre.
+    expect(cierreLeeMemoriaEnVivo({ moduloCodigo: "INV", copiaCongelada: null }, false)).toBe(false);
   });
 
   it("rechaza una copia ausente, de otra versión, de otro módulo, malformada o alterada", () => {
