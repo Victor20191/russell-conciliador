@@ -14,6 +14,7 @@ import { agruparPorCorte, estadoDelCorte, fechaCorteISO, lineasDelCorte } from "
 import { cargarComparacionesDeClientes } from "@/lib/balance/comparacion-corte-servidor";
 import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import { porcentajeCompletitud } from "@/lib/balance/completitud";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
 // La extracción asistida puede tardar hasta 10 minutos. Vercel usa este valor
@@ -112,7 +113,8 @@ export default async function BalancePage() {
               status: estadoBalance(b), complete: porcentajeCompletitud(b.mapeadas, b.sinMapear), lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "",
               mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales,
               inconsistente: paresDelCorte.some((p) => p.inconsistente && (p.balanceAId === b.id || p.balanceBId === b.id)),
-              enFirme: [...new Set(firmesPorBalance.get(b.id) ?? [])],
+              // Por el nombre del módulo («Inventarios»), no por su código.
+              enFirme: [...new Set(firmesPorBalance.get(b.id) ?? [])].map((codigo) => descriptorModulo(codigo)?.label ?? codigo),
               // Balance partido en varios archivos: nombres de las partes de ESTA versión.
               archivos: leerPartesArchivo(b.archivosCargue).map((parte) => parte.archivoNombre),
             };

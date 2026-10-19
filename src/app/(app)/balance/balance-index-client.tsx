@@ -34,7 +34,7 @@ export type CorteRow = {
   apertura: string | null;
   /** Sus saldos finales difieren de otro balance vigente del mismo corte. */
   inconsistente: boolean;
-  /** Módulos con la conciliación en firme contra este balance. */
+  /** Módulos (por su nombre, «Inventarios») con la conciliación en firme contra este balance. */
   enFirme: string[];
   /** Archivos que formaron la versión cuando el ERP entregó el balance partido. */
   archivos?: string[];
@@ -145,7 +145,7 @@ export default function BalanceIndexClient({
  * Anchos fijos de la rejilla (18/Oct/2026): todas las tarjetas comparten las mismas columnas, así
  * Estado, Mapeo o Última carga quedan en la misma posición en cada cliente. `null` = el resto (Balance).
  */
-const COLUMNAS: (number | null)[] = [176, null, 108, 60, 184, 120, 116, 180, 170, 56];
+const COLUMNAS: (number | null)[] = [176, null, 108, 60, 184, 144, 116, 180, 170, 56];
 
 function Columnas() {
   return <colgroup>{COLUMNAS.map((ancho, i) => <col key={i} style={ancho ? { width: ancho } : undefined} />)}</colgroup>;
@@ -264,7 +264,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                     <th className="px-3 py-2 font-semibold">Tipo</th>
                     <th className="px-3 py-2 text-right font-semibold">Vers.</th>
                     <th className="px-3 py-2 font-semibold">Estado</th>
-                    <th className="px-3 py-2 font-semibold">En firme</th>
+                    <th className="px-3 py-2 font-semibold">Conciliación en firme</th>
                     <th className="px-3 py-2 font-semibold">Completitud</th>
                     <th className="px-3 py-2 font-semibold">Mapeo</th>
                     <th className="px-3 py-2 font-semibold">Última carga</th>
@@ -393,7 +393,7 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
             <span className="flex flex-col items-start gap-1">
               {p.enFirme.map((modulo) => (
                 <span key={modulo} title={`Conciliación de ${modulo} en firme contra este balance.`}>
-                  <Chip label={`En firme · ${modulo}`} tone="blue" />
+                  <Chip label={modulo} tone="blue" />
                 </span>
               ))}
             </span>

@@ -51,7 +51,7 @@ describe("listado de balances · agrupado por fecha de corte", () => {
     const html = render([CLIENTE, { ...CLIENTE, clientId: 10, clientName: "OTRO S.A.S." }]);
     expect(html.match(/<colgroup>/g) ?? []).toHaveLength(2);
     expect(html).toContain("table-fixed");
-    expect(html).toContain(">En firme<");
+    expect(html).toContain(">Conciliación en firme<");
   });
 
   it("marca cada balance que difiere con «Inconsistente» y el corte con franja roja", () => {
@@ -91,8 +91,9 @@ describe("listado de balances · agrupado por fecha de corte", () => {
   });
 
   it("la conciliación en firme va en su propia columna", () => {
-    const html = render([{ ...CLIENTE, cortes: [{ ...CORTE_MAR, rows: [{ ...CORTE_MAR.rows[0], enFirme: ["INV"] }] }] }]);
-    expect(html).toContain("En firme · INV");
+    const html = render([{ ...CLIENTE, cortes: [{ ...CORTE_MAR, rows: [{ ...CORTE_MAR.rows[0], enFirme: ["Inventarios"] }] }] }]);
+    expect(html).toContain(">Inventarios<");
+    expect(html).not.toContain("En firme ·");
   });
 
   it("los botones del filtro dicen cuántos clientes tiene cada uno", () => {
