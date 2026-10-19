@@ -3,7 +3,8 @@
 //
 //  1. Un balance solo queda CERRADO si es la versión vigente de su línea (texto del período +
 //     apertura) y todos los vigentes de su corte coinciden con él en saldos finales. Se ABREN:
-//      (a) los cerrados vigentes con diferencias de saldo final contra otro vigente del corte;
+//      (a) los cerrados vigentes con diferencias de saldo final contra otro vigente del corte desde
+//          el umbral «Diferencia entre balances del mismo corte» (`corte_saldo_final`);
 //      (b) las versiones anteriores que siguen cerradas («no debe haber versiones viejas cerradas»).
 //     Un balance que es la base de una conciliación de módulo EN FIRME no se toca: se reporta para
 //     que un senior lo resuelva (reemplazarlo o desbloquear la conciliación).
@@ -25,7 +26,7 @@ import prisma from "../src/lib/prisma";
 import type { Prisma } from "../src/generated/prisma/client";
 import { tomarCandadoTransaccion } from "../src/lib/candados";
 import { agruparPorCorte, fechaCorteISO, lineasDelCorte, nombreLinea, paresEsperados } from "../src/lib/balance/corte";
-import { compararSaldosFinales } from "../src/lib/balance/comparacion-corte";
+import { compararSaldosFinales, resumenDiferenciasCorte } from "../src/lib/balance/comparacion-corte";
 import { recalcularComparacionesDelCorteEn, saldosFinalesDe } from "../src/lib/balance/comparacion-corte-datos";
 import { reconstruirBalance } from "../src/lib/balance/calcular";
 import { estadoEnProceso } from "../src/lib/balance/estado-balance";
@@ -61,6 +62,7 @@ type Analisis = {
 const nombre = (b: Encabezado) => `#${b.id} ${b.nombreCliente} · ${nombreLinea(b)} ${b.version}`;
 
 async function analizar(db: Db): Promise<Analisis> {
+  const umbral = (await insumosAlertas(db)).umbrales.corte_saldo_final;
   const encabezados = await db.balancePruebaEncabezado.findMany({ select: SELECT, orderBy: { id: "asc" } });
   const cierres = await db.conciliacionModuloCierre.findMany({
     where: { estado: ESTADO_CIERRE_FIRME },
@@ -92,13 +94,14 @@ async function analizar(db: Db): Promise<Analisis> {
     const porId = new Map(vigentes.map((v) => [v.id, v]));
     for (const par of paresEsperados(vigentes)) {
       const r = compararSaldosFinales(saldos.get(par.balanceAId) ?? [], saldos.get(par.balanceBId) ?? []);
-      if (r.coincide) continue;
+      const resumen = resumenDiferenciasCorte(r.diferencias, umbral);
+      if (!resumen.inconsistente) continue;
       const a = porId.get(par.balanceAId)!;
       const b = porId.get(par.balanceBId)!;
-      analisis.pares.push({ corte, a, b, cuentas: r.diferencias.length });
+      analisis.pares.push({ corte, a, b, cuentas: resumen.materiales });
       for (const [este, otro] of [[a, b], [b, a]] as const) {
         if (!este.estaCongelado || motivos.has(este.id)) continue;
-        motivos.set(este.id, { balance: este, motivo: MOTIVO_INCONSISTENTE, detalle: `difiere en ${r.diferencias.length} cuenta(s) de ${nombreLinea(otro)} ${otro.version} (#${otro.id})` });
+        motivos.set(este.id, { balance: este, motivo: MOTIVO_INCONSISTENTE, detalle: `difiere en ${resumen.materiales} cuenta(s) de ${nombreLinea(otro)} ${otro.version} (#${otro.id})` });
       }
     }
   }
@@ -112,7 +115,7 @@ async function analizar(db: Db): Promise<Analisis> {
 
 function imprimir(a: Analisis) {
   console.log(`\nCortes: ${a.cortes} · con dos o más balances vigentes (se comparan): ${a.cortesAComparar.length}`);
-  console.log(`Pares de vigentes con saldos finales distintos: ${a.pares.length}`);
+  console.log(`Pares de vigentes con saldos finales distintos desde el umbral del corte: ${a.pares.length}`);
   for (const p of a.pares) console.log(`  ${p.corte}: ${nombreLinea(p.a)} ${p.a.version} (#${p.a.id}${p.a.estaCongelado ? ", cerrado" : ""}) ≠ ${nombreLinea(p.b)} ${p.b.version} (#${p.b.id}${p.b.estaCongelado ? ", cerrado" : ""}) · ${p.cuentas} cuenta(s)`);
   console.log(`\nBalances que se ABREN: ${a.abrir.length}`);
   for (const m of a.abrir) console.log(`  ${nombre(m.balance)} · ${m.detalle}`);
@@ -202,7 +205,7 @@ async function aplicar() {
       });
     }
     let pares = 0;
-    for (const c of analisis.cortesAComparar) pares += (await recalcularComparacionesDelCorteEn(tx, c.clienteId, c.periodoFin)).pares;
+    for (const c of analisis.cortesAComparar) pares += (await recalcularComparacionesDelCorteEn(tx, c.clienteId, c.periodoFin, insumos.umbrales.corte_saldo_final)).pares;
     return { ruta, abiertos: analisis.abrir.length, pares };
   }, { timeout: 600_000, maxWait: 60_000 });
   console.log(`\nAPLICADO: ${resultado.abiertos} balance(s) abiertos · ${resultado.pares} comparación(es) guardadas. Snapshot: ${resultado.ruta}`);

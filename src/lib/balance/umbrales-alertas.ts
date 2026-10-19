@@ -13,6 +13,11 @@ export type UmbralesAlertas = {
   descuadre: number;
   /** Balance · saldos contrarios a la naturaleza: hasta este monto (inclusive) es informativo. */
   naturaleza: number;
+  /**
+   * Balances del mismo corte: desde este monto (inclusive), la diferencia de saldo final de una
+   * cuenta vuelve inconsistentes los dos balances e impide cerrarlos. Por debajo se muestra.
+   */
+  corte_saldo_final: number;
   /** Módulos · cédula contable: desde este monto (inclusive) la diferencia exige marca para cerrar. */
   cedula_modulos: number;
   /** Cartera y CxP · cruce por tercero: desde este monto (inclusive) la diferencia exige marca. */
@@ -29,6 +34,7 @@ export type ClaveUmbral = keyof UmbralesAlertas;
 // seed, las pruebas y el fallback del cargador cuando la BD no responde.
 export const UMBRAL_DESCUADRE_ALERTA = 2_000;
 export const UMBRAL_NATURALEZA_ALERTA = 50_000;
+export const UMBRAL_CORTE_SALDO_FINAL = 1_000;
 export const UMBRAL_CEDULA_MODULOS = 2_000;
 export const UMBRAL_TERCERO_DIFERENCIA = 2_000;
 export const UMBRAL_TERCERO_NATURALEZA = 10_000;
@@ -40,6 +46,7 @@ export const UMBRAL_MAGNITUD_ALERTA = 50_000;
 export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   descuadre: UMBRAL_DESCUADRE_ALERTA,
   naturaleza: UMBRAL_NATURALEZA_ALERTA,
+  corte_saldo_final: UMBRAL_CORTE_SALDO_FINAL,
   cedula_modulos: UMBRAL_CEDULA_MODULOS,
   tercero_diferencia: UMBRAL_TERCERO_DIFERENCIA,
   tercero_naturaleza: UMBRAL_TERCERO_NATURALEZA,
@@ -87,6 +94,18 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
     dondeAplica:
       "Balance de comprobación (validación «Naturaleza de cuenta vs saldo») y el árbol de cuentas del balance.",
     defecto: UMBRAL_NATURALEZA_ALERTA,
+    minimo: 0,
+    maximo: UMBRAL_MAXIMO,
+  },
+  {
+    clave: "corte_saldo_final",
+    seccion: "balance",
+    nombre: "Diferencia entre balances del mismo corte",
+    descripcion:
+      "Desde este monto (inclusive), una diferencia de saldo final en una cuenta entre dos balances con la misma fecha de corte los vuelve inconsistentes y ninguno de los dos se puede cerrar. Por debajo, la diferencia se sigue viendo en «Balances del mismo corte», pero no impide cerrar.",
+    dondeAplica:
+      "Panel «Balances del mismo corte» del balance, el estado del corte en el listado de /balance, la comparación previa del borrador y «Cerrar balance».",
+    defecto: UMBRAL_CORTE_SALDO_FINAL,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
   },

@@ -26,7 +26,15 @@ Código puro en `src/lib/balance/corte.ts`.
 
 `compararSaldosFinales` (`src/lib/balance/comparacion-corte.ts`) compara dos balances por cuenta
 del cliente (`cuenta8`): suma las filas repetidas, toma una cuenta ausente como cero y redondea a
-centavos. Solo se guardan las cuentas con diferencia.
+centavos. Se guardan todas las cuentas con diferencia.
+
+**Umbral del corte** (18/Oct/2026): «Diferencia entre balances del mismo corte» (`corte_saldo_final`
+en /config/parametros, fábrica $1.000). Solo una cuenta que difiere desde ese monto (inclusive)
+vuelve inconsistente el par e impide cerrar; las menores se muestran en el panel y en el borrador
+rotuladas «no impide cerrar». El umbral se aplica al LEER (`resumenDiferenciasCorte`,
+`resumenDeComparacion`), así que cambiarlo rige de inmediato sin recalcular; la columna
+`inconsistente` de la tabla solo dice si el par difiere a centavos. Cambiar el umbral no genera
+notificaciones: solo un cambio de saldos que vuelve inconsistente un par.
 
 `balance_comparacion_corte` guarda un registro por par de vigentes (`balance_a_id < balance_b_id`,
 FK en cascada). El recálculo (`recalcularComparacionesDelCorteEn`, en

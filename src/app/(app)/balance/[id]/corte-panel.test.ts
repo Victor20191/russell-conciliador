@@ -11,11 +11,11 @@ import type { BalanceCorteVm, VistaCorte } from "@/lib/balance/comparacion-corte
 const otro = (over: Partial<BalanceCorteVm> = {}): BalanceCorteVm => ({
   id: 274, periodo: "Enero 2025 – Diciembre 2025", version: "v1", apertura: "tercero", nombre: "Enero 2025 – Diciembre 2025 · Por terceros",
   estado: "En proceso con alertas", estaCongelado: false, versiones: 1, ultimaCarga: "13/Sep/2026 10:35 p. m.", enFirme: [],
-  comparacion: { inconsistente: false, cuentasComparadas: 540, actualizadoEn: "2026-10-18T12:00:00.000Z", diferencias: [] },
+  comparacion: { inconsistente: false, materiales: 0, menores: 0, cuentasComparadas: 540, actualizadoEn: "2026-10-18T12:00:00.000Z", diferencias: [] },
   ...over,
 });
 const vista = (over: Partial<VistaCorte> = {}): VistaCorte => ({
-  disponible: true, motivo: null, fechaCorte: "2025-12-31", etiqueta: "Corte 31/12/2025", estado: "consistente",
+  disponible: true, motivo: null, fechaCorte: "2025-12-31", etiqueta: "Corte 31/12/2025", tolerancia: 1_000, estado: "consistente",
   esVigente: true, vigenteDeMiLinea: { id: 316, version: "v1" }, otros: [otro()], enFirme: [], anterioresEnFirme: [], anterioresCerradas: [], ...over,
 });
 const render = (v: VistaCorte) => renderToStaticMarkup(React.createElement(CortePanel, { balanceId: 316, vista: v, puedeRevisar: true }));
@@ -32,13 +32,28 @@ describe("CortePanel", () => {
   it("muestra las cuentas con saldo final distinto", () => {
     const html = render(vista({
       estado: "inconsistente",
-      otros: [otro({ comparacion: { inconsistente: true, cuentasComparadas: 540, actualizadoEn: "2026-10-18T12:00:00.000Z", diferencias: [
-        { cuenta8: "15920505", nombre: "Depreciación", saldoA: -100, saldoB: -90, diferencia: -10, estado: "descuadre" },
+      otros: [otro({ comparacion: { inconsistente: true, materiales: 1, menores: 1, cuentasComparadas: 540, actualizadoEn: "2026-10-18T12:00:00.000Z", diferencias: [
+        { cuenta8: "15920505", nombre: "Depreciación", saldoA: -100_000, saldoB: -90_000, diferencia: -10_000, estado: "descuadre" },
+        { cuenta8: "53959501", nombre: "Ajuste al peso", saldoA: 132_390.9, saldoB: 132_399.5, diferencia: -8.6, estado: "descuadre" },
       ] } })],
     }));
     expect(html).toContain("Saldos finales distintos a 1 balance(s) del mismo corte");
-    expect(html).toContain("Difiere en 1 cuenta(s)");
+    expect(html).toContain("Difiere en 1 cuenta(s) · 1 menor(es) a $ 1.000");
     expect(html).toContain("15920505");
+    expect(html).toContain("Diferencia menor de $ 1.000");
+  });
+
+  it("una diferencia menor al umbral se muestra, pero el corte coincide (no impide cerrar)", () => {
+    const html = render(vista({
+      otros: [otro({ comparacion: { inconsistente: false, materiales: 0, menores: 1, cuentasComparadas: 358, actualizadoEn: "2026-10-18T12:00:00.000Z", diferencias: [
+        { cuenta8: "53959501", nombre: "Ajuste al peso", saldoA: 132_390.9, saldoB: 132_399.5, diferencia: -8.6, estado: "descuadre" },
+      ] } })],
+    }));
+    expect(html).not.toContain("Saldos finales distintos");
+    expect(html).toContain("Coincide · 1 diferencia(s) menor(es) a $ 1.000");
+    expect(html).toContain("53959501");
+    expect(html).toContain("Diferencia menor de $ 1.000");
+    expect(html).toMatch(/<details open/); // siempre desplegado
   });
 
   it("avisa cuando falta comparar", () => {

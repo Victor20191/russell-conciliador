@@ -7,13 +7,18 @@ import { Chip } from "@/components/ui";
 import { revisarComparacionCorte } from "@/app/actions/balance-corte";
 import type { BalanceCorteVm, ComparacionCorteVm, VistaCorte } from "@/lib/balance/comparacion-corte-servidor";
 import { tonoEstadoBalance } from "@/lib/balance/estado-balance";
-import { fmtContable, fmtDateTime } from "@/lib/format";
+import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
+import { esDiferenciaMaterialCorte } from "@/lib/balance/comparacion-corte";
 import { notifyError, notifyInfo } from "@/lib/client-notifications";
 
 const ETIQUETA_ESTADO_DIFERENCIA = { descuadre: "", solo_a: "Solo en este balance", solo_b: "Solo en el otro balance" } as const;
 
-/** Tabla de diferencias de saldo final (este − el otro), con búsqueda y carga por tramos. */
-export function DiferenciasCorte({ comparacion, etiquetaA = "Este balance", etiquetaB = "El otro" }: { comparacion: Pick<ComparacionCorteVm, "diferencias">; etiquetaA?: string; etiquetaB?: string }) {
+/**
+ * Tabla de diferencias de saldo final (este − el otro), con búsqueda y carga por tramos. Con
+ * `tolerancia`, las que no la alcanzan se pintan igual que las demás y llevan la leyenda
+ * «Diferencia menor de $ X»: se muestran, pero no impiden cerrar.
+ */
+export function DiferenciasCorte({ comparacion, etiquetaA = "Este balance", etiquetaB = "El otro", tolerancia }: { comparacion: Pick<ComparacionCorteVm, "diferencias">; etiquetaA?: string; etiquetaB?: string; tolerancia?: number }) {
   const [busqueda, setBusqueda] = useState("");
   const [limite, setLimite] = useState(50);
   const termino = busqueda.toLocaleLowerCase("es");
@@ -40,17 +45,23 @@ export function DiferenciasCorte({ comparacion, etiquetaA = "Este balance", etiq
             </tr>
           </thead>
           <tbody>
-            {filtradas.slice(0, limite).map((d) => (
-              <tr key={d.cuenta8} className="border-t border-ink-100">
-                <td className="px-4 py-2">
-                  <span className="font-mono font-semibold">{d.cuenta8}</span> · {d.nombre}
-                  {d.estado !== "descuadre" && <span className="ml-2 text-err-700">{ETIQUETA_ESTADO_DIFERENCIA[d.estado]}</span>}
-                </td>
-                <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoA)}</td>
-                <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoB)}</td>
-                <td className="whitespace-nowrap bg-err-50 px-4 py-2 text-right font-mono font-semibold tabular-nums text-err-700">{fmtContable(d.diferencia)}</td>
-              </tr>
-            ))}
+            {filtradas.slice(0, limite).map((d) => {
+              const menor = tolerancia != null && !esDiferenciaMaterialCorte(d.diferencia, tolerancia);
+              return (
+                <tr key={d.cuenta8} className="border-t border-ink-100">
+                  <td className="px-4 py-2">
+                    <span className="font-mono font-semibold">{d.cuenta8}</span> · {d.nombre}
+                    {d.estado !== "descuadre" && <span className="ml-2 text-err-700">{ETIQUETA_ESTADO_DIFERENCIA[d.estado]}</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoA)}</td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoB)}</td>
+                  <td className="whitespace-nowrap bg-err-50 px-4 py-2 text-right font-mono font-semibold tabular-nums text-err-700">
+                    {fmtContable(d.diferencia)}
+                    {menor && <span className="block font-sans text-[10.5px] font-medium">Diferencia menor de {fmt(tolerancia)}</span>}
+                  </td>
+                </tr>
+              );
+            })}
             {filtradas.length === 0 && (
               <tr><td colSpan={4} className="px-4 py-4 text-ink-500">No hay cuentas que coincidan con la búsqueda.</td></tr>
             )}
@@ -66,18 +77,21 @@ export function DiferenciasCorte({ comparacion, etiquetaA = "Este balance", etiq
   );
 }
 
-function ResultadoComparacion({ comparacion }: { comparacion: ComparacionCorteVm | null }) {
+function ResultadoComparacion({ comparacion, tolerancia }: { comparacion: ComparacionCorteVm | null; tolerancia: number }) {
   if (!comparacion) return <Chip label="Sin comparar" tone="warn" />;
-  return comparacion.inconsistente
-    ? <Chip label={`Difiere en ${comparacion.diferencias.length} cuenta(s)`} tone="err" />
+  if (comparacion.inconsistente) {
+    return <Chip label={`Difiere en ${comparacion.materiales} cuenta(s)${comparacion.menores > 0 ? ` · ${comparacion.menores} menor(es) a ${fmt(tolerancia)}` : ""}`} tone="err" />;
+  }
+  return comparacion.menores > 0
+    ? <Chip label={`Coincide · ${comparacion.menores} diferencia(s) menor(es) a ${fmt(tolerancia)}`} tone="ok" />
     : <Chip label={`Coincide · ${comparacion.cuentasComparadas} cuentas comparadas`} tone="ok" />;
 }
 
 /** Un balance del corte: su período completo, su estado y cómo se compara con este. */
-function BalanceDelCorte({ otro, acciones, esteVigente }: { otro: BalanceCorteVm; acciones?: ReactNode; esteVigente: boolean }) {
+function BalanceDelCorte({ otro, acciones, esteVigente, tolerancia }: { otro: BalanceCorteVm; acciones?: ReactNode; esteVigente: boolean; tolerancia: number }) {
   const inconsistente = otro.comparacion?.inconsistente === true;
   return (
-    <details open={inconsistente} className={`rounded-lg border bg-white ${inconsistente ? "border-err-200" : "border-ink-200"}`}>
+    <details open className={`rounded-lg border bg-white ${inconsistente ? "border-err-200" : "border-ink-200"}`}>
       <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3 text-[12.5px]">
         <span className="font-semibold text-ink-800">{otro.nombre}</span>
         <span className="text-ink-500">· {otro.version}</span>
@@ -87,7 +101,7 @@ function BalanceDelCorte({ otro, acciones, esteVigente }: { otro: BalanceCorteVm
             <Chip label={`En firme · ${f.moduloCodigo}`} tone="blue" />
           </span>
         ))}
-        {esteVigente && <ResultadoComparacion comparacion={otro.comparacion} />}
+        {esteVigente && <ResultadoComparacion comparacion={otro.comparacion} tolerancia={tolerancia} />}
         <span className="ml-auto flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
           {acciones}
           <Link href={`/balance/${otro.id}#corte`} className="text-[12px] font-medium text-blue-600 hover:underline">Ver</Link>
@@ -98,7 +112,9 @@ function BalanceDelCorte({ otro, acciones, esteVigente }: { otro: BalanceCorteVm
           Comparación del {fmtDateTime(otro.comparacion.actualizadoEn)}. Diferencia = saldo final de este balance − saldo final de {otro.nombre} {otro.version}. Última carga del otro: {otro.ultimaCarga}.
         </p>
       )}
-      {inconsistente && otro.comparacion && <DiferenciasCorte comparacion={otro.comparacion} etiquetaB={`${otro.nombre} ${otro.version}`} />}
+      {otro.comparacion && otro.comparacion.diferencias.length > 0 && (
+        <DiferenciasCorte comparacion={otro.comparacion} etiquetaB={`${otro.nombre} ${otro.version}`} tolerancia={tolerancia} />
+      )}
     </details>
   );
 }
@@ -129,7 +145,7 @@ export function CortePanel({ balanceId, vista, puedeRevisar, accionesPorBalance 
         <div>
           <h2 className={`text-[14px] font-semibold ${inconsistentes > 0 ? "text-err-700" : "text-ink-800"}`}>{titulo}</h2>
           <p className="mt-1 text-[12px] text-ink-500">
-            {vista.etiqueta}. Los balances que terminan en la misma fecha —mensual, anual, por cuenta o por terceros— deben coincidir en sus saldos finales: los módulos concilian contra esa columna. Una diferencia se resuelve eliminando uno de los balances.
+            {vista.etiqueta}. Los balances que terminan en la misma fecha —mensual, anual, por cuenta o por terceros— deben coincidir en sus saldos finales: los módulos concilian contra esa columna. Una diferencia desde {fmt(vista.tolerancia)} en una cuenta los vuelve inconsistentes y se resuelve eliminando uno de los balances; por debajo se muestra, pero no impide cerrar.
           </p>
           {aviso && <div className="mt-2 text-[12px]">{aviso}</div>}
         </div>
@@ -169,7 +185,7 @@ export function CortePanel({ balanceId, vista, puedeRevisar, accionesPorBalance 
       {vista.otros.length > 0 && (
         <div className="mt-4 space-y-3">
           {vista.otros.map((o) => (
-            <BalanceDelCorte key={o.id} otro={o} esteVigente={vista.esVigente} acciones={accionesPorBalance[o.id]} />
+            <BalanceDelCorte key={o.id} otro={o} esteVigente={vista.esVigente} acciones={accionesPorBalance[o.id]} tolerancia={vista.tolerancia} />
           ))}
         </div>
       )}

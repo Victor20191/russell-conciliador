@@ -7,10 +7,14 @@
 // No es pegajoso: cada recálculo deja exactamente un registro por par de VIGENTES del corte, con
 // el resultado de hoy. Los pares de balances que dejaron de ser vigentes (llegó una versión nueva
 // de su línea) se borran; los de balances eliminados ya cayeron en cascada.
+//
+// La columna `inconsistente` dice si el par difiere en ALGÚN saldo final a centavos. Si eso lo
+// vuelve inconsistente para cerrar lo decide el umbral «Diferencia entre balances del mismo corte»
+// (`corte_saldo_final`), que se aplica al leer el resultado (`resumenDeComparacion`).
 import type { PrismaClient } from "@/generated/prisma/client";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
-import { compararSaldosFinales, snapshotComparacion, SnapshotComparacionCorteSchema, type FilaSaldoFinal } from "./comparacion-corte";
+import { compararSaldosFinales, resumenDiferenciasCorte, snapshotComparacion, SnapshotComparacionCorteSchema, type FilaSaldoFinal, type ResumenDiferenciasCorte } from "./comparacion-corte";
 import { balancesVigentesDelCorte, fechaCorteISO, lineasDelCorte, nombreLinea, paresEsperados } from "./corte";
 import type { OtroBalanceCierre } from "./cierre-balance";
 
@@ -23,10 +27,17 @@ export const SELECT_ENCABEZADO_CORTE = {
 
 export type BalanceComparado = { id: number; version: string; periodo: string; aperturaBalance: string | null };
 
+/** Resumen de un par guardado con el umbral vigente; un resultado ilegible cuenta como inconsistente. */
+export function resumenDeComparacion(par: { inconsistente: boolean; resultado: unknown }, umbral: number): ResumenDiferenciasCorte {
+  const snapshot = SnapshotComparacionCorteSchema.safeParse(par.resultado);
+  if (!snapshot.success) return { inconsistente: par.inconsistente, materiales: 0, menores: 0 };
+  return resumenDiferenciasCorte(snapshot.data.diferencias, umbral);
+}
+
 export type ResultadoRecalculoCorte = {
   vigentes: number[];
   pares: number;
-  /** Pares que hoy difieren y antes no estaban registrados como inconsistentes. */
+  /** Pares que hoy difieren desde el umbral y antes no (para la bitácora y las notificaciones). */
   nuevasInconsistencias: { a: BalanceComparado; b: BalanceComparado; cuentas: number }[];
   retirados: number;
 };
@@ -55,8 +66,9 @@ export async function saldosFinalesDe(db: DbCorte, ids: readonly number[]): Prom
 /**
  * Recalcula y guarda las comparaciones del corte. Debe correr dentro de una transacción: toma el
  * candado `balance-corte:{cliente}:{AAAA-MM-DD}`, que en el orden global va siempre al final.
+ * `umbral` (`corte_saldo_final`) solo decide qué pares se reportan como inconsistencias nuevas.
  */
-export async function recalcularComparacionesDelCorteEn(db: DbCorte, clienteId: number, periodoFin: Date): Promise<ResultadoRecalculoCorte> {
+export async function recalcularComparacionesDelCorteEn(db: DbCorte, clienteId: number, periodoFin: Date, umbral: number): Promise<ResultadoRecalculoCorte> {
   await tomarCandadoTransaccion(db, candadoCorte(clienteId, periodoFin));
   const encabezados = await encabezadosDelCorte(db, clienteId, periodoFin);
   const vigentes = balancesVigentesDelCorte(encabezados);
@@ -66,7 +78,7 @@ export async function recalcularComparacionesDelCorteEn(db: DbCorte, clienteId: 
 
   const previos = await db.balanceComparacionCorte.findMany({
     where: { clienteId, periodoFin },
-    select: { id: true, balanceAId: true, balanceBId: true, inconsistente: true },
+    select: { id: true, balanceAId: true, balanceBId: true, inconsistente: true, resultado: true },
   });
   const sobran = previos.filter((p) => !claves.has(clave(p)));
   if (sobran.length > 0) await db.balanceComparacionCorte.deleteMany({ where: { id: { in: sobran.map((p) => p.id) } } });
@@ -91,8 +103,10 @@ export async function recalcularComparacionesDelCorteEn(db: DbCorte, clienteId: 
       create: { clienteId, periodoFin, ...par, ...datos },
       update: datos,
     });
-    if (!resultado.coincide && previoPorClave.get(clave(par))?.inconsistente !== true) {
-      nuevasInconsistencias.push({ a: comparado(par.balanceAId), b: comparado(par.balanceBId), cuentas: resultado.diferencias.length });
+    const hoy = resumenDiferenciasCorte(resultado.diferencias, umbral);
+    const previo = previoPorClave.get(clave(par));
+    if (hoy.inconsistente && !(previo && resumenDeComparacion(previo, umbral).inconsistente)) {
+      nuevasInconsistencias.push({ a: comparado(par.balanceAId), b: comparado(par.balanceBId), cuentas: hoy.materiales });
     }
   }
   return { vigentes: vigentes.map((v) => v.id), pares: esperados.length, nuevasInconsistencias, retirados: sobran.length };
@@ -113,6 +127,8 @@ export type InsumosCierreBalance = {
 export async function insumosCierreBalanceEn(
   db: DbCorte,
   balance: { id: number; clienteId: number; periodoFin: Date },
+  /** `corte_saldo_final`: solo una diferencia desde este monto impide cerrar. */
+  umbral: number,
 ): Promise<InsumosCierreBalance> {
   const { clienteId, periodoFin } = balance;
   const encabezados = await encabezadosDelCorte(db, clienteId, periodoFin);
@@ -138,14 +154,14 @@ export async function insumosCierreBalanceEn(
       .map((v) => ({ id: v.id, version: v.version })),
     otros: vigentes.map((v) => {
       const par = pares.find((p) => (p.balanceAId === balance.id && p.balanceBId === v.id) || (p.balanceBId === balance.id && p.balanceAId === v.id));
-      const snapshot = par ? SnapshotComparacionCorteSchema.safeParse(par.resultado) : null;
+      const resumen = par ? resumenDeComparacion(par, umbral) : null;
       return {
         id: v.id,
         version: v.version,
         nombre: nombreLinea({ periodo: v.periodo, apertura: lineaDe.get(v.id)?.apertura ?? null }),
         estaCongelado: v.estaCongelado,
         enFirme: enFirme.has(v.id),
-        comparacion: par ? { inconsistente: par.inconsistente, cuentas: snapshot?.success ? snapshot.data.diferencias.length : 0 } : null,
+        comparacion: resumen ? { inconsistente: resumen.inconsistente, cuentas: resumen.materiales } : null,
       };
     }),
   };

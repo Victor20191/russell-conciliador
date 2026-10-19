@@ -8,7 +8,11 @@
 // Reglas (las mismas a centavos del control anterior entre aperturas):
 //  - La llave es el código completo de la cuenta del cliente (`cuenta8`); las filas repetidas se suman.
 //  - Una cuenta ausente en un balance vale 0: si el otro la trae en 0, coincide.
-//  - Igualdad exacta a centavos, sin umbral.
+//  - Se guardan TODAS las diferencias a centavos. Solo las que alcanzan el umbral «Diferencia entre
+//    balances del mismo corte» (`corte_saldo_final` de /config/parametros, inclusive) vuelven
+//    inconsistente el par; las menores se muestran pero no impiden cerrar. El umbral se aplica al
+//    LEER (`resumenDiferenciasCorte`), como los demás parámetros de alertas: cambiarlo rige de
+//    inmediato sin recalcular las comparaciones guardadas.
 import { z } from "zod";
 import { redondearMonto } from "./montos-cruce";
 
@@ -65,6 +69,29 @@ export function compararSaldosFinales(filasA: readonly FilaSaldoFinal[], filasB:
     });
   }
   return { coincide: diferencias.length === 0, cuentasComparadas: cuentas.length, diferencias };
+}
+
+/**
+ * ¿Esta diferencia vuelve inconsistentes los dos balances? Desde el umbral, INCLUSIVE (la misma
+ * regla de los demás umbrales). Con el umbral en cero, cualquier diferencia de un centavo cuenta.
+ */
+export function esDiferenciaMaterialCorte(diferencia: number, umbral: number): boolean {
+  const monto = Math.abs(redondearMonto(diferencia));
+  return monto > 0 && monto >= umbral;
+}
+
+export type ResumenDiferenciasCorte = {
+  /** Alguna cuenta difiere desde el umbral: el par es inconsistente e impide cerrar. */
+  inconsistente: boolean;
+  /** Cuentas que difieren desde el umbral. */
+  materiales: number;
+  /** Cuentas que difieren por debajo del umbral: se muestran, no bloquean. */
+  menores: number;
+};
+
+export function resumenDiferenciasCorte(diferencias: readonly Pick<DiferenciaCorte, "diferencia">[], umbral: number): ResumenDiferenciasCorte {
+  const materiales = diferencias.filter((d) => esDiferenciaMaterialCorte(d.diferencia, umbral)).length;
+  return { inconsistente: materiales > 0, materiales, menores: diferencias.length - materiales };
 }
 
 /** Lo que se guarda en `balance_comparacion_corte.resultado`: solo las cuentas con diferencia. */

@@ -42,10 +42,10 @@ beforeEach(() => {
 
 describe("insumosCierreBalanceEn", () => {
   it("lee la vigente de la línea, los demás vigentes con su comparación y si tienen conciliación en firme", async () => {
-    await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     estado.cierres = [{ balanceEncabezadoId: 3 }];
     estado.encabezados[2].estaCongelado = true;
-    const r = await insumosCierreBalanceEn(db, { id: 1, clienteId: 7, periodoFin: DIC });
+    const r = await insumosCierreBalanceEn(db, { id: 1, clienteId: 7, periodoFin: DIC }, 0);
     expect(r.vigenteDeMiLinea).toEqual({ id: 1, version: "v1" });
     expect(r.anterioresCerradas).toEqual([]);
     expect(r.otros).toEqual([
@@ -57,7 +57,7 @@ describe("insumosCierreBalanceEn", () => {
   it("una versión anterior de la línea sigue cerrada; un par sin guardar queda «sin comparar»", async () => {
     estado.encabezados.push(enc(4, { estaCongelado: false }));
     estado.encabezados[0].estaCongelado = true; // v1 es ahora la anterior de su línea
-    const r = await insumosCierreBalanceEn(db, { id: 4, clienteId: 7, periodoFin: DIC });
+    const r = await insumosCierreBalanceEn(db, { id: 4, clienteId: 7, periodoFin: DIC }, 0);
     expect(r.vigenteDeMiLinea).toEqual({ id: 4, version: "v4" });
     expect(r.anterioresCerradas).toEqual([{ id: 1, version: "v1" }]);
     expect(r.otros.every((o) => o.comparacion === null)).toBe(true);
@@ -66,7 +66,7 @@ describe("insumosCierreBalanceEn", () => {
 
 describe("recalcularComparacionesDelCorteEn", () => {
   it("toma el candado del corte y compara todos los pares de vigentes", async () => {
-    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     expect(candado).toHaveBeenCalledWith(db, "balance-corte:7:2025-12-31");
     expect(candadoCorte(7, DIC)).toBe("balance-corte:7:2025-12-31");
     expect(r.pares).toBe(3);
@@ -77,35 +77,56 @@ describe("recalcularComparacionesDelCorteEn", () => {
   });
 
   it("no es pegajoso: un par corregido deja de ser inconsistente y no se vuelve a notificar", async () => {
-    await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     estado.detalle = [saldo(1, "110505", 100), saldo(2, "110505", 100), saldo(3, "110505", 100)];
-    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     expect(estado.pares.every((p) => !p.inconsistente)).toBe(true);
     expect(r.nuevasInconsistencias).toEqual([]);
   });
 
   it("una inconsistencia que sigue no se vuelve a notificar", async () => {
-    await recalcularComparacionesDelCorteEn(db, 7, DIC);
-    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     expect(r.nuevasInconsistencias).toEqual([]);
     expect(estado.pares.filter((p) => p.inconsistente)).toHaveLength(2);
   });
 
   it("borra los pares de una versión que dejó de ser vigente y compara la nueva", async () => {
-    await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     // Llega la v4 de la línea «Enero 2025 – Diciembre 2025», ahora con el saldo correcto.
     estado.encabezados.push(enc(4, { periodo: "Enero 2025 – Diciembre 2025" }));
     estado.detalle.push(saldo(4, "110505", 100));
-    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     expect(r.retirados).toBe(2);
     expect(estado.pares.map((p) => [p.balanceAId, p.balanceBId, p.inconsistente])).toEqual([
       [1, 2, false], [1, 4, false], [2, 4, false],
     ]);
   });
 
+  it("con el umbral del corte, una diferencia menor se guarda pero no es una inconsistencia nueva ni impide cerrar", async () => {
+    // Los saldos difieren en 10 (100 contra 90) y el umbral es 1.000.
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 1_000);
+    expect(estado.pares.filter((p) => p.inconsistente)).toHaveLength(2); // la columna guarda que difieren a centavos
+    expect(r.nuevasInconsistencias).toEqual([]);
+    const insumos = await insumosCierreBalanceEn(db, { id: 1, clienteId: 7, periodoFin: DIC }, 1_000);
+    expect(insumos.otros.map((o) => o.comparacion)).toEqual([{ inconsistente: false, cuentas: 0 }, { inconsistente: false, cuentas: 0 }]);
+    // Desde el monto, inclusive, vuelve a ser inconsistente y se notifica.
+    estado.pares = [];
+    const exacto = await recalcularComparacionesDelCorteEn(db, 7, DIC, 10);
+    expect(exacto.nuevasInconsistencias.map((n) => [n.a.id, n.b.id, n.cuentas])).toEqual([[1, 3, 1], [2, 3, 1]]);
+  });
+
+  it("cambiar el umbral no notifica (solo un cambio de saldos), pero rige de inmediato al leer", async () => {
+    await recalcularComparacionesDelCorteEn(db, 7, DIC, 1_000);
+    const bajado = await recalcularComparacionesDelCorteEn(db, 7, DIC, 5);
+    expect(bajado.nuevasInconsistencias).toEqual([]);
+    const insumos = await insumosCierreBalanceEn(db, { id: 1, clienteId: 7, periodoFin: DIC }, 5);
+    expect(insumos.otros.find((o) => o.id === 3)?.comparacion).toEqual({ inconsistente: true, cuentas: 1 });
+  });
+
   it("con un solo vigente no guarda pares", async () => {
     estado.encabezados = [enc(1)];
-    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC);
+    const r = await recalcularComparacionesDelCorteEn(db, 7, DIC, 0);
     expect(r.pares).toBe(0);
     expect(estado.pares).toEqual([]);
   });

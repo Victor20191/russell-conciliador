@@ -3,6 +3,8 @@ import {
   agregarSaldosFinales,
   compararSaldosFinales,
   diferenciasDesde,
+  esDiferenciaMaterialCorte,
+  resumenDiferenciasCorte,
   snapshotComparacion,
   SnapshotComparacionCorteSchema,
   type FilaSaldoFinal,
@@ -59,5 +61,25 @@ describe("snapshot y orientación", () => {
       { cuenta8: "2", nombre: "Cuenta 2", saldoA: 0, saldoB: 5, diferencia: -5, estado: "solo_b" },
     ]);
     expect(diferenciasDesde(diferencias, true)).toEqual(diferencias);
+  });
+});
+
+describe("umbral «Diferencia entre balances del mismo corte»", () => {
+  it("vuelve inconsistente desde el monto, inclusive y con cualquier signo", () => {
+    expect(esDiferenciaMaterialCorte(-8.6, 1_000)).toBe(false);
+    expect(esDiferenciaMaterialCorte(999.99, 1_000)).toBe(false);
+    expect(esDiferenciaMaterialCorte(1_000, 1_000)).toBe(true);
+    expect(esDiferenciaMaterialCorte(-1_000, 1_000)).toBe(true);
+    // Con el umbral en cero cuenta cualquier centavo; cero nunca cuenta.
+    expect(esDiferenciaMaterialCorte(0.01, 0)).toBe(true);
+    expect(esDiferenciaMaterialCorte(0, 0)).toBe(false);
+  });
+
+  it("resume cuántas cuentas impiden cerrar y cuántas solo se muestran", () => {
+    const r = compararSaldosFinales([f("53959501", 132_390.9), f("110505", 5_000)], [f("53959501", 132_399.5), f("110505", 3_000)]);
+    expect(r.coincide).toBe(false);
+    expect(resumenDiferenciasCorte(r.diferencias, 1_000)).toEqual({ inconsistente: true, materiales: 1, menores: 1 });
+    expect(resumenDiferenciasCorte(r.diferencias.filter((d) => d.cuenta8 === "53959501"), 1_000)).toEqual({ inconsistente: false, materiales: 0, menores: 1 });
+    expect(resumenDiferenciasCorte([], 1_000)).toEqual({ inconsistente: false, materiales: 0, menores: 0 });
   });
 });

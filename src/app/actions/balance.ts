@@ -4,7 +4,7 @@ import { procedenciaBalance } from "@/lib/balance/procedencia-mapeo";
 import { auditarInconsistenciasCorte, recalcularComparacionesDelCorteSeguro } from "@/lib/balance/comparacion-corte-servidor";
 import { ErrorVersionSobreCerrada, etiquetaCorte, lineasDelCorte, motivoVersionSobreCerrada, nombreLinea, vigenteCerradaDeLaLinea } from "@/lib/balance/corte";
 import { encabezadosDelCorte, insumosCierreBalanceEn, recalcularComparacionesDelCorteEn, saldosFinalesDe, SELECT_ENCABEZADO_CORTE } from "@/lib/balance/comparacion-corte-datos";
-import { compararSaldosFinales, type DiferenciaCorte } from "@/lib/balance/comparacion-corte";
+import { compararSaldosFinales, resumenDiferenciasCorte, type DiferenciaCorte } from "@/lib/balance/comparacion-corte";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -1191,6 +1191,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
 
   try {
     const user = await getCurrentUser();
+    const umbralCorte = (await getUmbralesAlertas()).corte_saldo_final;
     const resultado = await transaccionSerializable(async (tx) => {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!referencia) return { ok: false as const, message: "Balance inexistente." };
@@ -1229,8 +1230,8 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       }
 
       // Comparaciones del corte al día (toma el candado `balance-corte`, el último del orden).
-      const recalculo = await recalcularComparacionesDelCorteEn(tx, balance.clienteId, balance.periodoFin);
-      const insumos = await insumosCierreBalanceEn(tx, balance);
+      const recalculo = await recalcularComparacionesDelCorteEn(tx, balance.clienteId, balance.periodoFin, umbralCorte);
+      const insumos = await insumosCierreBalanceEn(tx, balance, umbralCorte);
       // El prevalidador se recalcula en la MISMA transacción y se contrasta su huella con la última
       // revisión: no se confía en lo que mostró la pantalla.
       const contextoPrevalidador = await cargarContextoPrevalidadorBalance(id, tx);
@@ -4124,9 +4125,13 @@ export type BalanceCorteBorradorVm = {
   estaCongelado: boolean;
   /** Es la vigente de la MISMA línea (período + apertura): la versión nueva la reemplaza. */
   mismaLinea: boolean;
+  /** Ninguna cuenta difiere desde el umbral `corte_saldo_final` (las menores no impiden cerrar). */
   coincide: boolean;
   cuentasComparadas: number;
+  /** Todas las cuentas con diferencia a centavos. */
   totalDiferencias: number;
+  /** De ellas, las que no alcanzan el umbral. */
+  menores: number;
   /** Saldo del archivo (A) contra el del balance cargado (B); a lo sumo 500. */
   diferencias: DiferenciaCorte[];
 };
@@ -4135,6 +4140,8 @@ export type ComparacionBorradorCorte =
   | {
       ok: true;
       etiqueta: string;
+      /** Umbral `corte_saldo_final` con que se juzgaron las diferencias. */
+      tolerancia: number;
       balances: BalanceCorteBorradorVm[];
       /** Si la vigente de la misma línea está cerrada, la carga se rechaza: hay que abrirla primero. */
       bloqueo: { balanceId: number; mensaje: string } | null;
@@ -4183,14 +4190,16 @@ export async function compararBorradorConCorte(input: {
 
     const cuentas = await cuentasDesdeStaging(loteId);
     if (cuentas.length === 0) return { ok: false, message: "El borrador no tiene cuentas para comparar." };
-    const [cuentasEstandar, configRows, pendienteRows] = await Promise.all([
+    const [cuentasEstandar, configRows, pendienteRows, umbrales] = await Promise.all([
       getCuentasEstandar(),
       prisma.clientAccount.findMany({
         where: { clienteId, cuenta6Russell: { not: null } },
         select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
       }),
       prisma.clientAccount.findMany({ where: { clienteId, origenMapeo: ORIGEN_PENDIENTE }, select: { code: true } }),
+      getUmbralesAlertas(),
     ]);
+    const tolerancia = umbrales.corte_saldo_final;
     const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, construirConfigMapeoCliente(configRows), undefined, new Set(pendienteRows.map((r) => r.code)));
     const filasArchivo = aFilasDetalle(calc.breakdown).map((f) => ({ cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, saldoFinal: f.saldoFinal }));
 
@@ -4210,21 +4219,24 @@ export async function compararBorradorConCorte(input: {
 
     const balances: BalanceCorteBorradorVm[] = vigentes.map(({ vigente, apertura }) => {
       const r = compararSaldosFinales(filasArchivo, saldos.get(vigente.id) ?? []);
+      const resumen = resumenDiferenciasCorte(r.diferencias, tolerancia);
       return {
         id: vigente.id,
         version: vigente.version,
         nombre: nombreLinea({ periodo: vigente.periodo, apertura }),
         estaCongelado: vigente.estaCongelado,
         mismaLinea: vigente.id === mismaLinea,
-        coincide: r.coincide,
+        coincide: !resumen.inconsistente,
         cuentasComparadas: r.cuentasComparadas,
         totalDiferencias: r.diferencias.length,
+        menores: resumen.menores,
         diferencias: r.diferencias.slice(0, TOPE_DIFERENCIAS_BORRADOR),
       };
     });
     return {
       ok: true,
       etiqueta: etiquetaCorte(fechaFin),
+      tolerancia,
       balances,
       bloqueo: cerrada ? { balanceId: cerrada.id, mensaje: motivoVersionSobreCerrada(cerrada) } : null,
     };
@@ -5961,6 +5973,7 @@ export async function eliminarBalance(input: {
     });
     if (!scope.ok) return { ok: false, message: scope.message };
 
+    const umbralCorte = (await getUmbralesAlertas()).corte_saldo_final;
     const resultado = await transaccionSerializable(async (tx) => {
       await tomarCandadoTransaccion(
         tx,
@@ -6043,7 +6056,7 @@ export async function eliminarBalance(input: {
       const cortes = [...new Map(objetivos.map((o) => [o.periodoFin.getTime(), o.periodoFin])).values()];
       const inconsistencias: { periodoFin: Date; nuevas: Awaited<ReturnType<typeof recalcularComparacionesDelCorteEn>>["nuevasInconsistencias"] }[] = [];
       for (const periodoFin of cortes) {
-        const recalculo = await recalcularComparacionesDelCorteEn(tx, referencia.clienteId, periodoFin);
+        const recalculo = await recalcularComparacionesDelCorteEn(tx, referencia.clienteId, periodoFin, umbralCorte);
         if (recalculo.nuevasInconsistencias.length > 0) inconsistencias.push({ periodoFin, nuevas: recalculo.nuevasInconsistencias });
       }
 
@@ -6143,6 +6156,7 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
   try {
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
+    const umbralCorte = (await getUmbralesAlertas()).corte_saldo_final;
     const resultado = await transaccionSerializable(async (tx) => {
       // Orden global: prevalidador-catalogo → balance-eliminar → balance-oficial (ordenados) →
       // conciliacion-cierre (ordenados) → balance-corte.
@@ -6224,8 +6238,8 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
       }
       await eliminarBalancesEnTransaccion(tx, [viejo]);
       // 3. Sin el viejo, el nuevo tiene que poder cerrarse: comparaciones del corte al día.
-      const recalculo = await recalcularComparacionesDelCorteEn(tx, clienteId, nuevo.periodoFin);
-      const cierre = evaluarCierreBalance({ balanceId: nuevo.id, ...(await insumosCierreBalanceEn(tx, nuevo)), mensajePrevalidador });
+      const recalculo = await recalcularComparacionesDelCorteEn(tx, clienteId, nuevo.periodoFin, umbralCorte);
+      const cierre = evaluarCierreBalance({ balanceId: nuevo.id, ...(await insumosCierreBalanceEn(tx, nuevo, umbralCorte)), mensajePrevalidador });
       if (!cierre.ok) throw new ErrorReemplazoBalance(`No se reemplazó: ${mensajeCierreBloqueado(cierre.bloqueo)}`);
       // 4. El nuevo queda cerrado.
       if (!nuevo.estaCongelado) {

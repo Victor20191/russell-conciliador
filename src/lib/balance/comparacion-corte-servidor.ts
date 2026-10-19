@@ -9,18 +9,25 @@ import { logAudit } from "@/lib/audit";
 import { createProcessNotification } from "@/lib/notifications";
 import { fmtDateTime } from "@/lib/format";
 import { estadoBalance, type EstadoBalance } from "./estado-balance";
-import { diferenciasDesde, SnapshotComparacionCorteSchema, type DiferenciaCorte } from "./comparacion-corte";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { diferenciasDesde, resumenDiferenciasCorte, SnapshotComparacionCorteSchema, type DiferenciaCorte } from "./comparacion-corte";
 import { estadoDelCorte, etiquetaCorte, fechaCorteISO, lineasDelCorte, nombreLinea, type EstadoCorte } from "./corte";
-import { recalcularComparacionesDelCorteEn, SELECT_ENCABEZADO_CORTE, type ResultadoRecalculoCorte } from "./comparacion-corte-datos";
+import { recalcularComparacionesDelCorteEn, resumenDeComparacion, SELECT_ENCABEZADO_CORTE, type ResultadoRecalculoCorte } from "./comparacion-corte-datos";
+
+/** Umbral «Diferencia entre balances del mismo corte» vigente (/config/parametros). */
+export async function umbralCorteSaldoFinal(): Promise<number> {
+  return (await getUmbralesAlertas()).corte_saldo_final;
+}
 
 /** Recalcula las comparaciones del corte, dentro de `tx` si se da o en una transacción propia. */
 export async function recalcularComparacionesDelCorte(
   clienteId: number,
   periodoFin: Date,
-  opciones: { tx?: TransactionClient } = {},
+  opciones: { tx?: TransactionClient; umbral?: number } = {},
 ): Promise<ResultadoRecalculoCorte> {
-  if (opciones.tx) return recalcularComparacionesDelCorteEn(opciones.tx, clienteId, periodoFin);
-  return transaccionSerializable((tx) => recalcularComparacionesDelCorteEn(tx, clienteId, periodoFin), { timeoutMs: 60_000 });
+  const umbral = opciones.umbral ?? (await umbralCorteSaldoFinal());
+  if (opciones.tx) return recalcularComparacionesDelCorteEn(opciones.tx, clienteId, periodoFin, umbral);
+  return transaccionSerializable((tx) => recalcularComparacionesDelCorteEn(tx, clienteId, periodoFin, umbral), { timeoutMs: 60_000 });
 }
 
 /** Deja en la bitácora y en las notificaciones cada par que pasó a tener diferencias. */
@@ -37,7 +44,7 @@ export async function auditarInconsistenciasCorte(
       user: actor,
       action: "DETECTÓ DIFERENCIAS ENTRE BALANCES DEL CORTE",
       entity: `Balances #${par.a.id} / #${par.b.id}`,
-      detail: `${nombre(par.a)} y ${nombre(par.b)} · corte ${corte} · ${par.cuentas} cuenta(s) con saldo final distinto. Se resuelve eliminando uno de los dos.`,
+      detail: `${nombre(par.a)} y ${nombre(par.b)} · corte ${corte} · ${par.cuentas} cuenta(s) con saldo final distinto desde el umbral del corte. Se resuelve eliminando uno de los dos.`,
       clientId: clienteId,
     });
     await createProcessNotification({
@@ -63,10 +70,15 @@ export async function recalcularComparacionesDelCorteSeguro(clienteId: number, p
 export type EnFirmeVm = { moduloCodigo: string; periodo: string; cerradoPor: string };
 
 export type ComparacionCorteVm = {
+  /** Alguna cuenta difiere desde el umbral `corte_saldo_final`: impide cerrar. */
   inconsistente: boolean;
+  /** Cuentas que difieren desde el umbral. */
+  materiales: number;
+  /** Cuentas que difieren por debajo del umbral: se muestran, no impiden cerrar. */
+  menores: number;
   cuentasComparadas: number;
   actualizadoEn: string;
-  /** Vistas desde ESTE balance: saldoA = este, saldoB = el otro. */
+  /** Todas las diferencias a centavos, vistas desde ESTE balance: saldoA = este, saldoB = el otro. */
   diferencias: DiferenciaCorte[];
 };
 
@@ -91,6 +103,8 @@ export type VistaCorte = {
   motivo: string | null;
   fechaCorte: string;
   etiqueta: string;
+  /** Umbral `corte_saldo_final` con que se juzgan las diferencias. */
+  tolerancia: number;
   estado: EstadoCorte;
   /** ¿Este balance es la versión vigente de su línea? Solo los vigentes entran a la comparación. */
   esVigente: boolean;
@@ -105,11 +119,12 @@ export type VistaCorte = {
   anterioresCerradas: { id: number; version: string }[];
 };
 
-const vistaNoDisponible = (periodoFin: Date): VistaCorte => ({
+const vistaNoDisponible = (periodoFin: Date, tolerancia: number): VistaCorte => ({
   disponible: false,
   motivo: "No fue posible consultar los balances del mismo corte. No se puede asegurar que sus saldos finales coincidan.",
   fechaCorte: fechaCorteISO(periodoFin),
   etiqueta: etiquetaCorte(periodoFin),
+  tolerancia,
   estado: "sin_comparar",
   esVigente: false,
   vigenteDeMiLinea: null,
@@ -122,6 +137,7 @@ const vistaNoDisponible = (periodoFin: Date): VistaCorte => ({
 /** Requiere que el llamador haya verificado `balance:ver` + alcance del cliente. Fail-closed. */
 export async function cargarVistaCorte(balance: { id: number; clienteId: number; periodoFin: Date }): Promise<VistaCorte> {
   const { clienteId, periodoFin } = balance;
+  const tolerancia = await umbralCorteSaldoFinal();
   try {
     const encabezados = await prisma.balancePruebaEncabezado.findMany({
       where: { clienteId, periodoFin },
@@ -151,8 +167,11 @@ export async function cargarVistaCorte(balance: { id: number; clienteId: number;
       const par = pares.find((p) => (p.balanceAId === balance.id && p.balanceBId === otroId) || (p.balanceBId === balance.id && p.balanceAId === otroId));
       if (!par) return null;
       const snapshot = SnapshotComparacionCorteSchema.parse(par.resultado);
+      const resumen = resumenDiferenciasCorte(snapshot.diferencias, tolerancia);
       return {
-        inconsistente: par.inconsistente,
+        inconsistente: resumen.inconsistente,
+        materiales: resumen.materiales,
+        menores: resumen.menores,
         cuentasComparadas: par.cuentasComparadas,
         actualizadoEn: par.actualizadoEn.toISOString(),
         diferencias: diferenciasDesde(snapshot.diferencias, par.balanceAId === balance.id),
@@ -177,7 +196,8 @@ export async function cargarVistaCorte(balance: { id: number; clienteId: number;
       motivo: null,
       fechaCorte: fechaCorteISO(periodoFin),
       etiqueta: etiquetaCorte(periodoFin),
-      estado: estadoDelCorte(vigentes, pares),
+      tolerancia,
+      estado: estadoDelCorte(vigentes, pares.map((p) => ({ ...p, inconsistente: resumenDeComparacion(p, tolerancia).inconsistente }))),
       esVigente,
       vigenteDeMiLinea: miLinea ? { id: miLinea.vigente.id, version: miLinea.vigente.version } : null,
       otros: vigentes.filter((v) => v.id !== balance.id).map((v) => ({ ...vm(v), comparacion: comparacionCon(v.id) })),
@@ -191,17 +211,24 @@ export async function cargarVistaCorte(balance: { id: number; clienteId: number;
     };
   } catch (error) {
     registrarError("cargarVistaCorte", error);
-    return vistaNoDisponible(periodoFin);
+    return vistaNoDisponible(periodoFin, tolerancia);
   }
 }
 
-/** Pares guardados de los clientes del listado; null si la consulta falló (nunca un falso OK). */
+/**
+ * Pares guardados de los clientes del listado, con `inconsistente` juzgado con el umbral vigente;
+ * null si la consulta falló (nunca un falso OK).
+ */
 export async function cargarComparacionesDeClientes(whereCliente: { clienteId?: { in: number[] } }) {
   try {
-    return await prisma.balanceComparacionCorte.findMany({
-      where: whereCliente,
-      select: { balanceAId: true, balanceBId: true, inconsistente: true },
-    });
+    const [tolerancia, pares] = await Promise.all([
+      umbralCorteSaldoFinal(),
+      prisma.balanceComparacionCorte.findMany({
+        where: whereCliente,
+        select: { balanceAId: true, balanceBId: true, inconsistente: true, resultado: true },
+      }),
+    ]);
+    return pares.map((p) => ({ balanceAId: p.balanceAId, balanceBId: p.balanceBId, inconsistente: resumenDeComparacion(p, tolerancia).inconsistente }));
   } catch (error) {
     registrarError("cargarComparacionesDeClientes", error);
     return null;
