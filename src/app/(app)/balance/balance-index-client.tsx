@@ -49,6 +49,8 @@ export type CorteGroup = {
   /** «31/12/2025». */
   fechaCorte: string;
   estado: EstadoCorte;
+  /** Corte de dos balances que difieren: cuántas cuentas alcanzan el umbral. null en los demás casos. */
+  cuentasDiferentes?: number | null;
   rows: CorteRow[];
 };
 export type ClientGroup = {
@@ -74,10 +76,39 @@ const statusTone = tonoEstadoBalance;
 function normalizarBusqueda(valor: string) {
   return valor
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .trim();
 }
+
+/** Qué cortes muestra el listado: todos, solo los que tienen diferencias o solo los sin comparar. */
+export type FiltroCorte = "todos" | "diferencias" | "sin_comparar";
+
+const ESTADO_DEL_FILTRO: Record<Exclude<FiltroCorte, "todos">, EstadoCorte> = {
+  diferencias: "inconsistente",
+  sin_comparar: "sin_comparar",
+};
+
+const FILTROS: { valor: FiltroCorte; etiqueta: string; aviso: string }[] = [
+  { valor: "todos", etiqueta: "Todos", aviso: "" },
+  { valor: "diferencias", etiqueta: "Con diferencias", aviso: "Mostrando solo los cortes con diferencias de saldo final." },
+  { valor: "sin_comparar", etiqueta: "Sin comparar", aviso: "Mostrando solo los cortes que falta comparar." },
+];
+
+/**
+ * Con un filtro activo deja solo los clientes que tienen algún corte en ese estado y, de cada uno,
+ * solo esos cortes. «todos» no filtra.
+ */
+export function filtrarClientesPorCorte(clients: ClientGroup[], filtro: FiltroCorte): ClientGroup[] {
+  if (filtro === "todos") return clients;
+  const estado = ESTADO_DEL_FILTRO[filtro];
+  return clients.flatMap((cliente) => {
+    const cortes = cliente.cortes.filter((corte) => corte.estado === estado);
+    return cortes.length > 0 ? [{ ...cliente, cortes }] : [];
+  });
+}
+
+const plural = (n: number, singular: string, varios: string) => `${n} ${n === 1 ? singular : varios}`;
 
 export default function BalanceIndexClient({
   clients, auditRows, auditClients, uploadClients, canUpload, configuracionIA,
@@ -104,9 +135,20 @@ export default function BalanceIndexClient({
   );
 }
 
+/**
+ * Anchos fijos de la rejilla (18/Oct/2026): todas las tarjetas comparten las mismas columnas, así
+ * Estado, Mapeo o Última carga quedan en la misma posición en cada cliente. `null` = el resto (Balance).
+ */
+const COLUMNAS: (number | null)[] = [176, null, 108, 60, 184, 120, 116, 180, 170, 56];
+
+function Columnas() {
+  return <colgroup>{COLUMNAS.map((ancho, i) => <col key={i} style={ancho ? { width: ancho } : undefined} />)}</colgroup>;
+}
+
 function ClientsTab({ clients }: { clients: ClientGroup[] }) {
   const [busqueda, setBusqueda] = useState("");
-  const clientesFiltrados = useMemo(() => {
+  const [filtro, setFiltro] = useState<FiltroCorte>("todos");
+  const clientesBuscados = useMemo(() => {
     const termino = normalizarBusqueda(busqueda);
     if (!termino) return clients;
 
@@ -118,85 +160,126 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
         || (nitBuscado.length > 0 && nitNumerico.includes(nitBuscado));
     });
   }, [busqueda, clients]);
+  const clientesFiltrados = useMemo(() => filtrarClientesPorCorte(clientesBuscados, filtro), [clientesBuscados, filtro]);
+  const conteos = useMemo(
+    () => Object.fromEntries(FILTROS.map((f) => [f.valor, filtrarClientesPorCorte(clientesBuscados, f.valor).length])) as Record<FiltroCorte, number>,
+    [clientesBuscados],
+  );
 
   const pg = usePagination(clientesFiltrados, 50);
+  const avisoFiltro = FILTROS.find((f) => f.valor === filtro)?.aviso ?? "";
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
-        <Icon name="search" size={15} />
-        <input
-          type="text"
-          value={busqueda}
-          onChange={(event) => {
-            setBusqueda(event.target.value);
-            pg.resetToFirstPage();
-          }}
-          placeholder="Buscar por NIT o razón social…"
-          aria-label="Buscar clientes por NIT o razón social"
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
-        />
-        {busqueda.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              setBusqueda("");
-              pg.resetToFirstPage();
-            }}
-            aria-label="Limpiar búsqueda"
-            title="Limpiar búsqueda"
-            className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
-          >
-            <Icon name="x" size={14} />
-          </button>
-        )}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
+            <Icon name="search" size={15} />
+            <input
+              type="text"
+              value={busqueda}
+              onChange={(event) => {
+                setBusqueda(event.target.value);
+                pg.resetToFirstPage();
+              }}
+              placeholder="Buscar por NIT o razón social…"
+              aria-label="Buscar clientes por NIT o razón social"
+              className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+            />
+            {busqueda.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBusqueda("");
+                  pg.resetToFirstPage();
+                }}
+                aria-label="Limpiar búsqueda"
+                title="Limpiar búsqueda"
+                className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            )}
+          </div>
+          <div role="group" aria-label="Filtrar cortes por estado" className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white p-0.5 shadow-sm">
+            {FILTROS.map((f) => (
+              <button
+                key={f.valor}
+                type="button"
+                aria-pressed={filtro === f.valor}
+                onClick={() => {
+                  setFiltro(f.valor);
+                  pg.resetToFirstPage();
+                }}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${filtro === f.valor ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}
+              >
+                {f.etiqueta}
+                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${filtro === f.valor ? "bg-white/20 text-white" : f.valor === "diferencias" && conteos[f.valor] > 0 ? "bg-err-100 text-err-700" : "bg-ink-100 text-ink-500"}`}>
+                  {conteos[f.valor]}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {avisoFiltro && <p className="text-[11.5px] text-ink-500">{avisoFiltro}</p>}
       </div>
 
       {clientesFiltrados.length === 0 && (
         <Card>
           <div className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-            No se encontraron clientes con ese NIT o razón social.
+            {filtro === "diferencias" ? "Ningún cliente tiene cortes con diferencias."
+              : filtro === "sin_comparar" ? "Ningún cliente tiene cortes sin comparar."
+              : "No se encontraron clientes con ese NIT o razón social."}
           </div>
         </Card>
       )}
 
-      {pg.pageItems.map((c) => (
-        <Card key={c.clientId}>
-          <div className="flex items-center gap-2.5 border-b border-ink-100 px-4 py-3">
-            <span className="text-ink-400"><Icon name="doc" size={16} /></span>
-            <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
-            <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <span className="text-[11px] text-ink-400">{c.cortes.length} corte(s)</span>
+      {pg.pageItems.map((c) => {
+        const balances = c.cortes.reduce((n, g) => n + g.rows.length, 0);
+        const conDiferencias = c.cortes.filter((g) => g.estado === "inconsistente").length;
+        const sinComparar = c.cortes.filter((g) => g.estado === "sin_comparar").length;
+        return (
+          <Card key={c.clientId}>
+            <div className="flex flex-wrap items-center gap-2.5 border-b border-ink-100 px-4 py-3">
+              <span className="text-ink-400"><Icon name="doc" size={16} /></span>
+              <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
+              <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
+              {conDiferencias > 0 && <Chip label={`${plural(conDiferencias, "corte", "cortes")} con diferencias`} tone="err" />}
+              {sinComparar > 0 && <Chip label={`${sinComparar} sin comparar`} tone="warn" />}
+              <span className="ml-auto text-[11px] text-ink-400">
+                {plural(c.cortes.length, "corte", "cortes")} · {plural(balances, "balance", "balances")}
+              </span>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-4 py-2 font-semibold">Período</th>
-                  <th className="px-4 py-2 text-right font-semibold">Versiones</th>
-                  <th className="px-4 py-2 font-semibold">Tipo de balance</th>
-                  <th className="px-4 py-2 font-semibold">Estado</th>
-                  <th className="px-4 py-2 font-semibold">Completitud</th>
-                  <th className="px-4 py-2 font-semibold">Mapeo</th>
-                  <th className="px-4 py-2 font-semibold">Última carga</th>
-                  <th className="px-4 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.cortes.map((g) => (
-                  <Fragment key={g.key}>
-                    {g.rows.length > 1 && <FilaRotuloCorte grupo={g} />}
-                    {g.rows.map((p) => <FilaCorte key={p.key} p={p} fechaCorte={g.fechaCorte} colgada={g.rows.length > 1} />)}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1300px] table-fixed text-[12.5px]">
+                <Columnas />
+                <thead>
+                  <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
+                    <th className="px-3 py-2 font-semibold">Corte</th>
+                    <th className="px-3 py-2 font-semibold">Balance</th>
+                    <th className="px-3 py-2 font-semibold">Tipo</th>
+                    <th className="px-3 py-2 text-right font-semibold">Vers.</th>
+                    <th className="px-3 py-2 font-semibold">Estado</th>
+                    <th className="px-3 py-2 font-semibold">En firme</th>
+                    <th className="px-3 py-2 font-semibold">Completitud</th>
+                    <th className="px-3 py-2 font-semibold">Mapeo</th>
+                    <th className="px-3 py-2 font-semibold">Última carga</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {c.cortes.map((g) => (
+                    <Fragment key={g.key}>
+                      {g.rows.map((p, i) => <FilaCorte key={p.key} p={p} grupo={g} primera={i === 0} ultima={i === g.rows.length - 1} />)}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })}
 
-      {clients.length > 0 && (
+      {clientesFiltrados.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
           <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
           <div className="flex flex-wrap items-center gap-3">
@@ -213,41 +296,56 @@ const TONO_ESTADO_CORTE: Record<EstadoCorte, "ok" | "err" | "warn" | "ink"> = {
   consistente: "ok", inconsistente: "err", sin_comparar: "warn", unico: "ink",
 };
 
+/** Franja a la izquierda de un corte con varios balances, del color de su estado. */
+const FRANJA_ESTADO_CORTE: Record<EstadoCorte, string> = {
+  consistente: "border-l-ok-500", inconsistente: "border-l-err-500", sin_comparar: "border-l-warn-500", unico: "border-l-ink-200",
+};
+
 /**
- * Rótulo de un corte con varios balances vigentes: la fecha de corte, cuántos son y si sus
- * saldos finales coinciden. Enlaza al panel «Balances del mismo corte» del primero.
+ * Celda del CORTE (18/Oct/2026): abarca todas las filas de sus balances. Trae la fecha y, si son
+ * varios, cuántos y si sus saldos finales coinciden (enlace al panel «Balances del mismo corte»),
+ * con una franja del color del estado.
  */
-function FilaRotuloCorte({ grupo }: { grupo: CorteGroup }) {
+function CeldaCorte({ grupo }: { grupo: CorteGroup }) {
+  const varios = grupo.rows.length > 1;
   return (
-    <tr className="border-b border-ink-50 bg-ink-50/70">
-      <td className="px-4 py-2.5 font-medium text-ink-800" colSpan={2}>Corte {grupo.fechaCorte}</td>
-      <td className="px-4 py-2.5 text-[11px] text-ink-500">{grupo.rows.length} balances</td>
-      <td className="px-4 py-2.5" colSpan={5}>
-        <Link
-          href={`/balance/${grupo.rows[0].id}#corte`}
-          title="Los balances con la misma fecha de corte deben coincidir en sus saldos finales. Abre la comparación."
-        >
-          <Chip label={etiquetaEstadoCorte(grupo.estado)} tone={TONO_ESTADO_CORTE[grupo.estado]} />
-        </Link>
-      </td>
-    </tr>
+    <td
+      rowSpan={grupo.rows.length}
+      className={`border-b border-ink-100 px-3 py-2.5 ${varios ? `border-l-[3px] bg-ink-50/70 align-top ${FRANJA_ESTADO_CORTE[grupo.estado]}` : "align-middle"}`}
+    >
+      <div className="font-medium text-ink-800">{grupo.fechaCorte}</div>
+      {varios && (
+        <>
+          <div className="mt-0.5 text-[11px] text-ink-500">{grupo.rows.length} balances</div>
+          <Link
+            href={`/balance/${grupo.rows[0].id}#corte`}
+            className="mt-1.5 inline-block"
+            title="Los balances con la misma fecha de corte deben coincidir en sus saldos finales. Abre la comparación."
+          >
+            <Chip label={etiquetaEstadoCorte(grupo.estado, grupo.cuentasDiferentes ?? null)} tone={TONO_ESTADO_CORTE[grupo.estado]} />
+          </Link>
+        </>
+      )}
+    </td>
   );
 }
 
 /**
- * Un balance vigente del listado: siempre con su período completo. `colgada` = pende del
- * rótulo de un corte con varios balances.
+ * Un balance vigente del listado, con su período completo. La primera fila de cada corte pinta la
+ * celda del corte; las filas de un corte que difiere van con fondo rojo suave.
  */
-function FilaCorte({ p, fechaCorte, colgada }: { p: CorteRow; fechaCorte: string; colgada: boolean }) {
+function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGroup; primera: boolean; ultima: boolean }) {
   const apertura = parsearApertura(p.apertura);
   const etiquetaFila = apertura ? `${p.period} · ${etiquetaApertura(p.apertura)}` : p.period;
+  const difiere = grupo.estado === "inconsistente" && grupo.rows.length > 1;
   return (
-    <tr className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-      <td className={`px-4 py-2.5 font-medium text-ink-800 ${colgada ? "pl-9" : ""}`}>
+    <tr className={`${ultima ? "border-b border-ink-100" : "border-b border-ink-50"} ${difiere ? "bg-err-50/40" : ""} hover:bg-ink-50`}>
+      {primera && <CeldaCorte grupo={grupo} />}
+      <td className="px-3 py-2.5">
         <span className="flex flex-wrap items-center gap-1.5">
-          {colgada && <span aria-hidden className="text-ink-300">└</span>}
-          <span>{p.period}</span>
-          {!colgada && <span className="text-[11px] font-normal text-ink-400">· corte {fechaCorte}</span>}
+          <Link href={`/balance/${p.id}`} className="font-medium text-ink-800 hover:text-blue-600 hover:underline" title={`Abrir ${etiquetaFila}`}>
+            {p.period}
+          </Link>
           {/* AVISO de balance partido, igual que la carga fraccionada de los módulos:
               la versión listada no salió de un solo archivo. */}
           {(p.archivos?.length ?? 0) > 1 && (
@@ -257,7 +355,13 @@ function FilaCorte({ p, fechaCorte, colgada }: { p: CorteRow; fechaCorte: string
           )}
         </span>
       </td>
-      <td className="px-4 py-2.5 text-right font-mono text-ink-600">
+      <td className="px-3 py-2.5">
+        {/* Lo declaró quien cargó el archivo; en un período partido es la clave del renglón. */}
+        {apertura
+          ? <Chip label={etiquetaApertura(p.apertura)} tone={apertura === "tercero" ? "blue" : "ink"} />
+          : <span className="text-ink-300" title="Cargue anterior al registro del tipo de balance.">—</span>}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-ink-600">
         {/* El conteo abre la bitácora de versiones de la línea, desde donde se entra y
             se descarga cada versión. */}
         <Link
@@ -268,43 +372,45 @@ function FilaCorte({ p, fechaCorte, colgada }: { p: CorteRow; fechaCorte: string
           {p.versions}
         </Link>
       </td>
-      <td className="px-4 py-2.5">
-        {/* Lo declaró quien cargó el archivo; en un período partido es la clave del renglón. */}
-        {apertura
-          ? <Chip label={etiquetaApertura(p.apertura)} tone={apertura === "tercero" ? "blue" : "ink"} />
-          : <span className="text-ink-400" title="Cargue anterior al registro del tipo de balance.">—</span>}
+      <td className="px-3 py-2.5">
+        <span className="flex flex-col items-start gap-1">
+          <Chip label={p.status} tone={statusTone(p.status)} />
+          {p.inconsistente && (
+            <Link href={`/balance/${p.id}#corte`} title="Sus saldos finales difieren de otro balance con la misma fecha de corte.">
+              <Chip label="Inconsistente" tone="err" />
+            </Link>
+          )}
+        </span>
       </td>
-      <td className="px-4 py-2.5">
-        <Chip label={p.status} tone={statusTone(p.status)} />
-        {p.inconsistente && (
-          <Link
-            href={`/balance/${p.id}#corte`}
-            className="mt-1 block"
-            title="Sus saldos finales difieren de otro balance con la misma fecha de corte."
-          >
-            <Chip label="Inconsistente" tone="err" />
-          </Link>
-        )}
-        {p.enFirme.length > 0 && (
-          <span className="mt-1 block" title={`Conciliación en firme contra este balance: ${p.enFirme.join(", ")}.`}>
-            <Chip label={`En firme · ${p.enFirme.join(", ")}`} tone="blue" />
-          </span>
-        )}
+      <td className="px-3 py-2.5">
+        {p.enFirme.length > 0
+          ? (
+            <span className="flex flex-col items-start gap-1">
+              {p.enFirme.map((modulo) => (
+                <span key={modulo} title={`Conciliación de ${modulo} en firme contra este balance.`}>
+                  <Chip label={`En firme · ${modulo}`} tone="blue" />
+                </span>
+              ))}
+            </span>
+          )
+          : <span className="text-ink-300">—</span>}
       </td>
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <div className="h-1.5 w-14 overflow-hidden rounded-full bg-ink-150">
+          <div className="h-1.5 w-12 overflow-hidden rounded-full bg-ink-150">
             <div className={`h-full ${p.complete === 100 ? "bg-ok-500" : "bg-warn-500"}`} style={{ width: `${p.complete}%` }} />
           </div>
           <span className="font-mono text-[11px] text-ink-500">{p.complete}%</span>
         </div>
       </td>
-      <td className="px-4 py-2.5">
-        <span className="font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
-        {p.unmapped > 0 && <span className="ml-1.5"><Chip label={`${p.unmapped} sin mapeo`} tone="warn" /></span>}
+      <td className="px-3 py-2.5">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="whitespace-nowrap font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
+          {p.unmapped > 0 && <Chip label={`${p.unmapped} sin mapeo`} tone="warn" />}
+        </span>
       </td>
-      <td className="px-4 py-2.5 text-ink-500">{p.lastUpload}</td>
-      <td className="px-4 py-2.5 text-right">
+      <td className="whitespace-nowrap px-3 py-2.5 text-ink-500">{p.lastUpload}</td>
+      <td className="px-3 py-2.5 text-right">
         <Link href={`/balance/${p.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
           Ver <Icon name="chev-r" size={12} />
         </Link>

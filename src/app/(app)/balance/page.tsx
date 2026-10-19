@@ -115,10 +115,13 @@ export default async function BalancePage() {
             };
           });
           const [anio, mes, dia] = fechaCorteISO(delCorte[0].periodoFin).split("-");
+          const estado = comparaciones ? estadoDelCorte(vigentes, paresDelCorte) : vigentes.length > 1 ? "sin_comparar" : "unico";
           return {
             key: clave,
             fechaCorte: `${dia}/${mes}/${anio}`,
-            estado: comparaciones ? estadoDelCorte(vigentes, paresDelCorte) : vigentes.length > 1 ? "sin_comparar" : "unico",
+            estado,
+            // Con dos vigentes el corte tiene un solo par: cuántas cuentas difieren desde el umbral.
+            cuentasDiferentes: estado === "inconsistente" && vigentes.length === 2 ? paresDelCorte[0]?.materiales ?? null : null,
             rows,
           };
         });

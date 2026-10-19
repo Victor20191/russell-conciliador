@@ -216,8 +216,8 @@ export async function cargarVistaCorte(balance: { id: number; clienteId: number;
 }
 
 /**
- * Pares guardados de los clientes del listado, con `inconsistente` juzgado con el umbral vigente;
- * null si la consulta falló (nunca un falso OK).
+ * Pares guardados de los clientes del listado, con `inconsistente` juzgado con el umbral vigente y
+ * `materiales` = cuentas que lo alcanzan; null si la consulta falló (nunca un falso OK).
  */
 export async function cargarComparacionesDeClientes(whereCliente: { clienteId?: { in: number[] } }) {
   try {
@@ -228,7 +228,10 @@ export async function cargarComparacionesDeClientes(whereCliente: { clienteId?: 
         select: { balanceAId: true, balanceBId: true, inconsistente: true, resultado: true },
       }),
     ]);
-    return pares.map((p) => ({ balanceAId: p.balanceAId, balanceBId: p.balanceBId, inconsistente: resumenDeComparacion(p, tolerancia).inconsistente }));
+    return pares.map((p) => {
+      const resumen = resumenDeComparacion(p, tolerancia);
+      return { balanceAId: p.balanceAId, balanceBId: p.balanceBId, inconsistente: resumen.inconsistente, materiales: resumen.materiales };
+    });
   } catch (error) {
     registrarError("cargarComparacionesDeClientes", error);
     return null;

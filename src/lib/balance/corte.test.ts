@@ -5,6 +5,7 @@ import {
   claveCorte,
   estadoDelCorte,
   etiquetaCorte,
+  etiquetaEstadoCorte,
   fechaCorteISO,
   lineasDelCorte,
   motivoVersionSobreCerrada,
@@ -114,6 +115,14 @@ describe("pares y estado del corte", () => {
       { balanceAId: 1, balanceBId: 2, inconsistente: false },
       { balanceAId: 1, balanceBId: 99, inconsistente: true },
     ])).toBe("consistente");
+  });
+
+  it("rotula el estado del corte; con dos balances que difieren, dice cuántas cuentas", () => {
+    expect(etiquetaEstadoCorte("consistente")).toBe("Coinciden");
+    expect(etiquetaEstadoCorte("inconsistente")).toBe("Difieren");
+    expect(etiquetaEstadoCorte("inconsistente", 75)).toBe("Difieren · 75 cuenta(s)");
+    expect(etiquetaEstadoCorte("sin_comparar")).toBe("Sin comparar");
+    expect(etiquetaEstadoCorte("unico")).toBe("Único");
   });
 });
 

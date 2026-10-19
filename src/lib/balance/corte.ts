@@ -144,10 +144,13 @@ export function estadoDelCorte(
   return faltan ? "sin_comparar" : "consistente";
 }
 
-/** Rótulo del estado del corte para el listado y el panel. */
-export function etiquetaEstadoCorte(estado: EstadoCorte): string {
-  return estado === "consistente" ? "Consistentes"
-    : estado === "inconsistente" ? "Inconsistentes"
+/**
+ * Rótulo del estado del corte para el listado. Con `cuentasDiferentes` (un corte de dos balances
+ * que difieren), dice cuántas cuentas alcanzan el umbral.
+ */
+export function etiquetaEstadoCorte(estado: EstadoCorte, cuentasDiferentes: number | null = null): string {
+  return estado === "consistente" ? "Coinciden"
+    : estado === "inconsistente" ? (cuentasDiferentes != null ? `Difieren · ${cuentasDiferentes} cuenta(s)` : "Difieren")
     : estado === "sin_comparar" ? "Sin comparar"
     : "Único";
 }
