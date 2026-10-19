@@ -13,6 +13,7 @@ import { estadoBalance } from "@/lib/balance/estado-balance";
 import { agruparPorCorte, estadoDelCorte, fechaCorteISO, lineasDelCorte } from "@/lib/balance/corte";
 import { cargarComparacionesDeClientes } from "@/lib/balance/comparacion-corte-servidor";
 import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
+import { porcentajeCompletitud } from "@/lib/balance/completitud";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
 // La extracción asistida puede tardar hasta 10 minutos. Vercel usa este valor
@@ -106,7 +107,9 @@ export default async function BalancePage() {
             const b = l.vigente;
             return {
               key: l.clave, id: b.id, period: b.periodo, apertura: l.apertura, versions: l.versiones.length,
-              status: estadoBalance(b), complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "",
+              // De los conteos, no de la columna guardada: las versiones anteriores la
+              // redondeaban y 341 de 342 cuentas se veían «100 %».
+              status: estadoBalance(b), complete: porcentajeCompletitud(b.mapeadas, b.sinMapear), lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "",
               mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales,
               inconsistente: paresDelCorte.some((p) => p.inconsistente && (p.balanceAId === b.id || p.balanceBId === b.id)),
               enFirme: [...new Set(firmesPorBalance.get(b.id) ?? [])],

@@ -68,6 +68,7 @@ import {
   resumenCuadreDeFilas,
   SELECT_STAGING_CUADRE,
 } from "@/lib/balance/cuadre-borrador";
+import { porcentajeCompletitud } from "@/lib/balance/completitud";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import {
   bloqueoHomologacionBalance,
@@ -1565,7 +1566,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       ]);
       await tx.balancePruebaEncabezado.update({
         where: { id: encId },
-        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+        data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
       });
 
       return {
@@ -1746,7 +1747,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       ]);
       await tx.balancePruebaEncabezado.update({
         where: { id: encId },
-        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+        data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
       });
 
       return {
@@ -1995,7 +1996,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
     ]);
     await tx.balancePruebaEncabezado.update({
       where: { id },
-      data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+      data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
     });
 
     return { ok: true as const, clienteId: encabezado.clienteId, rehomologadas, retiradas, sinMapear: total - mapeadas };
@@ -2520,7 +2521,7 @@ async function persistirCargue(p: {
   }
 
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
-  const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
+  const complete = porcentajeCompletitud(calc.mapped, calc.totalRows - calc.mapped);
   const ahora = new Date();
   // La nota es SIEMPRE del sistema. El comentario del revisor va en su propia
   // columna: si lo escribiera aquí, el conteo de alertas se perdería justo en los
@@ -5839,7 +5840,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
           mapeadas: calc.mapped,
           sinMapear: calc.unmapped,
           criticas: calc.critical,
-          completitud: calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100,
+          completitud: porcentajeCompletitud(calc.mapped, calc.totalRows - calc.mapped),
         },
       });
       return {

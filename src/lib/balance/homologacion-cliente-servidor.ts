@@ -24,6 +24,7 @@ import {
   nivelPorCodigo,
 } from "./mapeo-cliente-config";
 import type { AlcanceHomologacion } from "./alcance-homologacion";
+import { porcentajeCompletitud } from "./completitud";
 
 /** Cliente Prisma o transacción: lo único que necesitan estas funciones. */
 export type ClienteDB = TransactionClient;
@@ -282,7 +283,7 @@ export async function migrarHomologacionClienteEnTransaccion(
         data: {
           mapeadas: mapeadasN,
           sinMapear: total - mapeadasN,
-          completitud: total > 0 ? Math.round((mapeadasN / total) * 100) : 100,
+          completitud: porcentajeCompletitud(mapeadasN, total - mapeadasN),
         },
       });
     }),
