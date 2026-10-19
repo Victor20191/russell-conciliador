@@ -45,6 +45,7 @@ npm run db:purgar:cuentas-sin-codigo  # borra filas «fantasma» de cuentas_clie
 npm run db:prevalidador:base-saldo    # congela el catálogo de las aprobaciones vigentes y pasa ING/NOM a saldo final (simulación; --aplicar)
 npm run db:cierres:copia-congelada    # copia congelada para los cierres en firme anteriores al 14/Oct/2026 (simulación; --aplicar; --revertir)
 npm run db:balances:cortes-18oct      # balances por corte: abre cerrados inconsistentes y versiones viejas cerradas, guarda comparaciones (simulación; --aplicar; --revertir)
+npm run db:nomina:plan-espejo        # plan espejo de Nómina: memoria de homologación, balances vigentes ABIERTOS y memoria de Nómina al plan del 1/Oct (simulación + informe para Russell; --comprobar; --aplicar --confirmo-despliegue; --revertir <snapshot>). Solo DESPUÉS de desplegar esta rama
 
 # Golden tests del borrador de balance (fixtures JSON commiteados, sin BD)
 CAPTURAR_GOLDEN=1 npx vitest run src/lib/balance/golden/capturar.test.ts   # re-captura desde staging real (dev-only)

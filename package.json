@@ -39,7 +39,8 @@
     "db:nomina:categorias-1oct": "tsx scripts/nomina-cuentas-categorias-1oct.ts",
     "db:cierres:copia-congelada": "tsx scripts/respaldar-copia-cierres.ts",
     "db:balances:cortes-18oct": "tsx scripts/migrar-balances-por-corte.ts",
-    "db:borradores:cuadre": "tsx scripts/recalcular-cuadre-borradores.ts"
+    "db:borradores:cuadre": "tsx scripts/recalcular-cuadre-borradores.ts",
+    "db:nomina:plan-espejo": "tsx scripts/corregir-plan-espejo-nomina.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
