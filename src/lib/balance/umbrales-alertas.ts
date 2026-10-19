@@ -11,6 +11,11 @@
 export type UmbralesAlertas = {
   /** Balance · descuadres: por debajo es informativo; desde este monto (inclusive), alerta. */
   descuadre: number;
+  /**
+   * Balance · cuadre contable: margen de la partida doble (débitos = créditos) y de la ecuación
+   * (Activo = Pasivo + Patrimonio + Resultado). Hasta este monto (inclusive) el balance cuadra.
+   */
+  cuadre_contable: number;
   /** Balance · saldos contrarios a la naturaleza: hasta este monto (inclusive) es informativo. */
   naturaleza: number;
   /**
@@ -33,6 +38,7 @@ export type ClaveUmbral = keyof UmbralesAlertas;
 // Valores de FÁBRICA. Se conservan como constantes exportadas porque los usan el
 // seed, las pruebas y el fallback del cargador cuando la BD no responde.
 export const UMBRAL_DESCUADRE_ALERTA = 2_000;
+export const UMBRAL_CUADRE_CONTABLE = 1_000;
 export const UMBRAL_NATURALEZA_ALERTA = 50_000;
 export const UMBRAL_CORTE_SALDO_FINAL = 1_000;
 export const UMBRAL_CEDULA_MODULOS = 2_000;
@@ -45,6 +51,7 @@ export const UMBRAL_MAGNITUD_ALERTA = 50_000;
 
 export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   descuadre: UMBRAL_DESCUADRE_ALERTA,
+  cuadre_contable: UMBRAL_CUADRE_CONTABLE,
   naturaleza: UMBRAL_NATURALEZA_ALERTA,
   corte_saldo_final: UMBRAL_CORTE_SALDO_FINAL,
   cedula_modulos: UMBRAL_CEDULA_MODULOS,
@@ -82,6 +89,18 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
     dondeAplica:
       "Borrador de balance: partida doble, ecuación contable, totales de clase vs. archivo y cuentas agrupadoras que no cuadran con su desglose.",
     defecto: UMBRAL_DESCUADRE_ALERTA,
+    minimo: 0,
+    maximo: UMBRAL_MAXIMO,
+  },
+  {
+    clave: "cuadre_contable",
+    seccion: "balance",
+    nombre: "Cuadre contable: partida doble y ecuación",
+    descripcion:
+      "Margen con el que se revisan dos identidades del balance: la partida doble (total débitos = total créditos) y la ecuación contable (Activo = Pasivo + Patrimonio + Resultado). Hasta este monto (inclusive) la diferencia se considera cuadrada; por encima, el balance queda «No cuadra» y, si la diferencia viene del archivo fuente, el borrador exige el comentario de aprobación para cargarlo.",
+    dondeAplica:
+      "Borrador de balance («Validación del balance» y «Advertencia del archivo fuente»), la marca de cuadrado del balance confirmado y sus validaciones «Cuadre de saldos finales» y «Cuadre de movimientos del período».",
+    defecto: UMBRAL_CUADRE_CONTABLE,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
   },

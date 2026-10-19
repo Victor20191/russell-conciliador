@@ -46,9 +46,9 @@ export type ResultadoBalance = {
   sums: Sums;
   validations: Validation[];
   breakdown: BreakdownGroup[];
-  balanced: boolean; // Gate 2: |A − P − Patrimonio − Resultado| ≤ MARGEN_CUADRE
+  balanced: boolean; // Gate 2: |A − P − Patrimonio − Resultado| ≤ umbral «cuadre_contable»
   diffCuadre: number; // = A − P − Patrimonio − Resultado (Σ saldos firmados, clases 1–7)
-  movimientosCuadran: boolean; // Gate 1: |Σdébitos − Σcréditos| ≤ MARGEN_CUADRE
+  movimientosCuadran: boolean; // Gate 1: |Σdébitos − Σcréditos| ≤ umbral «cuadre_contable»
   diffMov: number; // = Σdébitos − Σcréditos del período
   totalDebe: number; // Σ débitos del período (sobre el detalle YA depurado; = base de diffMov)
   totalHaber: number; // Σ créditos del período (sobre el detalle YA depurado; = base de diffMov)
@@ -72,10 +72,12 @@ export type ResultadoBalance = {
 
 export type ConvencionSignoDetectada = "firmado" | "magnitud" | "relativo_clase";
 
-// Margen absoluto (COP) para los gates contables del cargue: el balance se
-// promueve igual, pero queda marcado CUADRADO solo si AMBAS identidades caen
-// dentro de este margen: débitos=créditos (Gate 1) y A−P=Patrimonio+Resultado
-// (Gate 2). Fuera de él → se promueve con ALERTA (descuadrado).
+// Margen absoluto (COP) de FÁBRICA. Desde el 19/Oct/2026 los dos gates contables del cargue
+// —débitos = créditos (Gate 1) y A − P = Patrimonio + Resultado (Gate 2)— usan el umbral
+// «Cuadre contable: partida doble y ecuación» (`cuadre_contable`, /config/parametros, fábrica
+// $1.000): el balance se promueve igual, pero queda marcado CUADRADO solo si ambas identidades
+// caen dentro de él. Este valor fijo sigue rigiendo el cruce de los totales por clase contra los
+// del archivo y la tolerancia por defecto de las reubicaciones.
 export const MARGEN_CUADRE = 1000;
 
 // Validación contable del BORRADOR (paso 1): compara los totales de Activo /
@@ -102,7 +104,7 @@ export type ValidacionContable = {
   resultadoArchivo: number | null; // = |ingresos| − |gastos| − |costos| del archivo (firmado)
   // Validación 1 — ecuación contable A = P + Patrimonio + Resultado.
   ecuacionDiff: number; // = activo − pasivo − patrimonio − resultado
-  ecuacionCuadra: boolean; // |ecuacionDiff| ≤ MARGEN_CUADRE
+  ecuacionCuadra: boolean; // |ecuacionDiff| ≤ umbral «cuadre_contable»
   // Validación 2 — archivo vs detalle por clase (|archivo| − calculado).
   activoDiff: number | null;
   activoCuadra: boolean | null;
@@ -681,8 +683,9 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
   // en el desglose y en las sumas no entran de por sí).
   const paraCuadre = detalle.filter((d) => d.code.charAt(0) !== "8" && d.code.charAt(0) !== "9");
   const diffCuadre = sum(paraCuadre.map((d) => d.balance));
-  // Gate 2 (A − P = Patrimonio + Resultado): margen absoluto fijo de ±$1000.
-  const balanced = Math.abs(diffCuadre) <= MARGEN_CUADRE;
+  // Gate 2 (A − P = Patrimonio + Resultado): margen del umbral «cuadre_contable» (fábrica ±$1.000).
+  const margenCuadre = umbrales.cuadre_contable ?? MARGEN_CUADRE;
+  const balanced = Math.abs(diffCuadre) <= margenCuadre;
 
   // 5) Desglose por grupo PUC (2 dígitos). Códigos sin grupo conocido → "99".
   const buckets = new Map<string, BreakdownItem[]>();
@@ -731,7 +734,7 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
       id: "V1",
       rule: "Cuadre de saldos finales",
       status: balanced ? "ok" : "warn",
-      detail: `Activo = Pasivo + Patrimonio + Resultado · diferencia: ${fmtDiferencia(diffCuadre)}${balanced ? "" : ` (fuera del margen ±${fmt(MARGEN_CUADRE)})`}`,
+      detail: `Activo = Pasivo + Patrimonio + Resultado · diferencia: ${fmtDiferencia(diffCuadre)}${balanced ? "" : ` (fuera del margen ±${fmt(margenCuadre)})`}`,
       ...(balanced ? {} : { count: 1 }),
     },
     {
@@ -771,21 +774,21 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
   ];
 
   // V5 / Gate 1: cuadre de los MOVIMIENTOS del período (Σ débitos = Σ créditos),
-  // distinto del cuadre de saldos (V1). El veredicto del cargue usa el margen
-  // ±$1000; el descuadre exacto (>1 COP) queda como matiz informativo en el texto.
+  // distinto del cuadre de saldos (V1). El veredicto del cargue usa el umbral «cuadre_contable»
+  // (fábrica ±$1.000); el descuadre exacto (>1 COP) queda como matiz informativo en el texto.
   const totalDebe = sum(detalle.map((d) => d.debe ?? 0));
   const totalHaber = sum(detalle.map((d) => d.haber ?? 0));
   const hayMovimientos = totalDebe !== 0 || totalHaber !== 0;
   const diffMov = totalDebe - totalHaber;
   // Si el archivo no trajo movimientos (solo saldos), el gate no aplica → cuadra.
-  const movimientosCuadran = !hayMovimientos || Math.abs(diffMov) <= MARGEN_CUADRE;
+  const movimientosCuadran = !hayMovimientos || Math.abs(diffMov) <= margenCuadre;
   if (hayMovimientos) {
     // Junto a V1 en la tabla para contrastar la foto final con la actividad.
     validations.splice(1, 0, {
       id: "V5",
       rule: "Cuadre de movimientos del período",
       status: movimientosCuadran ? "ok" : "warn",
-      detail: `Total débitos = total créditos · diferencia: ${fmtDiferencia(diffMov)}${movimientosCuadran ? "" : ` (fuera del margen ±${fmt(MARGEN_CUADRE)})`}`,
+      detail: `Total débitos = total créditos · diferencia: ${fmtDiferencia(diffMov)}${movimientosCuadran ? "" : ` (fuera del margen ±${fmt(margenCuadre)})`}`,
       ...(movimientosCuadran ? {} : { count: 1 }),
     });
   }

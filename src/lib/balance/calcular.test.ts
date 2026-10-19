@@ -19,6 +19,7 @@ import {
   type CuentaEstandar,
   type NodoBalance,
 } from "./calcular";
+import { UMBRALES_ALERTAS_DEFECTO } from "./umbrales-alertas";
 
 // Plan de cuentas estándar sintético (6 dígitos, como el real).
 const STD: CuentaEstandar[] = [
@@ -215,6 +216,21 @@ describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resulta
     expect(r.diffCuadre).toBe(2000); // 3000 + (−1000)
     expect(r.balanced).toBe(false);
     expect(r.validations.find((v) => v.id === "V1")?.status).toBe("warn");
+  });
+
+  it("el margen es el umbral «Cuadre contable» de /config/parametros, para saldos y movimientos", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "110505", name: "Caja", prevBalance: 0, balance: 3000, debitos: 3000, creditos: 0 },
+      { code: "220505", name: "Proveedores", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+    ];
+    // Diferencia de $2.000 en los dos gates: con el margen en $2.500 cuadra; en $1.999,99, no.
+    const holgado = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, cuadre_contable: 2_500 });
+    expect(holgado.balanced).toBe(true);
+    expect(holgado.movimientosCuadran).toBe(true);
+    const justo = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, cuadre_contable: 1_999.99 });
+    expect(justo.balanced).toBe(false);
+    expect(justo.movimientosCuadran).toBe(false);
+    expect(justo.validations.find((v) => v.id === "V1")?.detail).toContain("fuera del margen ±$ 1.999,99");
   });
 });
 
