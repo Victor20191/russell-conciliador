@@ -423,8 +423,9 @@ export type TotalDeCarga = { ok: true; spec: SpecModulo } | { ok: false; message
 const MAX_FILA_HOJA = 1_048_576;
 
 /**
- * Aplica al spec de ESTE archivo la respuesta del analista sobre el valor total (Inventarios). Es
- * un dato del cargue, como el tipo de inventario: la versión del patrón no cambia.
+ * Aplica al spec de ESTE archivo la respuesta del analista sobre el valor total (los seis módulos
+ * desde el 19/Oct/2026). Es un dato del cargue, como el tipo de inventario: la versión del patrón
+ * no cambia.
  *
  * - **Sí**: la celda (columna + fila) que ubicó el analista es el gran total del archivo. El modo
  *   de detección del patrón se conserva, así los subtotales por grupo se siguen reconociendo; el

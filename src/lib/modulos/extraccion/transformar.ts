@@ -26,7 +26,7 @@ import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 import { saldoFavorRedundante, type FilaMuestraEdades } from "../cartera/edades";
 import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
-import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo } from "../nomina/valor-nomina";
+import { evaluarFilaNomina, nombreSinCedula, normalizarCedula, signoDeduccionDeArchivo, valorFilaNomina } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { detectarFilasDeEmpleado, type FilaDeEmpleado } from "../nomina/filas-empleado";
 import { cuentaDelClasificador } from "../cuenta-clasificador";
@@ -604,7 +604,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      separadas. «Total» se deja tal cual: lo resuelve la detección de totales.
     let esSeccionCuenta = false;
     const identificador = formatoSiesa ? aTexto(celda(fila, colIdentidad)) : null;
-    if (formatoSiesa && !(identificador != null && esTotal(identificador))) {
+    // La celda del total que ubicó el usuario tampoco se reinterpreta como cuenta o tercero.
+    if (formatoSiesa && !marcaManualExacta && !(identificador != null && esTotal(identificador))) {
       const negritaIdentificador = hoja.negrita?.[r]?.[colIdentidad - 1] === true;
       let rolCelda = rolDeCeldaCompartida({
         valor: identificador,
@@ -841,7 +842,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       ? (fila.map((c) => aTexto(c)).find((t): t is string => t != null && esTotal(t)) ?? null)
       : null;
     const rotuloDeFila = rotuloClasificadorCrudo ?? claveEnLaFila ?? rotuloTotalSuelto;
-    const esFilaDeTotal = rotuloDeFila != null && esTotal(rotuloDeFila);
+    // La fila que el usuario ubicó como total lo es aunque no lo diga: ni cabecera de tercero ni
+    // fila sin dueño, y no siembra el arrastre.
+    const esFilaDeTotal = marcaManualExacta || (rotuloDeFila != null && esTotal(rotuloDeFila));
     const esCabeceraTercero = modoCabecera && !esFilaDeTotal && !esPieErp && claveEnLaFila != null && documentoEnLaFila == null;
     for (const rol of rolesArrastrados) {
       const propio = aTexto(datos[rol]);
@@ -936,7 +939,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       if (empleadoCrudo) datos.empleado = nombreSinCedula(empleadoCrudo.replace(/^\s*\d{2,12}\s*-?\s*/, "")) ?? empleadoCrudo;
       if (nomina.valorPorNaturaleza) {
         const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados, signoDeduccion, spec.codigosDeduccion);
-        valor = ev.valor;
+        // La celda del total que ubicó el usuario conserva su cifra aunque parezca un neto o un
+        // pie: es la que se compara con la suma de los movimientos.
+        valor = marcaManualExacta ? valorFilaNomina(datos, rolesMapeados, signoDeduccion, spec.codigosDeduccion).valor : ev.valor;
         if (ev.naturaleza) datos.naturaleza = ev.naturaleza;
         if (ev.excluir) exclusionNomina = ev.excluir;
       }
@@ -963,13 +968,15 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const rotuloTotalNomina = nomina
       ? rolesTextoMapeados.map((rol) => aTexto(datos[rol])).find((t): t is string => t != null && esTotal(t)) ?? null
       : null;
-    if (rotuloTotalNomina != null) {
+    // La fila que el usuario ubicó como total sigue hasta la detección, que la marca gran total;
+    // por estos atajos quedaría como subtotal o excluida y su coordenada no se aceptaría.
+    if (rotuloTotalNomina != null && !marcaManualExacta) {
       filasExcluidas++;
       filas.push({ filaNum, clasificador, valor, datos, tipoFila: "total", motivo: "subtotal:rotulo" });
       crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalNomina, marcaManual: false, marcaManualExacta: false });
       continue;
     }
-    if (exclusionNomina) {
+    if (exclusionNomina && !marcaManualExacta) {
       filasExcluidas++;
       filas.push({ filaNum, clasificador, valor: 0, datos, tipoFila: "agrupadora", motivo: exclusionNomina });
       crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo, marcaManual: false, marcaManualExacta: false });
@@ -1011,7 +1018,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      del total) pero visibles en el borrador, para que se puedan rescatar si la
     //      detección se equivoca.
     // Una SECCIÓN de cuenta de SIESA entra por la misma puerta: tampoco es de ningún tercero.
-    if (esSeccionCuenta || esPieErp || (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia)) {
+    if (!marcaManualExacta && (esSeccionCuenta || esPieErp || (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia))) {
       filasExcluidas++;
       filas.push({
         filaNum,

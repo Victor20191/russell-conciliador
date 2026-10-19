@@ -3,6 +3,7 @@ import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { normalizarSpecModulo } from "../perfil-modulo";
+import { controlSubtotales } from "../subtotales";
 import { sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
 
@@ -429,6 +430,21 @@ describe("reportes jerárquicos de SIESA: secciones de cuenta e identificador co
     expect(pie?.tipoFila).toBe("agrupadora");
     expect(pie?.motivo).toBe("sin_identificador");
     expect(movimientos(r).map((f) => f.valor)).toEqual([100, 200]);
+  });
+
+  it("si el usuario ubica esa celda como el total del archivo, es el gran total y el control cuadra", () => {
+    // 19/Oct/2026: la carga con patrón de Cartera y CxP pregunta «¿El archivo trae el valor total?».
+    const filas: (string | number | null)[][] = [
+      ["NIT", "Nombre", "Saldo", null],
+      ["800161633", "CONSTRUCTORA LAS GALIAS", 100, null],
+      ["800240559", "H2O CONTROL INGENIERIA", 200, null],
+      [null, null, 300, "Total"],
+    ];
+    const h = hoja("Hoja 1", filas);
+    const r = transformarModulo(CAR, { ...specDe(h), subtotalesColumna: 3, subtotalesFila: 4 }, h);
+    expect(r.filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual", valor: 300 });
+    expect(movimientos(r).map((f) => f.valor)).toEqual([100, 200]);
+    expect(controlSubtotales(r.filas).granTotal).toMatchObject({ filaNum: 4, subtotalArchivo: 300, sumaMovimientos: 300, estado: "cuadra" });
   });
 });
 

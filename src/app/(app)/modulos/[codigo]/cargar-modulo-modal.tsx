@@ -88,7 +88,7 @@ type PropsCarga = {
   /** Con patrón, pide confirmar la columna del clasificador en cada cargue (Inventarios). */
   confirmarClasificador: boolean;
   /**
-   * Con patrón, pregunta en cada cargue si el archivo trae el valor total (Inventarios); con
+   * Con patrón, pregunta en cada cargue si el archivo trae el valor total (los seis módulos); con
    * «Sí» propone la columna del rol de valor. null = no se pregunta.
    */
   confirmarTotal: { rolValor: string } | null;
@@ -1590,8 +1590,9 @@ function CargarModal({
               )}
               {totalArchivo === "no" && (
                 <span className="text-[11px] leading-snug text-ink-500">
-                  El borrador no tendrá control del total del archivo.
-                  {spec.subtotales !== "nunca" && " Las filas rotuladas «Total» o «Subtotal» igual se excluyen del detalle."}
+                  {spec.subtotales === "nunca"
+                    ? "El borrador no tendrá control del total del archivo."
+                    : "No se fija ninguna celda: el borrador solo controlará el total si reconoce por sí mismo una fila de total. Las filas rotuladas «Total» o «Subtotal» igual se excluyen del detalle."}
                 </span>
               )}
               <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón del aplicativo no se modifica.</span>

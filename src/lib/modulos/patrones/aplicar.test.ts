@@ -271,9 +271,17 @@ describe("aplicarTotalDeCarga («¿El archivo trae el valor total?» en el cargu
   };
   const MANUAL: SpecModulo = { ...SPEC_INV, subtotales: "manual", subtotalesColumna: 6, subtotalesTexto: "2653737498.78" };
 
-  it("solo Inventarios hace la pregunta", () => {
-    expect(INV.confirmarTotalEnCarga).toBe(true);
-    expect(CXP.confirmarTotalEnCarga).toBeFalsy();
+  it("los seis módulos hacen la pregunta (19/Oct/2026; antes solo Inventarios)", () => {
+    for (const codigo of ["INV", "CAR", "CXP", "ING", "AFI", "NOM"]) {
+      expect(descriptorModulo(codigo)?.confirmarTotalEnCarga, codigo).toBe(true);
+    }
+  });
+
+  it("fuera de Inventarios aplica igual: Sí fija la celda de este archivo", () => {
+    const spec: SpecModulo = { hoja: "Proveedores", filaEncabezado: 1, primeraFilaDatos: 2, columnas: columnas({ nit: 1, nombre: 2, documento: 3, [CXP.valor]: 4 }) };
+    const r = aplicarTotalDeCarga(CXP, spec, { trae: true, columna: 4, fila: 230 }, 4);
+    expect(r.ok && r.spec).toMatchObject({ subtotalesColumna: 4, subtotalesFila: 230 });
+    expect(aplicarTotalDeCarga(CXP, spec, { trae: null }, 4)).toEqual({ ok: false, message: "Indica si el archivo trae el valor total." });
   });
 
   it("sin respuesta no se crea el borrador", () => {

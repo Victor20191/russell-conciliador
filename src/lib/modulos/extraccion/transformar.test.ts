@@ -793,6 +793,37 @@ describe("celda del total del cargue con detección automática", () => {
   });
 });
 
+// 19/Oct/2026: los seis módulos preguntan «¿El archivo trae el valor total?» al cargar con patrón.
+// En Nómina la fila «TOTAL…» y la que no trae concepto salían por atajos propios (subtotal o
+// excluida) y la celda que ubicó el usuario nunca llegaba a ser el gran total.
+describe("NOM · celda del total ubicada por el usuario", () => {
+  const conTotal = (total: CeldaCruda[]) => hojaNom([
+    ENC_NOM,
+    ["001", "Sueldo básico", "1144", "Ana Ruiz", "Admón", 2_500_000],
+    ["002", "Auxilio de transporte", "1144", "Ana Ruiz", "Admón", 100_000],
+    total,
+  ]);
+  const conCelda: SpecModulo = { ...SPEC_NOM, subtotalesColumna: 6, subtotalesFila: 4 };
+
+  it("una fila rotulada «TOTAL GENERAL» es el gran total y el control cuadra", () => {
+    const grid = conTotal([null, "TOTAL GENERAL", null, null, null, 2_600_000]);
+    // Sin la celda, el rótulo la deja como subtotal del archivo.
+    expect(transformarModulo(NOM, SPEC_NOM, grid).filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "total", motivo: "subtotal:rotulo" });
+    const r = transformarModulo(NOM, conCelda, grid);
+    expect(r.filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual", valor: 2_600_000 });
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.filaNum)).toEqual([2, 3]);
+    expect(controlSubtotales(r.filas).granTotal).toMatchObject({ filaNum: 4, subtotalArchivo: 2_600_000, sumaMovimientos: 2_600_000, estado: "cuadra" });
+  });
+
+  it("una fila sin concepto (excluida por sí sola) también se vuelve el gran total", () => {
+    const grid = conTotal([null, null, null, null, null, 2_600_000]);
+    expect(transformarModulo(NOM, SPEC_NOM, grid).filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "agrupadora", motivo: "sin_concepto" });
+    const r = transformarModulo(NOM, conCelda, grid);
+    expect(r.filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual", valor: 2_600_000 });
+    expect(controlSubtotales(r.filas).granTotal?.estado).toBe("cuadra");
+  });
+});
+
 describe("NOM · signo de la columna de deducción (24/Sep/2026)", () => {
   const ENC: CeldaCruda[] = ["Concepto", "Descripción Concepto", "Nit", "Empleado", "Centro", "Devengo", "Deducción"];
   const SPEC: SpecModulo = {

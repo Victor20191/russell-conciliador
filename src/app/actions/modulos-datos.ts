@@ -1545,8 +1545,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         spec = eleccion.spec;
         clasificadorCambiado = eleccion.cambio;
       }
-      // Inventarios: «¿El archivo trae el valor total?» — Sí con su celda (columna + fila), o No.
-      // También es de este cargue; la celda se vuelve a leer del original más abajo.
+      // «¿El archivo trae el valor total?» (los seis módulos desde el 19/Oct/2026; antes solo
+      // Inventarios) — Sí con su celda (columna + fila), o No. También es de este cargue; la celda
+      // se vuelve a leer del original más abajo.
       let totalDelCargue: string | null = null;
       if (descriptor.confirmarTotalEnCarga) {
         const respuesta = String(formData.get("totalArchivo") ?? "").trim();
@@ -1560,7 +1561,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           },
           ancho,
         );
-        if (!total.ok) return total.message;
+        // Es un dato del formulario, como las demás preguntas de la carga: el original no se
+        // marca como no procesable.
+        if (!total.ok) return { rechazo: total.message };
         spec = total.spec;
         totalDelCargue = spec.subtotalesFila != null
           ? `total del archivo en ${letraColumnaModulo((spec.subtotalesColumna ?? 0) + (hoja.columnaInicial ?? 0))}${spec.subtotalesFila}`
@@ -1673,7 +1676,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // La coordenada manual es autoridad solo para ESTE original. Nunca se acepta una fila
     // heredada del perfil ni se confía en el texto enviado por el navegador: se vuelve a
     // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda. Con
-    // patrón en Inventarios la coordenada puede venir con otro modo de detección (Sí al total).
+    // patrón la coordenada puede venir con otro modo de detección (Sí al total).
     if (spec.subtotales === "manual" || spec.subtotalesFila != null) {
       const columna = spec.subtotalesColumna ?? 0;
       const fila = spec.subtotalesFila ?? 0;

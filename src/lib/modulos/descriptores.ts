@@ -252,6 +252,8 @@ export type DescriptorModulo = {
   /**
    * Con un patrón de archivo, la carga pregunta SIEMPRE «¿El archivo trae el valor total?»: Sí
    * con su ubicación (columna y fila) o No. Vale solo para ese cargue (`aplicarTotalDeCarga`).
+   * Los seis módulos lo declaran desde el 19/Oct/2026 (antes solo Inventarios): sin la pregunta,
+   * con un patrón que detecta solo, no había cómo asegurar que el control del total se hiciera.
    */
   confirmarTotalEnCarga?: boolean;
   /**
@@ -552,6 +554,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     cuentaDesdeClasificador: true,
     // El costo y la depreciación pueden venir en el mismo archivo o en dos: se pregunta al cargar.
     confirmarContenidoActivosEnCarga: true,
+    // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.
+    confirmarTotalEnCarga: true,
     cedula: {
       subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
       valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },
@@ -621,6 +625,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // alerta como «naturaleza contraria», nunca se rechaza el cargue.
     // Validaciones del auxiliar que exigen un comentario por tipo para cerrar (17/Oct/2026).
     alertasConComentario: ALERTAS_TERCERO_CON_COMENTARIO,
+    // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.
+    confirmarTotalEnCarga: true,
     arrastrables: ["nit", "nombre", "cuenta"],
     rolesLlaveItem: ["nit", "documento"],
     // Un renglón de cartera es un DOCUMENTO; los subtotales por tercero o por cuenta lo
@@ -699,6 +705,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.
     alertasConComentario: ALERTAS_TERCERO_CON_COMENTARIO,
+    // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.
+    confirmarTotalEnCarga: true,
     arrastrables: ["nit", "nombre", "cuenta"],
     rolesLlaveItem: ["nit", "documento"],
     rolesDetalle: ["documento", "tipoDocumento"],
@@ -759,6 +767,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Facturas y notas crédito pueden venir juntas o en archivos aparte (29/Sep/2026): cada carga
     // declara qué trae, y un archivo de solo notas crédito en positivo se invierte para que reste.
     confirmarContenidoEnCarga: true,
+    // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.
+    confirmarTotalEnCarga: true,
   },
 
   // ===== Nómina (NOM) → gasto y costo de personal a SEIS dígitos =====
@@ -848,6 +858,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
     // Un mismo patrón sirve para cargar con o sin separar por centro de costo.
     confirmarAgrupadorEnCarga: true,
+    // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.
+    confirmarTotalEnCarga: true,
     // «Agrupar por» (11/Oct/2026): el Consolidado se agrupa por el código del concepto, por su
     // nombre (ERP sin código) o por la cuenta contable del cliente (el archivo la trae completa).
     consolidado: { agruparPor: OPCIONES_AGRUPAR_POR.map((id) => ({ id, rol: rolDeAgruparPor(id), etiqueta: etiquetaAgruparPor(id) })) },
