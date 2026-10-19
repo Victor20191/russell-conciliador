@@ -38,6 +38,34 @@ describe("constancias del balance oficial", () => {
     expect(html).not.toContain("border-l-warn-500");
   });
 
+  it("un balance cargado descuadrado muestra la justificación con las condiciones que fallaban", () => {
+    const html = renderToStaticMarkup(
+      createElement(ComentarioAprobacion, {
+        comentario: "El ERP no exporta la cuenta de cierre; revisado con el cliente.",
+        descuadre: {
+          v: 1,
+          motivos: [
+            { tipo: "partida_doble", monto: 611_898_043.91 },
+            { tipo: "agrupadoras", cantidad: 11, masDe: false, codigos: ["11", "13"] },
+          ],
+          umbrales: { cuadre_contable: 1_000, descuadre: 2_000 },
+        },
+        version: "versión v1",
+        autor: "Victor Rivera",
+        rol: "Superadministrador",
+        fecha: "19 oct 2026",
+      }),
+    );
+
+    expect(html).toContain("Justificación del descuadre");
+    expect(html).toContain("No cumplía 2 condiciones");
+    expect(html).toContain("Total débitos ≠ total créditos");
+    expect(html).toContain("11 agrupadoras no cuadran");
+    expect(html).toContain("Umbrales al cargar");
+    expect(html).toContain("El ERP no exporta la cuenta de cierre; revisado con el cliente.");
+    expect(html).not.toContain("Nota aclaratoria adicional");
+  });
+
   it("mantiene una nota voluntaria como constancia genérica", () => {
     const html = renderToStaticMarkup(
       createElement(ComentarioAprobacion, {

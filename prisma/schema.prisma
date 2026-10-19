@@ -715,6 +715,10 @@ model BalancePruebaEncabezado {
   comentarioAprobacion     String?   @map("comentario_aprobacion")
   advertenciaArchivoFuente Boolean   @default(false) @map("advertencia_archivo_fuente")
   diferenciaArchivoFuente  Decimal?  @map("diferencia_archivo_fuente") @db.Decimal(18, 2)
+  // El borrador se cargó «Descuadrado» por algo distinto del archivo fuente: las condiciones
+  // que fallaban, por cuánto y con qué umbrales (`DescuadreAlCargar`, lib/balance/cuadre-borrador.ts).
+  // Con `comentarioAprobacion` forma la «Justificación del descuadre». null = cargó cuadrado.
+  descuadreBorrador        Json?     @map("descuadre_borrador")
   // Constancia ESTRUCTURADA de las reubicaciones entre clases contables que se
   // aprobaron en el borrador (`RevisionReubicacionBalance[]`). Se guarda tal cual
   // para que el balance oficial muestre la MISMA ficha que mostró el borrador

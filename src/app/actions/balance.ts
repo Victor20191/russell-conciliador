@@ -63,12 +63,14 @@ import { esParteAceptable, esTransformacionAceptable } from "@/lib/balance/extra
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
+  constanciaDescuadre,
   evaluarCuadreBorrador,
   filasBorradorDeStaging,
   resumirCuadreBorrador,
   reubicacionesAprobadasDeStaging,
   resumenCuadreDeFilas,
   SELECT_STAGING_CUADRE,
+  type DescuadreAlCargar,
 } from "@/lib/balance/cuadre-borrador";
 import { porcentajeCompletitud } from "@/lib/balance/completitud";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -1102,6 +1104,11 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     const diferenciaArchivoFuente = advertenciaArchivoFuente
       ? vistaFuente.validacion.ecuacionDiff
       : null;
+    // La diferencia del archivo fuente ya tiene su constancia (bandera + diferencia); los demás
+    // descuadres guardan qué condiciones fallaban, por cuánto y con qué umbrales.
+    const descuadreBorrador = !advertenciaArchivoFuente && veredictoFuente.estado === "descuadrado"
+      ? constanciaDescuadre(veredictoFuente.motivos, umbrales)
+      : null;
 
     const { id, version, calc, reutilizado } = await persistirCargue({
       loteId: p.loteId, clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
@@ -1114,6 +1121,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       comentarioPromocion: comentarioFuente.comentario,
       advertenciaArchivoFuente,
       diferenciaArchivoFuente,
+      descuadreBorrador,
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
       aperturaBalance: p.aperturaBalance,
@@ -2349,6 +2357,8 @@ async function persistirCargue(p: {
   /** Diagnóstico durable recalculado desde staging antes de purgar el borrador. */
   advertenciaArchivoFuente: boolean;
   diferenciaArchivoFuente: number | null;
+  /** Borrador cargado «Descuadrado» por algo distinto del archivo fuente: sus condiciones. */
+  descuadreBorrador?: DescuadreAlCargar | null;
   /** Reubicaciones entre clases aprobadas que deben sobrevivir a la purga del borrador. */
   revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
@@ -2720,6 +2730,7 @@ async function persistirCargue(p: {
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota, comentarioAprobacion,
         advertenciaArchivoFuente, diferenciaArchivoFuente,
+        descuadreBorrador: p.descuadreBorrador ?? undefined,
         reubicacionesAprobadas: revisionesReubicacion.length > 0 ? revisionesReubicacion : undefined,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,

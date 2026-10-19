@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { FilaBorrador } from "./borrador";
 import type { ValidacionContable } from "./calcular";
 import {
+  constanciaDescuadre,
   evaluarCuadreBorrador,
+  leerDescuadreAlCargar,
   leerResumenCuadre,
   MAX_AGRUPADORAS_RESUMEN,
   resumenCuadreDeFilas,
   resumirCuadreBorrador,
   VERSION_RESUMEN_CUADRE,
   veredictoBorradorLista,
+  type MotivoDescuadre,
   type ResumenCuadreBorrador,
 } from "./cuadre-borrador";
 import { UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
@@ -176,6 +179,30 @@ describe("leerResumenCuadre", () => {
     expect(leerResumenCuadre({ ...r, v: 99 })).toBeNull();
     expect(leerResumenCuadre({ ...r, clases: [{ clase: "Resultado", diff: 1 }] })).toBeNull();
     expect(leerResumenCuadre({ ...r, agrupadoras: "x" })).toBeNull();
+  });
+});
+
+describe("constancia del descuadre al cargar", () => {
+  const motivos: MotivoDescuadre[] = [
+    { tipo: "ecuacion", monto: -111_767_319_472.52 },
+    { tipo: "partida_doble", monto: 611_898_043.91 },
+    { tipo: "clases", clases: [{ clase: "Activo", diff: 19_513_519_011.58 }] },
+    { tipo: "agrupadoras", cantidad: 11, masDe: false, codigos: ["11", "13"] },
+  ];
+
+  it("guarda las condiciones y los umbrales con que se juzgaron, y se lee igual", () => {
+    const c = constanciaDescuadre(motivos, conUmbrales({ cuadre_contable: 500 }));
+    expect(c.umbrales).toEqual({ cuadre_contable: 500, descuadre: 2_000 });
+    expect(leerDescuadreAlCargar(JSON.parse(JSON.stringify(c)))).toEqual(c);
+  });
+
+  it("descarta una constancia vacía, de otra versión o con un motivo desconocido", () => {
+    const c = constanciaDescuadre(motivos, U);
+    expect(leerDescuadreAlCargar(null)).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, motivos: [] })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, v: 99 })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, motivos: [{ tipo: "otro", monto: 1 }] })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, umbrales: {} })).toBeNull();
   });
 });
 

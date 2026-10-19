@@ -247,6 +247,55 @@ export function evaluarCuadreBorrador(
 }
 
 /**
+ * Constancia que guarda el balance cuando se carga un borrador «Descuadrado» por algo distinto
+ * del archivo fuente (`balance_prueba_encabezado.descuadre_borrador`): qué condiciones fallaban,
+ * por cuánto y con qué umbrales. Con el comentario obligatorio forma la «Justificación del
+ * descuadre» del balance cargado.
+ */
+export type DescuadreAlCargar = {
+  v: number;
+  motivos: MotivoDescuadre[];
+  umbrales: { cuadre_contable: number; descuadre: number };
+};
+
+export function constanciaDescuadre(motivos: MotivoDescuadre[], umbrales: UmbralesAlertas): DescuadreAlCargar {
+  return {
+    v: VERSION_RESUMEN_CUADRE,
+    motivos,
+    umbrales: { cuadre_contable: umbrales.cuadre_contable, descuadre: umbrales.descuadre },
+  };
+}
+
+function esMotivo(m: unknown): m is MotivoDescuadre {
+  if (m == null || typeof m !== "object") return false;
+  const r = m as Record<string, unknown>;
+  switch (r.tipo) {
+    case "ecuacion":
+    case "partida_doble":
+      return esNumero(r.monto);
+    case "clases":
+      return Array.isArray(r.clases) && r.clases.length > 0 && r.clases.every((c) =>
+        c != null && typeof c === "object" && CLASES.has((c as { clase?: unknown }).clase as string) && esNumero((c as { diff?: unknown }).diff));
+    case "agrupadoras":
+      return esNumero(r.cantidad) && typeof r.masDe === "boolean"
+        && Array.isArray(r.codigos) && r.codigos.every((c) => typeof c === "string");
+    default:
+      return false;
+  }
+}
+
+/** Lee la constancia guardada en el balance. null si falta o está mal formada. */
+export function leerDescuadreAlCargar(json: unknown): DescuadreAlCargar | null {
+  if (json == null || typeof json !== "object" || Array.isArray(json)) return null;
+  const r = json as Record<string, unknown>;
+  const u = r.umbrales as Record<string, unknown> | undefined;
+  if (r.v !== VERSION_RESUMEN_CUADRE || !Array.isArray(r.motivos) || r.motivos.length === 0
+    || !r.motivos.every(esMotivo) || u == null || typeof u !== "object"
+    || !esNumero(u.cuadre_contable) || !esNumero(u.descuadre)) return null;
+  return { v: r.v, motivos: r.motivos, umbrales: { cuadre_contable: u.cuadre_contable, descuadre: u.descuadre } };
+}
+
+/**
  * Veredicto de una fila de la lista. Con resumen vigente evalúa las cuatro
  * condiciones; sin él (lote de antes de este cambio, editado por una versión
  * anterior de la app o sin encabezado) solo puede afirmar el descuadre por la

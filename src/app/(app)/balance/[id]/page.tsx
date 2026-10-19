@@ -39,6 +39,7 @@ import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-b
 import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
 import { evaluarCierreBalance, mensajePrevalidadorParaCerrar } from "@/lib/balance/cierre-balance";
 import { evaluarReemplazoBalance } from "@/lib/balance/reemplazo-balance";
+import { leerDescuadreAlCargar } from "@/lib/balance/cuadre-borrador";
 import { EliminarBalanceCorteButton, ReemplazarBalanceButton, type ReemplazoVm } from "./acciones-corte";
 import type { ReactNode } from "react";
 
@@ -270,6 +271,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const versionVigenteId = vistaCorte.vigenteDeMiLinea?.id ?? null;
   const conDiferencias = vistaCorte.otros.filter((o) => o.comparacion?.inconsistente);
   const reubicacionesAprobadas = parsearRevisionesReubicacionBalance(balance.reubicacionesAprobadas);
+  // Cargado «Descuadrado» por algo distinto del archivo fuente: condiciones que fallaban.
+  const descuadreAlCargar = leerDescuadreAlCargar(balance.descuadreBorrador);
   // Hay diff si existe una versión anterior a esta (cargada antes).
   const esta = hermanos.find((h) => h.id === id);
   const hasDiff = esta != null && hermanos.some((h) => h.creadoEn < esta.creadoEn);
@@ -437,11 +440,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         <CortePanel balanceId={id} vista={vistaCorte} puedeRevisar={mapearAuth.ok || puedeCongelar} accionesPorBalance={accionesCorte} />
       )}
 
-      {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (
+      {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || descuadreAlCargar || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
           comentario={balance.comentarioAprobacion}
           advertenciaArchivoFuente={balance.advertenciaArchivoFuente}
           diferenciaArchivoFuente={balance.diferenciaArchivoFuente != null ? Number(balance.diferenciaArchivoFuente) : null}
+          descuadre={descuadreAlCargar}
           reubicaciones={reubicacionesAprobadas}
           version={`versión ${balance.version}`}
           autor={meta.uploadedBy}
