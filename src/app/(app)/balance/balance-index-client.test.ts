@@ -100,6 +100,7 @@ describe("listado de balances · agrupado por fecha de corte", () => {
     expect(html).toMatch(/Todos<span[^>]*>2</);
     expect(html).toMatch(/Con diferencias<span[^>]*>1</);
     expect(html).toMatch(/Sin comparar<span[^>]*>0</);
+    expect(html).toMatch(/Por mapear<span[^>]*>2</);
   });
 });
 
@@ -117,6 +118,19 @@ describe("filtrarClientesPorCorte", () => {
 
   it("«sin_comparar» deja solo los cortes que falta comparar", () => {
     expect(filtrarClientesPorCorte([CLIENTE, otro], "sin_comparar")).toEqual([{ ...otro, cortes: [sinComparar] }]);
+  });
+
+  it("«por_mapear» deja los cortes con algún balance que tiene cuentas sin mapear, con todos sus balances", () => {
+    const anualPendiente: CorteGroup = {
+      ...CORTE_DIC,
+      rows: [CORTE_DIC.rows[0], { ...CORTE_DIC.rows[1], mapped: 539, unmapped: 1, total: 540 }],
+    };
+    const completo: ClientGroup = { ...CLIENTE, clientId: 11, cortes: [CORTE_DIC] };
+    const conPendiente: ClientGroup = { ...CLIENTE, clientId: 12, cortes: [anualPendiente, CORTE_MAR] };
+    expect(filtrarClientesPorCorte([CLIENTE, completo, conPendiente], "por_mapear")).toEqual([
+      { ...CLIENTE, cortes: [CORTE_MAR] },
+      conPendiente,
+    ]);
   });
 });
 

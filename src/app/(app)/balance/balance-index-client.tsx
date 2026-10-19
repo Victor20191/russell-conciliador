@@ -81,29 +81,35 @@ function normalizarBusqueda(valor: string) {
     .trim();
 }
 
-/** Qué cortes muestra el listado: todos, solo los que tienen diferencias o solo los sin comparar. */
-export type FiltroCorte = "todos" | "diferencias" | "sin_comparar";
+/**
+ * Qué cortes muestra el listado: todos, los que tienen diferencias, los sin comparar o los que
+ * tienen algún balance con cuentas por mapear.
+ */
+export type FiltroCorte = "todos" | "diferencias" | "sin_comparar" | "por_mapear";
 
-const ESTADO_DEL_FILTRO: Record<Exclude<FiltroCorte, "todos">, EstadoCorte> = {
-  diferencias: "inconsistente",
-  sin_comparar: "sin_comparar",
+const CORTE_DEL_FILTRO: Record<Exclude<FiltroCorte, "todos">, (corte: CorteGroup) => boolean> = {
+  diferencias: (corte) => corte.estado === "inconsistente",
+  sin_comparar: (corte) => corte.estado === "sin_comparar",
+  // El corte entero, no solo el balance pendiente: su celda cuenta y compara todos sus balances.
+  por_mapear: (corte) => corte.rows.some((row) => row.unmapped > 0),
 };
 
-const FILTROS: { valor: FiltroCorte; etiqueta: string; aviso: string }[] = [
-  { valor: "todos", etiqueta: "Todos", aviso: "" },
-  { valor: "diferencias", etiqueta: "Con diferencias", aviso: "Mostrando solo los cortes con diferencias de saldo final." },
-  { valor: "sin_comparar", etiqueta: "Sin comparar", aviso: "Mostrando solo los cortes que falta comparar." },
+const FILTROS: { valor: FiltroCorte; etiqueta: string; aviso: string; vacio: string }[] = [
+  { valor: "todos", etiqueta: "Todos", aviso: "", vacio: "No se encontraron clientes con ese NIT o razón social." },
+  { valor: "diferencias", etiqueta: "Con diferencias", aviso: "Mostrando solo los cortes con diferencias de saldo final.", vacio: "Ningún cliente tiene cortes con diferencias." },
+  { valor: "sin_comparar", etiqueta: "Sin comparar", aviso: "Mostrando solo los cortes que falta comparar.", vacio: "Ningún cliente tiene cortes sin comparar." },
+  { valor: "por_mapear", etiqueta: "Por mapear", aviso: "Mostrando solo los cortes con algún balance que tiene cuentas sin mapear.", vacio: "Ningún balance tiene cuentas por mapear." },
 ];
 
 /**
- * Con un filtro activo deja solo los clientes que tienen algún corte en ese estado y, de cada uno,
+ * Con un filtro activo deja solo los clientes que tienen algún corte que lo cumple y, de cada uno,
  * solo esos cortes. «todos» no filtra.
  */
 export function filtrarClientesPorCorte(clients: ClientGroup[], filtro: FiltroCorte): ClientGroup[] {
   if (filtro === "todos") return clients;
-  const estado = ESTADO_DEL_FILTRO[filtro];
+  const cumple = CORTE_DEL_FILTRO[filtro];
   return clients.flatMap((cliente) => {
-    const cortes = cliente.cortes.filter((corte) => corte.estado === estado);
+    const cortes = cliente.cortes.filter(cumple);
     return cortes.length > 0 ? [{ ...cliente, cortes }] : [];
   });
 }
@@ -167,7 +173,8 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
   );
 
   const pg = usePagination(clientesFiltrados, 50);
-  const avisoFiltro = FILTROS.find((f) => f.valor === filtro)?.aviso ?? "";
+  const filtroActivo = FILTROS.find((f) => f.valor === filtro) ?? FILTROS[0];
+  const avisoFiltro = filtroActivo.aviso;
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
@@ -200,7 +207,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
               </button>
             )}
           </div>
-          <div role="group" aria-label="Filtrar cortes por estado" className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white p-0.5 shadow-sm">
+          <div role="group" aria-label="Filtrar cortes por estado o por mapeo" className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white p-0.5 shadow-sm">
             {FILTROS.map((f) => (
               <button
                 key={f.valor}
@@ -213,7 +220,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                 className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${filtro === f.valor ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}
               >
                 {f.etiqueta}
-                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${filtro === f.valor ? "bg-white/20 text-white" : f.valor === "diferencias" && conteos[f.valor] > 0 ? "bg-err-100 text-err-700" : "bg-ink-100 text-ink-500"}`}>
+                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${filtro === f.valor ? "bg-white/20 text-white" : f.valor === "diferencias" && conteos[f.valor] > 0 ? "bg-err-100 text-err-700" : f.valor === "por_mapear" && conteos[f.valor] > 0 ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>
                   {conteos[f.valor]}
                 </span>
               </button>
@@ -226,9 +233,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
       {clientesFiltrados.length === 0 && (
         <Card>
           <div className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-            {filtro === "diferencias" ? "Ningún cliente tiene cortes con diferencias."
-              : filtro === "sin_comparar" ? "Ningún cliente tiene cortes sin comparar."
-              : "No se encontraron clientes con ese NIT o razón social."}
+            {filtroActivo.vacio}
           </div>
         </Card>
       )}
