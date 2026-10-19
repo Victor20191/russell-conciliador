@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CUENTAS_RUSSELL_NOMINA, MODULOS_IMPORT } from "../descriptores";
 import { cuentasCedula6 } from "../cuentas-modulo";
+import { GRUPOS_CONCEPTO_NOMINA } from "./grupos-concepto";
 import {
   claseDeCuentaCliente,
   codigoConceptoCanonico,
@@ -64,73 +65,111 @@ describe("estructura de la cuenta del cliente", () => {
 });
 
 describe("transponerClase / cuentaPorGrupo", () => {
-  it("5105 ↔ 5205 comparten sufijo; 7205 es espejo salvo 06→05 y 36→15; 73 es una sola cuenta", () => {
+  it("las cuatro clases son espejo: solo cambia el grupo (plan del 1/Oct/2026)", () => {
     expect(transponerClase("510506", "52")).toBe("520506");
-    expect(transponerClase("510506", "72")).toBe("720505");
+    expect(transponerClase("510506", "72")).toBe("720506"); // 720505 es «Apoyo de sostenimiento»
+    expect(transponerClase("510536", "72")).toBe("720536"); // 720515 es «Horas extras y recargos»
+    expect(transponerClase("510515", "72")).toBe("720515");
+    expect(transponerClase("510505", "72")).toBe("720505");
     expect(transponerClase("510530", "72")).toBe("720530");
-    expect(transponerClase("510536", "72")).toBe("720515");
     expect(transponerClase("510539", "72")).toBe("720539");
-    expect(transponerClase("510568", "72")).toBe("720568");
     expect(transponerClase("510569", "72")).toBe("720569");
-    expect(transponerClase("510570", "72")).toBe("720570");
     expect(transponerClase("510595", "72")).toBe("720595");
     expect(transponerClase("720530", "51")).toBe("510530");
     expect(transponerClase("720595", "52")).toBe("520595");
-    expect(transponerClase("720515", "51")).toBe("510536");
-    expect(transponerClase("520506", "73")).toBe("730505");
-    expect(transponerClase("730505", "51")).toBe("510506");
+    expect(transponerClase("720506", "51")).toBe("510506");
+    expect(transponerClase("720515", "51")).toBe("510515");
+    expect(transponerClase("720536", "52")).toBe("520536");
+    // 7305 ya no es una sola cuenta: 730505 es «Apoyo de sostenimiento», no toda la MOI.
+    expect(transponerClase("520506", "73")).toBe("730506");
+    expect(transponerClase("510536", "73")).toBe("730536");
+    expect(transponerClase("730506", "72")).toBe("720506");
+    expect(transponerClase("730505", "51")).toBe("510505");
   });
-  it("subcuentaPucDeCuentaRussell: la subcuenta PUC que dice una cuenta Russell de gasto", () => {
+  it("subcuentaPucDeCuentaRussell: el sufijo, igual en las cuatro clases", () => {
     expect(subcuentaPucDeCuentaRussell("510506")).toBe("06");
     expect(subcuentaPucDeCuentaRussell("520506")).toBe("06");
-    expect(subcuentaPucDeCuentaRussell("720505")).toBe("06"); // 7205 «Salarios»
-    expect(subcuentaPucDeCuentaRussell("720515")).toBe("36"); // 7205 «Prima»
+    expect(subcuentaPucDeCuentaRussell("720506")).toBe("06");
+    expect(subcuentaPucDeCuentaRussell("720505")).toBe("05"); // apoyo de sostenimiento, no sueldos
+    expect(subcuentaPucDeCuentaRussell("720515")).toBe("15"); // horas extras, no prima
+    expect(subcuentaPucDeCuentaRussell("720536")).toBe("36");
     expect(subcuentaPucDeCuentaRussell("720530")).toBe("30");
     expect(subcuentaPucDeCuentaRussell("510595")).toBe("95");
-    expect(subcuentaPucDeCuentaRussell("730505")).toBeNull(); // una sola cuenta para toda la MOI
+    expect(subcuentaPucDeCuentaRussell("730506")).toBe("06");
     expect(subcuentaPucDeCuentaRussell("251010")).toBeNull(); // pasivo
+    expect(subcuentaPucDeCuentaRussell("731005")).toBeNull(); // CIF, fuera del gasto de personal
     expect(subcuentaPucDeCuentaRussell("5105")).toBeNull();
   });
   it("devuelve null fuera del gasto de personal", () => {
     expect(transponerClase("130505", "51")).toBeNull();
     expect(transponerClase("5105", "51")).toBeNull();
+    expect(transponerClase("731005", "51")).toBeNull();
+    expect(transponerClase("721005", "51")).toBeNull();
   });
-  it("cuentaPorGrupo con los sufijos del catálogo", () => {
+  it("cuentaPorGrupo con los sufijos del catálogo (la subcuenta PUC del grupo)", () => {
     expect(cuentaPorGrupo("sueldos", "51")).toBe("510506");
-    expect(cuentaPorGrupo("horas_extras", "52")).toBe("520506");
+    expect(cuentaPorGrupo("horas_extras", "52")).toBe("520515");
+    expect(cuentaPorGrupo("horas_extras", "72")).toBe("720515");
+    expect(cuentaPorGrupo("comisiones", "72")).toBe("720518");
+    expect(cuentaPorGrupo("incapacidades", "73")).toBe("730524");
     expect(cuentaPorGrupo("cesantias", "72")).toBe("720530");
+    expect(cuentaPorGrupo("intereses_cesantias", "72")).toBe("720533");
     expect(cuentaPorGrupo("prima", "51")).toBe("510536");
     expect(cuentaPorGrupo("vacaciones", "52")).toBe("520539");
     expect(cuentaPorGrupo("aportes_eps", "72")).toBe("720569");
-    expect(cuentaPorGrupo("auxilio_transporte", "51")).toBe("510595");
-    expect(cuentaPorGrupo("bonificaciones", "73")).toBe("730505");
+    expect(cuentaPorGrupo("caja_compensacion", "52")).toBe("520572");
+    expect(cuentaPorGrupo("sueldos", "72")).toBe("720506");
+    expect(cuentaPorGrupo("prima", "72")).toBe("720536");
+    expect(cuentaPorGrupo("auxilio_transporte", "51")).toBe("510527");
+    expect(cuentaPorGrupo("sueldos", "73")).toBe("730506");
+    expect(cuentaPorGrupo("bonificaciones", "73")).toBe("730548");
+    expect(cuentaPorGrupo("viaticos", "51")).toBe("510595"); // 510521 no está en el plan
+    expect(cuentaPorGrupo("gastos_deportivos", "52")).toBe("520595"); // ni 520566
     expect(cuentaPorGrupo("inexistente", "51")).toBeNull();
   });
   it("todas las cuentas por grupo y clase pertenecen al módulo (D1)", () => {
-    for (const grupo of ["sueldos", "cesantias", "prima", "vacaciones", "aportes_arl", "aportes_eps", "aportes_pension", "otros"]) {
+    for (const { id } of GRUPOS_CONCEPTO_NOMINA) {
       for (const clase of ["51", "52", "72", "73"] as const) {
-        expect(CUENTAS_MODULO_NOM, `${grupo}/${clase}`).toContain(cuentaPorGrupo(grupo, clase));
+        expect(CUENTAS_MODULO_NOM, `${id}/${clase}`).toContain(cuentaPorGrupo(id, clase));
       }
     }
   });
 });
 
 describe("cuentaRussellPorEstructura / resolverCuentaClienteARussell", () => {
-  it("deriva por clase + subcuenta PUC", () => {
+  it("deriva por clase + subcuenta PUC → grupo", () => {
     expect(cuentaRussellPorEstructura("52050601")).toBe("520506");
-    expect(cuentaRussellPorEstructura("72051501")).toBe("720505");
+    expect(cuentaRussellPorEstructura("72051501")).toBe("720515");
+    expect(cuentaRussellPorEstructura("72053601")).toBe("720536");
+    expect(cuentaRussellPorEstructura("73050601")).toBe("730506");
     expect(cuentaRussellPorEstructura("51053001")).toBe("510530");
-    expect(cuentaRussellPorEstructura("51052703")).toBe("510595");
+    expect(cuentaRussellPorEstructura("51052703")).toBe("510527");
     expect(cuentaRussellPorEstructura("72056901")).toBe("720569");
+    expect(cuentaRussellPorEstructura("51051201")).toBe("510506"); // dominicales y festivos → sueldos
     expect(cuentaRussellPorEstructura("61050506")).toBeNull();
     expect(cuentaRussellPorEstructura("0005060000")).toBeNull();
     expect(cuentaRussellPorEstructura("23703001")).toBeNull();
+  });
+  it("con la cédula del módulo manda la subcuenta exacta; si no está, su grupo", () => {
+    // Sin grupo en el catálogo: salario integral (03), apoyo de sostenimiento (05) y licencias (86).
+    expect(cuentaRussellPorEstructura("51050301")).toBe("510595");
+    expect(cuentaRussellPorEstructura("51050301", CUENTAS_MODULO_NOM)).toBe("510503");
+    expect(cuentaRussellPorEstructura("72050501", CUENTAS_MODULO_NOM)).toBe("720505");
+    expect(cuentaRussellPorEstructura("52058601", CUENTAS_MODULO_NOM)).toBe("520586");
+    expect(cuentaRussellPorEstructura("72051501", CUENTAS_MODULO_NOM)).toBe("720515");
+    // Fuera del plan Russell: 07 aprendices de KP EMPAQUES, 21 viáticos, 12 dominicales.
+    expect(cuentaRussellPorEstructura("72050701", CUENTAS_MODULO_NOM)).toBe("720595");
+    expect(cuentaRussellPorEstructura("51052101", CUENTAS_MODULO_NOM)).toBe("510595");
+    expect(cuentaRussellPorEstructura("51051201", CUENTAS_MODULO_NOM)).toBe("510506");
+    // Una lista que no tiene la exacta (cédula acotada) cae al grupo.
+    expect(cuentaRussellPorEstructura("51050301", ["510506", "510595"])).toBe("510595");
   });
   it("la memoria del balance manda sobre la estructura", () => {
     const mapeo = new Map([["51052703", "510506"], ["520506", "520595"]]);
     expect(resolverCuentaClienteARussell("51052703", mapeo)).toEqual({ cuenta6: "510506", origen: "balance" });
     expect(resolverCuentaClienteARussell("52050601", mapeo)).toEqual({ cuenta6: "520595", origen: "balance" });
-    expect(resolverCuentaClienteARussell("72050601", mapeo)).toEqual({ cuenta6: "720505", origen: "estructura" });
+    expect(resolverCuentaClienteARussell("72050601", mapeo)).toEqual({ cuenta6: "720506", origen: "estructura" });
+    expect(resolverCuentaClienteARussell("51050301", mapeo, CUENTAS_MODULO_NOM)).toEqual({ cuenta6: "510503", origen: "estructura" });
     expect(resolverCuentaClienteARussell("8888", mapeo)).toBeNull();
   });
 });
@@ -163,8 +202,17 @@ describe("resolverCuentaConcepto", () => {
 
   it("vía 1: cuenta del archivo sin memoria del balance se deriva por estructura", () => {
     const r = resolverCuentaConcepto({ clasificador: "23", nombre: "GASTOS DE TRANSPORTE", cuentaArchivo: "51052703" }, ctxVacio);
-    expect(r).toMatchObject({ cuentas: ["510595"], via: "archivo", destino: "gasto", grupo: "auxilio_transporte", subcuentaPuc: "27" });
+    expect(r).toMatchObject({ cuentas: ["510527"], via: "archivo", destino: "gasto", grupo: "auxilio_transporte", subcuentaPuc: "27" });
     expect(r.motivo).toMatch(/estructura/);
+  });
+
+  it("vía 1: por estructura manda la subcuenta exacta de la cédula, como la cascada del balance", () => {
+    // 72051501 sin homologar: el balance, por coincidencia exacta, la pondría en 720515.
+    expect(resolverCuentaConcepto({ clasificador: "10", cuentaArchivo: "72051501" }, ctxVacio)).toMatchObject({ cuentas: ["720515"], origenCuentaArchivo: "estructura" });
+    // Salario integral (03) no es de ningún grupo: sin la subcuenta exacta caía en «Otros».
+    expect(resolverCuentaConcepto({ clasificador: "2", cuentaArchivo: "51050301" }, ctxVacio)).toMatchObject({ cuentas: ["510503"], origenCuentaArchivo: "estructura" });
+    // Una subcuenta del cliente que no está en el plan va por su grupo (12 dominicales → sueldos).
+    expect(resolverCuentaConcepto({ clasificador: "3", cuentaArchivo: "52051201" }, ctxVacio)).toMatchObject({ cuentas: ["520506"], grupo: "sueldos" });
   });
 
   it("vía 1: cuenta de pasivo va al control de deducciones", () => {
@@ -177,7 +225,7 @@ describe("resolverCuentaConcepto", () => {
       { clasificador: "Sueldo", agrupador: "MOD", cuentasPorClaseArchivo: { "51": "51050601", "72": "72050601" } },
       { ...ctxVacio, reglasClase: new Map([["MOD", "72"]]) },
     );
-    expect(r).toMatchObject({ cuentas: ["720505"], via: "archivo", clase: "72" });
+    expect(r).toMatchObject({ cuentas: ["720506"], via: "archivo", clase: "72" });
   });
 
   it("vía 2: memoria exacta (concepto, agrupador)", () => {
@@ -250,7 +298,7 @@ describe("resolverCuentaConcepto", () => {
     };
     const r = resolverCuentaConcepto({ clasificador: "01", nombre: "SALARIO BASICO" }, ctx);
     expect(r.via).toBe("multi");
-    expect(r.cuentas).toEqual(["510506", "520506", "720505", "730505"]);
+    expect(r.cuentas).toEqual(["510506", "520506", "720506", "730506"]);
     expect(r.subcuentaPuc).toBe("06");
     // Con regla de clase, se decide.
     const conRegla = resolverCuentaConcepto({ clasificador: "1" }, { ...ctx, reglasClase: new Map([["5", "52"]]) });
@@ -270,6 +318,18 @@ describe("resolverCuentaConcepto", () => {
   it("vía 5: sugerencia por nombre, clase 51 por defecto o la de la regla", () => {
     expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Prima de servicios" }, ctxVacio)).toMatchObject({ cuentas: ["510536"], via: "sugerido_nombre", clase: "51", grupo: "prima" });
     expect(resolverCuentaConcepto({ clasificador: "X", nombre: "Cesantías", agrupador: "MOD" }, { ...ctxVacio, reglasClase: new Map([["MOD", "72"]]) })).toMatchObject({ cuentas: ["720530"], via: "sugerido_nombre", clase: "72" });
+  });
+
+  it("vía 5: el nombre lleva a la subcuenta PUC del grupo, no a xx06/xx95 (plan del 1/Oct/2026)", () => {
+    // Antes «HORAS EXTRAS» iba a xx06 aunque el balance, por coincidencia exacta, la pone en xx15.
+    const mod = { ...ctxVacio, reglasClase: new Map([["MOD", "72" as const]]) };
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "HORAS EXTRAS", agrupador: "MOD" }, mod)).toMatchObject({ cuentas: ["720515"], grupo: "horas_extras" });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "AUXILIO DE TRANSPORTE" }, ctxVacio)).toMatchObject({ cuentas: ["510527"], grupo: "auxilio_transporte" });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "COMISIONES" }, ctxVacio)).toMatchObject({ cuentas: ["510518"] });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "INCAPACIDAD EPS" }, ctxVacio)).toMatchObject({ cuentas: ["510524"] });
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "BONIFICACION NO SALARIAL" }, ctxVacio)).toMatchObject({ cuentas: ["510548"] });
+    // Viáticos (21) no está en el plan Russell: sigue en «Otros».
+    expect(resolverCuentaConcepto({ clasificador: "X", nombre: "VIATICOS" }, ctxVacio)).toMatchObject({ cuentas: ["510595"], grupo: "viaticos" });
   });
 
   it("sin nada → sin_cuenta y de GASTO: suma en «Saldo del módulo sin cuenta» y sale en Novedades", () => {
@@ -434,7 +494,7 @@ describe("cuenta contable del archivo: origen, precedencia y avisos", () => {
   it("dice si la cuenta estaba homologada en el balance o se derivó por estructura", () => {
     expect(resolverCuentaConcepto({ clasificador: "1", cuentaArchivo: "51050601" }, conBalance).origenCuentaArchivo).toBe("balance");
     const porEstructura = resolverCuentaConcepto({ clasificador: "23", cuentaArchivo: "51052703" }, ctxVacio);
-    expect(porEstructura).toMatchObject({ via: "archivo", origenCuentaArchivo: "estructura", cuentas: ["510595"] });
+    expect(porEstructura).toMatchObject({ via: "archivo", origenCuentaArchivo: "estructura", cuentas: ["510527"] });
     expect(porEstructura.motivo).toMatch(/no la tiene homologada/);
   });
 

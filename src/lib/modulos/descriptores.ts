@@ -340,7 +340,7 @@ export type DescriptorModulo = {
   /**
    * Nivel de la cuenta Russell contra la que cruza la cédula contable: 4 dígitos (el de
    * siempre: la fila del cruce es un subgrupo, 1435) o 6 (Nómina, RF-NOM-05: 510506 y
-   * 720505 son renglones distintos aunque compartan la 5105/7205; Cartera y CxP, que concilian
+   * 720506 son renglones distintos aunque compartan la 5105/7205; Cartera y CxP, que concilian
    * contra sus `cuentasRussell6`: 130505 y 130510 no son la misma cartera). A 6 la homologación del
    * cliente guarda la cuenta completa (`consolidacion_modulo_cliente.cuenta_6`), las marcas
    * y el cierre en firme se llavean por ella y el lado contable se agrega por

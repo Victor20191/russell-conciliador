@@ -7,9 +7,8 @@
 //     subcuenta en TODAS las clases (510506 + 520506 + 720506) y el lado módulo la Σ de los
 //     conceptos cuya subcuenta coincide. No exige regla de clase: cuadra aunque la
 //     clase la ponga el centro de costo (SIIGO «00»). Russell 6 no la puede reproducir porque
-//     colapsa esas subcuentas en «xx95 Otros». La subcuenta del concepto es la de su cuenta del
-//     cliente (archivo, catálogo o memoria) y, si no la trae, la de la cuenta Russell que tiene
-//     ASIGNADA (510506, 520506 y 720505 → 06; 1/Oct/2026, MOTO ZONE sin cuenta en el archivo).
+//     colapsa esas subcuentas en «xx95 Otros». La subcuenta del concepto es SOLO la de su cuenta
+//     del cliente (archivo, catálogo o memoria); sin ella el concepto se lista aparte (2/Oct/2026).
 //  2. CONTROL DE DEDUCCIONES — los conceptos cuya cuenta del cliente es de pasivo/activo/
 //     ingreso (libranzas 2370, retención 2365, embargos 237025, préstamos 1365, intereses
 //     4210): un renglón por cuenta del cliente con la Σ del módulo (negativa) contra el

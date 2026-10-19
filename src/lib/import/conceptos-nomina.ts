@@ -18,7 +18,7 @@
 //                lleva a Russell por la homologación del balance (RF-NOM-10) o por su
 //                estructura PUC; aquí solo se exige que tenga al menos 6 dígitos.
 //   agrupador  → centro de costo / clase del archivo (opcional): permite que un mismo
-//                concepto vaya a 510506 en administración y a 720505 en producción.
+//                concepto vaya a 510506 en administración y a 720506 en producción.
 //
 // Como todos los importadores, el parser es PURO: no consulta la BD. La existencia del
 // cliente y la resolución de la cuenta se hacen en la Server Action (`importarConceptosNomina`).

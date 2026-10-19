@@ -28,7 +28,7 @@ export type DestinoCuentaCliente = { cuenta4: string; cuenta6?: string | null; n
 export type EntornoResolucion = {
   /**
    * Cuentas Russell válidas para ESTE módulo al nivel del cruce (p. ej. 1405, 1435… en
-   * Inventarios; 510506, 720505… en Nómina).
+   * Inventarios; 510506, 720506… en Nómina).
    */
   subgruposModulo: ReadonlySet<string>;
   /**

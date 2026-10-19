@@ -12,9 +12,12 @@
 //  - `subcuentasPuc`: los dígitos 5-6 del PUC colombiano (Decreto 2649) que comparten TODOS los
 //    clientes (510506 sueldos, 510515 horas extras, 510527 auxilio de transporte…). Es la llave
 //    de la vista del cruce «por subcuenta sumando clases», que es el papel que hace el auditor.
-//  - `sufijoRussell`: la subcuenta del plan Russell, que colapsa casi todo en «xx95 Otros»:
-//    sueldos, horas extras, comisiones e incapacidades van a 510506; cesantías a 510530; prima a
-//    510536; vacaciones a 510539; ARL/EPS/pensión a 68/69/70; el resto a 510595.
+//  - `sufijoRussell`: la subcuenta del plan Russell. Desde el 1/Oct/2026 el plan tiene las 27
+//    subcuentas del PUC en 5105/5205/7205/7305, así que es la misma subcuenta PUC del grupo
+//    (horas extras 510515, auxilio de transporte 510527, bonificaciones 510548…); solo los grupos
+//    cuya subcuenta no está en el plan caen en «xx95 Otros» (viáticos 21, gastos deportivos 66).
+//    Hasta el 14/Oct/2026 seguía el plan de 8 subcuentas: horas extras, comisiones e incapacidades
+//    iban a xx06 y casi todo lo demás a xx95.
 //
 // Puro: sin BD, sin Excel. Las pruebas viven en `grupos-concepto.test.ts`.
 
@@ -23,7 +26,7 @@ export type GrupoConceptoNomina = {
   id: string;
   /** Etiqueta que ve el usuario (y que acepta la plantilla). */
   etiqueta: string;
-  /** Subcuenta Russell de 5105/5205 para el grupo (`7205` se transpone por posición). */
+  /** Subcuenta Russell del grupo, igual en 5105/5205/7205/7305 (las cuatro clases son espejo). */
   sufijoRussell: string;
   /** Subcuentas PUC (dígitos 5-6) del cliente que pertenecen al grupo. */
   subcuentasPuc: readonly string[];
@@ -47,7 +50,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "horas_extras",
     etiqueta: "Horas extras y recargos",
-    sufijoRussell: "06",
+    sufijoRussell: "15",
     subcuentasPuc: ["15"],
     // NOMINAI abrevia: «HOR EXT DIUR 125%», «HORA EXT NOCT 175%», «REC NOCT 35%» (KP EMPAQUES).
     patrones: [/hora[s]? ?extra|h\.? ?e\.? |hed|hen|hedf|henf|extra diurna|extra nocturna|recargo noct|\bhe\b|\bhor(as?)? ext\b|\brec noct?\b/],
@@ -56,7 +59,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "comisiones",
     etiqueta: "Comisiones",
-    sufijoRussell: "06",
+    sufijoRussell: "18",
     subcuentasPuc: ["18"],
     patrones: [/comision/],
     sinonimos: ["comision"],
@@ -72,7 +75,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "incapacidades",
     etiqueta: "Incapacidades",
-    sufijoRussell: "06",
+    sufijoRussell: "24",
     subcuentasPuc: ["24"],
     // «INC. SURA», «INC. NUEVA EPS», «INCAP. KP», «LICENC. MATERNIDAD»: sin esto la incapacidad que
     // paga la EPS caía en «Aportes EPS» por la palabra «EPS».
@@ -82,7 +85,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "auxilio_transporte",
     etiqueta: "Auxilio de transporte",
-    sufijoRussell: "95",
+    sufijoRussell: "27",
     subcuentasPuc: ["27"],
     patrones: [/aux(ilio)?\.? ?(de )?transp|subsidio (de )?transp|sub\.? ?transp|rodamiento|gastos de transporte/],
     sinonimos: ["auxilio transporte", "subsidio de transporte", "transporte"],
@@ -98,7 +101,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "intereses_cesantias",
     etiqueta: "Intereses sobre cesantías",
-    sufijoRussell: "95",
+    sufijoRussell: "33",
     subcuentasPuc: ["33"],
     patrones: [/interes.*cesantia|int\.? ?cesantia|intereses? ?de ?ces/],
     sinonimos: ["intereses cesantias", "intereses de cesantias", "intereses a las cesantias"],
@@ -122,7 +125,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "primas_extralegales",
     etiqueta: "Primas extralegales",
-    sufijoRussell: "95",
+    sufijoRussell: "42",
     subcuentasPuc: ["42"],
     patrones: [/prima extralegal|prima de vacaciones|prima de navidad|prima extra/],
     sinonimos: ["prima extralegal", "extralegales"],
@@ -130,7 +133,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "auxilios",
     etiqueta: "Auxilios",
-    sufijoRussell: "95",
+    sufijoRussell: "45",
     subcuentasPuc: ["45"],
     patrones: [/auxilio|subsidio|aux\.? /],
     sinonimos: ["auxilio", "auxilios y subsidios"],
@@ -138,7 +141,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "bonificaciones",
     etiqueta: "Bonificaciones",
-    sufijoRussell: "95",
+    sufijoRussell: "48",
     subcuentasPuc: ["48"],
     patrones: [/bonif|bono|gratificacion|premio|incentivo/],
     sinonimos: ["bonificacion", "bonos", "bonificaciones y bonos"],
@@ -146,7 +149,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "dotacion",
     etiqueta: "Dotación y suministro a trabajadores",
-    sufijoRussell: "95",
+    sufijoRussell: "51",
     subcuentasPuc: ["51"],
     patrones: [/dotacion|uniforme/],
     sinonimos: ["dotacion"],
@@ -154,7 +157,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "seguros",
     etiqueta: "Seguros",
-    sufijoRussell: "95",
+    sufijoRussell: "54",
     subcuentasPuc: ["54"],
     patrones: [/seguro de vida|poliza/],
     sinonimos: ["seguro"],
@@ -162,7 +165,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "indemnizaciones",
     etiqueta: "Indemnizaciones",
-    sufijoRussell: "95",
+    sufijoRussell: "60",
     subcuentasPuc: ["60"],
     patrones: [/indemniz|liquidacion (de )?contrato|sancion moratoria/],
     sinonimos: ["indemnizacion", "indemnizaciones laborales"],
@@ -170,7 +173,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "capacitacion",
     etiqueta: "Capacitación al personal",
-    sufijoRussell: "95",
+    sufijoRussell: "63",
     subcuentasPuc: ["63"],
     patrones: [/capacitacion|formacion/],
     sinonimos: ["capacitacion"],
@@ -213,7 +216,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "caja_compensacion",
     etiqueta: "Aportes caja de compensación",
-    sufijoRussell: "95",
+    sufijoRussell: "72",
     subcuentasPuc: ["72"],
     patrones: [/caja de comp|comfama|comfenalco|compensar|colsubsidio|comfandi|cafam|\bccf\b/],
     sinonimos: ["caja de compensacion", "ccf", "comfama"],
@@ -222,7 +225,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "aportes_icbf",
     etiqueta: "Aportes ICBF",
-    sufijoRussell: "95",
+    sufijoRussell: "75",
     subcuentasPuc: ["75"],
     patrones: [/icbf|bienestar familiar/],
     sinonimos: ["icbf"],
@@ -231,7 +234,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "aportes_sena",
     etiqueta: "Aportes SENA",
-    sufijoRussell: "95",
+    sufijoRussell: "78",
     subcuentasPuc: ["78"],
     patrones: [/\bsena\b/],
     sinonimos: ["sena"],
@@ -240,7 +243,7 @@ export const GRUPOS_CONCEPTO_NOMINA: readonly GrupoConceptoNomina[] = [
   {
     id: "gastos_medicos",
     etiqueta: "Gastos médicos y drogas",
-    sufijoRussell: "95",
+    sufijoRussell: "84",
     subcuentasPuc: ["84"],
     patrones: [/medic|droga|examen/],
     sinonimos: ["gastos medicos"],

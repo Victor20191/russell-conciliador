@@ -78,7 +78,7 @@ export type ConsolidadoClasificador = {
  *
  * Con `porAgrupador` (Nómina) el renglón es el par (clasificador, agrupador): un mismo concepto
  * en dos centros de costo son dos renglones, porque pueden ir a cuentas distintas (510506 en
- * administración, 720505 en producción). La clave del renglón se serializa con
+ * administración, 720506 en producción). La clave del renglón se serializa con
  * `claveConsolidado` para que la pestaña, sus acciones y las anclas sigan llaveando por un
  * solo string.
  */

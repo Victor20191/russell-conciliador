@@ -138,7 +138,7 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
         filas.push({ ...base, cuentaCliente: "", cuenta4: cuenta.slice(0, 4), cuenta6: cuenta });
         continue;
       }
-      const r = resolverCuentaClienteARussell(cuenta, mapeo);
+      const r = resolverCuentaClienteARussell(cuenta, mapeo, cuentasRussell6);
       if (destino === "control" && !(r && delModulo(r.cuenta6))) {
         // Libranzas, retención, préstamos, intereses: no cruzan contra el gasto; se conservan
         // con su cuenta del cliente para el control de deducciones (D1). Los pasivos que la

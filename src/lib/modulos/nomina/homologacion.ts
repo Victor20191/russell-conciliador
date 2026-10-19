@@ -94,54 +94,40 @@ export function esCuentaComodin(cuentaCliente: unknown): boolean {
 }
 
 // ===== Transposición entre clases =====
-// 5105 y 5205 comparten subcuenta Russell; 7205 es espejo de 5105 (30, 39, 68, 69, 70, 95) salvo
-// 06→05 y 36→15, que conservan sus cuentas de antes (desde el 30/Sep/2026: 720510, 720520,
-// 720525, 720535 y 720540 salieron del plan); 73 tiene una sola cuenta (730505).
-const SUFIJO_51_A_72: Readonly<Record<string, string>> = {
-  "06": "05", "30": "30", "36": "15", "39": "39", "68": "68", "69": "69", "70": "70", "95": "95",
-};
-const SUFIJO_72_A_51: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(SUFIJO_51_A_72).map(([a, b]) => [b, a]),
-);
+// Las cuatro clases del gasto de personal son ESPEJO en el plan Russell: 5105, 5205, 7205 y 7305
+// comparten numeración (510506 / 520506 / 720506 / 730506 «Sueldos y salarios», xx36 «Prima de
+// servicios», xx05 «Apoyo de sostenimiento – aprendices»), así que transponer solo cambia el grupo.
+// Hasta el 1/Oct/2026 7205 traducía 06→05 y 36→15 y la 73 era una sola cuenta (730505): ese día se
+// crearon 720506, 720536 y 730506 y se renombraron 720505 y 730505 («Salarios» y «Costos indirectos
+// de fabricación» → «Apoyo de sostenimiento») y 720515 («Prima» → «Horas extras y recargos»).
+const GRUPO_DE_CLASE: Readonly<Record<ClaseNomina, string>> = { "51": "5105", "52": "5205", "72": "7205", "73": "7305" };
 
-/** Sufijo (dígitos 5-6) de una cuenta Russell 5105xx/5205xx equivalente a `cuenta6`, o null. */
-function sufijo51De(cuenta6: string): string | null {
-  const grupo = cuenta6.slice(0, 4);
-  const suf = cuenta6.slice(4, 6);
-  if (grupo === "5105" || grupo === "5205") return suf;
-  if (grupo === "7205") return SUFIJO_72_A_51[suf] ?? null;
-  if (grupo === "7305") return "06"; // MOI = sueldos de la mano de obra indirecta
-  return null;
+/** Subcuenta (dígitos 5-6) de una cuenta Russell 5105xx/5205xx/7205xx/7305xx, o null. */
+function sufijoGastoPersonal(cuenta6: string): string | null {
+  const clase = cuenta6.slice(0, 2);
+  return esClaseNomina(clase) && cuenta6.slice(0, 4) === GRUPO_DE_CLASE[clase] ? cuenta6.slice(4, 6) : null;
 }
 
 /**
- * Subcuenta PUC (dígitos 5-6, numeración de 5105) de una cuenta Russell de gasto de personal:
- * 5105xx/5205xx → su sufijo; 7205 se traduce (720505 «Salarios» → 06, 720515 «Prima» → 36).
- * 7305 es UNA cuenta para toda la mano de obra indirecta: no dice la subcuenta → null.
+ * Subcuenta PUC (dígitos 5-6) de una cuenta Russell de gasto de personal: su sufijo, porque las
+ * cuatro clases comparten numeración (720506 → 06, 720536 → 36, 730515 → 15). null fuera de
+ * 5105/5205/7205/7305.
  */
 export function subcuentaPucDeCuentaRussell(cuenta6: string): string | null {
   const c = digitosCuenta(cuenta6);
-  if (c.length !== 6 || c.startsWith("7305")) return null;
-  return sufijo51De(c);
+  return c.length === 6 ? sufijoGastoPersonal(c) : null;
 }
 
 /**
  * La cuenta Russell de 6 dígitos equivalente en otra clase: `transponerClase("510506", "72")`
- * → «720505»; `("720530", "51")` → «510530»; `(*, "73")` → «730505». `null` si la cuenta no es
- * del gasto de personal o la clase no la tiene (7205 no tiene «comisiones» aparte: cae en 05).
+ * → «720506»; `("720530", "51")` → «510530»; `("520536", "73")` → «730536». `null` si la cuenta no
+ * es del gasto de personal (los llamadores descartan lo que no esté en la cédula del módulo).
  */
 export function transponerClase(cuenta6: string, clase: ClaseNomina): string | null {
   const c = digitosCuenta(cuenta6);
   if (c.length !== 6) return null;
-  const suf = sufijo51De(c);
-  if (!suf) return null;
-  if (clase === "51") return `5105${suf}`;
-  if (clase === "52") return `5205${suf}`;
-  if (clase === "72") {
-    const s72 = SUFIJO_51_A_72[suf];
-    return s72 ? `7205${s72}` : null;
-  }
-  return "730505";
+  const suf = sufijoGastoPersonal(c);
+  return suf ? `${GRUPO_DE_CLASE[clase]}${suf}` : null;
 }
 
 /**
@@ -171,14 +157,20 @@ export function cuentaPorGrupo(grupoId: string, clase: ClaseNomina): string | nu
 
 /**
  * Cuenta Russell derivada de la ESTRUCTURA PUC de la cuenta del cliente cuando el balance aún
- * no la homologó: clase 51/52/72/73 + subcuenta PUC → grupo → cuenta Russell. `52050601` →
- * 520506; `72051501` (horas extras en producción) → 720505; `61050506` (INCODOL) → null (61 no
- * es clase del módulo). Es una derivación, no la memoria del balance: el llamador la marca así.
+ * no la homologó: clase 51/52/72/73 + subcuenta PUC. Con las cuentas del módulo (`cuentasModulo`,
+ * la cédula de Nómina), manda la subcuenta EXACTA cuando existe —es lo que hará la cascada del
+ * balance, que homologa por coincidencia de 6 dígitos—: `72051501` → 720515, `51050301` → 510503
+ * (salario integral, que no es de ningún grupo). Si no existe, o sin la lista, la subcuenta va a su
+ * grupo y el grupo a su cuenta (`51051201` dominicales → 510506; `51052101` viáticos → 510595).
+ * `61050506` (INCODOL) → null (61 no es clase del módulo). Es una derivación, no la memoria del
+ * balance: el llamador la marca así.
  */
-export function cuentaRussellPorEstructura(cuentaCliente: unknown): string | null {
+export function cuentaRussellPorEstructura(cuentaCliente: unknown, cuentasModulo?: readonly string[]): string | null {
   const clase = claseDeCuentaCliente(cuentaCliente);
   const sub = subcuentaPucDe(cuentaCliente);
   if (!clase || !sub || !esClaseNomina(clase)) return null;
+  const exacta = `${GRUPO_DE_CLASE[clase]}${sub}`;
+  if (cuentasModulo?.includes(exacta)) return exacta;
   const grupo = grupoPorSubcuentaPuc(sub) ?? "otros";
   return cuentaPorGrupo(grupo, clase);
 }
@@ -333,17 +325,19 @@ export function indexarMemoria(memoria: readonly FilaHomologacion[], agruparPor:
 
 /**
  * Cuenta Russell de una cuenta del cliente: memoria del balance primero (exacta, luego el grupo
- * de 6), estructura PUC después. `null` si es comodín o no resuelve.
+ * de 6), estructura PUC después (con `cuentasModulo`, la subcuenta exacta si está en la cédula).
+ * `null` si es comodín o no resuelve.
  */
 export function resolverCuentaClienteARussell(
   cuentaCliente: unknown,
   mapeoCliente: ReadonlyMap<string, string> | undefined,
+  cuentasModulo?: readonly string[],
 ): { cuenta6: string; origen: "balance" | "estructura" } | null {
   const d = digitosCuenta(cuentaCliente);
   if (d.length < 6 || esCuentaComodin(d)) return null;
   const memoria = mapeoCliente?.get(d) ?? mapeoCliente?.get(d.slice(0, 6));
   if (memoria && digitosCuenta(memoria).length === 6) return { cuenta6: digitosCuenta(memoria), origen: "balance" };
-  const estructura = cuentaRussellPorEstructura(d);
+  const estructura = cuentaRussellPorEstructura(d, cuentasModulo);
   return estructura ? { cuenta6: estructura, origen: "estructura" } : null;
 }
 
@@ -403,7 +397,7 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
         motivo: `Asignación solo para el período: reemplaza la cuenta ${d} del archivo.`,
       });
     }
-    const r = resolverCuentaClienteARussell(d, ctx.mapeoCliente);
+    const r = resolverCuentaClienteARussell(d, ctx.mapeoCliente, ctx.cuentasRussell6);
     // Un pasivo que la cédula SÍ concilia (cesantías 251010, homologada en el balance) cruza como
     // cualquier cuenta del módulo; el resto de pasivos va al control de deducciones.
     if (destino === "control" && !(r && delModulo(r.cuenta6))) {

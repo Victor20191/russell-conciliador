@@ -95,7 +95,7 @@ describe("construirConsolidadoNomina", () => {
     // Memoria exacta: guardada y sugerida a la vez.
     expect(porClave.get("1 ∥ GYA")).toMatchObject({ codigo: "1", agrupador: "GYA", descripcion: "SUELDO BASICO", total: 100, cuentas: ["510506"], sugerencia: { via: "memoria_exacta", cuentas: ["510506"] } });
     // Sin memoria para MOD: la memoria de GYA llevada a la clase 72 del centro (vía 3b).
-    expect(porClave.get("1 ∥ MOD")).toMatchObject({ cuentas: [], sugerencia: { via: "memoria_clase", cuentas: ["720505"], clase: "72" } });
+    expect(porClave.get("1 ∥ MOD")).toMatchObject({ cuentas: [], sugerencia: { via: "memoria_clase", cuentas: ["720506"], clase: "72" } });
     // Memoria base + regla de clase → transpuesta, sin estar guardada para ese centro.
     expect(porClave.get("18 ∥ GYA")).toMatchObject({ cuentas: [], sugerencia: { via: "memoria_clase", cuentas: ["510539"], grupo: "vacaciones" } });
     expect(r.agrupadores).toEqual([
@@ -119,7 +119,7 @@ describe("construirConsolidadoNomina", () => {
     expect(r.renglones.map((x) => x.clasificador)).toEqual(["23 # 51052703", "23"]);
     expect(porClave.get("23 # 51052703")).toMatchObject({
       codigo: "23", agrupador: "", cuentaArchivo: "51052703", total: 20, descripcion: "GASTOS DE TRANSPORTE",
-      sugerencia: { via: "archivo", cuentas: ["510595"], cuentaCliente: "51052703", origenCuentaArchivo: "estructura" },
+      sugerencia: { via: "archivo", cuentas: ["510527"], cuentaCliente: "51052703", origenCuentaArchivo: "estructura" },
     });
     // «8888» no es una cuenta: ese valor no se va a la cuenta de las otras filas.
     // El nombre del concepto viene de su hermano con cuenta.
@@ -222,7 +222,7 @@ describe("cuenta contable del archivo: resumen y cuentas efectivas", () => {
   it("las cuentas efectivas siguen la regla del cruce, con su origen", () => {
     const porCodigo = new Map(consolidado().renglones.map((x) => [x.codigo, cuentasEfectivasRenglon(x)]));
     expect(porCodigo.get("1")).toEqual({ cuentas: ["510506"], origen: "Cuenta del archivo" });
-    expect(porCodigo.get("2")).toEqual({ cuentas: ["510595"], origen: "Cuenta del archivo (por estructura PUC)" });
+    expect(porCodigo.get("2")).toEqual({ cuentas: ["510527"], origen: "Cuenta del archivo (por estructura PUC)" });
     expect(porCodigo.get("3")).toEqual({ cuentas: [], origen: "Control de deducciones" });
     expect(porCodigo.get("4")).toEqual({ cuentas: ["510548"], origen: "Memoria del cliente" });
   });

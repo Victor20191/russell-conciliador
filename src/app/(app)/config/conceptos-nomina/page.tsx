@@ -19,7 +19,7 @@ import ConceptosNominaClient, { type ConceptoRow } from "./conceptos-nomina-clie
  * (`consolidacion_modulo_cliente`), pero vista al derecho: por cliente y concepto. El código
  * del concepto es la LLAVE: es lo que la plataforma busca en el archivo de nómina para saber
  * contra qué cuenta cruza cada fila; el centro de costo permite que un mismo concepto vaya a
- * 510506 en administración y a 720505 en producción.
+ * 510506 en administración y a 720506 en producción.
  *
  * Alcance: se listan SOLO los clientes de la cartera del usuario (los administradores tienen
  * alcance global); la escritura revalida el alcance cliente por cliente en la Server Action.

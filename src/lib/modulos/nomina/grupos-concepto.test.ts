@@ -6,6 +6,7 @@ import {
   normalizarGrupoConcepto,
   sugerirGrupoConcepto,
 } from "./grupos-concepto";
+import { SUBCUENTAS_CONCILIA_NOMINA, SUBCUENTAS_VISIBLES_NOMINA } from "../descriptores";
 
 describe("catálogo RF-NOM-02", () => {
   it("cada grupo tiene id único, sufijo Russell de dos dígitos y al menos una subcuenta PUC", () => {
@@ -17,9 +18,21 @@ describe("catálogo RF-NOM-02", () => {
     }
   });
 
-  it("los sufijos Russell son los del plan (06/30/36/39/68/69/70/95)", () => {
-    const sufijos = new Set(GRUPOS_CONCEPTO_NOMINA.map((g) => g.sufijoRussell));
-    expect([...sufijos].sort()).toEqual(["06", "30", "36", "39", "68", "69", "70", "95"]);
+  it("el sufijo Russell es la subcuenta PUC del grupo cuando el plan la tiene; si no, «Otros» (1/Oct/2026)", () => {
+    // El plan Russell tiene las 27 subcuentas en 5105 (las que concilian y las solo visibles).
+    const plan = new Set([...SUBCUENTAS_CONCILIA_NOMINA, ...SUBCUENTAS_VISIBLES_NOMINA]);
+    for (const g of GRUPOS_CONCEPTO_NOMINA) {
+      expect(plan.has(g.sufijoRussell), g.id).toBe(true);
+      const delPlan = g.subcuentasPuc.find((s) => plan.has(s));
+      expect(g.sufijoRussell, g.id).toBe(delPlan ?? "95");
+    }
+    // Lo que antes colapsaba en xx06 / xx95.
+    const sufijo = (id: string) => GRUPOS_CONCEPTO_NOMINA.find((g) => g.id === id)?.sufijoRussell;
+    expect(sufijo("horas_extras")).toBe("15");
+    expect(sufijo("comisiones")).toBe("18");
+    expect(sufijo("incapacidades")).toBe("24");
+    expect(sufijo("auxilio_transporte")).toBe("27");
+    expect(sufijo("viaticos")).toBe("95");
   });
 });
 
