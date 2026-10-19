@@ -17,8 +17,9 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
 
 export default async function BorradoresPage() {
-  // Quien carga revisa y descarta sus borradores; el senior asignado (`balance:revisar`, 18/Oct/2026)
-  // los ve, los abre en modo consulta y los descarta. La cartera de cada uno filtra qué borradores ve.
+  // Quien carga revisa y descarta sus borradores; con solo `balance:revisar` se ven en modo consulta
+  // y se descartan (18/Oct/2026; desde el 19/Oct el senior también carga, así que los edita). La
+  // cartera de cada uno filtra qué borradores ve.
   const [carga, revisa] = await Promise.all([
     authorizePermiso("balance:crear"),
     authorizePermiso("balance:revisar"),

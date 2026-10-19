@@ -305,7 +305,7 @@ export async function importarClientes(
               userId: c.seniorId,
               role: "senior",
               readScope: true,
-              writeScope: false,
+              writeScope: true,
               assignedById: authz.userId,
             },
             {

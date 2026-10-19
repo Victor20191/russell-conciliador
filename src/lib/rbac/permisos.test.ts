@@ -75,7 +75,7 @@ describe("Integridad del catálogo RBAC", () => {
   });
 });
 
-describe("Segregación operativa — Staff es el ÚNICO que escribe", () => {
+describe("Operación — Staff y Senior escriben sus clientes asignados", () => {
   test("Staff escribe (ejecuta conciliación) SOLO sobre su cliente asignado", () => {
     expect(puede(STAFF1, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(true); // suyo
     expect(puede(STAFF1, "conciliaciones:ejecutar", PRUEBA_CLIENTE_B)).toBe(false); // del otro Staff
@@ -83,9 +83,31 @@ describe("Segregación operativa — Staff es el ÚNICO que escribe", () => {
     expect(puede(STAFF2, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
   });
 
-  test("Senior/Gerente/Socio NO pueden ejecutar (no tienen permiso operativo)", () => {
-    for (const u of [SENIOR, GERENTE, SOCIO]) {
+  test("el Senior hace lo del Staff en sus clientes asignados (19/Oct/2026)", () => {
+    for (const permiso of ["balance:crear", "balance:editar", "modulos_datos:crear", "modulos_datos:editar", "conciliaciones:ejecutar"]) {
+      expect(puede(SENIOR, permiso, PRUEBA_CLIENTE_A)).toBe(true);
+      expect(puede(SENIOR, permiso, PRUEBA_CLIENTE_B)).toBe(true);
+      expect(puede(SENIOR, permiso, PRUEBA_CLIENTE_FUERA)).toBe(false);
+    }
+  });
+
+  test("Gerente y Socio NO pueden ejecutar (no tienen permiso operativo)", () => {
+    for (const u of [GERENTE, SOCIO]) {
       expect(puede(u, "conciliaciones:ejecutar", PRUEBA_CLIENTE_A)).toBe(false);
+      expect(puede(u, "balance:crear", PRUEBA_CLIENTE_A)).toBe(false);
+      expect(puede(u, "modulos_datos:crear", PRUEBA_CLIENTE_A)).toBe(false);
+    }
+  });
+
+  test("todo permiso del Staff lo tiene también el Senior", () => {
+    const faltantes = (MATRIZ.Staff ?? []).filter((p) => !tienePermiso(MATRIZ, "Senior", p));
+    expect(faltantes).toEqual([]);
+  });
+
+  test("al revés no: el Staff no gana lo propio del Senior", () => {
+    for (const permiso of ["balance:revisar", "conciliaciones:revisar", "conciliaciones:cerrar", "conciliaciones:desbloquear", "clientes:editar"]) {
+      expect(tienePermiso(MATRIZ, "Senior", permiso)).toBe(true);
+      expect(tienePermiso(MATRIZ, "Staff", permiso)).toBe(false);
     }
   });
 
@@ -230,9 +252,9 @@ describe("Permisos globales (sin alcance de cliente)", () => {
 });
 
 describe("Administración de clientes — alcance por MEMBRESÍA (override de modo)", () => {
-  // El Senior tiene clientes:editar pero writeScope=false sobre sus clientes:
-  // por defecto (modo escritura inferido) sería denegado; con modo "lectura"
-  // (membresía) administra los clientes donde es el responsable asignado.
+  // El Senior tiene clientes:editar y, desde el 19/Oct/2026, writeScope sobre sus
+  // clientes: la administración de clientes valida igual por modo "lectura"
+  // (membresía, ser el responsable asignado), que no depende de la escritura.
   const ctx = (email: string, permiso: string, clientId: string) => ({
     matriz: MATRIZ,
     roleCode: rolDe(email),
@@ -242,8 +264,9 @@ describe("Administración de clientes — alcance por MEMBRESÍA (override de mo
     asignaciones,
   });
 
-  test("sin override, editar cliente infiere ESCRITURA y deniega al Senior (writeScope=false)", () => {
-    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_A))).toBe(false);
+  test("sin override, editar cliente infiere ESCRITURA: el Senior la tiene sobre sus clientes, no fuera", () => {
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_A))).toBe(true);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_FUERA))).toBe(false);
   });
 
   test("con modo 'lectura' (membresía) el Senior administra los clientes donde es responsable", () => {

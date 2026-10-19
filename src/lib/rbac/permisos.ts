@@ -10,7 +10,9 @@
 // AMBAS: tener el permiso de rol Y el alcance adecuado sobre el
 // cliente. Esto materializa la segregación de funciones del PDF:
 //   - Staff escribe SOLO los clientes donde es el responsable asignado.
-//   - Senior/Gerente/Socio consultan (lectura), no ejecutan.
+//   - Senior: desde el 19/Oct/2026 escribe también sus clientes asignados
+//     (hace todo lo del Staff) y además revisa.
+//   - Gerente/Socio consultan (lectura), no ejecutan.
 //
 // Las asignaciones son DIRECTAS por cliente (staff/senior/gerente,
 // elegidos al crear el cliente). El Socio no se asigna: sus
@@ -85,8 +87,8 @@ export type ContextoCliente = {
  *   (el rol tiene el permiso)  AND  (el usuario tiene el alcance sobre el cliente)
  * El modo (lectura/escritura) se infiere de la acción del permiso, salvo que se
  * fuerce con `modoOverride`. El override sirve para validar MEMBRESÍA (ser
- * responsable = readScope) en la administración de clientes, donde el rol que
- * tiene el permiso (Senior) administra sus clientes con writeScope=false.
+ * responsable = readScope) en la administración de clientes y en acciones que el
+ * gerente asignado ejerce sin writeScope.
  */
 export function puedeSobreCliente(
   ctx: ContextoCliente,

@@ -21,8 +21,9 @@ import BorradorDetailClient from "./borrador-detail-client";
 export const maxDuration = 1800;
 
 export default async function BorradorDetailPage({ params }: { params: Promise<{ loteId: string }> }) {
-  // Quien carga revisa, edita y carga el borrador; el senior asignado (`balance:revisar`, 18/Oct/2026)
-  // lo abre en modo consulta y puede descartarlo, aunque no lo haya cargado él.
+  // Quien carga revisa, edita y carga el borrador; con solo `balance:revisar` se abre en modo consulta
+  // y se puede descartar, aunque no lo haya cargado él (18/Oct/2026). Desde el 19/Oct el senior también
+  // tiene `balance:crear`, así que lo abre para editar como el staff.
   const [carga, revisa] = await Promise.all([
     authorizePermiso("balance:crear"),
     authorizePermiso("balance:revisar"),

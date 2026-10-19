@@ -24,12 +24,12 @@ describe("Mapeo legado→PDF (herencia de permisos)", () => {
     expect(tienePermiso(M, "Auditor", "clientes:configurar")).toBe(false);
   });
 
-  test("Líder hereda exactamente los permisos de Senior (revisión/config)", () => {
+  test("Líder hereda exactamente los permisos de Senior (revisión/config y, desde el 19/Oct/2026, lo operativo)", () => {
     expect(M["Líder"]).toEqual(MATRIZ["Senior"]);
     expect(tienePermiso(M, "Líder", "conciliaciones:revisar")).toBe(true);
     expect(tienePermiso(M, "Líder", "clientes:configurar")).toBe(true);
     expect(tienePermiso(M, "Líder", "clientes:editar")).toBe(true);
-    expect(tienePermiso(M, "Líder", "conciliaciones:ejecutar")).toBe(false); // no es operativo
+    expect(tienePermiso(M, "Líder", "conciliaciones:ejecutar")).toBe(true); // el Senior hace lo del Staff
   });
 
   test("Administrador es identidad (mismos permisos de administración)", () => {

@@ -288,8 +288,8 @@ function parseResponsables(formData: FormData) {
   });
 }
 
-/** Filas de asignación para el cliente: cada staff ejecuta (escritura); el
- *  senior y el gerente solo consultan (lectura). */
+/** Filas de asignación para el cliente: cada staff y el senior escriben (el senior hace todo
+ *  lo del staff desde el 19/Oct/2026, además de revisar); el gerente solo consulta (lectura). */
 function filasResponsables({
   gerenteId,
   seniorId,
@@ -297,7 +297,7 @@ function filasResponsables({
 }: Responsables): { userId: number; role: string; writeScope: boolean }[] {
   return [
     ...staffIds.map((userId) => ({ userId, role: "staff", writeScope: true })),
-    { userId: seniorId, role: "senior", writeScope: false },
+    { userId: seniorId, role: "senior", writeScope: true },
     { userId: gerenteId, role: "gerente", writeScope: false },
   ];
 }
@@ -450,7 +450,7 @@ export async function updateClient(
   if (!id) return { ok: false, message: "Cliente inexistente." };
 
   // Alcance por cartera: el Senior solo edita los clientes donde es responsable
-  // (modo "lectura" = membresía, pues su writeScope es false); Admin/Superadmin
+  // (modo "lectura" = membresía: basta con estar asignado); Admin/Superadmin
   // tienen alcance global.
   const alcance = await authorizePermiso("clientes:editar", { clientId: id, modo: "lectura" });
   if (!alcance.ok) return { ok: false, message: alcance.message };

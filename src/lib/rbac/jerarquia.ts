@@ -9,7 +9,8 @@
 // Un cliente admite UNO O VARIOS staff y EXACTAMENTE un senior y un
 // gerente, elegidos al crear/editar el cliente:
 //   staff   → ejecuta la auditoría (alcance de escritura) · uno o varios
-//   senior  → revisa               (alcance de lectura) · uno
+//   senior  → revisa y, desde el 19/Oct/2026, ejecuta como el staff
+//             (alcance de escritura) · uno
 //   gerente → valida               (alcance de lectura) · uno
 // El Socio NO se asigna por cliente: deriva LECTURA sobre los clientes
 // donde alguno de sus gerentes subordinados esté asignado como gerente

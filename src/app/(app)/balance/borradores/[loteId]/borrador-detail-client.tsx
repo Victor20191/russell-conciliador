@@ -674,8 +674,9 @@ export default function BorradorDetailClient({
   /** Las demás versiones del mismo (cliente, período), de la más nueva a la más vieja. */
   hermanos?: VersionHermanaBorrador[];
   /**
-   * Modo consulta del senior asignado (18/Oct/2026): revisa el borrador y lo puede descartar,
-   * pero no lo edita, no vincula cliente ni período y no lo carga (eso es de quien carga).
+   * Modo consulta de quien tiene `balance:revisar` sin `balance:crear` (18/Oct/2026; desde el
+   * 19/Oct el senior también carga): revisa el borrador y lo puede descartar, pero no lo edita, no
+   * vincula cliente ni período y no lo carga (eso es de quien carga).
    */
   soloLectura?: boolean;
 }) {

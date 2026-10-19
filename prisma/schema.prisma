@@ -171,7 +171,7 @@ model UserHierarchy {
 /// al crear/editar el cliente. Un cliente admite UNO O VARIOS staff y
 /// EXACTAMENTE un senior y un gerente:
 ///   staff   → ejecuta la auditoría (readScope + writeScope) · uno o varios
-///   senior  → revisa               (readScope) · uno
+///   senior  → revisa y ejecuta     (readScope + writeScope, 19/Oct/2026) · uno
 ///   gerente → valida               (readScope) · uno
 /// El Socio NO se asigna: deriva LECTURA por jerarquía
 /// (jerarquia_usuarios) sobre los clientes donde sus gerentes
@@ -189,7 +189,7 @@ model ClientAssignment {
   userId       Int       @map("usuario_id") // responsable (FK lógica a User.id)
   role         String    @map("funcion") // staff | senior | gerente
   readScope    Boolean   @default(true) @map("alcance_lectura") // ve este cliente
-  writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (solo staff)
+  writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (staff y senior)
   assignedById Int?      @map("asignado_por_id") // quién asignó (FK lógica a User.id)
   active       Boolean   @default(true) @map("activo")
   validFrom    DateTime  @default(now()) @map("vigente_desde") @db.Timestamptz(3) // inicio de vigencia

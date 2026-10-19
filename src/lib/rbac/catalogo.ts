@@ -24,7 +24,7 @@ export type RolCatalogo = {
   name: string;
   description: string;
   rank: number; // legado/transición: alimenta ROLE_RANK/can(). La autoridad real es la MATRIZ.
-  isOperative: boolean; // true SOLO para Staff (único que escribe/ejecuta)
+  isOperative: boolean; // true para los roles que escriben/ejecutan: Staff y, desde el 19/Oct/2026, Senior
   isSystem: boolean;
   legacy?: boolean;
 };
@@ -45,12 +45,12 @@ export const ROLES: RolCatalogo[] = [
     description: "Consulta y supervisión del cumplimiento de su cartera (Senior y Staff).",
   },
   {
-    code: "Senior", name: "Senior", rank: 3, isOperative: false, isSystem: true,
-    description: "Consulta y revisión. Valida la info del cliente, delega, revisa al Staff, configura clientes y asigna responsables por cliente.",
+    code: "Senior", name: "Senior", rank: 3, isOperative: true, isSystem: true,
+    description: "Revisión y operación. Hace todo lo del Staff en sus clientes asignados; además valida la info del cliente, revisa al Staff, configura clientes y asigna responsables por cliente.",
   },
   {
     code: "Staff", name: "Staff", rank: 2, isOperative: true, isSystem: true,
-    description: "Único rol operativo. Ejecuta pruebas y conciliaciones, sube información, elabora papeles de trabajo y documenta diferencias.",
+    description: "Rol operativo. Ejecuta pruebas y conciliaciones, sube información, elabora papeles de trabajo y documenta diferencias.",
   },
   {
     code: "Administrador", name: "Administrador", rank: 4, isOperative: false, isSystem: true,
@@ -100,15 +100,19 @@ const ADMIN_PLATAFORMA = ["Superadministrador", "Administrador"];
 const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadministrador"];
 const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
-const SOLO_STAFF = ["Staff"];
+// Lo operativo del Staff lo hace también el Senior (19-oct-2026): todo lo que el Staff puede
+// hacer lo puede hacer el Senior en sus clientes asignados, sin regla de dos personas (puede
+// cargar el balance y aprobar su prevalidador). Al revés no: el Staff no gana nada del Senior.
+const STAFF_Y_SENIOR = ["Staff", "Senior"];
 // Cargar balance: el Staff (operativo) + los administradores de plataforma (alcance
 // global). Desde el 31-ago-2026 Administrador/Superadministrador también congelan y
 // aprueban el prevalidador, para que el cruce contable de los módulos pueda habilitarse
 // sin depender de un Staff y un Senior asignados. Desde el 17-oct-2026 homologar las
 // cuentas del balance cargado (también re-homologar y la memoria del cliente en
 // /config/mapeo-cliente), congelarlo y descongelarlo van con `balance:revisar`
-// (Senior asignado + administradores): el Staff ya no los hace.
-const STAFF_Y_ADMIN = ["Staff", "Administrador", "Superadministrador"];
+// (Senior asignado + administradores): el Staff ya no los hace. Desde el 19-oct-2026 el Senior
+// también carga (balance y módulos): por eso el grupo operativo lo incluye.
+const OPERATIVO_Y_ADMIN = ["Staff", "Senior", "Administrador", "Superadministrador"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
 // El Senior asigna los responsables por cliente (PDF); el Administrador, como
@@ -157,25 +161,26 @@ export const PERMISOS: Permiso[] = [
   { code: "modulos_borrador:ver", module: "modulos_borrador", action: "ver", label: "Ver comentarios del borrador de módulos", roles: TODOS },
   { code: "modulos_borrador:comentar", module: "modulos_borrador", action: "comentar", label: "Comentar en el borrador de módulos", roles: TODOS },
 
-  // ===== Operativo (crear/editar/ejecutar) — SOLO Staff (excepto la carga
-  // de balance, abierta también a administradores de plataforma) =====
-  { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: STAFF_Y_ADMIN },
-  { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: STAFF_Y_ADMIN },
+  // ===== Operativo (crear/editar/ejecutar) — Staff y Senior (la carga de balance y de módulos,
+  // abierta también a administradores de plataforma) =====
+  { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: OPERATIVO_Y_ADMIN },
+  { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: OPERATIVO_Y_ADMIN },
   { code: "balance:eliminar", module: "balance", action: "eliminar", label: "Eliminar balances y perfiles de carga", roles: SOLO_ADMIN },
-  { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: SOLO_STAFF },
-  { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: SOLO_STAFF },
-  { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: SOLO_STAFF },
-  { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: SOLO_STAFF },
-  { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: SOLO_STAFF },
+  { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: STAFF_Y_SENIOR },
+  { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: STAFF_Y_SENIOR },
+  { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: STAFF_Y_SENIOR },
+  { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: STAFF_Y_SENIOR },
+  { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: STAFF_Y_SENIOR },
 
-  // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
+  // ===== Revisión — Senior (revisa el trabajo del Staff; el Staff no revisa) =====
   // `balance:revisar` cubre lo que hace el Senior ASIGNADO sobre un balance cargado:
   // homologar sus cuentas (en el balance, al re-homologar y en la memoria del cliente),
   // aprobar o revocar el prevalidador, congelarlo y descongelarlo; desde el 18-oct-2026
   // también eliminar una versión o un período (no el historial con perfiles, que sigue
   // con `balance:eliminar`), reemplazar el balance conciliado y abrir en modo consulta y
   // descartar los borradores de sus clientes.
-  // Al ser `revisar`, el alcance que se exige es de LECTURA (el Senior no tiene escritura).
+  // Al ser `revisar`, el alcance que se exige es de LECTURA (desde el 19-oct-2026 el Senior tiene
+  // además escritura sobre sus clientes, para lo operativo).
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SENIOR_Y_ADMIN },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
   // Conciliación EN FIRME de un módulo contra el balance (Cruce contable): cerrarla
@@ -187,8 +192,8 @@ export const PERMISOS: Permiso[] = [
 
   // ===== Datos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) =====
   { code: "modulos_datos:ver", module: "modulos_datos", action: "ver", label: "Ver datos de módulos", roles: TODOS },
-  { code: "modulos_datos:crear", module: "modulos_datos", action: "crear", label: "Cargar datos de módulos", roles: STAFF_Y_ADMIN },
-  { code: "modulos_datos:editar", module: "modulos_datos", action: "editar", label: "Editar consolidación de módulos", roles: STAFF_Y_ADMIN },
+  { code: "modulos_datos:crear", module: "modulos_datos", action: "crear", label: "Cargar datos de módulos", roles: OPERATIVO_Y_ADMIN },
+  { code: "modulos_datos:editar", module: "modulos_datos", action: "editar", label: "Editar consolidación de módulos", roles: OPERATIVO_Y_ADMIN },
   { code: "modulos_datos:eliminar", module: "modulos_datos", action: "eliminar", label: "Eliminar datos de módulos", roles: SOLO_ADMIN },
 
   // ===== Supervisión — Gerente y Socio =====
@@ -321,7 +326,7 @@ export const MAPEO_LEGADO_PDF: MapeoLegado[] = [
   },
   {
     legacy: "Auditor", pdf: "Staff", confidence: "alta",
-    rationale: "Es quien ejecuta el trabajo operativo de auditoría → único rol operativo del PDF.",
+    rationale: "Es quien ejecuta el trabajo operativo de auditoría → Staff, el rol operativo del PDF.",
   },
   {
     legacy: "Líder", pdf: "Senior", confidence: "alta",

@@ -30,8 +30,8 @@ export type AuthzOpts = {
   clientId?: number | null;
   // Fuerza el modo de alcance en lugar de inferirlo del permiso. Se usa
   // `"lectura"` para validar MEMBRESÍA (ser responsable del cliente) en la
-  // administración de clientes, donde el rol con el permiso (Senior) tiene
-  // writeScope=false sobre sus propios clientes.
+  // administración de clientes y en las acciones del senior o gerente asignado
+  // (el gerente no tiene writeScope sobre sus clientes).
   modo?: "lectura" | "escritura";
 };
 

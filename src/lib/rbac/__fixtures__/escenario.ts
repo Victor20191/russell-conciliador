@@ -71,13 +71,14 @@ export type PruebaAsignacion = {
 
 /**
  * Expande PRUEBA_RESPONSABLES a filas planas de asignación, con el alcance
- * que materializa la segregación del PDF: staff escribe, senior y gerente
- * solo leen. Estos datos se consumen únicamente desde las pruebas.
+ * que materializa la segregación del PDF: staff y senior escriben (el senior hace
+ * todo lo del staff desde el 19/Oct/2026), el gerente solo lee. Estos datos se
+ * consumen únicamente desde las pruebas.
  */
 export function asignacionesPrueba(): PruebaAsignacion[] {
   return PRUEBA_RESPONSABLES.flatMap((r) => [
     { clientCode: r.clientCode, userEmail: r.staffEmail, funcion: "staff" as const, readScope: true, writeScope: true },
-    { clientCode: r.clientCode, userEmail: r.seniorEmail, funcion: "senior" as const, readScope: true, writeScope: false },
+    { clientCode: r.clientCode, userEmail: r.seniorEmail, funcion: "senior" as const, readScope: true, writeScope: true },
     { clientCode: r.clientCode, userEmail: r.gerenteEmail, funcion: "gerente" as const, readScope: true, writeScope: false },
   ]);
 }
