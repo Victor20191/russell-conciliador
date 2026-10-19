@@ -10,6 +10,7 @@ import { ROL_SUPERIOR, esAristaValida } from "@/lib/rbac/jerarquia";
 import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { DEFAULT_TEMPORARY_PASSWORD } from "@/lib/auth/default-password";
 import {
   UserCreateSchema,
   UserUpdateSchema,
@@ -226,6 +227,12 @@ export async function updateUser(
   const authz = await authorizePermiso("usuarios:editar");
   if (!authz.ok) return { ok: false, message: authz.message };
 
+  const resetDefaultValues = formData.getAll("resetToDefaultPassword");
+  const resetToDefaultPassword = resetDefaultValues.length === 1 && resetDefaultValues[0] === "on";
+  if (resetDefaultValues.length > 0 && !resetToDefaultPassword) {
+    return { ok: false, message: "Selecciona una opción válida para restablecer la contraseña." };
+  }
+
   const parsed = UserUpdateSchema.safeParse({
     id: formData.get("id"),
     email: formData.get("email"),
@@ -233,7 +240,8 @@ export async function updateUser(
     role: formData.get("role"),
     active:
       formData.get("active") === "on" || formData.get("active") === "true",
-    password: formData.get("password"),
+    // La selección explícita usa la constante del servidor, nunca una clave enviada por el cliente.
+    password: resetToDefaultPassword ? DEFAULT_TEMPORARY_PASSWORD : formData.get("password"),
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
@@ -396,7 +404,7 @@ export async function updateUser(
       entity: String(parsed.data.id),
       detail: `${parsed.data.email} · ${parsed.data.role} · ${
         parsed.data.active ? "activo" : "inactivo"
-      } · superiores: ${superiores.superiorIds.length}${parsed.data.password ? " · contraseña restablecida" : ""}${fotoPreparada.foto ? " · foto reemplazada" : ""}`,
+      } · superiores: ${superiores.superiorIds.length}${parsed.data.password ? (resetToDefaultPassword ? " · contraseña restablecida a predeterminada" : " · contraseña restablecida") : ""}${fotoPreparada.foto ? " · foto reemplazada" : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

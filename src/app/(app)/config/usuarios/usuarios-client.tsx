@@ -11,6 +11,7 @@ import {
   usePagination,
 } from "@/components/pagination-controls";
 import { PasswordInput } from "@/components/password-input";
+import { DEFAULT_TEMPORARY_PASSWORD } from "@/lib/auth/default-password";
 import { Modal } from "@/components/modal";
 import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/users";
 import { Icon } from "@/components/icons";
@@ -545,6 +546,8 @@ function EditUserForm({
 }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
   const [resetOpen, setResetOpen] = useState(false);
+  const [resetToDefaultPassword, setResetToDefaultPassword] = useState(false);
+  const passwordResetId = useId();
   const [fotoMedianaAbierta, setFotoMedianaAbierta] = useState(false);
   const hasCurrentRole = roles.some((r) => r.code === user.role);
   const defaultRole = hasCurrentRole ? user.role : "";
@@ -704,26 +707,52 @@ function EditUserForm({
         </label>
 
         <div className="rounded-md border border-ink-200">
+          <div className="px-3 py-3">
+            <label className="flex items-start gap-2 text-[13px] font-medium text-ink-800">
+              <input
+                type="checkbox"
+                name="resetToDefaultPassword"
+                value="on"
+                checked={resetToDefaultPassword}
+                onChange={(event) => setResetToDefaultPassword(event.target.checked)}
+                disabled={pending}
+                aria-describedby={`${passwordResetId}-ayuda`}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 text-navy-600 focus:ring-navy-600 disabled:opacity-60"
+              />
+              Restablecer a la clave predeterminada
+            </label>
+            <p id={`${passwordResetId}-ayuda`} className="mt-1.5 pl-6 text-[12px] leading-relaxed text-ink-500">
+              Al marcarla y guardar, ingresará con{" "}
+              <code className="rounded bg-ink-50 px-1 py-0.5 font-mono text-ink-800">{DEFAULT_TEMPORARY_PASSWORD}</code>{" "}
+              y deberá elegir una nueva contraseña.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setResetOpen((open) => !open)}
-            className="flex w-full items-center justify-between px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50"
+            disabled={pending || resetToDefaultPassword}
+            aria-expanded={resetOpen && !resetToDefaultPassword}
+            aria-controls={`${passwordResetId}-manual`}
+            className="flex w-full items-center justify-between border-t border-ink-100 px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Restablecer contraseña
-            <Icon name={chevronDivulgacion(resetOpen)} size={16} />
+            Usar otra contraseña temporal
+            <Icon name={chevronDivulgacion(resetOpen && !resetToDefaultPassword)} size={16} />
           </button>
-          {resetOpen && (
-            <div className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">
+          {resetOpen && !resetToDefaultPassword && (
+            <fieldset id={`${passwordResetId}-manual`} disabled={pending} className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">
+              <label htmlFor={`${passwordResetId}-clave`} className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
               <PasswordInput
+                id={`${passwordResetId}-clave`}
                 name="password"
                 placeholder="Mínimo 10 caracteres"
+                autoComplete="new-password"
                 className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
               />
               <p className="text-[11px] text-ink-500">
                 Si la dejas vacía, la contraseña actual no cambia. Si la estableces,{" "}
                 <strong>{user.name}</strong> deberá cambiarla la próxima vez que inicie sesión.
               </p>
-            </div>
+            </fieldset>
           )}
         </div>
 

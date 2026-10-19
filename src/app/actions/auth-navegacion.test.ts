@@ -95,6 +95,12 @@ describe("navegación ligada a la sesión autenticada", () => {
     expect((await decrypt(mocks.valores.get("session")))?.userId).toBe(usuario.id);
   });
 
+  it("un usuario con contraseña restablecida debe elegir una nueva antes de entrar al dashboard", async () => {
+    mocks.findUnique.mockResolvedValue({ ...usuario, mustChangePassword: true });
+    await expect(login(undefined, credenciales())).rejects.toThrow("REDIRECT:/cambiar-contrasena");
+    expect((await decrypt(mocks.valores.get("session")))?.userId).toBe(usuario.id);
+  });
+
   it("credenciales inválidas no cambian la preferencia ni crean sesión", async () => {
     mocks.compare.mockResolvedValue(false);
     expect(await login(undefined, credenciales())).toEqual({ message: "Credenciales inválidas." });
@@ -129,6 +135,10 @@ describe("navegación ligada a la sesión autenticada", () => {
     formulario.set("current", "Prueba123!");
     formulario.set("next", "NuevaPrueba456!");
     await expect(changePassword(undefined, formulario)).rejects.toThrow("REDIRECT:/dashboard?pwd=1");
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: usuario.id },
+      data: { password: "nuevo-hash", mustChangePassword: false, sessionVersion: 4 },
+    });
     expect(mocks.valores.get("nav_colapsada")).toBe("1");
     expect((await decrypt(mocks.valores.get("session")))?.sessionVersion).toBe(4);
   });

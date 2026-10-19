@@ -77,6 +77,7 @@ App Next.js 16 (App Router, React 19, Tailwind v4) con backend propio: Server Ac
 - `src/lib/dal.ts` — verificación **segura** (la autoridad real). `verifySession()` decodifica el JWT, consulta `User` en BD y **revoca** la sesión si el usuario no existe, está inactivo, o `sessionVersion` no coincide (bumpeando `sessionVersion` se invalidan todas las sesiones de un usuario). `getCurrentUser()` es la variante que no lanza. Ambas memoizadas con `React.cache()`.
 - `src/lib/session.ts` / `src/lib/jwt.ts` — cookie `httpOnly` firmada con Jose (HS256), 7 días.
 - `src/lib/login-throttle.ts` — bloqueo por intentos fallidos (`User.failedLoginAttempts`/`blockedUntil`, tabla `LoginAttempt`).
+- **Restablecer contraseña de un usuario** (`/config/usuarios` → Editar): el check «Restablecer a la clave predeterminada» asigna al guardar la clave temporal de `src/lib/auth/default-password.ts`. La acción `updateUser` resuelve la clave en el servidor, conserva `usuarios:editar` y la protección de cuentas Superadministrador. Exige cambiarla al próximo ingreso, limpia los bloqueos e invalida las sesiones anteriores. El check inicia desmarcado y «Usar otra contraseña temporal» conserva el restablecimiento manual; sin ninguna de las dos opciones, editar al usuario conserva su contraseña. No cambia la creación ni la importación de usuarios.
 
 ### Autorización RBAC — la MATRIZ es la autoridad, no la jerarquía
 
