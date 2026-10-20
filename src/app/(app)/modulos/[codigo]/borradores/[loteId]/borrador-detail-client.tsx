@@ -194,7 +194,7 @@ export default function BorradorModuloClient({
   opcionesNombre?: OpcionNombreClasificador[];
   version: number | null;
   hermanos: VersionHermanaBorradorModulo[];
-  /** Notas de carga del cliente para este módulo (Configuración › Perfiles de carga). */
+  /** Notas de carga del cliente para este módulo (Administración › Perfiles de carga). */
   notasCliente?: string | null;
   /** Sólo se ofrece para un original INV de aplicativo; Archivo manual conserva su flujo. */
   rolesAsistenciaInventario?: RolModulo[];
@@ -641,7 +641,7 @@ export default function BorradorModuloClient({
             {reconciliacion.muestra.length > 0 && (
               <span className="ml-1">Filas: {reconciliacion.muestra.map((f) => `${f.filaNum} (${fmtContable(f.valor)})`).join(", ")}{reconciliacion.filasOmitidasArriba > reconciliacion.muestra.length ? "…" : ""}.</span>
             )}
-            <span className="ml-1">Revisa el archivo o el perfil de carga en Configuración › Perfiles de carga.</span>
+            <span className="ml-1">Revisa el archivo o el perfil de carga en Administración › Perfiles de carga.</span>
           </div>
         )}
 

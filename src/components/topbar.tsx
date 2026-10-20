@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { ActionForm } from "@/components/action-form";
 import { markAllNotificationsRead } from "@/app/actions/notifications";
+import { seccionDeRuta } from "@/lib/nav";
 
 export type NotificationDTO = {
   id: number;
@@ -37,6 +38,24 @@ const CRUMB_LABELS: Record<string, string> = {
   parametros: "Parámetros de alertas",
   "conceptos-nomina": "Conceptos de nómina",
   prevalidador: "Filtros de cuentas",
+  "mapeo-cliente": "Mapeo cuentas cliente",
+  usuarios: "Usuarios",
+  estructura: "Estructura",
+  permisos: "Permisos por rol",
+  "perfiles-carga": "Perfiles de carga",
+  conexiones: "Conexiones e integraciones",
+  prompts: "Prompts de IA",
+  novedades: "Novedades",
+  "reportes-ejecutivos": "Reportes para gerencia",
+  reportes: "Mesa de ayuda",
+  soporte: "Gestión de reportes",
+};
+
+// Rutas cuyo segmento se repite con otro nombre (`/modulos/inv` son los módulos de conciliación,
+// `/config/modulos` es «Módulos y campos»; `/dian` es Impuestos y `/config/dian` sus mapeos).
+const CRUMB_POR_RUTA: Record<string, string> = {
+  "/modulos": "Módulos de conciliación",
+  "/config/dian": "Mapeos DIAN",
 };
 
 // Sub-rutas por módulo de conciliación (`/config/prevalidador/cxp`, `/config/perfiles-carga/inv`,
@@ -71,12 +90,21 @@ export default function Topbar({
     .filter(Boolean)
     .map((seg, index, segments) => {
       const href = `/${segments.slice(0, index + 1).join("/")}`;
-      const label = CRUMB_LABELS[seg]
+      const label = CRUMB_POR_RUTA[href]
+        ?? CRUMB_LABELS[seg]
         ?? (index > 0 ? CRUMB_MODULOS[seg] : undefined)
         ?? (/^[1-9]\d*$/.test(seg) ? "Detalle" : seg.charAt(0).toUpperCase() + seg.slice(1));
-      return { href, label };
+      return { href, label, grupo: CRUMB_GROUPS.has(href) };
     });
-  if (crumbs.length === 0) crumbs.push({ href: "/", label: "Inicio" });
+  if (crumbs.length === 0) crumbs.push({ href: "/", label: "Inicio", grupo: false });
+  // La primera miga es la sección del menú (Catálogos contables, Parametrización…), no
+  // «Configuración»: reemplaza el prefijo `/config` o, en las rutas sin él (Estructura, Novedades,
+  // Mesa de ayuda), se antepone.
+  const seccion = seccionDeRuta(pathname);
+  if (seccion) {
+    if (crumbs[0]?.href === "/config") crumbs[0] = { href: "/config", label: seccion, grupo: true };
+    else crumbs.unshift({ href: "#seccion", label: seccion, grupo: true });
+  }
 
   return (
     <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-4 py-2.5 backdrop-blur sm:px-5">
@@ -96,7 +124,7 @@ export default function Topbar({
             {i > 0 && <Icon name="chev-r" size={11} className="text-ink-400" />}
             {i === crumbs.length - 1 ? (
               <b aria-current="page" className="truncate text-ink-800">{c.label}</b>
-            ) : CRUMB_GROUPS.has(c.href) ? (
+            ) : c.grupo ? (
               <span className="truncate">{c.label}</span>
             ) : (
               <Link href={c.href} className="truncate rounded-sm font-medium text-blue-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>

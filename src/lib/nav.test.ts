@@ -1,5 +1,25 @@
 import { describe, expect, test } from "vitest";
-import { configNav, configSecciones, workNav } from "./nav";
+import { configNav, configSecciones, seccionDeRuta, workNav } from "./nav";
+
+describe("Sección del menú de cada ruta (barra superior)", () => {
+  test("toma la sección de la entrada o sub-entrada que contiene la ruta", () => {
+    expect(seccionDeRuta("/config/mapeo")).toBe("Catálogos contables");
+    expect(seccionDeRuta("/config/mapeo-cliente")).toBe("Catálogos contables");
+    expect(seccionDeRuta("/config/clientes")).toBe("Clientes y equipo");
+    expect(seccionDeRuta("/estructura")).toBe("Clientes y equipo");
+    expect(seccionDeRuta("/config/prevalidador/ing")).toBe("Parametrización");
+    expect(seccionDeRuta("/config/perfiles-carga/nom")).toBe("Administración");
+    expect(seccionDeRuta("/novedades")).toBe("Administración");
+    expect(seccionDeRuta("/config/soporte")).toBe("Ayuda");
+    expect(seccionDeRuta("/reportes")).toBe("Ayuda");
+  });
+
+  test("las rutas de Trabajo no tienen sección", () => {
+    expect(seccionDeRuta("/dashboard")).toBeNull();
+    expect(seccionDeRuta("/balance/123")).toBeNull();
+    expect(seccionDeRuta("/modulos/inv")).toBeNull();
+  });
+});
 
 describe("Secciones del menú lateral", () => {
   test("agrupa las entradas por propósito, en este orden", () => {

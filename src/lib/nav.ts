@@ -216,3 +216,21 @@ export const configSecciones: NavSeccion[] = [
 // Las mismas entradas en una lista plana y en el mismo orden, para quien recorre todo
 // el menú sin importar la sección (ubicación de las novedades, etiquetas de accesos).
 export const configNav: NavItem[] = configSecciones.flatMap((s) => s.items);
+
+/**
+ * Sección del menú a la que pertenece una ruta (la entrada o sub-entrada más específica que la
+ * contiene), o null si no está en ninguna (las de «Trabajo»). La barra superior la muestra en vez
+ * de «Configuración», que solo es el prefijo técnico `/config` de varias de esas rutas.
+ */
+export function seccionDeRuta(pathname: string): string | null {
+  let mejor: { titulo: string; largo: number } | null = null;
+  for (const seccion of configSecciones) {
+    for (const item of seccion.items) {
+      for (const href of [item.href, ...(item.children ?? []).map((c) => c.href)]) {
+        const contiene = pathname === href || pathname.startsWith(`${href}/`);
+        if (contiene && (!mejor || href.length > mejor.largo)) mejor = { titulo: seccion.titulo, largo: href.length };
+      }
+    }
+  }
+  return mejor?.titulo ?? null;
+}

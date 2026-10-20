@@ -1416,7 +1416,7 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
           <span className="mt-px font-bold text-ok-700">✓</span>
           <span>
-            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Un administrador puede verlas, editarlas o borrarlas en <span className="font-semibold">Configuración › Perfiles de carga</span>.
+            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Un administrador puede verlas, editarlas o borrarlas en <span className="font-semibold">Administración › Perfiles de carga</span>.
           </span>
         </div>
       )}
@@ -1930,7 +1930,7 @@ function ModalAyudaValidaciones({ onClose, umbrales }: { onClose: () => void; um
         <section>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Umbrales de alerta</h3>
           <p className="mt-1.5">
-            Solo se reportan como alerta accionable las diferencias por encima de los umbrales configurados en <span className="font-semibold">Configuración › Parámetros</span> (hoy: {fmt(umbrales.descuadre)} para descuadres y {fmt(umbrales.naturaleza)} para saldos de naturaleza contraria). Las diferencias menores se muestran igual, marcadas como <span className="font-semibold">informativas</span>, pero no cuentan como alerta.
+            Solo se reportan como alerta accionable las diferencias por encima de los umbrales configurados en <span className="font-semibold">Parametrización › Parámetros de alertas</span> (hoy: {fmt(umbrales.descuadre)} para descuadres y {fmt(umbrales.naturaleza)} para saldos de naturaleza contraria). Las diferencias menores se muestran igual, marcadas como <span className="font-semibold">informativas</span>, pero no cuentan como alerta.
           </p>
         </section>
       </div>
@@ -3922,7 +3922,7 @@ function DetalleReubicacionModal({
                   Esta posición ya está guardada en el staging del lote.
                   {procedencia.posibleCorreccionAutomatica && (
                     <>
-                      {" "}Como este cliente tiene correcciones memorizadas de cargas anteriores, es posible que se haya aplicado sola desde su perfil (Configuración › Perfiles de carga) en vez de haberse movido a mano en esta carga.
+                      {" "}Como este cliente tiene correcciones memorizadas de cargas anteriores, es posible que se haya aplicado sola desde su perfil (Administración › Perfiles de carga) en vez de haberse movido a mano en esta carga.
                     </>
                   )}
                 </p>
