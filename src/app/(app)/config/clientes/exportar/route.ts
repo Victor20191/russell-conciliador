@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { crearExportacionClientes, type FilaClienteExport } from "@/lib/export/clientes";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
@@ -11,21 +10,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // Mismo permiso que la página /config/clientes: quien puede verla, exporta.
-  const authz = await authorizePermiso("clientes:configurar");
+  // Mismo permiso que la página /config/clientes: quien puede verla, exporta, y como
+  // la página, todos los clientes (desde el 19/Oct/2026 todos consultan todos).
+  const authz = await authorizePermiso("clientes:ver");
   if (!authz.ok) {
     return NextResponse.json({ message: authz.message }, { status: 403 });
   }
 
   try {
-    // Respeta la cartera: el Senior solo exporta los clientes donde es
-    // responsable; Admin/Superadmin exportan todos. Igual que la página.
-    const alc = await alcanceLecturaUsuario();
-    const whereCliente = alc.todos ? {} : { id: { in: alc.clientIds } };
-
     const [clients, modules, dianFormsBD, usuarios, asignaciones] = await Promise.all([
       prisma.client.findMany({
-        where: whereCliente,
         orderBy: { name: "asc" },
         include: {
           modules: true,
@@ -47,7 +41,7 @@ export async function GET() {
       }),
       prisma.user.findMany({ select: { id: true, name: true } }),
       prisma.clientAssignment.findMany({
-        where: { active: true, ...(alc.todos ? {} : { clientId: { in: alc.clientIds } }) },
+        where: { active: true },
         select: { clientId: true, userId: true, role: true },
       }),
     ]);

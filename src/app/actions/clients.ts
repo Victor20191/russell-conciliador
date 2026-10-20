@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { ClientSchema, ClientResponsablesSchema, type ActionState } from "@/lib/definitions";
+import { ClientSchema, ClientOperativoSchema, ClientResponsablesSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
 import { nextClientCode } from "@/lib/client-code";
 import { authorizePermiso } from "@/lib/rbac";
@@ -449,11 +449,18 @@ export async function updateClient(
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Cliente inexistente." };
 
-  // Alcance por cartera: el Senior solo edita los clientes donde es responsable
-  // (modo "lectura" = membresía: basta con estar asignado); Admin/Superadmin
-  // tienen alcance global.
+  // Alcance por cartera: solo se editan los clientes donde se es responsable (modo
+  // "lectura" = membresía: staff, senior y gerente asignados y el socio de ese gerente);
+  // Admin/Superadmin tienen alcance global.
   const alcance = await authorizePermiso("clientes:editar", { clientId: id, modo: "lectura" });
   if (!alcance.ok) return { ok: false, message: alcance.message };
+
+  // Dos niveles (19/Oct/2026): `clientes:editar` guarda los datos OPERATIVOS (aplicativos,
+  // sector, módulos y formatos DIAN); la ficha COMPLETA (nombre, NIT, tipo, socio y
+  // responsables) exige además `clientes:configurar` sobre el cliente (Gerente/Socio en su
+  // cartera y administradores). Sin ella esos campos se conservan como están, aunque el
+  // formulario los envíe.
+  const fichaCompleta = (await authorizePermiso("clientes:configurar", { clientId: id })).ok;
 
   try {
     const current = await prisma.client.findUnique({
@@ -474,30 +481,40 @@ export async function updateClient(
 
     // El código no se edita: se conserva el ya asignado al cliente.
     const syncErpsPorProceso = formData.get("syncErpsPorProceso") === "1";
-    if (syncErpsPorProceso) {
-      const configAuthz = await authorizePermiso("clientes:configurar", { clientId: id });
-      if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
-    }
     const erpsProceso = syncErpsPorProceso ? parseErpsPorProceso(formData) : null;
     if (erpsProceso && !erpsProceso.ok) return { ok: false, errors: erpsProceso.errors };
     const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpIds[0] ?? null;
+    const erpFormulario = syncErpsPorProceso ? erpContable : formData.get("erpId");
 
-    const parsed = ClientSchema.safeParse({
-      code: current.code,
-      name: formData.get("name"),
-      nit: formData.get("nit"),
-      tipo: formData.get("tipo"),
-      erpId: syncErpsPorProceso ? erpContable : formData.get("erpId"),
+    const operativos = ClientOperativoSchema.safeParse({
+      erpId: erpFormulario,
       sectorId: formData.get("sectorId"),
-      socioId: formData.get("socioId"),
     });
-    if (!parsed.success) {
-      return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+    if (!operativos.success) {
+      return { ok: false, errors: z.flattenError(operativos.error).fieldErrors };
     }
-    const { name, nit, tipo, erpId, sectorId, socioId } = parsed.data;
+    const { erpId, sectorId } = operativos.data;
 
-    const duplicado = await clienteConMismoNit(nit, id);
-    if (duplicado) return errorNitDuplicado(duplicado);
+    let ficha: { name: string; nit: string; tipo: "A" | "B" | "C"; socioId: number } | null = null;
+    if (fichaCompleta) {
+      const parsed = ClientSchema.safeParse({
+        code: current.code,
+        name: formData.get("name"),
+        nit: formData.get("nit"),
+        tipo: formData.get("tipo"),
+        erpId: erpFormulario,
+        sectorId: formData.get("sectorId"),
+        socioId: formData.get("socioId"),
+      });
+      if (!parsed.success) {
+        return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+      }
+      const { name, nit, tipo, socioId } = parsed.data;
+      ficha = { name, nit, tipo, socioId };
+
+      const duplicado = await clienteConMismoNit(nit, id);
+      if (duplicado) return errorNitDuplicado(duplicado);
+    }
 
     const existentes: ErpsExistentes = new Map();
     for (const asignacion of current.erpsPorProceso) {
@@ -521,23 +538,24 @@ export async function updateClient(
       return { ok: false, message: "Selecciona un sector válido." };
     }
 
-    const responsables = parseResponsables(formData);
-    if (!responsables.success) {
-      return { ok: false, errors: z.flattenError(responsables.error).fieldErrors };
-    }
-    const validados = await validarResponsables(responsables.data);
-    if (!validados.ok) return { ok: false, message: validados.message };
+    let responsablesFicha: { filas: ReturnType<typeof filasResponsables>; nombres: { gerente: string; senior: string; staffs: string[] }; socio: string } | null = null;
+    if (ficha) {
+      const responsables = parseResponsables(formData);
+      if (!responsables.success) {
+        return { ok: false, errors: z.flattenError(responsables.error).fieldErrors };
+      }
+      const validados = await validarResponsables(responsables.data);
+      if (!validados.ok) return { ok: false, message: validados.message };
 
-    const socio = await validarSocio(socioId);
-    if (!socio.ok) return { ok: false, message: socio.message };
+      const socio = await validarSocio(ficha.socioId);
+      if (!socio.ok) return { ok: false, message: socio.message };
+      responsablesFicha = { filas: filasResponsables(responsables.data), nombres: validados.nombres, socio: socio.nombre };
+    }
 
     const shouldSyncModules = formData.get("syncModules") === "1";
     let moduleIds: number[] | null = null;
     let dianFormIds: number[] | null = null;
     if (shouldSyncModules) {
-      const configAuthz = await authorizePermiso("clientes:configurar");
-      if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
-
       const modulesResult = parseModuleIds(formData);
       if (!modulesResult.ok) {
         return { ok: false, message: "Selecciona módulos válidos." };
@@ -560,7 +578,7 @@ export async function updateClient(
     await prisma.$transaction(async (tx) => {
       // erpId/sectorId con `?? null` para poder DEJARLOS vacíos (opcionales):
       // undefined no actualizaría la columna; null la limpia explícitamente.
-      await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId: erpId ?? null, sectorId: sectorId ?? null, socioId } });
+      await tx.client.update({ where: { id }, data: { ...(ficha ?? {}), erpId: erpId ?? null, sectorId: sectorId ?? null } });
 
       if (erpsValidados?.ok) {
         // Por campo: se retiran los aplicativos que ya no están y se agregan los nuevos; los que
@@ -584,29 +602,32 @@ export async function updateClient(
       // el upsert por (cliente, función, usuario) reactiva o crea cada
       // responsable actual, y el deleteMany retira las filas que ya no
       // corresponden (gerente/senior reemplazados o staff removidos).
-      const filas = filasResponsables(responsables.data);
-      for (const r of filas) {
-        await tx.clientAssignment.upsert({
+      // Sin la ficha completa no se tocan.
+      if (responsablesFicha) {
+        const filas = responsablesFicha.filas;
+        for (const r of filas) {
+          await tx.clientAssignment.upsert({
+            where: {
+              clientId_role_userId: { clientId: id, role: r.role, userId: r.userId },
+            },
+            create: {
+              clientId: id,
+              userId: r.userId,
+              role: r.role,
+              readScope: true,
+              writeScope: r.writeScope,
+              assignedById: authz.userId,
+            },
+            update: { active: true, writeScope: r.writeScope, assignedById: authz.userId },
+          });
+        }
+        await tx.clientAssignment.deleteMany({
           where: {
-            clientId_role_userId: { clientId: id, role: r.role, userId: r.userId },
-          },
-          create: {
             clientId: id,
-            userId: r.userId,
-            role: r.role,
-            readScope: true,
-            writeScope: r.writeScope,
-            assignedById: authz.userId,
+            NOT: { OR: filas.map((r) => ({ role: r.role, userId: r.userId })) },
           },
-          update: { active: true, writeScope: r.writeScope, assignedById: authz.userId },
         });
       }
-      await tx.clientAssignment.deleteMany({
-        where: {
-          clientId: id,
-          NOT: { OR: filas.map((r) => ({ role: r.role, userId: r.userId })) },
-        },
-      });
 
       if (moduleIds == null) return;
 
@@ -647,7 +668,9 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${ficha && responsablesFicha
+        ? `${ficha.name} · ${ficha.nit} · tipo ${ficha.tipo} · socio ${responsablesFicha.socio} · staff ${responsablesFicha.nombres.staffs.join(", ")} / senior ${responsablesFicha.nombres.senior} / gerente ${responsablesFicha.nombres.gerente}`
+        : `${current.name} · solo datos operativos`}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -657,14 +680,13 @@ export async function updateClient(
 }
 
 export async function deleteClient(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("clientes:configurar");
+  // Eliminar un cliente es solo de los administradores (19/Oct/2026): borra también sus
+  // responsables y no tiene vuelta atrás desde la pantalla.
+  const authz = await authorizePermiso("clientes:eliminar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Cliente inexistente." };
-  // Alcance por cartera: solo el responsable del cliente (Senior) o un
-  // administrador de plataforma puede eliminarlo ("configurar" infiere modo
-  // lectura = membresía).
-  const alcance = await authorizePermiso("clientes:configurar", { clientId: id });
+  const alcance = await authorizePermiso("clientes:eliminar", { clientId: id });
   if (!alcance.ok) return { ok: false, message: alcance.message };
   try {
     // Las asignaciones de responsables son FK suaves: se limpian a mano

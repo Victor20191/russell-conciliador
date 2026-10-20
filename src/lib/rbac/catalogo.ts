@@ -115,13 +115,18 @@ const STAFF_Y_SENIOR = ["Staff", "Senior"];
 const OPERATIVO_Y_ADMIN = ["Staff", "Senior", "Administrador", "Superadministrador"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
-// El Senior asigna los responsables por cliente (PDF); el Administrador, como
-// administrador de la plataforma, también gestiona la configuración de negocio
-// (clientes y sus responsables).
+// Revisión del balance y eliminación de cargues de módulo: el Senior y los administradores.
+// (Desde el 19-oct-2026 los responsables de un cliente ya no los asigna el Senior sino
+// Gerente, Socio y administradores: ver `SUPERVISORES_Y_ADMIN`.)
 const SENIOR_Y_ADMIN = ["Senior", "Administrador", "Superadministrador"];
 // Cierre/desbloqueo de la conciliación en firme: revisor (Senior) y validador
 // (Gerente) del cliente, más el Superadministrador.
 const SENIOR_GERENTE_Y_SUPERADMIN = ["Senior", "Gerente", "Superadministrador"];
+// Catálogos y parametrización que valen para toda la firma, y la ficha completa del cliente
+// (19-oct-2026, decisión del usuario): los editan Gerente, Socio y los administradores; el resto
+// los consulta. En la ficha del cliente el Gerente y el Socio solo editan su cartera (la acción
+// exige además alcance de lectura sobre el cliente).
+const SUPERVISORES_Y_ADMIN = ["Gerente", "Socio", "Administrador", "Superadministrador"];
 
 export const PERMISOS: Permiso[] = [
   // ===== Lectura (consulta) — módulos derivados de nav.ts =====
@@ -143,10 +148,15 @@ export const PERMISOS: Permiso[] = [
   // de costos de la plataforma → SOLO el Superadministrador (más restringido aún
   // que la analítica de accesos, que es admin-only).
   { code: "auditoria:ia", module: "auditoria", action: "ia", label: "Ver consumo y costos de IA", roles: SOLO_SUPERADMIN },
-  { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
+  // Usuarios y Estructura los consultan todos (19-oct-2026); a quien no administra usuarios,
+  // Usuarios se le muestra como directorio (activos, sin bloqueos ni intentos fallidos).
+  { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: TODOS },
   { code: "maestros:ver", module: "maestros", action: "ver", label: "Ver maestros", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
-  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: SENIOR_Y_ADMIN },
+  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: TODOS },
+  // Filtros de cuentas y Parámetros de alertas: todos los consultan (19-oct-2026); los edita
+  // `parametros:administrar`.
+  { code: "parametros:ver", module: "parametros", action: "ver", label: "Ver filtros de cuentas y parámetros de alertas", roles: TODOS },
 
   // ===== Conversación (comentar) — participar en las conversaciones del
   // módulo. Lectura+colaboración: todos los roles del PDF pueden comentar
@@ -202,18 +212,27 @@ export const PERMISOS: Permiso[] = [
   // ===== Supervisión — Gerente y Socio =====
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },
 
-  // ===== Configuración de negocio — SOLO Senior =====
-  { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SENIOR_Y_ADMIN },
-  { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar cliente", roles: SENIOR_Y_ADMIN },
-  { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Configurar parámetros del cliente", roles: SENIOR_Y_ADMIN },
-  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: SENIOR_Y_ADMIN },
+  // ===== Clientes (19-oct-2026, decisión del usuario) =====
+  // Todos consultan todos los clientes (`clientes:ver`). Editar tiene dos niveles y ambos exigen
+  // que el cliente esté en la cartera de quien edita (alcance de LECTURA; los administradores, todos):
+  //  - `clientes:editar`: datos OPERATIVOS — aplicativos por proceso, sector, módulos y formatos
+  //    DIAN activos. Todos los roles: Staff y Senior en los clientes que tienen asignados.
+  //  - `clientes:configurar`: la ficha COMPLETA — nombre, NIT, tipo, socio y responsables. Gerente
+  //    y Socio en su cartera, y los administradores.
+  // Crear (también por Excel) es de Gerente, Socio y administradores; eliminar, solo de los administradores.
+  { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SUPERVISORES_Y_ADMIN },
+  { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar datos operativos del cliente", roles: TODOS },
+  { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Editar la ficha completa del cliente (responsables incluidos)", roles: SUPERVISORES_Y_ADMIN },
+  { code: "clientes:eliminar", module: "clientes", action: "eliminar", label: "Eliminar cliente", roles: SOLO_ADMIN },
+  // Mapeos DIAN: plantilla global (sin cliente) que todos consultan y editan Gerente, Socio y administradores.
+  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: SUPERVISORES_Y_ADMIN },
 
   // ===== Administración de la herramienta — SOLO Administrador =====
   // Parametrización del PLAN ESTÁNDAR Russell (catálogo global de cuentas
-  // estándar): crear/editar/eliminar cuentas estándar. Es administración de la
-  // herramienta (no datos de un cliente) → SOLO Administrador, distinta de
-  // `mapeo:editar` (Staff, que mapea las cuentas del PUC del cliente).
-  { code: "mapeo:administrar", module: "mapeo", action: "administrar", label: "Administrar plan estándar Russell", roles: SOLO_ADMIN },
+  // estándar y subgrupos): crear/editar/eliminar. No es dato de un cliente; desde el
+  // 19-oct-2026 lo editan Gerente, Socio y los administradores (todos lo consultan
+  // con `mapeo:ver`). Distinto de `mapeo:editar` (legado, ningún gate lo usa).
+  { code: "mapeo:administrar", module: "mapeo", action: "administrar", label: "Administrar plan estándar Russell", roles: SUPERVISORES_Y_ADMIN },
   { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
   { code: "usuarios:editar", module: "usuarios", action: "editar", label: "Editar usuario", roles: SOLO_ADMIN },
   { code: "usuarios:eliminar", module: "usuarios", action: "eliminar", label: "Desactivar usuario", roles: SOLO_ADMIN },
@@ -225,12 +244,13 @@ export const PERMISOS: Permiso[] = [
   { code: "publicacion_modulos:ver", module: "publicacion_modulos", action: "ver", label: "Ver publicación de módulos", roles: SOLO_SUPERADMIN },
   { code: "publicacion_modulos:configurar", module: "publicacion_modulos", action: "configurar", label: "Configurar publicación de módulos", roles: SOLO_SUPERADMIN },
 
-  // ===== Estructura · mapa organizacional (solo lectura) — SOLO Administrador =====
+  // ===== Estructura · mapa organizacional (solo lectura) — todos =====
   // Visualiza la jerarquía Socio→Gerente→Senior→Staff y los clientes que
-  // atiende cada persona. Módulo admin-only: la visibilidad la da este permiso
-  // (no la publicación de módulos, inerte para `estructura`). Sin acción de
-  // administrar: es de pura consulta (los datos se editan en Usuarios/Clientes).
-  { code: "estructura:ver", module: "estructura", action: "ver", label: "Ver estructura de equipos", roles: SOLO_ADMIN },
+  // atiende cada persona. La visibilidad la da este permiso (no la publicación
+  // de módulos, inerte para `estructura`). Sin acción de administrar: es de
+  // pura consulta (los datos se editan en Usuarios/Clientes). Desde el
+  // 19-oct-2026 la consultan todos los roles.
+  { code: "estructura:ver", module: "estructura", action: "ver", label: "Ver estructura de equipos", roles: TODOS },
 
   // ===== Novedades · changelog + control de versiones — SOLO Administrador =====
   // Módulo admin-only (por ahora): los administradores consultan el avance de la
@@ -259,11 +279,13 @@ export const PERMISOS: Permiso[] = [
   // Superadministrador, igual que el consumo de IA (`auditoria:ia`).
   { code: "prompts:administrar", module: "prompts", action: "administrar", label: "Administrar prompts de IA", roles: SOLO_SUPERADMIN },
 
-  // ===== Parámetros de la plataforma — Administrador y Superadministrador =====
-  // Umbrales que separan los avisos informativos de las alertas accionables en el
-  // balance (diferencias y saldos contrarios). Es un criterio de MATERIALIDAD de la
-  // firma, no un dato de cliente: lo fija quien administra la herramienta.
-  { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar parámetros de alertas", roles: SOLO_ADMIN },
+  // ===== Parametrización — Gerente, Socio y administradores =====
+  // Filtros de cuentas (prefijos del prevalidador, cuentas y subgrupos que concilia cada
+  // módulo, parejas de depreciación) y umbrales de las alertas del balance y los módulos.
+  // Es un criterio de MATERIALIDAD de la firma, no un dato de cliente, y rige de inmediato
+  // para todos los clientes. Desde el 19-oct-2026 lo editan también Gerente y Socio
+  // (decisión del usuario: basta la auditoría de cada cambio); todos lo consultan con `parametros:ver`.
+  { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar filtros de cuentas y parámetros de alertas", roles: SUPERVISORES_Y_ADMIN },
 
   // ===== Conexiones e integraciones — Administrador y Superadministrador =====
   // Credenciales externas por CONEXIÓN nombrada (correo, almacenamiento, API,

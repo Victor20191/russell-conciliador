@@ -77,8 +77,8 @@ export default function PrevalidadorTab({
       <Card>
         <div className="flex items-start gap-3 px-4 py-6">
           <div className="min-w-0 flex-1 text-[12.5px] text-ink-500">
-            No hay cuentas configuradas para el prevalidador. Un administrador las define en{" "}
-            <span className="font-medium text-ink-700">Configuración › Filtros de cuentas</span>, en la página de cada
+            No hay cuentas configuradas para el prevalidador. El gerente, el socio o un administrador las definen en{" "}
+            <span className="font-medium text-ink-700">Parametrización › Filtros de cuentas</span>, en la página de cada
             módulo.
           </div>
           <HistorialRevisionesPrevalidador historial={historial} />

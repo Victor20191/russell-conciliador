@@ -80,12 +80,24 @@ export default function ConceptosNominaClient({
   rows,
   totalClientes,
   clientes,
+  puedeEditar,
+  editables,
 }: {
   rows: ConceptoRow[];
   totalClientes: number;
   clientes: ClienteOpcionConceptos[];
+  /** `modulos_datos:editar` del rol. Todos consultan todos los clientes (19/Oct/2026). */
+  puedeEditar: boolean;
+  /** Clientes donde quien ve la pantalla tiene alcance de escritura (staff/senior asignados). */
+  editables: "todos" | number[];
 }) {
   const router = useRouter();
+  const editablesSet = useMemo(() => (editables === "todos" ? null : new Set(editables)), [editables]);
+  const puedeEditarCliente = (clienteId: number) => puedeEditar && (editablesSet == null || editablesSet.has(clienteId));
+  const clientesEditables = useMemo(
+    () => (puedeEditar ? clientes.filter((c) => editablesSet == null || editablesSet.has(c.id)) : []),
+    [clientes, puedeEditar, editablesSet],
+  );
   // El catálogo se revisa CLIENTE POR CLIENTE: sin uno elegido la tabla no lista nada, porque
   // mezclar los conceptos de todos los clientes no se puede leer («todos» queda como opción).
   const [cliente, setCliente] = useState<string>("");
@@ -173,7 +185,7 @@ export default function ConceptosNominaClient({
           <StatCard
             label="Clientes con catálogo"
             value={`${totales.clientes} de ${totalClientes}`}
-            hint="de los clientes a tu alcance"
+            hint="de todos los clientes"
           />
         )}
         <StatCard
@@ -189,10 +201,14 @@ export default function ConceptosNominaClient({
         <CardHeader
           title="Conceptos por cliente"
           right={
-            <div className="flex flex-wrap items-center gap-2">
-              <ImportCatalogoErpButton clientes={clientes} />
-              <ImportConceptosNominaButton />
-            </div>
+            // Cargar solo tiene sentido para quien escribe en algún cliente; el catálogo del ERP
+            // se carga por cliente y ofrece solo esos.
+            clientesEditables.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <ImportCatalogoErpButton clientes={clientesEditables} />
+                <ImportConceptosNominaButton />
+              </div>
+            ) : undefined
           }
         />
         <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
@@ -331,15 +347,19 @@ export default function ConceptosNominaClient({
                   <td className="px-4 py-2.5 text-ink-500">{fmtDate(new Date(r.actualizadoEn))}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setBorrando(r)}
-                        title="Eliminar este concepto y sus cuentas"
-                        aria-label={`Eliminar el concepto ${r.codigo}${r.agrupador ? ` (${r.agrupador})` : ""} de ${r.clienteNombre}`}
-                        className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
+                      {puedeEditarCliente(r.clienteId) ? (
+                        <button
+                          type="button"
+                          onClick={() => setBorrando(r)}
+                          title="Eliminar este concepto y sus cuentas"
+                          aria-label={`Eliminar el concepto ${r.codigo}${r.agrupador ? ` (${r.agrupador})` : ""} de ${r.clienteNombre}`}
+                          className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      ) : (
+                        <span className="text-ink-300" title="Solo consulta: no tienes este cliente asignado">—</span>
+                      )}
                     </div>
                   </td>
                 </tr>

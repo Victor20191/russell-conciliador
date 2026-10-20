@@ -29,6 +29,7 @@ export default function SubgruposConciliacionPanel({
   plan4,
   prefijos,
   fijos,
+  puedeEditar,
 }: {
   modulo: { code: string; name: string };
   subgrupos: SubgrupoConciliacionVista[];
@@ -37,6 +38,8 @@ export default function SubgruposConciliacionPanel({
   prefijos: string[];
   /** Subgrupos fijos en código (abiertos a 6 dígitos): siempre concilian. */
   fijos: string[];
+  /** `parametros:administrar`. Sin él la vista es de solo consulta (19/Oct/2026). */
+  puedeEditar: boolean;
 }) {
   const [creando, setCreando] = useState(false);
   const listaPlan = useId();
@@ -62,7 +65,7 @@ export default function SubgruposConciliacionPanel({
           {subgrupos.length} subgrupo(s) de 4 dígitos que concilia {modulo.name}
           {fuera > 0 ? ` · ${fuera} fuera de la regla del prevalidador` : ""}
         </p>
-        {!creando && (
+        {puedeEditar && !creando && (
           <button
             type="button"
             onClick={() => setCreando(true)}
@@ -73,7 +76,7 @@ export default function SubgruposConciliacionPanel({
         )}
       </div>
 
-      {creando && (
+      {puedeEditar && creando && (
         <Card className="p-4">
           <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nuevo subgrupo que concilia</h2>
           <SubgrupoNuevo
@@ -107,6 +110,7 @@ export default function SubgruposConciliacionPanel({
               nombre={nombrePlan.get(s.subgrupo) ?? null}
               fueraDeLaRegla={fueraDeLaRegla(s.subgrupo)}
               unico={subgrupos.length === 1}
+              soloLectura={!puedeEditar}
             />
           ))}
           {fijos.map((codigo) => (
@@ -208,11 +212,14 @@ function SubgrupoFila({
   nombre,
   fueraDeLaRegla,
   unico,
+  soloLectura,
 }: {
   subgrupo: SubgrupoConciliacionVista;
   nombre: string | null;
   fueraDeLaRegla: boolean;
   unico: boolean;
+  /** Consulta: sin el botón de quitar. */
+  soloLectura: boolean;
 }) {
   const [state, action, quitando] = useActionState<ActionState, FormData>(quitarSubgrupoConciliacion, {});
   const [confirmar, setConfirmar] = useState(false);
@@ -234,20 +241,22 @@ function SubgrupoFila({
             Editado {fmtDateTime(subgrupo.actualizadoEn)}
             {subgrupo.actualizadoPor ? ` · ${subgrupo.actualizadoPor}` : ""}
           </span>
-          <button
-            type="button"
-            onClick={() => setConfirmar(true)}
-            disabled={unico || quitando}
-            title={unico ? "El módulo debe conciliar al menos un subgrupo." : `Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo.`}
-            aria-label={`Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Icon name="trash" size={13} />
-          </button>
+          {!soloLectura && (
+            <button
+              type="button"
+              onClick={() => setConfirmar(true)}
+              disabled={unico || quitando}
+              title={unico ? "El módulo debe conciliar al menos un subgrupo." : `Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo.`}
+              aria-label={`Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo`}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          )}
         </div>
       </div>
 
-      {confirmar && (
+      {!soloLectura && confirmar && (
         <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
           <input type="hidden" name="id" value={subgrupo.id} />
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">

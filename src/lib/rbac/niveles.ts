@@ -166,7 +166,12 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
     items: [
       { module: "clientes", label: "Clientes", icon: "users" },
       { module: "usuarios", label: "Usuarios", icon: "users" },
+      { module: "estructura", label: "Estructura", icon: "hierarchy" },
     ],
+  },
+  {
+    grupo: "Parametrización",
+    items: [{ module: "parametros", label: "Filtros de cuentas y parámetros de alertas", icon: "sliders" }],
   },
   {
     grupo: "Administración",

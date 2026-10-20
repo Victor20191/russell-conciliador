@@ -11,7 +11,6 @@ import {
   usePagination,
 } from "@/components/pagination-controls";
 import { PasswordInput } from "@/components/password-input";
-import { DEFAULT_TEMPORARY_PASSWORD } from "@/lib/auth/default-password";
 import { Modal } from "@/components/modal";
 import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/users";
 import { Icon } from "@/components/icons";
@@ -35,7 +34,12 @@ export type UserRow = {
   lastLoginAt: string | null;
   failedLoginAttempts: number;
   blockedUntil: string | null;
+  /** Nombres de sus superiores directos (jerarquía). */
+  reportaA: string[];
 };
+
+/** Qué puede hacer quien ve la pantalla; sin `editar` se muestra como directorio (19/Oct/2026). */
+export type PermisosUsuarios = { crear: boolean; editar: boolean; eliminar: boolean };
 
 export type RoleOption = { code: string; name: string };
 /** Candidato a superior directo (usuario activo con rol Socio/Gerente/Senior). */
@@ -64,13 +68,20 @@ export default function UsuariosClient({
   canManageSuperadmins,
   superiores,
   aristas,
+  permisos,
+  claveTemporal,
 }: {
   rows: UserRow[];
   roles: RoleOption[];
   canManageSuperadmins: boolean;
   superiores: SuperiorRef[];
   aristas: Arista[];
+  permisos: PermisosUsuarios;
+  /** Clave temporal del restablecimiento: solo llega a quien puede editar usuarios. */
+  claveTemporal: string | null;
 }) {
+  const directorio = !permisos.editar;
+  const conAcciones = permisos.editar || permisos.eliminar;
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
@@ -94,18 +105,26 @@ export default function UsuariosClient({
     <div>
       <PageHeader
         title="Usuarios"
-        subtitle="Crea, edita y desactiva cuentas. Solo administradores."
+        subtitle={
+          directorio
+            ? "Directorio del equipo: rol, correo y a quién reporta cada persona. Las cuentas las administran los administradores."
+            : "Crea, edita y desactiva cuentas. Solo administradores."
+        }
         actions={
-          <div className="flex items-center gap-2">
-            <CargarFotosButton />
-            <ImportMaestrosButton />
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white"
-            >
-              Nuevo usuario
-            </button>
-          </div>
+          permisos.editar || permisos.crear ? (
+            <div className="flex items-center gap-2">
+              {permisos.editar && <CargarFotosButton />}
+              {permisos.crear && <ImportMaestrosButton />}
+              {permisos.crear && (
+                <button
+                  onClick={() => setCreateOpen(true)}
+                  className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white"
+                >
+                  Nuevo usuario
+                </button>
+              )}
+            </div>
+          ) : undefined
         }
       />
 
@@ -132,8 +151,9 @@ export default function UsuariosClient({
               <tr className="border-b border-ink-200 bg-ink-50 text-ink-500">
                 <th className="px-4 py-3 font-medium">Usuario</th>
                 <th className="px-4 py-3 font-medium">Rol</th>
-                <th className="px-4 py-3 font-medium">Estado</th>
-                <th className="px-4 py-3 font-medium text-right">Acciones</th>
+                <th className="px-4 py-3 font-medium">Reporta a</th>
+                {!directorio && <th className="px-4 py-3 font-medium">Estado</th>}
+                {conAcciones && <th className="px-4 py-3 font-medium text-right">Acciones</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
@@ -151,6 +171,10 @@ export default function UsuariosClient({
                       </div>
                     </td>
                     <td className="px-4 py-3 text-ink-600">{u.role}</td>
+                    <td className="px-4 py-3 text-[12.5px] text-ink-600">
+                      {u.reportaA.length > 0 ? u.reportaA.join(", ") : <span className="text-ink-400">—</span>}
+                    </td>
+                    {!directorio && (
                     <td className="px-4 py-3">
                       <div className="flex flex-col items-start gap-1">
                         {blocked ? (
@@ -177,21 +201,25 @@ export default function UsuariosClient({
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <UserActions
-                        user={u}
-                        blocked={blocked}
-                        canManageSuperadmins={canManageSuperadmins}
-                        onEdit={() => setEditUser(u)}
-                        onDelete={() => setDeleteTarget(u)}
-                      />
-                    </td>
+                    )}
+                    {conAcciones && (
+                      <td className="px-4 py-3">
+                        <UserActions
+                          user={u}
+                          blocked={blocked}
+                          canManageSuperadmins={canManageSuperadmins}
+                          permisos={permisos}
+                          onEdit={() => setEditUser(u)}
+                          onDelete={() => setDeleteTarget(u)}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-ink-500">
+                  <td colSpan={3 + (directorio ? 0 : 1) + (conAcciones ? 1 : 0)} className="px-4 py-8 text-center text-ink-500">
                     {q.trim()
                       ? "No hay usuarios que coincidan con la búsqueda."
                       : "No hay usuarios registrados."}
@@ -209,7 +237,7 @@ export default function UsuariosClient({
         />
       </Card>
 
-      {createOpen && (
+      {permisos.crear && createOpen && (
         <CreateUserForm
           roles={roles}
           superiores={superiores}
@@ -217,17 +245,18 @@ export default function UsuariosClient({
         />
       )}
 
-      {editUser && (
+      {permisos.editar && editUser && (
         <EditUserForm
           user={editUser}
           roles={roles}
           superiores={superiores}
           aristas={aristas}
+          claveTemporal={claveTemporal}
           onClose={() => setEditUser(null)}
         />
       )}
 
-      {deleteTarget && (
+      {permisos.eliminar && deleteTarget && (
         <DeleteUserForm
           user={deleteTarget}
           onClose={() => setDeleteTarget(null)}
@@ -241,12 +270,14 @@ function UserActions({
   user,
   blocked,
   canManageSuperadmins,
+  permisos,
   onEdit,
   onDelete,
 }: {
   user: UserRow;
   blocked: boolean;
   canManageSuperadmins: boolean;
+  permisos: PermisosUsuarios;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -256,13 +287,17 @@ function UserActions({
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
-      <button onClick={onEdit} className="text-blue-500 hover:underline">
-        Editar
-      </button>
-      {blocked && <UnlockUserForm user={user} />}
-      <button onClick={onDelete} className="text-err-700 hover:underline">
-        Eliminar
-      </button>
+      {permisos.editar && (
+        <button onClick={onEdit} className="text-blue-500 hover:underline">
+          Editar
+        </button>
+      )}
+      {permisos.editar && blocked && <UnlockUserForm user={user} />}
+      {permisos.eliminar && (
+        <button onClick={onDelete} className="text-err-700 hover:underline">
+          Eliminar
+        </button>
+      )}
     </div>
   );
 }
@@ -536,12 +571,14 @@ function EditUserForm({
   roles,
   superiores,
   aristas,
+  claveTemporal,
   onClose,
 }: {
   user: UserRow;
   roles: RoleOption[];
   superiores: SuperiorRef[];
   aristas: Arista[];
+  claveTemporal: string | null;
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
@@ -723,7 +760,7 @@ function EditUserForm({
             </label>
             <p id={`${passwordResetId}-ayuda`} className="mt-1.5 pl-6 text-[12px] leading-relaxed text-ink-500">
               Al marcarla y guardar, ingresará con{" "}
-              <code className="rounded bg-ink-50 px-1 py-0.5 font-mono text-ink-800">{DEFAULT_TEMPORARY_PASSWORD}</code>{" "}
+              <code className="rounded bg-ink-50 px-1 py-0.5 font-mono text-ink-800">{claveTemporal}</code>{" "}
               y deberá elegir una nueva contraseña.
             </p>
           </div>

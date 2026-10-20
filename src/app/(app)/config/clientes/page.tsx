@@ -7,21 +7,30 @@ import ClientesClient, {
   type Personas,
   type Arista,
 } from "./clientes-client";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { nextClientCode } from "@/lib/client-code";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { esCodigoProcesoErp } from "@/lib/erp-procesos";
 
 export default async function ClientesPage() {
-  await requirePermiso("clientes:configurar");
-  // Cartera administrable: el Senior solo gestiona los clientes donde es
-  // responsable; Admin/Superadmin administran todos.
-  const alc = await alcanceLecturaUsuario();
-  const whereCliente = alc.todos ? {} : { id: { in: alc.clientIds } };
+  // Todos consultan TODOS los clientes (19/Oct/2026). Lo que cada uno edita depende de
+  // su cartera (alcance de lectura = membresía): la ficha completa con `clientes:configurar`
+  // (Gerente/Socio, administradores) o solo lo operativo con `clientes:editar` (Staff/Senior).
+  // Las acciones lo vuelven a exigir; esto solo decide qué controles se muestran.
+  await requirePermiso("clientes:ver");
+  const [alc, puedeEditar, puedeFicha, puedeCrear, puedeEliminar] = await Promise.all([
+    alcanceLecturaUsuario(),
+    authorizePermiso("clientes:editar").then((r) => r.ok),
+    authorizePermiso("clientes:configurar").then((r) => r.ok),
+    authorizePermiso("clientes:crear").then((r) => r.ok),
+    authorizePermiso("clientes:eliminar").then((r) => r.ok),
+  ]);
+  const enCartera = (clientId: number) => alc.todos || alc.clientIds.includes(clientId);
+  const edicionDe = (clientId: number): ClientRow["edicion"] =>
+    !enCartera(clientId) ? null : puedeFicha ? "ficha" : puedeEditar ? "operativo" : null;
   const [clients, modules, dianFormsBD, erpsBD, procesosErpBD, sectoresBD, usuarios, aristasBD, asignaciones] = await Promise.all([
     prisma.client.findMany({
-      where: whereCliente,
       orderBy: { name: "asc" },
       include: {
         modules: true,
@@ -58,7 +67,7 @@ export default async function ClientesPage() {
       select: { superiorId: true, subordinateId: true },
     }),
     prisma.clientAssignment.findMany({
-      where: { active: true, ...(alc.todos ? {} : { clientId: { in: alc.clientIds } }) },
+      where: { active: true },
       select: { clientId: true, userId: true, role: true },
     }),
   ]);
@@ -119,6 +128,7 @@ export default async function ClientesPage() {
       modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
       dianFormIds: c.dianForms.map((f) => f.formId),
       responsables: responsablesPorCliente.get(c.id) ?? [],
+      edicion: edicionDe(c.id),
     };
   });
   const mods: ModuleRef[] = modules.map((m) => ({ id: m.id, name: m.name }));
@@ -152,6 +162,7 @@ export default async function ClientesPage() {
         nextCode={nextCode}
         personas={personas}
         aristas={aristas}
+        permisos={{ crear: puedeCrear, eliminar: puedeEliminar }}
       />
     </div>
   );

@@ -17,7 +17,14 @@ export type DianFormData = {
 };
 type Row = { account: string; desc: string; sign: string };
 
-export default function ConfigDianClient({ forms }: { forms: DianFormData[] }) {
+export default function ConfigDianClient({
+  forms,
+  puedeConfigurar,
+}: {
+  forms: DianFormData[];
+  /** `mapeos_dian:configurar` (Gerente, Socio, administradores). Sin él, solo consulta (19/Oct/2026). */
+  puedeConfigurar: boolean;
+}) {
   const [activeId, setActiveId] = useState(forms[0]?.id ?? 0);
   const [editing, setEditing] = useState<{ lineKey: string; label: string; rows: Row[] } | null>(null);
   const active = forms.find((f) => f.id === activeId) ?? forms[0];
@@ -59,7 +66,9 @@ export default function ConfigDianClient({ forms }: { forms: DianFormData[] }) {
                           )}
                         </td>
                         <td className="px-4 py-2 text-right">
-                          <button onClick={() => setEditing({ lineKey: l.k, label: l.label, rows: rows.map((m) => ({ account: m.account, desc: m.desc, sign: m.sign })) })} className="inline-flex items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="settings" size={12} /> Editar</button>
+                          {puedeConfigurar && (
+                            <button onClick={() => setEditing({ lineKey: l.k, label: l.label, rows: rows.map((m) => ({ account: m.account, desc: m.desc, sign: m.sign })) })} className="inline-flex items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="settings" size={12} /> Editar</button>
+                          )}
                         </td>
                       </tr>
                     );

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
+import { alcanceEscrituraUsuario } from "@/lib/rbac/contexto";
 import { crearPlantillaConceptosNomina } from "@/lib/import/conceptos-nomina-template";
 import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
 import { cedulaModulo, opcionesCedula, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
@@ -17,15 +17,15 @@ const NOMBRE_ARCHIVO = "Plantilla_Conceptos_Nomina.xlsx";
 
 /**
  * Plantilla de la carga masiva de conceptos de nómina. Las referencias que trae
- * dentro (clientes y cuentas válidas) se limitan a la CARTERA del usuario: la
- * plantilla no puede servir para enumerar clientes ajenos.
+ * dentro (clientes y cuentas válidas) se limitan a los clientes donde el usuario
+ * puede CARGAR (alcance de escritura): son los únicos que la carga le aceptaría.
  */
 export async function GET() {
   const authz = await authorizePermiso("modulos_datos:editar");
   if (!authz.ok) return NextResponse.json({ message: authz.message }, { status: 403 });
 
   try {
-    const alc = await alcanceLecturaUsuario();
+    const alc = await alcanceEscrituraUsuario();
     // Nómina cruza a 6 dígitos: las referencias son las cuentas Russell completas del módulo
     // (gasto de personal y los pasivos laborales que también concilia).
     const descriptor = await descriptorVigente(MODULO_CONCEPTOS_NOMINA);

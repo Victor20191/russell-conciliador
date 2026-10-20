@@ -3,8 +3,8 @@ import { requirePermiso } from "@/lib/rbac";
 import { construirArbol } from "@/lib/estructura/arbol";
 import EstructuraClient from "./estructura-client";
 
-// Módulo ESTRUCTURA (mapa organizacional), admin-only y de solo lectura. El
-// guard es `estructura:ver` (SOLO_ADMIN). No muta nada: arma el árbol
+// Módulo ESTRUCTURA (mapa organizacional), de solo lectura y para todos los roles desde el
+// 19/Oct/2026 (guard `estructura:ver`). No muta nada: arma el árbol
 // Socio→Gerente→Senior→Staff + los clientes que atiende cada persona a partir
 // de jerarquia_usuarios y asignaciones_cliente (los datos se editan en
 // Usuarios/Clientes). Patrón de loader RSC idéntico a /novedades.

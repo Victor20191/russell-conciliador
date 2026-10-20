@@ -31,6 +31,7 @@ export default function ParesDepreciacionPanel({
   subgruposAbiertos,
   plan4,
   plan6,
+  puedeEditar,
 }: {
   modulo: { code: string; name: string };
   pares: ParDepreciacionVista[];
@@ -38,6 +39,8 @@ export default function ParesDepreciacionPanel({
   subgruposAbiertos: string[];
   plan4: CuentaPlanVm[];
   plan6: CuentaPlanVm[];
+  /** `parametros:administrar`. Sin él la vista es de solo consulta (19/Oct/2026). */
+  puedeEditar: boolean;
 }) {
   const [creando, setCreando] = useState(false);
   const listaActivos = useId();
@@ -72,7 +75,7 @@ export default function ParesDepreciacionPanel({
 
       <div className="flex items-center justify-between">
         <p className="text-[12px] text-ink-500">{pares.length} pareja(s) activo → depreciación en {modulo.name}</p>
-        {!creando && (
+        {puedeEditar && !creando && (
           <button
             type="button"
             onClick={() => setCreando(true)}
@@ -83,7 +86,7 @@ export default function ParesDepreciacionPanel({
         )}
       </div>
 
-      {creando && (
+      {puedeEditar && creando && (
         <Card className="p-4">
           <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva pareja activo → depreciación</h2>
           <ParNuevo
@@ -114,7 +117,7 @@ export default function ParesDepreciacionPanel({
         </p>
         <div className="flex flex-col gap-2">
           {pares.map((p) => (
-            <ParFila key={p.id} par={p} nombreActivo={nombre4.get(p.subgrupo) ?? null} nombreCuenta={nombre6.get(p.cuenta6) ?? null} />
+            <ParFila key={p.id} par={p} nombreActivo={nombre4.get(p.subgrupo) ?? null} nombreCuenta={nombre6.get(p.cuenta6) ?? null} soloLectura={!puedeEditar} />
           ))}
           {pares.length === 0 && (
             <p className="text-[11.5px] text-ink-400">Sin parejas: la cédula usa las de fábrica del módulo.</p>
@@ -219,10 +222,13 @@ function ParFila({
   par,
   nombreActivo,
   nombreCuenta,
+  soloLectura,
 }: {
   par: ParDepreciacionVista;
   nombreActivo: string | null;
   nombreCuenta: string | null;
+  /** Consulta: sin el botón de quitar. */
+  soloLectura: boolean;
 }) {
   const [state, action, quitando] = useActionState<ActionState, FormData>(quitarParDepreciacion, {});
   const [confirmar, setConfirmar] = useState(false);
@@ -246,20 +252,22 @@ function ParFila({
             Editado {fmtDateTime(par.actualizadoEn)}
             {par.actualizadoPor ? ` · ${par.actualizadoPor}` : ""}
           </span>
-          <button
-            type="button"
-            onClick={() => setConfirmar(true)}
-            disabled={quitando}
-            title={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}.`}
-            aria-label={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Icon name="trash" size={13} />
-          </button>
+          {!soloLectura && (
+            <button
+              type="button"
+              onClick={() => setConfirmar(true)}
+              disabled={quitando}
+              title={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}.`}
+              aria-label={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}`}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          )}
         </div>
       </div>
 
-      {confirmar && (
+      {!soloLectura && confirmar && (
         <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
           <input type="hidden" name="id" value={par.id} />
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">

@@ -232,9 +232,10 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: false,
   },
   {
-    // Admin-only: la visibilidad la gobierna el permiso parametros:administrar
-    // (SOLO_ADMIN); la publicación de módulos queda inerte (configurable=false ⇒
-    // moduloPublicadoParaRol devuelve true para todos).
+    // La visibilidad la gobiernan los permisos: `parametros:ver` (todos, desde el
+    // 19/Oct/2026) y `parametros:administrar` (Gerente, Socio y administradores); la
+    // publicación de módulos queda inerte (configurable=false ⇒ moduloPublicadoParaRol
+    // devuelve true para todos).
     key: "parametros",
     label: "Parámetros de alertas",
     description: "Umbrales que separan los avisos informativos de las alertas accionables del balance.",

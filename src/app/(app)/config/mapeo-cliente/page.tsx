@@ -10,9 +10,9 @@ import MapeoClienteClient from "./mapeo-cliente-client";
 
 export default async function MapeoCuentasClientePage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
   await requirePermiso("mapeo:ver");
-  // El selector ofrece SOLO los clientes de la cartera del usuario; el `cliente`
-  // elegido (searchParams) se valida contra esa lista, de modo que no puede
-  // consultarse el plan de cuentas de un cliente ajeno por la URL.
+  // Todos CONSULTAN la homologación de todos los clientes con balance (19/Oct/2026); el
+  // `cliente` elegido (searchParams) se valida contra esa lista. Editar sigue siendo del
+  // senior asignado y de los administradores (`puedeMapear`, más abajo).
   const [sp, alc] = await Promise.all([searchParams, alcanceLecturaUsuario()]);
 
   // No depende del cliente elegido: se inicia antes del selector para solaparla
@@ -20,7 +20,6 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
   const standardPromise = prisma.standardAccount.findMany({ orderBy: { code: "asc" } });
 
   const balances = await prisma.balancePruebaEncabezado.findMany({
-    where: alc.todos ? {} : { clienteId: { in: alc.clientIds } },
     select: { clienteId: true, nombreCliente: true, nit: true },
     distinct: ["clienteId"],
     orderBy: { nombreCliente: "asc" },
@@ -102,10 +101,13 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
     where: { clienteId, id: { in: idsOrigen } }, select: { id: true, periodo: true, version: true },
   }) : [];
   const porOrigen = new Map(origenes.map((o) => [o.id, o]));
+  // El enlace al balance de origen solo sirve si quien consulta tiene el cliente en su
+  // cartera: `/balance/[id]` exige alcance de lectura y, si no, lo devuelve al inicio.
+  const balanceEnCartera = clienteId != null && (alc.todos || alc.clientIds.includes(clienteId));
   for (const a of acc) {
     if (!a.procedencia?.balance_id) continue;
     const origen = porOrigen.get(a.procedencia.balance_id);
-    a.balanceDisponible = !!origen;
+    a.balanceDisponible = !!origen && balanceEnCartera;
     if (origen) a.procedencia = { ...a.procedencia, periodo: origen.periodo, version: origen.version };
   }
 

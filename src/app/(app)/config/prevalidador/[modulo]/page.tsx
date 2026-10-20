@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BackLink, Card, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { getCatalogoPrevalidadorVista } from "@/lib/parametros/prevalidador";
 import { getCuentasConciliacionVista, getParesDepreciacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
@@ -32,9 +32,15 @@ export default async function PrevalidadorModuloPage({
   params: Promise<{ modulo: string }>;
   searchParams: Promise<{ volver?: string }>;
 }) {
-  // Administrador y Superadministrador (permiso parametros:administrar): qué se prevalida y qué
-  // concilia cada módulo es un criterio de la firma, no un dato de cliente.
-  await requirePermiso("parametros:administrar");
+  // Qué se prevalida y qué concilia cada módulo es un criterio de la firma, no un dato de cliente:
+  // todos lo consultan (`parametros:ver`) y lo editan Gerente, Socio y administradores
+  // (`parametros:administrar`, 19/Oct/2026). Quien edita entra aunque la matriz de la base aún
+  // no tenga `parametros:ver` (nuevo: llega con `db:sync:rbac`).
+  const [puedeVer, puedeEditar] = await Promise.all([
+    authorizePermiso("parametros:ver").then((r) => r.ok),
+    authorizePermiso("parametros:administrar").then((r) => r.ok),
+  ]);
+  if (!puedeVer && !puedeEditar) redirect("/dashboard");
   const codigo = moduloDeRuta((await params).modulo);
   if (!codigo) notFound();
   const { volver } = await searchParams;
@@ -77,7 +83,7 @@ export default async function PrevalidadorModuloPage({
         subtitle={`Cuentas del plan estándar Russell que se comparan contra el PUC del cliente antes de conciliar ${modulo.name}.`}
       />
       <div className="flex flex-col gap-4">
-        <PrevalidadorConfigClient catalogo={catalogo} modulos={modulos} soloModulo={codigo} />
+        <PrevalidadorConfigClient catalogo={catalogo} modulos={modulos} soloModulo={codigo} puedeEditar={puedeEditar} />
 
         {config.conCuentas6 && (
           <CuentasConciliacionPanel
@@ -86,6 +92,7 @@ export default async function PrevalidadorModuloPage({
             cuentas={cuentas.filter((c) => c.moduloCodigo === codigo)}
             catalogo={catalogo}
             plan6={plan6}
+            puedeEditar={puedeEditar}
           />
         )}
 
@@ -97,6 +104,7 @@ export default async function PrevalidadorModuloPage({
             // Solo marca los que quedan fuera de la regla: la lista no depende de ella.
             prefijos={prefijosCuentaModulo(codigo, catalogo)}
             fijos={config.subgruposFijos}
+            puedeEditar={puedeEditar}
           />
         )}
 
@@ -119,6 +127,7 @@ export default async function PrevalidadorModuloPage({
               subgruposAbiertos={config.subgruposAbiertos}
               plan4={plan4Pares}
               plan6={plan6Pares}
+              puedeEditar={puedeEditar}
             />
           </>
         )}

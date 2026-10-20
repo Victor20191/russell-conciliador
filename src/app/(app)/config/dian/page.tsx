@@ -1,10 +1,12 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import ConfigDianClient, { type DianFormData } from "./config-dian-client";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 
 export default async function ConfigDianPage() {
+  // Todos consultan la plantilla; la editan Gerente, Socio y administradores (19/Oct/2026).
   await requirePermiso("mapeos_dian:ver");
+  const puedeConfigurar = (await authorizePermiso("mapeos_dian:configurar")).ok;
   const forms = await prisma.dianForm.findMany({
     include: { sections: { orderBy: { order: "asc" }, include: { lines: { orderBy: { order: "asc" } } } }, mappings: true },
     orderBy: { code: "asc" },
@@ -19,7 +21,7 @@ export default async function ConfigDianPage() {
   return (
     <div>
       <PageHeader title="Mapeos DIAN" subtitle="Configura qué cuentas contables suman o restan al saldo de cada renglón de los formatos DIAN. Plantilla estándar reutilizable por cliente." />
-      <ConfigDianClient forms={data} />
+      <ConfigDianClient forms={data} puedeConfigurar={puedeConfigurar} />
     </div>
   );
 }

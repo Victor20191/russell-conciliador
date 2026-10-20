@@ -31,7 +31,14 @@ const SECCIONES: { seccion: SeccionUmbral; titulo: string; retroactivo: string }
   },
 ];
 
-export default function ParametrosClient({ umbrales }: { umbrales: UmbralVista[] }) {
+export default function ParametrosClient({
+  umbrales,
+  puedeEditar,
+}: {
+  umbrales: UmbralVista[];
+  /** `parametros:administrar`. Sin él se ven los montos vigentes, sin editarlos (19/Oct/2026). */
+  puedeEditar: boolean;
+}) {
   return (
     <div className="flex flex-col gap-6">
       {SECCIONES.map(({ seccion, titulo, retroactivo }) => {
@@ -40,11 +47,13 @@ export default function ParametrosClient({ umbrales }: { umbrales: UmbralVista[]
         return (
           <section key={seccion} className="flex flex-col gap-4">
             <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">{titulo}</h2>
-            <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
-              Los cambios son <span className="font-semibold">retroactivos</span>: {retroactivo}
-            </div>
+            {puedeEditar && (
+              <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
+                Los cambios son <span className="font-semibold">retroactivos</span>: {retroactivo}
+              </div>
+            )}
             {propios.map((u) => (
-              <UmbralEditor key={u.clave} umbral={u} />
+              <UmbralEditor key={u.clave} umbral={u} soloLectura={!puedeEditar} />
             ))}
           </section>
         );
@@ -53,7 +62,7 @@ export default function ParametrosClient({ umbrales }: { umbrales: UmbralVista[]
   );
 }
 
-function UmbralEditor({ umbral }: { umbral: UmbralVista }) {
+function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectura: boolean }) {
   const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(actualizarUmbral, {});
   const [restaurarState, restaurarAction, restaurando] = useActionState<ActionState, FormData>(restaurarUmbral, {});
   const [valor, setValor] = useState(String(umbral.valor));
@@ -107,6 +116,12 @@ function UmbralEditor({ umbral }: { umbral: UmbralVista }) {
         </div>
       </div>
 
+      {soloLectura ? (
+        <p className="mt-3 flex flex-wrap items-baseline gap-2">
+          <span className="font-mono text-[13px] font-semibold tabular-nums text-ink-800">{fmt(umbral.valor)}</span>
+          <span className="text-[11px] text-ink-400">Predeterminado {fmt(umbral.predeterminado)}</span>
+        </p>
+      ) : (
       <form action={guardarAction} className="mt-3 flex flex-wrap items-center gap-2">
         <input type="hidden" name="clave" value={umbral.clave} />
         {/* El name va en un hidden con el valor CRUDO: el input visible lleva
@@ -173,11 +188,14 @@ function UmbralEditor({ umbral }: { umbral: UmbralVista }) {
           </button>
         </div>
       </form>
+      )}
 
       {/* Form separado para restaurar (no puede anidarse en el de guardar). */}
-      <form id={`reset-${umbral.clave}`} action={restaurarAction} className="hidden">
-        <input type="hidden" name="clave" value={umbral.clave} />
-      </form>
+      {!soloLectura && (
+        <form id={`reset-${umbral.clave}`} action={restaurarAction} className="hidden">
+          <input type="hidden" name="clave" value={umbral.clave} />
+        </form>
+      )}
     </Card>
   );
 }

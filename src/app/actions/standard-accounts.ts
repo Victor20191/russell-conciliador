@@ -18,8 +18,8 @@ import {
 } from "@/lib/definitions";
 
 // CRUD del PLAN ESTÁNDAR Russell (catálogo global de cuentas estándar).
-// SOLO Administrador: el gate es `mapeo:administrar` (distinto de `mapeo:editar`,
-// que es del Staff para mapear el PUC de un cliente). Cada movimiento deja una
+// Gerente, Socio y administradores (19/Oct/2026): el gate es `mapeo:administrar` (distinto de `mapeo:editar`,
+// legado y sin uso). Cada movimiento deja una
 // fila en la bitácora DEDICADA (`bitacora_cuentas_estandar`) y, además, en el
 // registro GLOBAL de auditoría (`/auditoria`).
 const PATH = "/config/mapeo";

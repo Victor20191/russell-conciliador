@@ -217,6 +217,10 @@ export const ClientSchema = z.object({
     .positive({ error: "Selecciona el socio." }),
 });
 
+// Datos OPERATIVOS del cliente: lo único que guarda quien edita sin la ficha completa
+// (`clientes:editar` sin `clientes:configurar`, p. ej. Staff y Senior asignados).
+export const ClientOperativoSchema = ClientSchema.pick({ erpId: true, sectorId: true });
+
 // Responsables del cliente (asignación directa al crear/editar): uno o varios
 // Staff ejecutan, el Senior revisa y el Gerente valida. La consistencia (roles
 // exactos, usuarios activos y jerarquía gerente→senior→staff) se contrasta

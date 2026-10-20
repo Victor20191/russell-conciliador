@@ -210,7 +210,7 @@ export default function EstructuraClient({ arbol }: { arbol: EstructuraArbol }) 
               <EmptyState
                 icon="users"
                 title="Sin socios registrados"
-                description="Cuando registres socios en Usuarios y los enlaces con sus gerentes, aparecerán aquí."
+                description="Cuando se registren socios en Usuarios y se enlacen con sus gerentes, aparecerán aquí."
               />
             </Card>
           ) : (
@@ -223,7 +223,7 @@ export default function EstructuraClient({ arbol }: { arbol: EstructuraArbol }) 
               <SectionTitle>Sin superior asignado</SectionTitle>
               <p className="mb-3 -mt-1 flex items-center gap-1.5 text-[12px] text-warn-700">
                 <Icon name="warn" size={13} />
-                Estas personas no están enlazadas hacia arriba en la jerarquía (revisa sus superiores en Usuarios).
+                Estas personas no están enlazadas hacia arriba en la jerarquía (sus superiores se definen en Usuarios).
               </p>
               {huerfanos.gerentes.length > 0 && (
                 <div className="mb-3">
@@ -294,7 +294,7 @@ function DetallePersona({
                 <EmptyState
                   icon="users"
                   title={`Sin ${subnivel.toLowerCase()}`}
-                  description={`${nodo.name} aún no tiene ${subnivel.toLowerCase()} a cargo. Enlázalos desde Usuarios.`}
+                  description={`${nodo.name} aún no tiene ${subnivel.toLowerCase()} a cargo. Se enlazan desde Usuarios.`}
                 />
               </Card>
             ) : (

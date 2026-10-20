@@ -204,7 +204,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
   );
 }
 
-// ----- Formularios y bitácora del plan estándar (solo Administrador) -----
+// ----- Formularios y bitácora del plan estándar (Gerente, Socio y administradores) -----
 
 const INPUT_CLS = "rounded-md border border-ink-200 px-3 py-2 text-[13px] outline-none focus:border-blue-400";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-[64px] resize-y`;
@@ -483,7 +483,7 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
   );
 }
 
-// ===== Subgrupos del plan estándar (nivel 4) — solo Administrador edita =====
+// ===== Subgrupos del plan estándar (nivel 4) — editan Gerente, Socio y administradores =====
 
 function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
   puc: FilaPucRussell[]; subgrupos: Subgrupo[]; std: StdAccount[]; canManage: boolean; lockedStdCodes: string[];

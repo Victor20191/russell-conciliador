@@ -63,7 +63,13 @@ export type ClientRow = {
   modules: { moduleId: number; status: string }[];
   dianFormIds: number[];
   responsables: { funcion: string; userId: number; name: string }[];
+  /** Qué puede editar quien ve la lista (19/Oct/2026): la ficha completa (Gerente/Socio en su
+   *  cartera, administradores), solo los datos operativos (Staff/Senior asignados) o nada. */
+  edicion: NivelEdicionCliente;
 };
+export type NivelEdicionCliente = "ficha" | "operativo" | null;
+/** Lo que el usuario puede hacer en la pantalla además de editar cada cliente. */
+export type PermisosClientes = { crear: boolean; eliminar: boolean };
 
 function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "none" {
   const m = c.modules.find((x) => x.moduleId === moduleId);
@@ -88,6 +94,7 @@ export default function ClientesClient({
   nextCode,
   personas,
   aristas,
+  permisos,
 }: {
   clients: ClientRow[];
   modules: ModuleRef[];
@@ -98,6 +105,7 @@ export default function ClientesClient({
   nextCode: string;
   personas: Personas;
   aristas: Arista[];
+  permisos: PermisosClientes;
 }) {
   const [q, setQ] = useState("");
   const [erp, setErp] = useState("");
@@ -169,18 +177,22 @@ export default function ClientesClient({
           <a
             href="/config/clientes/exportar"
             download
-            title="Descargar un Excel con todos los clientes (según tu cartera)."
+            title="Descargar un Excel con todos los clientes."
             className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
           >
             <Icon name="download" size={13} /> Exportar a Excel
           </a>
-          <ImportClientesButton />
-          <button
-            onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
-          >
-            <Icon name="plus" size={13} /> Nuevo cliente
-          </button>
+          {permisos.crear && (
+            <>
+              <ImportClientesButton />
+              <button
+                onClick={() => setCreating(true)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
+              >
+                <Icon name="plus" size={13} /> Nuevo cliente
+              </button>
+            </>
+          )}
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
       </div>
@@ -283,6 +295,8 @@ export default function ClientesClient({
           onClose={() => setCreating(false)}
           title="Nuevo cliente"
           action={createClient}
+          nivel="ficha"
+          puedeEliminar={false}
           erps={erps}
           erpProcesses={erpProcesses}
           sectors={sectors}
@@ -297,9 +311,17 @@ export default function ClientesClient({
         <ClientModal
           key={editing.id}
           onClose={() => setEditing(null)}
-          title="Editar cliente"
+          title={
+            editing.edicion === "ficha"
+              ? "Editar cliente"
+              : editing.edicion === "operativo"
+                ? "Editar datos operativos del cliente"
+                : "Información del cliente"
+          }
           action={updateClient}
           client={editing}
+          nivel={editing.edicion}
+          puedeEliminar={permisos.eliminar}
           erps={erps}
           erpProcesses={erpProcesses}
           sectors={sectors}
@@ -368,11 +390,15 @@ function ClientModal({
   dianForms,
   personas,
   aristas,
+  nivel,
+  puedeEliminar,
 }: {
   onClose: () => void;
   title: string;
   action: (prev: ActionState, fd: FormData) => Promise<ActionState>;
   client?: ClientRow | null;
+  nivel: NivelEdicionCliente;
+  puedeEliminar: boolean;
   erps: ErpRef[];
   erpProcesses: ErpProcessRef[];
   sectors: SectorRef[];
@@ -384,6 +410,10 @@ function ClientModal({
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
   const isEdit = client != null;
+  // Lo que el nivel no permite se ve deshabilitado (un fieldset deshabilitado tampoco envía
+  // sus campos); la acción, de todos modos, solo guarda lo que el nivel permite.
+  const ficha = nivel === "ficha";
+  const puedeGuardar = nivel != null;
   // Por defecto, un cliente nuevo trae TODOS los módulos activos (se pueden
   // deseleccionar). Al editar se marcan solo los ya asignados en BD.
   const [selectedModuleIds, setSelectedModuleIds] = useState<number[]>(
@@ -522,21 +552,36 @@ function ClientModal({
       title={title}
       size="3xl"
       footer={
-        <>
-          {isEdit && <DeleteClientButton id={client!.id} onDone={onClose} />}
-          <button
-            type="submit"
-            form="client-form"
-            disabled={pending || dianInvalido}
-            title={dianInvalido ? "Selecciona al menos un formato DIAN o desactiva DIAN." : undefined}
-            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-          >
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
-          </button>
-        </>
+        puedeGuardar || (isEdit && puedeEliminar) ? (
+          <>
+            {isEdit && puedeEliminar && <DeleteClientButton id={client!.id} onDone={onClose} />}
+            {puedeGuardar && (
+              <button
+                type="submit"
+                form="client-form"
+                disabled={pending || dianInvalido}
+                title={dianInvalido ? "Selecciona al menos un formato DIAN o desactiva DIAN." : undefined}
+                className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+              >
+                {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
+              </button>
+            )}
+          </>
+        ) : undefined
       }
     >
       <form id="client-form" action={formAction} className="flex flex-col gap-3">
+        {nivel === "operativo" && (
+          <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-ink-700">
+            Puedes cambiar el sector, los aplicativos y los módulos del cliente. Los datos del
+            cliente y sus responsables los cambian el gerente, el socio o un administrador.
+          </p>
+        )}
+        {nivel == null && (
+          <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+            Solo consulta: este cliente no está en tu cartera.
+          </p>
+        )}
         {isEdit && <input type="hidden" name="id" value={client.id} />}
         <input type="hidden" name="syncErpsPorProceso" value="1" />
         {/* Dos columnas (en ≥sm): Datos del cliente | Responsables. Aprovecha el
@@ -544,6 +589,7 @@ function ClientModal({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2.5 rounded-md border border-ink-150 bg-ink-50/60 p-3">
         <span className="text-[11.5px] font-medium text-ink-600">Datos del cliente</span>
+        <fieldset disabled={!ficha} className="flex min-w-0 flex-col gap-2.5">
         <CField label="Código" error={state?.errors?.code}>
           <input
             name="code"
@@ -558,7 +604,7 @@ function ClientModal({
           <input
             name="name"
             defaultValue={client?.name ?? ""}
-            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
           />
         </CField>
         <div className="flex gap-3">
@@ -566,7 +612,7 @@ function ClientModal({
             <input
               name="nit"
               defaultValue={client?.nit ?? ""}
-              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
+              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
             />
           </CField>
           <CField label="Tipo de cliente" error={state?.errors?.tipo}>
@@ -574,7 +620,7 @@ function ClientModal({
               name="tipo"
               required
               defaultValue={client?.tipo ?? ""}
-              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
             >
               <option value="">Selecciona…</option>
               <option value="A">A</option>
@@ -583,12 +629,13 @@ function ClientModal({
             </select>
           </CField>
         </div>
-        <div className="flex gap-3">
+        </fieldset>
+        <fieldset disabled={!puedeGuardar} className="flex min-w-0 gap-3">
           <CField label="Sector" error={state?.errors?.sectorId}>
             <select
               name="sectorId"
               defaultValue={client?.sectorId ?? ""}
-              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
             >
               <option value="">Sin sector</option>
               {sectors.map((s) => (
@@ -596,10 +643,10 @@ function ClientModal({
               ))}
             </select>
           </CField>
-        </div>
+        </fieldset>
         </div>
 
-        <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
+        <fieldset disabled={!ficha} className="min-w-0 rounded-md border border-ink-150 bg-ink-50/60 p-3">
           <div className="mb-2 flex flex-col gap-0.5">
             <span className="text-[11.5px] font-medium text-ink-600">
               Responsables de la auditoría
@@ -616,7 +663,7 @@ function ClientModal({
                 required
                 value={socioId}
                 onChange={(e) => setSocioId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
               >
                 <option value="">Selecciona el socio…</option>
                 {socioOpciones.map((p) => (
@@ -630,7 +677,7 @@ function ClientModal({
                 required
                 value={gerenteId}
                 onChange={(e) => cambiarGerente(e.target.value)}
-                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
               >
                 <option value="">Selecciona el gerente…</option>
                 {personas.gerentes.map((p) => (
@@ -713,19 +760,21 @@ function ClientModal({
               )}
             </div>
           </div>
-        </div>
+        </fieldset>
 
-        <AplicativosPorProceso
-          erps={erps}
-          procesosActivos={erpProcesses.map((proceso) => proceso.code)}
-          asignaciones={client?.erpsPorProceso ?? []}
-          erpLegado={client?.erpId ?? null}
-          errores={state?.errors}
-        />
+        <fieldset disabled={!puedeGuardar} className="min-w-0">
+          <AplicativosPorProceso
+            erps={erps}
+            procesosActivos={erpProcesses.map((proceso) => proceso.code)}
+            asignaciones={client?.erpsPorProceso ?? []}
+            erpLegado={client?.erpId ?? null}
+            errores={state?.errors}
+          />
+        </fieldset>
         </div>
 
         {((modules && modules.length > 0) || dianForms.length > 0) && (
-          <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
+          <fieldset disabled={!puedeGuardar} className="min-w-0 rounded-md border border-ink-150 bg-ink-50/60 p-3">
             <input type="hidden" name="syncModules" value="1" />
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -863,7 +912,7 @@ function ClientModal({
                 )}
               </div>
             )}
-          </div>
+          </fieldset>
         )}
 
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}

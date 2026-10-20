@@ -115,7 +115,7 @@ describe("Operación — Staff y Senior escriben sus clientes asignados", () => 
   });
 
   test("al revés no: el Staff no gana lo propio del Senior", () => {
-    for (const permiso of ["balance:revisar", "conciliaciones:revisar", "conciliaciones:cerrar", "conciliaciones:desbloquear", "clientes:editar"]) {
+    for (const permiso of ["balance:revisar", "conciliaciones:revisar", "conciliaciones:cerrar", "conciliaciones:desbloquear"]) {
       expect(tienePermiso(MATRIZ, "Senior", permiso)).toBe(true);
       expect(tienePermiso(MATRIZ, "Staff", permiso)).toBe(false);
     }
@@ -202,14 +202,35 @@ describe("Socio — alcance DERIVADO por jerarquía (no se asigna por cliente)",
 });
 
 describe("Permisos globales (sin alcance de cliente)", () => {
-  test("configurar clientes y asignar responsables: Senior (negocio) y Administrador (plataforma)", () => {
-    for (const r of ["Senior", "Administrador"]) {
-      expect(tienePermiso(MATRIZ, r, "clientes:configurar")).toBe(true);
+  test("clientes (19/Oct/2026): todos consultan y editan lo operativo; la ficha y crear, Gerente/Socio/Admin; eliminar, Admin", () => {
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "clientes:ver")).toBe(true);
       expect(tienePermiso(MATRIZ, r, "clientes:editar")).toBe(true);
     }
-    // El resto (consulta/operación) no configura clientes.
-    for (const r of ["Socio", "Gerente", "Staff"]) {
+    for (const r of ["Gerente", "Socio", "Administrador", "Superadministrador"]) {
+      expect(tienePermiso(MATRIZ, r, "clientes:configurar")).toBe(true);
+      expect(tienePermiso(MATRIZ, r, "clientes:crear")).toBe(true);
+    }
+    for (const r of ["Staff", "Senior"]) {
       expect(tienePermiso(MATRIZ, r, "clientes:configurar")).toBe(false);
+      expect(tienePermiso(MATRIZ, r, "clientes:crear")).toBe(false);
+    }
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "clientes:eliminar")).toBe(["Administrador", "Superadministrador"].includes(r));
+    }
+  });
+
+  test("catálogos y parametrización (19/Oct/2026): todos consultan; editan Gerente, Socio y administradores", () => {
+    const editores = ["Gerente", "Socio", "Administrador", "Superadministrador"];
+    for (const r of ROLES_MATRIZ) {
+      for (const ver of ["mapeo:ver", "mapeos_dian:ver", "parametros:ver", "usuarios:ver", "estructura:ver"]) {
+        expect(tienePermiso(MATRIZ, r, ver)).toBe(true);
+      }
+      for (const editar of ["mapeo:administrar", "mapeos_dian:configurar", "parametros:administrar"]) {
+        expect(tienePermiso(MATRIZ, r, editar)).toBe(editores.includes(r));
+      }
+      // Usuarios los sigue editando solo la administración de la plataforma.
+      expect(tienePermiso(MATRIZ, r, "usuarios:editar")).toBe(["Administrador", "Superadministrador"].includes(r));
     }
   });
 
@@ -288,8 +309,20 @@ describe("Administración de clientes — alcance por MEMBRESÍA (override de mo
     expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", PRUEBA_CLIENTE_FUERA), "lectura")).toBe(false);
   });
 
-  test("el override de lectura no salta el permiso de rol (un Staff no administra clientes)", () => {
-    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", PRUEBA_CLIENTE_A), "lectura")).toBe(false);
+  test("el override de lectura no salta el permiso de rol (un Staff no edita la ficha completa)", () => {
+    expect(puedeSobreCliente(ctx(STAFF1, "clientes:configurar", PRUEBA_CLIENTE_A), "lectura")).toBe(false);
+  });
+
+  test("datos operativos: el Staff los edita en sus clientes, no fuera de ellos", () => {
+    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", PRUEBA_CLIENTE_A), "lectura")).toBe(true);
+    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", PRUEBA_CLIENTE_FUERA), "lectura")).toBe(false);
+  });
+
+  test("ficha completa: Gerente y Socio en su cartera (membresía de lectura), no fuera", () => {
+    for (const u of [GERENTE, SOCIO]) {
+      expect(puedeSobreCliente(ctx(u, "clientes:configurar", PRUEBA_CLIENTE_A))).toBe(true);
+      expect(puedeSobreCliente(ctx(u, "clientes:configurar", PRUEBA_CLIENTE_FUERA))).toBe(false);
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { alcanceEscrituraUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
 import { descriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
@@ -21,24 +21,25 @@ import ConceptosNominaClient, { type ConceptoRow } from "./conceptos-nomina-clie
  * contra qué cuenta cruza cada fila; el centro de costo permite que un mismo concepto vaya a
  * 510506 en administración y a 720506 en producción.
  *
- * Alcance: se listan SOLO los clientes de la cartera del usuario (los administradores tienen
- * alcance global); la escritura revalida el alcance cliente por cliente en la Server Action.
+ * Alcance (19/Oct/2026): todos los roles CONSULTAN el catálogo de todos los clientes; cargar y
+ * eliminar es de quien tiene `modulos_datos:editar` y alcance de escritura sobre el cliente
+ * (staff y senior asignados, administradores). La pantalla solo ofrece esos controles en esos
+ * clientes, y la Server Action vuelve a revisar el alcance cliente por cliente.
  */
 export default async function ConceptosNominaPage() {
-  await requirePermiso("modulos_datos:editar");
-  const alc = await alcanceLecturaUsuario();
+  await requirePermiso("modulos_datos:ver");
+  const [puedeEditar, escritura] = await Promise.all([
+    authorizePermiso("modulos_datos:editar").then((r) => r.ok),
+    alcanceEscrituraUsuario(),
+  ]);
 
   const [clientes, filas, subgrupos, cuentasEstandar] = await Promise.all([
     prisma.client.findMany({
-      where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, code: true, name: true, nit: true },
       orderBy: { name: "asc" },
     }),
     prisma.consolidacionModuloCliente.findMany({
-      where: {
-        moduloCodigo: MODULO_CONCEPTOS_NOMINA,
-        ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }),
-      },
+      where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA },
       select: {
         clienteId: true, agruparPor: true, clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true,
         grupo: true, subcuentaPuc: true, cuentaCliente: true, origen: true, actualizadoEn: true,
@@ -102,7 +103,13 @@ export default async function ConceptosNominaPage() {
         title="Conceptos de nómina"
         subtitle="Qué cuenta contable —del cliente y Russell— corresponde a cada concepto de la nómina de cada cliente. Cárgalos en bloque desde la plantilla o desde el catálogo del ERP: el código del concepto es la llave con la que se homologa el archivo de nómina."
       />
-      <ConceptosNominaClient rows={rows} totalClientes={clientes.length} clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))} />
+      <ConceptosNominaClient
+        rows={rows}
+        totalClientes={clientes.length}
+        clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))}
+        puedeEditar={puedeEditar}
+        editables={escritura.todos ? "todos" : escritura.clientIds}
+      />
     </div>
   );
 }

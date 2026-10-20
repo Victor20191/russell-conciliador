@@ -10,7 +10,7 @@ import { mensajeErrorBD } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
 
 // CRUD del catálogo de SUBGRUPOS del plan estándar (nivel 4). Da nombre a los
-// niveles 4 y 2 de la vista de balance. SOLO Administrador (`mapeo:administrar`).
+// niveles 4 y 2 de la vista de balance. Gerente, Socio y administradores (`mapeo:administrar`).
 // El `grupo` (2 díg.) se deriva del código para garantizar consistencia. Cada
 // cambio queda en la auditoría global (/auditoria).
 const PATH = "/config/mapeo";

@@ -50,6 +50,7 @@ export default function CuentasConciliacionPanel({
   cuentas,
   catalogo,
   plan6,
+  puedeEditar,
 }: {
   modulo: ModuloCuentasVm;
   /** Los módulos que concilian a 6 dígitos: el editor permite mover una cuenta a otro. */
@@ -57,6 +58,8 @@ export default function CuentasConciliacionPanel({
   cuentas: CuentaConciliacionVista[];
   catalogo: FilaCatalogoVista[];
   plan6: CuentaPlanVm[];
+  /** `parametros:administrar`. Sin él la vista es de solo consulta (19/Oct/2026). */
+  puedeEditar: boolean;
 }) {
   const [creando, setCreando] = useState(false);
   // Las solo visibles van en su propia tarjeta, cerrada al entrar (como en el cruce).
@@ -70,7 +73,7 @@ export default function CuentasConciliacionPanel({
   const concilian = modulo.conCategoria ? cuentas.filter((c) => c.categoria !== "visible") : cuentas;
   const visibles = modulo.conCategoria ? cuentas.filter((c) => c.categoria === "visible") : [];
   const fuera = concilian.filter((c) => fueraDePrefijos(c.moduloCodigo, c.cuenta)).length;
-  const comunes = { modulo, modulosCuentas, nombrePlan, listaPlan, fueraDePrefijos };
+  const comunes = { modulo, modulosCuentas, nombrePlan, listaPlan, fueraDePrefijos, soloLectura: !puedeEditar };
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,7 +91,7 @@ export default function CuentasConciliacionPanel({
           {fuera > 0 ? ` · ${fuera} fuera de los prefijos` : ""}
           {modulo.conCategoria ? ` · ${visibles.length} solo visible(s)` : ""}
         </p>
-        {!creando && (
+        {puedeEditar && !creando && (
           <button
             type="button"
             onClick={() => setCreando(true)}
@@ -99,7 +102,7 @@ export default function CuentasConciliacionPanel({
         )}
       </div>
 
-      {creando && (
+      {puedeEditar && creando && (
         <Card className="p-4">
           <h2 className="mb-3 text-[13px] font-semibold text-ink-900">{modulo.conCategoria ? "Nueva cuenta" : "Nueva cuenta que concilia"}</h2>
           <CuentaEditor {...comunes} onListo={() => setCreando(false)} onCancelar={() => setCreando(false)} />
@@ -174,6 +177,7 @@ function CuentaEditor({
   unica = false,
   onListo,
   onCancelar,
+  soloLectura = false,
 }: {
   cuenta?: CuentaConciliacionVista;
   modulo: ModuloCuentasVm;
@@ -184,6 +188,8 @@ function CuentaEditor({
   unica?: boolean;
   onListo?: () => void;
   onCancelar?: () => void;
+  /** Consulta: los campos se ven deshabilitados y no hay Guardar ni Quitar. */
+  soloLectura?: boolean;
 }) {
   const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(guardarCuentaConciliacion, {});
   const [quitarState, quitarAction, quitando] = useActionState<ActionState, FormData>(quitarCuentaConciliacion, {});
@@ -210,6 +216,7 @@ function CuentaEditor({
   return (
     <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
       <form action={guardarAction} className={conOrigen || conCategoria ? GRID_CON_ORIGEN : GRID_SIN_ORIGEN}>
+        <fieldset disabled={soloLectura} className="contents">
         {cuenta && <input type="hidden" name="id" value={cuenta.id} />}
         <Campo etiqueta="Módulo">
           <select name="moduloCodigo" value={moduloSel} onChange={(e) => setModuloSel(e.target.value)} className={CONTROL_CLASS}>
@@ -267,7 +274,9 @@ function CuentaEditor({
             </select>
           </Campo>
         )}
+        </fieldset>
 
+        {!soloLectura && (
         <div className="flex flex-wrap items-center justify-end gap-2 sm:col-span-2 lg:col-span-full xl:col-span-1 xl:pt-5">
           {onCancelar && (
             <button
@@ -299,6 +308,7 @@ function CuentaEditor({
             </button>
           )}
         </div>
+        )}
       </form>
 
       {cuenta && (

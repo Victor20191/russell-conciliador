@@ -13,17 +13,20 @@ import type { FilaCatalogoVista } from "@/lib/parametros/prevalidador";
 export type ModuloOpcion = { id: number; code: string; name: string };
 
 export const CONTROL_CLASS =
-  "h-9 w-full rounded-md border border-ink-200 bg-white px-2.5 text-[12.5px] text-ink-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+  "h-9 w-full rounded-md border border-ink-200 bg-white px-2.5 text-[12.5px] text-ink-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:cursor-default disabled:bg-ink-50/60 disabled:text-ink-600";
 
 export default function PrevalidadorConfigClient({
   catalogo: catalogoCompleto,
   modulos,
   soloModulo,
+  puedeEditar,
 }: {
   catalogo: FilaCatalogoVista[];
   modulos: ModuloOpcion[];
   /** Página de un módulo (`/config/prevalidador/cxp`): la misma vista con solo sus cuentas. */
   soloModulo?: string;
+  /** `parametros:administrar`. Sin él la vista es de solo consulta (19/Oct/2026). */
+  puedeEditar: boolean;
 }) {
   const [creando, setCreando] = useState(false);
   const catalogo = soloModulo ? catalogoCompleto.filter((f) => f.moduloCodigo === soloModulo) : catalogoCompleto;
@@ -47,7 +50,7 @@ export default function PrevalidadorConfigClient({
         <p className="text-[12px] text-ink-500">
           {catalogo.length} cuenta(s) configuradas · {catalogo.filter((f) => f.activa).length} activa(s)
         </p>
-        {!creando && (
+        {puedeEditar && !creando && (
           <button
             type="button"
             onClick={() => setCreando(true)}
@@ -58,7 +61,7 @@ export default function PrevalidadorConfigClient({
         )}
       </div>
 
-      {creando && (
+      {puedeEditar && creando && (
         <Card className="p-4">
           <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva cuenta del prevalidador</h2>
           <FilaEditor
@@ -79,7 +82,7 @@ export default function PrevalidadorConfigClient({
           </div>
           <div className="flex flex-col gap-2">
             {filas.map((f) => (
-              <FilaEditor key={f.id} fila={f} modulos={modulos} />
+              <FilaEditor key={f.id} fila={f} modulos={modulos} soloLectura={!puedeEditar} />
             ))}
           </div>
         </Card>
@@ -100,12 +103,15 @@ function FilaEditor({
   moduloIdPorDefecto,
   onListo,
   onCancelar,
+  soloLectura = false,
 }: {
   fila?: FilaCatalogoVista;
   modulos: ModuloOpcion[];
   moduloIdPorDefecto?: number;
   onListo?: () => void;
   onCancelar?: () => void;
+  /** Consulta: los campos se ven deshabilitados y no hay Guardar ni Eliminar. */
+  soloLectura?: boolean;
 }) {
   const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(guardarFilaPrevalidador, {});
   const [borrarState, borrarAction, borrando] = useActionState<ActionState, FormData>(eliminarFilaPrevalidador, {});
@@ -127,6 +133,7 @@ function FilaEditor({
         action={guardarAction}
         className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(8.5rem,1fr)_6rem_minmax(13rem,1.5fr)_minmax(13rem,1.4fr)_5rem_7rem_auto] xl:items-start"
       >
+        <fieldset disabled={soloLectura} className="contents">
         {fila && <input type="hidden" name="id" value={fila.id} />}
         <Campo etiqueta="Módulo">
           <select
@@ -202,7 +209,9 @@ function FilaEditor({
             Activa
           </label>
         </div>
+        </fieldset>
 
+        {!soloLectura && (
         <div className="flex flex-wrap items-center justify-end gap-2 sm:col-span-2 lg:col-span-3 xl:col-span-1 xl:pt-5">
           {onCancelar && (
             <button
@@ -233,6 +242,7 @@ function FilaEditor({
             </button>
           )}
         </div>
+        )}
       </form>
 
       {fila && (fila.actualizadoEn || fila.balancesConCuentaPropia > 0) && (

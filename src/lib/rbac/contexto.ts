@@ -27,9 +27,10 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 // recarga porque la entrada v9 quedó cacheada ANTES de sembrar los permisos de
 // conexiones en `roles_permisos` y los negaba hasta por una hora; v11: retirar
 // `entorno:administrar` al eliminar la pantalla de variables de entorno; v12: el
-// Senior recibe los permisos operativos del Staff y elimina cargues de módulo, 19/Oct/2026): una clave nueva
+// Senior recibe los permisos operativos del Staff y elimina cargues de módulo, 19/Oct/2026; v13: consulta
+// para todos y edición por Gerente/Socio de catálogos, parametrización y clientes, 19/Oct/2026): una clave nueva
 // evita que el despliegue siga sirviendo la matriz anterior desde el Data Cache.
-export const RBAC_CACHE_TAG = "rbac-matriz-v12";
+export const RBAC_CACHE_TAG = "rbac-matriz-v13";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {
@@ -158,6 +159,26 @@ export const alcanceLecturaUsuario = cache(async (): Promise<AlcanceLectura> => 
     clientIds: clientes.map((c) => c.id),
     clientNames: [...new Set(clientes.map((c) => c.name))],
   };
+});
+
+/**
+ * Clientes sobre los que el usuario ACTUAL tiene alcance de ESCRITURA (staff y senior
+ * asignados; el gerente y el socio solo leen). Administrador/Superadministrador →
+ * `{ todos: true }`. Sirve para que una pantalla de consulta general marque qué filas
+ * puede editar quien la ve; la acción vuelve a exigir permiso + alcance de todos modos.
+ */
+export type AlcanceEscritura = { todos: true } | { todos: false; clientIds: number[] };
+
+export const alcanceEscrituraUsuario = cache(async (): Promise<AlcanceEscritura> => {
+  const session = await verifySession();
+  if (ROLES_ALCANCE_GLOBAL.has(session.role)) return { todos: true };
+
+  const { asignaciones } = await getAsignacionesUsuario(session.userId, session.role);
+  const ids = asignaciones
+    .filter((a) => a.active !== false && a.writeScope && a.userId === session.userId)
+    .map((a) => a.clientId)
+    .filter((id): id is number => typeof id === "number");
+  return { todos: false, clientIds: [...new Set(ids)] };
 });
 
 /**

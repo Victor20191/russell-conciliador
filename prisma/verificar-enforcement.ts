@@ -46,13 +46,15 @@ async function main() {
   check(!tienePermiso(matriz, "Administrador", "conciliaciones:ejecutar"), "Administrador NO ejecuta (cambio vs. jerarquía legado)");
 
   // 3) Configuración de negocio (Senior) y administración (Admin).
-  check(tienePermiso(matriz, "Senior", "clientes:configurar"), "Senior configura clientes y responsables (clientes:configurar)");
+  // Desde el 19/Oct/2026 la ficha completa (responsables incluidos) es de Gerente/Socio/Admin; el Senior edita lo operativo.
+  check(tienePermiso(matriz, "Gerente", "clientes:configurar"), "Gerente edita la ficha completa y los responsables (clientes:configurar)");
+  check(tienePermiso(matriz, "Senior", "clientes:editar"), "Senior edita los datos operativos del cliente (clientes:editar)");
   check(tienePermiso(matriz, "Administrador", "roles:configurar"), "Administrador edita la matriz (roles:configurar)");
   check(!tienePermiso(matriz, "Senior", "roles:configurar"), "Senior NO edita la matriz");
 
   // 4) Regresión LEGADO (matrizConLegado): los usuarios actuales conservan acceso.
   check(tienePermiso(matriz, "Auditor", "conciliaciones:ejecutar"), "Auditor (legado≈Staff) conserva ejecución");
-  check(tienePermiso(matriz, "Líder", "clientes:configurar"), "Líder (legado≈Senior) conserva configuración de clientes");
+  check(tienePermiso(matriz, "Líder", "clientes:editar"), "Líder (legado≈Senior) conserva la edición operativa de clientes");
   check(tienePermiso(matriz, "Administrador", "usuarios:crear"), "Administrador conserva administración de usuarios");
   check(tienePermiso(matriz, "Consulta", "conciliaciones:ver"), "Consulta (legado) conserva la lectura general");
   check(!tienePermiso(matriz, "Consulta", "conciliaciones:ejecutar"), "Consulta (legado) NO puede operar");

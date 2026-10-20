@@ -87,7 +87,7 @@ export function AlcanceCuentasTercero({
             {" "}El auxiliar entra por la cuenta del módulo que el Consolidado le asignó a cada cuenta del archivo.
             {enlaceCuentasModulo
               ? " La lista es la misma para todos los clientes: «Filtros de cuentas» la edita y te regresa aquí."
-              : " La lista es la misma para todos los clientes y solo un administrador la cambia en Filtros de cuentas."}
+              : " La lista es la misma para todos los clientes y la cambian el gerente, el socio o un administrador en Filtros de cuentas."}
           </p>
 
           {/* La barra queda fuera del scroll horizontal: con la tabla desplazada, el enlace sigue a la vista. */}
@@ -248,7 +248,7 @@ export function AlcanceCuentasTercero({
                     {enlaceCuentasModulo ? (
                       <Link href={enlaceCuentasModulo.href} className="font-semibold text-blue-700 hover:underline">agrégala a las cuentas de {enlaceCuentasModulo.modulo}</Link>
                     ) : (
-                      "un administrador puede agregarla en Filtros de cuentas"
+                      "el gerente, el socio o un administrador pueden agregarla en Filtros de cuentas"
                     )}
                     {" "}(todos los clientes) o asígnala solo para {periodo} desde el Consolidado con «Buscar…».
                   </div>

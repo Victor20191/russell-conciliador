@@ -22,6 +22,8 @@ export type NavItem = {
   // de la página (requirePermiso) para que el menú no muestre enlaces que la
   // página luego deniega, ni oculte pantallas a las que el usuario sí entra.
   permiso?: string;
+  /** Otro permiso con el que la página también deja entrar (basta uno de los dos). */
+  permisoAlterno?: string;
   modulo?: string;
   roles?: readonly string[];
 };
@@ -96,9 +98,10 @@ export const workNav: NavItem[] = [
 export type NavSeccion = { titulo: string; items: NavItem[] };
 
 // Debajo de «Trabajo», el menú se agrupa por PARA QUÉ sirve cada pantalla (19/Oct/2026,
-// pedido del usuario: antes todo iba bajo un solo «Configuración»). Solo es orden y
-// rótulos: cada entrada conserva su permiso, así que nadie gana ni pierde acceso, y
-// una sección sin entradas visibles para el usuario no se muestra.
+// pedido del usuario: antes todo iba bajo un solo «Configuración»). Una sección sin
+// entradas visibles para el usuario no se muestra. Las entradas de los catálogos, de
+// Clientes y equipo y de Parametrización se ven con el permiso de CONSULTA (todos los
+// roles, desde el 19/Oct/2026); cada pantalla decide quién edita.
 // Cada entrada principal tiene un símbolo propio: en la barra colapsada es
 // la única referencia visual antes de consultar su etiqueta o expandirla.
 export const configSecciones: NavSeccion[] = [
@@ -115,7 +118,7 @@ export const configSecciones: NavSeccion[] = [
       { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "account-link", permiso: "mapeo:ver", modulo: "mapeo" },
       // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
       // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
-      { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
+      { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:ver", modulo: "modulos_datos" },
       { label: "Mapeos DIAN", href: "/config/dian", icon: "file-check", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
     ],
   },
@@ -123,7 +126,7 @@ export const configSecciones: NavSeccion[] = [
     // Quién es quién: los clientes, las personas y la estructura de equipos.
     titulo: "Clientes y equipo",
     items: [
-      { label: "Clientes", href: "/config/clientes", icon: "building", permiso: "clientes:configurar", modulo: "clientes" },
+      { label: "Clientes", href: "/config/clientes", icon: "building", permiso: "clientes:ver", modulo: "clientes" },
       { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
       { label: "Estructura", href: "/estructura", icon: "hierarchy", permiso: "estructura:ver", modulo: "estructura" },
     ],
@@ -134,25 +137,28 @@ export const configSecciones: NavSeccion[] = [
     items: [
       {
         // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
-        // firma que fija quien administra la herramienta. Cada módulo de conciliación tiene su sub-ruta
+        // firma; todos los consultan y los editan Gerente, Socio y administradores
+        // (`parametros:administrar`). Cada módulo de conciliación tiene su sub-ruta
         // (`/config/prevalidador/cxp`) con sus prefijos del prevalidador y las cuentas que concilia, en
         // el orden del informe del prevalidador. La vista con todos los módulos juntos se retiró del menú
         // el 5/Oct/2026 (repetía los mismos formularios): `/config/prevalidador` lleva al primer módulo.
         label: "Filtros de cuentas",
         href: "/config/prevalidador",
         icon: "filter",
-        permiso: "parametros:administrar",
+        permiso: "parametros:ver",
+        permisoAlterno: "parametros:administrar",
         modulo: "parametros",
         children: [
           ...PREVALIDADOR_MODULOS_ORDEN.map((codigo) => ({
             label: nombreModuloFabrica(codigo),
             href: `/config/prevalidador/${codigo.toLowerCase()}`,
-            permiso: "parametros:administrar",
+            permiso: "parametros:ver",
+            permisoAlterno: "parametros:administrar",
             modulo: "parametros",
           })),
         ],
       },
-      { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:administrar", modulo: "parametros" },
+      { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:ver", permisoAlterno: "parametros:administrar", modulo: "parametros" },
     ],
   },
   {
