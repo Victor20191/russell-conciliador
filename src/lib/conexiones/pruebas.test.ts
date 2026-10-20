@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import http from "node:http";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
@@ -11,6 +11,34 @@ import {
   probarConexion,
   unirUrl,
 } from "./pruebas";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("pruebas de autenticación IA", () => {
+  it("incluye la versión de Anthropic y nunca sigue redirects con secretos", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const resultado = await probarConexion({ proveedor: "anthropic", configuracion: {}, credenciales: { api_key: "prueba" } });
+    expect(resultado.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.anthropic.com/v1/models", expect.objectContaining({
+      redirect: "manual", headers: expect.objectContaining({ "x-api-key": "prueba", "anthropic-version": "2023-06-01" }),
+    }));
+  });
+  it("OpenRouter verifica la clave, no el catálogo público de modelos", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await probarConexion({ proveedor: "openrouter", configuracion: { ruta_prueba: "/api/v1/models" }, credenciales: { api_key: "prueba" } });
+    expect(fetchMock).toHaveBeenCalledWith("https://openrouter.ai/api/v1/key", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer prueba" }),
+    }));
+  });
+  it("no consulta el proveedor si falta la clave", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await probarConexion({ proveedor: "openai", configuracion: {}, credenciales: {} })).ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("unirUrl", () => {
   it("concatena base y ruta sin duplicar ni perder barras", () => {
@@ -27,10 +55,10 @@ describe("unirUrl", () => {
 });
 
 describe("interpretarEstadoHttp", () => {
-  it("acepta respuestas 2xx y 3xx", () => {
+  it("acepta solo respuestas 2xx; las redirecciones no validan una clave", () => {
     expect(interpretarEstadoHttp(200, "https://api.test").ok).toBe(true);
     expect(interpretarEstadoHttp(204, "https://api.test").ok).toBe(true);
-    expect(interpretarEstadoHttp(301, "https://api.test").ok).toBe(true);
+    expect(interpretarEstadoHttp(301, "https://api.test").ok).toBe(false);
   });
 
   it("explica credenciales rechazadas, ruta inexistente y errores del servidor", () => {

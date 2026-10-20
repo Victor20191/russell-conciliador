@@ -30,10 +30,14 @@ import { ConexionModal, type ConexionVista } from "./conexion-modal";
 
 type Ocupacion = "probar" | "ejecutar" | "estado";
 
-export default function ConexionesClient({ conexiones }: { conexiones: ConexionVista[] }) {
+export default function ConexionesClient({ conexiones, puedeAdministrar = false, cifradoListo = false }: {
+  conexiones: ConexionVista[];
+  puedeAdministrar?: boolean;
+  cifradoListo?: boolean;
+}) {
   const [q, setQ] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("TODAS");
-  const [modal, setModal] = useState<{ conexion?: ConexionVista } | null>(null);
+  const [modal, setModal] = useState<{ conexion?: ConexionVista; proveedorInicial?: string } | null>(null);
   const [porEliminar, setPorEliminar] = useState<ConexionVista | null>(null);
   const [ocupadas, setOcupadas] = useState<Record<number, Ocupacion>>({});
   const [, startTransition] = useTransition();
@@ -41,7 +45,8 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
   const filtradas = useMemo(() => {
     const aguja = q.trim().toLowerCase();
     return conexiones.filter((c) => {
-      if (categoriaFiltro !== "TODAS" && c.categoria !== categoriaFiltro) return false;
+      if (categoriaFiltro === "IA" && !proveedorPorClave(c.proveedor)?.inteligenciaArtificial) return false;
+      if (categoriaFiltro !== "TODAS" && categoriaFiltro !== "IA" && c.categoria !== categoriaFiltro) return false;
       if (!aguja) return true;
       const proveedor = proveedorPorClave(c.proveedor)?.label ?? c.proveedor;
       return (
@@ -115,18 +120,37 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
             Conexiones e integraciones
           </h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-ink-600">
-            Configura y prueba credenciales externas. Hoy solo el almacenamiento R2/S3 alimenta
-            automáticamente los soportes de archivos.
+            Parametriza tus servicios de inteligencia artificial, correo y otras conexiones
+            desde un solo lugar.
           </p>
         </div>
-        <button
+        {puedeAdministrar && <button
           type="button"
           onClick={() => setModal({})}
           className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600"
         >
           <Icon name="plus" size={14} /> Nueva conexión
-        </button>
+        </button>}
       </header>
+
+      {!cifradoListo && <div role="status" className="rounded-lg border border-warn-200 bg-warn-100/50 px-4 py-3 text-[13px] text-warn-700">
+        El servidor necesita su clave de cifrado antes de guardar credenciales. Configura MASTER_ENCRYPTION_KEY con 32 bytes.
+      </div>}
+
+      {puedeAdministrar && <div className="grid gap-3 sm:grid-cols-3">
+        {([
+          { proveedor: "anthropic", icono: "ai", titulo: "Inteligencia artificial", detalle: "Claude, Gemini, OpenAI y OpenRouter" },
+          { proveedor: "smtp", icono: "send", titulo: "Correo SMTP", detalle: "Servidor, usuario y conexión segura" },
+          { proveedor: "api_rest", icono: "link", titulo: "Otras conexiones", detalle: "APIs, Microsoft 365, S3 y webhooks" },
+        ] as const).map((opcion) => <button key={opcion.proveedor} type="button"
+          onClick={() => setModal({ proveedorInicial: opcion.proveedor })}
+          className="group flex items-center gap-3 rounded-lg border border-ink-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40 focus-visible:outline-2 focus-visible:outline-blue-500">
+          <span className="rounded-lg bg-navy-700 p-2.5 text-white"><Icon name={opcion.icono} size={20} /></span>
+          <span className="min-w-0 flex-1"><span className="block text-[14px] font-semibold text-navy-800">{opcion.titulo}</span>
+            <span className="mt-1 block text-[12px] text-ink-500">{opcion.detalle}</span></span>
+          <Icon name="plus" size={14} />
+        </button>)}
+      </div>}
 
       <Card className="border-blue-100 bg-blue-50/60 p-4">
         <div className="flex items-start gap-3">
@@ -134,12 +158,12 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
             <Icon name="info" size={16} />
           </div>
           <div>
-            <div className="text-[13px] font-semibold text-navy-800">Alcance funcional actual</div>
+            <div className="text-[13px] font-semibold text-navy-800">Elige cómo se usa cada conexión</div>
             <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink-600">
-              Cloudflare R2 y los servicios compatibles con S3 alimentan el almacenamiento de
-              soportes y ya tienen prueba y ejecución automática. Las conexiones de correo, API y
-              webhook quedan disponibles para integraciones server-side explícitas: activarlas aquí
-              no crea automatizaciones por sí solo.
+              En Claude, Gemini y OpenRouter puedes seleccionar «Usar esta clave en Russell».
+              Se aplicará a los procesos que ya usan ese proveedor, con sus modelos y permisos actuales.
+              Si ninguna está seleccionada, se conserva la configuración del servidor.
+              SMTP verifica conexión segura y autenticación; los envíos y las demás automatizaciones se configuran por separado.
             </p>
           </div>
         </div>
@@ -199,6 +223,7 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
             className="rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] text-ink-700"
           >
             <option value="TODAS">Todas las categorías</option>
+            <option value="IA">Inteligencia artificial</option>
             {CATEGORIAS.map((c) => (
               <option key={c.clave} value={c.clave}>
                 {c.label}
@@ -219,7 +244,7 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
                 : "Ajusta la búsqueda o el filtro de categoría para encontrar la conexión."
             }
             action={
-              conexiones.length === 0 ? (
+              conexiones.length === 0 && puedeAdministrar ? (
                 <button
                   type="button"
                   onClick={() => setModal({})}
@@ -237,6 +262,7 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
             <TarjetaConexion
               key={conexion.id}
               conexion={conexion}
+              puedeAdministrar={puedeAdministrar}
               ocupacion={ocupadas[conexion.id]}
               onEditar={() => setModal({ conexion })}
               onEliminar={() => setPorEliminar(conexion)}
@@ -256,6 +282,7 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
         <ConexionModal
           key={modal.conexion?.id ?? "nueva"}
           conexion={modal.conexion}
+          proveedorInicial={modal.proveedorInicial}
           onClose={() => setModal(null)}
         />
       )}
@@ -268,6 +295,7 @@ export default function ConexionesClient({ conexiones }: { conexiones: ConexionV
 
 function TarjetaConexion({
   conexion,
+  puedeAdministrar,
   ocupacion,
   onEditar,
   onEliminar,
@@ -276,6 +304,7 @@ function TarjetaConexion({
   onAlternarEstado,
 }: {
   conexion: ConexionVista;
+  puedeAdministrar: boolean;
   ocupacion?: Ocupacion;
   onEditar: () => void;
   onEliminar: () => void;
@@ -313,6 +342,8 @@ function TarjetaConexion({
       <p className="mt-3 line-clamp-2 min-h-8 text-[12.5px] leading-relaxed text-ink-500">
         {conexion.descripcion ?? proveedor?.descripcion ?? "Sin descripción."}
       </p>
+      {conexion.configuracion.usar_en_plataforma === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
+        <p className="mt-2 text-[11px] font-semibold text-blue-500">Clave seleccionada para Russell</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
@@ -368,7 +399,7 @@ function TarjetaConexion({
         )}
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-ink-100 pt-4">
+      {puedeAdministrar && <><div className="mt-auto flex flex-wrap items-center gap-2 border-t border-ink-100 pt-4">
         <button
           type="button"
           onClick={onEditar}
@@ -385,7 +416,7 @@ function TarjetaConexion({
           <Icon name="check" size={12} />
           {probando ? <EstadoProcesando>Probando</EstadoProcesando> : "Probar"}
         </button>
-        {conexion.activa ? (
+        {conexion.activa && proveedor?.ejecutable ? (
           <button
             type="button"
             onClick={onEjecutar}
@@ -395,7 +426,7 @@ function TarjetaConexion({
             <Icon name="play" size={12} />
             {ejecutando ? <EstadoProcesando>Ejecutando</EstadoProcesando> : "Ejecutar ahora"}
           </button>
-        ) : (
+        ) : !conexion.activa ? (
           <button
             type="button"
             onClick={onAlternarEstado}
@@ -405,7 +436,7 @@ function TarjetaConexion({
             <Icon name="check" size={12} />
             {cambiandoEstado ? <EstadoProcesando>Activando</EstadoProcesando> : "Activar"}
           </button>
-        )}
+        ) : null}
       </div>
 
       <div className="mt-2 flex items-center justify-between gap-2">
@@ -430,7 +461,7 @@ function TarjetaConexion({
         >
           <Icon name="trash" size={13} />
         </button>
-      </div>
+      </div></>}
     </Card>
   );
 }

@@ -93,7 +93,7 @@ export async function resolverLecturaInventario(entrada: EntradaAsistenciaInvent
     return eleccion;
   }
   const respaldo = base ?? plausibles[0] ?? candidatos[0];
-  if (!iaDisponible()) {
+  if (!(await iaDisponible())) {
     respaldo.advertencias.push("La asistencia IA no está configurada. Se muestra la lectura determinista disponible para revisar el mapa.");
     if (entrada.forzarIA || requiereRegla || pendientes.length) {
       respaldo.errorProveedorIA = true;

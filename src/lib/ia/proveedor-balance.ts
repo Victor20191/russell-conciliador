@@ -50,8 +50,9 @@ export function modoDesarrolloIABalanceActivo(): boolean {
 
 /**
  * `autorizado: true` = la FRONTERA (Server Action / RSC) ya validó la sesión
- * contra el dominio corporativo (`proveedorIABalanceSesion`). Este módulo no
- * consulta sesión ni BD, así que la autorización se recibe ya resuelta.
+ * contra el dominio corporativo (`proveedorIABalanceSesion`). Este módulo
+ * no consulta sesión para seleccionar el proveedor; recibe la autorización ya
+ * resuelta. Solo la disponibilidad de credenciales consulta las conexiones.
  */
 type OpcionesAutorizacion = { autorizado?: boolean };
 
@@ -84,14 +85,14 @@ export function modeloIABalance(proveedor: ProveedorIABalance = proveedorIABalan
   return proveedor === "gemini" ? MODELO_GEMINI_BALANCE : MODELO_EXTRACCION;
 }
 
-export function iaBalanceDisponible(proveedor: ProveedorIABalance = proveedorIABalance()): boolean {
+export async function iaBalanceDisponible(proveedor: ProveedorIABalance = proveedorIABalance()): Promise<boolean> {
   return proveedor === "gemini" ? geminiDisponible() : anthropicDisponible();
 }
 
 export function mensajeIABalanceNoDisponible(proveedor: ProveedorIABalance = proveedorIABalance()): string {
   return proveedor === "gemini"
-    ? "La IA de pruebas no está disponible (falta GEMINI_API_KEY)."
-    : "La IA no está disponible (falta ANTHROPIC_API_KEY).";
+    ? "La IA de pruebas no está disponible. Revisa la conexión de Gemini o GEMINI_API_KEY."
+    : "La IA no está disponible. Revisa la conexión de Anthropic o ANTHROPIC_API_KEY.";
 }
 
 /**

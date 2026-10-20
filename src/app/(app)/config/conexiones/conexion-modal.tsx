@@ -64,6 +64,9 @@ function valoresIniciales(
     if (campo.tipo === "booleano") base[campo.clave] = guardado === true || guardado === "true";
     else base[campo.clave] = String(guardado);
   }
+  if (proveedor.prueba.tipo === "smtp" && conexion.configuracion.seguridad == null && Number(conexion.configuracion.puerto) === 465) {
+    base.seguridad = "TLS";
+  }
   return base;
 }
 
@@ -97,6 +100,17 @@ function CampoFormulario({
   onChange: (valor: ValorCampo) => void;
   error?: string[];
 }) {
+  if (campo.clave === "seguridad") {
+    return <label className="flex flex-col gap-1.5">
+      <span className="text-[12px] font-medium text-ink-700">Seguridad</span>
+      <select name={nombre} value={String(valor)} onChange={(event) => onChange(event.target.value)} className="rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px]">
+        <option value="STARTTLS">STARTTLS · normalmente puerto 587</option>
+        <option value="TLS">TLS · normalmente puerto 465</option>
+      </select>
+      <span className="text-[11px] text-ink-500">{campo.ayuda}</span>
+      {error?.[0] && <span className="text-[11px] text-err-700">{error[0]}</span>}
+    </label>;
+  }
   if (campo.tipo === "booleano") {
     return (
       <label className="flex flex-col gap-1.5">
@@ -137,9 +151,11 @@ function CampoFormulario({
 
 export function ConexionModal({
   conexion,
+  proveedorInicial,
   onClose,
 }: {
   conexion?: ConexionVista;
+  proveedorInicial?: string;
   onClose: () => void;
 }) {
   const editando = conexion != null;
@@ -149,7 +165,7 @@ export function ConexionModal({
   // El "tipo de conexión" es el proveedor: la categoría se deriva de él, así el
   // formulario se adapta automáticamente a los requisitos del servicio elegido.
   const [proveedorClave, setProveedorClave] = useState(
-    conexion?.proveedor ?? proveedoresDeCategoria("ALMACENAMIENTO")[0]?.clave ?? "",
+    conexion?.proveedor ?? proveedorInicial ?? "anthropic",
   );
   const proveedor = proveedorPorClave(proveedorClave);
   const categoria = proveedor?.categoria ?? "ALMACENAMIENTO";
@@ -243,7 +259,7 @@ export function ConexionModal({
             name="nombre"
             value={nombre}
             onChange={(event) => cambiarNombre(event.target.value)}
-            placeholder="Facturas Zarazal"
+            placeholder="Conexión de Russell"
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           />
           {state?.errors?.nombre?.[0] && (
@@ -260,7 +276,7 @@ export function ConexionModal({
               setCodigoTocado(true);
               setCodigo(event.target.value);
             }}
-            placeholder="facturas_zarazal"
+            placeholder="conexion_russell"
             className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
           />
           <span className="text-[11px] text-ink-500">
@@ -319,7 +335,9 @@ export function ConexionModal({
               Configuración
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {proveedor.camposConfiguracion.map((campo) => (
+              {proveedor.camposConfiguracion.filter((campo) =>
+                !proveedor.inteligenciaArtificial || !["url_base", "ruta_prueba", "encabezado_auth"].includes(campo.clave)
+              ).map((campo) => (
                 <CampoFormulario
                   key={campo.clave}
                   campo={campo}
@@ -331,6 +349,14 @@ export function ConexionModal({
                   error={state?.errors?.[`config_${campo.clave}`]}
                 />
               ))}
+              {proveedor.inteligenciaArtificial && proveedor.camposConfiguracion.filter((campo) =>
+                ["url_base", "ruta_prueba", "encabezado_auth"].includes(campo.clave)
+              ).map((campo) => (
+                <input key={campo.clave} type="hidden" name={`config_${campo.clave}`} value={String(campo.porDefecto ?? "")} />
+              ))}
+              {proveedor.inteligenciaArtificial && <p className="text-[12px] text-ink-500 sm:col-span-2">
+                La prueba verifica la clave con el proveedor oficial sin generar contenido.
+              </p>}
             </div>
           </div>
         )}
@@ -343,7 +369,7 @@ export function ConexionModal({
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {proveedor.camposCredenciales.map((campo) => {
-                const definida = conexion?.credencialesDefinidas.includes(campo.clave) ?? false;
+                const definida = conexion?.proveedor === proveedorClave && conexion.credencialesDefinidas.includes(campo.clave);
                 return (
                   <label key={campo.clave} className="flex flex-col gap-1.5">
                     <span className="text-[12px] font-medium text-ink-700">

@@ -2409,7 +2409,7 @@ async function persistirCargue(p: {
   // proveedor que la frontera ya autorizó (sin él, la compuerta de entorno).
   // Best-effort: si la IA falla o no está configurada, se queda con lo determinista.
   const proveedorIA = p.proveedorIA ?? proveedorIABalance();
-  if (iaBalanceDisponible(proveedorIA)) {
+  if (await iaBalanceDisponible(proveedorIA)) {
     // Las marcadas «Pendiente por Asignar» NO se ofrecen a la IA: el marcador
     // bloquea toda la cascada, no solo la determinista.
     const pendientes = calc.breakdown.flatMap((g) => g.items)
@@ -3116,7 +3116,7 @@ export async function leerBalance(
       }
     }
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
-    const iaDisponible = iaBalanceDisponible(proveedorIA);
+    const iaDisponible = await iaBalanceDisponible(proveedorIA);
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };

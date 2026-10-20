@@ -1,6 +1,7 @@
 import "server-only";
 import { registrarError } from "@/lib/errores";
 import type { UsoOpenRouterReporte } from "@/lib/novedades/reportes";
+import { ErrorConfiguracionIA, resolverClaveIA } from "@/lib/conexiones/ia";
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -71,11 +72,11 @@ function statusDesdeCodigo(code: string | number | undefined): number | undefine
   return undefined;
 }
 
-function getOpenRouterApiKey(): string {
-  const key = process.env.OPENROUTER_API_KEY?.trim();
+async function getOpenRouterApiKey(): Promise<string> {
+  const key = await resolverClaveIA("openrouter");
   if (!key) {
     throw new OpenRouterError(
-      "Falta OPENROUTER_API_KEY. Configúrala en .env para generar reportes funcionales con IA.",
+      "Falta OPENROUTER_API_KEY. Configura una conexión de OpenRouter para la plataforma o la variable en .env.",
       { status: 401 },
     );
   }
@@ -124,9 +125,10 @@ async function solicitarChatOpenRouter({
   try {
     const res = await fetch(OPENROUTER_CHAT_URL, {
       method: "POST",
+      redirect: "error",
       signal: controller.signal,
       headers: {
-        Authorization: `Bearer ${getOpenRouterApiKey()}`,
+        Authorization: `Bearer ${await getOpenRouterApiKey()}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "http://localhost:3000",
         "X-Title": process.env.OPENROUTER_APP_NAME ?? "Russell Diagnostico",
@@ -227,15 +229,16 @@ export async function completarTextoOpenRouter(params: CompletarOpenRouterParams
 
 export function mensajeErrorOpenRouter(contexto: string, e: unknown): string {
   registrarError(contexto, e);
+  if (e instanceof ErrorConfiguracionIA) return e.message;
 
   const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
   const msg = e instanceof Error ? e.message : "";
 
   if (/Falta OPENROUTER_API_KEY/i.test(msg)) {
-    return "Falta configurar OPENROUTER_API_KEY en el entorno del servidor para generar el reporte.";
+    return "Configura OpenRouter en Conexiones e integraciones o define OPENROUTER_API_KEY en el servidor.";
   }
   if (status === 401 || status === 403) {
-    return "OpenRouter rechazó las credenciales. Verifica OPENROUTER_API_KEY.";
+    return "OpenRouter rechazó las credenciales. Revisa la conexión seleccionada o OPENROUTER_API_KEY.";
   }
   if (status === 408 || /timeout|tardó demasiado|AbortError/i.test(msg)) {
     return "La generación tardó demasiado. Reintenta con menos cambios documentados o vuelve a intentarlo en unos minutos.";

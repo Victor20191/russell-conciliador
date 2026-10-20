@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("@/lib/prisma", () => ({
+  default: { conexionIntegracion: { findMany: vi.fn(async () => []) } },
+}));
 import {
   configuracionIABalanceUI,
   correoAutorizadoIAPruebas,
@@ -10,12 +13,16 @@ import {
   proveedorIABalance,
 } from "./proveedor-balance";
 
+beforeEach(() => {
+  vi.stubEnv("DATABASE_URL", "");
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
 describe("proveedorIABalance", () => {
-  it("permite Gemini en desarrollo cuando está seleccionado y configurado", () => {
+  it("permite Gemini en desarrollo cuando está seleccionado y configurado", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("BALANCE_AI_DEV_SELECTOR", "true");
     vi.stubEnv("BALANCE_AI_PROVIDER", "gemini");
@@ -23,10 +30,10 @@ describe("proveedorIABalance", () => {
 
     expect(proveedorIABalance()).toBe("gemini");
     expect(modoDesarrolloIABalanceActivo()).toBe(true);
-    expect(iaBalanceDisponible()).toBe(true);
+    expect(await iaBalanceDisponible()).toBe(true);
   });
 
-  it("permite elegir el proveedor por carga sin cambiar el entorno", () => {
+  it("permite elegir el proveedor por carga sin cambiar el entorno", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("BALANCE_AI_DEV_SELECTOR", "true");
     vi.stubEnv("BALANCE_AI_PROVIDER", "anthropic");
@@ -34,7 +41,7 @@ describe("proveedorIABalance", () => {
 
     expect(proveedorIABalance("gemini")).toBe("gemini");
     expect(modeloIABalance("gemini")).toContain("gemini");
-    expect(iaBalanceDisponible("gemini")).toBe(true);
+    expect(await iaBalanceDisponible("gemini")).toBe(true);
     const configuracion = configuracionIABalanceUI();
     expect(configuracion?.predeterminado).toBe("anthropic");
     expect(configuracion?.opciones).toEqual([
@@ -43,7 +50,7 @@ describe("proveedorIABalance", () => {
     ]);
   });
 
-  it("fuerza Anthropic en producción aunque el entorno pida Gemini", () => {
+  it("fuerza Anthropic en producción aunque el entorno pida Gemini", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("BALANCE_AI_DEV_SELECTOR", "true");
     vi.stubEnv("BALANCE_AI_PROVIDER", "gemini");
@@ -52,7 +59,7 @@ describe("proveedorIABalance", () => {
 
     expect(proveedorIABalance()).toBe("anthropic");
     expect(proveedorIABalance("gemini")).toBe("anthropic");
-    expect(iaBalanceDisponible()).toBe(false);
+    expect(await iaBalanceDisponible()).toBe(false);
     expect(mensajeIABalanceNoDisponible()).toContain("ANTHROPIC_API_KEY");
     expect(configuracionIABalanceUI()).toBeNull();
   });

@@ -79,6 +79,31 @@ App Next.js 16 (App Router, React 19, Tailwind v4) con backend propio: Server Ac
 - `src/lib/login-throttle.ts` — bloqueo por intentos fallidos (`User.failedLoginAttempts`/`blockedUntil`, tabla `LoginAttempt`).
 - **Restablecer contraseña de un usuario** (`/config/usuarios` → Editar): el check «Restablecer a la clave predeterminada» asigna al guardar la clave temporal de `src/lib/auth/default-password.ts`. La acción `updateUser` resuelve la clave en el servidor, conserva `usuarios:editar` y la protección de cuentas Superadministrador. Exige cambiarla al próximo ingreso, limpia los bloqueos e invalida las sesiones anteriores. El check inicia desmarcado y «Usar otra contraseña temporal» conserva el restablecimiento manual; sin ninguna de las dos opciones, editar al usuario conserva su contraseña. No cambia la creación ni la importación de usuarios.
 
+### Conexiones e integraciones (`/config/conexiones`)
+
+La parametrización reúne los servicios de Russell: IA (Anthropic, Gemini, OpenRouter y
+registro/prueba de OpenAI), correo SMTP/Gmail/Microsoft 365, almacenamiento S3/R2/MinIO,
+API REST, OAuth y webhooks. ZAPFlow es referencia de interacción; sus proveedores de
+negocio (NumRot, Siigo, WhatsApp) no forman parte del catálogo de Russell.
+
+- `conexiones:ver` permite consultar; `conexiones:administrar` permite mutar y probar.
+- Los clientes existentes de Anthropic, Gemini y OpenRouter usan la única conexión
+  activa de **Producción** con `configuracion.usar_en_plataforma = true` para su proveedor.
+  La selección se guarda en transacción Serializable. Sin selección se conserva `.env`;
+  una selección ambigua/ilegible o un fallo de consulta no usa otra clave silenciosamente.
+  Las claves se resuelven en cada uso; modelos y restricciones de Gemini se conservan.
+- OpenAI permite guardar/probar credenciales; no añade un proveedor al balance.
+  SMTP verifica TLS/STARTTLS y autenticación con Nodemailer sin enviar mensajes.
+  Guardar SMTP, Microsoft 365, una API o webhook no crea automatizaciones de envío/lectura.
+- `MASTER_ENCRYPTION_KEY` debe tener **exactamente 32 bytes UTF-8**. Sin ella no se
+  guardan credenciales. Cifrado AES-256-GCM `v1:`, con lectura compatible del formato
+  anterior y secretos legados; al editar se recifran los valores conservados.
+  No rotar esa clave sin un procedimiento de recifrado y conservarla entre despliegues.
+  La UI nunca recibe secretos. Cambiar proveedor o destino exige reingresar credenciales;
+  editar invalida la última prueba. Las pruebas IA usan destinos oficiales y no siguen redirecciones.
+- No requiere cambios de esquema ni migraciones. Antes del despliegue configurar la
+  clave maestra; la validación de desarrollo usa mocks y no escribe en producción.
+
 ### Autorización RBAC — la MATRIZ es la autoridad, no la jerarquía
 
 El modelo NO es jerárquico por rango. La verdad operativa vive en la matriz rol×permiso. Detalle clave: Socio y Gerente tienen rango alto pero son de **consulta**; el **Staff** es el rol operativo y, desde el 19/Oct/2026, el **Senior** hace todo lo que hace el Staff (en sus clientes asignados) además de revisar —al revés no: el Staff no gana nada del Senior—. `src/lib/roles.ts`/`can()` (rangos) es legado en transición — **el código nuevo autoriza por permiso**.

@@ -2,6 +2,7 @@ import "server-only";
 import { registrarError } from "@/lib/errores";
 import type { UsoOpenRouterReporte } from "@/lib/novedades/reportes";
 import { z } from "zod";
+import { conexionIADisponible, ErrorConfiguracionIA, resolverClaveIA } from "@/lib/conexiones/ia";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -60,11 +61,11 @@ export class GeminiError extends Error {
   }
 }
 
-function getGeminiApiKey(): string {
-  const key = process.env.GEMINI_API_KEY?.trim() ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+async function getGeminiApiKey(): Promise<string> {
+  const key = await resolverClaveIA("gemini");
   if (!key) {
     throw new GeminiError(
-      "Falta GEMINI_API_KEY. Configúrala en .env para generar reportes funcionales con Gemini.",
+      "Falta GEMINI_API_KEY. Configura una conexión de Gemini para la plataforma o la variable en .env.",
       { status: 401 },
     );
   }
@@ -72,8 +73,8 @@ function getGeminiApiKey(): string {
 }
 
 /** ¿Hay una clave de Gemini disponible en el servidor? */
-export function geminiDisponible(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim());
+export async function geminiDisponible(): Promise<boolean> {
+  return conexionIADisponible("gemini");
 }
 
 function parseJsonSeguro(content: string): unknown {
@@ -128,10 +129,11 @@ async function solicitarGemini({
   try {
     const res = await fetch(url, {
       method: "POST",
+      redirect: "error",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": getGeminiApiKey(),
+        "x-goog-api-key": await getGeminiApiKey(),
       },
       body: JSON.stringify({
         ...(system
@@ -272,15 +274,16 @@ export async function completarJsonEstructuradoGemini<T>(
 
 export function mensajeErrorGemini(contexto: string, e: unknown): string {
   registrarError(contexto, e);
+  if (e instanceof ErrorConfiguracionIA) return e.message;
 
   const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
   const msg = e instanceof Error ? e.message : "";
 
   if (/Falta GEMINI_API_KEY/i.test(msg)) {
-    return "Falta configurar GEMINI_API_KEY en el entorno del servidor para generar el reporte.";
+    return "Configura Gemini en Conexiones e integraciones o define GEMINI_API_KEY en el servidor.";
   }
   if (status === 401 || status === 403) {
-    return "Gemini rechazó las credenciales. Verifica GEMINI_API_KEY.";
+    return "Gemini rechazó las credenciales. Revisa la conexión seleccionada o GEMINI_API_KEY.";
   }
   if (status === 408 || /timeout|tardó demasiado|AbortError/i.test(msg)) {
     return "La generación tardó demasiado. Reintenta con menos cambios documentados o vuelve a intentarlo en unos minutos.";

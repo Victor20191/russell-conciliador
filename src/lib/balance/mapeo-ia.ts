@@ -77,7 +77,7 @@ async function mapearConModelo(
   loteBase: number,
   usosOut?: UsoIA[],
 ): Promise<Map<string, Asignacion>> {
-  const client = getAnthropic();
+  const client = await getAnthropic();
   const res = new Map<string, Asignacion>();
   const lotes: CuentaPendiente[][] = [];
   for (let i = 0; i < pendientes.length; i += TAM_LOTE) lotes.push(pendientes.slice(i, i + TAM_LOTE));

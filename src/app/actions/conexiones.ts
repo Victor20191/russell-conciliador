@@ -31,6 +31,8 @@ import {
   fusionarCredenciales,
 } from "@/lib/conexiones/credenciales";
 import { ejecutarConexion, probarConexion } from "@/lib/conexiones/pruebas";
+import { validarConfiguracion } from "@/lib/conexiones/validacion";
+import { cifradoDisponible } from "@/lib/crypto";
 
 const PERMISO = "conexiones:administrar";
 const PATH = "/config/conexiones";
@@ -101,6 +103,7 @@ function construirConfiguracion(
     }
     datos[campo.clave] = bruto;
   }
+  Object.assign(errores, validarConfiguracion(proveedor, datos));
   return { datos, errores };
 }
 
@@ -110,7 +113,7 @@ function leerCredencialesEnviadas(
 ): Record<string, string> {
   const salida: Record<string, string> = {};
   for (const campo of proveedor.camposCredenciales) {
-    const valor = String(formData.get(`cred_${campo.clave}`) ?? "").trim();
+    const valor = String(formData.get(`cred_${campo.clave}`) ?? "");
     if (valor !== "") salida[campo.clave] = valor;
   }
   return salida;
@@ -165,6 +168,46 @@ function validarFormulario(
   return { ok: true, data: parsed.data, proveedor };
 }
 
+async function conflictoSeleccionIA(
+  data: { proveedor: string; activa: boolean; entorno: string },
+  configuracion: Record<string, unknown>,
+  id?: number,
+  db: Pick<Prisma.TransactionClient, "conexionIntegracion"> = prisma,
+): Promise<string | null> {
+  if (!data.activa || data.entorno !== "PRODUCCION" || configuracion.usar_en_plataforma !== true) return null;
+  const otra = await db.conexionIntegracion.findFirst({
+    where: {
+      proveedor: data.proveedor, activa: true, entorno: "PRODUCCION",
+      configuracion: { path: ["usar_en_plataforma"], equals: true },
+      ...(id ? { NOT: { id } } : {}),
+    },
+    select: { id: true },
+  });
+  return otra ? "Ya hay una clave seleccionada para este proveedor. Desmarca «Usar esta clave en Russell» en la conexión anterior." : null;
+}
+
+/** La selección y la escritura se serializan para evitar dos claves efectivas simultáneas. */
+async function guardarConSeleccionIA(
+  data: { proveedor: string; activa: boolean; entorno: string },
+  configuracion: Record<string, unknown>,
+  id: number | undefined,
+  guardar: (tx: Prisma.TransactionClient) => Promise<unknown>,
+): Promise<string | null> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const conflicto = await conflictoSeleccionIA(data, configuracion, id, tx);
+      if (conflicto) return conflicto;
+      await guardar(tx);
+      return null;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2034") {
+      return "Otra persona actualizó las conexiones al mismo tiempo. Revisa la selección y vuelve a guardar.";
+    }
+    throw error;
+  }
+}
+
 export async function crearConexion(
   _prev: ConexionActionState | undefined,
   formData: FormData,
@@ -180,6 +223,10 @@ export async function crearConexion(
   const enviadas = leerCredencialesEnviadas(proveedor, formData);
   Object.assign(errores, validarCredencialesRequeridas(proveedor, enviadas, new Set()));
   if (Object.keys(errores).length > 0) return { ok: false, errors: errores };
+  if (!cifradoDisponible()) return { ok: false, message: "Falta configurar MASTER_ENCRYPTION_KEY (32 bytes) en el servidor para guardar credenciales cifradas." };
+  if (datos.usar_en_plataforma && data.entorno !== "PRODUCCION") {
+    return { ok: false, message: "Para usar esta clave en Russell, selecciona el entorno Producción." };
+  }
 
   try {
     const duplicado = await prisma.conexionIntegracion.findUnique({
@@ -191,7 +238,7 @@ export async function crearConexion(
     }
 
     const actor = await getCurrentUser();
-    await prisma.conexionIntegracion.create({
+    const conflicto = await guardarConSeleccionIA(data, datos, undefined, (tx) => tx.conexionIntegracion.create({
       data: {
         codigo: data.codigo,
         nombre: data.nombre,
@@ -205,7 +252,8 @@ export async function crearConexion(
         creadoPor: actor?.name ?? null,
         actualizadoPor: actor?.name ?? null,
       },
-    });
+    }));
+    if (conflicto) return { ok: false, message: conflicto };
 
     await logAudit({
       user: actor?.name ?? "Sistema",
@@ -248,12 +296,28 @@ export async function actualizarConexion(
 
     const { datos, errores } = construirConfiguracion(proveedor, formData);
     const enviadas = leerCredencialesEnviadas(proveedor, formData);
-    const definidas = new Set(clavesCredencialesDefinidas(actual.credenciales));
+    const anterior = (actual.configuracion ?? {}) as Record<string, unknown>;
+    const mismoDestino = actual.proveedor === data.proveedor &&
+      ["url_base", "url", "url_token", "host", "puerto", "endpoint", "tenant_id", "encabezado_auth", "ruta_prueba"].every(
+        (clave) => String(anterior[clave] ?? "") === String(datos[clave] ?? ""),
+      );
+    const definidas = new Set(mismoDestino ? clavesCredencialesDefinidas(actual.credenciales) : []);
     Object.assign(errores, validarCredencialesRequeridas(proveedor, enviadas, definidas));
+    if (!mismoDestino) {
+      for (const clave of clavesCredencialesDefinidas(actual.credenciales)) {
+        if (proveedor.camposCredenciales.some((campo) => campo.clave === clave) && !enviadas[clave]) {
+          errores[`cred_${clave}`] = ["Vuelve a ingresar la credencial al cambiar el proveedor o su destino."];
+        }
+      }
+    }
     if (Object.keys(errores).length > 0) return { ok: false, errors: errores };
+    if (!cifradoDisponible()) return { ok: false, message: "Falta configurar MASTER_ENCRYPTION_KEY (32 bytes) en el servidor para guardar credenciales cifradas." };
+    if (datos.usar_en_plataforma && data.entorno !== "PRODUCCION") {
+      return { ok: false, message: "Para usar esta clave en Russell, selecciona el entorno Producción." };
+    }
 
     const actor = await getCurrentUser();
-    await prisma.conexionIntegracion.update({
+    const conflicto = await guardarConSeleccionIA(data, datos, id, (tx) => tx.conexionIntegracion.update({
       where: { id },
       data: {
         codigo: data.codigo,
@@ -266,10 +330,16 @@ export async function actualizarConexion(
         configuracion: datos as Prisma.InputJsonValue,
         // Los campos de credenciales que llegan vacíos conservan el secreto
         // anterior; los que traen valor se vuelven a cifrar.
-        credenciales: fusionarCredenciales(actual.credenciales, enviadas) as Prisma.InputJsonValue,
+        credenciales: fusionarCredenciales(mismoDestino ? actual.credenciales : null, enviadas) as Prisma.InputJsonValue,
+        // Una prueba de la configuración anterior no acredita los valores editados.
+        ultimaPruebaEn: null,
+        ultimaPruebaOk: null,
+        ultimaPruebaMensaje: null,
+        ultimaPruebaMs: null,
         actualizadoPor: actor?.name ?? null,
       },
-    });
+    }));
+    if (conflicto) return { ok: false, message: conflicto };
 
     await logAudit({
       user: actor?.name ?? "Sistema",
@@ -331,15 +401,18 @@ export async function cambiarEstadoConexion(
   try {
     const actual = await prisma.conexionIntegracion.findUnique({
       where: { id: conexionId },
-      select: { codigo: true, nombre: true },
+      select: { codigo: true, nombre: true, proveedor: true, entorno: true, configuracion: true },
     });
     if (!actual) return { ok: false, message: "La conexión no existe." };
 
     const actor = await getCurrentUser();
-    await prisma.conexionIntegracion.update({
+    const conflicto = await guardarConSeleccionIA(
+      { ...actual, activa }, (actual.configuracion ?? {}) as Record<string, unknown>, conexionId,
+      (tx) => tx.conexionIntegracion.update({
       where: { id: conexionId },
       data: { activa, actualizadoPor: actor?.name ?? null },
-    });
+    }));
+    if (conflicto) return { ok: false, message: conflicto };
 
     await logAudit({
       user: actor?.name ?? "Sistema",

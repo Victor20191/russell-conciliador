@@ -58,7 +58,9 @@ export function fusionarCredenciales(
   const anteriores = esObjeto(guardadas) ? (guardadas as Record<string, unknown>) : {};
   const salida: Record<string, string> = {};
   for (const [clave, valor] of Object.entries(anteriores)) {
-    if (typeof valor === "string" && valor !== "") salida[clave] = valor;
+    // Una clave nueva permite reparar un secreto anterior ilegible.
+    if (typeof enviadas[clave] === "string" && enviadas[clave] !== "") continue;
+    if (typeof valor === "string" && valor !== "") salida[clave] = encrypt(decrypt(valor));
   }
   for (const [clave, valor] of Object.entries(enviadas)) {
     if (typeof valor !== "string" || valor === "") continue;

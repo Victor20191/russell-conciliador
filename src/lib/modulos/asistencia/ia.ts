@@ -195,7 +195,7 @@ export async function proponerSpecInventarioIA(
   evaluar: (spec: SpecModulo) => boolean,
   diagnostico: readonly string[] = [],
 ): Promise<{ spec: SpecModulo | null; usos: UsoIA[]; motivo: string | null; confianza: number; preguntas: PreguntaInventarioIA[] }> {
-  const client = getAnthropic();
+  const client = await getAnthropic();
   const contenido = construirContextoInventario(entrada, diagnostico);
   const usos: UsoIA[] = [];
   let mejor: { spec: SpecModulo | null; motivo: string | null; confianza: number; valida: boolean; preguntas: PreguntaInventarioIA[] } | null = null;

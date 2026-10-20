@@ -306,7 +306,7 @@ export async function extraerBalance(
     // Mejor intento hasta ahora (para usarlo si el último tier tampoco convence:
     // el descuadre no bloquea el cargue, solo lo marca).
     let mejor: { spec: MappingSpec; resultado: ResultadoTransform } | null = null;
-    const client = getAnthropic();
+    const client = await getAnthropic();
 
     for (const tier of CASCADA_EXTRACCION) {
       const r = await conReintentoSinTemperatura(
@@ -418,7 +418,7 @@ export async function extraerBalance(
         ]
       : [{ type: "text" as const, text: instruccion }];
 
-  const client = getAnthropic();
+  const client = await getAnthropic();
   const modelo = modeloIABalance(proveedorIA);
   const r = await conReintentoSinTemperatura(
     (ajustes) =>

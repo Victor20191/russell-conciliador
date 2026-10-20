@@ -5,6 +5,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { clavesCredencialesDefinidas } from "@/lib/conexiones/credenciales";
 import ConexionesClient from "./conexiones-client";
 import type { ConexionVista } from "./conexion-modal";
+import { cifradoDisponible } from "@/lib/crypto";
 
 export const metadata: Metadata = {
   title: "Conexiones e integraciones",
@@ -12,7 +13,8 @@ export const metadata: Metadata = {
 
 export default async function ConexionesPage() {
   const authz = await authorizePermiso("conexiones:ver");
-  if (!authz.ok) redirect("/(app)/dashboard");
+  if (!authz.ok) redirect("/dashboard");
+  const administrar = await authorizePermiso("conexiones:administrar");
 
   const conexiones = await prisma.conexionIntegracion.findMany({
     orderBy: [{ categoria: "asc" }, { nombre: "asc" }],
@@ -40,5 +42,5 @@ export default async function ConexionesPage() {
     updatedAt: c.updatedAt,
   }));
 
-  return <ConexionesClient conexiones={vista} />;
+  return <ConexionesClient conexiones={vista} puedeAdministrar={administrar.ok} cifradoListo={cifradoDisponible()} />;
 }

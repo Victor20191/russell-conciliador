@@ -43,6 +43,7 @@ export type ProveedorDefinicion = {
   camposConfiguracion: CampoDefinicion[];
   camposCredenciales: CampoDefinicion[];
   prueba: EstrategiaPrueba;
+  inteligenciaArtificial?: boolean;
   /** Tiene un ejecutor automático propio (hoy solo almacenamiento). */
   ejecutable?: boolean;
 };
@@ -69,7 +70,7 @@ export const CATEGORIAS: {
     clave: "API",
     label: "API",
     icono: "doc",
-    descripcion: "Servicios REST externos (facturación electrónica, IA, mensajería…).",
+    descripcion: "Inteligencia artificial y servicios REST que se integran con Russell.",
   },
   {
     clave: "WEBHOOK",
@@ -148,6 +149,22 @@ const CAMPOS_API_BASE = (
     porDefecto: encabezado,
   },
 ];
+
+const USAR_IA_PLATAFORMA: CampoDefinicion = {
+  clave: "usar_en_plataforma",
+  label: "Usar esta clave en Russell",
+  tipo: "booleano",
+  porDefecto: false,
+  ayuda: "En una conexión activa de Producción, reemplaza la clave del servidor para este proveedor. Conserva los modelos y permisos actuales. Solo selecciona una conexión por proveedor.",
+};
+
+const SEGURIDAD_SMTP: CampoDefinicion = {
+  clave: "seguridad",
+  label: "Seguridad",
+  tipo: "texto",
+  porDefecto: "STARTTLS",
+  ayuda: "STARTTLS para puerto 587; TLS para puerto 465. El certificado siempre se verifica.",
+};
 
 export const PROVEEDORES: ProveedorDefinicion[] = [
   // ----- Almacenamiento (ejecutable: consumo de archivos) -----
@@ -257,6 +274,7 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     camposConfiguracion: [
       { clave: "host", label: "Servidor", tipo: "texto", requerido: true, placeholder: "smtp.cliente.com" },
       { clave: "puerto", label: "Puerto", tipo: "numero", porDefecto: 587 },
+      SEGURIDAD_SMTP,
       {
         clave: "remitente",
         label: "Remitente",
@@ -265,8 +283,8 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
       },
     ],
     camposCredenciales: [
-      { clave: "usuario", label: "Usuario", tipo: "texto" },
-      { clave: "contrasena", label: "Contraseña", tipo: "texto" },
+      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true },
+      { clave: "contrasena", label: "Contraseña", tipo: "texto", requerido: true },
     ],
     prueba: { tipo: "smtp" },
   },
@@ -278,11 +296,12 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     camposConfiguracion: [
       { clave: "host", label: "Servidor", tipo: "texto", porDefecto: "smtp.gmail.com" },
       { clave: "puerto", label: "Puerto", tipo: "numero", porDefecto: 587 },
+      SEGURIDAD_SMTP,
       { clave: "remitente", label: "Remitente", tipo: "texto", placeholder: "cuenta@gmail.com" },
     ],
     camposCredenciales: [
-      { clave: "usuario", label: "Usuario", tipo: "texto" },
-      { clave: "contrasena", label: "Contraseña de aplicación", tipo: "texto" },
+      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true },
+      { clave: "contrasena", label: "Contraseña de aplicación", tipo: "texto", requerido: true },
     ],
     prueba: { tipo: "smtp" },
   },
@@ -325,33 +344,6 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     prueba: { tipo: "oauth" },
   },
   {
-    clave: "siigo",
-    label: "Siigo",
-    categoria: "API",
-    descripcion: "Facturación electrónica y contabilidad en la nube.",
-    camposConfiguracion: CAMPOS_API_BASE("https://api.siigo.com", undefined, "Authorization"),
-    camposCredenciales: [{ clave: "token", label: "Access Token", tipo: "texto" }],
-    prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
-  },
-  {
-    clave: "numrot_radian",
-    label: "NumRot (Radian DIAN)",
-    categoria: "API",
-    descripcion: "Eventos RADIAN de la DIAN (acuse, recibo, aceptación, reclamo).",
-    camposConfiguracion: CAMPOS_API_BASE(undefined, undefined, "Authorization"),
-    camposCredenciales: [{ clave: "token", label: "Token", tipo: "texto" }],
-    prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
-  },
-  {
-    clave: "whatsapp",
-    label: "WhatsApp Business",
-    categoria: "API",
-    descripcion: "Mensajería de WhatsApp Business (Meta Graph API).",
-    camposConfiguracion: CAMPOS_API_BASE("https://graph.facebook.com", "/v21.0/me", "Authorization"),
-    camposCredenciales: [{ clave: "token", label: "Token", tipo: "texto" }],
-    prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
-  },
-  {
     clave: "microsoft_graph",
     label: "Microsoft Graph",
     categoria: "API",
@@ -361,34 +353,47 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
   },
   {
+    clave: "openai",
+    label: "OpenAI",
+    categoria: "API",
+    inteligenciaArtificial: true,
+    descripcion: "Guarda y verifica tu API key de OpenAI. Disponible para futuras integraciones; no cambia la IA de los balances.",
+    camposConfiguracion: CAMPOS_API_BASE("https://api.openai.com", "/v1/models", "Authorization"),
+    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto", requerido: true }],
+    prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
+  },
+  {
     clave: "anthropic",
     label: "Anthropic (Claude)",
     categoria: "API",
+    inteligenciaArtificial: true,
     descripcion: "Modelos de IA de Anthropic para extracción y mapeo asistidos.",
-    camposConfiguracion: CAMPOS_API_BASE("https://api.anthropic.com", "/v1/models", "x-api-key"),
-    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto" }],
+    camposConfiguracion: [...CAMPOS_API_BASE("https://api.anthropic.com", "/v1/models", "x-api-key"), USAR_IA_PLATAFORMA],
+    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto", requerido: true }],
     prueba: { tipo: "http", encabezadoAuth: "x-api-key", esquemaAuth: "valor" },
   },
   {
     clave: "gemini",
     label: "Google Gemini",
     categoria: "API",
+    inteligenciaArtificial: true,
     descripcion: "Modelos de IA de Google para extracción y mapeo asistidos.",
-    camposConfiguracion: CAMPOS_API_BASE(
+    camposConfiguracion: [...CAMPOS_API_BASE(
       "https://generativelanguage.googleapis.com",
       "/v1beta/models",
       "x-goog-api-key",
-    ),
-    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto" }],
+    ), USAR_IA_PLATAFORMA],
+    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto", requerido: true }],
     prueba: { tipo: "http", encabezadoAuth: "x-goog-api-key", esquemaAuth: "valor" },
   },
   {
     clave: "openrouter",
     label: "OpenRouter",
     categoria: "API",
+    inteligenciaArtificial: true,
     descripcion: "Puerta de acceso a modelos de IA de varios proveedores.",
-    camposConfiguracion: CAMPOS_API_BASE("https://openrouter.ai", "/api/v1/models", "Authorization"),
-    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto" }],
+    camposConfiguracion: [...CAMPOS_API_BASE("https://openrouter.ai", "/api/v1/key", "Authorization"), USAR_IA_PLATAFORMA],
+    camposCredenciales: [{ clave: "api_key", label: "API Key", tipo: "texto", requerido: true }],
     prueba: { tipo: "http", encabezadoAuth: "Authorization", esquemaAuth: "bearer" },
   },
 

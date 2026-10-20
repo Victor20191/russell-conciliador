@@ -10,6 +10,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { proveedorPorClave, type EstrategiaPrueba } from "@/lib/conexiones/tipos";
+import { verificarSmtp } from "./smtp";
 
 // ============================================================
 // Pruebas y ejecuciones de una conexión.
@@ -54,11 +55,6 @@ function booleano(valor: unknown): boolean {
   return valor === true || valor === "true";
 }
 
-function numero(valor: unknown, porDefecto: number): number {
-  const n = typeof valor === "number" ? valor : Number.parseInt(String(valor ?? ""), 10);
-  return Number.isFinite(n) ? n : porDefecto;
-}
-
 /** Concatena la URL base con la ruta sin duplicar ni perder la barra. */
 export function unirUrl(base: string, ruta?: string | null): string {
   const limpiaBase = base.trim().replace(/\/+$/, "");
@@ -72,7 +68,8 @@ export function interpretarEstadoHttp(
   status: number,
   destino: string,
 ): { ok: boolean; mensaje: string } {
-  if (status >= 200 && status < 400) return { ok: true, mensaje: `La API respondió ${status}.` };
+  if (status >= 200 && status < 300) return { ok: true, mensaje: `La API respondió ${status}.` };
+  if (status >= 300 && status < 400) return { ok: false, mensaje: "El servidor redirige a otro destino. Revisa la URL; no se reenviaron las credenciales." };
   if (status === 401 || status === 403) {
     return { ok: false, mensaje: `La API respondió ${status}: las credenciales fueron rechazadas.` };
   }
@@ -242,14 +239,6 @@ export function bannerSmtp(
   });
 }
 
-async function probarSmtp(
-  config: Record<string, unknown>,
-): Promise<{ ok: boolean; mensaje: string }> {
-  const host = texto(config.host);
-  const puerto = numero(config.puerto, 587);
-  return bannerSmtp(host, puerto);
-}
-
 async function probarGraph(
   config: Record<string, unknown>,
   cred: Record<string, string>,
@@ -336,13 +325,23 @@ async function probarHttp(
   estrategia: Extract<EstrategiaPrueba, { tipo: "http" }>,
   config: Record<string, unknown>,
   cred: Record<string, string>,
+  proveedorClave: string,
 ): Promise<{ ok: boolean; mensaje: string }> {
-  const base = texto(config.url_base);
-  const ruta = texto(config.ruta_prueba) || estrategia.ruta || "";
+  const oficiales: Record<string, [string, string, string]> = {
+    anthropic: ["https://api.anthropic.com", "/v1/models", "x-api-key"],
+    gemini: ["https://generativelanguage.googleapis.com", "/v1beta/models", "x-goog-api-key"],
+    openai: ["https://api.openai.com", "/v1/models", "Authorization"],
+    openrouter: ["https://openrouter.ai", "/api/v1/key", "Authorization"],
+  };
+  const oficial = oficiales[proveedorClave];
+  const base = oficial?.[0] ?? texto(config.url_base);
+  const ruta = oficial?.[1] ?? (texto(config.ruta_prueba) || estrategia.ruta || "");
   const destino = unirUrl(base, ruta);
-  const encabezado = texto(config.encabezado_auth) || estrategia.encabezadoAuth;
+  const encabezado = oficial?.[2] ?? (texto(config.encabezado_auth) || estrategia.encabezadoAuth);
   const token = texto(cred.token) || texto(cred.api_key);
   const headers: Record<string, string> = { Accept: "application/json" };
+  if (oficial && !token) return { ok: false, mensaje: "Falta la API key de este proveedor." };
+  if (proveedorClave === "anthropic") headers["anthropic-version"] = "2023-06-01";
   if (token) headers[encabezado] = estrategia.esquemaAuth === "bearer" ? `Bearer ${token}` : token;
 
   try {
@@ -351,6 +350,7 @@ async function probarHttp(
       headers,
       signal: AbortSignal.timeout(TIMEOUT_CONEXION_MS),
       cache: "no-store",
+      redirect: "manual",
     });
     return interpretarEstadoHttp(res.status, destino);
   } catch (e) {
@@ -407,13 +407,13 @@ async function ejecutarSegunProveedor(
     case "s3":
       return probarS3(config, cred);
     case "smtp":
-      return probarSmtp(config);
+      return verificarSmtp(config, cred);
     case "graph":
       return probarGraph(config, cred);
     case "oauth":
       return probarOAuth(config, cred);
     case "http":
-      return probarHttp(proveedor.prueba, config, cred);
+      return probarHttp(proveedor.prueba, config, cred, datos.proveedor);
     case "webhook":
       return probarWebhook(config, cred);
   }

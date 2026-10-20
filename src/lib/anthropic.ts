@@ -1,26 +1,27 @@
 // Cliente de Claude (Anthropic) — primera integración de IA de la plataforma.
 // Se usa para la extracción asistida de balances (src/lib/balance/extraccion).
-// Singleton perezoso: no exige la API key hasta que realmente se llama, para que
-// el resto de la app siga compilando/ejecutando sin la clave configurada.
+// Resuelve la API key al usarla para aplicar cambios de conexión sin reiniciar.
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ThinkingConfigParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import { ajustesDeterministas as ajustesDeterministasModelo, esAjusteNoSoportado } from "@/lib/ia/parametros-modelo";
+import { conexionIADisponible, resolverClaveIA } from "@/lib/conexiones/ia";
 
 // Modelo por defecto: máxima calidad para extracción estructurada (Opus 5.5).
 // Configurable por entorno sin tocar código.
 export const MODELO_EXTRACCION = process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5";
 
-let cliente: Anthropic | null = null;
-
 /** Devuelve el cliente Anthropic; lanza un error claro si falta la API key. */
-export function getAnthropic(): Anthropic {
-  if (!process.env.ANTHROPIC_API_KEY) {
+export async function getAnthropic(): Promise<Anthropic> {
+  const apiKey = await resolverClaveIA("anthropic");
+  if (!apiKey) {
     throw new Error(
-      "Falta ANTHROPIC_API_KEY. Configúrala en .env para usar la extracción de balances con IA.",
+      "Falta ANTHROPIC_API_KEY. Configura una conexión de Anthropic para la plataforma o la variable en .env.",
     );
   }
-  cliente ??= new Anthropic({
+  return new Anthropic({
+    apiKey,
+    baseURL: "https://api.anthropic.com",
     // 10 min por llamada; la extracción (sobre todo de PDF) puede tardar.
     // No delegamos reintentos al SDK: una cascada Sonnet→Opus con 2 reintentos
     // por modelo podría superar incluso los 30 min del host. El flujo de balance
@@ -28,12 +29,11 @@ export function getAnthropic(): Anthropic {
     timeout: 10 * 60 * 1000,
     maxRetries: 0,
   });
-  return cliente;
 }
 
 /** ¿Está configurada la extracción con IA? (para decidir UI/fallback). */
-export function iaDisponible(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+export async function iaDisponible(): Promise<boolean> {
+  return conexionIADisponible("anthropic");
 }
 
 /** Ajustes que se esparcen en `messages.parse`, con el tipo del SDK. */

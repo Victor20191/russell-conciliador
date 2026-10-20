@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { completarJsonEstructuradoGemini } from "./gemini";
 
+vi.mock("@/lib/prisma", () => ({
+  default: { conexionIntegracion: { findMany: vi.fn(async () => []) } },
+}));
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
