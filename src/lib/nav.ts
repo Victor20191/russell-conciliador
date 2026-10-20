@@ -93,81 +93,120 @@ export const workNav: NavItem[] = [
   },
 ];
 
+export type NavSeccion = { titulo: string; items: NavItem[] };
+
+// Debajo de «Trabajo», el menú se agrupa por PARA QUÉ sirve cada pantalla (19/Oct/2026,
+// pedido del usuario: antes todo iba bajo un solo «Configuración»). Solo es orden y
+// rótulos: cada entrada conserva su permiso, así que nadie gana ni pierde acceso, y
+// una sección sin entradas visibles para el usuario no se muestra.
 // Cada entrada principal tiene un símbolo propio: en la barra colapsada es
 // la única referencia visual antes de consultar su etiqueta o expandirla.
-export const configNav: NavItem[] = [
-  // El plan Russell y la homologación de cada cliente van primero (5/Oct/2026, pedido del usuario).
-  // «Plan Estándar Russell» se llamaba «Mapeo plan estándar».
-  { label: "Plan Estándar Russell", href: "/config/mapeo", icon: "move-tree", permiso: "mapeo:ver", modulo: "mapeo" },
-  // Homologación del PUC de cada cliente. Vivía como pestaña del plan estándar;
-  // se separó porque es trabajo por cliente y no configuración del plan Russell.
-  // Comparte permiso y módulo con aquella pantalla.
-  { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "account-link", permiso: "mapeo:ver", modulo: "mapeo" },
-  // 3.º y 4.º: el catálogo de conceptos de nómina y los filtros de cuentas de cada módulo.
-  // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
-  // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
-  { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
+export const configSecciones: NavSeccion[] = [
   {
-    // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
-    // firma que fija quien administra la herramienta. Cada módulo de conciliación tiene su sub-ruta
-    // (`/config/prevalidador/cxp`) con sus prefijos del prevalidador y las cuentas que concilia, en
-    // el orden del informe del prevalidador. La vista con todos los módulos juntos se retiró del menú
-    // el 5/Oct/2026 (repetía los mismos formularios): `/config/prevalidador` lleva al primer módulo.
-    label: "Filtros de cuentas",
-    href: "/config/prevalidador",
-    icon: "filter",
-    permiso: "parametros:administrar",
-    modulo: "parametros",
-    children: [
-      ...PREVALIDADOR_MODULOS_ORDEN.map((codigo) => ({
-        label: nombreModuloFabrica(codigo),
-        href: `/config/prevalidador/${codigo.toLowerCase()}`,
+    // Lo que se homologa en la operación diaria. El plan Russell y la homologación de
+    // cada cliente van primero (5/Oct/2026, pedido del usuario).
+    titulo: "Catálogos contables",
+    items: [
+      // «Plan Estándar Russell» se llamaba «Mapeo plan estándar».
+      { label: "Plan Estándar Russell", href: "/config/mapeo", icon: "move-tree", permiso: "mapeo:ver", modulo: "mapeo" },
+      // Homologación del PUC de cada cliente. Vivía como pestaña del plan estándar;
+      // se separó porque es trabajo por cliente y no configuración del plan Russell.
+      // Comparte permiso y módulo con aquella pantalla.
+      { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "account-link", permiso: "mapeo:ver", modulo: "mapeo" },
+      // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
+      // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
+      { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
+      { label: "Mapeos DIAN", href: "/config/dian", icon: "file-check", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
+    ],
+  },
+  {
+    // Quién es quién: los clientes, las personas y la estructura de equipos.
+    titulo: "Clientes y equipo",
+    items: [
+      { label: "Clientes", href: "/config/clientes", icon: "building", permiso: "clientes:configurar", modulo: "clientes" },
+      { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
+      { label: "Estructura", href: "/estructura", icon: "hierarchy", permiso: "estructura:ver", modulo: "estructura" },
+    ],
+  },
+  {
+    // Criterios que valen para todos los clientes, en el balance y en los módulos.
+    titulo: "Parametrización",
+    items: [
+      {
+        // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son criterios de la
+        // firma que fija quien administra la herramienta. Cada módulo de conciliación tiene su sub-ruta
+        // (`/config/prevalidador/cxp`) con sus prefijos del prevalidador y las cuentas que concilia, en
+        // el orden del informe del prevalidador. La vista con todos los módulos juntos se retiró del menú
+        // el 5/Oct/2026 (repetía los mismos formularios): `/config/prevalidador` lleva al primer módulo.
+        label: "Filtros de cuentas",
+        href: "/config/prevalidador",
+        icon: "filter",
         permiso: "parametros:administrar",
         modulo: "parametros",
-      })),
+        children: [
+          ...PREVALIDADOR_MODULOS_ORDEN.map((codigo) => ({
+            label: nombreModuloFabrica(codigo),
+            href: `/config/prevalidador/${codigo.toLowerCase()}`,
+            permiso: "parametros:administrar",
+            modulo: "parametros",
+          })),
+        ],
+      },
+      { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:administrar", modulo: "parametros" },
     ],
   },
-  { label: "Reportes para gerencia", href: "/config/reportes-ejecutivos", icon: "chart", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
-  { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
-  { label: "Módulos y campos", href: "/config/modulos", icon: "grid", permiso: "modulos:ver", modulo: "modulos" },
-  { label: "Clientes", href: "/config/clientes", icon: "building", permiso: "clientes:configurar", modulo: "clientes" },
-  { label: "Maestros", href: "/config/maestros", icon: "database", permiso: "maestros:ver", modulo: "maestros" },
-  { label: "Mapeos DIAN", href: "/config/dian", icon: "file-check", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
-  { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
-  { label: "Permisos por rol", href: "/config/permisos", icon: "shield", permiso: "roles:configurar", modulo: "roles" },
-  { label: "Estructura", href: "/estructura", icon: "hierarchy", permiso: "estructura:ver", modulo: "estructura" },
-  { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
-  { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
-  { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:administrar", modulo: "parametros" },
-  { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
   {
-    // Memoria de carga por fuente: el balance en la raíz y cada módulo del motor
-    // genérico en su propia sub-ruta (`/config/perfiles-carga/inv`, …). Los hijos
-    // se derivan del catálogo de descriptores, igual que «Módulos de conciliación».
-    label: "Perfiles de carga",
-    href: "/config/perfiles-carga",
-    icon: "upload",
-    permiso: "perfiles_carga:administrar",
-    modulo: "perfiles_carga",
-    children: [
-      { label: "Balance", href: "/config/perfiles-carga", permiso: "perfiles_carga:administrar", modulo: "perfiles_carga" },
-      ...Object.values(MODULOS_IMPORT).map((m) => ({
-        label: m.label,
-        href: `/config/perfiles-carga/${m.codigo.toLowerCase()}`,
+    // Manejo de la plataforma: solo la ven los administradores.
+    titulo: "Administración",
+    items: [
+      { label: "Permisos por rol", href: "/config/permisos", icon: "shield", permiso: "roles:configurar", modulo: "roles" },
+      { label: "Maestros", href: "/config/maestros", icon: "database", permiso: "maestros:ver", modulo: "maestros" },
+      { label: "Módulos y campos", href: "/config/modulos", icon: "grid", permiso: "modulos:ver", modulo: "modulos" },
+      { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
+      {
+        // Memoria de carga por fuente: el balance en la raíz y cada módulo del motor
+        // genérico en su propia sub-ruta (`/config/perfiles-carga/inv`, …). Los hijos
+        // se derivan del catálogo de descriptores, igual que «Módulos de conciliación».
+        label: "Perfiles de carga",
+        href: "/config/perfiles-carga",
+        icon: "upload",
         permiso: "perfiles_carga:administrar",
         modulo: "perfiles_carga",
-      })),
+        children: [
+          { label: "Balance", href: "/config/perfiles-carga", permiso: "perfiles_carga:administrar", modulo: "perfiles_carga" },
+          ...Object.values(MODULOS_IMPORT).map((m) => ({
+            label: m.label,
+            href: `/config/perfiles-carga/${m.codigo.toLowerCase()}`,
+            permiso: "perfiles_carga:administrar",
+            modulo: "perfiles_carga",
+          })),
+        ],
+      },
+      { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
+      { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
+      { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
+      { label: "Reportes para gerencia", href: "/config/reportes-ejecutivos", icon: "chart", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
     ],
   },
   {
-    label: "Mesa de ayuda",
-    href: "/reportes",
-    icon: "help",
-    permiso: "soporte:ver",
-    modulo: "soporte",
-    children: [
-      { label: "Ayuda", href: "/reportes", permiso: "soporte:ver", modulo: "soporte" },
-      { label: "Gestión de reportes", href: "/config/soporte", permiso: "soporte:administrar", modulo: "soporte" },
+    // Al final, junto al usuario.
+    titulo: "Ayuda",
+    items: [
+      {
+        label: "Mesa de ayuda",
+        href: "/reportes",
+        icon: "help",
+        permiso: "soporte:ver",
+        modulo: "soporte",
+        children: [
+          { label: "Ayuda", href: "/reportes", permiso: "soporte:ver", modulo: "soporte" },
+          { label: "Gestión de reportes", href: "/config/soporte", permiso: "soporte:administrar", modulo: "soporte" },
+        ],
+      },
     ],
   },
 ];
+
+// Las mismas entradas en una lista plana y en el mismo orden, para quien recorre todo
+// el menú sin importar la sección (ubicación de las novedades, etiquetas de accesos).
+export const configNav: NavItem[] = configSecciones.flatMap((s) => s.items);

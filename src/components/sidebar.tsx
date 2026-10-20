@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
 import { Avatar } from "@/components/avatar";
 import { EstadoProcesando } from "@/components/estado-procesando";
-import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
+import { workNav, configNav, configSecciones, type NavChild, type NavItem } from "@/lib/nav";
 import { etiquetaVersion } from "@/lib/version-app";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { logout } from "@/app/actions/auth";
@@ -96,7 +96,10 @@ export default function Sidebar({
       return puedeVer(it) ? [it] : [];
     });
   const visibleWork = filtrarNav(workNav);
-  const visibleConfig = filtrarNav(configNav);
+  // Una sección sin entradas visibles para el usuario no muestra ni su rótulo.
+  const seccionesVisibles = configSecciones
+    .map((s) => ({ titulo: s.titulo, items: filtrarNav(s.items) }))
+    .filter((s) => s.items.length > 0);
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -219,20 +222,24 @@ export default function Sidebar({
           ))}
         </nav>
 
-        <SectionLabel collapsed={desktopCollapsed}>Configuración</SectionLabel>
-        <nav className="flex flex-col gap-1 px-2">
-          {visibleConfig.map((it) => (
-            <NavGroupItem
-              key={it.href}
-              item={it}
-              pathname={pathname}
-              open={openGroups[it.href] ?? false}
-              onToggle={() => toggle(it.href)}
-              developmentSet={developmentSet}
-              desktopCollapsed={desktopCollapsed}
-            />
-          ))}
-        </nav>
+        {seccionesVisibles.map((s) => (
+          <Fragment key={s.titulo}>
+            <SectionLabel collapsed={desktopCollapsed}>{s.titulo}</SectionLabel>
+            <nav className="flex flex-col gap-1 px-2">
+              {s.items.map((it) => (
+                <NavGroupItem
+                  key={it.href}
+                  item={it}
+                  pathname={pathname}
+                  open={openGroups[it.href] ?? false}
+                  onToggle={() => toggle(it.href)}
+                  developmentSet={developmentSet}
+                  desktopCollapsed={desktopCollapsed}
+                />
+              ))}
+            </nav>
+          </Fragment>
+        ))}
       </div>
 
       {/* Usuario + logout */}

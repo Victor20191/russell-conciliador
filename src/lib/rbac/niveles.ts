@@ -153,16 +153,27 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
       { module: "auditoria", label: "Auditoría", icon: "log" },
     ],
   },
+  // Mismas secciones del menú lateral (`configSecciones` en nav.ts).
   {
-    grupo: "Configuración y administración",
+    grupo: "Catálogos contables",
     items: [
-      { module: "clientes", label: "Clientes", icon: "users" },
-      { module: "maestros", label: "Maestros", icon: "box" },
       { module: "mapeo", label: "Mapeo plan estándar", icon: "settings" },
       { module: "mapeos_dian", label: "Mapeos DIAN", icon: "doc" },
+    ],
+  },
+  {
+    grupo: "Clientes y equipo",
+    items: [
+      { module: "clientes", label: "Clientes", icon: "users" },
       { module: "usuarios", label: "Usuarios", icon: "users" },
-      { module: "modulos", label: "Módulos y campos", icon: "box" },
+    ],
+  },
+  {
+    grupo: "Administración",
+    items: [
       { module: "roles", label: "Permisos por rol", icon: "settings" },
+      { module: "maestros", label: "Maestros", icon: "box" },
+      { module: "modulos", label: "Módulos y campos", icon: "box" },
       { module: "publicacion_modulos", label: "Publicación de módulos", icon: "eye" },
     ],
   },

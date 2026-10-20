@@ -1,5 +1,29 @@
 import { describe, expect, test } from "vitest";
-import { configNav, workNav } from "./nav";
+import { configNav, configSecciones, workNav } from "./nav";
+
+describe("Secciones del menú lateral", () => {
+  test("agrupa las entradas por propósito, en este orden", () => {
+    expect(configSecciones.map((s) => s.titulo)).toEqual([
+      "Catálogos contables",
+      "Clientes y equipo",
+      "Parametrización",
+      "Administración",
+      "Ayuda",
+    ]);
+    const seccionDe = (label: string) =>
+      configSecciones.find((s) => s.items.some((it) => it.label === label))?.titulo;
+    expect(seccionDe("Conceptos de nómina")).toBe("Catálogos contables");
+    expect(seccionDe("Estructura")).toBe("Clientes y equipo");
+    expect(seccionDe("Parámetros de alertas")).toBe("Parametrización");
+    expect(seccionDe("Perfiles de carga")).toBe("Administración");
+  });
+
+  test("la lista plana trae las mismas entradas, cada una una sola vez", () => {
+    expect(configNav).toEqual(configSecciones.flatMap((s) => s.items));
+    const hrefs = configNav.map((it) => it.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+});
 
 describe("Navegación de reportes para gerencia", () => {
   test("retira la entrada antigua de Auditoría", () => {
