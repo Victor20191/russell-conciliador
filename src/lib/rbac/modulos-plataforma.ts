@@ -51,6 +51,9 @@ export function esSuperadministrador(role: string | null | undefined): boolean {
 
 export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
   {
+    // Publicable desde el 20/Oct/2026 (sus indicadores aún no son reales). `/dashboard` sigue siendo
+    // la página de llegada de todos (login, raíz y cualquier permiso denegado): en desarrollo NO
+    // redirige —sería un bucle— sino que muestra una bienvenida con accesos (`inicio-en-preparacion.tsx`).
     key: "dashboard",
     label: "Inicio",
     description: "Resumen operativo de la plataforma.",
@@ -58,7 +61,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     icon: "home",
     order: 10,
     enabledForNonAdmins: true,
-    configurableForNonAdmins: false,
+    configurableForNonAdmins: true,
   },
   {
     key: "balance",

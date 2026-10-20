@@ -16,7 +16,8 @@ import {
 // v5: retirar el módulo `entorno` (su pantalla se consolidó en conexiones).
 // v6: `conexiones` pasa a ser publicable (el Superadministrador puede dejarlo
 // «En desarrollo» para ocultárselo a los Administradores).
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v6";
+// v7: `dashboard` (Inicio) pasa a ser publicable (20/Oct/2026).
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v7";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({
@@ -42,9 +43,11 @@ async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   }).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
 }
 
+// La llave y la etiqueta son la misma constante: con la llave escrita aparte, subir la versión
+// no invalidaba la entrada guardada (el Data Cache sobrevive a los despliegues).
 const getPublicacionCached = unstable_cache(
   leerPublicacionBD,
-  ["publicacion-modulos-v6"],
+  [PUBLICACION_MODULOS_CACHE_TAG],
   { tags: [PUBLICACION_MODULOS_CACHE_TAG], revalidate: 3600 },
 );
 

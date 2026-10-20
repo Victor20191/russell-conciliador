@@ -1,7 +1,8 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
-import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
+import InicioEnPreparacion from "./inicio-en-preparacion";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, CardHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -19,8 +20,15 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ pwd?: string }>;
 }) {
-  await requirePermiso("dashboard:ver");
   const { pwd } = await searchParams;
+  // `/dashboard` es el destino de toda redirección (login, raíz, permiso denegado): nunca redirige.
+  // Con «Inicio» en desarrollo para el rol (publicable desde el 20/Oct/2026: sus indicadores aún no
+  // son reales) muestra una bienvenida con accesos en vez de las cifras.
+  const inicio = await authorizePermiso("dashboard:ver");
+  if (!inicio.ok) {
+    const usuario = await getCurrentUser();
+    return <InicioEnPreparacion nombre={usuario?.name?.split(" ")[0] ?? ""} pwd={pwd} />;
+  }
   // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
   // ven la plataforma completa). La actividad del equipo (auditoría) es
   // transversal y se mantiene global.

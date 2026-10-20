@@ -51,13 +51,22 @@ describe("Publicación de módulos por rol", () => {
   });
 
   test("módulos no bloqueables y módulos desconocidos quedan visibles", () => {
-    const dashboard = MODULOS_PLATAFORMA.find((m) => m.key === "dashboard")!;
+    const soporte = MODULOS_PLATAFORMA.find((m) => m.key === "soporte")!;
     expect(
-      moduloPublicadoParaRol("Staff", "dashboard", [
-        { ...dashboard, enabledForNonAdmins: false },
+      moduloPublicadoParaRol("Staff", "soporte", [
+        { ...soporte, enabledForNonAdmins: false },
       ]),
     ).toBe(true);
     expect(moduloPublicadoParaRol("Staff", "externo", [])).toBe(true);
+  });
+
+  test("Inicio es publicable (20/Oct/2026): en desarrollo solo lo ve el Superadministrador", () => {
+    const dashboard = MODULOS_PLATAFORMA.find((m) => m.key === "dashboard")!;
+    expect(dashboard.configurableForNonAdmins).toBe(true);
+    const estados = [{ ...dashboard, enabledForNonAdmins: false }];
+    expect(moduloPublicadoParaRol("Superadministrador", "dashboard", estados)).toBe(true);
+    expect(moduloPublicadoParaRol("Administrador", "dashboard", estados)).toBe(false);
+    expect(moduloPublicadoParaRol("Staff", "dashboard", estados)).toBe(false);
   });
 
   test("conexiones existe en el catálogo y es publicable por el Superadministrador", () => {
