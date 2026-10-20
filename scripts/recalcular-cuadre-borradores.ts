@@ -77,7 +77,7 @@ async function main() {
   if (REVERTIR) return revertir();
 
   const umbrales = await umbralesVigentes();
-  console.log(`Umbrales vigentes: cuadre contable ${umbrales.cuadre_contable} · descuadres ${umbrales.descuadre}`);
+  console.log(`Umbral vigente «Diferencias y descuadres del balance»: ${umbrales.descuadre}`);
   const lotes = await prisma.balanceImportacionLote.findMany({
     select: { loteId: true, archivoNombre: true, revisionContenido: true, cuadrado: true },
     orderBy: { creadoEn: "asc" },

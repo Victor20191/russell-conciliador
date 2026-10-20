@@ -8,6 +8,7 @@ import {
   esMagnitudAccionable,
   esMagnitudInformativo,
   getUmbralDef,
+  nivelDiferencia,
   requiereMarcaPorUmbral,
   UMBRALES_ALERTAS_DEFECTO,
   UMBRALES_CATALOGO,
@@ -30,6 +31,34 @@ describe("umbrales de alertas contables", () => {
     expect(esSaldoContrarioInformativo(50_001, false, FABRICA)).toBe(false);
     expect(esSaldoContrarioAccionable(-50_001, false, FABRICA)).toBe(true);
     expect(esSaldoContrarioAccionable(90_000, true, FABRICA)).toBe(false);
+  });
+});
+
+describe("nivelDiferencia: un solo umbral para las diferencias del balance, al centavo", () => {
+  it("cero solo si redondeada a centavos no hay diferencia", () => {
+    expect(nivelDiferencia(0, FABRICA)).toBe("cero");
+    expect(nivelDiferencia(0.004, FABRICA)).toBe("cero");
+    expect(nivelDiferencia(-0.004, FABRICA)).toBe("cero");
+    expect(nivelDiferencia(null, FABRICA)).toBe("cero");
+    expect(nivelDiferencia(Number.NaN, FABRICA)).toBe("cero");
+    expect(nivelDiferencia(0.01, FABRICA)).toBe("informativa");
+  });
+
+  it("informativa por debajo del umbral y alerta desde el umbral, inclusive y con cualquier signo", () => {
+    expect(nivelDiferencia(1_000, FABRICA)).toBe("informativa");
+    expect(nivelDiferencia(1_999.99, FABRICA)).toBe("informativa");
+    expect(nivelDiferencia(-1_999.99, FABRICA)).toBe("informativa");
+    // 1.999,996 redondea a 2.000,00: alerta (la pantalla, la lista y el servidor deciden igual).
+    expect(nivelDiferencia(1_999.996, FABRICA)).toBe("alerta");
+    expect(nivelDiferencia(2_000, FABRICA)).toBe("alerta");
+    expect(nivelDiferencia(-2_000, FABRICA)).toBe("alerta");
+  });
+
+  it("con el umbral en cero toda diferencia de un centavo es alerta, pero cero sigue siendo cero", () => {
+    const enCero = { descuadre: 0 };
+    expect(nivelDiferencia(0.01, enCero)).toBe("alerta");
+    expect(nivelDiferencia(0.004, enCero)).toBe("cero");
+    expect(esDescuadreAccionable(0, { ...FABRICA, descuadre: 0 })).toBe(false);
   });
 });
 
@@ -64,7 +93,6 @@ describe("catálogo de umbrales", () => {
   it("expone las claves conocidas con sus valores de fábrica y su sección", () => {
     expect(UMBRALES_CATALOGO.map((u) => u.clave)).toEqual([
       "descuadre",
-      "cuadre_contable",
       "naturaleza",
       "corte_saldo_final",
       "cedula_modulos",
@@ -74,13 +102,15 @@ describe("catálogo de umbrales", () => {
     ]);
     expect(getUmbralDef("descuadre")?.defecto).toBe(2_000);
     expect(getUmbralDef("naturaleza")?.defecto).toBe(50_000);
-    expect(getUmbralDef("cuadre_contable")?.defecto).toBe(1_000);
+    // El margen propio de la partida doble y la ecuación se retiró el 20/Oct/2026: rige «descuadre».
+    expect(getUmbralDef("cuadre_contable")).toBeUndefined();
+    expect(getUmbralDef("descuadre")?.nombre).toBe("Diferencias y descuadres del balance");
     expect(getUmbralDef("corte_saldo_final")?.defecto).toBe(1_000);
     expect(getUmbralDef("cedula_modulos")?.defecto).toBe(2_000);
     expect(getUmbralDef("tercero_diferencia")?.defecto).toBe(2_000);
     expect(getUmbralDef("tercero_naturaleza")?.defecto).toBe(10_000);
     expect(getUmbralDef("afi_detalle")?.defecto).toBe(10_000);
-    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "balance").map((u) => u.clave)).toEqual(["descuadre", "cuadre_contable", "naturaleza", "corte_saldo_final"]);
+    expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "balance").map((u) => u.clave)).toEqual(["descuadre", "naturaleza", "corte_saldo_final"]);
     expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "modulos")).toHaveLength(4);
   });
 

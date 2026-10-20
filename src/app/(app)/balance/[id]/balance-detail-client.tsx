@@ -22,7 +22,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, marcarCuentaPendiente, quitarPendiente, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
-import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, nivelDiferencia, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { DistintivoCuentaEnFirme, type BloqueoCuentaVm } from "./conciliacion-en-firme";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
@@ -109,7 +109,7 @@ export default function BalanceDetailClient({
       {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeHomologar={puedeHomologar} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} bloqueos={bloqueos} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} balanceId={balanceId} />}
-      {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
+      {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} umbrales={umbrales} />}
       {tab === "prevalidador" && (
         <PrevalidadorTab
           prevalidador={prevalidador}
@@ -976,8 +976,12 @@ function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => vo
   );
 }
 
-/** Saldos totales por clase contable (PUC) + indicador de cuadre. Chequeo rápido de completitud. */
-function ClasesTab({ sums, balanced, diffCuadre }: { sums: Sums; balanced: boolean; diffCuadre: number }) {
+/**
+ * Saldos totales por clase contable (PUC) + indicador de cuadre. Chequeo rápido de completitud.
+ * «Cuadrado» solo con diferencia cero; menor al umbral de descuadre, diferencia informativa.
+ */
+function ClasesTab({ sums, balanced, diffCuadre, umbrales }: { sums: Sums; balanced: boolean; diffCuadre: number; umbrales: UmbralesAlertas }) {
+  const informativa = balanced && nivelDiferencia(diffCuadre, umbrales) === "informativa";
   const fila = (label: string, valor: number, bold = false) => (
     <div className="flex items-center justify-between border-b border-ink-100 px-4 py-2.5 last:border-0">
       <span className={`text-[12.5px] ${bold ? "font-semibold text-ink-800" : "text-ink-600"}`}>{label}</span>
@@ -990,7 +994,15 @@ function ClasesTab({ sums, balanced, diffCuadre }: { sums: Sums; balanced: boole
         <span className="text-[11.5px] text-ink-500">Totales por clase contable (PUC). Sirve para confirmar que el balance subió completo y cuadrado.</span>
         <span className="ml-auto inline-flex items-center gap-2">
           <span className="text-[11.5px] text-ink-500" title="Σ saldos firmados (débito − crédito) ≈ 0">Cuadre</span>
-          {balanced ? <Chip label="Cuadrado" tone="ok" /> : <Chip label={`Descuadra · dif ${fmt(diffCuadre)}`} tone="err" />}
+          {!balanced ? (
+            <Chip label={`Descuadra · dif ${fmt(diffCuadre)}`} tone="err" />
+          ) : informativa ? (
+            <span title={`Menor a ${fmt(umbrales.descuadre)}: se muestra como información y no cuenta como alerta.`} className="cursor-help">
+              <Chip label={`Diferencia informativa · dif ${fmt(diffCuadre)}`} tone="ink" />
+            </span>
+          ) : (
+            <Chip label="Cuadrado" tone="ok" />
+          )}
         </span>
       </div>
       <div className="grid gap-4 p-4 md:grid-cols-2">

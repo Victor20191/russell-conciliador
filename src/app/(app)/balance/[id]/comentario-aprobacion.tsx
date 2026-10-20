@@ -4,6 +4,7 @@ import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobada
 import type { RevisionReubicacionBalance } from "@/lib/balance/revisiones-reubicacion-balance";
 import type { DescuadreAlCargar } from "@/lib/balance/cuadre-borrador";
 import { textoMotivoDescuadre } from "@/lib/balance/cuadre-borrador-texto";
+import { ETIQUETA_CONDICION } from "@/lib/balance/comentarios-descuadre";
 import { fmt } from "@/lib/format";
 
 /**
@@ -27,7 +28,7 @@ export function ComentarioAprobacion({
   comentario: string | null;
   advertenciaArchivoFuente?: boolean;
   diferenciaArchivoFuente?: number | null;
-  /** El borrador se cargó «Descuadrado» por algo distinto del archivo fuente. */
+  /** Constancia del borrador cargado «Descuadrado» o con la diferencia del archivo fuente. */
   descuadre?: DescuadreAlCargar | null;
   reubicaciones?: RevisionReubicacionBalance[];
   version: string;
@@ -37,7 +38,21 @@ export function ComentarioAprobacion({
 }) {
   const muestraAdvertenciaArchivoFuente =
     advertenciaArchivoFuente && diferenciaArchivoFuente != null;
-  const muestraDescuadre = !muestraAdvertenciaArchivoFuente && descuadre != null;
+  // Desde el 20/Oct/2026 (constancia v2) cada condición trae su comentario y la diferencia del
+  // archivo fuente es la ecuación: su justificación es el comentario de la ecuación. La v1 (un solo
+  // comentario, en `comentario`) y los balances sin constancia se ven como antes.
+  const v2 = descuadre?.v === 2 ? descuadre : null;
+  const justificacionArchivoFuente = v2?.motivos.find((m) => m.tipo === "ecuacion")?.comentario ?? comentario;
+  // Condiciones del recuadro «Justificación del descuadre»: con la advertencia del archivo fuente,
+  // la ecuación ya está en ella (y una constancia v1 no trae más).
+  const motivosV2 = v2 ? v2.motivos.filter((m) => !muestraAdvertenciaArchivoFuente || m.tipo !== "ecuacion") : [];
+  const motivosRecuadro = v2 ? motivosV2 : descuadre && !muestraAdvertenciaArchivoFuente ? descuadre.motivos : [];
+  const muestraDescuadre = motivosRecuadro.length > 0;
+  const textoUmbral = descuadre == null
+    ? null
+    : descuadre.v === 1
+      ? `Umbrales al cargar: cuadre contable ${fmt(descuadre.umbrales.cuadre_contable)} · diferencias y descuadres ${fmt(descuadre.umbrales.descuadre)}.`
+      : `Umbral al cargar: diferencias y descuadres del balance ${fmt(descuadre.umbrales.descuadre)}.`;
 
   return (
     <>
@@ -47,7 +62,7 @@ export function ComentarioAprobacion({
           resumida
           tituloId="advertencia-archivo-fuente-oficial"
           className="mb-4"
-          detalle={comentario ? (
+          detalle={justificacionArchivoFuente ? (
             <div className="border-t border-warn-100 bg-white/55 px-4 py-3.5 sm:pl-16">
               <div className="mb-1.5 flex flex-wrap items-center gap-2">
                 <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-warn-700">
@@ -58,7 +73,7 @@ export function ComentarioAprobacion({
                 </span>
               </div>
               <blockquote className="max-w-4xl whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-ink-800">
-                «{comentario}»
+                «{justificacionArchivoFuente}»
               </blockquote>
               <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
                 {autor} · {rol} · {fecha} — justificación registrada antes de cargar esta
@@ -90,17 +105,31 @@ export function ComentarioAprobacion({
                 </span>
               </div>
               <p className="text-[12px] text-ink-600">
-                Se cargó descuadrado. {descuadre.motivos.length === 1 ? "No cumplía esta condición:" : `No cumplía ${descuadre.motivos.length} condiciones:`}
+                Se cargó descuadrado. {motivosRecuadro.length === 1 ? "No cumplía esta condición:" : `No cumplía ${motivosRecuadro.length} condiciones:`}
               </p>
-              <ul className="mt-1.5 flex flex-col gap-0.5 text-[12px] text-ink-700">
-                {descuadre.motivos.map((m) => (
-                  <li key={m.tipo}>✕ {textoMotivoDescuadre(m).titulo}</li>
-                ))}
-              </ul>
-              <p className="mt-1 text-[10.5px] text-ink-500">
-                Umbrales al cargar: cuadre contable {fmt(descuadre.umbrales.cuadre_contable)} · diferencias y descuadres {fmt(descuadre.umbrales.descuadre)}.
-              </p>
-              {comentario ? (
+              {v2 ? (
+                <ul className="mt-2 flex flex-col gap-2.5">
+                  {motivosV2.map((m) => (
+                    <li key={m.tipo} className="rounded-md border border-warn-100 bg-white/70 px-3 py-2">
+                      <div className="text-[12px] font-semibold text-ink-700">
+                        ✕ {ETIQUETA_CONDICION[m.tipo]}
+                        <span className="ml-1.5 font-normal text-ink-500">{textoMotivoDescuadre(m).titulo}</span>
+                      </div>
+                      <blockquote className="mt-1 max-w-4xl whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-ink-800">
+                        «{m.comentario}»
+                      </blockquote>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul className="mt-1.5 flex flex-col gap-0.5 text-[12px] text-ink-700">
+                  {motivosRecuadro.map((m) => (
+                    <li key={m.tipo}>✕ {textoMotivoDescuadre(m).titulo}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1.5 text-[10.5px] text-ink-500">{textoUmbral}</p>
+              {v2 ? null : comentario ? (
                 <blockquote className="mt-2.5 max-w-4xl whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-ink-800">
                   «{comentario}»
                 </blockquote>

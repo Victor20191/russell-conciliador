@@ -71,7 +71,16 @@ import {
   resumenCuadreDeFilas,
   SELECT_STAGING_CUADRE,
   type DescuadreAlCargar,
+  type MotivoDescuadre,
 } from "@/lib/balance/cuadre-borrador";
+import {
+  leerComentariosDescuadre,
+  motivosConComentario,
+  textoPlanoComentarios,
+  tiposComentarioRequeridos,
+  validarComentariosDescuadre,
+  type ComentariosDescuadre,
+} from "@/lib/balance/comentarios-descuadre";
 import { porcentajeCompletitud } from "@/lib/balance/completitud";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import {
@@ -984,7 +993,10 @@ type MetaPromocion = {
   aperturaBalance: AperturaBalance;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
+  /** Nota aclaratoria opcional: solo cuenta cuando el borrador cuadra. */
   comentarioPromocion?: string | null;
+  /** Un comentario por condición que falla (descuadre o diferencia del archivo fuente). */
+  comentariosDescuadre?: ComentariosDescuadre;
   /** Archivos del balance cuando llegó partido en varias partes ([] = uno solo). */
   archivosCargue?: ParteArchivoBalance[];
 };
@@ -1087,27 +1099,38 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       vistaFuente.partidaDoble,
       hallazgosFuente,
     );
-    // Cualquier otro descuadre (las 4 condiciones de la lista, con los umbrales vigentes)
-    // también exige comentario: antes solo lo pedía la diferencia del archivo fuente.
+    // Las 4 condiciones (ecuación, partida doble, clases y agrupadoras) con el umbral vigente. Cada
+    // una que falla pide SU comentario, y la diferencia del archivo fuente es la ecuación: se
+    // exigen sobre este veredicto recalculado en el servidor, nunca sobre lo que dijo el navegador.
     const veredictoFuente = evaluarCuadreBorrador(
       resumirCuadreBorrador(vistaFuente, filasBorrador, filasAprobadas, 0),
       umbrales,
     );
-    const comentarioFuente = validarComentarioPromocion(
-      p.comentarioPromocion,
-      advertenciaArchivoFuente || veredictoFuente.estado === "descuadrado",
-      advertenciaArchivoFuente ? "archivo_fuente" : "descuadre",
-    );
-    if (!comentarioFuente.ok) {
-      return { ok: false, message: comentarioFuente.message };
+    const motivosFuente: MotivoDescuadre[] = veredictoFuente.estado === "descuadrado" ? [...veredictoFuente.motivos] : [];
+    // La constancia del archivo fuente siempre lleva la ecuación, aunque el veredicto no la traiga.
+    if (advertenciaArchivoFuente && !motivosFuente.some((m) => m.tipo === "ecuacion")) {
+      motivosFuente.unshift({ tipo: "ecuacion", monto: vistaFuente.validacion.ecuacionDiff });
+    }
+    const tiposRequeridos = tiposComentarioRequeridos(motivosFuente, advertenciaArchivoFuente);
+    let comentarioPromocion: string | null;
+    let descuadreBorrador: DescuadreAlCargar | null = null;
+    if (tiposRequeridos.length > 0) {
+      const comentarios = validarComentariosDescuadre(p.comentariosDescuadre ?? {}, tiposRequeridos, advertenciaArchivoFuente);
+      if (!comentarios.ok) return { ok: false, message: comentarios.message };
+      descuadreBorrador = constanciaDescuadre(
+        motivosConComentario(motivosFuente, comentarios.comentarios),
+        umbrales,
+        advertenciaArchivoFuente ? "archivo_fuente" : "borrador",
+      );
+      // En texto plano para la auditoría y el historial de versiones (la constancia es la fuente).
+      comentarioPromocion = textoPlanoComentarios(descuadreBorrador);
+    } else {
+      const nota = validarComentarioPromocion(p.comentarioPromocion, false);
+      if (!nota.ok) return { ok: false, message: nota.message };
+      comentarioPromocion = nota.comentario;
     }
     const diferenciaArchivoFuente = advertenciaArchivoFuente
       ? vistaFuente.validacion.ecuacionDiff
-      : null;
-    // La diferencia del archivo fuente ya tiene su constancia (bandera + diferencia); los demás
-    // descuadres guardan qué condiciones fallaban, por cuánto y con qué umbrales.
-    const descuadreBorrador = !advertenciaArchivoFuente && veredictoFuente.estado === "descuadrado"
-      ? constanciaDescuadre(veredictoFuente.motivos, umbrales)
       : null;
 
     const { id, version, calc, reutilizado } = await persistirCargue({
@@ -1118,7 +1141,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
       cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
-      comentarioPromocion: comentarioFuente.comentario,
+      comentarioPromocion,
       advertenciaArchivoFuente,
       diferenciaArchivoFuente,
       descuadreBorrador,
@@ -2359,7 +2382,7 @@ async function persistirCargue(p: {
   /** Diagnóstico durable recalculado desde staging antes de purgar el borrador. */
   advertenciaArchivoFuente: boolean;
   diferenciaArchivoFuente: number | null;
-  /** Borrador cargado «Descuadrado» por algo distinto del archivo fuente: sus condiciones. */
+  /** Borrador cargado «Descuadrado» o con la diferencia del archivo fuente: sus condiciones y comentarios. */
   descuadreBorrador?: DescuadreAlCargar | null;
   /** Reubicaciones entre clases aprobadas que deben sobrevivir a la purga del borrador. */
   revisionesReubicacion?: RevisionReubicacionBalance[];
@@ -4576,6 +4599,9 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   if (!comentarioValidado.ok) {
     return { ok: false, message: comentarioValidado.message };
   }
+  // Un comentario por condición que falla: solo los cuatro campos conocidos. Cuáles hacen falta lo
+  // decide la promoción con el veredicto que recalcula.
+  const comentariosDescuadre = leerComentariosDescuadre((campo) => formData.get(campo));
 
   // Reintento posterior a una respuesta perdida: el borrador ya fue consumido,
   // pero `lote_id` permite resolver inequívocamente el balance que se alcanzó a
@@ -4724,6 +4750,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       archivosCargue: leerPartesArchivo(lote.partesArchivo),
       cuadreArchivo: null,
       comentarioPromocion: comentarioValidado.comentario,
+      comentariosDescuadre,
     },
     "cargarBorrador",
   );

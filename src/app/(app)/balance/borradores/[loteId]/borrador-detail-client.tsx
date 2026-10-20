@@ -57,10 +57,16 @@ import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { CuentaRef, Hallazgo } from "@/lib/balance/diagnostico";
 import {
   esDescuadreAccionable,
-  esDescuadreInformativo,
   esMagnitudAccionable,
+  nivelDiferencia,
+  type NivelDiferencia,
   type UmbralesAlertas,
 } from "@/lib/balance/umbrales-alertas";
+import {
+  campoComentario,
+  tiposComentarioRequeridos,
+  type ComentariosDescuadre,
+} from "@/lib/balance/comentarios-descuadre";
 import {
   esAlertaNodo,
   estadoValidacionBorrador,
@@ -714,7 +720,9 @@ export default function BorradorDetailClient({
     () => parsearApertura(aperturaGuardada),
   );
   const [guardandoApertura, startGuardarApertura] = useTransition();
+  // Nota opcional (borrador que cuadra) y, si no cuadra, un comentario por condición que falla.
   const [comentarioPromocion, setComentarioPromocion] = useState("");
+  const [comentariosDescuadre, setComentariosDescuadre] = useState<ComentariosDescuadre>({});
   // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
   // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
   const [gateAbierto, setGateAbierto] = useState(!soloLectura && clienteSugeridoId == null);
@@ -901,9 +909,17 @@ export default function BorradorDetailClient({
     ),
     [validacion, partidaDoble, arbol, filasContabilizadas, filasEditadas, revisionesGuardadasVigentes, umbrales],
   );
-  const descuadreConComentario = !advertenciaArchivoFuente && veredictoCuadre.estado === "descuadrado";
-  const faltaComentarioPromocion =
-    (advertenciaArchivoFuente || descuadreConComentario) && comentarioPromocion.trim().length === 0;
+  // Cada condición que falla pide su comentario; la diferencia del archivo fuente es la ecuación
+  // (su comentario va en la advertencia) y el resto va en el recuadro «Borrador descuadrado».
+  const motivosDescuadre = veredictoCuadre.estado === "descuadrado" ? veredictoCuadre.motivos : [];
+  const tiposComentario = tiposComentarioRequeridos(motivosDescuadre, advertenciaArchivoFuente);
+  const motivosEnRecuadro = advertenciaArchivoFuente
+    ? motivosDescuadre.filter((m) => m.tipo !== "ecuacion")
+    : motivosDescuadre;
+  const comentariosFaltantes = tiposComentario.filter((t) => !comentariosDescuadre[t]?.trim());
+  const faltaComentarioPromocion = comentariosFaltantes.length > 0;
+  const faltaSoloArchivoFuente =
+    advertenciaArchivoFuente && comentariosFaltantes.length === 1 && comentariosFaltantes[0] === "ecuacion";
   const guardarPeriodo = (inicio = periodoIni, fin = periodoFin) => {
     // Una fecha futura no se guarda: el campo ya muestra por qué.
     if (!inicio || !fin || motivoPeriodoBalance(inicio, fin)) return;
@@ -1445,18 +1461,23 @@ export default function BorradorDetailClient({
         explicacionesClase={explicacionesClase}
         onAyuda={() => setAyudaValidaciones(true)}
       />
-      {soloLectura ? null : advertenciaArchivoFuente ? (
-        <AdvertenciaArchivoFuente
-          diferencia={validacion.ecuacionDiff}
-          comentario={comentarioPromocion}
-          onComentarioChange={setComentarioPromocion}
-        />
-      ) : descuadreConComentario ? (
-        <ComentarioDescuadre
-          motivos={veredictoCuadre.motivos}
-          comentario={comentarioPromocion}
-          onComentarioChange={setComentarioPromocion}
-        />
+      {soloLectura ? null : advertenciaArchivoFuente || motivosEnRecuadro.length > 0 ? (
+        <>
+          {advertenciaArchivoFuente ? (
+            <AdvertenciaArchivoFuente
+              diferencia={validacion.ecuacionDiff}
+              comentario={comentariosDescuadre.ecuacion ?? ""}
+              onComentarioChange={(comentario) => setComentariosDescuadre((prev) => ({ ...prev, ecuacion: comentario }))}
+            />
+          ) : null}
+          {motivosEnRecuadro.length > 0 ? (
+            <ComentarioDescuadre
+              motivos={motivosEnRecuadro}
+              comentarios={comentariosDescuadre}
+              onComentariosChange={setComentariosDescuadre}
+            />
+          ) : null}
+        </>
       ) : (
         // Sin advertencia obligatoria del archivo fuente no hay razón para negar
         // la nota: una diferencia que ya se explicó en un período anterior (p. ej.
@@ -1775,9 +1796,11 @@ export default function BorradorDetailClient({
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           {faltaComentarioPromocion ? (
             <p className="text-[11.5px] font-medium text-warn-700">
-              {advertenciaArchivoFuente
+              {faltaSoloArchivoFuente
                 ? "Escribe el comentario obligatorio en la advertencia del archivo fuente para continuar."
-                : "El borrador está descuadrado: escribe el comentario de aprobación para continuar."}
+                : comentariosFaltantes.length === 1
+                  ? "El borrador está descuadrado: escribe el comentario de la condición que falla para continuar."
+                  : `El borrador está descuadrado: faltan ${comentariosFaltantes.length} comentarios, uno por cada condición que falla.`}
             </p>
           ) : null}
           {manipulacionesPendientes.length > 0 ? (
@@ -1801,7 +1824,7 @@ export default function BorradorDetailClient({
                   : hayCambios
                     ? "Guarda o descarta los cambios antes de cargar"
                     : faltaComentarioPromocion
-                      ? "Falta el comentario obligatorio"
+                      ? comentariosFaltantes.length === 1 ? "Falta el comentario obligatorio" : "Faltan comentarios obligatorios"
                       : manipulacionesPendientes.length > 0
                         ? "Hay reubicaciones entre clases contables pendientes de revisión"
                       : bloqueoCorte
@@ -1841,19 +1864,11 @@ function ValidacionHeader({
   explicacionesClase: ReadonlyMap<string, ExplicacionClaseReubicacion>;
   onAyuda: () => void;
 }) {
-  const ecOk = v.ecuacionCuadra;
-  const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff, umbrales);
-  const ecInformativo = !ecOk && esDescuadreInformativo(v.ecuacionDiff, umbrales);
-  const tonoPartida = pd.cuadra
-    ? "border-ok-100 bg-ok-100/40 text-ok-700"
-    : pdInformativo
-      ? "border-err-100 bg-err-100/30 text-err-500"
-      : "border-warn-200 bg-warn-50 text-warn-700";
-  const tonoEcuacion = ecOk
-    ? "border-ok-100 bg-ok-100/40 text-ok-700"
-    : ecInformativo
-      ? "border-err-100 bg-err-100/30 text-err-500"
-      : "border-warn-200 bg-warn-50 text-warn-700";
+  // «Cuadra» solo con diferencia cero; por debajo del umbral, informativa; desde el umbral, alerta.
+  const nivelPartida = nivelDiferencia(pd.diff, umbrales);
+  const nivelEcuacion = nivelDiferencia(v.ecuacionDiff, umbrales);
+  const tonoPartida = TONO_NIVEL[nivelPartida];
+  const tonoEcuacion = TONO_NIVEL[nivelEcuacion];
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-1.5">
@@ -1869,13 +1884,13 @@ function ValidacionHeader({
         </button>
       </div>
       <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoPartida}`}>
-        <span className="font-semibold">{pd.cuadra ? "Cuadra:" : pdInformativo ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
-        {pdInformativo && <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span>}
+        <span className="font-semibold">{nivelPartida === "cero" ? "Cuadra:" : nivelPartida === "informativa" ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(nivelPartida === "cero" ? 0 : pd.diff)}</span>
+        <ColaNivel nivel={nivelPartida} umbrales={umbrales} />
       </div>
       {ocultarEcuacion ? null : (
         <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoEcuacion}`}>
-          <span className="font-semibold">{ecOk ? "Cuadra:" : ecInformativo ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
-          {ecInformativo ? <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span> : null}
+          <span className="font-semibold">{nivelEcuacion === "cero" ? "Cuadra:" : nivelEcuacion === "informativa" ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(nivelEcuacion === "cero" ? 0 : v.ecuacionDiff)}</span>
+          <ColaNivel nivel={nivelEcuacion} umbrales={umbrales} />
         </div>
       )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1891,6 +1906,20 @@ function ValidacionHeader({
       </div>
     </div>
   );
+}
+
+/** Colores de cada nivel de diferencia en el encabezado de validación. */
+const TONO_NIVEL: Record<NivelDiferencia, string> = {
+  cero: "border-ok-100 bg-ok-100/40 text-ok-700",
+  informativa: "border-err-100 bg-err-100/30 text-err-500",
+  alerta: "border-warn-200 bg-warn-50 text-warn-700",
+};
+
+function ColaNivel({ nivel, umbrales }: { nivel: NivelDiferencia; umbrales: UmbralesAlertas }) {
+  if (nivel === "cero") return null;
+  return nivel === "informativa"
+    ? <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span>
+    : <span> · desde {fmt(umbrales.descuadre)} es alerta y pide comentario para cargar</span>;
 }
 
 // ---- Modal explicativo: qué verifica cada bloque de esta pantalla ----
@@ -1930,7 +1959,7 @@ function ModalAyudaValidaciones({ onClose, umbrales }: { onClose: () => void; um
         <section>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Umbrales de alerta</h3>
           <p className="mt-1.5">
-            Solo se reportan como alerta accionable las diferencias por encima de los umbrales configurados en <span className="font-semibold">Parametrización › Parámetros de alertas</span> (hoy: {fmt(umbrales.descuadre)} para descuadres y {fmt(umbrales.naturaleza)} para saldos de naturaleza contraria). Las diferencias menores se muestran igual, marcadas como <span className="font-semibold">informativas</span>, pero no cuentan como alerta.
+            El umbral <span className="font-semibold">«Diferencias y descuadres del balance»</span> de <span className="font-semibold">Parametrización › Parámetros de alertas</span> (hoy {fmt(umbrales.descuadre)}) rige las cuatro comprobaciones: partida doble, ecuación contable, clases contra el archivo y agrupadoras contra su desglose. Desde ese monto la diferencia es alerta y deja el borrador <span className="font-semibold">«Descuadrado»</span>: cargarlo pide un comentario por cada condición que falla. Por debajo se muestra como <span className="font-semibold">diferencia informativa</span>, y «Cuadra» solo cuando la diferencia es cero. Los saldos de naturaleza contraria usan su propio umbral (hoy {fmt(umbrales.naturaleza)}).
           </p>
         </section>
       </div>
@@ -1974,7 +2003,7 @@ function AdvertenciaArchivoFuente({
       <input
         type="hidden"
         form="cargar-balance-oficial"
-        name="comentarioPromocion"
+        name={campoComentario("ecuacion")}
         value={comentario}
       />
       <AdvertenciaArchivoFuenteDetalle
@@ -2099,8 +2128,10 @@ function AdvertenciaArchivoFuente({
 }
 
 function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas; explicacion?: ExplicacionClaseReubicacion }) {
-  const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
-  const resuelta = cuadra === true || explicacion?.resuelta === true;
+  // «Cruza» solo con diferencia cero; menor al umbral es informativa aunque el margen fijo la dé por buena.
+  const nivel = cuadra == null ? null : nivelDiferencia(diff, umbrales);
+  const informativo = nivel === "informativa" && explicacion?.resuelta !== true;
+  const resuelta = nivel === "cero" || explicacion?.resuelta === true;
   const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-3 py-2 ${tono}`}>
@@ -2108,7 +2139,7 @@ function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }
       <div className="mt-0.5 text-[13px] font-semibold text-ink-800">{fmt(calc)}</div>
       {archivo == null ? (
         <div className="mt-0.5 text-[10.5px] text-ink-400">solo calculado (sin total en archivo)</div>
-      ) : cuadra ? (
+      ) : nivel === "cero" ? (
         <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
       ) : explicacion?.resuelta ? (
         <div className="mt-0.5 text-[10.5px] text-ok-700">
@@ -2126,8 +2157,10 @@ function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }
 }
 
 function MiniDato({ k, v, archivo, cuadra, diff, umbrales, explicacion }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas; explicacion?: ExplicacionClaseReubicacion }) {
-  const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
-  const resuelta = cuadra === true || explicacion?.resuelta === true;
+  // «Cruza» solo con diferencia cero; menor al umbral es informativa aunque el margen fijo la dé por buena.
+  const nivel = cuadra == null ? null : nivelDiferencia(diff, umbrales);
+  const informativo = nivel === "informativa" && explicacion?.resuelta !== true;
+  const resuelta = nivel === "cero" || explicacion?.resuelta === true;
   const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-2.5 py-1.5 ${tono}`}>
@@ -2135,7 +2168,7 @@ function MiniDato({ k, v, archivo, cuadra, diff, umbrales, explicacion }: { k: s
       <div className="mt-0.5 text-[12px] font-semibold text-ink-700">{fmt(v)}</div>
       {archivo == null ? (
         <div className="mt-0.5 text-[10px] text-ink-400">solo calculado</div>
-      ) : cuadra ? (
+      ) : nivel === "cero" ? (
         <div className="mt-0.5 text-[10px] text-ok-700">✓ archivo {fmt(archivo)}</div>
       ) : explicacion?.resuelta ? (
         <div className="mt-0.5 text-[10px] text-ok-700">

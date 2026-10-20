@@ -146,11 +146,13 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
     expect(r.validations.find((v) => v.id === "V4")?.status).toBe("warn");
   });
 
-  it("a $1000 exactos, el cuadre por partida doble entra en el margen (cuadra)", () => {
-    // Σ firmado = 1500 - 2000 + 800 + 700 = 1000 = MARGEN_CUADRE ⇒ dentro del margen.
+  it("una diferencia de $1.000 es informativa: no alcanza el umbral de $2.000", () => {
+    // Σ firmado = 1500 - 2000 + 800 + 700 = 1000 < 2000 (umbral «Diferencias y descuadres del balance»).
     expect(r.diffCuadre).toBe(1000);
-    expect(r.balanced).toBe(true); // |1000| ≤ 1000
-    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("ok");
+    expect(r.balanced).toBe(true);
+    const v1 = r.validations.find((v) => v.id === "V1");
+    expect(v1?.status).toBe("ok");
+    expect(v1?.detail).toContain("diferencia informativa: menor a $ 2.000");
   });
 });
 
@@ -191,8 +193,8 @@ describe("calcularBalance — memoria de mapeo del cliente (grupo y excepción p
   });
 });
 
-describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resultado)", () => {
-  it("descuadre de $500 → cuadra (dentro del margen)", () => {
+describe("calcularBalance — gates con el umbral «Diferencias y descuadres del balance» (desde $2.000)", () => {
+  it("descuadre de $500 → diferencia informativa (no es alerta)", () => {
     const r = calcularBalance(
       [
         { code: "110505", name: "Caja", prevBalance: 0, balance: 1000, debitos: 1000, creditos: 0 },
@@ -202,10 +204,25 @@ describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resulta
     );
     expect(r.diffCuadre).toBe(500); // 1000 + (−500)
     expect(r.balanced).toBe(true);
-    expect(r.movimientosCuadran).toBe(true); // Σdéb 1000 − Σcré 500 = 500 ≤ 1000
+    expect(r.movimientosCuadran).toBe(true); // Σdéb 1000 − Σcré 500 = 500 < 2000
   });
 
-  it("descuadre de $2000 → NO cuadra (fuera del margen) y V1 alerta", () => {
+  it("descuadre de $1.500 → informativo (hasta el 20/Oct/2026 el margen propio de $1.000 lo volvía alerta)", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 2500, debitos: 2500, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+      ],
+      STD,
+    );
+    expect(r.diffCuadre).toBe(1500);
+    expect(r.balanced).toBe(true);
+    expect(r.movimientosCuadran).toBe(true);
+    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("ok");
+    expect(r.validations.find((v) => v.id === "V5")?.detail).toContain("diferencia informativa");
+  });
+
+  it("descuadre de $2000 → NO cuadra (desde el umbral, inclusive) y V1 alerta", () => {
     const r = calcularBalance(
       [
         { code: "110505", name: "Caja", prevBalance: 0, balance: 3000, debitos: 3000, creditos: 0 },
@@ -215,22 +232,25 @@ describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resulta
     );
     expect(r.diffCuadre).toBe(2000); // 3000 + (−1000)
     expect(r.balanced).toBe(false);
-    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("warn");
+    const v1 = r.validations.find((v) => v.id === "V1");
+    expect(v1?.status).toBe("warn");
+    expect(v1?.detail).toContain("desde $ 2.000 es alerta");
   });
 
-  it("el margen es el umbral «Cuadre contable» de /config/parametros, para saldos y movimientos", () => {
+  it("el umbral es «Diferencias y descuadres del balance» de /config/parametros, para saldos y movimientos", () => {
     const cuentas: CuentaCruda[] = [
       { code: "110505", name: "Caja", prevBalance: 0, balance: 3000, debitos: 3000, creditos: 0 },
       { code: "220505", name: "Proveedores", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
     ];
-    // Diferencia de $2.000 en los dos gates: con el margen en $2.500 cuadra; en $1.999,99, no.
-    const holgado = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, cuadre_contable: 2_500 });
+    // Diferencia de $2.000 en los dos gates: con el umbral en $2.500 es informativa; en $1.999,99, alerta.
+    const holgado = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, descuadre: 2_500 });
     expect(holgado.balanced).toBe(true);
     expect(holgado.movimientosCuadran).toBe(true);
-    const justo = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, cuadre_contable: 1_999.99 });
+    expect(holgado.validations.find((v) => v.id === "V1")?.detail).toContain("diferencia informativa: menor a $ 2.500");
+    const justo = calcularBalance(cuentas, STD, undefined, undefined, undefined, { ...UMBRALES_ALERTAS_DEFECTO, descuadre: 1_999.99 });
     expect(justo.balanced).toBe(false);
     expect(justo.movimientosCuadran).toBe(false);
-    expect(justo.validations.find((v) => v.id === "V1")?.detail).toContain("fuera del margen ±$ 1.999,99");
+    expect(justo.validations.find((v) => v.id === "V1")?.detail).toContain("desde $ 1.999,99 es alerta");
   });
 });
 
@@ -499,7 +519,7 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
     expect(r.validations.map((v) => v.id).slice(0, 2)).toEqual(["V1", "V5"]);
   });
 
-  it("ok dentro del margen ±$1000 aunque Σdébitos ≠ Σcréditos exacto", () => {
+  it("ok por debajo del umbral aunque Σdébitos ≠ Σcréditos exacto (diferencia informativa)", () => {
     const r = calcularBalance(
       [
         { code: "110505", name: "Caja", prevBalance: 0, balance: 600, debitos: 600, creditos: 0 },
@@ -507,8 +527,10 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
       ],
       STD,
     );
-    // Σdéb 600 − Σcré 300 = 300 ≤ 1000 ⇒ el gate del cargue lo da por cuadrado.
-    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("ok");
+    // Σdéb 600 − Σcré 300 = 300 < 2000 ⇒ el gate del cargue lo da por cuadrado, como informativa.
+    const v5 = r.validations.find((v) => v.id === "V5");
+    expect(v5?.status).toBe("ok");
+    expect(v5?.detail).toContain("diferencia informativa");
     expect(r.movimientosCuadran).toBe(true);
   });
 
@@ -522,20 +544,22 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
     );
     expect(r.validations.find((v) => v.id === "V1")?.detail).toContain("diferencia: $ 0");
     expect(r.validations.find((v) => v.id === "V5")?.detail).toContain("diferencia: $ 0");
+    // Por debajo del medio centavo no hay diferencia: ni siquiera informativa.
+    expect(r.validations.find((v) => v.id === "V5")?.detail).not.toContain("informativa");
   });
 
-  it("warn cuando los movimientos descuadran por más de $1000", () => {
+  it("warn cuando los movimientos descuadran desde $2.000", () => {
     const r = calcularBalance(
       [
-        { code: "110505", name: "Caja", prevBalance: 0, balance: 2000, debitos: 2000, creditos: 0 },
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 2500, debitos: 2500, creditos: 0 },
         { code: "220505", name: "Proveedores", prevBalance: 0, balance: -500, debitos: 0, creditos: 500 },
       ],
       STD,
     );
-    // Σdéb 2000 − Σcré 500 = 1500 > 1000 ⇒ alerta.
+    // Σdéb 2500 − Σcré 500 = 2000 ≥ 2000 ⇒ alerta.
     const v5 = r.validations.find((v) => v.id === "V5");
     expect(v5?.status).toBe("warn");
-    expect(v5?.detail).toContain("fuera del margen");
+    expect(v5?.detail).toContain("desde $ 2.000 es alerta");
     expect(r.movimientosCuadran).toBe(false);
   });
 });

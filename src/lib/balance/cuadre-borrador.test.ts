@@ -9,14 +9,16 @@ import {
   MAX_AGRUPADORAS_RESUMEN,
   resumenCuadreDeFilas,
   resumirCuadreBorrador,
+  VERSION_CONSTANCIA_DESCUADRE,
   VERSION_RESUMEN_CUADRE,
   veredictoBorradorLista,
+  type MotivoConComentario,
   type MotivoDescuadre,
   type ResumenCuadreBorrador,
 } from "./cuadre-borrador";
 import { UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
-const U = UMBRALES_ALERTAS_DEFECTO; // cuadre_contable $1.000 · descuadre $2.000
+const U = UMBRALES_ALERTAS_DEFECTO; // descuadre $2.000: rige las cuatro condiciones
 const conUmbrales = (cambios: Partial<UmbralesAlertas>): UmbralesAlertas => ({ ...U, ...cambios });
 
 function fila(
@@ -110,19 +112,26 @@ describe("resumenCuadreDeFilas + evaluarCuadreBorrador", () => {
 });
 
 describe("evaluarCuadreBorrador · ecuación y partida doble", () => {
-  it("descuadran por ENCIMA de «cuadre_contable» (hasta el monto, inclusive, cuadran)", () => {
-    expect(evaluarCuadreBorrador(resumen({ ecuacionDiff: 1_000, partidaDobleDiff: -1_000 }), U).estado).toBe("cuadrado");
-    const v = evaluarCuadreBorrador(resumen({ ecuacionDiff: 1_000.01, partidaDobleDiff: -1_500 }), U);
+  it("descuadran DESDE «descuadre», inclusive; por debajo es diferencia informativa y cuadran", () => {
+    // $1.500 fue «Descuadrado» hasta el 20/Oct/2026 (margen propio de $1.000); ahora es informativa.
+    expect(evaluarCuadreBorrador(resumen({ ecuacionDiff: 1_999.99, partidaDobleDiff: -1_500 }), U).estado).toBe("cuadrado");
+    const v = evaluarCuadreBorrador(resumen({ ecuacionDiff: 2_000, partidaDobleDiff: -2_500 }), U);
     expect(v).toEqual({
       estado: "descuadrado",
-      motivos: [{ tipo: "ecuacion", monto: 1_000.01 }, { tipo: "partida_doble", monto: -1_500 }],
+      motivos: [{ tipo: "ecuacion", monto: 2_000 }, { tipo: "partida_doble", monto: -2_500 }],
     });
+  });
+
+  it("deciden al centavo: 1.999,996 redondea a 2.000 y descuadra", () => {
+    expect(evaluarCuadreBorrador(resumen({ partidaDobleDiff: 1_999.996 }), U).motivos).toEqual([
+      { tipo: "partida_doble", monto: 1_999.996 },
+    ]);
   });
 
   it("siguen el parámetro configurado, no el de fábrica", () => {
     const r = resumen({ partidaDobleDiff: 700 });
     expect(evaluarCuadreBorrador(r, U).estado).toBe("cuadrado");
-    expect(evaluarCuadreBorrador(r, conUmbrales({ cuadre_contable: 500 })).motivos).toEqual([
+    expect(evaluarCuadreBorrador(r, conUmbrales({ descuadre: 500 })).motivos).toEqual([
       { tipo: "partida_doble", monto: 700 },
     ]);
   });
@@ -190,19 +199,39 @@ describe("constancia del descuadre al cargar", () => {
     { tipo: "agrupadoras", cantidad: 11, masDe: false, codigos: ["11", "13"] },
   ];
 
-  it("guarda las condiciones y los umbrales con que se juzgaron, y se lee igual", () => {
-    const c = constanciaDescuadre(motivos, conUmbrales({ cuadre_contable: 500 }));
-    expect(c.umbrales).toEqual({ cuadre_contable: 500, descuadre: 2_000 });
+  const conComentarios: MotivoConComentario[] = motivos.map((m) => ({ ...m, comentario: "Revisado: " + m.tipo }));
+
+  it("v2: guarda cada condición con su comentario, el umbral único y el origen, y se lee igual", () => {
+    const c = constanciaDescuadre(conComentarios, conUmbrales({ descuadre: 500 }));
+    expect(c).toMatchObject({ v: VERSION_CONSTANCIA_DESCUADRE, origen: "borrador", umbrales: { descuadre: 500 } });
+    expect(c.motivos[1]).toEqual({ tipo: "partida_doble", monto: 611_898_043.91, comentario: "Revisado: partida_doble" });
     expect(leerDescuadreAlCargar(JSON.parse(JSON.stringify(c)))).toEqual(c);
+
+    const fuente = constanciaDescuadre([conComentarios[0]], U, "archivo_fuente");
+    expect(leerDescuadreAlCargar(JSON.parse(JSON.stringify(fuente)))).toEqual(fuente);
+  });
+
+  it("v1 (19/Oct/2026): los balances cargados con un solo comentario y dos umbrales se siguen leyendo", () => {
+    const v1 = { v: 1, motivos, umbrales: { cuadre_contable: 1_000, descuadre: 2_000 } };
+    expect(leerDescuadreAlCargar(JSON.parse(JSON.stringify(v1)))).toEqual(v1);
+    expect(leerDescuadreAlCargar({ ...v1, umbrales: { descuadre: 2_000 } })).toBeNull();
   });
 
   it("descarta una constancia vacía, de otra versión o con un motivo desconocido", () => {
-    const c = constanciaDescuadre(motivos, U);
+    const c = constanciaDescuadre(conComentarios, U);
     expect(leerDescuadreAlCargar(null)).toBeNull();
     expect(leerDescuadreAlCargar({ ...c, motivos: [] })).toBeNull();
     expect(leerDescuadreAlCargar({ ...c, v: 99 })).toBeNull();
-    expect(leerDescuadreAlCargar({ ...c, motivos: [{ tipo: "otro", monto: 1 }] })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, motivos: [{ tipo: "otro", monto: 1, comentario: "x" }] })).toBeNull();
     expect(leerDescuadreAlCargar({ ...c, umbrales: {} })).toBeNull();
+  });
+
+  it("v2 exige un comentario no vacío por condición, sin condiciones repetidas y con un origen conocido", () => {
+    const c = constanciaDescuadre(conComentarios, U);
+    expect(leerDescuadreAlCargar({ ...c, motivos })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, motivos: [{ ...conComentarios[0], comentario: "   " }] })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, motivos: [conComentarios[0], conComentarios[0]] })).toBeNull();
+    expect(leerDescuadreAlCargar({ ...c, origen: "otro" })).toBeNull();
   });
 });
 
@@ -218,13 +247,15 @@ describe("veredictoBorradorLista", () => {
     expect(veredictoBorradorLista({ resumen: descuadrado, revisionLote: 5, ecuacionDiff: 0, partidaDobleDiff: 0 }, U))
       .toEqual({ estado: "sin_verificar", motivos: [] });
     expect(veredictoBorradorLista({ resumen: null, revisionLote: 5, ecuacionDiff: 1_200, partidaDobleDiff: 0 }, U))
-      .toEqual({ estado: "descuadrado", motivos: [{ tipo: "ecuacion", monto: 1_200 }] });
+      .toEqual({ estado: "sin_verificar", motivos: [] });
+    expect(veredictoBorradorLista({ resumen: null, revisionLote: 5, ecuacionDiff: 2_200, partidaDobleDiff: 0 }, U))
+      .toEqual({ estado: "descuadrado", motivos: [{ tipo: "ecuacion", monto: 2_200 }] });
   });
 
   it("un lote sin encabezado usa la partida doble del staging con el mismo umbral", () => {
-    expect(veredictoBorradorLista({ resumen: null, revisionLote: null, ecuacionDiff: null, partidaDobleDiff: 900 }, U))
+    expect(veredictoBorradorLista({ resumen: null, revisionLote: null, ecuacionDiff: null, partidaDobleDiff: 1_999 }, U))
       .toEqual({ estado: "sin_verificar", motivos: [] });
-    expect(veredictoBorradorLista({ resumen: null, revisionLote: null, ecuacionDiff: null, partidaDobleDiff: 1_001 }, U))
-      .toEqual({ estado: "descuadrado", motivos: [{ tipo: "partida_doble", monto: 1_001 }] });
+    expect(veredictoBorradorLista({ resumen: null, revisionLote: null, ecuacionDiff: null, partidaDobleDiff: 2_000 }, U))
+      .toEqual({ estado: "descuadrado", motivos: [{ tipo: "partida_doble", monto: 2_000 }] });
   });
 });

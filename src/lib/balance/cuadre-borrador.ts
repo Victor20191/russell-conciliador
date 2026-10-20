@@ -3,9 +3,11 @@
 // estas cuatro condiciones, las mismas que muestra la pantalla del borrador:
 //
 //   1. Ecuación contable (Activo = Pasivo + Patrimonio + Resultado): la diferencia
-//      pasa el umbral «cuadre_contable».
-//   2. Partida doble del período (Σ débitos = Σ créditos): la diferencia pasa el
-//      umbral «cuadre_contable».
+//      alcanza el umbral «descuadre» (inclusive).
+//   2. Partida doble del período (Σ débitos = Σ créditos): la diferencia alcanza el
+//      umbral «descuadre» (inclusive).
+//   (Hasta el 20/Oct/2026 estas dos usaban su propio margen, «cuadre_contable», que se retiró:
+//   un solo parámetro, «Diferencias y descuadres del balance», rige las cuatro.)
 //   3. Tarjetas por clase (total calculado vs total del archivo): una clase que no
 //      cruza, que ninguna reubicación aprobada explica y cuya diferencia alcanza el
 //      umbral «descuadre». El Resultado no cuenta: es derivado de ingresos, gastos y
@@ -206,17 +208,17 @@ export function leerResumenCuadre(json: unknown): ResumenCuadreBorrador | null {
   };
 }
 
-/** Las condiciones 1 y 2: ecuación y partida doble por encima de «cuadre_contable». */
+/** Las condiciones 1 y 2: ecuación y partida doble desde el umbral «descuadre» (inclusive). */
 function motivosIdentidades(
   ecuacionDiff: number | null,
   partidaDobleDiff: number,
   umbrales: UmbralesAlertas,
 ): MotivoDescuadre[] {
   const motivos: MotivoDescuadre[] = [];
-  if (ecuacionDiff != null && Math.abs(ecuacionDiff) > umbrales.cuadre_contable) {
+  if (ecuacionDiff != null && esDescuadreAccionable(ecuacionDiff, umbrales)) {
     motivos.push({ tipo: "ecuacion", monto: ecuacionDiff });
   }
-  if (Math.abs(partidaDobleDiff) > umbrales.cuadre_contable) {
+  if (esDescuadreAccionable(partidaDobleDiff, umbrales)) {
     motivos.push({ tipo: "partida_doble", monto: partidaDobleDiff });
   }
   return motivos;
@@ -246,24 +248,47 @@ export function evaluarCuadreBorrador(
   return motivos.length > 0 ? { estado: "descuadrado", motivos } : { estado: "cuadrado", motivos: [] };
 }
 
+/** Las cuatro condiciones (su orden y sus rótulos viven en `comentarios-descuadre.ts`). */
+export type TipoMotivoDescuadre = MotivoDescuadre["tipo"];
+
+/** Una condición que fallaba al cargar, con el comentario que la justifica (uno por condición). */
+export type MotivoConComentario = MotivoDescuadre & { comentario: string };
+
+/** De dónde salió el descuadre: el borrador (cualquier condición) o el archivo fuente (la ecuación). */
+export type OrigenDescuadre = "borrador" | "archivo_fuente";
+
 /**
- * Constancia que guarda el balance cuando se carga un borrador «Descuadrado» por algo distinto
+ * Constancia que guarda el balance cuando se carga un borrador «Descuadrado» o con la diferencia
  * del archivo fuente (`balance_prueba_encabezado.descuadre_borrador`): qué condiciones fallaban,
- * por cuánto y con qué umbrales. Con el comentario obligatorio forma la «Justificación del
- * descuadre» del balance cargado.
+ * por cuánto, con qué umbral y el comentario de cada una. Forma la «Justificación del descuadre»
+ * del balance cargado. Tiene versión propia (no la del resumen de la lista):
+ *  - v1 (19/Oct/2026): las condiciones y los dos umbrales de entonces; el comentario, uno solo,
+ *    vive en `comentario_aprobacion`.
+ *  - v2 (20/Oct/2026): un comentario por condición, el umbral único y el origen.
  */
-export type DescuadreAlCargar = {
-  v: number;
+export const VERSION_CONSTANCIA_DESCUADRE = 2;
+
+export type DescuadreAlCargarV1 = {
+  v: 1;
   motivos: MotivoDescuadre[];
   umbrales: { cuadre_contable: number; descuadre: number };
 };
 
-export function constanciaDescuadre(motivos: MotivoDescuadre[], umbrales: UmbralesAlertas): DescuadreAlCargar {
-  return {
-    v: VERSION_RESUMEN_CUADRE,
-    motivos,
-    umbrales: { cuadre_contable: umbrales.cuadre_contable, descuadre: umbrales.descuadre },
-  };
+export type DescuadreAlCargarV2 = {
+  v: 2;
+  origen: OrigenDescuadre;
+  motivos: MotivoConComentario[];
+  umbrales: { descuadre: number };
+};
+
+export type DescuadreAlCargar = DescuadreAlCargarV1 | DescuadreAlCargarV2;
+
+export function constanciaDescuadre(
+  motivos: MotivoConComentario[],
+  umbrales: UmbralesAlertas,
+  origen: OrigenDescuadre = "borrador",
+): DescuadreAlCargarV2 {
+  return { v: VERSION_CONSTANCIA_DESCUADRE, origen, motivos, umbrales: { descuadre: umbrales.descuadre } };
 }
 
 function esMotivo(m: unknown): m is MotivoDescuadre {
@@ -284,15 +309,32 @@ function esMotivo(m: unknown): m is MotivoDescuadre {
   }
 }
 
-/** Lee la constancia guardada en el balance. null si falta o está mal formada. */
+function esMotivoConComentario(m: unknown): m is MotivoConComentario {
+  if (m == null || typeof m !== "object") return false;
+  const comentario = (m as Record<string, unknown>).comentario;
+  return esMotivo(m) && typeof comentario === "string" && comentario.trim().length > 0;
+}
+
+/** Lee la constancia guardada en el balance (v1 o v2). null si falta o está mal formada. */
 export function leerDescuadreAlCargar(json: unknown): DescuadreAlCargar | null {
   if (json == null || typeof json !== "object" || Array.isArray(json)) return null;
   const r = json as Record<string, unknown>;
   const u = r.umbrales as Record<string, unknown> | undefined;
-  if (r.v !== VERSION_RESUMEN_CUADRE || !Array.isArray(r.motivos) || r.motivos.length === 0
-    || !r.motivos.every(esMotivo) || u == null || typeof u !== "object"
-    || !esNumero(u.cuadre_contable) || !esNumero(u.descuadre)) return null;
-  return { v: r.v, motivos: r.motivos, umbrales: { cuadre_contable: u.cuadre_contable, descuadre: u.descuadre } };
+  if (!Array.isArray(r.motivos) || r.motivos.length === 0 || u == null || typeof u !== "object" || !esNumero(u.descuadre)) {
+    return null;
+  }
+  if (r.v === 1) {
+    if (!r.motivos.every(esMotivo) || !esNumero(u.cuadre_contable)) return null;
+    return { v: 1, motivos: r.motivos, umbrales: { cuadre_contable: u.cuadre_contable, descuadre: u.descuadre } };
+  }
+  if (r.v === VERSION_CONSTANCIA_DESCUADRE) {
+    if (r.origen !== "borrador" && r.origen !== "archivo_fuente") return null;
+    if (!r.motivos.every(esMotivoConComentario)) return null;
+    // Una condición, un comentario: un tipo repetido no es una constancia válida.
+    if (new Set(r.motivos.map((m) => m.tipo)).size !== r.motivos.length) return null;
+    return { v: 2, origen: r.origen, motivos: r.motivos, umbrales: { descuadre: u.descuadre } };
+  }
+  return null;
 }
 
 /**

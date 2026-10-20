@@ -531,6 +531,7 @@ vi.mock("@/lib/balance/revisiones-reubicacion-balance", () => ({
   })),
 }));
 vi.mock("@/lib/balance/advertencia-archivo-fuente", () => ({
+  MAX_COMENTARIO_PROMOCION: 1_000,
   esDescuadreDelArchivoFuente: mocks.esDescuadreDelArchivoFuente,
   validarComentarioPromocion: mocks.validarComentarioPromocion,
 }));
@@ -566,6 +567,7 @@ import {
   reaplicarMapeoBalancesCliente,
   reemplazarBalanceConciliado,
 } from "./balance";
+import { resumirCuadreBorrador } from "@/lib/balance/cuadre-borrador";
 
 function filaStaging(filaNum = 1, loteId = LOTE_ID) {
   return {
@@ -922,10 +924,10 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(mocks.state.balances[0]).toMatchObject({ aperturaBalance: "tercero" });
   });
 
-  it("persiste el diagnóstico del archivo fuente junto con la justificación", async () => {
+  it("persiste el diagnóstico del archivo fuente junto con la justificación (el comentario de la ecuación)", async () => {
     mocks.esDescuadreDelArchivoFuente.mockReturnValue(true);
     const form = formPromocion();
-    form.set("comentarioPromocion", "Diferencia confirmada con el cliente.");
+    form.set("comentarioDescuadre_ecuacion", "Diferencia confirmada con el cliente.");
 
     await expect(cargarBorrador({}, form))
       .rejects.toThrow("REDIRECT:/balance/1?cargado=1");
@@ -934,16 +936,93 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
       advertenciaArchivoFuente: true,
       diferenciaArchivoFuente: -2_500,
     });
+    expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        comentarioAprobacion: "Diferencia confirmada con el cliente.",
+        descuadreBorrador: {
+          v: 2,
+          origen: "archivo_fuente",
+          motivos: [{ tipo: "ecuacion", monto: -2_500, comentario: "Diferencia confirmada con el cliente." }],
+          umbrales: { descuadre: 2_000 },
+        },
+      }),
+    }));
   });
 
   it("recalcula en servidor la obligatoriedad y no confía en una bandera del formulario", async () => {
     mocks.esDescuadreDelArchivoFuente.mockReturnValue(true);
+    // La nota opcional no reemplaza el comentario de la ecuación.
+    const form = formPromocion();
+    form.set("comentarioPromocion", "Nota suelta.");
 
-    const resultado = await cargarBorrador({}, formPromocion());
+    const resultado = await cargarBorrador({}, form);
 
-    expect(resultado).toEqual({ ok: false, message: "Comentario obligatorio." });
+    expect(resultado).toEqual({ ok: false, message: "Escribe un comentario para cargar este balance con la diferencia del archivo fuente." });
     expect(mocks.state.balances).toHaveLength(0);
     expect(mocks.state.lotes).toHaveLength(1);
+  });
+
+  it("un borrador descuadrado por dos condiciones exige el comentario de cada una", async () => {
+    // Partida doble y clases desde el umbral ($2.000): las dos fallan.
+    vi.mocked(resumirCuadreBorrador).mockImplementation((_vista, _filas, _aprobadas, revision) => ({
+      v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 2_500,
+      clases: [{ clase: "Activo", diff: 3_000 }], agrupadoras: [], agrupadorasTotal: 0,
+    }));
+    try {
+      const soloUno = formPromocion();
+      soloUno.set("comentarioDescuadre_partida_doble", "Débitos del cierre fuera del archivo.");
+      expect(await cargarBorrador({}, soloUno)).toEqual({
+        ok: false,
+        message: "El borrador está descuadrado: falta el comentario de «Clases contra el archivo».",
+      });
+      expect(mocks.state.balances).toHaveLength(0);
+
+      const ambos = formPromocion();
+      ambos.set("comentarioDescuadre_partida_doble", "Débitos del cierre fuera del archivo.");
+      ambos.set("comentarioDescuadre_clases", "Activo sin la cuenta puente.");
+      // Un comentario de una condición que no falla no viaja a la constancia.
+      ambos.set("comentarioDescuadre_agrupadoras", "Sobra.");
+      await expect(cargarBorrador({}, ambos)).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+
+      const textoPlano = "Partida doble: Débitos del cierre fuera del archivo.\nClases contra el archivo: Activo sin la cuenta puente.";
+      expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          comentarioAprobacion: textoPlano,
+          descuadreBorrador: {
+            v: 2,
+            origen: "borrador",
+            motivos: [
+              { tipo: "partida_doble", monto: 2_500, comentario: "Débitos del cierre fuera del archivo." },
+              { tipo: "clases", clases: [{ clase: "Activo", diff: 3_000 }], comentario: "Activo sin la cuenta puente." },
+            ],
+            umbrales: { descuadre: 2_000 },
+          },
+        }),
+      }));
+      expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        detail: expect.stringContaining("Comentario: Partida doble: Débitos del cierre fuera del archivo. Clases contra el archivo: Activo sin la cuenta puente."),
+      }));
+    } finally {
+      vi.mocked(resumirCuadreBorrador).mockImplementation((_vista, _filas, _aprobadas, revision) => ({
+        v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 0, clases: [], agrupadoras: [], agrupadorasTotal: 0,
+      }));
+    }
+  });
+
+  it("una diferencia informativa (menor al umbral) no pide comentario y la nota sigue siendo opcional", async () => {
+    vi.mocked(resumirCuadreBorrador).mockImplementation((_vista, _filas, _aprobadas, revision) => ({
+      v: 1, revision, ecuacionDiff: 1_500, partidaDobleDiff: -1_999.99, clases: [], agrupadoras: [], agrupadorasTotal: 0,
+    }));
+    try {
+      await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+      expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ comentarioAprobacion: null, descuadreBorrador: undefined }),
+      }));
+    } finally {
+      vi.mocked(resumirCuadreBorrador).mockImplementation((_vista, _filas, _aprobadas, revision) => ({
+        v: 1, revision, ecuacionDiff: 0, partidaDobleDiff: 0, clases: [], agrupadoras: [], agrupadorasTotal: 0,
+      }));
+    }
   });
 
   it("recupera el balance confirmado cuando se pierde la primera respuesta", async () => {

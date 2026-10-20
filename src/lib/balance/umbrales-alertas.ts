@@ -9,13 +9,14 @@
 
 /** Umbrales vigentes que gobiernan las alertas del balance y de los módulos de conciliación. */
 export type UmbralesAlertas = {
-  /** Balance · descuadres: por debajo es informativo; desde este monto (inclusive), alerta. */
-  descuadre: number;
   /**
-   * Balance · cuadre contable: margen de la partida doble (débitos = créditos) y de la ecuación
-   * (Activo = Pasivo + Patrimonio + Resultado). Hasta este monto (inclusive) el balance cuadra.
+   * Balance · diferencias y descuadres: desde este monto (inclusive) una diferencia de la ecuación
+   * contable, de la partida doble, de una clase contra el archivo o de una agrupadora contra su
+   * desglose es alerta y vuelve «Descuadrado» el borrador; por debajo es informativa. Desde el
+   * 20/Oct/2026 también gobierna la ecuación y la partida doble (antes tenían su propio margen,
+   * `cuadre_contable`, que se retiró).
    */
-  cuadre_contable: number;
+  descuadre: number;
   /** Balance · saldos contrarios a la naturaleza: hasta este monto (inclusive) es informativo. */
   naturaleza: number;
   /**
@@ -38,7 +39,6 @@ export type ClaveUmbral = keyof UmbralesAlertas;
 // Valores de FÁBRICA. Se conservan como constantes exportadas porque los usan el
 // seed, las pruebas y el fallback del cargador cuando la BD no responde.
 export const UMBRAL_DESCUADRE_ALERTA = 2_000;
-export const UMBRAL_CUADRE_CONTABLE = 1_000;
 export const UMBRAL_NATURALEZA_ALERTA = 50_000;
 export const UMBRAL_CORTE_SALDO_FINAL = 1_000;
 export const UMBRAL_CEDULA_MODULOS = 2_000;
@@ -51,7 +51,6 @@ export const UMBRAL_MAGNITUD_ALERTA = 50_000;
 
 export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   descuadre: UMBRAL_DESCUADRE_ALERTA,
-  cuadre_contable: UMBRAL_CUADRE_CONTABLE,
   naturaleza: UMBRAL_NATURALEZA_ALERTA,
   corte_saldo_final: UMBRAL_CORTE_SALDO_FINAL,
   cedula_modulos: UMBRAL_CEDULA_MODULOS,
@@ -83,24 +82,12 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
   {
     clave: "descuadre",
     seccion: "balance",
-    nombre: "Diferencias y descuadres",
+    nombre: "Diferencias y descuadres del balance",
     descripcion:
-      "Monto mínimo para que una diferencia cuente como alerta. Por debajo, la diferencia se sigue viendo pero queda marcada como informativa y no entra en «Alertas» ni en el diagnóstico superior.",
+      "Desde este monto (inclusive) es alerta y deja el borrador «Descuadrado» una diferencia en cualquiera de estas cuatro comprobaciones: la ecuación contable (Activo = Pasivo + Patrimonio + Resultado), la partida doble (total débitos = total créditos del período), el total de una clase contra el total que trae el archivo y una cuenta agrupadora contra la suma de su desglose. Cada condición que falla pide su propio comentario para cargar el borrador (no lo bloquea) y el balance cargado lo conserva en «Justificación del descuadre». Por debajo del monto la diferencia se sigue viendo como «Diferencia informativa»; «Cuadra» solo cuando es cero.",
     dondeAplica:
-      "Borrador de balance: partida doble, ecuación contable, totales de clase vs. archivo y cuentas agrupadoras que no cuadran con su desglose.",
+      "Borrador de balance («Validación del balance», tarjetas de clase, agrupadoras y diagnóstico), el estado «Cuadrado / Descuadrado» de la lista de borradores, el comentario obligatorio al cargar, la «Advertencia del archivo fuente» y las validaciones «Cuadre de saldos finales» y «Cuadre de movimientos del período» del balance cargado.",
     defecto: UMBRAL_DESCUADRE_ALERTA,
-    minimo: 0,
-    maximo: UMBRAL_MAXIMO,
-  },
-  {
-    clave: "cuadre_contable",
-    seccion: "balance",
-    nombre: "Cuadre contable: partida doble y ecuación",
-    descripcion:
-      "Margen con el que se revisan dos identidades del balance: la partida doble (total débitos = total créditos) y la ecuación contable (Activo = Pasivo + Patrimonio + Resultado). Hasta este monto (inclusive) la diferencia se considera cuadrada; por encima, el balance queda «No cuadra» y, si la diferencia viene del archivo fuente, el borrador exige el comentario de aprobación para cargarlo.",
-    dondeAplica:
-      "Borrador de balance («Validación del balance» y «Advertencia del archivo fuente»), la marca de cuadrado del balance confirmado y sus validaciones «Cuadre de saldos finales» y «Cuadre de movimientos del período».",
-    defecto: UMBRAL_CUADRE_CONTABLE,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
   },
@@ -197,14 +184,32 @@ export function requiereMarcaPorUmbral(diferencia: number, umbral: number): bool
   return Math.abs(diferencia) >= umbral;
 }
 
-/** Diferencia que alcanza el umbral: cuenta como alerta accionable. */
+/**
+ * Nivel de una diferencia frente al umbral «Diferencias y descuadres del balance», al CENTAVO:
+ * «cero» (redondeada a centavos es 0: no hay diferencia), «informativa» (hay diferencia pero no
+ * alcanza el umbral) o «alerta» (desde el umbral, inclusive). Es la única regla: la usan la
+ * pantalla, el resumen de la lista y el servidor al cargar, así nunca deciden distinto por ruido
+ * de punto flotante (1.999,996 es alerta en los tres).
+ */
+export type NivelDiferencia = "cero" | "informativa" | "alerta";
+
+export function nivelDiferencia(
+  valor: number | null | undefined,
+  umbrales: Pick<UmbralesAlertas, "descuadre">,
+): NivelDiferencia {
+  const centavos = valor == null || !Number.isFinite(valor) ? 0 : Math.round(Math.abs(valor) * 100) / 100;
+  if (centavos === 0) return "cero";
+  return centavos >= umbrales.descuadre ? "alerta" : "informativa";
+}
+
+/** Diferencia que alcanza el umbral: cuenta como alerta accionable. Una diferencia cero nunca alerta. */
 export function esDescuadreAccionable(valor: number | null | undefined, umbrales: UmbralesAlertas): boolean {
-  return valor != null && Math.abs(valor) >= umbrales.descuadre;
+  return valor != null && nivelDiferencia(valor, umbrales) === "alerta";
 }
 
 /** Diferencia real pero por debajo del umbral: se muestra, no cuenta como alerta. */
 export function esDescuadreInformativo(valor: number | null | undefined, umbrales: UmbralesAlertas): boolean {
-  return valor != null && Math.abs(valor) > 0 && Math.abs(valor) < umbrales.descuadre;
+  return valor != null && nivelDiferencia(valor, umbrales) === "informativa";
 }
 
 /** Saldo contrario a la naturaleza que supera el umbral: exige validación del revisor. */
