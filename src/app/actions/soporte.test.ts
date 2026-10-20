@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  schedule: vi.fn(),
   create: vi.fn(),
   queryRaw: vi.fn(),
   findUnique: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   eliminarEvidenciaTicket: vi.fn(),
 }));
 
+vi.mock("@/lib/correo/notificaciones", () => ({ programarAvisoCorreo: mocks.schedule }));
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
   unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
@@ -164,6 +166,7 @@ describe("Server Actions de soporte", () => {
     expect(resultado.code).toBe("TKT-7");
     expect(resultado.trackingUrl).toContain(`/soporte/tickets/${resultado.code}?acceso=`);
     expect(mocks.authorizePermiso).not.toHaveBeenCalled();
+    expect(mocks.schedule).not.toHaveBeenCalled();
     expect(mocks.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         reporterFirstName: "Ana",
@@ -668,6 +671,31 @@ describe("Server Actions de soporte", () => {
     });
   });
 
+  describe("correo al reportante", () => {
+    it("avisa una solución, cambio de estado y gestión solamente tras guardar", async () => {
+      for (const [accion, form] of [
+        [guardarSolucionTicket, formularioSolucion()],
+        [cambiarEstadoTicket, formularioEstado("en_proceso")],
+        [gestionarTicket, formularioGestion("en_proceso", "Revisamos el comportamiento reportado.")],
+      ] as const) {
+        mocks.schedule.mockClear();
+        mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "abierto", solution: null, createdById: 44 });
+        expect((await accion(undefined, form)).ok).toBe(true);
+        expect(mocks.schedule).toHaveBeenCalledWith(expect.objectContaining({ usuarioIds: [44], actorId: 9, permiso: "soporte:ver", ruta: "/reportes/14" }));
+        expect(mocks.schedule.mock.calls[0][0].texto).not.toContain("comportamiento reportado");
+      }
+    });
+    it("no envía para tickets públicos ni cuando otro usuario ganó la actualización", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "abierto", createdById: null });
+      await guardarSolucionTicket(undefined, formularioSolucion());
+      expect(mocks.schedule).not.toHaveBeenCalled();
+      mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "abierto", createdById: 44 });
+      mocks.updateMany.mockResolvedValueOnce({ count: 0 });
+      expect((await guardarSolucionTicket(undefined, formularioSolucion())).ok).toBe(false);
+      expect(mocks.schedule).not.toHaveBeenCalled();
+    });
+  });
+
   describe("agregarMensajeTicket", () => {
     it("apila el mensaje de Xentria sin tocar el estado ni la solución", async () => {
       mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4", createdById: 44 });
@@ -685,6 +713,7 @@ describe("Server Actions de soporte", () => {
           body: "Se validó con el usuario y quedó conforme.",
         },
       });
+      expect(mocks.schedule).toHaveBeenCalledWith(expect.objectContaining({ usuarioIds: [44], actorId: 9, permiso: "soporte:ver" }));
       expect(mocks.updateMany).not.toHaveBeenCalled();
       expect(mocks.revalidatePath).toHaveBeenCalledWith("/reportes");
     });
@@ -701,6 +730,7 @@ describe("Server Actions de soporte", () => {
 
       const resultado = await agregarMensajeTicket(undefined, formularioMensaje("Ya lo probé y sigue igual."));
 
+      expect(mocks.schedule).not.toHaveBeenCalled();
       expect(resultado.ok).toBe(true);
       expect(mocks.messageCreate).toHaveBeenCalledWith({
         data: {

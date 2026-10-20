@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { crearConexion, actualizarConexion, cambiarEstadoConexion } from "./conexiones";
+import { crearConexion, actualizarConexion, cambiarEstadoConexion, enviarPruebaSmtpAction } from "./conexiones";
 import { cifrarCredenciales, descifrarCredenciales } from "@/lib/conexiones/credenciales";
 
 const mocks = vi.hoisted(() => ({
-  auth: vi.fn(), actor: vi.fn(), audit: vi.fn(), revalidate: vi.fn(),
+  send: vi.fn(), auth: vi.fn(), actor: vi.fn(), audit: vi.fn(), revalidate: vi.fn(),
   findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), transaction: vi.fn(),
 }));
+vi.mock("@/lib/correo/notificaciones", () => ({ enviarCorreoRegistrado: mocks.send }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.auth }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: mocks.actor }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.audit }));
@@ -109,5 +110,42 @@ describe("acciones de parametrización", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.message).toContain("al mismo tiempo");
     expect(mocks.audit).not.toHaveBeenCalled();
+  });
+});
+
+function formularioSmtp(extra: Record<string, string> = {}) {
+  return formulario({ proveedor: "smtp", categoria: "CORREO", config_host: "smtp.example.com", config_puerto: "587", config_seguridad: "STARTTLS", config_remitente: "russell@example.com", config_url_plataforma: "https://russell.example", config_usar_para_notificaciones: "on", cred_usuario: "usuario", cred_contrasena: "clave-ficticia", ...extra });
+}
+describe("SMTP de notificaciones", () => {
+  it("impide dos selecciones activas entre SMTP y Gmail en una transacción serializable", async () => {
+    mocks.findFirst.mockResolvedValueOnce({ id: 2 });
+    expect((await crearConexion(undefined, formularioSmtp())).message).toContain("Ya hay un SMTP");
+    expect(mocks.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ proveedor: { in: ["smtp", "gmail"] }, configuracion: { path: ["usar_para_notificaciones"], equals: true } }) }));
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("no acepta seleccionar SMTP de pruebas ni sin remitente/dirección de Russell", async () => {
+    expect((await crearConexion(undefined, formularioSmtp({ entorno: "PRUEBAS" }))).ok).toBe(false);
+    expect((await crearConexion(undefined, formularioSmtp({ config_remitente: "", config_url_plataforma: "" }))).errors).toMatchObject({ config_remitente: expect.any(Array), config_url_plataforma: expect.any(Array) });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("activar otra cuenta Gmail no elude el control", async () => {
+    mocks.findUnique.mockResolvedValue({ proveedor: "gmail", entorno: "PRODUCCION", configuracion: { usar_para_notificaciones: true } });
+    mocks.findFirst.mockResolvedValue({ id: 2 });
+    expect((await cambiarEstadoConexion(1, true)).ok).toBe(false); expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("la prueba real exige permiso y usa el correo de sesión", async () => {
+    mocks.auth.mockResolvedValueOnce({ ok: false, message: "Sin permiso" });
+    expect((await enviarPruebaSmtpAction(1)).ok).toBe(false); expect(mocks.findUnique).not.toHaveBeenCalled();
+    mocks.actor.mockResolvedValue({ id: 1, name: "Ana", email: "ana@example.com" });
+    mocks.findUnique.mockResolvedValue({ id: 1, codigo: "smtp", proveedor: "smtp", activa: true });
+    mocks.send.mockResolvedValue({ ok: true, message: "Aceptado" });
+    expect((await enviarPruebaSmtpAction(1)).ok).toBe(true);
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), ["ana@example.com"], expect.objectContaining({ titulo: "Prueba de correo" }), "Ana");
+  });
+  it("no permite probar cuentas inactivas ni otro tipo de conexión", async () => {
+    for (const conexion of [{ proveedor: "smtp", activa: false }, { proveedor: "anthropic", activa: true }]) {
+      mocks.findUnique.mockResolvedValue(conexion); expect((await enviarPruebaSmtpAction(1)).ok).toBe(false);
+    }
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

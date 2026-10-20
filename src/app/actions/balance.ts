@@ -1297,6 +1297,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       clientId: balance.clienteId,
     });
     await createProcessNotification({
+      clientId: balance.clienteId, actorId: user?.id, ruta: `/balance/${id}`,
       actor: user?.name,
       text: "cerró el balance de",
       target: `${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`,
@@ -1398,6 +1399,7 @@ export async function descongelarBalance(input: { id: number; justificacion: str
       clientId: balance.clienteId,
     });
     await createProcessNotification({
+      clientId: balance.clienteId, actorId: user?.id, ruta: `/balance/${id}`,
       actor: user?.name,
       text: "abrió el balance de",
       target: `${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`,
@@ -2836,6 +2838,7 @@ async function persistirCargue(p: {
       });
     }
     await createProcessNotification({
+      clientId: p.clientId, actorId: p.uploadedById, ruta: `/balance/${creado.id}`,
       actor: p.uploadedBy,
       text: "cargó el balance de",
       target: `${p.clienteName} · ${p.period} · ${creado.version}`,
@@ -2850,6 +2853,7 @@ async function persistirCargue(p: {
           clientId: p.clientId,
         });
         await createProcessNotification({
+          clientId: p.clientId, actorId: p.uploadedById, ruta: `/balance/${creado.id}`,
           actor: p.uploadedBy,
           text: "capturó el balance por tercero de",
           target: `${p.clienteName} · ${p.period} · ${creado.capturaTercero.version}`,
@@ -2871,6 +2875,7 @@ async function persistirCargue(p: {
             clientId: p.clientId,
           });
           await createProcessNotification({
+            clientId: p.clientId, actorId: p.uploadedById, ruta: `/balance/${creado.id}`,
             actor: "Sistema",
             text: "encontró detalle por tercero incompleto en el balance de",
             target: `${p.clienteName} · ${p.period} · ${creado.capturaTercero.version} — ${partes}. Revísalo en «Ver por terceros»`,
@@ -2888,6 +2893,7 @@ async function persistirCargue(p: {
           clientId: p.clientId,
         });
         await createProcessNotification({
+          clientId: p.clientId, actorId: p.uploadedById, ruta: `/balance/${creado.id}`,
           actor: "Sistema",
           text: "no encontró detalle por tercero en el balance de",
           target: `${p.clienteName} · ${p.period} — mapea la columna del tercero (p. ej. Rompimiento) como «Tercero / NIT» y reprocesa si el archivo la trae`,
@@ -6309,6 +6315,7 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
       });
     }
     await createProcessNotification({
+      clientId: clienteId, actorId: user?.id, ruta: `/balance/${nuevo.id}`,
       actor: user?.name,
       text: "reemplazó el balance conciliado de",
       target: `${nuevo.nombreCliente} · ${viejo.periodo} ${viejo.version} → ${nuevo.periodo} ${nuevo.version}`,

@@ -24,14 +24,18 @@ import {
   ejecutarConexionAction,
   eliminarConexion,
   probarConexionAction,
+  enviarPruebaSmtpAction,
   type ConexionActionState,
 } from "@/app/actions/conexiones";
 import { ConexionModal, type ConexionVista } from "./conexion-modal";
 
-type Ocupacion = "probar" | "ejecutar" | "estado";
+type Ocupacion = "probar" | "ejecutar" | "estado" | "correo";
 
-export default function ConexionesClient({ conexiones, puedeAdministrar = false, cifradoListo = false }: {
+type EnvioVista = { id: number; conexion: string; fecha: Date; estado: string; mensaje: string | null };
+
+export default function ConexionesClient({ conexiones, envios = [], puedeAdministrar = false, cifradoListo = false }: {
   conexiones: ConexionVista[];
+  envios?: EnvioVista[];
   puedeAdministrar?: boolean;
   cifradoListo?: boolean;
 }) {
@@ -73,9 +77,9 @@ export default function ConexionesClient({ conexiones, puedeAdministrar = false,
         if (res.estado === "omitida") {
           notifyInfo("Sin ejecución automática", res.message);
         } else if (res.ok) {
-          notifySuccess(tipo === "probar" ? "Prueba correcta" : "Ejecución completada", res.message);
+          notifySuccess(tipo === "correo" ? "Correo aceptado por SMTP" : tipo === "probar" ? "Prueba correcta" : "Ejecución completada", res.message);
         } else {
-          notifyError(tipo === "probar" ? "La prueba falló" : "La ejecución falló", res.message);
+          notifyError(tipo === "correo" ? "No se pudo enviar el correo" : tipo === "probar" ? "La prueba falló" : "La ejecución falló", res.message);
         }
       } catch {
         notifyError("No se pudo completar la operación");
@@ -163,7 +167,7 @@ export default function ConexionesClient({ conexiones, puedeAdministrar = false,
               En Claude, Gemini y OpenRouter puedes seleccionar «Usar esta clave en Russell».
               Se aplicará a los procesos que ya usan ese proveedor, con sus modelos y permisos actuales.
               Si ninguna está seleccionada, se conserva la configuración del servidor.
-              SMTP verifica conexión segura y autenticación; los envíos y las demás automatizaciones se configuran por separado.
+              Selecciona un SMTP para enviar avisos de balances, menciones y respuestas de soporte. «Probar» verifica la conexión; «Enviar prueba a mi correo» envía un mensaje real a tu usuario. Los avisos automáticos se envían desde el servidor en producción.
             </p>
           </div>
         </div>
@@ -266,6 +270,7 @@ export default function ConexionesClient({ conexiones, puedeAdministrar = false,
               ocupacion={ocupadas[conexion.id]}
               onEditar={() => setModal({ conexion })}
               onEliminar={() => setPorEliminar(conexion)}
+              onProbarCorreo={() => ejecutarEnTarjeta(conexion.id, "correo", () => enviarPruebaSmtpAction(conexion.id))}
               onProbar={() =>
                 ejecutarEnTarjeta(conexion.id, "probar", () => probarConexionAction(conexion.id))
               }
@@ -277,6 +282,17 @@ export default function ConexionesClient({ conexiones, puedeAdministrar = false,
           ))}
         </div>
       )}
+
+      {envios.length > 0 && <Card className="p-5">
+        <h2 className="text-[15px] font-semibold text-navy-800">Últimos envíos de correo</h2>
+        <p className="mt-1 text-[12px] text-ink-500">Aceptado por SMTP indica que el servidor recibió el mensaje. Comprueba la bandeja de entrada y correo no deseado.</p>
+        <ul className="mt-4 divide-y divide-ink-100">
+          {envios.map((envio) => <li key={envio.id} className="flex flex-wrap items-start gap-2 py-3 text-[12px]">
+            <Chip label={envio.estado === "ok" ? "Aceptado" : "Error"} tone={envio.estado === "ok" ? "ok" : "err"} />
+            <div className="min-w-0 flex-1"><p className="font-semibold text-ink-700">{envio.conexion} · {fmtDateTime(envio.fecha)}</p><p className="mt-1 break-words text-ink-500">{envio.mensaje}</p></div>
+          </li>)}
+        </ul>
+      </Card>}
 
       {modal && (
         <ConexionModal
@@ -300,6 +316,7 @@ function TarjetaConexion({
   onEditar,
   onEliminar,
   onProbar,
+  onProbarCorreo,
   onEjecutar,
   onAlternarEstado,
 }: {
@@ -309,12 +326,13 @@ function TarjetaConexion({
   onEditar: () => void;
   onEliminar: () => void;
   onProbar: () => void;
+  onProbarCorreo: () => void;
   onEjecutar: () => void;
   onAlternarEstado: () => void;
 }) {
   const proveedor = proveedorPorClave(conexion.proveedor);
   const probando = ocupacion === "probar";
-  const ejecutando = ocupacion === "ejecutar";
+  const ejecutando = ocupacion === "ejecutar" || ocupacion === "correo";
   const cambiandoEstado = ocupacion === "estado";
   const mensajePrueba = conexion.ultimaPruebaMensaje;
   const pruebaOk = conexion.ultimaPruebaOk === true;
@@ -344,6 +362,9 @@ function TarjetaConexion({
       </p>
       {conexion.configuracion.usar_en_plataforma === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
         <p className="mt-2 text-[11px] font-semibold text-blue-500">Clave seleccionada para Russell</p>}
+
+      {conexion.configuracion.usar_para_notificaciones === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
+        <p className="mt-2 text-[11px] font-semibold text-blue-500">SMTP de notificaciones de Russell</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
@@ -399,6 +420,10 @@ function TarjetaConexion({
         )}
       </div>
 
+      {proveedor?.prueba.tipo === "smtp" && conexion.ultimaEjecucionMensaje && <p role="status" className={`mb-3 rounded-md p-2.5 text-[11.5px] ${conexion.ultimaEjecucionEstado === "error" ? "bg-err-50 text-err-700" : "bg-ink-50 text-ink-600"}`}>
+        Último envío: {conexion.ultimaEjecucionMensaje}
+      </p>}
+
       {puedeAdministrar && <><div className="mt-auto flex flex-wrap items-center gap-2 border-t border-ink-100 pt-4">
         <button
           type="button"
@@ -416,6 +441,10 @@ function TarjetaConexion({
           <Icon name="check" size={12} />
           {probando ? <EstadoProcesando>Probando</EstadoProcesando> : "Probar"}
         </button>
+        {conexion.activa && proveedor?.prueba.tipo === "smtp" && <button type="button" onClick={onProbarCorreo}
+          disabled={Boolean(ocupacion)} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-navy-800 disabled:opacity-60">
+          <Icon name="send" size={12} />{ocupacion === "correo" ? <EstadoProcesando>Enviando</EstadoProcesando> : "Enviar prueba a mi correo"}
+        </button>}
         {conexion.activa && proveedor?.ejecutable ? (
           <button
             type="button"

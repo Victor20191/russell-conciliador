@@ -36,8 +36,16 @@ export function validarConfiguracion(
     if (!["TLS", "STARTTLS"].includes(String(datos.seguridad))) {
       errores.config_seguridad = ["Selecciona TLS o STARTTLS."];
     }
-    if (datos.remitente && !z.email().safeParse(datos.remitente).success) {
+    if ((datos.remitente || datos.usar_para_notificaciones) && !z.email().safeParse(datos.remitente).success) {
       errores.config_remitente = ["Ingresa un correo válido para el remitente."];
+    }
+    if (datos.url_plataforma || datos.usar_para_notificaciones) {
+      try {
+        const url = new URL(String(datos.url_plataforma ?? ""));
+        if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) throw new Error();
+      } catch {
+        errores.config_url_plataforma = ["Ingresa la dirección HTTPS de Russell, sin rutas, parámetros ni credenciales."];
+      }
     }
     if (!/^[a-zA-Z0-9.-]+$/.test(String(datos.host ?? ""))) {
       errores.config_host = ["Ingresa únicamente el nombre del servidor, sin URL ni puerto."];

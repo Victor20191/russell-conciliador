@@ -13,11 +13,13 @@ const mocks = vi.hoisted(() => {
     commentDelete: vi.fn(),
     marcaUpdateMany: vi.fn(),
     notificationCreateMany: vi.fn(),
+    schedule: vi.fn(),
     userFindMany: vi.fn(),
     transaction: vi.fn(),
   };
 });
 
+vi.mock("@/lib/correo/notificaciones", () => ({ programarAvisoCorreo: mocks.schedule }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ id: 7, name: "Victor Rivera" })) }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
@@ -85,6 +87,9 @@ describe("editar y eliminar comentarios", () => {
     expect(mocks.tx.commentMention.createMany).toHaveBeenCalledWith({ data: [{ commentId: 409, userId: 4 }], skipDuplicates: true });
     expect(mocks.tx.comment.update.mock.calls[0][0].data).toMatchObject({ body: "Saldo en la 210510 @Luisa Gómez", editedAt: expect.any(Date) });
     expect(mocks.notificationCreateMany.mock.calls[0][0].data).toHaveLength(1);
+    expect(mocks.notificationCreateMany.mock.calls[0][0].data[0]).not.toHaveProperty("time");
+    expect(mocks.schedule).toHaveBeenCalledWith(expect.objectContaining({ usuarioIds: [4], clienteId: 122, actorId: 7, permiso: "modulos_datos:ver" }));
+    expect(mocks.schedule.mock.calls[0][0].texto).not.toContain("210510");
     expect(mocks.logAudit.mock.calls[0][0]).toMatchObject({
       action: "EDITÓ un comentario",
       entity: "Módulo de conciliación #62",

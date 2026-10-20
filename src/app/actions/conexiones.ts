@@ -168,26 +168,32 @@ function validarFormulario(
   return { ok: true, data: parsed.data, proveedor };
 }
 
-async function conflictoSeleccionIA(
+async function conflictoSeleccion(
   data: { proveedor: string; activa: boolean; entorno: string },
   configuracion: Record<string, unknown>,
   id?: number,
   db: Pick<Prisma.TransactionClient, "conexionIntegracion"> = prisma,
 ): Promise<string | null> {
-  if (!data.activa || data.entorno !== "PRODUCCION" || configuracion.usar_en_plataforma !== true) return null;
+  if (!data.activa) return null;
+  const correo = ["smtp", "gmail"].includes(data.proveedor) && configuracion.usar_para_notificaciones === true;
+  const ia = configuracion.usar_en_plataforma === true;
+  if (!correo && !ia) return null;
+  if (data.entorno !== "PRODUCCION") return "Para usar esta conexión en Russell, selecciona el entorno Producción.";
   const otra = await db.conexionIntegracion.findFirst({
     where: {
-      proveedor: data.proveedor, activa: true, entorno: "PRODUCCION",
-      configuracion: { path: ["usar_en_plataforma"], equals: true },
+      proveedor: correo ? { in: ["smtp", "gmail"] } : data.proveedor, activa: true, entorno: "PRODUCCION",
+      configuracion: { path: [correo ? "usar_para_notificaciones" : "usar_en_plataforma"], equals: true },
       ...(id ? { NOT: { id } } : {}),
     },
     select: { id: true },
   });
-  return otra ? "Ya hay una clave seleccionada para este proveedor. Desmarca «Usar esta clave en Russell» en la conexión anterior." : null;
+  return otra ? (correo
+    ? "Ya hay un SMTP seleccionado para notificaciones. Desmarca la conexión anterior antes de seleccionar esta."
+    : "Ya hay una clave seleccionada para este proveedor. Desmarca «Usar esta clave en Russell» en la conexión anterior.") : null;
 }
 
 /** La selección y la escritura se serializan para evitar dos claves efectivas simultáneas. */
-async function guardarConSeleccionIA(
+async function guardarConSeleccion(
   data: { proveedor: string; activa: boolean; entorno: string },
   configuracion: Record<string, unknown>,
   id: number | undefined,
@@ -195,7 +201,7 @@ async function guardarConSeleccionIA(
 ): Promise<string | null> {
   try {
     return await prisma.$transaction(async (tx) => {
-      const conflicto = await conflictoSeleccionIA(data, configuracion, id, tx);
+      const conflicto = await conflictoSeleccion(data, configuracion, id, tx);
       if (conflicto) return conflicto;
       await guardar(tx);
       return null;
@@ -224,8 +230,8 @@ export async function crearConexion(
   Object.assign(errores, validarCredencialesRequeridas(proveedor, enviadas, new Set()));
   if (Object.keys(errores).length > 0) return { ok: false, errors: errores };
   if (!cifradoDisponible()) return { ok: false, message: "Falta configurar MASTER_ENCRYPTION_KEY (32 bytes) en el servidor para guardar credenciales cifradas." };
-  if (datos.usar_en_plataforma && data.entorno !== "PRODUCCION") {
-    return { ok: false, message: "Para usar esta clave en Russell, selecciona el entorno Producción." };
+  if ((datos.usar_en_plataforma || datos.usar_para_notificaciones) && data.entorno !== "PRODUCCION") {
+    return { ok: false, message: "Para usar esta conexión en Russell, selecciona el entorno Producción." };
   }
 
   try {
@@ -238,7 +244,7 @@ export async function crearConexion(
     }
 
     const actor = await getCurrentUser();
-    const conflicto = await guardarConSeleccionIA(data, datos, undefined, (tx) => tx.conexionIntegracion.create({
+    const conflicto = await guardarConSeleccion(data, datos, undefined, (tx) => tx.conexionIntegracion.create({
       data: {
         codigo: data.codigo,
         nombre: data.nombre,
@@ -312,12 +318,12 @@ export async function actualizarConexion(
     }
     if (Object.keys(errores).length > 0) return { ok: false, errors: errores };
     if (!cifradoDisponible()) return { ok: false, message: "Falta configurar MASTER_ENCRYPTION_KEY (32 bytes) en el servidor para guardar credenciales cifradas." };
-    if (datos.usar_en_plataforma && data.entorno !== "PRODUCCION") {
-      return { ok: false, message: "Para usar esta clave en Russell, selecciona el entorno Producción." };
+    if ((datos.usar_en_plataforma || datos.usar_para_notificaciones) && data.entorno !== "PRODUCCION") {
+      return { ok: false, message: "Para usar esta conexión en Russell, selecciona el entorno Producción." };
     }
 
     const actor = await getCurrentUser();
-    const conflicto = await guardarConSeleccionIA(data, datos, id, (tx) => tx.conexionIntegracion.update({
+    const conflicto = await guardarConSeleccion(data, datos, id, (tx) => tx.conexionIntegracion.update({
       where: { id },
       data: {
         codigo: data.codigo,
@@ -406,7 +412,7 @@ export async function cambiarEstadoConexion(
     if (!actual) return { ok: false, message: "La conexión no existe." };
 
     const actor = await getCurrentUser();
-    const conflicto = await guardarConSeleccionIA(
+    const conflicto = await guardarConSeleccion(
       { ...actual, activa }, (actual.configuracion ?? {}) as Record<string, unknown>, conexionId,
       (tx) => tx.conexionIntegracion.update({
       where: { id: conexionId },
@@ -535,5 +541,33 @@ export async function ejecutarConexionAction(id: number): Promise<ConexionAction
     return { ok: resultado.ok, estado: resultado.estado, message: resultado.mensaje };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("ejecutarConexionAction", e) };
+  }
+}
+
+/** Envío real, explícito, solo al correo del administrador autenticado. */
+export async function enviarPruebaSmtpAction(id: number): Promise<ConexionActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const conexionId = parseId(id);
+  if (!conexionId) return { ok: false, message: "La conexión no existe." };
+  try {
+    const [conexion, actor] = await Promise.all([
+      prisma.conexionIntegracion.findUnique({ where: { id: conexionId } }),
+      getCurrentUser(),
+    ]);
+    if (!conexion || !["smtp", "gmail"].includes(conexion.proveedor)) return { ok: false, message: "Selecciona una conexión SMTP o Gmail." };
+    if (!conexion.activa) return { ok: false, message: "Activa la conexión antes de enviar la prueba." };
+    if (!actor?.email || !z.email().safeParse(actor.email).success) return { ok: false, message: "Tu usuario necesita un correo válido para recibir la prueba." };
+    const { enviarCorreoRegistrado } = await import("@/lib/correo/notificaciones");
+    const resultado = await enviarCorreoRegistrado(conexion, [actor.email], {
+      titulo: "Prueba de correo", texto: "Este correo confirma que Russell puede enviar mensajes utilizando la conexión SMTP configurada. Si lo recibiste, la prueba de entrega fue correcta.",
+      ruta: PATH, referencia: "Prueba de envío solicitada por el administrador",
+    }, actor.name);
+    await logAudit({ user: actor.name, action: "PROBÓ ENVÍO SMTP", entity: `Configuración · ${conexion.codigo}`, detail: resultado.message });
+    revalidatePath(PATH);
+    return { ...resultado, estado: resultado.ok ? "ok" : "error" };
+  } catch {
+    // Ni respuestas SMTP ni credenciales pueden terminar en la respuesta o el log.
+    return { ok: false, message: "No se pudo completar la prueba de correo. Revisa la configuración SMTP y su historial." };
   }
 }

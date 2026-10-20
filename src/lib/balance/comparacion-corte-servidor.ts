@@ -48,6 +48,7 @@ export async function auditarInconsistenciasCorte(
       clientId: clienteId,
     });
     await createProcessNotification({
+      clientId: clienteId, ruta: `/balance/${par.a.id}#corte`,
       actor,
       text: "detectó diferencias de saldo final entre balances del mismo corte",
       target: `${nombre(par.a)} y ${nombre(par.b)} · ${par.cuentas} cuenta(s). Revisar en /balance/${par.a.id}#corte`,

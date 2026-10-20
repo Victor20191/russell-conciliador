@@ -16,9 +16,13 @@ export default async function ConexionesPage() {
   if (!authz.ok) redirect("/dashboard");
   const administrar = await authorizePermiso("conexiones:administrar");
 
-  const conexiones = await prisma.conexionIntegracion.findMany({
-    orderBy: [{ categoria: "asc" }, { nombre: "asc" }],
-  });
+  const [conexiones, historial] = await Promise.all([
+    prisma.conexionIntegracion.findMany({ orderBy: [{ categoria: "asc" }, { nombre: "asc" }] }),
+    prisma.ejecucionConexion.findMany({
+      where: { tipo: "ENVIO_CORREO" }, orderBy: { createdAt: "desc" }, take: 10,
+      select: { id: true, createdAt: true, estado: true, mensaje: true, conexion: { select: { nombre: true } } },
+    }),
+  ]);
 
   const vista: ConexionVista[] = conexiones.map((c) => ({
     id: c.id,
@@ -42,5 +46,5 @@ export default async function ConexionesPage() {
     updatedAt: c.updatedAt,
   }));
 
-  return <ConexionesClient conexiones={vista} puedeAdministrar={administrar.ok} cifradoListo={cifradoDisponible()} />;
+  return <ConexionesClient conexiones={vista} envios={historial.map((e) => ({ id: e.id, conexion: e.conexion.nombre, fecha: e.createdAt, estado: e.estado, mensaje: e.mensaje }))} puedeAdministrar={administrar.ok} cifradoListo={cifradoDisponible()} />;
 }

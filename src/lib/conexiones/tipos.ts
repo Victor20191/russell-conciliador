@@ -166,6 +166,13 @@ const SEGURIDAD_SMTP: CampoDefinicion = {
   ayuda: "STARTTLS para puerto 587; TLS para puerto 465. El certificado siempre se verifica.",
 };
 
+const NOTIFICACIONES_SMTP: CampoDefinicion[] = [
+  { clave: "usar_para_notificaciones", label: "Enviar notificaciones de Russell con esta conexión", tipo: "booleano", porDefecto: false,
+    ayuda: "Selecciona una sola conexión activa de Producción. Envía avisos de balances, menciones y actualizaciones de soporte a los destinatarios autorizados." },
+  { clave: "url_plataforma", label: "Dirección de Russell", tipo: "texto", placeholder: "https://russell.tuempresa.com",
+    ayuda: "Dirección pública HTTPS que se incluirá en los correos para abrir Russell." },
+];
+
 export const PROVEEDORES: ProveedorDefinicion[] = [
   // ----- Almacenamiento (ejecutable: consumo de archivos) -----
   {
@@ -270,11 +277,12 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     clave: "smtp",
     label: "Servidor de correo (SMTP)",
     categoria: "CORREO",
-    descripcion: "Servidor SMTP para envío de notificaciones y reportes.",
+    descripcion: "Envío de avisos de balances y menciones a los usuarios de Russell.",
     camposConfiguracion: [
       { clave: "host", label: "Servidor", tipo: "texto", requerido: true, placeholder: "smtp.cliente.com" },
       { clave: "puerto", label: "Puerto", tipo: "numero", porDefecto: 587 },
       SEGURIDAD_SMTP,
+      ...NOTIFICACIONES_SMTP,
       {
         clave: "remitente",
         label: "Remitente",
@@ -297,6 +305,7 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
       { clave: "host", label: "Servidor", tipo: "texto", porDefecto: "smtp.gmail.com" },
       { clave: "puerto", label: "Puerto", tipo: "numero", porDefecto: 587 },
       SEGURIDAD_SMTP,
+      ...NOTIFICACIONES_SMTP,
       { clave: "remitente", label: "Remitente", tipo: "texto", placeholder: "cuenta@gmail.com" },
     ],
     camposCredenciales: [

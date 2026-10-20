@@ -93,8 +93,29 @@ negocio (NumRot, Siigo, WhatsApp) no forman parte del catálogo de Russell.
   una selección ambigua/ilegible o un fallo de consulta no usa otra clave silenciosamente.
   Las claves se resuelven en cada uso; modelos y restricciones de Gemini se conservan.
 - OpenAI permite guardar/probar credenciales; no añade un proveedor al balance.
-  SMTP verifica TLS/STARTTLS y autenticación con Nodemailer sin enviar mensajes.
-  Guardar SMTP, Microsoft 365, una API o webhook no crea automatizaciones de envío/lectura.
+  SMTP/Gmail: «Probar» verifica TLS/STARTTLS y autenticación. «Enviar prueba a mi correo»
+  envía un correo real únicamente a la dirección del administrador autenticado.
+- La conexión SMTP/Gmail activa de Producción marcada `usar_para_notificaciones` envía
+  los avisos existentes de balances (carga, cierre, apertura, reemplazo y controles),
+  menciones nuevas y respuestas/cambios de estado de soporte. Solo puede seleccionarse
+  una entre SMTP y Gmail, con transacción Serializable. Requiere `remitente` y
+  `url_plataforma` (origen HTTPS de Russell, sin ruta ni credenciales).
+- Los avisos de balances llegan al equipo vigente del cliente (incluye al Socio por
+  jerarquía), excluyendo al actor cuando se conoce su ID. Las menciones van a los
+  usuarios indicados y soporte al creador del ticket interno. En todos los casos se
+  verifican usuario activo, permiso, publicación y alcance de lectura (en borradores
+  de módulo, también permiso y alcance de carga, como exige su página). No se envía
+  contenido de comentarios, soluciones ni tokens públicos de seguimiento.
+- El envío automático corre con `after()` SOLO con `NODE_ENV=production`; desarrollo
+  no usa el SMTP real automáticamente. La prueba manual es explícita en cualquier
+  entorno. Las claves se resuelven por evento, sin caché ni fallback a otra cuenta.
+  Un mensaje separado por destinatario protege las direcciones del resto del equipo.
+  Los errores se sanitizan y no revierten la operación contable ni el comentario.
+- `ejecuciones_conexion` registra `ENVIO_CORREO`, aceptación/rechazo, duración y referencia
+  del evento; la tarjeta muestra el último resultado y la página los últimos 10 envíos.
+  Aceptación SMTP no acredita entrega final. No hay cola duradera ni reintentos automáticos:
+  un reinicio durante `after()` puede perder un aviso; no se reenvía un mensaje aceptado
+  si solo falló su auditoría. Microsoft 365, otras APIs y webhooks conservan registro/prueba.
 - `MASTER_ENCRYPTION_KEY` debe tener **exactamente 32 bytes UTF-8**. Sin ella no se
   guardan credenciales. Cifrado AES-256-GCM `v1:`, con lectura compatible del formato
   anterior y secretos legados; al editar se recifran los valores conservados.

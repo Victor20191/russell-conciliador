@@ -1,5 +1,6 @@
 "use server";
 
+import { programarAvisoCorreo } from "@/lib/correo/notificaciones";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
@@ -283,14 +284,20 @@ export async function publicarComentario(input: {
     if (menciones.length) {
       const etiqueta = etiquetaEntidad(tipo);
       const quien = actor?.name ?? "Alguien";
-      await prisma.notification.createMany({
-        data: menciones.map(() => ({
-          kind: "comment",
-          who: quien,
-          text: `${quien} te mencionó en ${etiqueta} #${entityId}`,
-          target: `${tipo}:${entityId}`,
-          time: stamp(creado.createdAt),
-        })),
+      try {
+        await prisma.notification.createMany({
+          data: menciones.map(() => ({
+            kind: "comment",
+            who: quien,
+            text: `${quien} te mencionó en ${etiqueta} #${entityId}`,
+            target: `${tipo}:${entityId}`,
+          })),
+        });
+      } catch (error) { registrarError("notificarMenciones", error); }
+      programarAvisoCorreo({
+        titulo: "Te mencionaron en Russell", texto: `${quien} te mencionó en ${etiqueta} #${entityId}. Ingresa para leer el comentario.`,
+        usuarioIds: menciones, actorId: authz.userId, clienteId: alc.scoped ? alc.clientId : undefined,
+        permiso: `${tipo}:ver`, entidad: { tipo, id: entityId }, referencia: `Comentario #${creado.id}`,
       });
     }
 
@@ -389,14 +396,20 @@ export async function editarComentario(input: { id: number; body: string; mencio
     const actor = await getCurrentUser();
     const quien = actor?.name ?? "Alguien";
     if (nuevas.length) {
-      await prisma.notification.createMany({
-        data: nuevas.map(() => ({
-          kind: "comment",
-          who: quien,
-          text: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}`,
-          target: `${tipo}:${comentario.entityId}`,
-          time: stamp(ahora),
-        })),
+      try {
+        await prisma.notification.createMany({
+          data: nuevas.map(() => ({
+            kind: "comment",
+            who: quien,
+            text: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}`,
+            target: `${tipo}:${comentario.entityId}`,
+          })),
+        });
+      } catch (error) { registrarError("notificarMenciones", error); }
+      programarAvisoCorreo({
+        titulo: "Te mencionaron en Russell", texto: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}. Ingresa para leer el comentario.`,
+        usuarioIds: nuevas, actorId: userId, clienteId: tipo === "dian" ? undefined : clientId,
+        permiso: `${tipo}:ver`, entidad: { tipo, id: comentario.entityId }, referencia: `Comentario #${comentario.id} editado`,
       });
     }
     await logAudit({
