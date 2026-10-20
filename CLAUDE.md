@@ -101,7 +101,7 @@ El modelo NO es jerárquico por rango. La verdad operativa vive en la matriz rol
 
 ### Publicación de módulos (capa separada del RBAC)
 
-`src/lib/rbac/publicacion.ts` + `modulos-plataforma.ts` controlan si un módulo se **muestra** a no-superadministradores (`PlatformModule`). NO concede permisos: la autorización final sigue siendo la matriz. El menú lateral (`src/app/(app)/layout.tsx` + `src/lib/nav.ts`) se filtra por permiso del rol Y por publicación del módulo.
+`src/lib/rbac/publicacion.ts` + `modulos-plataforma.ts` controlan si un módulo se **muestra** a no-superadministradores (`PlatformModule`). NO concede permisos: la autorización final sigue siendo la matriz. El menú lateral (`src/app/(app)/layout.tsx` + `src/lib/nav.ts`) se filtra por permiso del rol Y por publicación del módulo. Un módulo «En desarrollo» lo ve SOLO el Superadministrador (el Administrador tampoco). La publicación que se mira es la del prefijo del permiso (`moduloDelPermiso`), salvo las excepciones de `MODULO_PUBLICACION_POR_PERMISO`: `conciliaciones:cerrar` y `conciliaciones:desbloquear` dependen de `modulos_datos` (19/Oct/2026), porque se ejercen en el Cruce contable de los módulos; con «Conciliaciones» (pantallas antiguas) en desarrollo en producción desde el 9/Jun/2026, el Senior y el Gerente no podían cerrar ni desbloquear y solo lo hacía el Superadministrador.
 
 ### Patrón de Server Action (seguir siempre)
 

@@ -293,8 +293,22 @@ const DEFAULT_BY_KEY = new Map<string, PlatformModuleDefinition>(
   MODULOS_PLATAFORMA.map((m) => [m.key, m]),
 );
 
+/**
+ * Permisos cuya PUBLICACIÓN la decide otro módulo que el de su código. Cerrar y desbloquear
+ * la conciliación en firme se llaman `conciliaciones:*`, pero se ejercen en la pestaña Cruce
+ * contable de «Módulos de conciliación»: si dependieran de «Conciliaciones» (las pantallas
+ * antiguas, en desarrollo en producción desde el 9/Jun/2026), el Senior y el Gerente quedaban
+ * bloqueados aunque la matriz se los concediera y solo el Superadministrador podía cerrar
+ * (corregido el 19/Oct/2026). El permiso y la matriz no cambian: solo la publicación que se mira.
+ */
+const MODULO_PUBLICACION_POR_PERMISO: Readonly<Record<string, string>> = {
+  "conciliaciones:cerrar": "modulos_datos",
+  "conciliaciones:desbloquear": "modulos_datos",
+};
+
+/** Módulo cuya publicación habilita el permiso (por defecto, el prefijo de su código). */
 export function moduloDelPermiso(permiso: string): string {
-  return permiso.split(":")[0] ?? "";
+  return MODULO_PUBLICACION_POR_PERMISO[permiso] ?? permiso.split(":")[0] ?? "";
 }
 
 export function moduloPublicadoParaRol(

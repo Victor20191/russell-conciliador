@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   MODULOS_PLATAFORMA,
   esRolAdministrativo,
+  moduloDelPermiso,
   moduloPublicadoParaRol,
   type PlatformModuleKey,
 } from "./modulos-plataforma";
@@ -11,6 +12,29 @@ type EstadoModulo = {
   enabledForNonAdmins: boolean;
   configurableForNonAdmins: boolean;
 };
+
+describe("Módulo cuya publicación habilita cada permiso", () => {
+  test("por defecto, el prefijo del código del permiso", () => {
+    expect(moduloDelPermiso("conciliaciones:ver")).toBe("conciliaciones");
+    expect(moduloDelPermiso("modulos_datos:editar")).toBe("modulos_datos");
+  });
+
+  test("cerrar y desbloquear dependen de «Módulos de conciliación», no de «Conciliaciones»", () => {
+    expect(moduloDelPermiso("conciliaciones:cerrar")).toBe("modulos_datos");
+    expect(moduloDelPermiso("conciliaciones:desbloquear")).toBe("modulos_datos");
+    // Con «Conciliaciones» en desarrollo (como en producción) y los módulos publicados,
+    // el Senior y el Gerente siguen pudiendo cerrar; las pantallas antiguas siguen ocultas.
+    const estados: EstadoModulo[] = [
+      { key: "conciliaciones", enabledForNonAdmins: false, configurableForNonAdmins: true },
+      { key: "modulos_datos", enabledForNonAdmins: true, configurableForNonAdmins: true },
+    ];
+    for (const rol of ["Senior", "Gerente"]) {
+      expect(moduloPublicadoParaRol(rol, moduloDelPermiso("conciliaciones:cerrar"), estados)).toBe(true);
+      expect(moduloPublicadoParaRol(rol, moduloDelPermiso("conciliaciones:desbloquear"), estados)).toBe(true);
+      expect(moduloPublicadoParaRol(rol, moduloDelPermiso("conciliaciones:ver"), estados)).toBe(false);
+    }
+  });
+});
 
 describe("Publicación de módulos por rol", () => {
   test("solo Superadministrador ve módulos en desarrollo", () => {
