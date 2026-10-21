@@ -8,8 +8,10 @@ import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fmt } from "@/lib/format";
 import { ActualizarUmbralSchema, type ActionState } from "@/lib/definitions";
-import { UMBRALES_CACHE_TAG } from "@/lib/parametros/umbrales";
+import { getUmbralesAlertas, UMBRALES_CACHE_TAG } from "@/lib/parametros/umbrales";
 import { getUmbralDef } from "@/lib/balance/umbrales-alertas";
+import { idsBalancesAbiertos, recalcularEstadoBalances } from "@/lib/balance/alertas-balance-datos";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 
 const PATH = "/config/parametros";
 const PERMISO = "parametros:administrar";
@@ -19,6 +21,17 @@ const PERMISO = "parametros:administrar";
 // RECALCULAN al leer, así que el cambio es retroactivo para todo lo ya cargado.
 // Los cruces de los módulos leen la tolerancia de la cédula y los del tercero.
 const RUTAS_AFECTADAS = ["/balance", "/balance/borradores", "/modulos"];
+
+/**
+ * El umbral de saldos contrarios decide qué balances abiertos quedan «En proceso con alertas»
+ * (`alertas-balance-datos.ts`): la columna `estado` que lee el índice se recalcula con el valor
+ * nuevo (la caché de umbrales todavía puede traer el anterior en esta misma petición).
+ */
+async function recalcularEstadosPorUmbral(clave: string, valor: number): Promise<void> {
+  if (clave !== "naturaleza") return;
+  const [cuentasEstandar, umbrales, ids] = await Promise.all([getCuentasEstandar(), getUmbralesAlertas(), idsBalancesAbiertos(prisma)]);
+  await recalcularEstadoBalances(prisma, ids, { cuentasEstandar, umbrales: { ...umbrales, naturaleza: valor } });
+}
 
 /**
  * Edita el valor de un umbral de alertas. Upsert por `clave`: al crear la fila
@@ -50,6 +63,7 @@ export async function actualizarUmbral(_prev: ActionState, formData: FormData): 
       create: { clave, valor, predeterminado: def.defecto, actualizadoPor: user?.name ?? null },
       update: { valor, actualizadoPor: user?.name ?? null },
     });
+    await recalcularEstadosPorUmbral(clave, valor);
 
     await logAudit({
       user: user?.name ?? "Sistema",
@@ -90,6 +104,7 @@ export async function restaurarUmbral(_prev: ActionState, formData: FormData): P
       create: { clave, valor: defecto, predeterminado: def.defecto, actualizadoPor: user?.name ?? null },
       update: { valor: defecto, actualizadoPor: user?.name ?? null },
     });
+    await recalcularEstadosPorUmbral(clave, defecto);
 
     await logAudit({
       user: user?.name ?? "Sistema",

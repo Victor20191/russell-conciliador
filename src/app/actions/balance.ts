@@ -99,6 +99,8 @@ import { evaluarCierreBalance, mensajeCierreBloqueado, mensajePrevalidadorParaCe
 import { descripcionReemplazo, evaluarReemplazoBalance } from "@/lib/balance/reemplazo-balance";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { ESTADO_CERRADO, estadoEnProceso } from "@/lib/balance/estado-balance";
+import { okHeredables, resumenAlertasBalance, TIPO_VALIDACION_NATURALEZA } from "@/lib/balance/alertas-naturaleza";
+import { recalcularEstadoBalance, resumenAlertasDeBalance, type ContextoAlertas } from "@/lib/balance/alertas-balance-datos";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
@@ -1216,8 +1218,8 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
-    const user = await getCurrentUser();
-    const umbralCorte = (await getUmbralesAlertas()).corte_saldo_final;
+    const [user, ctxAlertas] = await Promise.all([getCurrentUser(), contextoAlertas()]);
+    const umbralCorte = ctxAlertas.umbrales.corte_saldo_final;
     const resultado = await transaccionSerializable(async (tx) => {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!referencia) return { ok: false as const, message: "Balance inexistente." };
@@ -1261,10 +1263,13 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       // El prevalidador se recalcula en la MISMA transacción y se contrasta su huella con la última
       // revisión: no se confía en lo que mostró la pantalla.
       const contextoPrevalidador = await cargarContextoPrevalidadorBalance(id, tx);
+      // Cada saldo contrario a la naturaleza sobre el umbral necesita su «Dar OK» (20/Oct/2026).
+      const alertasCierre = await resumenAlertasDeBalance(tx, id, ctxAlertas);
       const evaluacion = evaluarCierreBalance({
         balanceId: id,
         ...insumos,
         mensajePrevalidador: mensajePrevalidadorParaCerrar(contextoPrevalidador),
+        saldosContrariosPendientes: alertasCierre.naturaleza.pendientes,
       });
       if (!evaluacion.ok) {
         // Lo recalculado se guarda igual (la transacción no se revierte): la pantalla ya lo verá.
@@ -1358,24 +1363,9 @@ export async function descongelarBalance(input: { id: number; justificacion: str
 
   try {
     const user = await getCurrentUser();
-    // Vuelve a «En proceso», con alertas si su validación las tiene hoy (mismo conteo que al
-    // confirmar el cargue). El detalle de un balance cerrado no cambia, así que se calcula antes.
-    const [detalle, cuentasEstandar, umbrales] = await Promise.all([
-      prisma.balancePruebaDetalle.findMany({
-        where: { encabezadoId: id },
-        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-      }),
-      getCuentasEstandar(),
-      getUmbralesAlertas(),
-    ]);
-    const alertas = reconstruirBalance(
-      detalle.map((f) => ({
-        cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
-        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-      })),
-      cuentasEstandar,
-      umbrales,
-    ).validations.filter((v) => v.status === "warn").length;
+    // Vuelve a «En proceso», con alertas si tiene saldos contrarios sin OK o cuentas sin mapeo
+    // (`alertas-balance-datos.ts`). El detalle de un balance cerrado no cambia: se calcula antes.
+    const alertas = (await resumenAlertasDeBalance(prisma, id, await contextoAlertas())).pendientes;
 
     const resultado = await transaccionSerializable(async (tx) => {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
@@ -1496,7 +1486,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     const std = await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true, name: true } });
     if (!std) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
 
-    const user = await getCurrentUser();
+    const [user, ctxAlertas] = await Promise.all([getCurrentUser(), contextoAlertas()]);
     const resultado = await transaccionSerializable(async (tx) => {
       // Usa el mismo candado que `freezeBalance`: si congelar y homologar llegan
       // simultáneamente, una operación termina antes y la otra vuelve a leer el
@@ -1610,6 +1600,8 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         where: { id: encId },
         data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
       });
+      // Cambian las cuentas sin mapeo y la naturaleza esperada: el estado se recalcula aquí mismo.
+      await recalcularEstadoBalance(tx, encId, ctxAlertas);
 
       return {
         ok: true as const,
@@ -1693,7 +1685,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       return { ok: false, message: "No se puede modificar el mapeo de un balance cerrado." };
     }
 
-    const user = await getCurrentUser();
+    const [user, ctxAlertas] = await Promise.all([getCurrentUser(), contextoAlertas()]);
     const resultado = await transaccionSerializable(async (tx) => {
       // Mismo candado que `freezeBalance`/`asignarCuentaEstandar`.
       await tomarCandadoTransaccion(
@@ -1791,6 +1783,8 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
         where: { id: encId },
         data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
       });
+      // Cambian las cuentas sin mapeo y la naturaleza esperada: el estado se recalcula aquí mismo.
+      await recalcularEstadoBalance(tx, encId, ctxAlertas);
 
       return {
         ok: true as const,
@@ -1898,14 +1892,22 @@ type PlanEstandarCargado = Awaited<ReturnType<typeof getCuentasEstandar>>;
 type ContextoRehomologacion = {
   cuentasEstandar: PlanEstandarCargado;
   stdByCode: Map<string, PlanEstandarCargado[number]>;
+  umbrales: UmbralesAlertas;
   hayDescripcion: boolean;
   planTok: ReturnType<typeof tokenizarPlan>;
 };
 
+/** Plan estándar y umbrales vigentes: lo que necesita el recálculo de alertas y estado del balance. */
+async function contextoAlertas(): Promise<ContextoAlertas> {
+  const [cuentasEstandar, umbrales] = await Promise.all([getCuentasEstandar(), getUmbralesAlertas()]);
+  return { cuentasEstandar, umbrales };
+}
+
 async function contextoRehomologacion(): Promise<ContextoRehomologacion> {
-  const cuentasEstandar = await getCuentasEstandar();
+  const [cuentasEstandar, umbrales] = await Promise.all([getCuentasEstandar(), getUmbralesAlertas()]);
   return {
     cuentasEstandar,
+    umbrales,
     stdByCode: new Map(cuentasEstandar.map((s) => [s.code, s])),
     hayDescripcion: cuentasEstandar.some((s) => s.possibleAccounts || s.name),
     planTok: tokenizarPlan(cuentasEstandar),
@@ -1931,7 +1933,7 @@ type ResultadoRehomologacion =
  * Nunca inventa un mapeo nuevo con IA ni escribe memoria: solo la consume.
  */
 async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Promise<ResultadoRehomologacion> {
-  const { cuentasEstandar, stdByCode, hayDescripcion, planTok } = ctx;
+  const { cuentasEstandar, stdByCode, hayDescripcion, planTok, umbrales } = ctx;
   return transaccionSerializable(async (tx) => {
     const referencia = await tx.balancePruebaEncabezado.findUnique({
       where: { id },
@@ -2040,6 +2042,7 @@ async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Prom
       where: { id },
       data: { mapeadas, sinMapear: total - mapeadas, completitud: porcentajeCompletitud(mapeadas, total - mapeadas) },
     });
+    await recalcularEstadoBalance(tx, id, { cuentasEstandar, umbrales });
 
     return { ok: true as const, clienteId: encabezado.clienteId, rehomologadas, retiradas, sinMapear: total - mapeadas };
   });
@@ -2714,18 +2717,29 @@ async function persistirCargue(p: {
       select: { id: true, version: true },
     });
     const version = siguienteVersionCargue(previas.map((v) => v.version));
-    // Recién confirmado queda «En proceso» (con alertas si la validación las encontró) hasta que lo cierren.
-    const status = estadoEnProceso(alertas);
+    // Las cuentas tal como las leerá el detalle (las mismas filas que se guardan): deciden el estado.
+    const cuentasCargue = reconstruirBalance(filasDet, p.cuentasEstandar, p.umbrales).breakdown.flatMap((g) => g.items);
 
     // Comparativo contra la versión previa (solo el conteo de cambios; el diff
     // completo se recalcula al abrir la pantalla de diff).
     let cambios = calc.totalRows;
-    const previaId = previas[previas.length - 1]?.id;
+    const previa = previas[previas.length - 1];
+    const previaId = previa?.id;
+    // OK heredados (20/Oct/2026): los «Dar OK» de la versión previa cuya cuenta llega con el MISMO
+    // saldo final y sigue con saldo contrario pasan a esta versión (`okHeredables`).
+    let heredados: Array<{ anchor: string; validadoPor: string | null; validadoPorId: number | null; validadoEn: Date; comment: { body: string; authorId: number } }> = [];
     if (previaId) {
-      const filasPrev = await tx.balancePruebaDetalle.findMany({
-        where: { encabezadoId: previaId },
-        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-      });
+      const [filasPrev, validacionesPrevias] = await Promise.all([
+        tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: previaId },
+          select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        }),
+        tx.validacionAlerta.findMany({
+          where: { balanceId: previaId, tipoAlerta: TIPO_VALIDACION_NATURALEZA },
+          select: { anchor: true, validadoPor: true, validadoPorId: true, validadoEn: true, comment: { select: { body: true, authorId: true } } },
+        }),
+      ]);
+      heredados = okHeredables(validacionesPrevias, new Map(filasPrev.map((f) => [f.cuenta8, Number(f.saldoFinal)])), cuentasCargue, p.umbrales);
       const calcPrev = reconstruirBalance(
         filasPrev.map((f) => ({
           cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
@@ -2737,6 +2751,9 @@ async function persistirCargue(p: {
       const diff = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calc.breakdown));
       cambios = diff.summary.added + diff.summary.changed + diff.summary.removed;
     }
+    // Recién confirmado queda «En proceso», o «con alertas» si tiene saldos contrarios sin OK (los
+    // heredados cuentan como dados) o cuentas sin mapeo, hasta que lo cierren.
+    const status = estadoEnProceso(resumenAlertasBalance(cuentasCargue, new Set(heredados.map((h) => h.anchor)), p.umbrales).pendientes);
 
     const catalogoFuente = await tx.balanceImportacionStaging.findMany({
       where: { loteId: p.loteId, OR: [{ omitida: false }, { omitida: null }] },
@@ -2777,6 +2794,20 @@ async function persistirCargue(p: {
       },
       select: { id: true },
     });
+
+    // Cada OK heredado conserva quién y cuándo lo dio; su comentario se copia a la conversación de
+    // la cuenta en esta versión (la de la versión previa sigue allá).
+    for (const h of heredados) {
+      const comentario = await tx.comment.create({
+        data: { entityType: "balance", entityId: balance.id, anchor: h.anchor, authorId: h.comment.authorId, body: `OK heredado de la ${previa?.version ?? "versión anterior"} (mismo saldo final): ${h.comment.body}` },
+      });
+      await tx.validacionAlerta.create({
+        data: {
+          balanceId: balance.id, anchor: h.anchor, tipoAlerta: TIPO_VALIDACION_NATURALEZA, commentId: comentario.id,
+          validadoPor: h.validadoPor, validadoPorId: h.validadoPorId, validadoEn: h.validadoEn, heredadaDeBalanceId: previaId ?? null,
+        },
+      });
+    }
 
     // Completa la procedencia solo de las filas escritas por este cargue. Las
     // decisiones manuales concurrentes no llevan este lote y quedan intactas.
@@ -5665,16 +5696,15 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
 }
 
 /**
- * VALIDA (da OK) una alerta de naturaleza/saldo contrario de una cuenta del balance.
- * Exige un COMENTARIO justificativo (obligatorio), que se publica en la conversación
- * de la cuenta (anclado por su código) y queda ligado a la validación. Tras validar,
- * la alerta se retira de la vista (deja el mismo «OK», reversible). Autoriza como
- * operar el balance: `balance:crear` + alcance de escritura sobre el cliente.
+ * «Dar OK» a la naturaleza contraria de una cuenta DEL CLIENTE (20/Oct/2026: las agrupadoras ya no
+ * tienen alerta propia). Exige un COMENTARIO justificativo, que se publica en la conversación de la
+ * cuenta (anclado por su código) y queda ligado a la validación; la alerta se retira de la vista
+ * (reversible) y el estado del balance se recalcula en el mismo commit. Autoriza como operar el
+ * balance: `balance:crear` + alcance de escritura sobre el cliente.
  */
-export async function validarAlerta(input: { balanceId: number; anchor: string; tipoAlerta: string; comentario: string }): Promise<ActionState> {
+export async function validarAlerta(input: { balanceId: number; anchor: string; comentario: string }): Promise<ActionState> {
   const balanceId = Number(input?.balanceId);
   const anchor = String(input?.anchor ?? "").trim();
-  const tipoAlerta = input?.tipoAlerta === "naturaleza" ? "naturaleza" : "saldo_contrario";
   const comentario = String(input?.comentario ?? "").trim();
   if (!Number.isInteger(balanceId) || balanceId <= 0 || !anchor) return { ok: false, message: "Alerta inválida." };
   if (comentario.length < 3) return { ok: false, message: "El comentario es obligatorio para validar la alerta." };
@@ -5685,17 +5715,23 @@ export async function validarAlerta(input: { balanceId: number; anchor: string; 
   const user = await getCurrentUser();
   if (!user) return { ok: false, message: "Sesión no válida." };
   try {
-    // Comentario + validación de forma ATÓMICA. La validación es única por
+    const ctxAlertas = await contextoAlertas();
+    // Comentario + validación + estado de forma ATÓMICA. La validación es única por
     // (balance, cuenta): re-validar reemplaza el comentario ligado.
-    await prisma.$transaction(async (tx) => {
+    const resultado = await prisma.$transaction(async (tx) => {
+      const cuenta = await tx.balancePruebaDetalle.findFirst({ where: { encabezadoId: balanceId, cuenta8: anchor }, select: { id: true } });
+      if (!cuenta) return { ok: false as const, message: "Solo se da OK a la naturaleza contraria de una cuenta del cliente de este balance." };
       const c = await tx.comment.create({ data: { entityType: "balance", entityId: balanceId, anchor, authorId: user.id, body: comentario } });
       await tx.validacionAlerta.upsert({
         where: { balanceId_anchor: { balanceId, anchor } },
-        update: { tipoAlerta, commentId: c.id, validadoPor: user.name, validadoPorId: user.id, validadoEn: new Date() },
-        create: { balanceId, anchor, tipoAlerta, commentId: c.id, validadoPor: user.name, validadoPorId: user.id },
+        update: { tipoAlerta: TIPO_VALIDACION_NATURALEZA, commentId: c.id, validadoPor: user.name, validadoPorId: user.id, validadoEn: new Date(), heredadaDeBalanceId: null },
+        create: { balanceId, anchor, tipoAlerta: TIPO_VALIDACION_NATURALEZA, commentId: c.id, validadoPor: user.name, validadoPorId: user.id },
       });
+      await recalcularEstadoBalance(tx, balanceId, ctxAlertas);
+      return { ok: true as const };
     });
-    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: tipoAlerta, clientId: bal.clienteId });
+    if (!resultado.ok) return resultado;
+    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: TIPO_VALIDACION_NATURALEZA, clientId: bal.clienteId });
     revalidatePath(`/balance/${balanceId}`);
     return { ok: true, message: "Alerta validada." };
   } catch (e) {
@@ -5716,7 +5752,12 @@ export async function revertirValidacionAlerta(input: { balanceId: number; ancho
   const authz = await authorizePermiso("balance:crear", { clientId: bal.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
   try {
-    const del = await prisma.validacionAlerta.deleteMany({ where: { balanceId, anchor } });
+    const ctxAlertas = await contextoAlertas();
+    const del = await prisma.$transaction(async (tx) => {
+      const borradas = await tx.validacionAlerta.deleteMany({ where: { balanceId, anchor } });
+      await recalcularEstadoBalance(tx, balanceId, ctxAlertas);
+      return borradas;
+    });
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)`, clientId: bal.clienteId });
     revalidatePath(`/balance/${balanceId}`);
@@ -5754,7 +5795,8 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
 
     const user = await getCurrentUser();
     await asegurarPerfilBaseCliente(fila.encabezado.clienteId, user?.name ?? null);
-    const cuentasEstandar = await getCuentasEstandar();
+    const ctxAlertas = await contextoAlertas();
+    const { cuentasEstandar } = ctxAlertas;
     const resultado = await transaccionSerializable(async (tx) => {
       // Comparte la barrera de homologación/override/aprobación/congelación. El
       // primer chequeo evita trabajo innecesario; esta relectura DESPUÉS del
@@ -5896,6 +5938,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
           completitud: porcentajeCompletitud(calc.mapped, calc.totalRows - calc.mapped),
         },
       });
+      await recalcularEstadoBalance(tx, encIdActual, ctxAlertas);
       return {
         ok: true as const,
         encId: encIdActual,
@@ -6197,9 +6240,9 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
   if (!alcanceRevisar.ok) return { ok: false, message: alcanceRevisar.message };
 
   try {
-    const user = await getCurrentUser();
+    const [user, ctxAlertas] = await Promise.all([getCurrentUser(), contextoAlertas()]);
     const actor = user?.name ?? "Sistema";
-    const umbralCorte = (await getUmbralesAlertas()).corte_saldo_final;
+    const umbralCorte = ctxAlertas.umbrales.corte_saldo_final;
     const resultado = await transaccionSerializable(async (tx) => {
       // Orden global: prevalidador-catalogo → balance-eliminar → balance-oficial (ordenados) →
       // conciliacion-cierre (ordenados) → balance-corte.
@@ -6282,7 +6325,12 @@ export async function reemplazarBalanceConciliado(input: { balanceNuevoId: numbe
       await eliminarBalancesEnTransaccion(tx, [viejo]);
       // 3. Sin el viejo, el nuevo tiene que poder cerrarse: comparaciones del corte al día.
       const recalculo = await recalcularComparacionesDelCorteEn(tx, clienteId, nuevo.periodoFin, umbralCorte);
-      const cierre = evaluarCierreBalance({ balanceId: nuevo.id, ...(await insumosCierreBalanceEn(tx, nuevo, umbralCorte)), mensajePrevalidador });
+      const cierre = evaluarCierreBalance({
+        balanceId: nuevo.id,
+        ...(await insumosCierreBalanceEn(tx, nuevo, umbralCorte)),
+        mensajePrevalidador,
+        saldosContrariosPendientes: (await resumenAlertasDeBalance(tx, nuevo.id, ctxAlertas)).naturaleza.pendientes,
+      });
       if (!cierre.ok) throw new ErrorReemplazoBalance(`No se reemplazó: ${mensajeCierreBloqueado(cierre.bloqueo)}`);
       // 4. El nuevo queda cerrado.
       if (!nuevo.estaCongelado) {

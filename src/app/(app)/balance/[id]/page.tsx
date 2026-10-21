@@ -19,7 +19,8 @@ import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
 import { DescongelarBalanceButton } from "./descongelar-balance-button";
 import { quedoDescongelado } from "@/lib/balance/descongelar";
-import { estadoBalance, tonoEstadoBalance } from "@/lib/balance/estado-balance";
+import { estadoBalance, estadoEnProceso, tonoEstadoBalance } from "@/lib/balance/estado-balance";
+import { ajustarValidacionNaturaleza, resumenAlertasBalance, validadosNaturaleza, TIPO_VALIDACION_NATURALEZA } from "@/lib/balance/alertas-naturaleza";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
@@ -104,7 +105,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Alertas ya VALIDADAS (OK + comentario) de este balance → se retiran de la vista.
     prisma.validacionAlerta.findMany({
       where: { balanceId: id },
-      select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
+      select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, heredadaDeBalanceId: true, comment: { select: { body: true } } },
     }),
     // Umbrales de alerta vigentes (/config/parametros). Como los agregados se
     // RECALCULAN al leer, cambiarlos se refleja de inmediato en este balance.
@@ -178,21 +179,33 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // Eliminar: los administradores (cualquier alcance) y el senior asignado (una versión o un
   // período). Un balance cerrado se abre antes y uno con conciliación en firme no se elimina.
   const puedeEliminarBalance = eliminarAuth.ok || revisarAuth.ok;
-  // En proceso, en proceso con alertas o cerrado: el mismo rótulo del índice de /balance.
-  const estado = estadoBalance(balance);
   // Abierto para corregirlo y aún sin volver a cerrar: aviso arriba con quién y por qué.
   const descongelada = quedoDescongelado(balance);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
-  const validaciones: Record<string, { tipo: string; por: string; en: string; comentario: string }> = {};
-  for (const v of validacionesRows) validaciones[v.anchor] = { tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDateTime(v.validadoEn), comentario: v.comment?.body ?? "" };
+  // Solo los OK dados a cuentas del cliente: los «saldo_contrario» de agrupadoras quedaron sin efecto
+  // el 20/Oct/2026 (sus comentarios siguen en la conversación). Un OK heredado dice de qué versión vino.
+  const versionPorId = new Map(hermanos.map((h) => [h.id, h.version]));
+  const validaciones: Record<string, { tipo: string; por: string; en: string; comentario: string; heredadaDe: string | null }> = {};
+  for (const v of validacionesRows) {
+    if (v.tipoAlerta !== TIPO_VALIDACION_NATURALEZA) continue;
+    validaciones[v.anchor] = {
+      tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDateTime(v.validadoEn), comentario: v.comment?.body ?? "",
+      heredadaDe: v.heredadaDeBalanceId != null ? versionPorId.get(v.heredadaDeBalanceId) ?? "versión anterior" : null,
+    };
+  }
   const filas = balance.detalles.map((f) => ({
     id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
+  // Alertas pendientes al leer (saldos contrarios sin OK + cuentas sin mapeo): deciden el estado de una
+  // versión abierta, la validación V2 y si se puede cerrar. La columna `estado` la usa el índice.
+  const resumenAlertas = resumenAlertasBalance(calc.breakdown.flatMap((g) => g.items), validadosNaturaleza(validacionesRows), umbrales);
+  // En proceso, en proceso con alertas o cerrado: el mismo rótulo del índice de /balance.
+  const estado = balance.estaCongelado ? estadoBalance(balance) : estadoEnProceso(resumenAlertas.pendientes);
   // Qué impide cerrar el balance (versión anterior, diferencias con otro balance del corte o
   // prevalidador). Solo anticipa: la acción recalcula el corte y decide en su transacción, así que un
   // par «sin comparar» no deshabilita el botón.
@@ -212,6 +225,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       comparacion: o.comparacion ? { inconsistente: o.comparacion.inconsistente, cuentas: o.comparacion.diferencias.length } : null,
     })),
     mensajePrevalidador: mensajePrevalidadorCierre,
+    saldosContrariosPendientes: resumenAlertas.naturaleza.pendientes,
     ignorarSinComparar: true,
   });
   const bloqueoCierre = evaluacionCierre.ok ? null : evaluacionCierre.bloqueo;
@@ -239,7 +253,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       };
   const historialPrevalidador = construirHistorialRevisiones(historialRevisionesCrudo, revisionPrevalidador.estado);
   const sums = balance.detalles.length > 0 ? calc.sums : null;
-  const validations = calc.validations;
+  const validations = ajustarValidacionNaturaleza(calc.validations, resumenAlertas, umbrales);
   // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
   const nombresRussell = new Map(cuentasEstandar.map((s) => [s.code, s.name]));
   const nombre4 = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));

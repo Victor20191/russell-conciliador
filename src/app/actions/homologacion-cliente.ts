@@ -17,6 +17,9 @@
 import { revalidatePath } from "next/cache";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
+import { recalcularEstadoBalances } from "@/lib/balance/alertas-balance-datos";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
@@ -103,7 +106,7 @@ export async function guardarHomologacionCliente(
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
     if (!standard) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
 
-    const user = await getCurrentUser();
+    const [user, cuentasEstandar, umbrales] = await Promise.all([getCurrentUser(), getCuentasEstandar(), getUmbralesAlertas()]);
     const actualizadoPor = user?.name ?? null;
 
     // Conciliación EN FIRME: la memoria solo rige los cargues siguientes, así que se edita aunque la
@@ -173,6 +176,10 @@ export async function guardarHomologacionCliente(
       const migracion = aplicarExistentes
         ? await migrarHomologacionClienteEnTransaccion(tx, { codigo, alcance, codigoMemoria, cuentaCliente, encabezados })
         : { filasActualizadas: 0, filasTerceroActualizadas: 0, encabezadosActualizados: 0 };
+      // Homologar cambia las cuentas sin mapeo y la naturaleza esperada de los balances migrados.
+      if (migracion.encabezadosActualizados > 0) {
+        await recalcularEstadoBalances(tx, encabezados.map((e) => e.id), { cuentasEstandar, umbrales });
+      }
 
       const nombreDetectado = await nombreRecienteDetalleCliente(tx, { clienteId, alcance, codigoMemoria, cuentaCliente });
       const nombre = nombreDetectado || codigoMemoria;

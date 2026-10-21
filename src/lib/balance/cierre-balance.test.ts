@@ -5,7 +5,7 @@ const otro = (over: Partial<OtroBalanceCierre> = {}): OtroBalanceCierre => ({
   id: 2, version: "v1", nombre: "Enero 2025 – Diciembre 2025 · Por terceros", estaCongelado: false, enFirme: false,
   comparacion: { inconsistente: false, cuentas: 0 }, ...over,
 });
-const base = { balanceId: 1, vigenteDeMiLinea: { id: 1, version: "v2" }, anterioresCerradas: [], otros: [otro()], mensajePrevalidador: null };
+const base = { balanceId: 1, vigenteDeMiLinea: { id: 1, version: "v2" }, anterioresCerradas: [], otros: [otro()], mensajePrevalidador: null, saldosContrariosPendientes: 0 };
 
 describe("evaluarCierreBalance", () => {
   it("cierra cuando es la vigente, los demás coinciden y el prevalidador está aprobado", () => {
@@ -52,6 +52,17 @@ describe("evaluarCierreBalance", () => {
   it("el prevalidador va después de la comparación", () => {
     expect(evaluarCierreBalance({ ...base, mensajePrevalidador: "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado." }))
       .toEqual({ ok: false, bloqueo: { tipo: "prevalidador", mensaje: "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado." } });
+  });
+
+  it("los saldos contrarios sin «Dar OK» impiden cerrar, después del prevalidador", () => {
+    const r = evaluarCierreBalance({ ...base, saldosContrariosPendientes: 3 });
+    expect(r).toEqual({ ok: false, bloqueo: { tipo: "saldos_contrarios", pendientes: 3 } });
+    if (r.ok) throw new Error("esperaba bloqueo");
+    expect(mensajeCierreBloqueado(r.bloqueo)).toBe("No se puede cerrar el balance: faltan 3 cuentas con naturaleza contraria sin «Dar OK». Fíltralas con «Naturaleza contraria» en el detalle.");
+    expect(mensajeCierreBloqueado({ tipo: "saldos_contrarios", pendientes: 1 })).toContain("falta 1 cuenta con naturaleza contraria");
+    // El prevalidador se explica primero.
+    expect(evaluarCierreBalance({ ...base, saldosContrariosPendientes: 3, mensajePrevalidador: "No se puede cerrar el balance: el prevalidador no está listo." }))
+      .toMatchObject({ ok: false, bloqueo: { tipo: "prevalidador" } });
   });
 
   it("accionParaResolver: en firme se reemplaza, cerrado se abre y se elimina", () => {

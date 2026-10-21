@@ -38,7 +38,8 @@ export type CuentaEstandar = {
 
 // ---- Tipos de salida (coinciden con el JSON que renderiza el detalle) ----
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
-export type Validation = { id: string; rule: string; status: "ok" | "warn"; detail: string; count?: number };
+// `info`: se muestra pero no es alerta (no cuenta en la pestaña, la nota del cargue ni el estado).
+export type Validation = { id: string; rule: string; status: "ok" | "warn" | "info"; detail: string; count?: number };
 export type BreakdownItem = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; std: string | null; coincidencia: number | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; debe?: number; haber?: number };
 export type BreakdownGroup = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; items: BreakdownItem[]; debe?: number; haber?: number };
 
@@ -751,10 +752,10 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
       rule: "Naturaleza de cuenta vs saldo",
       status: contrario > 0 ? "warn" : "ok",
       detail: contrario > 0
-        ? `${contrario} cuenta(s) con saldo contrario superior a ${fmt(umbrales.naturaleza)}`
+        ? `${contrario} cuenta(s) con naturaleza contraria por encima de ${fmt(umbrales.naturaleza)}`
         : contrarioInformativo > 0
-          ? `${contrarioInformativo} saldo(s) contrario(s) de hasta ${fmt(umbrales.naturaleza)} · informativos`
-          : "Sin saldos contrarios",
+          ? `${contrarioInformativo} cuenta(s) con naturaleza contraria de hasta ${fmt(umbrales.naturaleza)} · informativas`
+          : "Sin cuentas con naturaleza contraria",
       ...(contrario > 0 ? { count: contrario } : {}),
     },
     {
@@ -776,7 +777,8 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
     {
       id: "V4",
       rule: "Variaciones > 25% vs período anterior",
-      status: variaciones > 0 ? "warn" : "ok",
+      // Solo informa (20/Oct/2026): una variación no es un error y casi todo balance la tiene.
+      status: variaciones > 0 ? "info" : "ok",
       detail: variaciones > 0 ? `${variaciones} cuenta(s) con variación significativa` : "Sin variaciones significativas",
       ...(variaciones > 0 ? { count: variaciones } : {}),
     },

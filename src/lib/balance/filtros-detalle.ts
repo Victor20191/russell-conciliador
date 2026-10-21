@@ -13,8 +13,8 @@ export type FiltroValidacionDetalle =
 
 export const OPCIONES_FILTRO_VALIDACION: { value: FiltroValidacionDetalle; label: string }[] = [
   { value: "todas", label: "Todas" },
-  { value: "ok", label: "OK" },
   { value: "alerta", label: "Alerta pendiente" },
+  { value: "ok", label: "Con OK" },
 ];
 
 export type FiltrosColumnasDetalle = {
@@ -106,11 +106,12 @@ function estadoValidacion(
   validados: ReadonlySet<string>,
   umbrales: UmbralesAlertas,
 ): EstadoValidacionFila {
-  // Replica lo que pinta `celdaValidacion`. OK cubre dos casos equivalentes:
-  // saldo correcto en subcuenta Russell, o alerta a la que ya se dio OK.
-  if (nodo.saldoOk) {
-    return nodo.nivel === 6 && nodo.mapped ? "ok" : "vacia";
-  }
+  // Replica lo que pinta `celdaValidacion`: solo la cuenta del cliente tiene alertas —sin mapeo
+  // (pendiente hasta homologarla) y naturaleza contraria—; las agrupadoras y los saldos de su
+  // naturaleza quedan en blanco. «OK» es el que dio una persona (sin OK automático desde el 20/Oct/2026).
+  if (nodo.nivel !== 8) return "vacia";
+  if (!nodo.std) return "alerta";
+  if (nodo.saldoOk) return "vacia";
   if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk, umbrales)) {
     return "informativa";
   }

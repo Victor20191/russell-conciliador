@@ -140,10 +140,12 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
     expect(diversos?.mapped).toBe(false);
   });
 
-  it("calcula variación porcentual y la marca cuando supera 25%", () => {
+  it("calcula variación porcentual y la marca cuando supera 25%, como información (no alerta)", () => {
     const caja = r.breakdown.find((g) => g.code === "11")?.items[0];
     expect(caja?.variation).toBe(50);
-    expect(r.validations.find((v) => v.id === "V4")?.status).toBe("warn");
+    const v4 = r.validations.find((v) => v.id === "V4");
+    expect(v4?.status).toBe("info");
+    expect(v4?.count).toBe(2); // Caja (+50%) e IVA (-500 → 800)
   });
 
   it("una diferencia de $1.000 es informativa: no alcanza el umbral de $2.000", () => {
@@ -494,7 +496,7 @@ describe("calcularBalance — umbral de naturaleza contraria", () => {
     expect(iva?.saldoOk).toBe(false);
     expect(v2?.status).toBe("ok");
     expect(v2?.count).toBeUndefined();
-    expect(v2?.detail).toContain("informativos");
+    expect(v2?.detail).toContain("informativas");
   });
 });
 

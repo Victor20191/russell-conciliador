@@ -186,7 +186,7 @@ describe("filtrarArbolDetallePorColumnas", () => {
     expect(soloPendientes[0].hijos[0].hijos[0].hijos[0].code).toBe("13050598");
   });
 
-  it("distingue alertas y OK, y deja los informativos fuera de ambos", () => {
+  it("distingue alertas y OK dados por una persona, y deja los informativos fuera de ambos", () => {
     const alertas = filtrarArbolDetallePorColumnas(
       arbol,
       filtros({ validacion: "alerta" }),
@@ -195,19 +195,21 @@ describe("filtrarArbolDetallePorColumnas", () => {
     );
     expect(alertas.map((item) => item.code)).toEqual(["13050599"]);
 
+    // Una cuenta homologada con naturaleza contraria y OK dado por una persona.
+    const contrariaConOk = nodo("13050501", 8, { saldoOk: false, balance: -900_000, std: "130505" });
     const conOkManual = filtrarArbolDetallePorColumnas(
-      arbol,
+      [...arbol, nodo("13", 2, { hijos: [nodo("1305", 4, { hijos: [nodo("130505", 6, { hijos: [contrariaConOk] })] })] })],
       filtros({ validacion: "ok" }),
-      new Set(["13050599"]),
+      new Set(["13050501"]),
       UMBRALES_ALERTAS_DEFECTO,
     );
-    expect(conOkManual.map((item) => item.code)).toEqual(["110505", "111005", "13050599"]);
+    // Sin OK automático: las subcuentas con el saldo de su naturaleza ya no salen como «OK».
+    expect(conOkManual.map((item) => item.code)).toEqual(["13050501"]);
 
     const informativa = nodo("13050598", 8, {
       saldoOk: false,
       balance: -25_000,
-      std: null,
-      mapped: false,
+      std: "130505",
     });
     expect(filtrarArbolDetallePorColumnas(
       [informativa],
@@ -224,17 +226,33 @@ describe("filtrarArbolDetallePorColumnas", () => {
   });
 
   it("al filtrar por OK no arrastra grupos ni filas de otro estado", () => {
-    const resultado = filtrarArbolDetallePorColumnas(
-      arbol,
-      filtros({ validacion: "ok" }),
+    expect(filtrarArbolDetallePorColumnas(arbol, filtros({ validacion: "ok" }), new Set(), UMBRALES_ALERTAS_DEFECTO)).toEqual([]);
+  });
+
+  it("una cuenta del cliente sin mapeo es «Alerta pendiente» hasta homologarla, aunque tenga OK", () => {
+    const sinMapeoSaldoCorrecto = nodo("26109901", 8, { std: null, mapped: false, saldoOk: true, balance: 0 });
+    expect(filtrarArbolDetallePorColumnas([sinMapeoSaldoCorrecto], filtros({ validacion: "alerta" }), new Set(), UMBRALES_ALERTAS_DEFECTO))
+      .toEqual([sinMapeoSaldoCorrecto]);
+    // El OK de su naturaleza contraria no la saca de pendiente: falta la cuenta Russell.
+    expect(filtrarArbolDetallePorColumnas(arbol, filtros({ validacion: "ok" }), new Set(["13050599"]), UMBRALES_ALERTAS_DEFECTO)).toEqual([]);
+    expect(filtrarArbolDetallePorColumnas(arbol, filtros({ validacion: "alerta" }), new Set(["13050599"]), UMBRALES_ALERTAS_DEFECTO))
+      .toEqual([hojaSinMapeo]);
+  });
+
+  it("las agrupadoras no tienen alerta propia aunque su saldo sea contrario", () => {
+    const subcuentaContraria = nodo("130505", 6, {
+      saldoOk: false,
+      balance: -900_000,
+      hijos: [nodo("13050501", 8, { saldoOk: false, balance: -900_000, std: "130505" })],
+    });
+    const alertas = filtrarArbolDetallePorColumnas(
+      [subcuentaContraria],
+      filtros({ validacion: "alerta" }),
       new Set(),
       UMBRALES_ALERTAS_DEFECTO,
     );
-
-    expect(resultado.map((item) => item.code)).toEqual(["110505", "111005"]);
-    expect(resultado.every((item) => item.nivel === 6 && item.mapped && item.saldoOk)).toBe(true);
-    expect(resultado.flatMap((item) => item.hijos)).toEqual([]);
-    expect(resultado.some((item) => item.code === "13" || item.code === "13050599")).toBe(false);
+    // Solo la cuenta del cliente: la subcuenta no se conserva (otro estado).
+    expect(alertas.map((item) => item.code)).toEqual(["13050501"]);
   });
 
   it("no muta el árbol original y evita clonar cuando no hay filtros", () => {

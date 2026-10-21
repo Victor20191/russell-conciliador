@@ -81,6 +81,16 @@ export function ContenidoCierreBloqueado({ bloqueo }: { bloqueo: BloqueoCierreBa
       );
     case "prevalidador":
       return <p className="text-[13px] text-ink-700">{bloqueo.mensaje}</p>;
+    case "saldos_contrarios":
+      return (
+        <div className="flex flex-col gap-2 text-[13px] text-ink-700">
+          <p>
+            {bloqueo.pendientes === 1 ? "Falta 1 cuenta" : `Faltan ${bloqueo.pendientes} cuentas`} del cliente con naturaleza contraria
+            sin «Dar OK». Cada una necesita su OK, con el comentario que justifica el saldo, antes de cerrar.
+          </p>
+          <p className="text-ink-500">En «Detalle por niveles», filtra «Naturaleza contraria» para verlas.</p>
+        </div>
+      );
   }
 }
 
@@ -88,8 +98,8 @@ const CLASE_BOTON = "inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-
 
 /**
  * «Cerrar balance» (18/Oct/2026): lo deja cerrado y disponible para que los módulos concilien contra
- * él. Sin `bloqueo`, un clic. Con `bloqueo` (versión anterior, diferencias con otro balance del corte
- * o prevalidador sin aprobar), el clic abre un modal que explica qué lo impide y cómo resolverlo, sin
+ * él. Sin `bloqueo`, un clic. Con `bloqueo` (versión anterior, diferencias con otro balance del corte,
+ * prevalidador sin aprobar o naturaleza contraria sin «Dar OK»), el clic abre un modal que explica qué lo impide y cómo resolverlo, sin
  * formulario. La verdad la decide la acción en su transacción; esto solo anticipa.
  */
 export function FreezeBalanceButton({ id, bloqueo = null }: { id: number; bloqueo?: BloqueoCierreBalance | null }) {

@@ -339,6 +339,11 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+// El estado «con alertas» de los balances migrados se recalcula (su lógica se prueba en alertas-balance-datos).
+const recalcularEstadoBalances = vi.hoisted(() => vi.fn(async () => ({ conAlertas: [], enProceso: [] })));
+vi.mock("@/lib/balance/alertas-balance-datos", () => ({ recalcularEstadoBalances }));
+vi.mock("@/lib/balance/cuentas-estandar", () => ({ getCuentasEstandar: vi.fn(async () => []) }));
+vi.mock("@/lib/parametros/umbrales", () => ({ getUmbralesAlertas: vi.fn(async () => ({ descuadre: 2_000, naturaleza: 50_000 })) }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/conciliacion/verificar-bloqueo", () => ({
   bloqueoHomologacionBalance: vi.fn(async () => null),
@@ -524,6 +529,8 @@ describe("guardarHomologacionCliente / consultarImpactoHomologacionCliente", () 
     // Memoria: excepción de esa sola cuenta, no regla de grupo.
     const fila = mocks.state.cuentas.find((c) => c.code === "1105050001");
     expect(fila?.origenMapeo).toBe("manual_cuenta");
+    // Homologar cambia las cuentas sin mapeo del balance migrado: su estado se recalcula.
+    expect(recalcularEstadoBalances).toHaveBeenCalledWith(expect.anything(), [1], expect.objectContaining({ cuentasEstandar: [] }));
   });
 
   it("alcance «grupo» propaga a las imputables y pisa excepciones existentes", async () => {

@@ -51,4 +51,11 @@ describe("ContenidoCierreBloqueado", () => {
     expect(render({ tipo: "sin_comparar", pendientes: [{ id: 6, version: "v1", nombre: "Diciembre 2025" }] })).toContain("Revisar comparación");
     expect(render({ tipo: "prevalidador", mensaje: "No se puede cerrar el balance: el prevalidador todavía no ha sido aprobado." })).toContain("todavía no ha sido aprobado");
   });
+
+  it("naturaleza contraria sin «Dar OK»: cuántas faltan y dónde verlas", () => {
+    const html = render({ tipo: "saldos_contrarios", pendientes: 14 });
+    expect(html).toContain("Faltan 14 cuentas");
+    expect(html).toContain("filtra «Naturaleza contraria»");
+    expect(render({ tipo: "saldos_contrarios", pendientes: 1 })).toContain("Falta 1 cuenta");
+  });
 });

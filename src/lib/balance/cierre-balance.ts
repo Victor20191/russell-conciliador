@@ -7,7 +7,9 @@
 //  2. ninguna versión anterior de su línea sigue cerrada (defensa para datos anteriores a la regla
 //     de carga, que ya exige abrir la vigente antes de cargar una nueva);
 //  3. todos los demás balances vigentes del corte están comparados y coinciden con él;
-//  4. el prevalidador está listo y aprobado (como siempre).
+//  4. el prevalidador está listo y aprobado (como siempre);
+//  5. todo saldo contrario a la naturaleza sobre el umbral tiene su «Dar OK» (20/Oct/2026,
+//     `alertas-naturaleza.ts`).
 // Mientras haya diferencias, el modal dice con qué balances y cómo resolverlo: el que sobra se
 // elimina (si está cerrado, se abre primero) y uno con conciliación en firme solo se reemplaza.
 
@@ -29,7 +31,8 @@ export type BloqueoCierreBalance =
   | { tipo: "version_anterior_cerrada"; cerradas: { id: number; version: string }[] }
   | { tipo: "sin_comparar"; pendientes: { id: number; version: string; nombre: string }[] }
   | { tipo: "inconsistente"; balances: { id: number; version: string; nombre: string; cuentas: number; accion: AccionResolver }[] }
-  | { tipo: "prevalidador"; mensaje: string };
+  | { tipo: "prevalidador"; mensaje: string }
+  | { tipo: "saldos_contrarios"; pendientes: number };
 
 /** Qué hay que hacer con el OTRO balance para que la diferencia desaparezca. */
 export function accionParaResolver(b: Pick<OtroBalanceCierre, "estaCongelado" | "enFirme">): AccionResolver {
@@ -47,6 +50,8 @@ export function evaluarCierreBalance(p: {
   otros: readonly OtroBalanceCierre[];
   /** Mensaje del prevalidador si no permite cerrar (null = listo y aprobado). */
   mensajePrevalidador: string | null;
+  /** Cuentas del cliente con saldo contrario a la naturaleza sobre el umbral y sin «Dar OK». */
+  saldosContrariosPendientes: number;
   /** La pantalla anticipa sin haber recalculado: un par sin comparar no bloquea el botón. */
   ignorarSinComparar?: boolean;
 }): { ok: true } | { ok: false; bloqueo: BloqueoCierreBalance } {
@@ -71,6 +76,9 @@ export function evaluarCierreBalance(p: {
     };
   }
   if (p.mensajePrevalidador) return { ok: false, bloqueo: { tipo: "prevalidador", mensaje: p.mensajePrevalidador } };
+  if (p.saldosContrariosPendientes > 0) {
+    return { ok: false, bloqueo: { tipo: "saldos_contrarios", pendientes: p.saldosContrariosPendientes } };
+  }
   return { ok: true };
 }
 
@@ -93,6 +101,10 @@ export function mensajeCierreBloqueado(bloqueo: BloqueoCierreBalance): string {
       return `No se puede cerrar: los saldos finales difieren de ${bloqueo.balances.map((b) => `${b.nombre} ${b.version} (${b.cuentas} cuenta(s))`).join("; ")}. Elimina el balance que sobre —este o el otro— y vuelve a cerrar. ${bloqueo.balances.map((b) => `Si sobra ${b.nombre} ${b.version}, ${TEXTO_ACCION[b.accion]}.`).join(" ")}`;
     case "prevalidador":
       return bloqueo.mensaje;
+    case "saldos_contrarios":
+      return bloqueo.pendientes === 1
+        ? "No se puede cerrar el balance: falta 1 cuenta con naturaleza contraria sin «Dar OK». Fíltrala con «Naturaleza contraria» en el detalle."
+        : `No se puede cerrar el balance: faltan ${bloqueo.pendientes} cuentas con naturaleza contraria sin «Dar OK». Fíltralas con «Naturaleza contraria» en el detalle.`;
   }
 }
 

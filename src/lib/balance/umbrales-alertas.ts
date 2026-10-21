@@ -94,11 +94,11 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
   {
     clave: "naturaleza",
     seccion: "balance",
-    nombre: "Saldos contrarios a la naturaleza",
+    nombre: "Naturaleza contraria",
     descripcion:
-      "Monto hasta el cual un saldo contrario a la naturaleza de la cuenta se considera informativo. Por encima, se convierte en alerta y exige «Dar OK» para poder continuar.",
+      "Monto hasta el cual el saldo de una cuenta del cliente contrario a su naturaleza (débito o crédito) se muestra como «Naturaleza contraria · informativa». Por encima es alerta: deja el balance «En proceso con alertas» y pide «Dar OK» con un comentario; «Cerrar balance» exige el OK de todas.",
     dondeAplica:
-      "Balance de comprobación (validación «Naturaleza de cuenta vs saldo») y el árbol de cuentas del balance.",
+      "Balance cargado: columna «Validación» y filtro «Naturaleza contraria» del detalle por niveles, la validación «Naturaleza de cuenta vs saldo», el estado del balance y «Cerrar balance».",
     defecto: UMBRAL_NATURALEZA_ALERTA,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,

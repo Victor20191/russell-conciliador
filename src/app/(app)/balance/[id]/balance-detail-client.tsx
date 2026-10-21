@@ -22,7 +22,8 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, marcarCuentaPendiente, quitarPendiente, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
-import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, nivelDiferencia, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { esSaldoContrarioInformativo, nivelDiferencia, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { anclaConversacion, esSaldoContrarioPendiente } from "@/lib/balance/alertas-naturaleza";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { DistintivoCuentaEnFirme, type BloqueoCuentaVm } from "./conciliacion-en-firme";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
@@ -41,14 +42,15 @@ import {
 } from "@/lib/balance/filtros-detalle";
 import { coincideBusquedaCuenta } from "@/lib/balance/busqueda-cuenta";
 
-export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
+/** OK dado a la cuenta del cliente. `heredadaDe`: versión de la que pasó (mismo saldo final). */
+export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string; heredadaDe?: string | null };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
 type ValCtx = {
   puede: boolean;
   mapa: Record<string, ValidacionInfo>;
   revirtiendo: boolean;
   codigoRevirtiendo: string | null;
-  onOk: (n: NodoBalance, tipo: string) => void;
+  onOk: (n: NodoBalance) => void;
   onRevertir: (code: string) => void;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
@@ -139,14 +141,15 @@ function esAlertaMapeo(n: NodoBalance): boolean {
   return !(n.nivel === 8 ? !!n.std : n.mapped);
 }
 
-/** ¿La hoja tiene alerta de NATURALEZA (saldo contrario) todavía sin validar? */
+/** ¿La cuenta del cliente tiene saldo contrario a su naturaleza todavía sin OK? Solo las hojas:
+ *  las agrupadoras no tienen alerta propia (`alertas-naturaleza.ts`). */
 function esAlertaNaturaleza(n: NodoBalance, validados: Set<string>, umbrales: UmbralesAlertas): boolean {
-  return esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code);
+  return n.nivel === 8 && esSaldoContrarioPendiente(n, validados, umbrales);
 }
 
 /**
  * Poda el árbol dejando solo las ramas con alertas. `tipo` acota a un solo tipo
- * ("Sin mapeo" / "Saldo contrario"); las subcuentas sin mapeo se conservan
+ * ("Sin mapeo" / "Naturaleza contraria"); las subcuentas sin mapeo se conservan
  * siempre que el tipo de mapeo esté incluido, porque son la alerta misma.
  */
 function podarAlertas(
@@ -228,7 +231,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
   const [comentar, setComentar] = useState<NodoBalance | null>(null);
-  const [validar, setValidar] = useState<{ nodo: NodoBalance; tipo: string } | null>(null);
+  const [validar, setValidar] = useState<NodoBalance | null>(null);
   const [eliminar, setEliminar] = useState<NodoBalance | null>(null);
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
@@ -245,7 +248,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
   const [revirtiendo, startRevertir] = useTransition();
   const [codigoRevirtiendo, setCodigoRevirtiendo] = useState<string | null>(null);
 
-  // Cuentas cuya alerta de saldo ya fue VALIDADA (retiradas del conteo/poda).
+  // Cuentas del cliente con OK (solo llegan los de tipo «naturaleza»): retiradas del conteo/poda.
   const validados = useMemo(() => new Set(Object.keys(validaciones)), [validaciones]);
   const val: ValCtx = {
     puede: puedeValidar,
@@ -253,7 +256,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
     revirtiendo,
     codigoRevirtiendo,
     umbrales,
-    onOk: (nodo, tipo) => setValidar({ nodo, tipo }),
+    onOk: (nodo) => setValidar(nodo),
     onRevertir: (code) => {
       setCodigoRevirtiendo(code);
       startRevertir(async () => {
@@ -419,14 +422,10 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
-          {/* Los dos tipos de alerta se separan porque se atacan distinto: las de
-              mapeo se resuelven homologando y las de naturaleza, revisando saldo. */}
-          {filtro !== "todo" && (
-            <>
-              <FiltroBtn on={filtro === "alertas_mapeo"} onClick={() => setFiltro(filtro === "alertas_mapeo" ? "alertas" : "alertas_mapeo")} label="Sin mapeo" count={totales.mapeo} tone="warn" />
-              <FiltroBtn on={filtro === "alertas_naturaleza"} onClick={() => setFiltro(filtro === "alertas_naturaleza" ? "alertas" : "alertas_naturaleza")} label="Saldo contrario" count={totales.naturaleza} tone="warn" />
-            </>
-          )}
+          {/* Los dos tipos de alerta se separan porque se atacan distinto: las de mapeo se resuelven
+              homologando y las de naturaleza contraria, revisando el saldo. Siempre visibles. */}
+          <FiltroBtn on={filtro === "alertas_mapeo"} onClick={() => setFiltro(filtro === "alertas_mapeo" ? "alertas" : "alertas_mapeo")} label="Sin mapeo" count={totales.mapeo} tone="warn" />
+          <FiltroBtn on={filtro === "alertas_naturaleza"} onClick={() => setFiltro(filtro === "alertas_naturaleza" ? "alertas" : "alertas_naturaleza")} label="Naturaleza contraria" count={totales.naturaleza} tone="warn" />
           {filtrosColumnasActivos && (
             <button
               type="button"
@@ -470,7 +469,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
         />
       )}
       {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
-      {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
+      {validar && <ValidarModal nodo={validar} balanceId={balanceId} onClose={() => setValidar(null)} />}
       {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
     </div>
   );
@@ -487,6 +486,8 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   const c = tieneHijos ? conteos.get(nodo.key) : undefined;
   // Cuenta del cliente en firme por una conciliación de módulo: su saldo final y su homologación.
   const bloqueo = nodo.nivel === 8 ? bloqueos[nodo.code] : undefined;
+  // Conversación propia de cada nivel: la subcuenta 110505 no comparte la de la cuenta del cliente 110505.
+  const ancla = anclaConversacion(nodo);
 
   const fila = (
     <tr
@@ -503,7 +504,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
         {c && (c.mapeo > 0 || c.naturaleza > 0) && (
           <span className="ml-2 inline-flex items-center gap-1 align-middle">
             {c.mapeo > 0 && <span title={`${c.mapeo} cuenta(s) sin mapeo`} className="inline-flex items-center gap-0.5 rounded bg-warn-100 px-1 text-[10px] font-semibold text-warn-700"><Icon name="warn" size={9} />{c.mapeo}</span>}
-            {c.naturaleza > 0 && <span title={`${c.naturaleza} cuenta(s) con naturaleza/saldo contrario`} className="rounded bg-err-100 px-1 text-[10px] font-semibold text-err-700">±{c.naturaleza}</span>}
+            {c.naturaleza > 0 && <span title={`${c.naturaleza} cuenta(s) del cliente con naturaleza contraria sin OK`} className="rounded bg-err-100 px-1 text-[10px] font-semibold text-err-700">±{c.naturaleza}</span>}
           </span>
         )}
       </td>
@@ -514,9 +515,9 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
           type="button"
           onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
           title="Comentarios de esta cuenta"
-          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[nodo.code] ? "text-blue-600" : "text-ink-400 hover:text-ink-600"}`}
+          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[ancla] ? "text-blue-600" : "text-ink-400 hover:text-ink-600"}`}
         >
-          <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
+          <Icon name="msg" size={12} />{comentarios[ancla] ? <span className="font-semibold">{comentarios[ancla]}</span> : null}
         </button>
         {onEliminar && nodo.nivel === 8 && nodo.detalleId != null && !nodo.std && !bloqueo && (
           <button
@@ -541,28 +542,41 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeHomologar, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada, bloqueos))];
 }
 
-/** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón
- *  "Dar OK", o el mismo "OK" si el saldo ya concuerda o si la alerta ya se dio
- *  por buena (con quién/cuándo/comentario y opción de revertir). */
+/** Celda de la columna "Validación". Solo la cuenta del cliente tiene alertas: «Sin mapeo» mientras no
+ *  tenga cuenta Russell (se resuelve homologando) y la de naturaleza contraria. Las agrupadoras quedan
+ *  en blanco: su contador «±N» dice cuántas cuentas del cliente faltan. */
 function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
-  if (nodo.saldoOk) return nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null;
-  const tipo = nodo.nivel === 8 ? "naturaleza" : "saldo_contrario";
-  const label = nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario";
+  if (nodo.nivel !== 8) return null;
+  const naturaleza = celdaNaturaleza(nodo, val);
+  if (nodo.std) return naturaleza;
+  const sinMapeo = (
+    <span title="La cuenta del cliente no tiene cuenta Russell: homológala con «Asignar» para retirar la alerta.">
+      <Chip label="Sin mapeo" tone="warn" />
+    </span>
+  );
+  return naturaleza ? <span className="inline-flex flex-col items-start gap-1">{sinMapeo}{naturaleza}</span> : sinMapeo;
+}
+
+/** Naturaleza contraria de una cuenta del cliente: con botón "Dar OK", informativa (hasta el umbral) u
+ *  "OK" con quién/cuándo/comentario y opción de revertir. Nada si el saldo es el de su naturaleza. */
+function celdaNaturaleza(nodo: NodoBalance, val: ValCtx): React.ReactNode {
+  if (nodo.saldoOk) return null;
   if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk, val.umbrales)) {
     return (
       <span
-        title={`Saldo contrario de hasta ${fmt(val.umbrales.naturaleza)}: se muestra como información y no requiere “Dar OK”.`}
+        title={`Naturaleza contraria de hasta ${fmt(val.umbrales.naturaleza)}: se muestra como información y no requiere “Dar OK”.`}
         className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500"
       >
-        {label} · informativo
+        Naturaleza contraria · informativa
       </span>
     );
   }
   const v = val.mapa[nodo.code];
   if (v) {
+    const origen = v.heredadaDe ? `\nHeredado de la ${v.heredadaDe} (mismo saldo final).` : "";
     return (
       <span className="inline-flex flex-col items-start gap-1">
-        <span title={`OK por ${v.por} · ${v.en}\n“${v.comentario}”`} className="cursor-help"><Chip label="OK" tone="ok" /></span>
+        <span title={`OK por ${v.por} · ${v.en}\n“${v.comentario}”${origen}`} className="cursor-help"><Chip label={v.heredadaDe ? `OK · de ${v.heredadaDe}` : "OK"} tone="ok" /></span>
         {val.puede && (
           <button type="button" disabled={val.revirtiendo} onClick={(e) => { e.stopPropagation(); val.onRevertir(nodo.code); }} title="Revertir la validación (la alerta reaparece)" className="whitespace-nowrap rounded px-1 text-[10.5px] font-medium text-ink-400 hover:bg-ink-100 hover:text-ink-600 disabled:opacity-60">
             {val.codigoRevirtiendo === nodo.code ? (
@@ -577,9 +591,9 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   }
   return (
     <span className="inline-flex flex-col items-start gap-1">
-      <Chip label={label} tone="err" />
+      <span title={`Saldo contrario a la naturaleza de la cuenta, por encima de ${fmt(val.umbrales.naturaleza)}.`}><Chip label="Naturaleza contraria" tone="err" /></span>
       {val.puede && (
-        <button type="button" onClick={(e) => { e.stopPropagation(); val.onOk(nodo, tipo); }} title="Dar OK a esta alerta (exige un comentario justificativo)" className="whitespace-nowrap rounded border border-ok-500 bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-500 hover:text-white">Dar OK</button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); val.onOk(nodo); }} title="Dar OK a esta alerta (exige un comentario justificativo)" className="whitespace-nowrap rounded border border-ok-500 bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-500 hover:text-white">Dar OK</button>
       )}
     </span>
   );
@@ -886,39 +900,39 @@ function SelectorAlcance({ nodo, cuenta6, alcance, setAlcance, pending, accionLa
   );
 }
 
-/** Comentarios de una cuenta puntual del balance (anclados por su código). */
+/** Comentarios de una fila del balance: la cuenta del cliente por su código, cada agrupadora por su
+ *  nivel y código (`anclaConversacion`). */
 function ComentarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanceId: number; onClose: () => void }) {
   const router = useRouter();
   return (
     <Modal open onClose={onClose} title={`Comentarios · ${nodo.code} — ${nodo.name}`} size="2xl">
       {/* Al publicar, refresca la página para que el badge azul de comentarios del
           informe (conteo por cuenta, calculado server-side) se actualice. */}
-      <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} onPublicado={() => router.refresh()} />
+      <Conversacion tipo="balance" entityId={balanceId} anchor={anclaConversacion(nodo)} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} onPublicado={() => router.refresh()} />
     </Modal>
   );
 }
 
-/** Validar (dar OK a) una alerta: exige un comentario justificativo. El comentario
- *  se publica en la conversación de la cuenta y la alerta se retira de la vista. */
-function ValidarModal({ nodo, tipo, balanceId, onClose }: { nodo: NodoBalance; tipo: string; balanceId: number; onClose: () => void }) {
+/** Dar OK a la naturaleza contraria de una cuenta del cliente: exige un comentario
+ *  justificativo, que se publica en la conversación de la cuenta; la alerta se retira de la vista. */
+function ValidarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanceId: number; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [texto, setTexto] = useState("");
-  const label = tipo === "naturaleza" ? "Naturaleza" : "Saldo contrario";
   const listo = texto.trim().length >= 3;
   const guardar = () => {
     if (!listo) { notifyError("Escribe un comentario para validar la alerta."); return; }
     start(async () => {
-      const r = await validarAlerta({ balanceId, anchor: nodo.code, tipoAlerta: tipo, comentario: texto.trim() });
+      const r = await validarAlerta({ balanceId, anchor: nodo.code, comentario: texto.trim() });
       if (r.ok) { notifySuccess(r.message ?? "Alerta validada."); router.refresh(); onClose(); }
       else notifyError(r.message ?? "No se pudo validar la alerta.");
     });
   };
   return (
-    <Modal open onClose={onClose} title={`Validar alerta · ${label}`} size="lg">
+    <Modal open onClose={onClose} title="Validar alerta · Naturaleza contraria" size="lg">
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-ink-600">
-          Cuenta <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}. Vas a dar <span className="font-semibold">OK</span> a la alerta de <span className="font-semibold">{label.toLowerCase()}</span>: la alerta se retira de la vista y queda registrada como validada.
+          Cuenta <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}. Vas a dar <span className="font-semibold">OK</span> a su naturaleza contraria: la alerta se retira de la vista y queda registrada como validada. Si cargas una versión nueva con el mismo saldo final, el OK pasa a esa versión.
         </p>
         <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
           El <span className="font-semibold">comentario es obligatorio</span> — justifica por qué el saldo es correcto pese a la alerta. Se publicará en la conversación de la cuenta.
@@ -1041,7 +1055,11 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
             {validations.map((v) => (
               <tr key={v.id} data-selection-key={v.id} data-selected={filaSeleccionada === v.id ? "true" : undefined} className="border-b border-ink-100 last:border-0">
                 <td className="px-4 py-2.5 font-medium text-ink-800">{v.rule}</td>
-                <td className="px-4 py-2.5">{v.status === "ok" ? <Chip label="OK" tone="ok" /> : <Chip label={`${v.count ?? ""} ${v.count === 1 ? "alerta" : "alertas"}`} tone="warn" />}</td>
+                <td className="px-4 py-2.5">
+                  {v.status === "ok" ? <Chip label="OK" tone="ok" />
+                    : v.status === "info" ? <Chip label={`${v.count ?? ""} ${v.count === 1 ? "informativa" : "informativas"}`} tone="ink" />
+                    : <Chip label={`${v.count ?? ""} ${v.count === 1 ? "alerta" : "alertas"}`} tone="warn" />}
+                </td>
                 <td className="px-4 py-2.5 text-ink-500">{v.detail}</td>
               </tr>
             ))}

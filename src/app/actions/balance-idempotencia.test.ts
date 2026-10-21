@@ -117,8 +117,12 @@ const mocks = vi.hoisted(() => {
     ) ?? null);
   // Por período (versionado) o por corte (`periodoFin`): en estas pruebas todos los balances del
   // cliente comparten la fecha de corte, así que el filtro por corte devuelve los del cliente.
-  const balanceFindMany = vi.fn(async ({ where }: { where: { clienteId: number; periodo?: string; periodoFin?: Date } }) =>
-    state.balances.filter((b) => b.clienteId === where.clienteId && (where.periodo === undefined || b.periodo === where.periodo)));
+  const balanceFindMany = vi.fn(async ({ where }: { where: { clienteId?: number; periodo?: string; periodoFin?: Date; id?: { in: number[] }; estaCongelado?: boolean } }) =>
+    state.balances.filter((b) =>
+      (where.clienteId === undefined || b.clienteId === where.clienteId)
+      && (where.periodo === undefined || b.periodo === where.periodo)
+      && (where.id === undefined || where.id.in.includes(b.id))
+      && (where.estaCongelado === undefined || Boolean(b.estaCongelado) === where.estaCongelado)));
   const balanceCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
     const balance: Balance = {
       id: state.balances.length + 1,
@@ -196,9 +200,21 @@ const mocks = vi.hoisted(() => {
       findUnique: balanceFindUnique,
       findMany: balanceFindMany,
       create: balanceCreate,
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     balancePruebaDetalle: {
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
+      findFirst: vi.fn(async (): Promise<{ id: number } | null> => ({ id: 1 })),
+    },
+    // «Dar OK» a saldos contrarios: la versión nueva hereda los de la previa con el mismo saldo final.
+    validacionAlerta: {
+      findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
+      create: vi.fn(async () => ({})),
+      upsert: vi.fn(async () => ({})),
+      deleteMany: vi.fn(async () => ({ count: 1 })),
+    },
+    comment: {
+      create: vi.fn(async () => ({ id: 777 })),
     },
     balanceImportacionLote: {
       findUnique: loteFindUnique,
@@ -560,6 +576,8 @@ import {
   descongelarBalance,
   eliminarBalance,
   freezeBalance,
+  validarAlerta,
+  revertirValidacionAlerta,
   leerBalance,
   marcarCuentaPendiente,
   quitarPendiente,
@@ -568,6 +586,7 @@ import {
   reemplazarBalanceConciliado,
 } from "./balance";
 import { resumirCuadreBorrador } from "@/lib/balance/cuadre-borrador";
+import { reconstruirBalance, type ResultadoBalance } from "@/lib/balance/calcular";
 
 function filaStaging(filaNum = 1, loteId = LOTE_ID) {
   return {
@@ -873,6 +892,85 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(mocks.state.staging).toHaveLength(1);
     expect(mocks.state.lotes).toHaveLength(1);
     expect(controlCorte).not.toHaveBeenCalled();
+  });
+
+  describe("OK heredados de la versión anterior (20/Oct/2026)", () => {
+    // La cuenta 11050501 (Caja, débito) llega con saldo crédito de $90.000: saldo contrario sobre el umbral.
+    const conCajaContraria = () => vi.mocked(reconstruirBalance).mockImplementation(() => ({
+      ...structuredClone(calc),
+      breakdown: [{ items: [{ code: "11050501", balance: -90_000, saldoOk: false, mapped: true }] }],
+    }) as unknown as ResultadoBalance);
+    const okPrevio = { anchor: "11050501", validadoPor: "Ana Senior", validadoPorId: 5, validadoEn: new Date(Date.UTC(2026, 9, 15)), comment: { body: "Sobregiro contable revisado.", authorId: 5 } };
+    const versionAbierta = () => mocks.state.balances.push({
+      id: 50, loteId: "anterior", clienteId: 7, periodo: "Enero 2026", version: "v1", aperturaBalance: "cuenta",
+      advertenciaArchivoFuente: false, diferenciaArchivoFuente: null, estaCongelado: false, creadoEn: new Date(Date.UTC(2026, 1, 1)),
+    });
+    const restaurar = () => vi.mocked(reconstruirBalance).mockImplementation(() => structuredClone(calc) as unknown as ResultadoBalance);
+
+    it("pasa el OK de una cuenta con el mismo saldo final y la versión queda «En proceso»", async () => {
+      versionAbierta();
+      conCajaContraria();
+      try {
+        mocks.tx.balancePruebaDetalle.findMany.mockResolvedValueOnce([{ cuenta8: "11050501", nombreCuenta: "Caja", cuenta6Russell: "110505", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: -90_000 }]);
+        mocks.tx.validacionAlerta.findMany.mockResolvedValueOnce([okPrevio]);
+        await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/2?cargado=1");
+        expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ estado: "En proceso" }) }));
+        expect(mocks.tx.comment.create).toHaveBeenCalledWith({
+          data: { entityType: "balance", entityId: 2, anchor: "11050501", authorId: 5, body: "OK heredado de la v1 (mismo saldo final): Sobregiro contable revisado." },
+        });
+        expect(mocks.tx.validacionAlerta.create).toHaveBeenCalledWith({
+          data: {
+            balanceId: 2, anchor: "11050501", tipoAlerta: "naturaleza", commentId: 777,
+            validadoPor: "Ana Senior", validadoPorId: 5, validadoEn: okPrevio.validadoEn, heredadaDeBalanceId: 50,
+          },
+        });
+      } finally {
+        restaurar();
+      }
+    });
+
+    it("si el saldo cambió, el OK no pasa y la versión queda «En proceso con alertas»", async () => {
+      versionAbierta();
+      conCajaContraria();
+      try {
+        mocks.tx.balancePruebaDetalle.findMany.mockResolvedValueOnce([{ cuenta8: "11050501", nombreCuenta: "Caja", cuenta6Russell: "110505", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: -75_000 }]);
+        mocks.tx.validacionAlerta.findMany.mockResolvedValueOnce([okPrevio]);
+        await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/2?cargado=1");
+        expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ estado: "En proceso con alertas" }) }));
+        expect(mocks.tx.validacionAlerta.create).not.toHaveBeenCalled();
+      } finally {
+        restaurar();
+      }
+    });
+  });
+
+  describe("«Dar OK» a un saldo contrario", () => {
+    const abierto = () => mocks.state.balances.push({
+      id: 41, loteId: null, clienteId: 7, periodo: "Enero 2026", version: "v1", advertenciaArchivoFuente: false, diferenciaArchivoFuente: null, aperturaBalance: null, estaCongelado: false,
+    });
+
+    it("solo a una cuenta del cliente del balance", async () => {
+      abierto();
+      mocks.tx.balancePruebaDetalle.findFirst.mockResolvedValueOnce(null);
+      expect(await validarAlerta({ balanceId: 41, anchor: "n6:110505", comentario: "Revisado" }))
+        .toEqual({ ok: false, message: "Solo se da OK a la naturaleza contraria de una cuenta del cliente de este balance." });
+      expect(mocks.tx.validacionAlerta.upsert).not.toHaveBeenCalled();
+    });
+
+    it("guarda el OK como «naturaleza» y recalcula el estado en el mismo commit; revertir también", async () => {
+      abierto();
+      expect(await validarAlerta({ balanceId: 41, anchor: "11050501", comentario: "Sobregiro revisado" })).toMatchObject({ ok: true });
+      expect(mocks.tx.validacionAlerta.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        create: expect.objectContaining({ balanceId: 41, anchor: "11050501", tipoAlerta: "naturaleza", commentId: 777 }),
+      }));
+      // Sin alertas pendientes (detalle vacío en el mock): queda «En proceso».
+      expect(mocks.tx.balancePruebaEncabezado.updateMany).toHaveBeenCalledWith({ where: { id: { in: [41] }, estaCongelado: false }, data: { estado: "En proceso" } });
+
+      mocks.tx.balancePruebaEncabezado.updateMany.mockClear();
+      expect(await revertirValidacionAlerta({ balanceId: 41, anchor: "11050501" })).toMatchObject({ ok: true });
+      expect(mocks.tx.validacionAlerta.deleteMany).toHaveBeenCalledWith({ where: { balanceId: 41, anchor: "11050501" } });
+      expect(mocks.tx.balancePruebaEncabezado.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [41] }, estaCongelado: false } }));
+    });
   });
 
   it("carga una versión nueva cuando la vigente de la misma línea está abierta", async () => {

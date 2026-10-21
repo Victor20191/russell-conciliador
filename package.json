@@ -40,7 +40,9 @@
     "db:cierres:copia-congelada": "tsx scripts/respaldar-copia-cierres.ts",
     "db:balances:cortes-18oct": "tsx scripts/migrar-balances-por-corte.ts",
     "db:borradores:cuadre": "tsx scripts/recalcular-cuadre-borradores.ts",
-    "db:nomina:plan-espejo": "tsx scripts/corregir-plan-espejo-nomina.ts"
+    "db:nomina:plan-espejo": "tsx scripts/corregir-plan-espejo-nomina.ts",
+    "db:balances:estado": "tsx scripts/recalcular-estado-balances.ts",
+    "db:balance:comentarios-anclas": "tsx scripts/reanclar-comentarios-balance.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

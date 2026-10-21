@@ -502,6 +502,8 @@ model ValidacionAlerta {
   validadoPor   String?  @map("validado_por")
   validadoPorId Int?     @map("validado_por_id") // FK suave → User
   validadoEn    DateTime @default(now()) @map("validado_en") @db.Timestamptz(3)
+  // OK que pasó de la versión anterior con el mismo saldo final (20/Oct/2026). FK suave → balance_prueba_encabezado.
+  heredadaDeBalanceId Int? @map("heredada_de_balance_id")
 
   @@unique([balanceId, anchor])
   @@index([balanceId])
