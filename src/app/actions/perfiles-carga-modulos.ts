@@ -49,6 +49,11 @@ export type PerfilCargaModuloResumen = {
   resumenColumnas: string; // "tipo de inventario B · referencia A · valor total F"
   estructura: SpecModulo;
   actualizadoEn: string; // ISO
+  /** Títulos con que se reconoce (21/Oct/2026); vacío = patrón anterior (solo coincidencia exacta). */
+  titulos: string[];
+  /** Cuándo y quién guardó el mapeo vigente (ISO); en los anteriores, su creación. */
+  guardadoEn: string;
+  guardadoPor: string | null;
 };
 
 export type AjustesCargaModuloResumen = {
@@ -133,6 +138,9 @@ export async function listarPerfilesCargaModulo(clienteId: number, moduloCodigo:
         resumenColumnas: resumenColumnasModulo(modulo.descriptor, estructura),
         estructura,
         actualizadoEn: p.actualizadoEn.toISOString(),
+        titulos: Array.isArray(p.encabezadoJson) ? (p.encabezadoJson as unknown[]).map((t) => String(t ?? "").trim()).filter(Boolean) : [],
+        guardadoEn: (p.guardadoEn ?? p.creadoEn).toISOString(),
+        guardadoPor: p.guardadoPor ?? p.creadoPor,
       });
     }
     return { ...vacio, ok: true, perfiles, ajustes };
@@ -190,6 +198,7 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
       };
     }
 
+    const user = await getCurrentUser();
     const actualizado = await prisma.perfilCargaModulo.updateMany({
       where: { id, clienteId: perfil.clienteId, actualizadoEn: versionEsperada },
       data: {
@@ -197,6 +206,11 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
         // Una edición humana blinda el perfil frente a futuras detecciones automáticas:
         // las cargas solo registrarán su uso, no pisarán su mapa con la heurística.
         origen: "manual",
+        // «Guardado el / por» del patrón manual. Los títulos guardados no se tocan: los números de
+        // columna del mapeo siguen apuntando a ese encabezado.
+        guardadoEn: new Date(),
+        guardadoPor: user?.name ?? null,
+        guardadoPorId: user?.id ?? null,
       },
     });
     if (actualizado.count !== 1) {
@@ -209,7 +223,6 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
     const anterior = SpecModuloSchema.safeParse(perfil.specJson);
     const hojaAnterior = anterior.success ? anterior.data.hoja : "?";
     const clasificador = modulo.descriptor.columnas.find((c) => c.nombre === modulo.descriptor.clasificador);
-    const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",
       action: `EDITÓ PERFIL de carga de ${modulo.descriptor.label}`,
@@ -224,9 +237,10 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
       clientId: perfil.clienteId,
     });
     revalidatePath(PATH);
+    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/patrones-manuales`);
     return {
       ok: true,
-      message: "Perfil actualizado. Las próximas cargas de este formato usarán este mapeo de columnas.",
+      message: "Patrón manual actualizado. Las próximas cargas de este formato usarán este mapeo de columnas.",
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("actualizarPerfilCargaModulo", e) };
@@ -259,7 +273,9 @@ export async function eliminarPerfilCargaModulo(id: number): Promise<ActionState
       clientId: perfil.clienteId,
     });
     revalidatePath(PATH);
-    return { ok: true, message: "Perfil eliminado." };
+    // También se ve en la pestaña «Patrones manuales» del módulo.
+    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/patrones-manuales`);
+    return { ok: true, message: "Patrón manual eliminado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarPerfilCargaModulo", e) };
   }

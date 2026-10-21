@@ -1733,6 +1733,15 @@ model PerfilCargaModulo {
   vecesUsado     Int       @default(0) @map("veces_usado")
   ultimoUsoEn    DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
   archivoEjemplo String?   @map("archivo_ejemplo")
+  /// «Patrones manuales» (21/Oct/2026): títulos CRUDOS del encabezado del archivo de ejemplo, 1:1 con
+  /// las columnas del mapeo. Con ellos se mide el % de coincidencia sin mirar la hoja; null = perfil
+  /// anterior, que solo se reconoce por la huella exacta. Encabezado, mapeo y archivo de ejemplo se
+  /// escriben siempre juntos.
+  encabezadoJson Json?     @map("encabezado_json")
+  /// Cuándo y quién guardó el mapeo vigente (`actualizadoEn` cambia con cada uso).
+  guardadoEn     DateTime? @map("guardado_en") @db.Timestamptz(3)
+  guardadoPor    String?   @map("guardado_por")
+  guardadoPorId  Int?      @map("guardado_por_id")
   creadoPor      String?   @map("creado_por")
   creadoPorId    Int?      @map("creado_por_id")
   creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)

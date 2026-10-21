@@ -182,6 +182,11 @@ describe("listarPerfilesCargaModulo", () => {
           clasificadorModo: undefined,
         },
         actualizadoEn: new Date(ACTUALIZADO_EN),
+        creadoEn: new Date(ACTUALIZADO_EN),
+        encabezadoJson: ["Tipo", "Referencia", "Valor total"],
+        guardadoEn: null,
+        guardadoPor: null,
+        creadoPor: "Ana",
       },
       {
         id: 2,
@@ -192,6 +197,11 @@ describe("listarPerfilesCargaModulo", () => {
         archivoEjemplo: null,
         specJson: { roto: true }, // ilegible → estructura vacía para poder eliminarlo
         actualizadoEn: new Date(ACTUALIZADO_EN),
+        creadoEn: new Date(ACTUALIZADO_EN),
+        encabezadoJson: null,
+        guardadoEn: null,
+        guardadoPor: null,
+        creadoPor: null,
       },
     ]);
     mocks.ajustesFindUnique.mockResolvedValue({ hojaPreferida: "Inventario", observaciones: null });
@@ -203,6 +213,9 @@ describe("listarPerfilesCargaModulo", () => {
     expect(res.clasificadorRol).toBe("tipo");
     expect(res.roles.map((r) => r.nombre)).toEqual(["tipo", "referencia", "descripcion", "cantidad", "valorUnitario", "valorTotal"]);
     expect(res.perfiles).toHaveLength(2);
+    // Patrones manuales (21/Oct/2026): títulos guardados y «guardado el / por»; sin títulos = patrón anterior.
+    expect(res.perfiles[0]).toMatchObject({ titulos: ["Tipo", "Referencia", "Valor total"], guardadoEn: ACTUALIZADO_EN, guardadoPor: "Ana" });
+    expect(res.perfiles[1].titulos).toEqual([]);
     expect(res.perfiles[0].resumenColumnas).toBe("tipo de inventario B · referencia A · descripción C · cantidad D · valor unitario E · valor total F");
     expect(res.perfiles[0].estructura.clasificadorModo).toBe("arrastrar");
     expect(res.perfiles[1].estructura.columnas).toEqual({ tipo: 0, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0 });

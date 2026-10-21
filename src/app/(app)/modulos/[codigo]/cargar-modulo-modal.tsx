@@ -59,6 +59,7 @@ import {
   type AplicativoOpcion,
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
+import { AvisoPatronManual } from "./aviso-patron-manual";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
 import { prepararBorradorInventario } from "@/app/actions/asistencia-inventario";
@@ -740,6 +741,8 @@ function CargarModal({
   // El aplicativo no tiene patrón y quien carga configura la lectura en este modal (no Inventarios,
   // que tiene su asistencia). Al confirmar el borrador podrá guardar el formato como patrón.
   const [configurando, setConfigurando] = useState(false);
+  // Archivo manual: «No usar este patrón manual» (21/Oct/2026). Se respeta al cambiar de hoja y al leer.
+  const [sinFormatoManual, setSinFormatoManual] = useState(false);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -874,8 +877,9 @@ function CargarModal({
     return nuevo;
   };
 
-  const analizar = (hojaArg?: string) => {
+  const analizar = (hojaArg?: string, opciones: { sinFormato?: boolean } = {}) => {
     if (!archivoRef.current) { notifyError("Adjunta el archivo."); return; }
+    const sinFormato = opciones.sinFormato ?? sinFormatoManual;
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
     if (!anexo && !mesValido) { notifyError("Selecciona el período del archivo."); return; }
     if (errorMes) { notifyError(errorMes); return; }
@@ -894,6 +898,7 @@ function CargarModal({
         fd.set("softwareOrigen", aplicativo.nombre);
         // Solo para ubicar el cargue vigente del período (oferta de agregar un archivo de notas crédito).
         if (!anexo && /^\d{4}-\d{2}$/.test(mes)) fd.set("periodo", mes);
+        if (aplicativo.manual && sinFormato) fd.set("formatoManual", "ninguno");
         fd.set("archivo", archivoRef.current!);
         const r = await analizarArchivoModulo(fd);
         if (r.recepcionLoteId) setRecepcionLoteId(r.recepcionLoteId);
@@ -901,6 +906,7 @@ function CargarModal({
           notifyError(r.message ?? "No se pudo analizar el archivo.");
           return;
         }
+        setSinFormatoManual(aplicativo.manual && sinFormato);
         reiniciarMarcaTotales();
         setAnalisis(r);
         if (moduloCodigo === "INV" && !aplicativo.manual && r.recepcionLoteId) {
@@ -948,7 +954,7 @@ function CargarModal({
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.modo === "patron" && configurando) notifySuccess(`Esta hoja coincide con un patrón de ${r.aplicativo?.nombre ?? "el aplicativo"}: se leerá con él.`);
-        if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
+        // El patrón manual que coincidió se ve en el recuadro de la fase de mapeo.
       } catch {
         notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
       }
@@ -1058,6 +1064,8 @@ function CargarModal({
       } else {
         fd.set("specJson", JSON.stringify(spec));
         if (configurando) fd.set("configurarEnCarga", "1");
+        // «No usar este patrón manual»: el servidor no lo vuelve a aplicar ni lo anota en el lote.
+        if (sinFormatoManual) fd.set("formatoManual", "ninguno");
       }
       if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
       if (pedirAgruparPor && agruparPor) fd.set("agruparPor", agruparPor);
@@ -1274,7 +1282,7 @@ function CargarModal({
       <button
         type="button"
         disabled={!tieneArchivo || clienteId == null || !eleccionLista || !periodoListo || analizando}
-        onClick={() => analizar()}
+        onClick={() => analizar(undefined, { sinFormato: false })}
         className={botonPrimario}
       >
         {analizando ? "Preparando…" : moduloCodigo === "INV" ? "Preparar borrador" : "Analizar archivo"}
@@ -1653,10 +1661,14 @@ function CargarModal({
               para {nombreCliente} hasta que un administrador lo apruebe.
             </p>
           ) : (
-            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
-              Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
-              {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
-            </p>
+            <AvisoPatronManual
+              formato={analisis.formatoManual ?? null}
+              cliente={nombreCliente}
+              sinFormato={sinFormatoManual}
+              ocupado={analizando}
+              onNoUsar={() => analizar(spec.hoja, { sinFormato: true })}
+              onUsar={() => analizar(undefined, { sinFormato: false })}
+            />
           )}
           {preguntaContenido}
           {preguntaContenidoActivos}

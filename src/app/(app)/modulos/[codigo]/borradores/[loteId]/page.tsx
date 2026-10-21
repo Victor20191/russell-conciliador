@@ -21,6 +21,8 @@ import { leerContenidoDeLote } from "@/lib/modulos/ingresos/contenido-archivo";
 import { leerContenidoActivosDeLote } from "@/lib/modulos/activos/contenido-archivo";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { leerPropuestaPatronDeLote } from "@/lib/modulos/patrones/propuesta-lote";
+import { leerPropuestaFormatoManualDeLote } from "@/lib/modulos/formatos-manuales";
+import { formatoManualDelBorrador } from "@/lib/modulos/formatos-manuales-servidor";
 import BorradorModuloClient from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -205,6 +207,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const propuestaPatron = nombreErpPropuesta
     ? { aplicativo: nombreErpPropuesta, motivo: null }
     : motivoSinPropuesta ? { aplicativo: null, motivo: motivoSinPropuesta } : null;
+  // «Archivo manual»: qué pasará con el patrón manual del cliente al confirmar (21/Oct/2026).
+  const propuestaFormatoManual = leerPropuestaFormatoManualDeLote(lote.specJson);
+  const formatoManual = propuestaFormatoManual && lote.clienteId != null
+    ? await formatoManualDelBorrador(descriptor, lote.clienteId, cliente?.name ?? "este cliente", propuestaFormatoManual)
+    : null;
 
   const [resumen, agruparPorConDatos, reporteConErrores, cedulasVariosNombres] = await Promise.all([
     cargarResumenBorrador({
@@ -281,6 +288,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         opcionesNombre={opcionesNombre}
         version={versionActual}
         propuestaPatron={propuestaPatron}
+        formatoManual={formatoManual}
         notasCliente={ajustesCarga?.observaciones?.trim() || null}
         asistenciaInventario={originalInventario && originalInventario.revisionAsistencia > 0 ? {
           revision: originalInventario.revisionAsistencia,

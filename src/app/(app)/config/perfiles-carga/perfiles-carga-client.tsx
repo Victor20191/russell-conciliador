@@ -166,7 +166,7 @@ export default function PerfilesCargaClient({
             <span className="text-[11px] text-ink-400">
               {esBalance
                 ? "Los formatos y las correcciones se crean solos al cargar y revisar balances."
-                : `Los formatos se crean solos al leer archivos en Módulos › ${etiqueta}.`}
+                : `Los patrones manuales se guardan al confirmar un cargue con «Archivo manual» en Módulos › ${etiqueta}.`}
             </span>
           }
         />
@@ -226,7 +226,7 @@ export default function PerfilesCargaClient({
                       ? `Ningún cliente con memoria de ${etiqueta.toLowerCase()} coincide con ese código, NIT o razón social.`
                       : esBalance
                         ? "Todavía ningún cliente tiene formatos, correcciones ni preferencias de balance guardadas. Se crean solas al cargar un balance y ajustar su borrador."
-                        : `Todavía ningún cliente tiene formatos ni preferencias de ${etiqueta.toLowerCase()} guardados. Los formatos se crean solos al leer un archivo en Módulos › ${etiqueta}.`}
+                        : `Todavía ningún cliente tiene formatos ni preferencias de ${etiqueta.toLowerCase()} guardados. Los patrones manuales se guardan al confirmar un cargue con «Archivo manual» en Módulos › ${etiqueta}.`}
                   </td>
                 </tr>
               )}

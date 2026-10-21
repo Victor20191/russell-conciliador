@@ -43,6 +43,7 @@ const CRUMB_LABELS: Record<string, string> = {
   estructura: "Estructura",
   permisos: "Permisos por rol",
   "perfiles-carga": "Perfiles de carga",
+  "patrones-manuales": "Patrones manuales",
   conexiones: "Conexiones e integraciones",
   prompts: "Prompts de IA",
   novedades: "Novedades",

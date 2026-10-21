@@ -40,9 +40,9 @@ const TIPO_LEGIBLE: Record<string, string> = {
 /**
  * Personalización de la CARGA de UN MÓDULO (Inventarios, Cartera, CxP, Ingresos,
  * Activos Fijos, Nómina) para UN cliente, dentro de Configuración › Perfiles de carga
- * (ruta admin-only, permiso `perfiles_carga:administrar`): perfiles de formato (mapeo
- * de columnas) guardados automáticamente al leer el archivo, y preferencias por defecto
- * (hoja, notas) que el asistente aplica cuando se elige el cliente.
+ * (ruta admin-only, permiso `perfiles_carga:administrar`): patrones manuales (mapeo de
+ * columnas de «Archivo manual», guardados al confirmar el cargue desde el 21/Oct/2026) y
+ * preferencias por defecto (hoja, notas) que el asistente aplica cuando se elige el cliente.
  *
  * Es el gemelo de `AjustesCargaModal` (balance): mismos modos y misma disposición.
  * Todos los módulos se administran exactamente igual; solo cambia el descriptor
@@ -163,17 +163,17 @@ export function AjustesCargaModuloModal({
           {/* ---- Perfiles de formato guardados ---- */}
           <section className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-ink-800">Perfiles de formato guardados</h3>
+              <h3 className="text-[12.5px] font-semibold text-ink-800">Patrones manuales guardados</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
-                El mapeo de columnas del archivo memorizado por formato: con perfil, la próxima carga de{" "}
-                {etiquetaModulo.toLowerCase()} de este cliente aplica el mismo mapeo al instante y{" "}
-                <span className="font-semibold">sin volver a sugerirlo</span>. Se crean automáticamente al leer el archivo en{" "}
-                <span className="font-semibold">Módulos › {etiquetaModulo}</span>.
+                El mapeo de columnas de los archivos de {etiquetaModulo.toLowerCase()} que este cliente carga con «Archivo manual». Un
+                archivo nuevo con 80 % o más de coincidencia en los títulos <span className="font-semibold">se lee con el mismo mapeo</span>,
+                sin importar el nombre de la hoja. Se guardan al confirmar el cargue (casilla del borrador) y también se ven en{" "}
+                <span className="font-semibold">Módulos › {etiquetaModulo} › Patrones manuales</span>.
               </p>
             </div>
             {data.perfiles.length === 0 ? (
               <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3 text-center text-[11.5px] text-ink-400">
-                Este cliente aún no tiene un formato de {etiquetaModulo.toLowerCase()} memorizado. El próximo se creará automáticamente al leer un archivo.
+                Este cliente aún no tiene un patrón manual de {etiquetaModulo.toLowerCase()}. Se guarda al confirmar un cargue con «Archivo manual».
               </p>
             ) : (
               <div className="flex flex-col gap-2">
@@ -204,19 +204,29 @@ export function AjustesCargaModuloModal({
                           <span className="min-w-0">
                             <span className="flex flex-wrap items-center gap-2">
                               <span className="text-[12.5px] font-semibold text-ink-800">
-                                Formato {indice + 1} · hoja «{p.hoja || "sin nombre"}»
+                                Patrón {indice + 1} · hoja del ejemplo «{p.hoja || "sin nombre"}»
                               </span>
-                              <Chip
-                                label={p.origen === "manual" ? "Revisado manualmente" : "Detectado automáticamente"}
-                                tone={p.origen === "manual" ? "blue" : "ai"}
-                              />
+                              {p.titulos.length === 0 ? (
+                                <Chip label="Patrón anterior · solo coincidencia exacta" tone="warn" />
+                              ) : (
+                                <Chip
+                                  label={p.origen === "manual" ? "Revisado manualmente" : "Detectado automáticamente"}
+                                  tone={p.origen === "manual" ? "blue" : "ai"}
+                                />
+                              )}
                             </span>
+                            {p.titulos.length > 0 && (
+                              <span className="mt-1 block text-[11px] leading-relaxed text-ink-500" title={p.titulos.join(" · ")}>
+                                Títulos: {p.titulos.slice(0, 8).join(" · ")}{p.titulos.length > 8 ? ` · y ${p.titulos.length - 8} más` : ""}
+                              </span>
+                            )}
                             <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-500">
                               {p.resumenColumnas || "Sin columnas mapeadas: revisa la estructura."}
                             </span>
                             <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-ink-400">
                               <span>{p.vecesUsado} {p.vecesUsado === 1 ? "uso" : "usos"}</span>
                               <span>Último uso: {fmtDate(p.ultimoUsoEn)}</span>
+                              <span>Guardado: {fmtDate(p.guardadoEn)}{p.guardadoPor ? ` por ${p.guardadoPor}` : ""}</span>
                               <span className="max-w-[280px] truncate font-mono" title={p.archivoEjemplo ?? undefined}>
                                 Archivo: {p.archivoEjemplo ?? "sin ejemplo"}
                               </span>

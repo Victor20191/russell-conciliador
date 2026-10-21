@@ -75,6 +75,16 @@ import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { FILAS_MAXIMAS_PRUEBA, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
 import { vistaPruebaMapeo, type ResultadoPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
 import { encabezadoParaGuardar } from "@/lib/modulos/patrones/rotulos";
+import {
+  elegirFormatoManual,
+  leerPropuestaFormatoManualDeLote,
+  mismoFormatoManual,
+  perfilAnteriorExacto,
+  vistaFormatoManual,
+  type FormatoManualAnalisis,
+  type PropuestaFormatoManual,
+} from "@/lib/modulos/formatos-manuales";
+import { formatosManualesDelCliente, guardarFormatoManualConfirmado } from "@/lib/modulos/formatos-manuales-servidor";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
 import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
@@ -390,6 +400,12 @@ export type AnalisisModulo = {
     totalVersiones: number;
     mejor: { version: number; porcentaje: number; hoja: string; faltantes: string[]; faltantesRequeridos: string[] } | null;
   };
+  /**
+   * «Archivo manual»: el patrón manual del cliente que coincidió con el archivo (21/Oct/2026), con
+   * su % —o sin él, si es un perfil anterior reconocido por su huella exacta—. Ausente = el mapeo
+   * es la sugerencia automática.
+   */
+  formatoManual?: FormatoManualAnalisis;
   /** Cartera y CxP: el archivo no trae documento ni edades, así que no sirve para conciliar. */
   advertenciaFormato?: string;
   /**
@@ -481,26 +497,6 @@ async function vigenteDelPeriodo(
     contenidos: leerContenidoArchivos(vigente.contenidoArchivos)?.map((c) => c.contenido) ?? null,
     lados,
   };
-}
-
-async function specPerfilModulo(
-  clienteId: number,
-  descriptor: NonNullable<ReturnType<typeof descriptorModulo>>,
-  candidatas: { huella: string }[],
-): Promise<SpecModulo | null> {
-  if (candidatas.length === 0) return null;
-  const perfiles = await prisma.perfilCargaModulo.findMany({
-    where: { clienteId, moduloCodigo: descriptor.codigo, huella: { in: candidatas.map((c) => c.huella) } },
-    select: { huella: true, specJson: true },
-  });
-  const porHuella = new Map(perfiles.map((perfil) => [perfil.huella, perfil.specJson]));
-  for (const candidata of candidatas) {
-    const perfil = porHuella.get(candidata.huella);
-    if (perfil == null) continue;
-    const parsed = SpecModuloSchema.safeParse(perfil);
-    if (parsed.success) return normalizarSpecModulo(descriptor, parsed.data);
-  }
-  return null;
 }
 
 const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
@@ -824,15 +820,24 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     // podría agregar este archivo. No se confía para nada más; la promoción lo vuelve a validar.
     const periodoAnalisis = String(formData.get("periodo") ?? "").trim();
 
-    // ARCHIVO MANUAL: el analista mapea las columnas y el mapeo se memoriza por cliente (perfil
-    // por huella). Es el único camino que usa la memoria por cliente.
+    // ARCHIVO MANUAL: el analista mapea las columnas. Los PATRONES MANUALES del cliente (21/Oct/2026)
+    // se reconocen por % de coincidencia de sus títulos, sin mirar la hoja; los perfiles anteriores
+    // (sin títulos guardados), por su huella exacta. Es el único camino que usa la memoria por cliente.
     if (aplicativo.manual) {
-      // El perfil del cliente se respeta tal cual: si su valor es una columna de «total», la
-      // confirmación del IVA viaja en el propio perfil (`valorSinImpuestosConfirmado`) y, si no
-      // la trae, el editor la pregunta en vivo.
-      const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      const spec = perfilSpec ? normalizarSpecModulo(descriptor, perfilSpec) : sugerirSpec(descriptor, hoja);
-      const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
+      // «No usar este patrón»: el modal vuelve a analizar con la sugerencia automática.
+      const sinFormato = String(formData.get("formatoManual") ?? "") === "ninguno";
+      const formatos = sinFormato ? [] : await formatosManualesDelCliente(clienteId, descriptor.codigo);
+      // El patrón se aplica tal cual: si su valor es una columna de «total», la confirmación del IVA
+      // viaja en el propio mapeo (`valorSinImpuestosConfirmado`) y, si no la trae, el editor la pide.
+      const elegido = elegirFormatoManual(descriptor, ingesta.hojas, formatos, { hojaElegida: hojaElegida || null, hojaPropuesta: hoja.nombre });
+      const anterior = elegido ? null : perfilAnteriorExacto(descriptor, formatos, huellasCandidatas([hoja]).map((c) => c.huella));
+      // Un patrón puede reconocerse en otra hoja del libro: la vista y el mapeo son de esa hoja.
+      const hojaLectura = (elegido && ingesta.hojas.find((h) => h.nombre === elegido.ubicacion.hoja)) || hoja;
+      const spec = elegido?.spec ?? anterior?.spec ?? sugerirSpec(descriptor, hoja);
+      const origen: "perfil" | "ia" = elegido || anterior ? "perfil" : "ia";
+      const formatoManual = elegido
+        ? vistaFormatoManual(elegido.formato, elegido.porcentaje, elegido.advertencias)
+        : anterior ? vistaFormatoManual(anterior.formato, null) : undefined;
       const [vigentePeriodo, agruparPorUltimo] = await Promise.all([
         vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis),
         ultimoAgruparPor(descriptor, clienteId, null),
@@ -843,9 +848,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         recepcionLoteId: loteId,
         modo: "manual",
         aplicativo: aplicativoVm,
-        ...vistaAnalisisHoja(descriptor, ingesta.hojas, hoja, spec, seleccionHoja),
+        ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaLectura, spec, seleccionHoja),
         spec,
         origen,
+        ...(formatoManual ? { formatoManual } : {}),
         ...(vigentePeriodo ? { vigentePeriodo } : {}),
         ...(agruparPorUltimo ? { agruparPorUltimo } : {}),
       };
@@ -1438,6 +1444,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       propuesta?: PropuestaPatronLote | null;
       /** …o por qué no se podrá (el cargue sigue igual). */
       sinPropuesta?: string | null;
+      /** Archivo manual: el patrón manual del cliente con que coincide el archivo (o el perfil anterior). */
+      formatoManual?: Pick<PropuestaFormatoManual, "formatoUsadoId" | "perfilLegadoId" | "porcentaje">;
     };
     // Un mapeo que no sirve es un error del formulario, no del archivo: se responde sin marcar el
     // original como no procesable (como la confirmación del IVA). Un texto suelto sí lo marca.
@@ -1467,23 +1475,31 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       if (!hoja) return "El archivo no tiene hojas legibles.";
       const editado = specDelFormulario();
       if (editado && "rechazo" in editado) return editado;
+      // Con qué patrón manual del cliente coincide la hoja que se lee (salvo «No usar este patrón»).
+      // El navegador no lo dice: se vuelve a calcular aquí, sobre la misma hoja.
+      const sinFormato = String(formData.get("formatoManual") ?? "") === "ninguno";
+      const formatos = sinFormato ? [] : await formatosManualesDelCliente(clienteId, descriptor.codigo);
+      const elegido = elegirFormatoManual(descriptor, ingesta.hojas, formatos, { hojaElegida: hoja.nombre });
+      const anterior = elegido ? null : perfilAnteriorExacto(descriptor, formatos, huellasCandidatas([hoja]).map((c) => c.huella));
+      const delFormato = elegido ? normalizarSpecModulo(descriptor, elegido.spec) : anterior?.spec ?? null;
+      const formatoManual = elegido
+        ? { formatoUsadoId: elegido.formato.id, porcentaje: elegido.porcentaje }
+        : anterior ? { perfilLegadoId: anterior.formato.id } : undefined;
       if (editado) {
         // El origen es metadata de auditoría: se recompone contra fuentes del
         // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
         const spec = editado;
         const specReutilizable = normalizarSpecModulo(descriptor, spec);
-        const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-        const origen = perfilSpec && mismoSpecModulo(specReutilizable, perfilSpec)
+        const origen = delFormato && mismoFormatoManual(specReutilizable, delFormato)
           ? "perfil"
           : mismoSpecModulo(specReutilizable, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja))) ? "ia" : "manual";
-        return { hoja, spec, origen, patron: null };
+        return { hoja, spec, origen, patron: null, formatoManual };
       }
-      const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      const specSinEditar = perfilSpec ?? sugerirSpec(descriptor, hoja);
+      const specSinEditar = elegido?.spec ?? anterior?.spec ?? sugerirSpec(descriptor, hoja);
       // Un perfil viejo (p. ej. «por cuenta y NIT», retirado) o una sugerencia incompleta tampoco pasan.
       const errorSinEditar = validarSpecModulo(descriptor, normalizarSpecModuloArchivo(descriptor, specSinEditar));
       if (errorSinEditar) return { rechazo: `${errorSinEditar} Revisa el mapeo de columnas.` };
-      return { hoja, spec: specSinEditar, origen: perfilSpec ? "perfil" : "ia", patron: null };
+      return { hoja, spec: specSinEditar, origen: delFormato ? "perfil" : "ia", patron: null, formatoManual };
     };
 
     // APLICATIVO SIN PATRÓN, LECTURA CONFIGURADA EN LA CARGA (Cartera, CxP, Ingresos, Activos
@@ -1602,6 +1618,17 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // Las reglas que combinan celdas/filas necesitan la confirmación vinculada a
     // su interpretación. El camino genérico no debe omitir esa compuerta.
     if (spec.lecturaEstructurada) return { ok: false, message: "Este formato necesita la asistencia de lectura de Inventarios para revisar y confirmar su interpretación." };
+    // Archivo manual: el patrón manual que se podrá guardar al CONFIRMAR (21/Oct/2026). Se toma de la
+    // lectura ANTES de los ajustes de este cargue —centro de costo, agrupación, contenido, signos,
+    // período, TRM, fila del total, rangos que no suman—: lo que se guarda es el formato, no el cargue.
+    const propuestaFormatoManual: PropuestaFormatoManual | null = aplicativo.manual
+      ? {
+          version: 1,
+          encabezado: encabezadoParaGuardar(hoja.filas[spec.filaEncabezado - 1] ?? []),
+          spec: normalizarSpecModulo(descriptor, normalizarSpecModuloArchivo(descriptor, spec)),
+          ...(lectura.formatoManual ?? {}),
+        }
+      : null;
 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor.
@@ -1790,11 +1817,14 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       // solo el servidor, tomado ANTES de los ajustes de este archivo) o por qué no se puede.
       ...(lectura.propuesta ? { propuestaPatron: lectura.propuesta } : {}),
       ...(configurarEnCarga && lectura.sinPropuesta ? { propuestaPatronMotivo: lectura.sinPropuesta } : {}),
+      // Archivo manual: el patrón manual que se guarda (o cuyo uso se cuenta) al confirmar.
+      ...(propuestaFormatoManual ? { propuestaFormatoManual } : {}),
     };
-    // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
-    // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
-    // Con «No» al centro de costo, el perfil conserva la columna: la respuesta es de ESTE cargue.
-    const specPerfil = normalizarSpecModulo(descriptor, sinCentro ? { ...spec, columnas: { ...spec.columnas, agrupador: columnaCentroFormato } } : spec);
+    const detalleFormatoManual = propuestaFormatoManual?.formatoUsadoId != null
+      ? ` · patrón manual del cliente (${propuestaFormatoManual.porcentaje ?? 100} %)${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
+      : propuestaFormatoManual?.perfilLegadoId != null
+        ? ` · patrón manual anterior del cliente${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
+        : "";
     const clasificadorDelCargue = patron?.clasificadorCambiado
       ? ` · ${descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"} solo para este cargue: ${
           modoClasificadorDe(spec) === "global"
@@ -1807,7 +1837,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
       : configurarEnCarga
         ? ` · ${aplicativo.name} sin patrón · lectura configurada en la carga`
-        : ` · ${aplicativo.name}`) + detalleCentro + detalleAuditoriaAgruparPor(agruparCarga.agruparPor);
+        : ` · ${aplicativo.name}${detalleFormatoManual}`) + detalleCentro + detalleAuditoriaAgruparPor(agruparCarga.agruparPor);
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -1853,14 +1883,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             data: { vecesUsado: { increment: 1 }, ultimoUsoEn: new Date() },
           });
         }
-        // Perfil del layout por cliente+módulo: se guarda/actualiza para las próximas cargas.
-        if (huella && aplicativo.manual) {
-          await tx.perfilCargaModulo.upsert({
-            where: { clienteId_moduloCodigo_huella: { clienteId, moduloCodigo, huella } },
-            create: { clienteId, moduloCodigo, huella, specJson: specPerfil, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
-            update: { specJson: specPerfil, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
-          });
-        }
+        // El patrón manual del cliente ya NO se guarda al leer (21/Oct/2026): un borrador que se
+        // descarta no debe tocar la memoria. Queda en el spec del lote y se guarda al confirmar.
       }, {
         maxWait: 5_000,
         timeout: TIMEOUT_TRANSACCION_MODULO_MS,
@@ -2200,7 +2224,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
 
     const lote = await prisma.moduloImportacionLote.findUnique({
       where: { loteId },
-      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true, specJson: true },
+      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true, specJson: true, archivoNombre: true },
     });
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
     // Rastro del valor que dejó la lectura (fórmula y confirmación del IVA): el lote se purga al
@@ -2743,9 +2767,32 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         ? ` El formato coincide con el patrón aprobado ${erpPatron.erp.name} v${patron.version}.`
         : ` Formato guardado como patrón ${erpPatron.erp.name} v${patron.version}: se usará para ${cliente.name} hasta que un administrador lo apruebe para todos.`
       : "";
+    // «Archivo manual»: el patrón manual del cliente se guarda (o se cuenta su uso) al CONFIRMAR, después
+    // de la promoción y al mejor esfuerzo: si falla, el cargue ya quedó y solo se avisa.
+    const propuestaFormato = resultado.reutilizado ? null : leerPropuestaFormatoManualDeLote(lote.specJson);
+    let textoFormato = "";
+    let detalleFormatoCargue = "";
+    if (propuestaFormato) {
+      try {
+        const guardado = await guardarFormatoManualConfirmado({
+          descriptor,
+          clienteId: lote.clienteId,
+          propuesta: propuestaFormato,
+          archivoEjemplo: lote.archivoNombre,
+          casilla: formData.get("guardarFormatoManual"),
+          usuario: user ? { id: user.id, name: user.name } : null,
+        });
+        if (guardado.hecho === "creó") textoFormato = ` Formato guardado como patrón manual de ${cliente.name}.`;
+        else if (guardado.hecho === "reemplazó") textoFormato = ` Se actualizó el patrón manual de ${cliente.name} con este mapeo.`;
+        if (guardado.hecho) detalleFormatoCargue = ` · patrón manual: ${guardado.hecho}`;
+      } catch (e) {
+        registrarError("cargarBorradorModulo.patronManual", e);
+        textoFormato = " No se pudo guardar el patrón manual del cliente; el cargue sí quedó.";
+      }
+    }
     const mensaje = (resultado.modo === "agregar"
       ? `Agregado a ${descriptor.label} del período ${periodo} (${resultado.aportados} ítems nuevos, total ${resultado.filas}).`
-      : `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`) + textoPatron;
+      : `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`) + textoPatron + textoFormato;
     if (patron && erpPatron && !patron.reutilizada) {
       await logAudit({
         user: user?.name ?? "Sistema",
@@ -2780,8 +2827,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         action: resultado.modo === "agregar" ? `AGREGÓ ítems a ${descriptor.label}` : `CARGÓ ${descriptor.label}`,
         entity: cliente.name,
         detail: resultado.modo === "agregar"
-          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}`
-          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}${detalleAuditoriaAgruparPor(agruparPorLote)}`,
+          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}${detalleFormatoCargue}`
+          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}${detalleAuditoriaContenido(signoContenidoLote)}${detalleValorLote}${detalleAuditoriaAgruparPor(agruparPorLote)}${detalleFormatoCargue}`,
         clientId: lote.clienteId,
       });
     }
