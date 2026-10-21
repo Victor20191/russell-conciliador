@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { clientesParaMuestra } from "@/lib/modulos/patrones/servidor";
 import { BackLink, PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { ERP_MANUAL_CODE } from "@/lib/erp-procesos";
@@ -24,7 +25,8 @@ export default async function NuevoPatronPage({
   if (!descriptor) notFound();
 
   const baseId = Number(sp.base);
-  const [erps, baseFila] = await Promise.all([
+  const recepcion = /^[0-9a-f-]{36}$/i.test(sp.recepcion ?? "") ? sp.recepcion! : null;
+  const [erps, baseFila, clientes, original] = await Promise.all([
     prisma.erp.findMany({
       where: { active: true, code: { not: ERP_MANUAL_CODE } },
       orderBy: [{ order: "asc" }, { name: "asc" }],
@@ -36,6 +38,12 @@ export default async function NuevoPatronPage({
           select: { version: true, erpId: true, specJson: true, encabezadoJson: true, clienteOrigenId: true },
         })
       : Promise.resolve(null),
+    // «Cliente de la muestra»: los clientes del alcance de quien crea el patrón.
+    clientesParaMuestra(),
+    // Desde el archivo de un cliente que no coincidió, ese cliente llega preseleccionado.
+    recepcion
+      ? prisma.archivoOriginalModulo.findFirst({ where: { loteId: recepcion, moduloCodigo }, select: { clienteId: true } })
+      : Promise.resolve(null),
   ]);
   if (baseFila?.clienteOrigenId != null) await requirePermiso("perfiles_carga:administrar", { clientId: baseFila.clienteOrigenId, modo: "lectura" });
   const erpPedido = Number(sp.erp);
@@ -43,7 +51,8 @@ export default async function NuevoPatronPage({
   const base: BasePatron | null = baseFila
     ? { version: baseFila.version, specJson: JSON.stringify(baseFila.specJson), encabezadoJson: JSON.stringify(baseFila.encabezadoJson) }
     : null;
-  const recepcion = /^[0-9a-f-]{36}$/i.test(sp.recepcion ?? "") ? sp.recepcion! : null;
+  // Solo si está en el alcance (si no, el editor tampoco puede leer ese original).
+  const clienteMuestraInicial = original && clientes.some((c) => c.id === original.clienteId) ? original.clienteId : null;
 
   return (
     <div>
@@ -69,6 +78,8 @@ export default async function NuevoPatronPage({
         erpInicial={erpInicial}
         recepcionLoteId={recepcion}
         base={base}
+        clientes={clientes}
+        clienteMuestraInicial={clienteMuestraInicial}
       />
     </div>
   );

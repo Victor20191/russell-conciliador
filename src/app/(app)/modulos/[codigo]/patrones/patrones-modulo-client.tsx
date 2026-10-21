@@ -10,8 +10,9 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones/servidor";
 import { ETIQUETA_ESTADO_PATRON, FILAS_DATOS_MUESTRA, motivoNoBorrable } from "@/lib/modulos/patrones/version";
-import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, generarMuestraRecortadaVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
+import { asignarClienteMuestraVersionPatron, borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, generarMuestraRecortadaVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
 import { Modal } from "@/components/modal";
+import { CampoClienteMuestra, type ClienteMuestra } from "./campo-cliente-muestra";
 import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_DECLARABLES, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
@@ -37,11 +38,14 @@ export default function PatronesModuloClient({
   moduloLabel,
   patrones,
   puedeAdministrar,
+  clientes = [],
 }: {
   moduloCodigo: string;
   moduloLabel: string;
   patrones: PatronAplicativoVm[];
   puedeAdministrar: boolean;
+  /** Para «Cliente de la muestra» (solo llega a quien administra patrones). */
+  clientes?: ClienteMuestra[];
 }) {
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
   const [bandeja, setBandeja] = useState<Bandeja>(() => patrones.some((p) => p.versiones.some((v) => pertenece(v, "Por revisar"))) ? "Por revisar" : "En uso");
@@ -79,14 +83,14 @@ export default function PatronesModuloClient({
         </Card>
       ) : (
         visibles.map((patron) => (
-          <GrupoAplicativo key={patron.erp.id} patron={patron} ruta={ruta} puedeAdministrar={puedeAdministrar} />
+          <GrupoAplicativo key={patron.erp.id} patron={patron} ruta={ruta} puedeAdministrar={puedeAdministrar} clientes={clientes} />
         ))
       )}
     </div>
   );
 }
 
-function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronAplicativoVm; ruta: string; puedeAdministrar: boolean }) {
+function GrupoAplicativo({ patron, ruta, puedeAdministrar, clientes }: { patron: PatronAplicativoVm; ruta: string; puedeAdministrar: boolean; clientes: ClienteMuestra[] }) {
   const [abierta, setAbierta] = useState<number | null>(null);
   const aprobadas = patron.versiones.filter((v) => v.estado === "aprobada").length;
   return (
@@ -123,6 +127,7 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
                   erpNombre={patron.erp.nombre}
                   ruta={ruta}
                   puedeAdministrar={puedeAdministrar}
+                  clientes={clientes}
                   abierta={abierta === version.id}
                   onAlternar={() => setAbierta((actual) => (actual === version.id ? null : version.id))}
                 />
@@ -235,6 +240,57 @@ function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onC
   );
 }
 
+/**
+ * «Indicar cliente» (21/Oct/2026): de qué cliente es la muestra de una versión que ya la tenía sin
+ * ese dato. Opcional y solo de consulta; una vez guardado no se cambia desde aquí.
+ */
+function IndicarClienteMuestraModal({
+  version,
+  clientes,
+  inicial,
+  onClose,
+}: {
+  version: VersionPatronVm;
+  clientes: ClienteMuestra[];
+  inicial: number | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [clienteId, setClienteId] = useState<number | null>(inicial);
+  const [guardando, startGuardar] = useTransition();
+  const guardar = () => {
+    if (clienteId == null) return;
+    startGuardar(async () => {
+      const r = await asignarClienteMuestraVersionPatron(version.id, clienteId);
+      if (!r.ok) { notifyError(r.message ?? "No se pudo guardar el cliente de la muestra."); return; }
+      notifySuccess(r.message ?? "Cliente de la muestra guardado.");
+      onClose();
+      router.refresh();
+    });
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Cliente de la muestra · v${version.version}`}
+      size="md"
+      footer={
+        <button type="button" disabled={guardando || clienteId == null} onClick={guardar} className={`${botonAccion} bg-navy-700 text-white`}>
+          {guardando ? "Guardando…" : "Guardar"}
+        </button>
+      }
+    >
+      <div className="space-y-3 text-[12.5px] text-ink-600">
+        <p>
+          ¿De qué cliente es <b>{version.muestra?.nombre ?? "la muestra"}</b>? Queda solo como consulta: el patrón no se limita a ese cliente.
+          Una vez guardado no se cambia desde aquí; si se reemplaza la muestra, se vuelve a pedir.
+        </p>
+        <CampoClienteMuestra clientes={clientes} value={clienteId} onChange={setClienteId} />
+      </div>
+    </Modal>
+  );
+}
+
 /** Confirma el borrado de una versión pendiente o inactiva. Se cierra solo con la X. */
 function BorrarVersionModal({ version, erpNombre, onClose }: { version: VersionPatronVm; erpNombre: string; onClose: () => void }) {
   const router = useRouter();
@@ -283,6 +339,7 @@ function FilaVersion({
   erpNombre,
   ruta,
   puedeAdministrar,
+  clientes,
   abierta,
   onAlternar,
 }: {
@@ -291,6 +348,7 @@ function FilaVersion({
   erpNombre: string;
   ruta: string;
   puedeAdministrar: boolean;
+  clientes: ClienteMuestra[];
   abierta: boolean;
   onAlternar: () => void;
 }) {
@@ -299,8 +357,14 @@ function FilaVersion({
   const archivoRef = useRef<HTMLInputElement>(null);
   const [declarando, setDeclarando] = useState(false);
   const [borrandoVersion, setBorrandoVersion] = useState(false);
-  const [muestraParaCompartir, setMuestraParaCompartir] = useState<File | null>(null);
+  // La muestra elegida espera en un modal: hay que decir de qué cliente es (y, en una versión local,
+  // confirmar que se puede compartir) antes de subirla.
+  const [muestraElegida, setMuestraElegida] = useState<File | null>(null);
   const [compartibleConfirmada, setCompartibleConfirmada] = useState(false);
+  const [clienteMuestraId, setClienteMuestraId] = useState<number | null>(null);
+  const [indicandoCliente, setIndicandoCliente] = useState(false);
+  // Preselección: el cliente para el que es la versión, si está en la lista.
+  const clienteSugerido = version.clienteOrigenId != null && clientes.some((c) => c.id === version.clienteOrigenId) ? version.clienteOrigenId : null;
 
   const cambiarEstado = (estado: "aprobada" | "inactiva" | "validada_cliente") => {
     startAccion(async () => {
@@ -310,11 +374,12 @@ function FilaVersion({
       router.refresh();
     });
   };
-  const subirMuestra = (archivo: File, compartible = false) => {
+  const subirMuestra = (archivo: File, clienteId: number, compartible = false) => {
     startAccion(async () => {
       const fd = new FormData();
       fd.set("versionId", String(version.id));
       fd.set("archivo", archivo);
+      fd.set("muestraClienteId", String(clienteId));
       if (compartible) fd.set("muestraCompartible", "1");
       const r = await subirMuestraVersionPatron(fd);
       if (r.ok) notifySuccess(r.message ?? "Muestra guardada.");
@@ -374,6 +439,16 @@ function FilaVersion({
               {version.muestra.nombre.length > 28 ? `${version.muestra.nombre.slice(0, 27)}…` : version.muestra.nombre}
             </a>
             <span className="ml-1 text-[10.5px] text-ink-400">{tamano(version.muestra.tamanoBytes)}</span>
+            {/* De qué cliente salió el archivo: solo de consulta, no limita la versión a ese cliente. */}
+            {version.muestra.cliente ? (
+              <span className="mt-0.5 block text-[10.5px] text-ink-500" title="De qué cliente es el archivo de la muestra. Es solo de consulta: el patrón no queda limitado a ese cliente.">
+                Muestra de {version.muestra.cliente}
+              </span>
+            ) : puedeAdministrar && (
+              <button type="button" disabled={ocupado} onClick={() => { setClienteMuestraId(clienteSugerido); setIndicandoCliente(true); }} className="mt-0.5 block text-[10.5px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+                Indicar cliente
+              </button>
+            )}
             {version.muestra.recorte && (
               <span className="mt-1 block" title={`Copia del original del cargue con su formato: las primeras ${FILAS_DATOS_MUESTRA} filas de datos, con nombres y NIT/cédulas de personas ficticios; verificada contra el patrón.`}>
                 <Chip label="Copia del original" tone="blue" />
@@ -431,8 +506,10 @@ function FilaVersion({
                   onChange={(e) => {
                     const archivo = e.target.files?.[0];
                     e.target.value = "";
-                    if (archivo && local) { setCompartibleConfirmada(false); setMuestraParaCompartir(archivo); }
-                    else if (archivo) subirMuestra(archivo);
+                    if (!archivo) return;
+                    setCompartibleConfirmada(false);
+                    setClienteMuestraId(clienteSugerido);
+                    setMuestraElegida(archivo);
                   }}
                 />
               </>
@@ -458,12 +535,39 @@ function FilaVersion({
         )}
         {declarando && <DeclararTipoModal version={version} onClose={() => setDeclarando(false)} />}
         {borrandoVersion && <BorrarVersionModal version={version} erpNombre={erpNombre} onClose={() => setBorrandoVersion(false)} />}
-        {muestraParaCompartir && <Modal open title="Muestra para compartir el formato" onClose={() => setMuestraParaCompartir(null)} footer={<button type="button" disabled={!compartibleConfirmada || ocupado} className={`${botonAccion} bg-navy-700 text-white`} onClick={() => { const archivo = muestraParaCompartir; setMuestraParaCompartir(null); subirMuestra(archivo, true); }}>Probar y guardar muestra</button>}>
-          <div className="space-y-3 text-[12.5px] text-ink-600">
-            <p>Se probará <b>{muestraParaCompartir.name}</b> con la estructura confirmada. El original privado del cliente permanece separado.</p>
-            <label className="flex items-start gap-2"><input type="checkbox" checked={compartibleConfirmada} onChange={(e) => setCompartibleConfirmada(e.target.checked)} className="mt-0.5" /><span>Esta muestra no contiene información privada y puede compartirse con los usuarios del aplicativo al aprobar el patrón.</span></label>
-          </div>
-        </Modal>}
+        {muestraElegida && (
+          <Modal
+            open
+            title={local ? "Muestra para compartir el formato" : version.muestra ? "Cambiar la muestra" : "Subir la muestra"}
+            onClose={() => setMuestraElegida(null)}
+            footer={
+              <button
+                type="button"
+                disabled={ocupado || clienteMuestraId == null || (local && !compartibleConfirmada)}
+                className={`${botonAccion} bg-navy-700 text-white`}
+                onClick={() => {
+                  if (clienteMuestraId == null) return;
+                  const archivo = muestraElegida;
+                  setMuestraElegida(null);
+                  subirMuestra(archivo, clienteMuestraId, local);
+                }}
+              >
+                Probar y guardar muestra
+              </button>
+            }
+          >
+            <div className="space-y-3 text-[12.5px] text-ink-600">
+              <p>
+                Se probará <b>{muestraElegida.name}</b> con {local ? "la estructura confirmada. El original privado del cliente permanece separado." : "el formato de esta versión."}
+              </p>
+              <CampoClienteMuestra clientes={clientes} value={clienteMuestraId} onChange={setClienteMuestraId} />
+              {local && (
+                <label className="flex items-start gap-2"><input type="checkbox" checked={compartibleConfirmada} onChange={(e) => setCompartibleConfirmada(e.target.checked)} className="mt-0.5" /><span>Esta muestra no contiene información privada y puede compartirse con los usuarios del aplicativo al aprobar el patrón.</span></label>
+              )}
+            </div>
+          </Modal>
+        )}
+        {indicandoCliente && <IndicarClienteMuestraModal version={version} clientes={clientes} inicial={clienteMuestraId} onClose={() => setIndicandoCliente(false)} />}
       </td>
     </tr>
   );

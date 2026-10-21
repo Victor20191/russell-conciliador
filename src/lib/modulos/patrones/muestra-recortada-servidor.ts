@@ -45,7 +45,7 @@ export async function guardarMuestraRecortada(versionId: number, opciones: { ree
 
     const original = await prisma.archivoOriginalModulo.findUnique({
       where: { id: version.archivoOrigenId },
-      select: { clienteId: true, moduloCodigo: true, nombreArchivo: true, tamanoBytes: true, huellaSha256: true, claveObjeto: true, disponible: true },
+      select: { clienteId: true, nombreCliente: true, moduloCodigo: true, nombreArchivo: true, tamanoBytes: true, huellaSha256: true, claveObjeto: true, disponible: true },
     });
     if (!original || original.clienteId !== version.clienteOrigenId || original.moduloCodigo !== version.moduloCodigo
       || !original.disponible || !original.claveObjeto) {
@@ -84,6 +84,9 @@ export async function guardarMuestraRecortada(versionId: number, opciones: { ree
         muestraTamanoBytes: muestra.bytes.byteLength,
         muestraSha256: huellaSha256Archivo(muestra.bytes),
         muestraOrigen: "recorte_original",
+        // La muestra es copia del original de ESTE cliente (solo de consulta: no restringe el uso).
+        muestraClienteId: original.clienteId,
+        muestraClienteNombre: original.nombreCliente,
       },
     });
     if (actualizada.count !== 1) {

@@ -5,7 +5,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { procesoErpDeModulo, nombreProcesoErp } from "@/lib/erp-procesos";
-import { listarPatronesDeModulo } from "@/lib/modulos/patrones/servidor";
+import { clientesParaMuestra, listarPatronesDeModulo } from "@/lib/modulos/patrones/servidor";
 import { UMBRAL_COINCIDENCIA_PATRON } from "@/lib/modulos/patrones/coincidencia";
 import { PestanasModulo } from "../pestanas-modulo";
 import PatronesModuloClient from "./patrones-modulo-client";
@@ -31,6 +31,8 @@ export default async function PatronesModuloPage({ params }: { params: Promise<{
     }) : Promise.resolve(0),
   ]);
   const proceso = procesoErpDeModulo(moduloCodigo);
+  // «Cliente de la muestra» al subirla o indicarla: solo lo usa quien administra patrones.
+  const clientes = administrar.ok ? await clientesParaMuestra() : [];
 
   return (
     <div>
@@ -46,6 +48,7 @@ export default async function PatronesModuloPage({ params }: { params: Promise<{
         moduloLabel={descriptor.label}
         patrones={patrones}
         puedeAdministrar={administrar.ok}
+        clientes={clientes}
       />
     </div>
   );

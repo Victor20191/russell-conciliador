@@ -1693,6 +1693,10 @@ model VersionPatronArchivoModulo {
   muestraSha256       String?   @map("muestra_sha256")
   /// `subida` (null en las anteriores) | `recorte_original`: recorte anónimo y verificado del original.
   muestraOrigen       String?   @map("muestra_origen")
+  /// De qué cliente salió el archivo de la muestra (21/Oct/2026). Solo de CONSULTA: no restringe el
+  /// uso de la versión (eso es `clienteOrigenId`). FK suave; el nombre es foto, como el de origen.
+  muestraClienteId     Int?     @map("muestra_cliente_id")
+  muestraClienteNombre String?  @map("muestra_cliente_nombre")
   /// FK suave: solo las versiones migradas del perfil de un cliente.
   clienteOrigenId     Int?      @map("cliente_origen_id")
   clienteOrigenNombre String?   @map("cliente_origen_nombre")

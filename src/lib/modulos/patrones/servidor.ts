@@ -4,6 +4,7 @@ import "server-only";
 // de patrones. La lógica (coincidencia, elección, aplicación) vive en los módulos puros vecinos.
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { ERP_MANUAL_CODE, procesoErpDeModulo } from "@/lib/erp-procesos";
 import type { DescriptorModulo } from "../descriptores";
 import { SpecModuloSchema } from "../extraccion/esquema";
@@ -27,10 +28,17 @@ export type VersionPatronVm = {
   totales: string;
   /** Cartera y CxP: tipo de formato de la versión (null en los demás módulos). */
   formato: FormatoVersionVm | null;
-  /** `recorte`: la muestra es el recorte anónimo del original del cargue (no la subió nadie). */
-  muestra: { nombre: string; tamanoBytes: number | null; recorte: boolean } | null;
+  /**
+   * `recorte`: la muestra es el recorte anónimo del original del cargue (no la subió nadie).
+   * `cliente`: de qué cliente salió el archivo (21/Oct/2026; null en las anteriores sin indicar). Solo
+   * de consulta y, por decisión del usuario, visible para todo el que ve la lista: no pasa por el
+   * alcance que oculta `clienteOrigenNombre`.
+   */
+  muestra: { nombre: string; tamanoBytes: number | null; recorte: boolean; cliente: string | null } | null;
   vecesUsado: number;
   ultimoUsoEn: string | null;
+  /** Con el mismo alcance que el nombre: preselecciona el cliente al subir la muestra. */
+  clienteOrigenId: number | null;
   clienteOrigenNombre: string | null;
   nota: string | null;
   creadoPor: string | null;
@@ -126,9 +134,12 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
       totales: spec ? descripcionSubtotalesModulo(spec) : "—",
       ...(spec?.lecturaEstructurada ? { lecturaEstructurada: spec.lecturaEstructurada } : {}),
       formato: spec && descriptor.crucePorTercero.detalleTercero ? formatoDeVersion(spec) : null,
-      muestra: fila.muestraClaveObjeto ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes, recorte: fila.muestraOrigen === "recorte_original" } : null,
+      muestra: fila.muestraClaveObjeto
+        ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes, recorte: fila.muestraOrigen === "recorte_original", cliente: fila.muestraClienteNombre ?? null }
+        : null,
       vecesUsado: fila.vecesUsado,
       ultimoUsoEn: fila.ultimoUsoEn?.toISOString() ?? null,
+      clienteOrigenId: alcanceOrigen ? fila.clienteOrigenId : null,
       clienteOrigenNombre: alcanceOrigen ? fila.clienteOrigenNombre : null,
       nota: alcanceOrigen ? fila.nota : null,
       creadoPor: fila.creadoPor,
@@ -143,6 +154,17 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
     porErp.set(fila.erpId, grupo);
   }
   return [...porErp.values()].sort((a, b) => a.erp.nombre.localeCompare(b.erp.nombre, "es"));
+}
+
+/** Clientes del alcance de quien sube una muestra, para «Cliente de la muestra». */
+export async function clientesParaMuestra(): Promise<{ id: number; nombre: string }[]> {
+  const alcance = await alcanceLecturaUsuario();
+  const clientes = await prisma.client.findMany({
+    where: alcance.todos ? {} : { id: { in: alcance.clientIds } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return clientes.map((c) => ({ id: c.id, nombre: c.name }));
 }
 
 export type AplicativoCarga = { id: number; code: string; name: string; manual: boolean };

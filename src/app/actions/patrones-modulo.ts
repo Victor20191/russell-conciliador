@@ -69,6 +69,26 @@ async function exigirAlcanceVersion(version: { clienteOrigenId?: number | null }
   if (!alcance.ok) throw new ErrorPatron(alcance.message);
 }
 
+/**
+ * De qué cliente salió el archivo de la MUESTRA (21/Oct/2026). Solo de consulta —no restringe la
+ * versión; eso es `clienteOrigenId`—, pero al subirla a mano es obligatorio y se valida aquí: que el
+ * cliente exista y que esté en el alcance de quien la sube. El nombre se guarda como foto.
+ */
+async function clienteDeMuestra(crudo: unknown): Promise<{ id: number; nombre: string }> {
+  const id = Number(String(crudo ?? "").trim());
+  if (!Number.isInteger(id) || id <= 0) throw new ErrorPatron("Indica de qué cliente es la muestra.");
+  const cliente = await prisma.client.findUnique({ where: { id }, select: { id: true, name: true } });
+  if (!cliente) throw new ErrorPatron("El cliente de la muestra ya no existe.");
+  const alcance = await authorizePermiso(PERMISO, { clientId: cliente.id, modo: "lectura" });
+  if (!alcance.ok) throw new ErrorPatron(alcance.message);
+  return { id: cliente.id, nombre: cliente.name };
+}
+
+/** « · muestra de {cliente}» para la bitácora; vacío sin cliente. */
+function detalleClienteMuestra(nombre: string | null | undefined): string {
+  return nombre ? ` · muestra de ${nombre}` : "";
+}
+
 function descriptorDe(moduloCodigo: unknown): DescriptorModulo {
   const descriptor = descriptorModulo(String(moduloCodigo ?? "").trim().toUpperCase());
   if (!descriptor) throw new ErrorPatron("Módulo no soportado.");
@@ -547,6 +567,7 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
     const nota = NotaSchema.safeParse(formData.get("nota") ?? "");
     if (!nota.success) throw new ErrorPatron(nota.error.issues[0]?.message ?? "La nota no es válida.");
     const aprobar = formData.get("aprobar") === "1";
+    const clienteMuestra = await clienteDeMuestra(formData.get("muestraClienteId"));
     const hojas = await hojasDe(bytes, archivo.name);
     const { spec, hoja, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const user = await getCurrentUser();
@@ -584,6 +605,8 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
           muestraNombre: archivo.name,
           muestraTamanoBytes: bytes.byteLength,
           muestraSha256: huellaSha256Archivo(bytes),
+          muestraClienteId: clienteMuestra.id,
+          muestraClienteNombre: clienteMuestra.nombre,
           nota: nota.data || null,
           creadoPor: user?.name ?? null,
           creadoPorId: user?.id ?? null,
@@ -598,7 +621,7 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
       user: user?.name ?? "Sistema",
       action: "CREÓ PATRÓN DE ARCHIVO",
       entity: `${descriptor.label} · ${erp.name} v${creada.version}`,
-      detail: `${aprobar ? "aprobada" : "pendiente"} · muestra ${archivo.name} · hoja «${spec.hoja}» · ${encabezado.filter(Boolean).length} rótulos${detalleValorPatron(descriptor, spec, hoja, encabezado)}`,
+      detail: `${aprobar ? "aprobada" : "pendiente"} · muestra ${archivo.name}${detalleClienteMuestra(clienteMuestra.nombre)} · hoja «${spec.hoja}» · ${encabezado.filter(Boolean).length} rótulos${detalleValorPatron(descriptor, spec, hoja, encabezado)}`,
     });
     revalidatePath(rutaPatrones(descriptor.codigo));
     return { ok: true, versionId: creada.id, version: creada.version, message: `Versión ${creada.version} de ${erp.name} ${aprobar ? "aprobada" : "guardada como pendiente"}.` };
@@ -628,6 +651,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
     if (local && formData.get("muestraCompartible") !== "1") throw new ErrorPatron("Confirma que la muestra se puede compartir con los usuarios del aplicativo. El original del cliente permanece privado.");
     const descriptor = descriptorDe(version.moduloCodigo);
     const { archivo, bytes } = await bytesDeArchivo(formData.get("archivo"));
+    const clienteMuestra = await clienteDeMuestra(formData.get("muestraClienteId"));
     const hojas = await hojasDe(bytes, archivo.name);
     const parsed = SpecModuloSchema.safeParse(version.specJson);
     if (!parsed.success || !Array.isArray(version.encabezadoJson)) throw new ErrorPatron("El mapeo guardado de la versión es ilegible.");
@@ -657,6 +681,8 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
         muestraTamanoBytes: bytes.byteLength,
         muestraSha256: huellaSha256Archivo(bytes),
         muestraOrigen: "subida",
+        muestraClienteId: clienteMuestra.id,
+        muestraClienteNombre: clienteMuestra.nombre,
       },
     });
     if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió mientras se subía la muestra. Recarga la página.");
@@ -669,7 +695,7 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
       user: user?.name ?? "Sistema",
       action: "SUBIÓ MUESTRA DE PATRÓN",
       entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
-      detail: `${archivo.name} · coincidencia ${ubicacion.coincidencia.porcentaje} %${detalleValorPatron(descriptor, spec, hojaMuestra, encabezado)}`,
+      detail: `${archivo.name}${detalleClienteMuestra(clienteMuestra.nombre)} · coincidencia ${ubicacion.coincidencia.porcentaje} %${detalleValorPatron(descriptor, spec, hojaMuestra, encabezado)}`,
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
     return { ok: true, message: `Muestra guardada (${ubicacion.coincidencia.porcentaje} % de coincidencia).` };
@@ -711,13 +737,49 @@ export async function generarMuestraRecortadaVersion(versionId: number): Promise
       user: user?.name ?? "Sistema",
       action: regenerar ? "REGENERÓ MUESTRA DE PATRÓN" : "GENERÓ MUESTRA DE PATRÓN",
       entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
-      detail: `${muestra.nombre} · copia del original (primeras filas, con su formato) con las personas ficticias, verificada contra el patrón`,
+      detail: `${muestra.nombre} · copia del original (primeras filas, con su formato) con las personas ficticias, verificada contra el patrón${detalleClienteMuestra(version.clienteOrigenNombre)}`,
       ...(version.clienteOrigenId != null ? { clientId: version.clienteOrigenId } : {}),
     });
     revalidatePath(rutaPatrones(version.moduloCodigo));
     return { ok: true, message: muestra.yaTenia ? "La versión ya tenía muestra." : `Muestra ${regenerar ? "regenerada" : "generada"}: ${muestra.nombre}.` };
   } catch (e) {
     return respuestaError("generarMuestraRecortadaVersion", e);
+  }
+}
+
+/**
+ * Indica a mano de qué cliente es la muestra de una versión que ya la tenía sin ese dato (las
+ * anteriores al 21/Oct/2026). Opcional y solo de consulta: no toca el formato ni la muestra, así
+ * que vale en cualquier estado, también aprobada. Solo escribe si el dato sigue vacío; si después
+ * se reemplaza la muestra, la subida vuelve a pedir el cliente.
+ */
+export async function asignarClienteMuestraVersionPatron(versionId: number, clienteId: number): Promise<ActionState> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  try {
+    const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: Number(versionId) || 0 }, include: { erp: { select: { name: true } } } });
+    if (!version) throw new ErrorPatron("La versión ya no existe.");
+    await exigirAlcanceVersion(version);
+    if (!version.muestraClaveObjeto) throw new ErrorPatron("La versión no tiene muestra: el cliente se indica al subirla.");
+    if (version.muestraClienteId != null) throw new ErrorPatron(`Ya se indicó de qué cliente es la muestra (${version.muestraClienteNombre ?? "sin nombre"}).`);
+    const cliente = await clienteDeMuestra(clienteId);
+    const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
+      where: { id: version.id, muestraClienteId: null, muestraClaveObjeto: version.muestraClaveObjeto },
+      data: { muestraClienteId: cliente.id, muestraClienteNombre: cliente.nombre },
+    });
+    if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió mientras se guardaba. Recarga la página.");
+    const descriptor = descriptorDe(version.moduloCodigo);
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "INDICÓ EL CLIENTE DE LA MUESTRA DEL PATRÓN",
+      entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
+      detail: `${version.muestraNombre ?? "muestra"}${detalleClienteMuestra(cliente.nombre)} · solo de consulta: no restringe el uso de la versión`,
+    });
+    revalidatePath(rutaPatrones(version.moduloCodigo));
+    return { ok: true, message: `Muestra de ${cliente.nombre}.` };
+  } catch (e) {
+    return respuestaError("asignarClienteMuestraVersionPatron", e);
   }
 }
 

@@ -14,7 +14,7 @@ vi.mock("@/lib/anthropic", () => ({ iaDisponible: mocks.disponible }));
 vi.mock("@/lib/modulos/asistencia/ia", () => ({ proponerSpecInventarioIA: mocks.proponer, ErrorProveedorAsistenciaInventario: class extends Error {} }));
 vi.mock("@/lib/ia/uso", () => ({ registrarConsumoIA: mocks.consumo }));
 vi.mock("@/lib/storage/objetos", () => ({ almacenamientoDisponible: () => true, subirObjeto: mocks.subir, eliminarObjeto: vi.fn(), obtenerObjeto: vi.fn() }));
-vi.mock("@/lib/prisma", () => ({ default: { erp: { findUnique: mocks.erp } } }));
+vi.mock("@/lib/prisma", () => ({ default: { erp: { findUnique: mocks.erp }, client: { findUnique: async () => ({ id: 5, name: "KAKARAKA S.A.S." }) } } }));
 vi.mock("@/lib/concurrency", () => ({ tomarCandadoTransaccion: vi.fn(), transaccionSerializable: (fn: (tx: unknown) => unknown) => fn({ versionPatronArchivoModulo: { findMany: async () => [], create: mocks.crear } }) }));
 
 import { asistirMuestraPatronInventario, crearVersionPatron, ventanaMuestraPatron, type AsistenciaMuestraPatron } from "./patrones-modulo";
@@ -40,7 +40,7 @@ const spec: SpecModulo = {
 const uso = { tipoOperacion: "extraccion_tabular", modelo: "modelo-prueba", usage: { input_tokens: 12, output_tokens: 10 } };
 async function formulario(previa?: AsistenciaMuestraPatron) {
   const fd = new FormData();
-  fd.set("moduloCodigo", "INV"); fd.set("erpId", "3");
+  fd.set("moduloCodigo", "INV"); fd.set("erpId", "3"); fd.set("muestraClienteId", "5");
   fd.set("archivo", new File([await readFile(`outputs/pruebas-inventario-siesa/${nombre}`)], nombre));
   if (previa?.asistenciaJson) fd.set("asistenciaJson", previa.asistenciaJson);
   return fd;

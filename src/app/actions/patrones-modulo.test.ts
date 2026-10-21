@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   versionFindUnique: vi.fn(),
   versionUpdateMany: vi.fn(),
   versionDeleteMany: vi.fn(),
+  clienteFindUnique: vi.fn(),
   tx: {
     versionPatronArchivoModulo: { findMany: vi.fn(), create: vi.fn() },
   },
@@ -35,11 +36,12 @@ vi.mock("@/lib/storage/objetos", () => ({
 vi.mock("@/lib/prisma", () => ({
   default: {
     erp: { findUnique: mocks.erpFindUnique },
+    client: { findUnique: mocks.clienteFindUnique },
     versionPatronArchivoModulo: { findUnique: mocks.versionFindUnique, updateMany: mocks.versionUpdateMany, deleteMany: mocks.versionDeleteMany },
   },
 }));
 
-import { actualizarVersionPatron, borrarVersionPatron, cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "./patrones-modulo";
+import { actualizarVersionPatron, asignarClienteMuestraVersionPatron, borrarVersionPatron, cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "./patrones-modulo";
 
 const HOJA = {
   nombre: "Inventario",
@@ -67,6 +69,7 @@ describe("patrón local confirmado y muestra compartida", () => {
     mocks.versionUpdateMany.mockResolvedValue({ count: 1 });
     mocks.ingerir.mockResolvedValue({ modo: "tabular", hojas: [HOJA] });
     mocks.obtenerObjeto.mockResolvedValue({ cuerpo: new Uint8Array([1, 2, 3]) });
+    mocks.clienteFindUnique.mockResolvedValue({ id: 5, name: "KAKARAKA S.A.S." });
   });
 
   it("no permite editar una estructura usada ni aprobar sin muestra", async () => {
@@ -83,9 +86,26 @@ describe("patrón local confirmado y muestra compartida", () => {
     expect(await subirMuestraVersionPatron(fd)).toMatchObject({ ok: true });
     const data = mocks.versionUpdateMany.mock.calls[0][0].data;
     expect(data.muestraClaveObjeto).toContain("/v2/");
+    expect(data).toMatchObject({ muestraClienteId: 5, muestraClienteNombre: "KAKARAKA S.A.S." });
     expect(data).not.toHaveProperty("specJson");
     expect(data).not.toHaveProperty("encabezadoJson");
     expect(data).not.toHaveProperty("archivoOrigenId");
+  });
+
+  it("«Indicar cliente» solo escribe en una muestra que aún no lo tiene, en cualquier estado, y no toca nada más", async () => {
+    // Sin muestra no hay a qué ponerle cliente: se indica al subirla.
+    expect(await asignarClienteMuestraVersionPatron(7, 5)).toEqual({ ok: false, message: "La versión no tiene muestra: el cliente se indica al subirla." });
+    mocks.versionFindUnique.mockResolvedValue({ ...version(), estado: "aprobada", muestraClaveObjeto: "muestra-global", muestraNombre: "kardex.xlsx", muestraClienteId: null });
+    expect(await asignarClienteMuestraVersionPatron(7, 5)).toMatchObject({ ok: true });
+    const { where, data } = mocks.versionUpdateMany.mock.calls[0][0];
+    expect(where).toMatchObject({ id: 7, muestraClienteId: null, muestraClaveObjeto: "muestra-global" });
+    expect(data).toEqual({ muestraClienteId: 5, muestraClienteNombre: "KAKARAKA S.A.S." });
+    expect(mocks.logAudit.mock.calls[0][0]).toMatchObject({ action: "INDICÓ EL CLIENTE DE LA MUESTRA DEL PATRÓN" });
+
+    mocks.versionUpdateMany.mockClear();
+    mocks.versionFindUnique.mockResolvedValue({ ...version(), muestraClaveObjeto: "m", muestraClienteId: 8, muestraClienteNombre: "OTRO S.A.S." });
+    expect(await asignarClienteMuestraVersionPatron(7, 5)).toEqual({ ok: false, message: "Ya se indicó de qué cliente es la muestra (OTRO S.A.S.)." });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
   });
 
   it("vuelve a probar la muestra compartida al aprobar y rechaza una inválida", async () => {
@@ -120,6 +140,7 @@ function formulario(extra: Record<string, string> = {}): FormData {
   fd.set("erpId", "3");
   fd.set("specJson", JSON.stringify(SPEC));
   fd.set("archivo", new File([new Uint8Array([1, 2, 3])], "kardex.xlsx"));
+  fd.set("muestraClienteId", "5");
   for (const [k, v] of Object.entries(extra)) fd.set(k, v);
   return fd;
 }
@@ -134,6 +155,7 @@ describe("patrones de archivo", () => {
     mocks.eliminarObjeto.mockResolvedValue(undefined);
     mocks.tx.versionPatronArchivoModulo.findMany.mockResolvedValue([{ version: 1 }, { version: 3 }]);
     mocks.tx.versionPatronArchivoModulo.create.mockImplementation(async ({ data }: { data: { version: number } }) => ({ id: 40, version: data.version }));
+    mocks.clienteFindUnique.mockResolvedValue({ id: 5, name: "KAKARAKA S.A.S." });
   });
 
   it("crea la versión siguiente con la muestra, el encabezado y el mapeo reutilizable", async () => {
@@ -151,10 +173,25 @@ describe("patrones de archivo", () => {
       hoja: "Inventario",
       encabezadoJson: ["Tipo", "Referencia", "Cantidad", "Valor total"],
       muestraNombre: "kardex.xlsx",
+      muestraClienteId: 5,
+      muestraClienteNombre: "KAKARAKA S.A.S.",
       nota: "Informe de kardex",
       aprobadoPor: "Admin",
     });
     expect(data.specJson.columnas).toMatchObject({ tipo: 1, valorTotal: 4 });
+    // El cliente de la muestra es solo de consulta: no restringe la versión.
+    expect(data).not.toHaveProperty("clienteOrigenId");
+    expect(mocks.logAudit.mock.calls[0][0].detail).toContain("muestra de KAKARAKA S.A.S.");
+  });
+
+  it("exige indicar de qué cliente es la muestra, y que exista y esté en el alcance", async () => {
+    expect(await crearVersionPatron(formulario({ muestraClienteId: "" }))).toEqual({ ok: false, message: "Indica de qué cliente es la muestra." });
+    mocks.clienteFindUnique.mockResolvedValueOnce(null);
+    expect(await crearVersionPatron(formulario())).toEqual({ ok: false, message: "El cliente de la muestra ya no existe." });
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, message: "Sin alcance" });
+    expect(await crearVersionPatron(formulario())).toEqual({ ok: false, message: "Sin alcance" });
+    expect(mocks.subirObjeto).not.toHaveBeenCalled();
+    expect(mocks.tx.versionPatronArchivoModulo.create).not.toHaveBeenCalled();
   });
 
   it("no crea patrones para «Archivo manual» ni con un mapeo que no lee filas", async () => {

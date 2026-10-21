@@ -31,6 +31,7 @@ import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
 import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
 import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
+import { CampoClienteMuestra, type ClienteMuestra } from "./campo-cliente-muestra";
 
 export type BasePatron = { version: number; specJson: string; encabezadoJson: string };
 export type EdicionPatron = { id: number; version: number; erpNombre: string; nota: string; actualizadoEn: string; muestraNombre: string };
@@ -51,6 +52,8 @@ export default function EditorPatronClient({
   recepcionLoteId,
   base,
   edicion,
+  clientes = [],
+  clienteMuestraInicial = null,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -68,6 +71,10 @@ export default function EditorPatronClient({
   /** Otra versión de la que se parte («Nueva a partir de esta»). */
   base?: BasePatron | null;
   edicion?: EdicionPatron | null;
+  /** Clientes del alcance para «Cliente de la muestra» (solo al crear: editar no cambia la muestra). */
+  clientes?: ClienteMuestra[];
+  /** Con `?recepcion=`, el cliente de ese original llega preseleccionado. */
+  clienteMuestraInicial?: number | null;
 }) {
   const router = useRouter();
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
@@ -75,6 +82,7 @@ export default function EditorPatronClient({
   const [analisis, setAnalisis] = useState<AnalisisPatron | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
   const [nota, setNota] = useState(edicion?.nota ?? "");
+  const [clienteMuestraId, setClienteMuestraId] = useState<number | null>(clienteMuestraInicial);
   const [muestraLista, setMuestraLista] = useState(edicion != null);
   const muestraRef = useRef<File | null>(null);
   // El editor del mapeo de ESTA pantalla: a él se le pide llevar el foco al campo que un error reclama.
@@ -272,11 +280,13 @@ export default function EditorPatronClient({
       }
       if (erpId == null) { notifyError("Elige el aplicativo del patrón."); return; }
       if (!muestraRef.current || !muestraLista) { notifyError("Sube el archivo de muestra del aplicativo."); return; }
+      if (clienteMuestraId == null) { notifyError("Indica de qué cliente es la muestra."); return; }
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("erpId", String(erpId));
       fd.set("specJson", JSON.stringify(spec));
       fd.set("archivo", muestraRef.current);
+      fd.set("muestraClienteId", String(clienteMuestraId));
       fd.set("nota", nota);
       if (esNuevoInventario && asistencia?.asistenciaJson) fd.set("asistenciaJson", asistencia.asistenciaJson);
       if (aprobar) fd.set("aprobar", "1");
@@ -369,6 +379,9 @@ export default function EditorPatronClient({
               </span>
             )}
           </label>
+          {!edicion && (
+            <CampoClienteMuestra clientes={clientes} value={clienteMuestraId} onChange={setClienteMuestraId} />
+          )}
         </fieldset>
         {analizando && (
           <BannerProcesando

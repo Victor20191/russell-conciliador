@@ -7,6 +7,7 @@ vi.mock("@/lib/prisma", () => ({ default: {
   clientErpProcess: { groupBy: vi.fn(async () => []) },
 } }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.alcance }));
+vi.mock("@/lib/rbac/contexto", () => ({ alcanceLecturaUsuario: vi.fn(async () => ({ todos: true })) }));
 
 import { listarPatronesDeModulo, versionesPatronCandidatas } from "./servidor";
 import { descriptorModulo } from "../descriptores";
@@ -37,8 +38,21 @@ describe("lectura de patrones privados y compartidos", () => {
     mocks.versiones.mockResolvedValue([version({ estado: "aprobada" })]);
     mocks.alcance.mockResolvedValue({ ok: false });
     const [patron] = await listarPatronesDeModulo(INV);
-    expect(patron.versiones[0]).toMatchObject({ estado: "aprobada", evidencia: null, clienteOrigenNombre: null, nota: null });
+    expect(patron.versiones[0]).toMatchObject({ estado: "aprobada", evidencia: null, clienteOrigenId: null, clienteOrigenNombre: null, nota: null });
     expect(mocks.originales).not.toHaveBeenCalled();
+  });
+
+  it("el cliente de la muestra se ve sin depender del alcance (21/Oct/2026, decisión del usuario)", async () => {
+    mocks.versiones.mockResolvedValue([
+      version({ estado: "aprobada", muestraClaveObjeto: "m", muestraNombre: "kardex.xlsx", muestraClienteId: 5, muestraClienteNombre: "KAKARAKA S.A.S." }),
+      version({ id: 5, version: 2, estado: "aprobada", clienteOrigenId: null, muestraClaveObjeto: "m2", muestraNombre: "viejo.xlsx" }),
+    ]);
+    mocks.alcance.mockResolvedValue({ ok: false });
+    const [patron] = await listarPatronesDeModulo(INV);
+    expect(patron.versiones[0].muestra).toMatchObject({ nombre: "kardex.xlsx", cliente: "KAKARAKA S.A.S." });
+    expect(patron.versiones[0].clienteOrigenNombre).toBeNull();
+    // Las anteriores quedan sin el dato hasta que alguien lo indique.
+    expect(patron.versiones[1].muestra).toMatchObject({ nombre: "viejo.xlsx", cliente: null });
   });
 
   it("el usuario con alcance recibe la evidencia del archivo confirmado", async () => {
