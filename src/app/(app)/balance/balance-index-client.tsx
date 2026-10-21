@@ -29,6 +29,8 @@ export type CorteRow = {
   period: string;
   versions: number;
   status: string; complete: number; lastUpload: string;
+  /** Quién confirmó el cargue de esta versión (`cargadoPor`); null si no quedó registrado. */
+  uploadedBy: string | null;
   mapped: number; unmapped: number; total: number;
   /** Apertura de la línea (`cuenta` | `tercero`); null en cargues anteriores a este dato. */
   apertura: string | null;
@@ -414,7 +416,12 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
           {p.unmapped > 0 && <Chip label={`${p.unmapped} sin mapeo`} tone="warn" />}
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-2.5 text-ink-500">{p.lastUpload}</td>
+      <td className="px-3 py-2.5 text-ink-500">
+        <span className="block whitespace-nowrap">{p.lastUpload}</span>
+        {p.uploadedBy && (
+          <span className="block truncate text-[11px] text-ink-400" title={`Cargado por ${p.uploadedBy}`}>por {p.uploadedBy}</span>
+        )}
+      </td>
       <td className="px-3 py-2.5 text-right">
         <Link href={`/balance/${p.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
           Ver <Icon name="chev-r" size={12} />

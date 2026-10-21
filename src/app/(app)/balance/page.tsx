@@ -37,7 +37,7 @@ export default async function BalancePage() {
       orderBy: { creadoEn: "desc" },
       select: {
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, periodoFin: true, version: true,
-        estaCongelado: true, estado: true, completitud: true, ultimaCarga: true,
+        estaCongelado: true, estado: true, completitud: true, ultimaCarga: true, cargadoPor: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
         archivosCargue: true,
       },
@@ -111,6 +111,7 @@ export default async function BalancePage() {
               // De los conteos, no de la columna guardada: las versiones anteriores la
               // redondeaban y 341 de 342 cuentas se veían «100 %».
               status: estadoBalance(b), complete: porcentajeCompletitud(b.mapeadas, b.sinMapear), lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "",
+              uploadedBy: b.cargadoPor?.trim() || null,
               mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales,
               inconsistente: paresDelCorte.some((p) => p.inconsistente && (p.balanceAId === b.id || p.balanceBId === b.id)),
               // Por el nombre del módulo («Inventarios»), no por su código.

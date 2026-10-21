@@ -9,7 +9,7 @@ vi.mock("./cargar-balance-modal", () => ({ CargarBalanceButton: () => null }));
 vi.stubGlobal("React", React);
 
 const fila = (over: Partial<CorteRow> & Pick<CorteRow, "key" | "id" | "period">): CorteRow => ({
-  versions: 1, status: "En proceso con alertas", complete: 100, lastUpload: "05/Sep/2026 12:31 p. m.",
+  versions: 1, status: "En proceso con alertas", complete: 100, lastUpload: "05/Sep/2026 12:31 p. m.", uploadedBy: null,
   mapped: 178, unmapped: 0, total: 178, apertura: "cuenta", inconsistente: false, enFirme: [], ...over,
 });
 
@@ -88,6 +88,13 @@ describe("listado de balances · agrupado por fecha de corte", () => {
 
   it("el conteo de versiones abre la bitácora de la línea", () => {
     expect(render([CLIENTE])).toContain("/balance/274?tab=versiones");
+  });
+
+  it("bajo la fecha de la última carga dice quién la hizo, si quedó registrado", () => {
+    const html = render([{ ...CLIENTE, cortes: [{ ...CORTE_MAR, rows: [{ ...CORTE_MAR.rows[0], uploadedBy: "Luisa Martinez" }] }] }]);
+    expect(html).toContain(">por Luisa Martinez<");
+    expect(html).toContain('title="Cargado por Luisa Martinez"');
+    expect(render([CLIENTE])).not.toContain(">por ");
   });
 
   it("la conciliación en firme va en su propia columna", () => {
