@@ -31,13 +31,15 @@ export default async function DashboardPage({
   }
   // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
   // ven la plataforma completa). La actividad del equipo (auditoría) es
-  // transversal y se mantiene global.
-  const [user, crearConciliacionAuth, alc] = await Promise.all([
+  // transversal y global, así que solo la ven los administradores (`auditoria:ver`, 22/Oct/2026).
+  const [user, crearConciliacionAuth, alc, auditoriaAuth] = await Promise.all([
     getCurrentUser(),
     authorizePermiso("conciliaciones:crear"),
     alcanceLecturaUsuario(),
+    authorizePermiso("auditoria:ver"),
   ]);
   const puedeCrearConciliacion = crearConciliacionAuth.ok;
+  const puedeVerAuditoria = auditoriaAuth.ok;
   const recWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
   const cmWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
   const rowWhere = alc.todos ? {} : { reconciliation: { clientId: { in: alc.clientIds } } };
@@ -58,9 +60,10 @@ export default async function DashboardPage({
     prisma.reconciliationRow.aggregate({ where: rowWhere, _sum: { diff: true } }),
     prisma.clientModule.count({ where: { status: "configured", ...cmWhere } }),
     prisma.clientModule.count({ where: { status: "pending", ...cmWhere } }),
+    // Dentro de la transacción por arreglo no cabe una promesa vacía: sin permiso, no trae filas.
     prisma.auditEntry.findMany({
       orderBy: { createdAt: "desc" },
-      take: 6,
+      take: puedeVerAuditoria ? 6 : 0,
       select: { id: true, user: true, action: true, entity: true, detail: true, createdAt: true },
     }),
     prisma.client.findMany({
@@ -140,21 +143,23 @@ export default async function DashboardPage({
         </Card>
 
         <div className="flex flex-col gap-5">
-          <Card>
-            <CardHeader title="Actividad del equipo" />
-            <div className="divide-y divide-ink-50">
-              {activity.map((a) => (
-                <div key={a.id} className="flex gap-2.5 px-4 py-2.5">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">{initials(a.user)}</div>
-                  <div className="text-[12px] text-ink-700">
-                    <div><b>{a.user}</b> <span className="text-ink-500">{a.action.toLowerCase()}</span> <b>{a.entity}</b></div>
-                    <div className="text-[11px] text-ink-400">{a.detail}</div>
-                    <div className="text-[10.5px] text-ink-400">{fmtDateTimeSeconds(a.createdAt)}</div>
+          {puedeVerAuditoria && (
+            <Card>
+              <CardHeader title="Actividad del equipo" />
+              <div className="divide-y divide-ink-50">
+                {activity.map((a) => (
+                  <div key={a.id} className="flex gap-2.5 px-4 py-2.5">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">{initials(a.user)}</div>
+                    <div className="text-[12px] text-ink-700">
+                      <div><b>{a.user}</b> <span className="text-ink-500">{a.action.toLowerCase()}</span> <b>{a.entity}</b></div>
+                      <div className="text-[11px] text-ink-400">{a.detail}</div>
+                      <div className="text-[10.5px] text-ink-400">{fmtDateTimeSeconds(a.createdAt)}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+                ))}
+              </div>
+            </Card>
+          )}
           <Card>
             <CardHeader title="Parametrización pendiente" />
             <div className="divide-y divide-ink-50">

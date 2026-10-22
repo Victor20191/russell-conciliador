@@ -83,8 +83,8 @@ export const workNav: NavItem[] = [
     permiso: "auditoria:ver",
     modulo: "auditoria",
     children: [
-      // "Accesos y tráfico" solo es visible para admins (permiso auditoria:accesos);
-      // los roles de consulta ven únicamente el registro de acciones.
+      // Toda la sección es de los administradores: el registro de acciones (`auditoria:ver`, solo
+      // admins desde el 22/Oct/2026) y "Accesos y tráfico" (`auditoria:accesos`).
       { label: "Registro de acciones", href: "/auditoria", permiso: "auditoria:ver", modulo: "auditoria" },
       { label: "Accesos y tráfico", href: "/auditoria/accesos", permiso: "auditoria:accesos", modulo: "auditoria" },
       // Consumo y costos de IA: SOLO el Superadministrador (permiso auditoria:ia).

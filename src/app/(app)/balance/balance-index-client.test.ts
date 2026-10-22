@@ -28,10 +28,17 @@ const CORTE_MAR: CorteGroup = {
 };
 const CLIENTE: ClientGroup = { clientId: 9, clientName: "KAKARAKA S.A.S.", clientNit: "800070771", cortes: [CORTE_DIC, CORTE_MAR] };
 
-const render = (clients: ClientGroup[]) =>
+const render = (clients: ClientGroup[], puedeVerAuditoria = false) =>
   renderToStaticMarkup(React.createElement(BalanceIndexClient, {
-    clients, auditRows: [], auditClients: [], uploadClients: [], canUpload: false, configuracionIA: null,
+    clients, puedeVerAuditoria, auditRows: [], auditClients: [], uploadClients: [], canUpload: false, configuracionIA: null,
   }));
+
+describe("listado de balances · pestaña «Audit log»", () => {
+  it("solo aparece con el permiso de auditoría (administradores)", () => {
+    expect(render([CLIENTE])).not.toContain("Audit log");
+    expect(render([CLIENTE], true)).toContain("Audit log");
+  });
+});
 
 describe("listado de balances · agrupado por fecha de corte", () => {
   it("una celda de corte abarca sus balances, con la fecha, cuántos son y su estado", () => {

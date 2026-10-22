@@ -247,6 +247,12 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
+  test("el registro de auditoría es solo de los administradores (22-oct-2026)", () => {
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "auditoria:ver")).toBe(r === "Administrador" || r === "Superadministrador");
+    }
+  });
+
   test("generar reportes ejecutivos es exclusivo del Superadministrador", () => {
     for (const r of ROLES_MATRIZ) {
       expect(tienePermiso(MATRIZ, r, "auditoria:reporte_ejecutivo")).toBe(

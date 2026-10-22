@@ -119,9 +119,11 @@ export function filtrarClientesPorCorte(clients: ClientGroup[], filtro: FiltroCo
 const plural = (n: number, singular: string, varios: string) => `${n} ${n === 1 ? singular : varios}`;
 
 export default function BalanceIndexClient({
-  clients, auditRows, auditClients, uploadClients, canUpload, configuracionIA,
+  clients, puedeVerAuditoria = false, auditRows, auditClients, uploadClients, canUpload, configuracionIA,
 }: {
   clients: ClientGroup[];
+  /** Pestaña «Audit log»: solo los administradores (`auditoria:ver`). */
+  puedeVerAuditoria?: boolean;
   auditRows: AuditRow[];
   auditClients: { id: number; name: string }[];
   uploadClients: ClienteOpcion[]; canUpload: boolean;
@@ -133,12 +135,12 @@ export default function BalanceIndexClient({
     <div>
       <div className="mb-4 flex items-center gap-2">
         <TabBtn on={tab === "clients"} onClick={() => setTab("clients")} label="Clientes" count={clients.length} />
-        <TabBtn on={tab === "audit"} onClick={() => setTab("audit")} label="Audit log" count={auditRows.length} />
+        {puedeVerAuditoria && <TabBtn on={tab === "audit"} onClick={() => setTab("audit")} label="Audit log" count={auditRows.length} />}
         {canUpload && <CargarBalanceButton clients={uploadClients} configuracionIA={configuracionIA} />}
       </div>
 
       {tab === "clients" && <ClientsTab clients={clients} />}
-      {tab === "audit" && <AuditTab rows={auditRows} clients={auditClients} />}
+      {puedeVerAuditoria && tab === "audit" && <AuditTab rows={auditRows} clients={auditClients} />}
     </div>
   );
 }

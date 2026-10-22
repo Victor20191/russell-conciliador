@@ -32,6 +32,9 @@ export default async function BalancePage() {
   ]);
   const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
+  // Pestaña «Audit log»: solo los administradores (`auditoria:ver`, 22/Oct/2026). Sin el permiso
+  // ni se consulta la bitácora.
+  const puedeVerAuditoria = (await authorizePermiso("auditoria:ver")).ok;
   const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria, comparaciones, cierresEnFirme] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
@@ -50,25 +53,29 @@ export default async function BalancePage() {
       orderBy: { name: "asc" },
     }),
     canUpload ? configuracionIABalanceUISesion() : Promise.resolve(null),
-    prisma.auditEntry.findMany({
-      where: alc.todos
-        ? { clientId: { not: null } }
-        : { clientId: { in: alc.clientIds } },
-      orderBy: { createdAt: "desc" },
-      take: 1000,
-      select: {
-        createdAt: true,
-        user: true,
-        action: true,
-        entity: true,
-        detail: true,
-        clientId: true,
-        ip: true,
-      },
-    }),
-    prisma.user.findMany({
-      select: { name: true, role: true },
-    }),
+    puedeVerAuditoria
+      ? prisma.auditEntry.findMany({
+          where: alc.todos
+            ? { clientId: { not: null } }
+            : { clientId: { in: alc.clientIds } },
+          orderBy: { createdAt: "desc" },
+          take: 1000,
+          select: {
+            createdAt: true,
+            user: true,
+            action: true,
+            entity: true,
+            detail: true,
+            clientId: true,
+            ip: true,
+          },
+        })
+      : Promise.resolve([]),
+    puedeVerAuditoria
+      ? prisma.user.findMany({
+          select: { name: true, role: true },
+        })
+      : Promise.resolve([]),
     // Pares de saldos finales guardados (null si la consulta falló: el corte se ve «sin comparar»).
     cargarComparacionesDeClientes(whereCliente),
     // Conciliaciones en firme: el balance contra el que se cerró lleva el distintivo.
@@ -165,6 +172,7 @@ export default async function BalancePage() {
       />
       <BalanceIndexClient
         clients={clients}
+        puedeVerAuditoria={puedeVerAuditoria}
         auditRows={auditRows}
         auditClients={auditClients}
         uploadClients={uploadClients}

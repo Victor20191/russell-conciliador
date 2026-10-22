@@ -28,9 +28,10 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 // conexiones en `roles_permisos` y los negaba hasta por una hora; v11: retirar
 // `entorno:administrar` al eliminar la pantalla de variables de entorno; v12: el
 // Senior recibe los permisos operativos del Staff y elimina cargues de módulo, 19/Oct/2026; v13: consulta
-// para todos y edición por Gerente/Socio de catálogos, parametrización y clientes, 19/Oct/2026): una clave nueva
+// para todos y edición por Gerente/Socio de catálogos, parametrización y clientes, 19/Oct/2026; v14:
+// `auditoria:ver` solo para Administrador/Superadministrador, 22/Oct/2026): una clave nueva
 // evita que el despliegue siga sirviendo la matriz anterior desde el Data Cache.
-export const RBAC_CACHE_TAG = "rbac-matriz-v13";
+export const RBAC_CACHE_TAG = "rbac-matriz-v14";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {

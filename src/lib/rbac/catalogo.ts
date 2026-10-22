@@ -98,7 +98,6 @@ export type Permiso = {
 const SOLO_SUPERADMIN = ["Superadministrador"];
 const ADMIN_PLATAFORMA = ["Superadministrador", "Administrador"];
 const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadministrador"];
-const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
 // Lo operativo del Staff lo hace también el Senior (19-oct-2026): todo lo que el Staff puede
 // hacer lo puede hacer el Senior en sus clientes asignados, sin regla de dos personas (puede
@@ -136,7 +135,9 @@ export const PERMISOS: Permiso[] = [
   { code: "conciliaciones:ver", module: "conciliaciones", action: "ver", label: "Ver conciliaciones", roles: TODOS },
   { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
-  { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
+  // Registro de auditoría (22-oct-2026, decisión del usuario): solo los administradores. Abre la
+  // pantalla Auditoría, la pestaña «Audit log» de /balance y «Actividad del equipo» de Inicio.
+  { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: SOLO_ADMIN },
   // Accesos y tráfico de rutas: expone la actividad de TODOS los usuarios
   // (quién entra, cuándo, a qué ruta) → admin-only, más restringido que la
   // bitácora de acciones (`auditoria:ver`).

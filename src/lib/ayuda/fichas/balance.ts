@@ -75,8 +75,8 @@ export const FICHA_BALANCE_LISTADO: FichaAyuda = {
         { nombre: "Número de versiones («Vers.»)", queHace: "Abre las versiones de ese período.", regla: REGLAS.verBalance },
         {
           nombre: "Audit log",
-          queHace: "Pestaña con la bitácora de lo que se ha hecho sobre los balances de tu cartera: quién, cuándo y qué. Se filtra por cliente.",
-          regla: REGLAS.verBalance,
+          queHace: "Pestaña con la bitácora de lo que se ha hecho sobre los clientes: quién, cuándo, qué y desde qué IP. Se filtra por cliente.",
+          regla: REGLAS.verAuditoria,
         },
       ],
     },

@@ -22,6 +22,8 @@ export const REGLAS = {
   compararCorte: [via("balance:crear", "escritura"), via("balance:editar", "escritura")],
   verBorradoresBalance: [via("balance:crear", "lectura"), via("balance:revisar", "lectura")],
   descartarBorradorBalance: [via("balance:crear", "escritura"), via("balance:revisar", "lectura")],
+  /** Registro de auditoría (pestaña «Audit log»): solo administradores desde el 22/Oct/2026. */
+  verAuditoria: [via("auditoria:ver", "ninguno")],
 
   // ----- Módulos de conciliación -----
   verModulo: [via("modulos_datos:ver", "lectura")],
