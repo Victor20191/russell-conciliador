@@ -5,7 +5,7 @@ export type IconName =
   | "chev-r" | "chev-d" | "chev-l" | "plus" | "upload" | "download" | "check"
   | "x" | "warn" | "ai" | "doc" | "box" | "wallet" | "chip" | "chart"
   | "filter" | "more" | "msg" | "calendar" | "log" | "send" | "link" | "logout"
-  | "eye" | "eye-off" | "menu" | "info" | "help" | "move-tree" | "trash" | "edit"
+  | "eye" | "eye-off" | "menu" | "info" | "help" | "help-circle" | "move-tree" | "trash" | "edit"
   | "maximize" | "minimize"
   | "reconcile" | "tax" | "grid" | "building" | "database" | "account-link"
   | "file-check" | "shield" | "hierarchy" | "sliders";
@@ -71,6 +71,7 @@ export function Icon({
     case "menu": return <svg {...props}><path d="M3 6h18M3 12h18M3 18h18" /></svg>;
     case "info": return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h0" /></svg>;
     case "help": return <svg {...props}><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M12 8.1a1.9 1.9 0 0 1 1.85 2.55c-.32.72-1.15 1.05-1.55 1.65M12 14.6h.01" /></svg>;
+    case "help-circle": return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="M9.6 9.3a2.5 2.5 0 0 1 4.85.85c0 1.65-2.45 2.1-2.45 3.6M12 17h.01" /></svg>;
     case "trash": return <svg {...props}><path d="M4 7h16M10 4h4a1 1 0 0 1 1 1v2H9V5a1 1 0 0 1 1-1z" /><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" /><path d="M10 11v6M14 11v6" /></svg>;
     case "edit": return <svg {...props}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>;
     case "move-tree": return <svg {...props}><circle cx="5" cy="5" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 5h3a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h1M5 7v10M13 12H7" /></svg>;

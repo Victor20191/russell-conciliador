@@ -9,6 +9,7 @@ import { Icon } from "@/components/icons";
 import { ActionForm } from "@/components/action-form";
 import { markAllNotificationsRead } from "@/app/actions/notifications";
 import { seccionDeRuta } from "@/lib/nav";
+import BotonAyuda from "@/components/ayuda/boton-ayuda";
 
 export type NotificationDTO = {
   id: number;
@@ -135,6 +136,7 @@ export default function Topbar({
       </nav>
 
       <div className="ml-auto flex items-center gap-2.5">
+        <BotonAyuda />
         <div className="relative">
           <button
             type="button"

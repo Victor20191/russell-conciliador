@@ -197,14 +197,15 @@ test("la novedad interna pide asunto, descripción, ruta, menú y URL", () => {
   expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, pageUrl: "" }).success).toBe(false);
 });
 
-test("cambiar estado exige solución solo al marcar resuelto", () => {
+test("cambiar estado valida el estado; si «Resuelto» exige solución lo decide la acción con el ticket", () => {
   const base = {
     ticketId: "12",
     updatedAt: "2026-08-07T15:00:00.000Z",
     status: "en_proceso",
   };
   expect(SupportTicketStatusSchema.safeParse(base).success).toBe(true);
-  expect(SupportTicketStatusSchema.safeParse({ ...base, status: "resuelto" }).success).toBe(false);
+  // Un ticket que ya tiene respuesta oficial pasa a «Resuelto» sin volver a escribirla.
+  expect(SupportTicketStatusSchema.safeParse({ ...base, status: "resuelto" }).success).toBe(true);
   expect(SupportTicketStatusSchema.safeParse({
     ...base,
     status: "resuelto",

@@ -8,6 +8,9 @@ import { ActionToaster } from "@/components/action-toaster";
 import AccessTracker from "@/components/access-tracker";
 import { Icon } from "@/components/icons";
 import { guardarNavColapsada } from "@/lib/ui/nav-colapsada";
+import { AyudaProvider } from "@/components/ayuda/contexto";
+import RanuraPanelAyuda from "@/components/ayuda/ranura-panel-ayuda";
+import type { RolesAyuda } from "@/lib/ayuda/roles";
 
 /**
  * Cascarón de la app (cliente) que coordina el estado compartido entre el
@@ -23,6 +26,7 @@ export default function AppShell({
   notifications,
   appVersion,
   navColapsadaInicial = false,
+  rolesAyuda,
   children,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
@@ -30,6 +34,8 @@ export default function AppShell({
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];
   notifications: NotificationDTO[];
+  /** Quién puede cada permiso que cita la ayuda en pantalla (de la matriz viva). */
+  rolesAyuda: RolesAyuda;
   /** Última versión publicada (o package.json). Visible en el sidebar. */
   appVersion: { number: string; title: string | null } | null;
   /** Preferencia guardada en cookie, leída en el servidor: evita el destello del menú abierto al recargar. */
@@ -61,47 +67,60 @@ export default function AppShell({
   };
 
   return (
-    <div className="flex h-dvh min-h-dvh overflow-hidden overscroll-none">
-      <Sidebar
-        user={user}
-        permisos={permisos}
-        modulosVisibles={modulosVisibles}
-        modulosEnDesarrollo={modulosEnDesarrollo}
-        appVersion={appVersion}
-        mobileOpen={mobileNavOpen}
-        onCloseMobile={() => setMobileNavOpen(false)}
-        desktopCollapsed={desktopNavVisuallyCollapsed}
-        onExpandDesktop={() => fijarNavColapsada(false)}
-        onDesktopHoverChange={setDesktopNavHovered}
-      />
-      <button
-        type="button"
-        aria-label={desktopNavCollapsed ? "Expandir barra de navegación" : "Contraer barra de navegación"}
-        title={desktopNavCollapsed ? "Expandir barra de navegación" : "Contraer barra de navegación"}
-        aria-controls="app-sidebar"
-        aria-expanded={!desktopNavCollapsed}
-        onClick={() => fijarNavColapsada(!desktopNavCollapsed)}
-        // El botón vive fuera del <aside>: sin esto, llevar el cursor hasta él
-        // apagaba el hover, el menú se cerraba y el botón escapaba del cursor.
-        onMouseEnter={() => setDesktopNavHovered(true)}
-        onMouseLeave={() => setDesktopNavHovered(false)}
-        className={`sidebar-motion fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-[left,width,height,background-color,color] duration-200 hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
-          desktopNavVisuallyCollapsed ? "left-0 h-7 w-14 border-t border-t-white/10" : "left-[212px] h-[57px] w-5 border-t border-t-white/10"
-        }`}
-      >
-        <Icon name={desktopNavCollapsed ? "chev-r" : "chev-l"} size={14} />
-      </button>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <Topbar
-          notifications={notifications}
-          onOpenMobileNav={() => setMobileNavOpen(true)}
+    <AyudaProvider>
+      <div className="flex h-dvh min-h-dvh overflow-hidden overscroll-none">
+        <Sidebar
+          user={user}
+          permisos={permisos}
+          modulosVisibles={modulosVisibles}
+          modulosEnDesarrollo={modulosEnDesarrollo}
+          appVersion={appVersion}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+          desktopCollapsed={desktopNavVisuallyCollapsed}
+          onExpandDesktop={() => fijarNavColapsada(false)}
+          onDesktopHoverChange={setDesktopNavHovered}
         />
-        <main data-scroll-app className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-          {children}
-        </main>
+        <button
+          type="button"
+          aria-label={desktopNavCollapsed ? "Expandir barra de navegación" : "Contraer barra de navegación"}
+          title={desktopNavCollapsed ? "Expandir barra de navegación" : "Contraer barra de navegación"}
+          aria-controls="app-sidebar"
+          aria-expanded={!desktopNavCollapsed}
+          onClick={() => fijarNavColapsada(!desktopNavCollapsed)}
+          // El botón vive fuera del <aside>: sin esto, llevar el cursor hasta él
+          // apagaba el hover, el menú se cerraba y el botón escapaba del cursor.
+          onMouseEnter={() => setDesktopNavHovered(true)}
+          onMouseLeave={() => setDesktopNavHovered(false)}
+          className={`sidebar-motion fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-[left,width,height,background-color,color] duration-200 hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
+            desktopNavVisuallyCollapsed ? "left-0 h-7 w-14 border-t border-t-white/10" : "left-[212px] h-[57px] w-5 border-t border-t-white/10"
+          }`}
+        >
+          <Icon name={desktopNavCollapsed ? "chev-r" : "chev-l"} size={14} />
+        </button>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <Topbar
+            notifications={notifications}
+            onOpenMobileNav={() => setMobileNavOpen(true)}
+          />
+          {/* La ayuda se superpone a la derecha del contenido, debajo de la barra superior: no
+              reacomoda la página (sus tablas se diseñan por el ancho de la ventana) y el botón «?»
+              sigue a la vista para cerrarla. */}
+          <div className="relative flex min-h-0 flex-1">
+            <main data-scroll-app className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+              {children}
+            </main>
+            <RanuraPanelAyuda
+              rolesAyuda={rolesAyuda}
+              rol={user?.role ?? ""}
+              permisos={permisos}
+              modulosVisibles={modulosVisibles}
+            />
+          </div>
+        </div>
+        <ActionToaster />
+        <AccessTracker />
       </div>
-      <ActionToaster />
-      <AccessTracker />
-    </div>
+    </AyudaProvider>
   );
 }

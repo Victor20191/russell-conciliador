@@ -11,6 +11,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { nextClientCode } from "@/lib/client-code";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
+import { verifySession } from "@/lib/dal";
 import { esCodigoProcesoErp } from "@/lib/erp-procesos";
 
 export default async function ClientesPage() {
@@ -90,6 +91,15 @@ export default async function ClientesPage() {
     superiorId: a.superiorId,
     subordinadoId: a.subordinateId,
   }));
+  // Al CREAR, quien crea tiene que quedar con el cliente en su cartera (`createClient` lo exige):
+  // un gerente solo se puede elegir a sí mismo y un socio, a sus gerentes. Null = sin límite.
+  const session = await verifySession();
+  const gerentesCreacion =
+    session.role === ROL_POR_FUNCION.gerente
+      ? [session.userId]
+      : session.role === ROL_SOCIO
+        ? aristasBD.filter((a) => a.superiorId === session.userId).map((a) => a.subordinateId)
+        : null;
 
   const responsablesPorCliente = new Map<number, ClientRow["responsables"]>();
   for (const a of asignaciones) {
@@ -162,6 +172,7 @@ export default async function ClientesPage() {
         nextCode={nextCode}
         personas={personas}
         aristas={aristas}
+        gerentesCreacion={gerentesCreacion}
         permisos={{ crear: puedeCrear, eliminar: puedeEliminar }}
       />
     </div>

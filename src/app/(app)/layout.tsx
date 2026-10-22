@@ -10,6 +10,8 @@ import { urlAvatar } from "@/lib/avatares";
 import { getVersionApp } from "@/lib/version-app-servidor";
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
+import { permisosAyuda } from "@/lib/ayuda/fichas";
+import { rolesPorPermiso } from "@/lib/ayuda/roles";
 
 export default async function AppLayout({
   children,
@@ -73,6 +75,7 @@ export default async function AppLayout({
       modulosEnDesarrollo={modulosEnDesarrollo}
       appVersion={{ number: versionApp.number, title: versionApp.title }}
       navColapsadaInicial={navColapsadaInicial}
+      rolesAyuda={rolesPorPermiso(matriz, publicacionModulos, permisosAyuda())}
       notifications={notifications.map((n) => ({
         id: n.id,
         kind: n.kind,

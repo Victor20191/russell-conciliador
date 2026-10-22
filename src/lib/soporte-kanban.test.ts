@@ -20,6 +20,7 @@ function ticket(id: number, status: string, overrides: Partial<TicketKanban> = {
     ubicacion: "Balance · Cargar balance",
     dominio: "russell",
     status,
+    tieneRespuesta: false,
     adjuntos: 0,
     createdAt: "2026-08-25T10:00:00.000Z",
     updatedAt: "2026-08-25T10:00:00.000Z",
@@ -75,6 +76,12 @@ describe("evaluarMovimientoKanban", () => {
   it("exige la solución al mover a resuelto", () => {
     const mov = evaluarMovimientoKanban(filas, 2, "resuelto");
     expect(mov).toMatchObject({ ok: true, pideSolucion: true });
+  });
+
+  it("con respuesta oficial ya escrita no la vuelve a pedir, tampoco desde «Cerrado»", () => {
+    const conRespuesta = [ticket(3, "en_proceso", { tieneRespuesta: true }), ticket(4, "cerrado", { tieneRespuesta: true })];
+    expect(evaluarMovimientoKanban(conRespuesta, 3, "resuelto")).toMatchObject({ ok: true, pideSolucion: false });
+    expect(evaluarMovimientoKanban(conRespuesta, 4, "resuelto")).toMatchObject({ ok: true, pideSolucion: false });
   });
 
   it("ignora soltar la tarjeta en su propia columna", () => {

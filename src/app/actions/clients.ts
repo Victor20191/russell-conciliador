@@ -12,6 +12,8 @@ import { authorizePermiso } from "@/lib/rbac";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD } from "@/lib/errores";
 import { claveNit } from "@/lib/nit";
+import { motivoNoEliminarCliente } from "@/lib/cliente-eliminacion";
+import { motivoClienteFueraDeCartera } from "@/lib/cliente-cartera-creacion";
 import { PROCESOS_ERP, campoErpProceso, esCodigoProcesoErp, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
@@ -355,6 +357,17 @@ export async function createClient(
     }
     const validados = await validarResponsables(responsables.data);
     if (!validados.ok) return { ok: false, message: validados.message };
+    // Quien crea el cliente tiene que quedar con él en su cartera (los administradores, siempre).
+    const gerentesDelSocio =
+      authz.role === ROL_SOCIO
+        ? new Set(
+            (await prisma.userHierarchy.findMany({ where: { superiorId: authz.userId }, select: { subordinateId: true } })).map(
+              (a) => a.subordinateId,
+            ),
+          )
+        : new Set<number>();
+    const fueraDeCartera = motivoClienteFueraDeCartera({ id: authz.userId, rol: authz.role }, responsables.data, gerentesDelSocio);
+    if (fueraDeCartera) return { ok: false, message: fueraDeCartera };
 
     const socio = await validarSocio(socioId);
     if (!socio.ok) return { ok: false, message: socio.message };
@@ -689,12 +702,26 @@ export async function deleteClient(formData: FormData): Promise<ActionState> {
   const alcance = await authorizePermiso("clientes:eliminar", { clientId: id });
   if (!alcance.ok) return { ok: false, message: alcance.message };
   try {
-    // Las asignaciones de responsables son FK suaves: se limpian a mano
-    // en la misma transacción para no dejar filas huérfanas.
-    await prisma.$transaction([
-      prisma.clientAssignment.deleteMany({ where: { clientId: id } }),
-      prisma.client.delete({ where: { id } }),
-    ]);
+    // Un cliente con balances, cargues o borradores no se elimina: esas filas lo referencian por
+    // una FK suave y quedarían huérfanas. Se cuentan dentro de la transacción que lo borra.
+    const motivo = await prisma.$transaction(async (tx) => {
+      const [balances, borradoresBalance, cargues, borradoresModulo, archivosModulo, conciliaciones] = await Promise.all([
+        tx.balancePruebaEncabezado.count({ where: { clienteId: id } }),
+        tx.balanceImportacionLote.count({ where: { clienteId: id } }),
+        tx.moduloDatoEncabezado.count({ where: { clienteId: id } }),
+        tx.moduloImportacionLote.count({ where: { clienteId: id } }),
+        tx.archivoOriginalModulo.count({ where: { clienteId: id } }),
+        tx.conciliacionModuloCierre.count({ where: { clienteId: id } }),
+      ]);
+      const bloqueo = motivoNoEliminarCliente({ balances, borradoresBalance, cargues, borradoresModulo, archivosModulo, conciliaciones });
+      if (bloqueo) return bloqueo;
+      // Las asignaciones de responsables son FK suaves: se limpian a mano
+      // en la misma transacción para no dejar filas huérfanas.
+      await tx.clientAssignment.deleteMany({ where: { clientId: id } });
+      await tx.client.delete({ where: { id } });
+      return null;
+    });
+    if (motivo) return { ok: false, message: motivo };
     const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",

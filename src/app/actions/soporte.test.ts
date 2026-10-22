@@ -633,8 +633,42 @@ describe("Server Actions de soporte", () => {
       );
 
       expect(resultado.ok).toBe(false);
-      expect(resultado.errors?.solution?.[0]).toContain("cerrado");
+      expect(resultado.errors?.solution?.[0]).toContain("ya tiene respuesta oficial");
       expect(mocks.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("tampoco reescribe la respuesta oficial de un ticket abierto (Resolver del Kanban)", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "en_proceso", solution: "La respuesta que ya vio quien reportó." });
+
+      const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto", "Una solución nueva que pisaría la anterior."));
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("pasa a «Resuelto» sin pedir otra vez la respuesta que ya tiene, también desde «Cerrado»", async () => {
+      for (const status of ["en_proceso", "cerrado"]) {
+        mocks.updateMany.mockClear();
+        mocks.findUnique.mockResolvedValue({ code: "TKT-7", status, solution: "La respuesta que ya vio quien reportó." });
+
+        const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto"));
+
+        expect(resultado.ok, status).toBe(true);
+        expect(mocks.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.not.objectContaining({ solution: expect.anything() }) }),
+        );
+      }
+    });
+
+    it("un ticket cerrado sin respuesta la recibe al pasar a «Resuelto»", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "cerrado", solution: null });
+
+      const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto", "Se corrigió la carga y quedó documentada."));
+
+      expect(resultado.ok).toBe(true);
+      expect(mocks.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ solution: "Se corrigió la carga y quedó documentada." }) }),
+      );
     });
 
     it("deja reabrir un ticket cerrado sin tocar su respuesta", async () => {

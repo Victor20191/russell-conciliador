@@ -94,6 +94,7 @@ export default function ClientesClient({
   nextCode,
   personas,
   aristas,
+  gerentesCreacion,
   permisos,
 }: {
   clients: ClientRow[];
@@ -105,6 +106,8 @@ export default function ClientesClient({
   nextCode: string;
   personas: Personas;
   aristas: Arista[];
+  /** Gerentes que puede elegir quien crea un cliente (null = cualquiera). */
+  gerentesCreacion: number[] | null;
   permisos: PermisosClientes;
 }) {
   const [q, setQ] = useState("");
@@ -305,6 +308,7 @@ export default function ClientesClient({
           dianForms={dianForms}
           personas={personas}
           aristas={aristas}
+          gerentesPermitidos={gerentesCreacion}
         />
       )}
       {editing && (
@@ -392,7 +396,10 @@ function ClientModal({
   aristas,
   nivel,
   puedeEliminar,
+  gerentesPermitidos = null,
 }: {
+  /** Al crear: los gerentes que puede elegir quien crea (null = cualquiera). */
+  gerentesPermitidos?: number[] | null;
   onClose: () => void;
   title: string;
   action: (prev: ActionState, fd: FormData) => Promise<ActionState>;
@@ -446,7 +453,15 @@ function ClientModal({
     }
     return opts;
   }, [personas.socios, client]);
-  const [gerenteId, setGerenteId] = useState<number | "">(() => respDe("gerente"));
+  // Al crear, quien crea queda con el cliente en su cartera: un gerente se elige a sí mismo y un
+  // socio, a uno de sus gerentes (con uno solo posible, viene elegido).
+  const gerenteOpciones = useMemo(
+    () => (!isEdit && gerentesPermitidos ? personas.gerentes.filter((p) => gerentesPermitidos.includes(p.id)) : personas.gerentes),
+    [isEdit, gerentesPermitidos, personas.gerentes],
+  );
+  const [gerenteId, setGerenteId] = useState<number | "">(() =>
+    respDe("gerente") || (!isEdit && gerenteOpciones.length === 1 ? gerenteOpciones[0]!.id : ""),
+  );
   const [seniorId, setSeniorId] = useState<number | "">(() => respDe("senior"));
   const [staffIds, setStaffIds] = useState<number[]>(() =>
     (client?.responsables ?? [])
@@ -680,7 +695,7 @@ function ClientModal({
                 className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
               >
                 <option value="">Selecciona el gerente…</option>
-                {personas.gerentes.map((p) => (
+                {gerenteOpciones.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>

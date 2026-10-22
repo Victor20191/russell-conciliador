@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
+import { alcanceEscrituraUsuario, alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
   type ClientGroup,
@@ -25,9 +25,10 @@ export default async function BalancePage() {
   await requirePermiso("balance:ver");
   // Cartera de lectura: cada usuario ve solo los balances de SUS clientes
   // (Admin/Superadmin ven todos). El encabezado referencia al cliente por id.
-  const [alc, crearBalanceAuth] = await Promise.all([
+  const [alc, crearBalanceAuth, escritura] = await Promise.all([
     alcanceLecturaUsuario(),
     authorizePermiso("balance:crear"),
+    alcanceEscrituraUsuario(),
   ]);
   const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
@@ -76,9 +77,12 @@ export default async function BalancePage() {
       select: { balanceEncabezadoId: true, moduloCodigo: true },
     }),
   ]);
-  // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
-  // por cliente se verifica de nuevo en la Server Action al enviar.
-  const uploadClients = canUpload ? carteraClientes : [];
+  // Cargar balance = permiso de rol + alcance de ESCRITURA sobre el cliente (staff y senior
+  // asignados; los administradores, todos): el modal solo ofrece esos clientes, los mismos que
+  // acepta la Server Action, que lo vuelve a verificar al enviar.
+  const uploadClients = canUpload
+    ? carteraClientes.filter((c) => escritura.todos || escritura.clientIds.includes(c.id))
+    : [];
 
   // Agrupar por cliente → corte → balances vigentes (18/Oct/2026). La clave de cliente es el
   // clienteId (NO el nombre, que es denormalizado). Un corte reúne los balances que terminan en

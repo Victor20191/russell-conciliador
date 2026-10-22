@@ -28,6 +28,8 @@ export type TicketKanban = {
   /** Origen del reportante (Russell / Xentria / otros), para el filtro del listado. */
   dominio: DominioReporte;
   status: string;
+  /** Ya tiene respuesta oficial: pasar a «Resuelto» no la pide de nuevo (ni la reescribe). */
+  tieneRespuesta: boolean;
   adjuntos: number;
   createdAt: string;
   updatedAt: string;
@@ -104,8 +106,10 @@ export type MovimientoKanban =
  * una acción en un arrastre que terminó en su propia columna.
  *
  * `pideSolucion` traduce la regla del servidor (`requiereSolucion`): pasar a
- * «Resuelto» sin explicar cómo se solucionó lo rechaza `cambiarEstadoTicket`,
- * así que el tablero pide el texto en el momento del arrastre.
+ * «Resuelto» un ticket SIN respuesta oficial exige explicar cómo se solucionó,
+ * así que el tablero pide el texto en el momento del arrastre. Con respuesta ya
+ * escrita no se pide: la respuesta oficial se escribe una sola vez, como en
+ * «Guardar cambios» del detalle.
  */
 export function evaluarMovimientoKanban(
   filas: readonly TicketKanban[],
@@ -116,7 +120,7 @@ export function evaluarMovimientoKanban(
   if (!ticket) return { ok: false, motivo: "Este reporte ya no está en el tablero. Recarga la página." };
   if (!esEstadoTicket(destino)) return { ok: false, motivo: "El estado de destino no es válido." };
   if (ticket.status === destino) return { ok: false, motivo: "" };
-  return { ok: true, ticket, destino, pideSolucion: requiereSolucion(destino) };
+  return { ok: true, ticket, destino, pideSolucion: requiereSolucion(destino) && !ticket.tieneRespuesta };
 }
 
 /**

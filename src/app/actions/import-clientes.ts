@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { mensajeErrorBD } from "@/lib/errores";
 import { nextClientCode } from "@/lib/client-code";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
+import { motivoClienteFueraDeCartera } from "@/lib/cliente-cartera-creacion";
 import {
   parseClientesWorkbook,
   type ImportClientesState,
@@ -106,6 +107,8 @@ export async function importarClientes(
     const todosModuleIds = modulos.map((m) => m.id);
     const todosDianIds = dianForms.map((d) => d.id);
     const edges = new Set(aristasBD.map((a) => `${a.superiorId}:${a.subordinateId}`));
+    // Si quien importa es socio, su cartera son los clientes de los gerentes que le reportan.
+    const gerentesDelImportador = new Set(aristasBD.filter((a) => a.superiorId === authz.userId).map((a) => a.subordinateId));
     const nitsExistentes = new Set(clientes.map((c) => claveNit(c.nit)));
 
     // ---- Validación fila por fila (nada se crea si hay errores) ----
@@ -150,6 +153,16 @@ export async function importarClientes(
       // Responsables distintos entre sí (gerente/senior/staff).
       const ids = [gerente.id, senior.id, ...staffIds].filter((x): x is number => x != null);
       if (new Set(ids).size !== ids.length) push("Los responsables deben ser personas distintas.");
+
+      // Quien importa tiene que quedar con el cliente en su cartera (los administradores, siempre).
+      if (gerente.id && senior.id) {
+        const fuera = motivoClienteFueraDeCartera(
+          { id: authz.userId, rol: authz.role },
+          { gerenteId: gerente.id, seniorId: senior.id, staffIds },
+          gerentesDelImportador,
+        );
+        if (fuera) push(fuera);
+      }
 
       // Módulos y formatos DIAN. Bloque en blanco ⇒ todos por defecto; si la
       // fila marca algo (Sí/No), se respeta exactamente lo marcado con «Sí».

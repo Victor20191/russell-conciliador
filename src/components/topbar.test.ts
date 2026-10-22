@@ -39,4 +39,13 @@ describe("navegación superior", () => {
     expect(html).not.toContain("href=");
     expect(html).toContain('aria-current="page"');
   });
+
+  it("muestra el botón de ayuda en todas las pantallas, cerrado", () => {
+    navigation.pathname = "/config/clientes";
+    const html = renderToStaticMarkup(React.createElement(Topbar, { notifications: [] }));
+    const boton = html.match(/<button[^>]*id="boton-ayuda"[^>]*>/)?.[0] ?? "";
+    expect(boton).toContain('aria-label="Ayuda de esta pantalla"');
+    expect(boton).toContain('aria-expanded="false"');
+    expect(boton).not.toContain("aria-controls");
+  });
 });

@@ -14,7 +14,7 @@ export type DiffData = { summary: { added: number; removed: number; changed: num
 
 type View = "git" | "side" | "sxs";
 
-export default function BalanceDiffClient({ diff, version }: { diff: DiffData; version: string }) {
+export default function BalanceDiffClient({ diff, version, versionAnterior }: { diff: DiffData; version: string; versionAnterior: string }) {
   const [view, setView] = useState<View>("git");
   const pg = usePagination(diff.rows, 50);
   return (
@@ -26,8 +26,8 @@ export default function BalanceDiffClient({ diff, version }: { diff: DiffData; v
         <div className="ml-auto"><PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} /></div>
       </div>
       {view === "git" && <GitView rows={pg.pageItems} />}
-      {view === "side" && <SideView rows={pg.pageItems} />}
-      {view === "sxs" && <SxsView rows={pg.pageItems} version={version} />}
+      {view === "side" && <SideView rows={pg.pageItems} version={version} versionAnterior={versionAnterior} />}
+      {view === "sxs" && <SxsView rows={pg.pageItems} version={version} versionAnterior={versionAnterior} />}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
         <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
         <PaginationControls currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
@@ -55,7 +55,7 @@ function GitView({ rows }: { rows: DiffRow[] }) {
   );
 }
 
-function SideView({ rows }: { rows: DiffRow[] }) {
+function SideView({ rows, version, versionAnterior }: { rows: DiffRow[]; version: string; versionAnterior: string }) {
   return (
     <Card>
       <div className="overflow-x-auto">
@@ -65,8 +65,8 @@ function SideView({ rows }: { rows: DiffRow[] }) {
               <th className="px-4 py-2 font-semibold">Código</th>
               <th className="px-4 py-2 font-semibold">Cuenta</th>
               <th className="px-4 py-2 font-semibold">Tipo</th>
-              <th className="px-4 py-2 text-right font-semibold">v2 (antes)</th>
-              <th className="px-4 py-2 text-right font-semibold">v3 (después)</th>
+              <th className="px-4 py-2 text-right font-semibold">{versionAnterior} (antes)</th>
+              <th className="px-4 py-2 text-right font-semibold">{version} (después)</th>
               <th className="px-4 py-2 text-right font-semibold">Δ</th>
               <th className="px-4 py-2 font-semibold">Flag</th>
             </tr>
@@ -90,11 +90,11 @@ function SideView({ rows }: { rows: DiffRow[] }) {
   );
 }
 
-function SxsView({ rows, version }: { rows: DiffRow[]; version: string }) {
+function SxsView({ rows, version, versionAnterior }: { rows: DiffRow[]; version: string; versionAnterior: string }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card>
-        <div className="border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">Versión anterior</div>
+        <div className="border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">{versionAnterior} · versión anterior</div>
         <div className="max-h-[520px] overflow-y-auto">
           <table className="w-full text-[12.5px]">
             <tbody>

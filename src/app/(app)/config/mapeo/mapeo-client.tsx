@@ -24,19 +24,22 @@ import { colapsarPucHastaNivel, construirPucRussell, filasVisiblesPuc, filtrarPu
 import { AYUDA_COMODIN, coincideComodin, tieneComodin } from "@/lib/filtro-comodin";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { useAnunciarPestanaAyuda } from "@/components/ayuda/contexto";
+import type { TabPlanRussell } from "./tabs";
 
 export type Account = CuentaPucCliente;
 export type RussellOpt = { code: string; name: string; module: string | null };
 export type { StdAccount, StdLogRow, Subgrupo };
 
-type Tab = "puc" | "standard";
+type Tab = TabPlanRussell;
 
 export default function MapeoClient({
-  std, subgrupos, canManage, logs, lockedStdCodes,
+  std, subgrupos, canManage, logs, lockedStdCodes, lockedSubgrupoCodes,
 }: {
-  std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[];
+  std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; lockedSubgrupoCodes: string[];
 }) {
   const [tab, setTab] = useState<Tab>("puc");
+  useAnunciarPestanaAyuda(tab);
   const puc = useMemo(() => construirPucRussell(std, subgrupos), [std, subgrupos]);
   return (
     <div>
@@ -50,7 +53,7 @@ export default function MapeoClient({
       {tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
-        <PucEstandarTab puc={puc} subgrupos={subgrupos} std={std} canManage={canManage} lockedStdCodes={lockedStdCodes} />
+        <PucEstandarTab puc={puc} subgrupos={subgrupos} std={std} canManage={canManage} lockedStdCodes={lockedStdCodes} lockedSubgrupoCodes={lockedSubgrupoCodes} />
       )}
     </div>
   );
@@ -421,7 +424,7 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[12px] text-ink-500">
-            Movimientos sobre las cuentas estándar (crear · editar · eliminar). {logs.length} registro(s).
+            Movimientos sobre las cuentas de 4 dígitos y las subcuentas del plan (crear · editar · eliminar). {logs.length} registro(s).
           </p>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <input
@@ -485,8 +488,8 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
 
 // ===== Subgrupos del plan estándar (nivel 4) — editan Gerente, Socio y administradores =====
 
-function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
-  puc: FilaPucRussell[]; subgrupos: Subgrupo[]; std: StdAccount[]; canManage: boolean; lockedStdCodes: string[];
+function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes, lockedSubgrupoCodes }: {
+  puc: FilaPucRussell[]; subgrupos: Subgrupo[]; std: StdAccount[]; canManage: boolean; lockedStdCodes: string[]; lockedSubgrupoCodes: string[];
 }) {
   const [q, setQ] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -576,13 +579,13 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
       <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{filas.length} de {puc.length} registros visibles · niveles 1, 2, 4 y 6 · la descarga incluye el PUC completo</div>
     </Card>
     {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
-    {canManage && editTarget && <SubgrupoForm mode="edit" subgrupo={editTarget} onClose={() => setEditTarget(null)} onDelete={() => { setDeleteTarget(editTarget); setEditTarget(null); }} />}
+    {canManage && editTarget && <SubgrupoForm mode="edit" subgrupo={editTarget} locked={lockedSubgrupoCodes.includes(editTarget.codigo)} onClose={() => setEditTarget(null)} onDelete={() => { setDeleteTarget(editTarget); setEditTarget(null); }} />}
     {canManage && deleteTarget && <DeleteSubgrupoForm subgrupo={deleteTarget} onClose={() => setDeleteTarget(null)} />}
     {canManage && subcuenta && <StandardAccountForm mode="edit" account={subcuenta} locked={lockedStdCodes.includes(subcuenta.code)} onClose={() => setSubcuenta(null)} />}
   </>;
 }
 
-function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | "edit"; subgrupo?: Subgrupo; onClose: () => void; onDelete?: () => void }) {
+function SubgrupoForm({ mode, subgrupo, locked = false, onClose, onDelete }: { mode: "create" | "edit"; subgrupo?: Subgrupo; locked?: boolean; onClose: () => void; onDelete?: () => void }) {
   const isEdit = mode === "edit";
   const [state, action, pending] = useActionState(isEdit ? editarSubgrupo : crearSubgrupo, undefined);
   const s = subgrupo;
@@ -605,7 +608,13 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
         <div className="flex w-full items-center justify-between gap-2">
           <div>
             {isEdit && onDelete && (
-              <button type="button" onClick={onDelete} className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50">
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={locked}
+                title={locked ? "No se puede eliminar: la cuenta está en uso en balances o en los módulos." : undefined}
+                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 Eliminar
               </button>
             )}
@@ -620,8 +629,12 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
         {isEdit && <input type="hidden" name="id" value={s!.id} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Campo label="Código de la cuenta (4 dígitos)">
-            <input name="codigo" defaultValue={s?.codigo ?? ""} required inputMode="numeric" pattern="\d{4}" placeholder="1105" className={INPUT_CLS} />
-            <p className="text-[11px] leading-snug text-ink-500">El grupo (nivel 2) se deriva de los 2 primeros dígitos.</p>
+            <input name="codigo" defaultValue={s?.codigo ?? ""} required readOnly={locked} inputMode="numeric" pattern="\d{4}" placeholder="1105" className={INPUT_CLS} />
+            {locked ? (
+              <p className="text-[11px] leading-snug text-warn-700">No editable: la cuenta está en uso en balances de clientes o en los módulos.</p>
+            ) : (
+              <p className="text-[11px] leading-snug text-ink-500">El grupo (nivel 2) se deriva de los 2 primeros dígitos.</p>
+            )}
           </Campo>
           <Campo label="Naturaleza">
             <select name="naturaleza" defaultValue={s?.naturaleza ?? "D"} required className={INPUT_CLS}>

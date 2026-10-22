@@ -30,6 +30,7 @@ import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balanc
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import type { Tab } from "./tabs";
+import { useAnunciarPestanaAyuda } from "@/components/ayuda/contexto";
 import PrevalidadorTab from "./prevalidador-tab";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
@@ -96,6 +97,7 @@ export default function BalanceDetailClient({
   historialPrevalidador: RevisionHistorialVM[];
 }) {
   const [tab, setTab] = useState<Tab>(tabInicial ?? "breakdown");
+  useAnunciarPestanaAyuda(tab);
   const [filtro, setFiltro] = useState<Filtro>("todo");
   // Desde el prevalidador bloqueado se salta a las cuentas que faltan por homologar.
   const irAAlertas = () => { setFiltro("alertas"); setTab("breakdown"); };

@@ -11,6 +11,7 @@
 // editar o borrar una cuenta estándar afecta a toda la plataforma.
 // ============================================================
 import prisma from "@/lib/prisma";
+import type { UsoSubgrupo } from "./subgrupo-en-uso";
 
 /**
  * ¿Existe al menos un balance (de cualquier cliente) cuyo detalle mapea a la
@@ -23,6 +24,45 @@ export async function codigoEstandarTieneBalances(code: string): Promise<boolean
     select: { id: true },
   });
   return fila != null;
+}
+
+/**
+ * ¿En qué está en uso la cuenta de 4 dígitos `codigo` (un subgrupo del plan)? Balances con
+ * subcuentas de ese grupo, la memoria de los módulos y sus filtros de cuentas. Global, como
+ * `codigoEstandarTieneBalances`.
+ */
+export async function usoDeSubgrupo(codigo: string): Promise<UsoSubgrupo> {
+  const [balance, memoria, periodo, filtro, par] = await Promise.all([
+    prisma.balancePruebaDetalle.findFirst({ where: { cuenta6Russell: { startsWith: codigo } }, select: { id: true } }),
+    prisma.consolidacionModuloCliente.findFirst({ where: { cuenta4: codigo }, select: { id: true } }),
+    prisma.asignacionPeriodoModulo.findFirst({ where: { cuenta4: codigo }, select: { id: true } }),
+    prisma.subgrupoConciliacionModulo.findFirst({ where: { subgrupo: codigo }, select: { id: true } }),
+    prisma.parDepreciacionModulo.findFirst({ where: { subgrupo: codigo }, select: { id: true } }),
+  ]);
+  return { balances: balance != null, memoriaModulos: memoria != null || periodo != null, filtrosModulos: filtro != null || par != null };
+}
+
+/**
+ * Cuentas de 4 dígitos EN USO (ver `usoDeSubgrupo`). La pantalla del plan bloquea con ellas el
+ * campo de código y el borrado.
+ */
+export async function subgruposEnUso(): Promise<string[]> {
+  const [conBalances, memoria, periodo, filtros, pares] = await Promise.all([
+    codigosEstandarConBalances(),
+    prisma.consolidacionModuloCliente.findMany({ select: { cuenta4: true }, distinct: ["cuenta4"] }),
+    prisma.asignacionPeriodoModulo.findMany({ select: { cuenta4: true }, distinct: ["cuenta4"] }),
+    prisma.subgrupoConciliacionModulo.findMany({ select: { subgrupo: true }, distinct: ["subgrupo"] }),
+    prisma.parDepreciacionModulo.findMany({ select: { subgrupo: true }, distinct: ["subgrupo"] }),
+  ]);
+  return [
+    ...new Set([
+      ...conBalances.map((c) => c.slice(0, 4)),
+      ...memoria.map((m) => m.cuenta4),
+      ...periodo.map((p) => p.cuenta4),
+      ...filtros.map((f) => f.subgrupo),
+      ...pares.map((p) => p.subgrupo),
+    ]),
+  ].filter((c) => /^\d{4}$/.test(c));
 }
 
 /**

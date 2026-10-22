@@ -11,7 +11,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(), verifySession: vi.fn() }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: vi.fn() }));
 
-import { ErrorConciliacionEnFirme, bloqueoHomologacionBalance, cierresFirmes, cuentasBloqueadas, exigirCargueCompatibleConCierres } from "./verificar-bloqueo";
+import { ErrorConciliacionEnFirme, bloqueoHomologacionBalance, bloqueoMemoriaConceptosNomina, cierresFirmes, cuentasBloqueadas, exigirCargueCompatibleConCierres } from "./verificar-bloqueo";
 
 // La conciliación se cerró contra «Enero 2025 – Diciembre 2025»; el cierre guarda el mes del módulo.
 const cierre = {
@@ -93,5 +93,27 @@ describe("el cierre protege a todo balance con la misma fecha fin", () => {
     });
     expect(bloqueo?.message).toContain("INV · 2025-12");
     expect(mocks.db.conciliacionModuloCierre.findMany.mock.calls[0][0].where).toEqual({ clienteId: 7, ...DEL_CORTE });
+  });
+});
+
+describe("memoria de conceptos de Nómina", () => {
+  const cierreNomina = { moduloCodigo: "NOM", periodo: "2025-12", cerradoPor: "Camilo", moduloDatoEncabezadoId: 95 };
+
+  it("bloquea si una conciliación de Nómina en firme todavía lee la memoria (sin copia congelada)", async () => {
+    mocks.db.conciliacionModuloCierre.findMany.mockResolvedValue([{ ...cierreNomina, copiaCongelada: null }]);
+    const mensaje = await bloqueoMemoriaConceptosNomina([7]);
+    expect(mensaje).toContain("NOM · 2025-12 (cargue #95, cerró Camilo)");
+    expect(mensaje).toContain("desbloquee");
+    expect(mocks.db.conciliacionModuloCierre.findMany.mock.calls[0][0].where).toEqual({
+      clienteId: { in: [7] },
+      estado: "firme",
+      moduloCodigo: { in: ["NOM"] },
+    });
+  });
+
+  it("no bloquea sin conciliaciones de Nómina en firme ni sin clientes", async () => {
+    mocks.db.conciliacionModuloCierre.findMany.mockResolvedValue([]);
+    expect(await bloqueoMemoriaConceptosNomina([7])).toBeNull();
+    expect(await bloqueoMemoriaConceptosNomina([])).toBeNull();
   });
 });

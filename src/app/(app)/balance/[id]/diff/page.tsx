@@ -57,7 +57,7 @@ export default async function BalanceDiffPage({ params }: { params: Promise<{ id
         <StatCard label="Total afectado" value={fmtCompact(diff.summary.totalAffected)} tone="blue" />
       </div>
 
-      <div className="mt-5"><BalanceDiffClient diff={diff} version={balance.version} /></div>
+      <div className="mt-5"><BalanceDiffClient diff={diff} version={balance.version} versionAnterior={previa.version} /></div>
     </div>
   );
 }

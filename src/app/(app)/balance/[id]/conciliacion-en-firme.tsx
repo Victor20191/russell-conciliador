@@ -56,7 +56,7 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
         ))}
       </ul>
       <p className="mt-1 text-[11.5px] text-ink-500">
-        Mientras esté en firme no se puede cargar ni congelar un balance con la misma fecha fin que cambie el saldo final de esas cuentas, aunque sea de otro período, ni cambiar su homologación; el saldo inicial y los movimientos no se bloquean. Desbloquea desde la pestaña Cruce contable del módulo (senior o gerente asignado).
+        Mientras esté en firme no se puede cargar ni cerrar un balance con la misma fecha fin que cambie el saldo final de esas cuentas, aunque sea de otro período, ni cambiar su homologación; el saldo inicial y los movimientos no se bloquean. Desbloquea desde la pestaña Cruce contable del módulo (senior o gerente asignado).
       </p>
     </div>
   );

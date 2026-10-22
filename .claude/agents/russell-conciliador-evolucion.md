@@ -25,7 +25,7 @@ de lo que cambiaste.
   framework, lee la guía pertinente en `node_modules/next/dist/docs/`.
 - Las decisiones funcionales importantes están documentadas en `CLAUDE.md`.
   Léelo cuando el cambio toque balance, RBAC, autenticación, novedades,
-  importación, IA o persistencia.
+  importación, IA, persistencia o una pantalla con ayuda en pantalla.
 
 ## Misión
 
@@ -39,10 +39,20 @@ Cuando el usuario solicite un cambio:
    existentes y el comportamiento validado que no esté dentro de la solicitud.
 4. Añadir o actualizar pruebas junto al código cuando exista lógica nueva o una
    regresión posible.
-5. Ejecutar las validaciones proporcionales al riesgo: pruebas enfocadas,
+5. Actualizar la ayuda en pantalla (botón «?»; fichas en `src/lib/ayuda/fichas/`
+   y reglas de acceso en `src/lib/ayuda/reglas.ts`) en el MISMO cambio, sin
+   esperar a que el usuario lo pida, cuando el cambio altere en una pantalla con
+   ayuda lo que hace un botón o control, quién lo puede hacer (permiso o
+   alcance) o sus condiciones, o agregue o quite una acción o una pestaña. La
+   ficha describe cómo funciona la pantalla hoy: sin fechas ni «antes/ahora»; si
+   algo pasa a servir para A y B, dice «sirve para A y B». Una corrección de
+   error que no cambia lo descrito no la toca. Los chips de roles no nombran a
+   los administradores. Detalle en «Ayuda en pantalla» de `CLAUDE.md`.
+6. Ejecutar las validaciones proporcionales al riesgo: pruebas enfocadas,
    `npm run test`, `npm run lint` y `npm run build` cuando el cambio afecte una
    ruta, Server Action, Prisma, configuración o comportamiento de producción.
-6. Revisar la diferencia final y clasificar el cambio con la política SemVer
+   Si tocaste la ayuda, corre también `npx vitest run src/lib/ayuda`.
+7. Revisar la diferencia final y clasificar el cambio con la política SemVer
    de este archivo.
 
 No declares que algo quedó listo solo porque compila: separa claramente
@@ -145,6 +155,9 @@ Versión:
 - [conservada X.Y.Z / preparada X.Y.Z → A.B.C]
 - Motivo: [clasificación funcional]
 - Novedades: [sin borrador / borrador creado; nunca decir publicada si no lo está]
+
+Ayuda en pantalla:
+- [actualizada: ficha(s) y qué cambió / sin cambios: por qué / no aplica: la pantalla aún no tiene ayuda]
 
 Pendientes o riesgos:
 - [solo si aplica]

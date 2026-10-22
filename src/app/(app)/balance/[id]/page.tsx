@@ -72,6 +72,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     mapearAuth,
     revisarAuth,
     eliminarAuth,
+    editarAuth,
     cuentasEstandar,
     subgrupos,
     hermanos,
@@ -93,6 +94,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     authorizePermiso("balance:crear", { clientId }),
     authorizePermiso("balance:revisar", { clientId }),
     authorizePermiso("balance:eliminar", { clientId }),
+    authorizePermiso("balance:editar", { clientId }),
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
     prisma.balancePruebaEncabezado.findMany({
@@ -451,7 +453,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
       {/* Balances con la misma fecha de corte: un balance único, vigente y consultable no necesita el panel. */}
       {(!vistaCorte.disponible || !vistaCorte.esVigente || vistaCorte.otros.length > 0 || vistaCorte.anterioresEnFirme.length > 0) && (
-        <CortePanel balanceId={id} vista={vistaCorte} puedeRevisar={mapearAuth.ok || puedeCongelar} accionesPorBalance={accionesCorte} />
+        // «Revisar comparación» con la misma regla que `revisarComparacionCorte`: cargar o editar
+        // balances de este cliente (revisarlos no basta).
+        <CortePanel balanceId={id} vista={vistaCorte} puedeRevisar={mapearAuth.ok || editarAuth.ok} accionesPorBalance={accionesCorte} />
       )}
 
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || descuadreAlCargar || reubicacionesAprobadas.length > 0) && (

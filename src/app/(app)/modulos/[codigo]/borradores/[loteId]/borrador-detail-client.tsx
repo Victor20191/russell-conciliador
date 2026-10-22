@@ -253,6 +253,8 @@ export default function BorradorModuloClient({
   const [guardando, startGuardar] = useTransition();
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
+  // Descartar el BORRADOR lo borra entero: se confirma en el mismo lugar, como en el de balance.
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
@@ -310,7 +312,7 @@ export default function BorradorModuloClient({
   const periodoSinConfirmar = periodoCambiado && periodoValido && !errorPeriodo && periodoConfirmado !== periodo;
   const hayCambios = hayCambiosFilas || periodoCambiado;
   const asistenciaSinResolver = asistenciaInventario != null && asistenciaInventario.estado !== "borrador_preparado";
-  useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar» antes de salir.");
+  useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar cambios» antes de salir.");
   // MISMA regla que la promoción, llamando a la misma función: lo que el usuario aprueba
   // aquí tiene que ser exactamente lo que se carga. Duplicar el criterio ya se pagó una vez
   // —una fila cuyo importe vive en un balde de vencimiento cuenta para la carga pero no
@@ -481,6 +483,14 @@ export default function BorradorModuloClient({
       if (r.ok) { notifySuccess("Borrador descartado."); router.push(`/modulos/${moduloCodigo.toLowerCase()}/borradores`); }
       else notifyError(r.message ?? "No se pudo descartar.");
     });
+  // Deshace lo que no se ha guardado (filas y período), sin tocar el borrador.
+  const descartarCambios = () => {
+    setOverrideOmit({});
+    setOverrideTipo({});
+    setOverrideClasif({});
+    setPeriodo(periodoSugerido);
+    setPeriodoConfirmado(null);
+  };
 
   // Saldo efectivo, rangos de vencimiento y fechas: ver `celda-detalle-modulo.ts`.
   const celda = (f: FilaBorradorModulo, col: Columna) => textoCeldaDetalle(valorColumnaDetalle(f, col), col);
@@ -1182,10 +1192,21 @@ export default function BorradorModuloClient({
           <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
+          {hayCambios && (
+            <button type="button" onClick={descartarCambios} disabled={guardando} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60">
+              Descartar cambios
+            </button>
+          )}
           {descartando ? (
             <span className="text-[12px] text-err-700">Descartando…</span>
+          ) : confirmarDescarte ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="text-[12px] text-err-700">Se elimina el borrador completo.</span>
+              <button type="button" onClick={descartar} className="rounded-md bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-200">Confirmar descarte</button>
+              <button type="button" onClick={() => setConfirmarDescarte(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button>
+            </span>
           ) : (
-            <button type="button" onClick={descartar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700">Descartar</button>
+            <button type="button" onClick={() => setConfirmarDescarte(true)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700">Descartar borrador</button>
           )}
         </div>
         <div className="flex flex-wrap items-end gap-2">

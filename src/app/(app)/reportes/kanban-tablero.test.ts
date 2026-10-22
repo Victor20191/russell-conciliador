@@ -31,6 +31,7 @@ const TICKET: TicketKanban = {
   code: "TKT-1",
   subject: "No carga el balance de julio",
   status: "abierto",
+  tieneRespuesta: false,
   reportante: "Ana Pérez",
   esMio: false,
   dominio: "otros",

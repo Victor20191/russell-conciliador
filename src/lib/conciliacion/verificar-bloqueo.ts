@@ -14,7 +14,7 @@ import { getCurrentUser, verifySession } from "@/lib/dal";
 import { authorizePermiso, type AuthzResult } from "@/lib/rbac";
 import { ROLES_ALCANCE_GLOBAL } from "@/lib/rbac/jerarquia";
 import { tomarCandadoTransaccion, type TransactionClient } from "@/lib/concurrency";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { descriptorModulo, MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 import { cierreLeeMemoriaEnVivo } from "./copia-cierre";
 import {
   alcanceDeCierres,
@@ -346,6 +346,28 @@ export async function bloqueoMemoriaHomologacion(
       })),
     ),
   };
+}
+
+/**
+ * Enforcement para la memoria de CONCEPTOS de Nómina (`/config/conceptos-nomina`: plantilla, catálogo
+ * del ERP y eliminar un concepto). Como la memoria de homologación: una conciliación de Nómina en firme
+ * con copia congelada válida lee su copia y no cambia; solo se bloquea cuando alguno de los clientes
+ * tiene una cuyo cruce todavía LEE la memoria en vivo (`cierreLeeMemoriaEnVivo`). Devuelve el mensaje
+ * o null.
+ */
+export async function bloqueoMemoriaConceptosNomina(clienteIds: readonly number[], db: Db = prisma): Promise<string | null> {
+  if (clienteIds.length === 0) return null;
+  const modulosNomina = Object.values(MODULOS_IMPORT).filter((d) => d.nomina != null).map((d) => d.codigo);
+  const cierres = await db.conciliacionModuloCierre.findMany({
+    where: { clienteId: { in: [...clienteIds] }, estado: ESTADO_CIERRE_FIRME, moduloCodigo: { in: modulosNomina } },
+    select: { moduloCodigo: true, periodo: true, cerradoPor: true, moduloDatoEncabezadoId: true, copiaCongelada: true },
+  });
+  const enVivo = cierres.filter((c) => cierreLeeMemoriaEnVivo(c, true));
+  if (enVivo.length === 0) return null;
+  const lista = enVivo
+    .map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId}, cerró ${c.cerradoPor})`)
+    .join("; ");
+  return `No se pueden cambiar los conceptos de nómina: la conciliación de ${lista} está en firme y todavía lee esta memoria (no tiene copia congelada). Pide al senior o gerente del cliente que la desbloquee para continuar.`;
 }
 
 /**

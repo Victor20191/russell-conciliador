@@ -56,6 +56,8 @@ export default async function ReportesPage() {
         routeLabel: true,
         menuLabel: true,
         status: true,
+        // Con respuesta oficial, el tablero pasa a «Resuelto» sin volver a pedirla.
+        solution: true,
         createdAt: true,
         // El tablero mueve tickets y `cambiarEstadoTicket` compara `updatedAt`
         // para no pisar el cambio de otra persona.
@@ -97,6 +99,7 @@ export default async function ReportesPage() {
       ticket.createdById === null ? null : correoPorId.get(ticket.createdById),
     ),
     status: ticket.status,
+    tieneRespuesta: !!ticket.solution?.trim(),
     adjuntos: ticket._count.attachments,
     createdAt: ticket.createdAt.toISOString(),
     updatedAt: ticket.updatedAt.toISOString(),

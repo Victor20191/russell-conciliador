@@ -31,6 +31,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { mensajeErrorBD } from "@/lib/errores";
+import { bloqueoMemoriaConceptosNomina } from "@/lib/conciliacion/verificar-bloqueo";
 import { claveNit } from "@/lib/nit";
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
@@ -240,6 +241,10 @@ async function cargarEntradas(entradas: EntradaResuelta[], accion: string): Prom
   if (problemas.length > 0) {
     return { ok: false, message: `${problemas.length} problema(s) encontrados. No se importó nada.`, errores: problemas };
   }
+  // Una conciliación de Nómina en firme sin copia congelada todavía lee esta memoria: cambiarla
+  // cambiaría lo conciliado.
+  const enFirme = await bloqueoMemoriaConceptosNomina(clienteIds);
+  if (enFirme) return { ok: false, message: enFirme };
 
   const user = await getCurrentUser();
   const actor = user?.name ?? null;
@@ -378,6 +383,8 @@ export async function eliminarConceptoNomina(input: {
   const agruparPor = input.agruparPor ?? "codigo";
 
   try {
+    const enFirme = await bloqueoMemoriaConceptosNomina([input.clienteId]);
+    if (enFirme) return { ok: false, message: enFirme };
     const { count } = await prisma.consolidacionModuloCliente.deleteMany({
       where: { clienteId: input.clienteId, moduloCodigo: MODULO_CONCEPTOS_NOMINA, agruparPor, clasificador: codigo, ...(agrupador == null ? {} : { agrupador }) },
     });

@@ -74,16 +74,9 @@ export const SupportTicketStatusSchema = z
     status: z.enum(["abierto", "en_evaluacion", "en_proceso", "resuelto", "cerrado"], {
       error: "El estado no es válido.",
     }),
+    // Si «Resuelto» exige la solución lo decide `cambiarEstadoTicket` con el ticket a la vista:
+    // solo cuando aún no tiene respuesta oficial.
     solution: z.string().trim().max(5000, { error: "La solución es demasiado larga." }).optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.status === "resuelto" && (!data.solution || data.solution.length < 10)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["solution"],
-        message: "Explica cómo se solucionó la solicitud.",
-      });
-    }
   });
 
 /**

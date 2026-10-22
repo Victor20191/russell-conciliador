@@ -247,6 +247,8 @@ import {
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import { MAX_JUSTIFICACION_DESBLOQUEO, MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
+import { useAnunciarPestanaAyuda } from "@/components/ayuda/contexto";
+import type { TabCargue } from "./tabs";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = {
@@ -629,8 +631,9 @@ export default function DatoCargadoClient({
   versionActualId: number;
   tabInicial: "versiones" | "cruceTercero" | null;
 }) {
-  type TabId = "detalle" | "consolidado" | "cruce" | "subcuenta" | "cruceTercero" | "novedades" | "versiones";
+  type TabId = TabCargue;
   const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
+  useAnunciarPestanaAyuda(tab);
   const router = useRouter();
   // El Consolidado decide cuándo se puede salir: con cuentas propuestas sin grabar abre su modal
   // y llama a `continuar` cuando el usuario elige guardar o salir sin guardar.
@@ -924,7 +927,7 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
           {s.cuentas.map((c) => <span key={c} className="mr-1 rounded border border-ink-200 bg-white px-1 font-mono text-ink-700">{c}</span>)}
         </>
       )}
-      {s.via === "multi" && <span className="text-ink-500"> — en el cruce van juntas, en un renglón agrupado contra la suma de las cuentas; repartir el valor entre ellas es opcional.</span>}
+      {s.via === "multi" && <span className="text-ink-500"> — en el cruce van juntas, en un renglón agrupado contra la suma de las cuentas; para verlo cuenta por cuenta, asígnale una sola cuenta.</span>}
       {s.via === "archivo" && s.origenCuentaArchivo === "estructura" && (
         <span className="ml-1 rounded border border-warn-500 bg-warn-100/40 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
           sin homologar en el balance
@@ -2242,7 +2245,7 @@ function ModalAsignacionMasiva({
             )}
           </div>
           <p className="text-[11px] text-ink-400">
-            Los cambios quedan marcados como «sin guardar»: confírmalos con «Guardar todos» en la tabla.
+            Los cambios se guardan solos al aplicarlos, como cualquier cambio del Consolidado.
           </p>
           <button type="button" onClick={() => setPaso("elegir")} className="self-start text-[12px] font-medium text-blue-700 hover:underline">
             ← Cambiar cuentas
@@ -3030,18 +3033,13 @@ function CruceContableTab({
         />
       )}
 
-      {((resumen.sinCuentaRelacionado?.length ?? 0) > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable || sinReglaContableFilas > 0 || fueraDelModulo) && (
+      {((resumen.sinCuentaRelacionado?.length ?? 0) > 0 || sinMapeoContable || sinReglaContableFilas > 0 || fueraDelModulo) && (
         <div className="flex flex-col gap-2">
           {/* Lo sin cuenta del archivo es el renglón «Saldo del módulo sin cuenta»; aquí solo queda
               el valor relacionado (la depreciación del terreno), que no se suma con el costo. */}
           {(resumen.sinCuentaRelacionado?.length ?? 0) > 0 && (
             <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
               <b>{resumen.sinCuentaRelacionado.length}</b> {resumen.sinCuentaRelacionado.length === 1 ? "valor relacionado" : "valores relacionados"} sin cuenta (no entran al cruce): {resumen.sinCuentaRelacionado.map((s) => `${s.clasificador} (${fmtContable(s.total)})`).join("  ·  ")}.
-            </div>
-          )}
-          {resumen.multiAsignado.length > 0 && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-              <b>{resumen.multiAsignado.length}</b> {resumen.multiAsignado.length === 1 ? "clasificador está" : "clasificadores están"} asignado{resumen.multiAsignado.length === 1 ? "" : "s"} a varias cuentas, excluido{resumen.multiAsignado.length === 1 ? "" : "s"} del cruce por cuenta (ambiguo): {resumen.multiAsignado.map((s) => `${s.clasificador} → ${s.cuentas4.join(", ")} (${fmtContable(s.total)})`).join("  ·  ")}.
             </div>
           )}
           {sinMapeoContable && (
@@ -3583,7 +3581,7 @@ function ConciliacionEnFirmePanel({
       >
         <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
           <p>
-            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia (también las solo visibles) y a las que se agregaron solo para este período: no se podrá cargar ni congelar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
+            Quedará <b>en firme</b> el <b>saldo final</b> de las cuentas del balance homologadas a las cuentas del prevalidador de <b>{moduloLabel}</b>, a las cuentas que concilia (también las solo visibles) y a las que se agregaron solo para este período: no se podrá cargar ni cerrar un balance con la misma fecha fin que cambie ese saldo, aunque sea de otro período, ni cambiar su homologación.
           </p>
           <p>
             Este cargue quedará de <b>solo lectura</b>: no se podrán cambiar sus cuentas del Consolidado, marcas ni emparejamientos, cargar otro archivo o versión del período, ni eliminarlo. Lo que se cambie desde otro mes en la memoria del cliente tampoco lo alterará: se guarda una copia de lo conciliado.

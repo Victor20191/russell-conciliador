@@ -2,7 +2,8 @@
  *  porque lo comparten el RSC —que resuelve `?tab=` al renderizar— y el componente
  *  cliente que las pinta: una función exportada desde un archivo cliente no se
  *  puede invocar desde el servidor. */
-export type Tab = "breakdown" | "validations" | "versions" | "clases" | "prevalidador";
+export const TABS_BALANCE = ["breakdown", "validations", "versions", "clases", "prevalidador"] as const;
+export type Tab = (typeof TABS_BALANCE)[number];
 
 const TAB_POR_PARAMETRO: Record<string, Tab> = {
   detalle: "breakdown",

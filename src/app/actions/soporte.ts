@@ -489,9 +489,6 @@ export async function cambiarEstadoTicket(
   if (!parsed.success) {
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
   }
-  if (requiereSolucion(parsed.data.status) && !parsed.data.solution) {
-    return { ok: false, errors: { solution: ["Explica cómo se solucionó la solicitud."] } };
-  }
 
   try {
     const [ticket, actor] = await Promise.all([
@@ -503,18 +500,21 @@ export async function cambiarEstadoTicket(
     ]);
     if (!ticket) return { ok: false, message: "El ticket ya no existe." };
 
-    // Un ticket CERRADO tiene su respuesta congelada: lo que se le dijo a quien
-    // reportó la novedad ya no se reescribe. El estado sí sigue siendo editable
-    // (un cierre por equivocación tiene que poder deshacerse) y lo que haya que
-    // añadir después va como mensaje del hilo (`agregarMensajeTicket`).
-    const congelada = ticket.status === ESTADO_TICKET_CERRADO;
-    if (congelada && parsed.data.solution && parsed.data.solution !== (ticket.solution ?? "")) {
+    // La respuesta oficial se escribe UNA vez, como en «Guardar cambios» del detalle
+    // (`gestionarTicket`): pasar a «Resuelto» la exige solo si el ticket todavía no
+    // tiene, y una ya escrita nunca se reescribe —tampoco en un ticket cerrado—. Lo que
+    // haya que añadir después va como mensaje del hilo (`agregarMensajeTicket`).
+    const yaTieneRespuesta = !!ticket.solution?.trim();
+    const esRespuesta =
+      requiereSolucion(parsed.data.status) && parsed.data.status !== ticket.status && !yaTieneRespuesta;
+    if (esRespuesta && (parsed.data.solution ?? "").length < 10) {
+      return { ok: false, errors: { solution: ["Explica cómo se solucionó la solicitud."] } };
+    }
+    if (yaTieneRespuesta && parsed.data.solution && parsed.data.solution !== ticket.solution?.trim()) {
       return {
         ok: false,
         errors: {
-          solution: [
-            "Este ticket está cerrado y su respuesta ya no se puede editar. Escribe un mensaje en el hilo.",
-          ],
+          solution: ["Este ticket ya tiene respuesta oficial y no se reescribe. Escribe un mensaje en el hilo."],
         },
       };
     }
@@ -526,7 +526,7 @@ export async function cambiarEstadoTicket(
       estadoAnterior: ticket.status,
       data: {
         status: parsed.data.status,
-        ...(parsed.data.solution && !congelada ? { solution: parsed.data.solution } : {}),
+        ...(esRespuesta ? { solution: parsed.data.solution } : {}),
         ...(resuelto
           ? {
               resolvedById: authz.userId,

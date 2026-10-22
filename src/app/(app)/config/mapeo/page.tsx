@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
+import { codigosEstandarConBalances, subgruposEnUso } from "@/lib/balance/asociacion";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import type { StdAccount, StdLogRow, Subgrupo } from "@/lib/balance/tipos-mapeo";
@@ -9,7 +9,7 @@ export default async function MapeoPage() {
   await requirePermiso("mapeo:ver");
   const canManage = (await authorizePermiso("mapeo:administrar")).ok;
 
-  const [standard, subgruposRows, logs, lockedStdCodes] = await Promise.all([
+  const [standard, subgruposRows, logs, lockedStdCodes, lockedSubgrupoCodes] = await Promise.all([
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
     prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),
     // Bitácora dedicada: solo se carga para quien puede administrar (los más
@@ -21,6 +21,8 @@ export default async function MapeoPage() {
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
     canManage ? codigosEstandarConBalances() : Promise.resolve<string[]>([]),
+    // Cuentas de 4 dígitos en uso (balances, memoria o filtros de los módulos): mismo bloqueo.
+    canManage ? subgruposEnUso() : Promise.resolve<string[]>([]),
   ]);
 
   const std: StdAccount[] = standard.map((s) => ({
@@ -54,7 +56,7 @@ export default async function MapeoPage() {
   return (
     <div>
       <PageHeader title="Plan Estándar Russell" subtitle="Plan de cuentas estándar de Russell Bedford y su módulo de conciliación. La homologación del PUC de cada cliente se administra en «Mapeo cuentas cliente»." />
-      <MapeoClient std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
+      <MapeoClient std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} lockedSubgrupoCodes={lockedSubgrupoCodes} />
     </div>
   );
 }
