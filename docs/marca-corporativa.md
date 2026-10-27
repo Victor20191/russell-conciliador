@@ -16,7 +16,7 @@ Errata del manual: en §3.2 la fila RGB de Sky Blue dice «R:152, G:29, B:206»;
 
 Todo lo que dibuja la plataforma sigue el manual: las pantallas y lo que se abre sobre ellas (listas desplegables, calendarios, sugerencias, avisos, mensajes de validación, confirmaciones, menús y paneles), los documentos que genera (PDF, HTML para descargar o copiar en un correo), los correos, los Excel, el ícono de la pestaña y de la app, y las presentaciones del repositorio.
 
-El navegador, como aplicación, dibuja sus propias piezas, que no son de la página y que ningún sitio puede cambiar: su barra y sus pestañas, sus menús, el diálogo para elegir un archivo del equipo o para imprimir, y la confirmación que muestra al cerrar o recargar una pestaña con cambios sin guardar. La plataforma la pide en el borrador de un módulo y en el Consolidado para que no se pierda trabajo (el TKT-76 fue justamente esa pérdida).
+Lo que queda fuera de la guía está en la sección «Lo que queda fuera de la guía», al final.
 
 ## Matriz regla por regla
 
@@ -76,10 +76,6 @@ En todos los casos se usa algo del manual:
 4. **Glifos que Lato no trae**: los dibuja Arial, como dispone §2.2.
 5. **Ícono de la app**: la marca de esquina de §5.2, porque el imagotipo no cabe a 16 px (su mínimo es 30 mm) y el globo no puede usarse como logo (§4.1).
 
-Decisiones del 27 de octubre de 2026 (de quien pidió el trabajo):
-
-- **Confirmación al salir con cambios sin guardar**: se mantiene la del navegador. Protege el trabajo que aún no se guardó (la pérdida del TKT-76) y ninguna página puede dibujarla; reemplazarla obligaría a guardar datos del cliente en el navegador.
-- **Presentaciones**: se usa el formato que muestra el manual en §5.2 (portada y cuerpo). La plantilla editable de mercadeo no viene en la carpeta; si llega, las dos presentaciones se rehacen con ella.
 
 ## Verificación
 
@@ -96,4 +92,12 @@ Decisiones del 27 de octubre de 2026 (de quien pidió el trabajo):
   - **Modales, menús y paneles**: en 149 pantallas reales (una o varias de cada tipo, con sus pestañas) se pulsó cada botón distinto y se auditó lo que se abrió: 576 en 123 pantallas (199 modales y 377 menús, desplegables o paneles, como la ayuda y las notificaciones), con 891.948 elementos revisados.
   - **Controles de la marca**: listas de `<select>` (con mouse y teclado), calendarios de fecha y de mes, sugerencias, avisos, validación, escritura y confirmaciones, comprobando que la ventana del sistema no se abre (`:open`) y que el valor cambia: 31 de 31.
   - **Móvil** (las mismas 149 pantallas a 390 px, con el menú abierto), **páginas públicas** (login, mesa de ayuda, seguimiento de un ticket, 404), los **40 reportes guardados** dentro de su `iframe`, uno nuevo generado con los datos reales y sus **PDF** (solo Lato, tamaño carta).
-- Resultado: **0 colores fuera del manual, todo el texto en Lato (y Arial en los glifos que Lato no trae) y ninguna ventana ni glifo dibujado por el sistema operativo en lo que dibuja la plataforma**.
+- Resultado: en lo que dibuja la plataforma, **0 colores fuera del manual, todo el texto en Lato (y Arial en los glifos que Lato no trae) y ninguna ventana ni glifo dibujado por el sistema operativo**. No es todo: queda lo de la sección siguiente.
+
+## Lo que queda fuera de la guía
+
+Tres cosas, y ninguna es parte del diseño de la plataforma:
+
+1. **La interfaz del navegador y del sistema operativo**: su barra y sus pestañas, sus menús, el diálogo para elegir un archivo del equipo (el que abre «Elegir archivo» al subir un balance o un adjunto), el de imprimir y las sugerencias de contraseñas guardadas. Ninguna página web puede dibujarlas ni darles otros colores o letra. La plataforma no abre el de imprimir (descarga PDF) ni cambia los menús del navegador; reemplazarlos por menús propios quitaría funciones como copiar y pegar.
+2. **La confirmación al salir con cambios sin guardar** (borrador de un módulo y Consolidado). Es del navegador y tampoco se puede dibujar. Se mantiene por decisión del 27 de octubre de 2026: protege el trabajo que aún no se guardó (la pérdida del TKT-76), y la alternativa —guardar esos cambios en el navegador y ofrecer recuperarlos— deja datos del cliente en el equipo.
+3. **La plantilla editable de presentaciones de §5.2**: no viene en la carpeta y el manual pide solicitarla a mercadeo. Las dos presentaciones del repositorio usan el formato que el manual muestra en esa sección (portada y cuerpo), por decisión del 27 de octubre de 2026; si llega la plantilla, se rehacen con ella.
