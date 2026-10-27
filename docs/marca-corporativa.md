@@ -76,6 +76,11 @@ En todos los casos se usa algo del manual:
 4. **Glifos que Lato no trae**: los dibuja Arial, como dispone §2.2.
 5. **Ícono de la app**: la marca de esquina de §5.2, porque el imagotipo no cabe a 16 px (su mínimo es 30 mm) y el globo no puede usarse como logo (§4.1).
 
+Decisiones del 27 de octubre de 2026 (de quien pidió el trabajo):
+
+- **Confirmación al salir con cambios sin guardar**: se mantiene la del navegador. Protege el trabajo que aún no se guardó (la pérdida del TKT-76) y ninguna página puede dibujarla; reemplazarla obligaría a guardar datos del cliente en el navegador.
+- **Presentaciones**: se usa el formato que muestra el manual en §5.2 (portada y cuerpo). La plantilla editable de mercadeo no viene en la carpeta; si llega, las dos presentaciones se rehacen con ella.
+
 ## Verificación
 
 - **Pruebas permanentes** (`npx vitest run src/lib/marca src/lib/export/marca-excel.test.ts src/lib/auditoria/reporte-ejecutivo/signos.test.ts`):
