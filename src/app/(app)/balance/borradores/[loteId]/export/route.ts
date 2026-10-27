@@ -19,15 +19,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ loteId: 
   if (!carga.ok && !revisa.ok) return NextResponse.json({ message: carga.message }, { status: 403 });
   const { loteId } = await params;
   try {
-    const [lote, filasStaging, contexto] = await Promise.all([
-      prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
-      prisma.balanceImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, cargadoPorId: true, archivoNombre: true } }),
       contextoAccesoBorradorActual(),
     ]);
     // Misma visibilidad que la página: el borrador de un cliente ajeno no se descarga.
     if (lote ? !puedeVerBorrador(lote, contexto) : !contexto.alcance.todos) {
       return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
     }
+    const filasStaging = await prisma.balanceImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
     if (filasStaging.length === 0) return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
 
     const filas: FilaBorrador[] = filasStaging.map((f) => ({

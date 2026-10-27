@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     },
     findUnique: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     intento: vi.fn(),
     compare: vi.fn(),
     hash: vi.fn(),
@@ -17,6 +18,9 @@ const mocks = vi.hoisted(() => {
     verificarSesion: vi.fn(),
     registrarAcceso: vi.fn(),
     registrarError: vi.fn(),
+    registrarFallo: vi.fn(),
+    finalizarLogin: vi.fn(),
+    cuota: vi.fn(),
   };
 });
 
@@ -30,7 +34,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("bcryptjs", () => ({ default: { compare: mocks.compare, hash: mocks.hash } }));
 vi.mock("@/lib/prisma", () => ({
   default: {
-    user: { findUnique: mocks.findUnique, update: mocks.update },
+    user: { findUnique: mocks.findUnique, update: mocks.update, updateMany: mocks.updateMany },
     loginAttempt: { create: mocks.intento },
   },
 }));
@@ -43,6 +47,11 @@ vi.mock("@/lib/request", () => ({
   getUserAgent: async () => "Vitest",
 }));
 vi.mock("@/lib/access-log", () => ({ registrarAcceso: mocks.registrarAcceso }));
+vi.mock("@/lib/login-intentos", () => ({ registrarFalloLogin: mocks.registrarFallo, finalizarLogin: mocks.finalizarLogin }));
+vi.mock("@/lib/seguridad/limite-solicitudes", () => ({
+  consumirCuotaSolicitud: mocks.cuota,
+  CUOTA_LOGIN: { ambito: "login", limiteIndividual: 30, limiteGlobal: 1000, ventanaSegundos: 900 },
+}));
 vi.mock("@/lib/errores", () => ({
   registrarError: mocks.registrarError,
   mensajeErrorBD: () => "Error simulado",
@@ -82,10 +91,14 @@ beforeEach(() => {
   mocks.compare.mockResolvedValue(true);
   mocks.hash.mockResolvedValue("nuevo-hash");
   mocks.update.mockResolvedValue(usuario);
+  mocks.updateMany.mockResolvedValue({ count: 1 });
   mocks.intento.mockResolvedValue({});
   mocks.usuarioActual.mockResolvedValue(usuario);
   mocks.verificarSesion.mockResolvedValue({ userId: usuario.id });
   mocks.registrarAcceso.mockResolvedValue(undefined);
+  mocks.registrarFallo.mockResolvedValue(false);
+  mocks.finalizarLogin.mockResolvedValue({ ok: true, user: usuario });
+  mocks.cuota.mockResolvedValue({ permitida: true });
 });
 
 describe("navegación ligada a la sesión autenticada", () => {
@@ -97,6 +110,7 @@ describe("navegación ligada a la sesión autenticada", () => {
 
   it("un usuario con contraseña restablecida debe elegir una nueva antes de entrar al dashboard", async () => {
     mocks.findUnique.mockResolvedValue({ ...usuario, mustChangePassword: true });
+    mocks.finalizarLogin.mockResolvedValue({ ok: true, user: { ...usuario, mustChangePassword: true } });
     await expect(login(undefined, credenciales())).rejects.toThrow("REDIRECT:/cambiar-contrasena");
     expect((await decrypt(mocks.valores.get("session")))?.userId).toBe(usuario.id);
   });
@@ -107,6 +121,7 @@ describe("navegación ligada a la sesión autenticada", () => {
     expect(mocks.valores.get("nav_colapsada")).toBe("1");
     expect(mocks.cookieStore.set).not.toHaveBeenCalled();
     expect(mocks.cookieStore.delete).not.toHaveBeenCalled();
+    expect(mocks.registrarFallo).toHaveBeenCalledWith(usuario.id, expect.any(Date));
   });
 
   it("logout elimina la sesión y el estado del menú", async () => {
@@ -135,11 +150,56 @@ describe("navegación ligada a la sesión autenticada", () => {
     formulario.set("current", "Prueba123!");
     formulario.set("next", "NuevaPrueba456!");
     await expect(changePassword(undefined, formulario)).rejects.toThrow("REDIRECT:/dashboard?pwd=1");
-    expect(mocks.update).toHaveBeenCalledWith({
-      where: { id: usuario.id },
-      data: { password: "nuevo-hash", mustChangePassword: false, sessionVersion: 4 },
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: { id: usuario.id, active: true, password: usuario.password, sessionVersion: 3 },
+      data: { password: "nuevo-hash", mustChangePassword: false, sessionVersion: { increment: 1 } },
     });
     expect(mocks.valores.get("nav_colapsada")).toBe("1");
     expect((await decrypt(mocks.valores.get("session")))?.sessionVersion).toBe(4);
+  });
+
+  it("no renueva la sesión si otra solicitud cambió o desactivó la cuenta", async () => {
+    mocks.updateMany.mockResolvedValue({ count: 0 });
+    const formulario = new FormData();
+    formulario.set("current", "Prueba123!");
+    formulario.set("next", "NuevaPrueba456!");
+    expect(await changePassword(undefined, formulario)).toMatchObject({ ok: false });
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("cuota compartida de inicio de sesión", () => {
+  it("rechaza una cuota agotada antes de consultar cuentas o ejecutar bcrypt", async () => {
+    mocks.cuota.mockResolvedValue({ permitida: false });
+    expect(await login(undefined, credenciales())).toEqual({ message: "Demasiados intentos. Intenta de nuevo en unos minutos." });
+    expect(mocks.cuota).toHaveBeenCalledWith({ ambito: "login", limiteIndividual: 30, limiteGlobal: 1000, ventanaSegundos: 900 }, "127.0.0.1");
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.compare).not.toHaveBeenCalled();
+    expect(mocks.intento).not.toHaveBeenCalled();
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it("falla cerrado si la cuota compartida no está disponible", async () => {
+    mocks.cuota.mockRejectedValue(new Error("No hay base de datos"));
+    expect(await login(undefined, credenciales())).toMatchObject({ message: expect.stringContaining("error del sistema") });
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.compare).not.toHaveBeenCalled();
+    expect(mocks.cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it("consume cuota también para correos desconocidos", async () => {
+    mocks.findUnique.mockResolvedValue(null);
+    mocks.compare.mockResolvedValue(false);
+    expect(await login(undefined, credenciales())).toEqual({ message: "Credenciales inválidas." });
+    expect(mocks.cuota).toHaveBeenCalledOnce();
+    expect(mocks.cuota.mock.invocationCallOrder[0]).toBeLessThan(mocks.findUnique.mock.invocationCallOrder[0]);
+    expect(mocks.cuota.mock.invocationCallOrder[0]).toBeLessThan(mocks.compare.mock.invocationCallOrder[0]);
+  });
+
+  it("consume cuota también para accesos correctos", async () => {
+    await expect(login(undefined, credenciales())).rejects.toThrow("REDIRECT:/dashboard");
+    expect(mocks.cuota).toHaveBeenCalledOnce();
+    expect(mocks.cuota.mock.invocationCallOrder[0]).toBeLessThan(mocks.findUnique.mock.invocationCallOrder[0]);
   });
 });

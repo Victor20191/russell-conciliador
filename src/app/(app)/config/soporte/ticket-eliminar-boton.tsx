@@ -19,7 +19,7 @@ export default function TicketEliminarBoton({ ticket }: { ticket: TicketEliminab
       <button
         type="button"
         onClick={() => setAbierto(true)}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-err-500/40 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-err-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
       >
         <Icon name="trash" size={14} /> Eliminar
       </button>

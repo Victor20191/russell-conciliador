@@ -126,13 +126,13 @@ export default function PublicacionModulosClient({
               onDescartarUltimo={descartarUltimo}
               onDescartarTodo={descartarTodo}
               disabled={!dirty || saving}
-              className="rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               type="button"
               onClick={guardar}
               disabled={!dirty || saving}
-              className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? (
                 <EstadoProcesando>Guardando</EstadoProcesando>
@@ -202,12 +202,12 @@ function ModuleRow({
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-500">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
           <Icon name={module.icon as IconName} size={17} />
         </div>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[13px] font-semibold text-ink-800">{module.label}</h2>
+            <h2 className="text-[13px] font-semibold text-navy-800">{module.label}</h2>
             {locked ? (
               <Chip label="Fijo" tone="ink" />
             ) : enabled ? (

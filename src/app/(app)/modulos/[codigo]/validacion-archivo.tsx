@@ -35,7 +35,7 @@ export type ResumenValidacionArchivo = {
 };
 
 const TONO = {
-  cuadra: "border-ok-100 bg-ok-100/40 text-ok-700",
+  cuadra: "border-ok-100 bg-ok-100 text-ok-700",
   descuadre: "border-err-200 bg-err-50 text-err-700",
   no_validado: "border-ink-150 bg-ink-50 text-ink-600",
 } as const;

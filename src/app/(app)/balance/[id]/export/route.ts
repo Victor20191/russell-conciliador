@@ -16,20 +16,24 @@ export const dynamic = "force-dynamic";
 /** Descarga el balance a Excel. El prevalidador usa el mismo VM estricto de la
  * pantalla y la compuerta; si no es calculable, falla cerrado. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const permiso = await authorizePermiso("balance:ver");
+  if (!permiso.ok) return NextResponse.json({ message: permiso.message }, { status: 403 });
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) return NextResponse.json({ message: "Balance inexistente." }, { status: 404 });
   try {
+    const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });
+    if (!referencia) return NextResponse.json({ message: "El balance no existe." }, { status: 404 });
+    const authz = await authorizePermiso("balance:ver", { clientId: referencia.clienteId });
+    if (!authz.ok) return NextResponse.json({ message: authz.message }, { status: 403 });
+
     const balance = await prisma.balancePruebaEncabezado.findUnique({
-      where: { id },
+      where: { id, clienteId: referencia.clienteId },
       include: {
         detalles: { select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, coincidencia: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true } },
       },
     });
     if (!balance) return NextResponse.json({ message: "El balance no existe." }, { status: 404 });
-    // Alcance por cartera, igual que la página del balance.
-    const authz = await authorizePermiso("balance:ver", { clientId: balance.clienteId });
-    if (!authz.ok) return NextResponse.json({ message: authz.message }, { status: 403 });
 
     const solicitado = new URL(req.url).searchParams.get("tipo");
     const tipo: TipoExportBalance = solicitado === "comparativo" || solicitado === "prevalidador" ? solicitado : "homologado";

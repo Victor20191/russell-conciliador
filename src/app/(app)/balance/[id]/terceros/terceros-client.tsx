@@ -58,7 +58,7 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
   return <div>
     <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-500">
       <span className="inline-flex items-center gap-1"><Icon name="link" size={12} /> Fuente por tercero: versión {fuenteTercero.version}</span>
-      <span className="font-mono">{fuenteTercero.archivo} · {fmtNum(fuenteTercero.filas)} filas</span>
+      <span className="tabular-nums">{fuenteTercero.archivo} · {fmtNum(fuenteTercero.filas)} filas</span>
     </p>
     <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Cuentas comparadas" value={fmtNum(resumen.totalCuentas)} tone="ink" />
@@ -131,7 +131,7 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
   const c = n.comparacion;
   return <Fragment>
     <tr data-selection-key={n.key} data-selected={seleccionada === n.key ? "true" : undefined} className={clase} onClick={tieneHijos ? () => toggle(n.key) : undefined}>
-      <td className="whitespace-nowrap px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: 16 + profundidad * 18 }}>
+      <td className="whitespace-nowrap px-4 py-2 tabular-nums text-ink-600" style={{ paddingLeft: 16 + profundidad * 18 }}>
         {tieneHijos && <button type="button" aria-expanded={abierto} aria-label={`${abierto ? "Contraer" : "Desplegar"} ${n.tipo === "tercero" ? "tercero " : "cuenta "}${n.code}`} onClick={(e) => { e.stopPropagation(); toggle(n.key); }} className="mr-1 inline-flex align-middle text-ink-400 hover:text-ink-700"><Icon name={chevronDivulgacion(abierto)} size={12} /></button>}
         <span className={grupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{n.code}</span>
         <span className="ml-2 rounded border border-ink-200 bg-white px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</span>
@@ -148,7 +148,7 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
         {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} porRedondeo={c.diferenciaPorRedondeo} />}
       </td>
       <td className="px-4 py-2">
-        {n.mapeoInconsistente ? <Chip label="Inconsistente" tone="warn" /> : grupo ? n.nivel === 6 ? <Chip label={n.mapped ? "Russell" : "Sin mapeo"} tone={n.mapped ? "ok" : "warn"} /> : null : n.std ? <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">→ {n.std}</span> : <Chip label="Sin mapeo" tone="warn" />}
+        {n.mapeoInconsistente ? <Chip label="Inconsistente" tone="warn" /> : grupo ? n.nivel === 6 ? <Chip label={n.mapped ? "Russell" : "Sin mapeo"} tone={n.mapped ? "ok" : "warn"} /> : null : n.std ? <span className="inline-flex items-center gap-1.5 tabular-nums text-[11.5px] text-blue-600">→ {n.std}</span> : <Chip label="Sin mapeo" tone="warn" />}
         {c?.diferenciaHomologacion && <div className="mt-1 text-[10.5px] text-warn-700">Terceros: {c.homologacionInconsistente ? "inconsistente" : c.cuenta6RussellTercero ?? "sin mapeo"}</div>}
       </td>
       <CeldasImportesBalance anterior={n.prevBalance} debito={n.debe} credito={n.haber} saldo={n.balance} variacion={n.variation} grupo={grupo} validacion={<Estado nodo={n} />} />

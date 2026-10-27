@@ -21,7 +21,7 @@ export function ExportarBalance({ id }: { id: number }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100"
+        className="inline-flex items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100 px-3 py-2 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-200"
       >
         <Icon name="download" size={14} /> Exportar a Excel <Icon name="chev-d" size={12} />
       </button>

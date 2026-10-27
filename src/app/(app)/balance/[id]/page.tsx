@@ -50,8 +50,16 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const { cargado, tab } = await searchParams;
   const id = parseId(rawId);
   if (!id) notFound();
+  const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });
+  if (!referencia) notFound();
+
+  // Alcance por cartera: leer este balance exige READ sobre su cliente. Quien
+  // no lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
+  const clientId = referencia.clienteId;
+  await requirePermiso("balance:ver", { clientId });
+
   const balance = await prisma.balancePruebaEncabezado.findUnique({
-    where: { id },
+    where: { id, clienteId: referencia.clienteId },
     include: {
       detalles: {
         select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true, coincidencia: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
@@ -59,11 +67,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     },
   });
   if (!balance) notFound();
-
-  // Alcance por cartera: leer este balance exige READ sobre su cliente. Quien
-  // no lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
-  const clientId = balance.clienteId;
-  await requirePermiso("balance:ver", { clientId });
 
   // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
   // (nombres de nivel 4/2), la bitácora y los permisos de UI se cargan en una
@@ -417,7 +420,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-500">
         <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> {meta.uploadedBy} · {meta.uploadedAt}</span>
         {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Cerrado por {meta.frozenBy} · {meta.frozenAt}</span>}
-        <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
+        <span className="tabular-nums">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
         {/* Apertura declarada al cargar. Los balances anteriores a este dato no la pintan. */}
         {parsearApertura(balance.aperturaBalance) && (
           <Chip
@@ -430,14 +433,14 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             sentido cuando esta versión declaró apertura «por terceros» y trae su
             propio detalle cargado (captura ligada por loteId). */}
         {parsearApertura(balance.aperturaBalance) === "tercero" && sums && terceroLigado && (
-          <a href={`/balance/${id}/terceros`} className="inline-flex items-center gap-1 font-medium text-blue-500 hover:underline">
+          <a href={`/balance/${id}/terceros`} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline">
             <Icon name="link" size={12} /> Ver por terceros
           </a>
         )}
       </p>
 
       {descongelada && (
-        <div role="status" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warn-500 bg-warn-100/40 px-3 py-2 text-[12.5px] text-warn-700">
+        <div role="status" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12.5px] text-warn-700">
           <Icon name="edit" size={13} />
           <span>
             Abierto por <b>{balance.descongeladoPor ?? "—"}</b> el {balance.descongeladoEn ? fmtDateTime(balance.descongeladoEn) : "—"} para corregirlo
@@ -480,7 +483,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
           {versionVigenteId != null && versionVigenteId !== id && (
             <a
               href={`/balance/${versionVigenteId}?tab=versiones`}
-              className="ml-1 font-medium text-blue-500 hover:underline"
+              className="ml-1 font-medium text-blue-600 hover:underline"
             >
               Ver las {hermanos.length} versiones del período
             </a>

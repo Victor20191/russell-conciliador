@@ -109,7 +109,7 @@ export default function Topbar({
   }
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-4 py-2.5 backdrop-blur sm:px-5">
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white px-4 py-2.5 sm:px-5">
       {/* Botón de menú: abre el drawer de navegación en pantallas angostas */}
       <button
         type="button"
@@ -129,7 +129,7 @@ export default function Topbar({
             ) : c.grupo ? (
               <span className="truncate">{c.label}</span>
             ) : (
-              <Link href={c.href} className="truncate rounded-sm font-medium text-blue-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>
+              <Link href={c.href} className="truncate rounded-sm font-medium text-blue-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>
             )}
           </span>
         ))}
@@ -147,7 +147,7 @@ export default function Topbar({
             aria-label={hasNotifications ? "Notificaciones" : "Sin procesos activos"}
             title={hasNotifications ? "Notificaciones" : "Sin procesos activos"}
             className={`relative rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition ${
-              hasNotifications ? "hover:bg-ink-50" : "cursor-default opacity-45"
+              hasNotifications ? "hover:bg-ink-50" : "cursor-default opacity-40"
             }`}
           >
             <Icon name="bell" size={16} />
@@ -179,7 +179,7 @@ export default function Topbar({
                       <button
                         type="submit"
                         disabled={pending}
-                        className="text-[11px] font-medium text-blue-500 hover:underline disabled:opacity-60"
+                        className="text-[11px] font-medium text-blue-600 hover:underline disabled:opacity-60"
                       >
                         {pending ? <EstadoProcesando>Marcando</EstadoProcesando> : "Marcar todo leído"}
                       </button>

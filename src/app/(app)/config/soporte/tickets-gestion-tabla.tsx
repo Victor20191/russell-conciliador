@@ -170,7 +170,7 @@ export default function TicketsGestionTabla({
                     onClick={() => router.push(destino)}
                     className="cursor-pointer border-b border-ink-50 last:border-0 hover:bg-ink-50"
                   >
-                    <td className="whitespace-nowrap px-4 py-2.5 font-mono text-[11.5px] font-semibold text-ink-700">
+                    <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-[11.5px] font-semibold text-ink-700">
                       <Link
                         href={destino}
                         onClick={(evento) => evento.stopPropagation()}
@@ -197,7 +197,7 @@ export default function TicketsGestionTabla({
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-ink-700">{fmtDate(ticket.createdAt)}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 font-mono tabular-nums text-ink-600">
+                    <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-ink-600">
                       {fmtHora12(ticket.createdAt)}
                     </td>
                     <td className="max-w-[240px] px-4 py-2.5 text-ink-600">
@@ -205,7 +205,7 @@ export default function TicketsGestionTabla({
                         {ubicacion ?? <span className="text-ink-400">—</span>}
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums text-ink-700">
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">
                       {ticket.adjuntos > 0 ? ticket.adjuntos : <span className="text-ink-400">—</span>}
                     </td>
                     <td className="px-4 py-2.5">
@@ -225,7 +225,7 @@ export default function TicketsGestionTabla({
                       <Link
                         href={destino}
                         onClick={(evento) => evento.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline"
+                        className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-600 hover:underline"
                       >
                         Abrir <Icon name="chev-r" size={12} />
                       </Link>
@@ -282,7 +282,7 @@ export default function TicketsGestionTabla({
 const ACENTO_ESTADO: Record<EstadoTicket, string> = {
   abierto: "text-warn-700",
   en_evaluacion: "text-ai-700",
-  en_proceso: "text-blue-500",
+  en_proceso: "text-blue-600",
   resuelto: "text-ok-700",
   cerrado: "text-ink-600",
 };
@@ -311,7 +311,7 @@ function TarjetaEstado({
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
         {ETIQUETA_ESTADO_TICKET[estado]}
       </div>
-      <div className={`mt-1 font-mono text-2xl font-semibold ${ACENTO_ESTADO[estado]}`}>{total}</div>
+      <div className={`mt-1 tabular-nums text-2xl font-semibold ${ACENTO_ESTADO[estado]}`}>{total}</div>
     </button>
   );
 }

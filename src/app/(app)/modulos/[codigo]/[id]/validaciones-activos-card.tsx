@@ -6,6 +6,7 @@
 import { Card } from "@/components/ui";
 import { fmtContable } from "@/lib/format";
 import type { ValidacionesActivos } from "@/lib/modulos/activos/validaciones-activos";
+import { IconoEnTexto } from "@/components/icons";
 
 const MAX_VISIBLES = 50;
 
@@ -18,8 +19,8 @@ export function ValidacionesActivosCard({ v }: { v: ValidacionesActivos }) {
         Costo neto = costo de adquisición + adiciones + mejoras + valorización − depreciación − deterioro.
       </p>
       {sinNovedad && (
-        <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
-          ✓ Ningún activo con costo o neto negativo, y el costo neto del archivo coincide con el calculado.
+        <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700">
+          <IconoEnTexto name="check" />Ningún activo con costo o neto negativo, y el costo neto del archivo coincide con el calculado.
         </div>
       )}
       <div className="flex flex-col gap-3">
@@ -36,7 +37,7 @@ export function ValidacionesActivosCard({ v }: { v: ValidacionesActivos }) {
         {v.negativos.cantidad > 0 && (
           <div className="flex flex-col gap-1.5">
             <div className="text-[12.5px] font-semibold text-err-700">
-              ⚠ {v.negativos.cantidad.toLocaleString("es-CO")} {v.negativos.cantidad === 1 ? "activo" : "activos"} con costo o neto negativo
+              <IconoEnTexto name="warn" />{v.negativos.cantidad.toLocaleString("es-CO")} {v.negativos.cantidad === 1 ? "activo" : "activos"} con costo o neto negativo
             </div>
             <div className="overflow-x-auto rounded-md border border-ink-150">
               <table className="w-full text-[12px]">

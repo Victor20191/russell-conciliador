@@ -18,8 +18,8 @@ export default async function DianPage() {
         {forms.map((f) => (
           <Card key={f.id}>
             <div className="flex items-center gap-3 border-b border-ink-100 px-4 py-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-100 text-blue-500"><Icon name={f.icon as IconName} size={17} /></div>
-              <div className="flex-1"><h2 className="text-[13px] font-semibold text-ink-800">{f.name}</h2><div className="text-[11.5px] text-ink-500"><span className="font-mono">{f.code}</span> · {f.periodicity}</div></div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-100 text-blue-600"><Icon name={f.icon as IconName} size={17} /></div>
+              <div className="flex-1"><h2 className="text-[13px] font-semibold text-navy-800">{f.name}</h2><div className="text-[11.5px] text-ink-500"><span className="tabular-nums">{f.code}</span> · {f.periodicity}</div></div>
             </div>
             <div className="divide-y divide-ink-50">
               {f.periods.map((p) => (

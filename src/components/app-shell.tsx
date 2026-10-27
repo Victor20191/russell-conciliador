@@ -92,8 +92,8 @@ export default function AppShell({
           // apagaba el hover, el menú se cerraba y el botón escapaba del cursor.
           onMouseEnter={() => setDesktopNavHovered(true)}
           onMouseLeave={() => setDesktopNavHovered(false)}
-          className={`sidebar-motion fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-[left,width,height,background-color,color] duration-200 hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
-            desktopNavVisuallyCollapsed ? "left-0 h-7 w-14 border-t border-t-white/10" : "left-[212px] h-[57px] w-5 border-t border-t-white/10"
+          className={`sidebar-motion fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-navy-300 transition-[left,width,height,background-color,color] duration-200 hover:bg-navy-600 hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
+            desktopNavVisuallyCollapsed ? "left-0 h-7 w-14 border-t border-t-navy-600" : "left-[212px] h-[57px] w-5 border-t border-t-navy-600"
           }`}
         >
           <Icon name={desktopNavCollapsed ? "chev-r" : "chev-l"} size={14} />

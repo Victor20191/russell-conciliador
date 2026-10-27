@@ -131,7 +131,7 @@ function TablaBorradores({
 
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 bg-warn-50/60 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 bg-warn-100 px-4 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
           Borradores por confirmar
         </span>
@@ -160,12 +160,12 @@ function TablaBorradores({
           </thead>
           <tbody>
             {pg.pageItems.map((r) => (
-              <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
+              <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-paper">
                 <td className="min-w-[10rem] max-w-[280px] px-3 py-2">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <Link
                       href={`${ruta}/borradores/${r.loteId}`}
-                      className="font-medium text-blue-500 wrap-anywhere hover:underline"
+                      className="font-medium text-blue-600 wrap-anywhere hover:underline"
                     >
                       {r.archivoNombre}
                     </Link>
@@ -191,7 +191,7 @@ function TablaBorradores({
                 <td className="px-3 py-2 text-ink-700">
                   <ClienteCelda nombre={r.clienteNombre} nit={r.clienteNit} />
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo ?? "—"}</td>
+                <td className="px-3 py-2 tabular-nums text-[11px] text-ink-600">{r.periodo ?? "—"}</td>
                 <td className="px-3 py-2">
                   <VersionCelda
                     version={r.version}
@@ -217,14 +217,14 @@ function TablaBorradores({
                           className="whitespace-nowrap text-[10px] font-semibold text-navy-700"
                           title={`Al confirmar se SUMA a la v${r.anexo.version} de ${r.anexo.periodo}; no crea versión nueva`}
                         >
-                          ↳ Anexo a v{r.anexo.version}
+                          → Anexo a v{r.anexo.version}
                         </span>
                       ) : (
                         <span
                           className="whitespace-nowrap text-[10px] font-semibold text-err-700"
                           title={`La v${r.anexo.version} de ${r.anexo.periodo} ya no es la vigente: al confirmar se creará una versión nueva`}
                         >
-                          ↳ Anexo a v{r.anexo.version} · ya no vigente
+                          → Anexo a v{r.anexo.version} · ya no vigente
                         </span>
                       )
                     )}

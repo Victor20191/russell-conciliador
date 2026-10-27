@@ -122,7 +122,7 @@ export function EditorSoportesMarca({
                 disabled={borrandoSoporte}
                 title="Eliminar este soporte"
                 aria-label="Eliminar este soporte"
-                className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
               >
                 <Icon name="trash" size={12} />
               </button>
@@ -246,7 +246,7 @@ export function ReferenciaMarca({
               disabled={ocupado}
               title="Editar la marca: pasa al renglón que hoy contiene sus cuentas"
               aria-label="Editar la marca"
-              className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-50"
+              className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-60"
             >
               <Icon name="edit" size={13} />
             </button>
@@ -258,7 +258,7 @@ export function ReferenciaMarca({
             disabled={ocupado}
             title="Retirar la marca (se lleva sus soportes y libera sus cuentas no modulares)"
             aria-label="Retirar la marca"
-            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
           >
             <Icon name="trash" size={13} />
           </button>

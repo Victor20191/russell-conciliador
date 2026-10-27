@@ -97,7 +97,7 @@ export const FICHA_BORRADOR_BALANCE: FichaAyuda = {
       titulo: "Corregir la lectura",
       acciones: [
         {
-          nombre: "Más acciones (⋯)",
+          nombre: "Más acciones (…)",
           queHace:
             "Menú de cada fila: «Reubicar cuenta», «Convertir en agrupadora» o «en movimiento», «Gestionar movimientos», «Desacoplar», «Omitir del cálculo» / «Incluir de nuevo», «Subir un nivel» y «Mover bajo agrupadora».",
           regla: REGLAS.cargarBalance,
@@ -132,7 +132,7 @@ export const FICHA_BORRADOR_BALANCE: FichaAyuda = {
       titulo: "Revisar que cuadre",
       acciones: [
         {
-          nombre: "Validación del balance (ⓘ)",
+          nombre: "Validación del balance (i)",
           queHace: "Explica cómo leer las barras de partida doble, ecuación y clases.",
           regla: REGLAS.verBorradoresBalance,
         },

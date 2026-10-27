@@ -7,6 +7,8 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { RBAC_CACHE_TAG } from "@/lib/rbac/contexto";
 import { ROLES_MATRIZ } from "@/lib/rbac/catalogo";
+import { puedeEditarRolMatriz, puedeGestionarPermisoMatriz } from "@/lib/rbac/politica-matriz";
+import { esSuperadministrador } from "@/lib/rbac/modulos-plataforma";
 import {
   NIVEL_META,
   permisosDeNivel,
@@ -70,7 +72,7 @@ export async function guardarNiveles(
       }),
       prisma.rolePermission.findMany({
         where: { roleId: { in: roleIds } },
-        select: { roleId: true, permissionId: true, permission: { select: { module: true } } },
+        select: { roleId: true, permissionId: true, permission: { select: { module: true, code: true } } },
       }),
     ]);
 
@@ -83,12 +85,16 @@ export async function guardarNiveles(
       if (!ROLES_EDITABLES.has(rol.code)) {
         return { ok: false, message: `El rol "${rol.name}" no es editable desde esta pantalla.` };
       }
+      if (!puedeEditarRolMatriz(authz.role, rol.code)) {
+        return { ok: false, message: "Solo un Superadministrador puede modificar los permisos de ese rol." };
+      }
     }
 
     // Permisos por módulo + índice id→code.
     const porModulo = new Map<string, PermisoLite[]>();
     const codePorId = new Map<number, string>();
     for (const p of permisos) {
+      if (!puedeGestionarPermisoMatriz(authz.role, p.code)) continue;
       const arr = porModulo.get(p.module) ?? [];
       arr.push(p);
       porModulo.set(p.module, arr);
@@ -97,6 +103,9 @@ export async function guardarNiveles(
     // Concesiones actuales: roleId → módulo → Set(permissionId).
     const actuales = new Map<number, Map<string, Set<number>>>();
     for (const g of grants) {
+      // Las concesiones reservadas previas solo las revisa un Superadministrador.
+      // Ni bajar a «Ninguno» ni normalizar un nivel mixto debe eliminarlas.
+      if (!puedeGestionarPermisoMatriz(authz.role, g.permission.code)) continue;
       const porRol = actuales.get(g.roleId) ?? new Map<string, Set<number>>();
       const set = porRol.get(g.permission.module) ?? new Set<number>();
       set.add(g.permissionId);
@@ -110,6 +119,9 @@ export async function guardarNiveles(
 
     for (const c of datos) {
       const moduloPerms = porModulo.get(c.module) ?? [];
+      if (moduloPerms.length === 0 && !esSuperadministrador(authz.role)) {
+        return { ok: false, message: "Ese módulo no tiene permisos que puedas configurar." };
+      }
       const deseados = new Set(permisosDeNivel(moduloPerms, c.nivel));
       const vigentes = actuales.get(c.roleId)?.get(c.module) ?? new Set<number>();
 

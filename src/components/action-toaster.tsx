@@ -47,7 +47,7 @@ export function ActionToaster() {
           >
             <span
               className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md ${
-                isError ? "bg-err-100" : isSuccess ? "bg-ok-100" : "bg-blue-100"
+                isError ? "bg-err-500 text-white" : isSuccess ? "bg-ok-500 text-navy-800" : "bg-blue-500 text-navy-800"
               }`}
             >
               <Icon name={isError ? "warn" : isSuccess ? "check" : "bell"} size={13} />

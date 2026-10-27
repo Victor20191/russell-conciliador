@@ -31,7 +31,7 @@ describe("documento consistente", () => {
     expect(a.html).toContain("Operaciones registradas: <strong>1</strong>");
     expect(a.html).toContain("Usuarios con operaciones: <strong>1</strong>");
     // El encabezado muestra solo fechas de calendario, sin la hora UTC.
-    expect(a.html).toContain("Período: 2026-09-01 → 2026-09-07");
+    expect(a.html).toContain("Período: 2026-09-01 – 2026-09-07");
     expect(a.html).not.toContain("T00:00:00");
     expect(a.html).not.toContain("T23:59:59");
     // El corte también va sin hora, en la fecha de Colombia (02:00 UTC del 8 = 7 de sep. en Bogotá).
@@ -85,7 +85,9 @@ describe("documento consistente", () => {
 
   test("escapa los textos de datos y conserva todos los avances recibidos", () => {
     const html = construirDocumentoConsistente({ ...contexto, corte: "<script>corte</script>" }).html;
-    expect(html).not.toContain("<img");
+    // La única imagen es el logotipo oficial; la del texto llega escapada.
+    expect(html.match(/<img\b/g)).toHaveLength(1);
+    expect(html).not.toContain("<img src=x");
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;img");
     expect(html).toContain("A &amp; B");
@@ -154,12 +156,12 @@ describe("colores del comparativo", () => {
     periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z",
   });
 
-  test("pinta cada variación con su color: verde sube, rojo baja", () => {
+  test("pinta cada variación con la paleta del manual: la baja en Mind Magenta, el alza sobre Sea Green", () => {
     const baja = compararUso({ actual: uso, previo: usoPrevioAlto, base: "reporte_anterior" });
     const html = construirDocumentoConsistente({ ...contexto, comparativo: baja }).html;
-    expect(html).toContain("#9a2a22"); // rojo en la caída y en el banner
+    expect(html).toContain("#981D97"); // Mind Magenta en la caída y en el banner
     const sube = compararUso({ actual: usoPrevioAlto, previo: uso, base: "reporte_anterior" });
-    expect(construirDocumentoConsistente({ ...contexto, comparativo: sube }).html).toContain("#2f6b3f");
+    expect(construirDocumentoConsistente({ ...contexto, comparativo: sube }).html).toContain("background:#CCF2F0"); // tinte 20 % de Sea Green
   });
 
   test("el banner usa la flecha del nivel, no la de la medida", () => {
@@ -183,7 +185,7 @@ describe("encabezados del comparativo", () => {
     }).html;
     expect(html).toContain("Reporte anterior");
     expect(html).toContain("Reporte actual");
-    expect(html).toContain("2026-08-28 → 2026-09-11");
+    expect(html).toContain("2026-08-28 – 2026-09-11");
     expect(html).not.toContain("<th>Anterior</th>");
   });
 
@@ -228,7 +230,7 @@ describe("sección de tickets atendidos", () => {
     expect(ids.every((i) => i >= 0)).toBe(true);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
     expect(html).toContain("<h2>Tickets atendidos</h2>");
-    expect(html).toContain("En el período 2026-09-01 → 2026-09-07 se atendió <strong>1</strong> ticket (1 cerrado).");
+    expect(html).toContain("En el período 2026-09-01 – 2026-09-07 se atendió <strong>1</strong> ticket (1 cerrado).");
   });
 
   test("cada fila trae código, estado, asunto, pantalla, quién reportó, fecha y solución", () => {
@@ -258,7 +260,9 @@ describe("sección de tickets atendidos", () => {
         solucion: "Paso 1: abrir <b>Balance</b>\r\nPaso 2: \"guardar\"\n\n\n\nPaso 3: listo",
       })]),
     }).html;
-    expect(html).not.toContain("<img");
+    // La única imagen es el logotipo oficial; la del texto llega escapada.
+    expect(html.match(/<img\b/g)).toHaveLength(1);
+    expect(html).not.toContain("<img src=x");
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<b>Balance");
     expect(html).toContain("TKT-1&lt;b&gt;");

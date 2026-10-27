@@ -6,7 +6,7 @@ import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
-import { Icon } from "@/components/icons";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { fmtContable } from "@/lib/format";
 import type { FormatoManualBorrador } from "@/lib/modulos/formatos-manuales";
 import { CasillaPatronManual } from "./casilla-patron-manual";
@@ -98,7 +98,7 @@ function MenuVersionesBorradorModulo({
               {hermanos.map((hermano) => {
                 const actual = hermano.loteId === loteId;
                 return (
-                  <div key={hermano.loteId} className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${actual ? "bg-blue-50/60" : "hover:bg-ink-50"}`}>
+                  <div key={hermano.loteId} className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${actual ? "bg-blue-100" : "hover:bg-ink-50"}`}>
                     <span className="w-12 shrink-0">
                       {actual ? (
                         <Chip label={`v${hermano.version}`} tone="blue" />
@@ -614,25 +614,25 @@ export default function BorradorModuloClient({
   const barraSeleccion = seleccion.size > 0 ? (
     <div className={`flex flex-wrap items-center gap-2 bg-navy-700 px-3 py-2 text-[12px] text-white ${pantallaCompleta ? "shrink-0 border-b border-navy-600" : "rounded-md border border-navy-600 shadow-lg"}`}>
       <span className="font-semibold">{seleccion.size} seleccionada{seleccion.size === 1 ? "" : "s"}</span>
-      <span className="text-white/40">·</span>
-      <span className="text-white/70">Agrupador:</span>
+      <span className="text-navy-500">·</span>
+      <span className="text-navy-100">Agrupador:</span>
       <input
         list="agrupadores-borrador"
         value={agrupadorManual}
         onChange={(e) => setAgrupadorManual(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") asignarAgrupadorSeleccion(); }}
         placeholder={`Escribe el ${clasificadorEtiqueta.toLowerCase()}…`}
-        className="w-full min-w-0 rounded border border-white/30 sm:w-auto sm:min-w-[12rem] bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
+        className="w-full min-w-0 rounded border border-navy-500 sm:w-auto sm:min-w-[12rem] bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
       />
       <datalist id="agrupadores-borrador">
         {agrupadoresExistentes.map((a) => <option key={a} value={a} />)}
       </datalist>
-      <button type="button" disabled={!agrupadorManual.trim()} onClick={asignarAgrupadorSeleccion} className="rounded border border-white/30 bg-white/15 px-2 py-1 font-semibold hover:bg-white/25 disabled:opacity-50">Asignar</button>
-      <span className="ml-1 text-white/40">·</span>
-      <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Omitir</button>
-      <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Incluir</button>
-      <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como totales del archivo: no se cargan y se usan como control" className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Marcar total</button>
-      <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-white/30 px-2 py-1 font-medium hover:bg-white/20">Limpiar selección</button>
+      <button type="button" disabled={!agrupadorManual.trim()} onClick={asignarAgrupadorSeleccion} className="rounded border border-navy-500 bg-navy-600 px-2 py-1 font-semibold hover:bg-navy-500 disabled:opacity-60">Asignar</button>
+      <span className="ml-1 text-navy-500">·</span>
+      <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-navy-500 bg-navy-600 px-2 py-1 font-semibold hover:bg-navy-500">Omitir</button>
+      <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-navy-500 bg-navy-600 px-2 py-1 font-semibold hover:bg-navy-500">Incluir</button>
+      <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como totales del archivo: no se cargan y se usan como control" className="rounded border border-navy-500 bg-navy-600 px-2 py-1 font-semibold hover:bg-navy-500">Marcar total</button>
+      <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-navy-500 px-2 py-1 font-medium hover:bg-navy-600">Limpiar selección</button>
     </div>
   ) : null;
 
@@ -649,7 +649,7 @@ export default function BorradorModuloClient({
       </div>
 
       {notasCliente && <NotasCargaModulo notas={notasCliente} />}
-      {asistenciaSinResolver && <p role="status" className="rounded-md border border-warn-300 bg-warn-100/30 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">Hay una lectura pendiente de resolver. El borrador actual se conserva; abre «Corregir lectura» para revisar y aplicar la propuesta antes de confirmar la carga.</p>}
+      {asistenciaSinResolver && <p role="status" className="rounded-md border border-warn-300 bg-warn-100 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">Hay una lectura pendiente de resolver. El borrador actual se conserva; abre «Corregir lectura» para revisar y aplicar la propuesta antes de confirmar la carga.</p>}
 
       {/* Novedades: validación automática + checklist de verificación (arriba para que se vea siempre) */}
       <Card className="flex flex-col gap-3 p-4">
@@ -657,7 +657,7 @@ export default function BorradorModuloClient({
 
         {reconciliacion && reconciliacion.filasOmitidasArriba > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-            <span className="font-semibold">⚠ {reconciliacion.filasOmitidasArriba} fila(s) con valor se excluyeron al leer (posible fila de datos por encima del inicio detectado).</span>
+            <span className="font-semibold"><IconoEnTexto name="warn" />{reconciliacion.filasOmitidasArriba} fila(s) con valor se excluyeron al leer (posible fila de datos por encima del inicio detectado).</span>
             {reconciliacion.muestra.length > 0 && (
               <span className="ml-1">Filas: {reconciliacion.muestra.map((f) => `${f.filaNum} (${fmtContable(f.valor)})`).join(", ")}{reconciliacion.filasOmitidasArriba > reconciliacion.muestra.length ? "…" : ""}.</span>
             )}
@@ -669,8 +669,8 @@ export default function BorradorModuloClient({
           <div className={`rounded-md border px-3 py-2 text-[12px] ${anexo.repetidos.length > 0 ? "border-err-500 bg-err-100 text-err-700" : "border-navy-600 bg-blue-50 text-navy-800"}`}>
             <span className="font-semibold">
               {anexo.vigente
-                ? `↳ Este archivo se AGREGARÁ a la v${anexo.version} de ${anexo.periodo}.`
-                : `↳ El cargue al que ibas a agregarlo (v${anexo.version} de ${anexo.periodo}) ya no es el vigente.`}
+                ? `→ Este archivo se AGREGARÁ a la v${anexo.version} de ${anexo.periodo}.`
+                : `→ El cargue al que ibas a agregarlo (v${anexo.version} de ${anexo.periodo}) ya no es el vigente.`}
             </span>
             {!anexo.vigente ? (
               <span className="ml-1">Al confirmar se creará una versión nueva en vez de agregarse.</span>
@@ -684,7 +684,7 @@ export default function BorradorModuloClient({
               </span>
             ) : anexo.repetidos.length > 0 ? (
               <span className="ml-1">
-                ⚠ {anexo.repetidos.length} ítem(s) del archivo YA están en esa versión y quedarían duplicados:{" "}
+                <IconoEnTexto name="warn" />{anexo.repetidos.length} ítem(s) del archivo YA están en esa versión y quedarían duplicados:{" "}
                 {anexo.repetidos.slice(0, 6).map((k) => k.trim() || "(sin referencia)").join(", ")}
                 {anexo.repetidos.length > 6 ? "…" : ""}. Si el archivo es una re-subida y no una adición, descarta este
                 borrador y cárgalo con «Cargar {moduloCodigo === "INV" ? "inventarios" : "el módulo"}», que crea una versión nueva.
@@ -715,7 +715,7 @@ export default function BorradorModuloClient({
         {totalizadoras.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">
-              ⚠ {totalizadoras.length === 1 ? "Hay 1 fila que parece el TOTAL del archivo" : `Hay ${totalizadoras.length} filas que parecen el TOTAL del archivo`}, no un ítem.
+              <IconoEnTexto name="warn" />{totalizadoras.length === 1 ? "Hay 1 fila que parece el TOTAL del archivo" : `Hay ${totalizadoras.length} filas que parecen el TOTAL del archivo`}, no un ítem.
             </span>
             <span className="ml-1">
               {totalizadoras.slice(0, 4).map((t) => `${t.filaNum} (${fmtContable(t.valor)} ≈ suma de las demás, ${fmtContable(t.resto)})`).join(", ")}
@@ -726,27 +726,27 @@ export default function BorradorModuloClient({
         )}
         <ValidacionArchivo control={control} resumen={resumenValidacion} controlesFormato={controlesFormato} />
         {hayCambiosFilas && (
-          <div className="rounded-md border border-warn-500 bg-warn-100/40 px-3 py-1.5 text-[11.5px] text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-1.5 text-[11.5px] text-warn-700">
             Los controles del archivo y las novedades se calcularon sobre lo guardado: guarda los cambios para recalcularlos.
           </div>
         )}
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-            <span className="font-semibold">⚠ {resumen.negativosFilas} ítem(s) con existencias o costos negativos.</span>
+            <span className="font-semibold"><IconoEnTexto name="warn" />{resumen.negativosFilas} ítem(s) con existencias o costos negativos.</span>
             <span className="ml-1">Filas: {[...new Set(negativos.slice(0, 8).map((n) => `${n.filaNum} (${n.etiqueta})`))].join(", ")}{resumen.negativosFilas > 8 ? "…" : ""}.</span>
             {alertasConComentario.includes("valores_negativos") && <span className="ml-1">{AVISO_COMENTARIO_CIERRE}</span>}
           </div>
         )}
         {descuadres.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-            <span className="font-semibold">⚠ {resumen.descuadresFilas} ítem(s) donde el valor total no cuadra con cantidad × valor unitario.</span>
+            <span className="font-semibold"><IconoEnTexto name="warn" />{resumen.descuadresFilas} ítem(s) donde el valor total no cuadra con cantidad × valor unitario.</span>
             <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{resumen.descuadresFilas > 8 ? "…" : ""}.</span>
           </div>
         )}
         {alertasCosto.map((a) => (
-          <div key={a.tipo} className="rounded-md border border-warn-500 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
+          <div key={a.tipo} className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             <span className="font-semibold">
-              ⚠ {a.referencias} {a.referencias === 1 ? "referencia" : "referencias"} · {a.etiqueta.toLowerCase()}
+              <IconoEnTexto name="warn" />{a.referencias} {a.referencias === 1 ? "referencia" : "referencias"} · {a.etiqueta.toLowerCase()}
               {a.valorTotal !== 0 ? ` (valor total ${fmtContable(a.valorTotal)})` : ""}.
             </span>
             <span className="ml-1">Filas: {a.filas.join(", ")}{a.referencias > a.filas.length ? "…" : ""}.</span>
@@ -754,8 +754,8 @@ export default function BorradorModuloClient({
           </div>
         ))}
         {negativos.length === 0 && descuadres.length === 0 && alertasCosto.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
-            {resumen.alertasCosto ? "✓ Sin negativos, descuadres de valor ni alertas de costo en los movimientos." : "✓ Sin negativos ni descuadres de valor en los movimientos."}
+          <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700">
+            <IconoEnTexto name="check" />{resumen.alertasCosto ? "Sin negativos, descuadres de valor ni alertas de costo en los movimientos." : "Sin negativos ni descuadres de valor en los movimientos."}
           </div>
         )}
 
@@ -767,7 +767,7 @@ export default function BorradorModuloClient({
             <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">
               Verificaciones obligatorias
             </span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${verifCompletas ? "border-ok-500 bg-ok-100/40 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"}`}>
+            <span className={`rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${verifCompletas ? "border-ok-500 bg-ok-100 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"}`}>
               {verificaciones.filter((v) => respuestas[v.id]).length}/{verificaciones.length} respondidas
             </span>
           </div>
@@ -778,7 +778,7 @@ export default function BorradorModuloClient({
           return (
             <div
               key={v.id}
-              className={`flex flex-col gap-1.5 rounded-md border px-3 py-2.5 ${pendiente ? "border-warn-500 bg-warn-100/40" : "border-ok-500/60 bg-ok-100/20"}`}
+              className={`flex flex-col gap-1.5 rounded-md border px-3 py-2.5 ${pendiente ? "border-warn-500 bg-warn-100" : "border-ok-300 bg-ok-100"}`}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`text-[12.5px] ${pendiente ? "font-medium text-ink-800" : "text-ink-700"}`}>{v.texto}</span>
@@ -788,7 +788,7 @@ export default function BorradorModuloClient({
                   </span>
                 ) : (
                   <span className="rounded-full border border-ok-500 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ok-700">
-                    ✓ Respondida
+                    <IconoEnTexto name="check" />Respondida
                   </span>
                 )}
               </div>
@@ -845,7 +845,7 @@ export default function BorradorModuloClient({
                     disabled={!activa && (bloqueo != null || cambiandoAgrupar)}
                     onClick={() => cambiarAgrupacion(o.id)}
                     title={activa ? "Agrupación de este borrador" : bloqueo ?? undefined}
-                    className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-50`}
+                    className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-60`}
                   >
                     {o.etiqueta}
                   </button>
@@ -867,8 +867,8 @@ export default function BorradorModuloClient({
           </button>
           {filasConNovedad.size > 0 && (
             <button type="button" onClick={() => { setFiltro((f) => (f === FILTRO_NOVEDADES ? null : FILTRO_NOVEDADES)); reiniciarDetalle(); }}
-              className={`rounded-md border border-err-500 px-3 py-1.5 text-[12px] font-medium text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100 font-semibold" : "bg-err-100/40 hover:bg-err-100"}`}>
-              ⚠ Novedades <span>({filasConNovedad.size})</span>
+              className={`rounded-md border border-err-500 px-3 py-1.5 text-[12px] font-medium text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100 font-semibold" : "bg-err-100 hover:bg-err-100"}`}>
+              <IconoEnTexto name="warn" />Novedades <span>({filasConNovedad.size})</span>
             </button>
           )}
           {consolidado.map((c) => {
@@ -940,7 +940,7 @@ export default function BorradorModuloClient({
             {hayCambios && <span className="text-[11px] font-medium text-warn-700">Guarda para incluir tus cambios</span>}
             <a
               href={`/modulos/${moduloCodigo.toLowerCase()}/borradores/${loteId}/export`}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-200"
               title={hayCambios ? "El Excel exporta lo GUARDADO. Guarda tus cambios para que salgan reflejados." : "Exporta a Excel el detalle y el consolidado del borrador"}
             >
               <Icon name="download" size={13} /> Exportar a Excel
@@ -965,15 +965,15 @@ export default function BorradorModuloClient({
                 type="button"
                 aria-pressed={filtro === FILTRO_NOVEDADES}
                 onClick={() => { setFiltro((f) => (f === FILTRO_NOVEDADES ? null : FILTRO_NOVEDADES)); reiniciarDetalle(); }}
-                className={`rounded-md border border-err-500 px-2 py-1 font-semibold text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100" : "bg-err-100/40 hover:bg-err-100"}`}
+                className={`rounded-md border border-err-500 px-2 py-1 font-semibold text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100" : "bg-err-100 hover:bg-err-100"}`}
               >
-                ⚠ Novedades ({filasConNovedad.size.toLocaleString("es-CO")})
+                <IconoEnTexto name="warn" />Novedades ({filasConNovedad.size.toLocaleString("es-CO")})
               </button>
             )}
             {filtro !== null && filtro !== FILTRO_NOVEDADES && (
               <span className="inline-flex items-center gap-1 rounded-md border border-navy-700 bg-blue-50 px-2 py-1 font-semibold text-navy-800">
                 {etiquetaGrupo}: {filtro}
-                <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-700/60 hover:text-err-700">×</button>
+                <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-500 hover:text-err-700">×</button>
               </span>
             )}
           </div>
@@ -1023,7 +1023,7 @@ export default function BorradorModuloClient({
               )}
               {gruposVista.map((g) => (
                 <Fragment key={g.clasificador}>
-                  <tr className="border-t-2 border-ink-200 bg-blue-50/70">
+                  <tr className="border-t-2 border-ink-200 bg-blue-100">
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, idxValor >= 1 ? idxValor : columnas.length - 1)}>
@@ -1090,7 +1090,7 @@ export default function BorradorModuloClient({
                             ? "Renglón del archivo que no es un ítem: no suma al total"
                             : undefined;
                     return (
-                      <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100/60" : neg && !omit ? "bg-err-100" : esTot ? "bg-blue-50/50 font-semibold" : esAgr ? "bg-ink-50 italic" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot || esAgr ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
+                      <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100" : neg && !omit ? "bg-err-100" : esTot ? "bg-blue-100 font-semibold" : esAgr ? "bg-ink-50 italic" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot || esAgr ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
                         <td className="px-2.5 py-1.5 text-center">
                           {!cero && <input type="checkbox" checked={seleccion.has(f.filaNum)} onChange={() => toggleSel(f.filaNum)} className="cursor-pointer align-middle" />}
                         </td>
@@ -1189,7 +1189,7 @@ export default function BorradorModuloClient({
       {formatoManual && <CasillaPatronManual formato={formatoManual} marcada={guardarFormatoManual} onCambiar={setGuardarFormatoManual} />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
-          <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60">
+          <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-200 disabled:opacity-60">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>
           {hayCambios && (
@@ -1249,7 +1249,7 @@ export default function BorradorModuloClient({
 function CedulasVariosNombresAviso({ cedulas }: { cedulas: CedulaConVariosNombres[] }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-      <span className="font-semibold">⛔ El reporte tiene errores: {cedulas.length} cédula(s) con más de un nombre de empleado. Este borrador no se puede aprobar; corrige el archivo en el ERP y vuelve a cargarlo.</span>
+      <span className="font-semibold"><IconoEnTexto name="warn" />El reporte tiene errores: {cedulas.length} cédula(s) con más de un nombre de empleado. Este borrador no se puede aprobar; corrige el archivo en el ERP y vuelve a cargarlo.</span>
       <ul className="ml-4 list-disc">
         {cedulas.slice(0, 8).map((c) => (
           <li key={c.cedula}>{c.cedula}: {c.nombres.join(" / ")} ({c.filas.toLocaleString("es-CO")} filas)</li>
@@ -1266,7 +1266,7 @@ function ReporteConErroresAviso({ reporte }: { reporte: ReporteConErrores }) {
   const { documentosRepetidos: d, vencimientosImposibles: v } = reporte;
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-      <span className="font-semibold">⛔ El reporte tiene errores: este borrador no se puede aprobar. Corrige el archivo en el ERP y vuelve a cargarlo.</span>
+      <span className="font-semibold"><IconoEnTexto name="warn" />El reporte tiene errores: este borrador no se puede aprobar. Corrige el archivo en el ERP y vuelve a cargarlo.</span>
       {d.cantidad > 0 && (
         <div>
           <span className="font-semibold">{d.cantidad} documento(s) repetido(s) entre terceros</span> (el mismo documento por el mismo valor):

@@ -22,7 +22,7 @@ export function CasillaPatronManual({
     : "";
   if (formato.estado === "igual") {
     return (
-      <p className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-2 text-[11.5px] leading-snug text-ok-700">
+      <p className="rounded-md border border-ok-500 bg-ok-100 px-3 py-2 text-[11.5px] leading-snug text-ok-700">
         Se leyó con el patrón manual de {formato.cliente}{deQuien ? ` (guardado${deQuien})` : ""}: al confirmar se suma un uso.
       </p>
     );

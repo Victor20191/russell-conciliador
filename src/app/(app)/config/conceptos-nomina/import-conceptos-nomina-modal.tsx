@@ -209,7 +209,7 @@ function ImportCatalogoErpModal({ clientes, onClose }: { clientes: ClienteOpcion
 function ResultadoOk({ resumen, avisos }: { resumen: NonNullable<ImportConceptosNominaState["resumen"]>; avisos?: string[] }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+      <div className="rounded-md border border-ok-100 bg-ok-100 px-3 py-2.5 text-[12.5px] text-ok-700">
         Se cargaron <span className="font-semibold">{resumen.conceptos}</span> concepto(s) de{" "}
         <span className="font-semibold">{resumen.clientes}</span> cliente(s), con{" "}
         <span className="font-semibold">{resumen.cuentas}</span> cuenta(s)
@@ -221,7 +221,7 @@ function ResultadoOk({ resumen, avisos }: { resumen: NonNullable<ImportConceptos
           : "Todos los conceptos del archivo eran nuevos."}
       </div>
       {avisos && avisos.length > 0 && (
-        <ul className="flex flex-col gap-1 rounded-md border border-warn-500/40 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
+        <ul className="flex flex-col gap-1 rounded-md border border-warn-200 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
           {avisos.map((a, i) => <li key={i}>{a}</li>)}
         </ul>
       )}
@@ -246,7 +246,7 @@ function ErroresTabla({ errores }: { errores: ErrorImport[] }) {
           <tbody>
             {errores.map((e, i) => (
               <tr key={i} className="border-t border-ink-100">
-                <td className="px-2.5 py-1.5 font-mono text-ink-500">{e.fila || "—"}</td>
+                <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{e.fila || "—"}</td>
                 <td className="px-2.5 py-1.5 text-ink-700">{e.mensaje}</td>
               </tr>
             ))}

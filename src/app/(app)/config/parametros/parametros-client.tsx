@@ -48,7 +48,7 @@ export default function ParametrosClient({
           <section key={seccion} className="flex flex-col gap-4">
             <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">{titulo}</h2>
             {puedeEditar && (
-              <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
+              <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5 text-[12.5px] text-warn-700">
                 Los cambios son <span className="font-semibold">retroactivos</span>: {retroactivo}
               </div>
             )}
@@ -96,7 +96,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Icon name="settings" size={15} />
-            <h3 className="text-[14px] font-semibold text-ink-900">{umbral.nombre}</h3>
+            <h3 className="text-[14px] font-semibold text-navy-800">{umbral.nombre}</h3>
             <Chip label={umbral.esPredeterminado ? "Predeterminado" : "Personalizado"} tone={umbral.esPredeterminado ? "ink" : "ai"} />
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{umbral.descripcion}</p>
@@ -118,7 +118,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
 
       {soloLectura ? (
         <p className="mt-3 flex flex-wrap items-baseline gap-2">
-          <span className="font-mono text-[13px] font-semibold tabular-nums text-ink-800">{fmt(umbral.valor)}</span>
+          <span className="tabular-nums text-[13px] font-semibold text-ink-800">{fmt(umbral.valor)}</span>
           <span className="text-[11px] text-ink-400">Predeterminado {fmt(umbral.predeterminado)}</span>
         </p>
       ) : (
@@ -134,7 +134,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
             value={conSeparadores(valor)}
             onChange={(e) => setValor(soloDigitos(e.target.value))}
             aria-label={`Monto del umbral ${umbral.nombre}`}
-            className={`w-44 rounded-md border bg-white px-3 py-1.5 text-right font-mono text-[13px] tabular-nums text-ink-800 outline-none focus:border-blue-400 ${fueraDeRango ? "border-err-500" : "border-ink-200"}`}
+            className={`w-44 rounded-md border bg-white px-3 py-1.5 text-right tabular-nums text-[13px] text-ink-800 outline-none focus:border-blue-400 ${fueraDeRango ? "border-err-500" : "border-ink-200"}`}
           />
         </div>
         <span className="text-[11px] text-ink-400">
@@ -155,7 +155,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
                 type="submit"
                 form={`reset-${umbral.clave}`}
                 disabled={restaurando}
-                className="rounded-md border border-err-100 px-2.5 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100/50 disabled:opacity-60"
+                className="rounded-md border border-err-100 px-2.5 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:opacity-60"
               >
                 {restaurando ? <EstadoProcesando>Restaurando</EstadoProcesando> : "Sí, restaurar"}
               </button>
@@ -173,7 +173,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
               onClick={() => setConfirmarReset(true)}
               disabled={umbral.esPredeterminado}
               title={umbral.esPredeterminado ? "Ya está en el valor predeterminado." : undefined}
-              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
             >
               Restaurar predeterminado
             </button>
@@ -182,7 +182,7 @@ function UmbralEditor({ umbral, soloLectura }: { umbral: UmbralVista; soloLectur
           <button
             type="submit"
             disabled={!puedeGuardar}
-            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
+            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
             {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
           </button>

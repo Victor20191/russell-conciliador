@@ -23,16 +23,19 @@ export default async function CruceDetailPage({
   const { ejecutada } = await searchParams;
   const id = parseId(rawId);
   if (!id) notFound();
-  const rec = await prisma.reconciliation.findUnique({
-    where: { id },
-    include: { rows: { orderBy: { order: "asc" } }, comments: { orderBy: { createdAt: "asc" } } },
-  });
-  if (!rec) notFound();
+  const referencia = await prisma.reconciliation.findUnique({ where: { id }, select: { clientId: true, clientName: true } });
+  if (!referencia) notFound();
 
   // Alcance por cartera: leer este cruce exige READ sobre su cliente. Quien no
   // lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
-  const clientId = rec.clientId ?? (await clientIdPorNombre(rec.clientName));
+  const clientId = referencia.clientId ?? (await clientIdPorNombre(referencia.clientName));
   await requirePermiso("conciliaciones:ver", { clientId });
+
+  const rec = await prisma.reconciliation.findUnique({
+    where: { id, clientId: referencia.clientId, clientName: referencia.clientName },
+    include: { rows: { orderBy: { order: "asc" } }, comments: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!rec) notFound();
 
   // Editar exige, además, ALCANCE de escritura sobre el cliente de ESTE cruce:
   // los controles se ocultan fuera de ella.

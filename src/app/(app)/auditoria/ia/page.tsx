@@ -162,7 +162,7 @@ export default async function ConsumoIAPage() {
 
       <div className="mb-4 grid gap-3 lg:grid-cols-2">
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-800">Gasto por tipo de operación · {mesLabel}</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Gasto por tipo de operación · {mesLabel}</h2>
           {porTipo.length === 0 ? (
             <p className="py-6 text-center text-[12.5px] text-ink-400">Sin consumo este mes.</p>
           ) : (
@@ -176,7 +176,7 @@ export default async function ConsumoIAPage() {
                         {tipoLabel(t.tipoOperacion)}
                         <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(t._count)} llamada(s)</span>
                       </span>
-                      <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">{fmt(Math.round(costo))}</span>
+                      <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">{fmt(Math.round(costo))}</span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
                       <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.round((costo / maxTipo) * 100)}%` }} />
@@ -189,7 +189,7 @@ export default async function ConsumoIAPage() {
         </Card>
 
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-800">Gasto por cliente · {mesLabel}</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Gasto por cliente · {mesLabel}</h2>
           {porCliente.length === 0 ? (
             <p className="py-6 text-center text-[12.5px] text-ink-400">Sin consumo este mes.</p>
           ) : (
@@ -203,7 +203,7 @@ export default async function ConsumoIAPage() {
                         {c.label}
                         <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(c.llamadas)} llamada(s) · US$ {c.costoUsd.toFixed(4)}</span>
                       </span>
-                      <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">{fmt(Math.round(costo))}</span>
+                      <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">{fmt(Math.round(costo))}</span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
                       <div className="h-full rounded-full bg-navy-700" style={{ width: `${Math.round((costo / maxCliente) * 100)}%` }} />

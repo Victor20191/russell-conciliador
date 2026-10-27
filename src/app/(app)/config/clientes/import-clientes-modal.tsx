@@ -101,12 +101,12 @@ function ImportClientesModal({ onClose }: { onClose: () => void }) {
 function ResultadoOk({ resumen }: { resumen: NonNullable<ImportClientesState["resumen"]> }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+      <div className="rounded-md border border-ok-100 bg-ok-100 px-3 py-2.5 text-[12.5px] text-ok-700">
         Se crearon <span className="font-semibold">{resumen.creados}</span> cliente(s).
       </div>
       <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
         <span className="text-[11px] font-semibold text-ink-500">Códigos asignados</span>
-        <p className="mt-1 font-mono text-[12px] text-ink-700">{resumen.codigos.join(" · ")}</p>
+        <p className="mt-1 tabular-nums text-[12px] text-ink-700">{resumen.codigos.join(" · ")}</p>
       </div>
     </div>
   );
@@ -129,7 +129,7 @@ function ErroresTabla({ errores }: { errores: ErrorImport[] }) {
           <tbody>
             {errores.map((e, i) => (
               <tr key={i} className="border-t border-ink-100">
-                <td className="px-2.5 py-1.5 font-mono text-ink-500">{e.fila || "—"}</td>
+                <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{e.fila || "—"}</td>
                 <td className="px-2.5 py-1.5 text-ink-700">{e.mensaje}</td>
               </tr>
             ))}

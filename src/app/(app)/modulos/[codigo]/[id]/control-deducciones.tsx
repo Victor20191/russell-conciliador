@@ -93,7 +93,7 @@ export function ControlDeduccionesCard({
             {filas.map((f) => (
               <tr key={f.cuentaCliente} className="border-t border-ink-100">
                 <td className="px-3 py-2 text-ink-800">
-                  <span className="font-mono">{f.cuentaCliente}</span> {f.nombre ?? <span className="text-warn-700">sin cuenta en el balance</span>}
+                  <span className="tabular-nums">{f.cuentaCliente}</span> {f.nombre ?? <span className="text-warn-700">sin cuenta en el balance</span>}
                   {f.cuentasBalance.length > 1 && <div className="text-[10.5px] text-ink-400">{f.cuentasBalance.join(", ")}</div>}
                 </td>
                 <td className="px-3 py-2 text-[11.5px] text-ink-600">{f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · ")}</td>
@@ -192,10 +192,10 @@ function CeldaMarcaControl({
       </a>
       {puedeEditar && (
         <>
-          <button type="button" onClick={onMarcar} disabled={ocupado} title="Editar la marca" aria-label="Editar la marca" className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-50">
+          <button type="button" onClick={onMarcar} disabled={ocupado} title="Editar la marca" aria-label="Editar la marca" className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-60">
             <Icon name="edit" size={13} />
           </button>
-          <button type="button" onClick={onQuitar} disabled={ocupado} title="Retirar la marca" aria-label="Retirar la marca" className="rounded p-1 text-ink-400 transition hover:bg-err-100 hover:text-err-700 disabled:opacity-50">
+          <button type="button" onClick={onQuitar} disabled={ocupado} title="Retirar la marca" aria-label="Retirar la marca" className="rounded p-1 text-ink-400 transition hover:bg-err-100 hover:text-err-700 disabled:opacity-60">
             <Icon name="trash" size={13} />
           </button>
         </>
@@ -256,7 +256,7 @@ function ModalMarcaControl({
           type="button"
           onClick={guardar}
           disabled={!nota.trim() || guardando}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Guardando…" : fila.marca ? "Guardar cambios" : "Poner marca"}
         </button>
@@ -281,7 +281,7 @@ function ModalMarcaControl({
           <p className="text-[11.5px] text-warn-700">La cuenta del cliente no está en el balance del período: se compara contra cero.</p>
         )}
         {fila.desactualizada && fila.marca && (
-          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
           </div>
         )}

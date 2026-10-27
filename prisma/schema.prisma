@@ -446,6 +446,11 @@ model ReconciliationComment {
 // ===== Notificaciones =====
 model Notification {
   id        Int      @id @default(autoincrement()) @map("id")
+  // Las filas anteriores a la personalización se conservan sin inventar un dueño.
+  userId    Int?     @map("destinatario_id")
+  clientId  Int?     @map("cliente_id")
+  entityType String? @map("entidad_tipo")
+  entityId  Int?     @map("entidad_id")
   kind      String   @map("tipo") // assign | comment | system
   who       String   @map("autor")
   text      String   @map("texto")
@@ -453,6 +458,7 @@ model Notification {
   unread    Boolean  @default(true) @map("no_leida")
   createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
+  @@index([userId, unread, createdAt], map: "notificaciones_destinatario_no_leida_creado_idx")
   @@map("notificaciones")
 }
 
@@ -2717,4 +2723,15 @@ model EjecucionConexion {
 
   @@index([conexionId, createdAt], map: "ejecuciones_conexion_conexion_idx")
   @@map("ejecuciones_conexion")
+}
+
+/// Cuota compartida entre instancias; las identidades son HMAC, nunca IP en claro.
+model RequestQuota {
+  key          String   @id @map("clave")
+  requests     Int      @map("solicitudes")
+  expiresAt    DateTime @map("vence_en") @db.Timestamptz(3)
+  updatedAt    DateTime @map("actualizado_en") @db.Timestamptz(3)
+
+  @@index([expiresAt], map: "limites_solicitud_vencimiento_idx")
+  @@map("limites_solicitud")
 }

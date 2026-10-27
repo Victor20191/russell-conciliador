@@ -307,3 +307,69 @@ describe("probarConexion contra un servidor local", () => {
     expect(resultado.mensaje).toContain("Probar");
   });
 });
+
+
+describe("redirecciones de conexiones con secretos", () => {
+  let origen: http.Server;
+  let destino: http.Server;
+  let origenUrl = "";
+  let destinoUrl = "";
+  let recibidasEnDestino = 0;
+
+  beforeAll(async () => {
+    destino = http.createServer((_req, res) => {
+      recibidasEnDestino++;
+      res.writeHead(200);
+      res.end("{}");
+    });
+    await new Promise<void>((resolve) => destino.listen(0, "127.0.0.1", resolve));
+    destinoUrl = `http://127.0.0.1:${(destino.address() as AddressInfo).port}`;
+    origen = http.createServer((req, res) => {
+      req.resume();
+      res.writeHead(Number(req.url?.slice(1)) || 307, { Location: destinoUrl });
+      res.end();
+    });
+    await new Promise<void>((resolve) => origen.listen(0, "127.0.0.1", resolve));
+    origenUrl = `http://127.0.0.1:${(origen.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    for (const servidor of [origen, destino]) {
+      servidor.closeAllConnections();
+      await new Promise<void>((resolve) => servidor.close(() => resolve()));
+    }
+  });
+
+  it.each([307, 308])("OAuth no reenvía client_secret a otro origen con HTTP %i", async (status) => {
+    const antes = recibidasEnDestino;
+    const resultado = await probarConexion({
+      proveedor: "oauth2_client_credentials",
+      configuracion: { url_token: `${origenUrl}/${status}` },
+      credenciales: { client_id: "cliente", client_secret: "secreto-solo-prueba-oauth" },
+    });
+    expect(resultado.ok).toBe(false);
+    expect(recibidasEnDestino).toBe(antes);
+    expect(resultado.mensaje).not.toContain("secreto-solo-prueba-oauth");
+  });
+
+  it.each([307, 308])("el webhook no reenvía su secreto a otro origen con HTTP %i", async (status) => {
+    const antes = recibidasEnDestino;
+    const resultado = await probarConexion({
+      proveedor: "webhook_saliente",
+      configuracion: { url: `${origenUrl}/${status}` },
+      credenciales: { secreto: "secreto-solo-prueba-webhook" },
+    });
+    expect(resultado.ok).toBe(false);
+    expect(recibidasEnDestino).toBe(antes);
+    expect(resultado.mensaje).not.toContain("secreto-solo-prueba-webhook");
+  });
+
+  it("Microsoft 365 también desactiva redirecciones al solicitar un token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 307 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const resultado = await probarConexion({ proveedor: "microsoft365", configuracion: { tenant_id: "tenant" }, credenciales: { client_id: "id", client_secret: "secreto-prueba-graph" } });
+    expect(resultado.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ redirect: "manual" }));
+    expect(resultado.mensaje).not.toContain("secreto-prueba-graph");
+  });
+});

@@ -97,7 +97,7 @@ export function NotaOpcionalPromocion({
               type="button"
               onClick={guardarComentario}
               disabled={comentarioBorrador.trim().length === 0}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Guardar nota
             </button>

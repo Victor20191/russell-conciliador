@@ -53,8 +53,12 @@ export default async function DatoModuloPage({
   const encabezadoId = Number(id);
   if (!descriptorBase || !Number.isInteger(encabezadoId)) notFound();
 
-  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId } });
-  if (!encabezado || encabezado.moduloCodigo !== moduloCodigo) notFound();
+  const referencia = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });
+  if (!referencia || referencia.moduloCodigo !== moduloCodigo) notFound();
+  const scope = await authorizePermiso("modulos_datos:ver", { clientId: referencia.clienteId });
+  if (!scope.ok) notFound();
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId, clienteId: referencia.clienteId, moduloCodigo } });
+  if (!encabezado) notFound();
   // Las cuentas que concilia el módulo: las de /config/prevalidador o, con la conciliación del
   // período en firme, las que guardó el cierre.
   const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
@@ -66,10 +70,6 @@ export default async function DatoModuloPage({
   const detalles = descriptor.nomina
     ? []
     : await prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, orderBy: { filaNum: "asc" } });
-
-  // Alcance de lectura sobre el cliente del dato (fail-closed).
-  const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
-  if (!scope.ok) notFound();
 
   // ¿Puede editar la consolidación de este cliente? (Con la conciliación del período en firme, no:
   // `estadoEdicionCargue`, más abajo.)

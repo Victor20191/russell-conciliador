@@ -1,3 +1,4 @@
+import { CABECERAS_ARCHIVO_PRIVADO } from "@/lib/seguridad/cabeceras-archivo";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
@@ -58,8 +59,7 @@ export async function GET(
         "Content-Type": tipoContenidoRespuesta(nombre, null, objeto.contentType),
         "Content-Length": String(objeto.cuerpo.byteLength),
         "Content-Disposition": contentDispositionSeguro(nombre),
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, no-store, max-age=0",
+        ...CABECERAS_ARCHIVO_PRIVADO,
       },
     });
   } catch (error) {

@@ -133,7 +133,7 @@ function BorrarFormatoModal({ formato, cliente, onClose }: { formato: FormatoMan
       title={`Borrar patrón manual · ${cliente}`}
       size="md"
       footer={
-        <button type="button" disabled={borrando} onClick={borrar} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
+        <button type="button" disabled={borrando} onClick={borrar} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60">
           <Icon name="trash" size={12} />{borrando ? "Borrando…" : "Borrar patrón"}
         </button>
       }

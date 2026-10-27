@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(), leer: vi.fn(), guardar: vi.fn(), ia: vi.fn(), audit: vi.fn(),
-  eventos: vi.fn(), conexiones: vi.fn(), versiones: vi.fn(), clientes: vi.fn(), usuarios: vi.fn(), tickets: vi.fn(),
+  envios: vi.fn(), eventos: vi.fn(), conexiones: vi.fn(), versiones: vi.fn(), clientes: vi.fn(), usuarios: vi.fn(), tickets: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ default: {
   $transaction: (operacion: (tx: unknown) => Promise<unknown>) => operacion({
@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({ default: {
   auditEntry: { findMany: mocks.eventos }, accessLog: { groupBy: mocks.conexiones },
   platformVersion: { findMany: mocks.versiones }, client: { findMany: mocks.clientes }, user: { findMany: mocks.usuarios },
   supportTicket: { findMany: mocks.tickets },
+  envioReporteEjecutivo: { findMany: mocks.envios },
 } }));
 vi.mock("@/lib/rbac/reporte-ejecutivo", () => ({ authorizeReporteEjecutivo: mocks.auth }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ id: 1, name: "Ana" })) }));
@@ -21,7 +22,7 @@ vi.mock("@/lib/opencode", () => ({ completarTextoOpenCode: mocks.ia, mensajeErro
 vi.mock("@/lib/rbac/publicacion", () => ({ modulosPublicadosParaTodos: vi.fn(async () => new Set(["balance"])) }));
 vi.mock("@/lib/auditoria/reporte-ejecutivo/instantaneas", () => ({ claveAlcanceReporte: vi.fn(() => "clave"), leerInstantanea: mocks.leer, guardarInstantanea: mocks.guardar }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-import { generarReporteEjecutivoUso } from "./auditoria-reporte";
+import { generarReporteEjecutivoUso, listarEnviosReporteEjecutivo } from "./auditoria-reporte";
 
 const scope = { desde: "2026-09-01", hasta: "2026-09-07" };
 const snapshot = {
@@ -151,5 +152,22 @@ describe("consistencia de generación del reporte", () => {
       expect(guardado.report.html).toContain("No se atendieron tickets reportados por el equipo");
       expect(guardado.fuente.tickets).toMatchObject({ total: 0, tickets: [] });
     });
+  });
+});
+
+
+describe("acceso al historial de envíos de reportes", () => {
+  test("deniega la consulta directa sin el permiso de reporte ejecutivo", async () => {
+    mocks.auth.mockResolvedValue({ ok: false, message: "Sin permisos" });
+    expect(await listarEnviosReporteEjecutivo()).toEqual([]);
+    expect(mocks.envios).not.toHaveBeenCalled();
+  });
+
+  test("consulta el historial después de autorizar", async () => {
+    mocks.envios.mockResolvedValue([]);
+    expect(await listarEnviosReporteEjecutivo(500)).toEqual([]);
+    expect(mocks.auth).toHaveBeenCalledOnce();
+    expect(mocks.envios).toHaveBeenCalledWith(expect.objectContaining({ take: 200 }));
+    expect(mocks.auth.mock.invocationCallOrder[0]).toBeLessThan(mocks.envios.mock.invocationCallOrder[0]);
   });
 });

@@ -1,0 +1,62 @@
+[
+  {
+    "ruta": "/dashboard",
+    "tipo": "cookie-invalida",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/dashboard",
+    "tipo": "cabecera-subrequest",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/config/permisos",
+    "tipo": "cookie-invalida",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/config/permisos",
+    "tipo": "cabecera-subrequest",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/balance/1/export",
+    "tipo": "cookie-invalida",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/balance/1/export",
+    "tipo": "cabecera-subrequest",
+    "status": 307,
+    "location": "/login"
+  },
+  {
+    "ruta": "/api/modulos/archivos-originales/1",
+    "tipo": "cookie-invalida",
+    "status": 401,
+    "location": null
+  },
+  {
+    "ruta": "/api/modulos/archivos-originales/1",
+    "tipo": "cabecera-subrequest",
+    "status": 401,
+    "location": null
+  },
+  {
+    "ruta": "/api/auditoria/reporte-ejecutivo",
+    "tipo": "cookie-invalida",
+    "status": 307,
+    "location": "/sesion-expirada"
+  },
+  {
+    "ruta": "/api/auditoria/reporte-ejecutivo",
+    "tipo": "cabecera-subrequest",
+    "status": 307,
+    "location": "/sesion-expirada"
+  }
+]

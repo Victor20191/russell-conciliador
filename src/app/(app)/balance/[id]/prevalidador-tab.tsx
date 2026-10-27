@@ -100,7 +100,7 @@ export default function PrevalidadorTab({
               <p className="text-[13px] font-semibold text-ink-800">El prevalidador está bloqueado</p>
               <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-ink-600">
                 Quedan <span className="font-semibold text-ink-800">{cuentas} cuenta(s) sin homologar</span> por{" "}
-                <span className="font-mono font-semibold text-ink-800">{fmt(monto)}</span>. Mientras existan, los dos
+                <span className="tabular-nums font-semibold text-ink-800">{fmt(monto)}</span>. Mientras existan, los dos
                 lados del informe no son comparables: ese saldo no aparece del lado de Russell y sí del lado del
                 cliente, así que cualquier diferencia sería falsa.
               </p>
@@ -133,7 +133,7 @@ export default function PrevalidadorTab({
               <span className="font-semibold text-ink-800">Agrupadoras excluidas.</span>{" "}
               Se retiraron {anidamientos.length} fila(s) que también son encabezado de otras cuentas. Sus importes no
               participan en el cálculo para evitar doble conteo:{" "}
-              <span className="font-mono text-ink-700">
+              <span className="tabular-nums text-ink-700">
                 {anidamientos
                   .slice(0, 8)
                   .map((a) => a.cuenta8)
@@ -213,7 +213,7 @@ export default function PrevalidadorTab({
                       </td>
                     )}
                     <td className="border-l border-ink-150 px-4 py-2.5">
-                      <span className="font-mono font-medium text-ink-800" title={f.etiqueta ?? undefined}>
+                      <span className="tabular-nums font-medium text-ink-800" title={f.etiqueta ?? undefined}>
                         {f.cuentaRussell}
                       </span>
                       {f.etiqueta && <div className="text-[11px] text-ink-400">{f.etiqueta}</div>}
@@ -221,13 +221,13 @@ export default function PrevalidadorTab({
                         {f.baseCalculo === "movimiento" ? "Débitos − créditos" : "Saldo final"}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-ink-700">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-700">
                       <ValorLado encontrada={f.russell.encontrada} valor={f.russell.saldoFinal} />
                     </td>
                     {i === 0 && (
                       <td
                         rowSpan={m.filas.length}
-                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle font-mono font-semibold text-ink-800"
+                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle tabular-nums font-semibold text-ink-800"
                       >
                         {fmt(m.totalRussell)}
                       </td>
@@ -240,13 +240,13 @@ export default function PrevalidadorTab({
                         opciones={opcionesCliente}
                       />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-ink-700">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-700">
                       <ValorLado encontrada={f.cliente.encontrada} valor={f.cliente.saldoFinal} />
                     </td>
                     {i === 0 && (
                       <td
                         rowSpan={m.filas.length}
-                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle font-mono font-semibold text-ink-800"
+                        className="whitespace-nowrap px-4 py-2.5 text-right align-middle tabular-nums font-semibold text-ink-800"
                       >
                         {fmt(m.totalCliente)}
                       </td>
@@ -330,7 +330,7 @@ function RevisionPrevalidador({
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-[13px] font-semibold text-ink-800">Revisión previa a conciliación</h3>
+            <h3 className="text-[13px] font-semibold text-navy-800">Revisión previa a conciliación</h3>
             <Chip label={estado.label} tone={estado.tone} />
             {estaCongelado && <Chip label="Balance cerrado" tone="blue" />}
           </div>
@@ -340,7 +340,7 @@ function RevisionPrevalidador({
             conserva el catálogo con que se aprobó.
           </p>
           {revision.catalogoCongelado?.difiereDelVigente && (
-            <p className="mt-1.5 max-w-3xl rounded-md border border-blue-100 bg-blue-50/60 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-ink-600">
+            <p className="mt-1.5 max-w-3xl rounded-md border border-blue-100 bg-blue-100 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-ink-600">
               Aprobado con el catálogo vigente el {fmtDateTime(revision.catalogoCongelado.desde)}. El catálogo cambió
               después; este informe se muestra con el de la aprobación. Si revocas la aprobación, se recalcula con el
               catálogo vigente y hay que aprobarlo otra vez.
@@ -400,7 +400,7 @@ function RevisionPrevalidador({
           <button
             type="submit"
             disabled={revocando}
-            className="rounded-md border border-err-100 px-3 py-2 text-[12px] font-semibold text-err-700 hover:bg-err-100/50 disabled:opacity-60"
+            className="rounded-md border border-err-100 px-3 py-2 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:opacity-60"
           >
             {revocando ? <EstadoProcesando>Revocando</EstadoProcesando> : "Revocar aprobación"}
           </button>
@@ -429,7 +429,7 @@ function Diferencia({
   if (!encontrada) return <Chip label="No encontrada" tone="warn" />;
   if (coincide) return <Chip label="OK" tone="ok" />;
   return (
-    <span className={`font-mono text-err-700 ${fuerte ? "font-semibold" : ""}`} title="Los dos lados no cuadran">
+    <span className={`tabular-nums text-err-700 ${fuerte ? "font-semibold" : ""}`} title="Los dos lados no cuadran">
       {fmt(valor)}
     </span>
   );
@@ -458,7 +458,7 @@ function CeldaCuentaCliente({
 
   if (!editable) {
     return (
-      <span className="font-mono text-ink-700">
+      <span className="tabular-nums text-ink-700">
         {fila.cuentaCliente}
         {fila.personalizada && <span className="ml-1.5 text-[10px] uppercase text-blue-600">propia</span>}
       </span>
@@ -471,9 +471,9 @@ function CeldaCuentaCliente({
         type="button"
         onClick={() => setAbierto(true)}
         title={`Elegir contra qué cuenta del cliente se compara la ${fila.cuentaRussell} de Russell`}
-        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[12.5px] transition ${
+        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 tabular-nums text-[12.5px] transition ${
           fila.personalizada
-            ? "border-blue-300 bg-blue-50 text-navy-700 hover:bg-blue-100"
+            ? "border-blue-300 bg-blue-50 text-navy-700 hover:bg-blue-200"
             : "border-ink-200 text-ink-700 hover:bg-ink-50"
         }`}
       >
@@ -613,14 +613,14 @@ function ModalCuentaCliente({
                   actual ? "bg-blue-50" : "hover:bg-ink-50"
                 }`}
               >
-                <span className="w-16 shrink-0 font-mono text-[12.5px] font-medium text-ink-800">{o.prefijo}</span>
+                <span className="w-16 shrink-0 tabular-nums text-[12.5px] font-medium text-ink-800">{o.prefijo}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12px] text-ink-700">{o.nombre || "—"}</span>
                   <span className="text-[10.5px] text-ink-400">
                     {o.nivel === 2 ? "Grupo" : "Cuenta"} · {o.cuentas} cuenta(s) del balance
                   </span>
                 </span>
-                <span className="shrink-0 whitespace-nowrap font-mono text-[12.5px] text-ink-700">
+                <span className="shrink-0 whitespace-nowrap tabular-nums text-[12.5px] text-ink-700">
                   {fmt(saldoDe(o))}
                 </span>
                 <span className="w-24 shrink-0 text-right">

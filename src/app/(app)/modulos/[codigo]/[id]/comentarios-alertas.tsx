@@ -146,7 +146,7 @@ function ModalComentarioAlerta({
           estas cifras: si una versión nueva las cambia, quedará por revisar.
         </p>
         {alerta.estado === "por_revisar" && alerta.comentario && (
-          <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+          <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             La alerta cambió desde que se escribió este comentario ({cifras({ ...alerta, referencias: alerta.comentario.referencias, valor: alerta.comentario.valor })} entonces, {cifras(alerta)} hoy). Revísalo y guárdalo de nuevo para confirmarlo.
           </p>
         )}

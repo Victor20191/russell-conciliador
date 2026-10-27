@@ -130,7 +130,7 @@ function PorcentajeCoincidencia({ coincidencia, onIrATercero }: { coincidencia: 
   if (!coincidencia) return null;
   const { porcentaje, tipo, propuesto } = coincidencia;
   const color = tipo === "candidato"
-    ? "border-blue-400 bg-blue-50 text-blue-500"
+    ? "border-blue-400 bg-blue-50 text-blue-600"
     : porcentaje >= 95 ? "border-ok-500 bg-ok-100 text-ok-700"
       : porcentaje >= 60 ? "border-warn-500 bg-warn-100 text-warn-700"
         : "border-err-500 bg-err-100 text-err-700";
@@ -529,10 +529,10 @@ export function CruceTerceroTab({
         <Link href={`/balance/${balance.id}/terceros`} className="font-semibold text-blue-700 hover:underline">Ver por terceros</Link>
       </p>
       {cruceTercero.avisoBalance && (
-        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceTercero.avisoBalance}</div>
+        <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceTercero.avisoBalance}</div>
       )}
       {cuentasDelPeriodo.length > 0 && (
-        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">
+        <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] leading-snug text-warn-700">
           {cuentasDelPeriodo.length === 1 ? "La cuenta" : "Las cuentas"} <b>{cuentasDelPeriodo.map((c) => `R - ${c}`).join(", ")}</b>{" "}
           {cuentasDelPeriodo.length === 1 ? "no está" : "no están"} entre las cuentas que concilia el módulo: el Consolidado {cuentasDelPeriodo.length === 1 ? "la asignó" : "las asignó"} solo
           para {cruceTercero.periodo}, así que sus terceros entran a este cruce únicamente en ese período.
@@ -545,7 +545,7 @@ export function CruceTerceroTab({
       {resumenMarcas && (resumenMarcas.conDiferencia > 0 || (resumenMarcas.bajoUmbral ?? 0) > 0) && (
         <div
           className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
-            porMarcar === 0 ? "border-ok-500 bg-ok-100/30 text-ok-700" : "border-warn-500 bg-warn-100/30 text-warn-700"
+            porMarcar === 0 ? "border-ok-500 bg-ok-100 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"
           }`}
         >
           <span className="font-semibold">
@@ -685,7 +685,7 @@ export function CruceTerceroTab({
                   key={f.clave}
                   data-clave={f.clave}
                   className={`border-t border-ink-100 transition-colors duration-500 ${
-                    destacada === f.clave ? "bg-blue-100" : f.estado === "descuadre" ? "bg-err-100/30" : ""
+                    destacada === f.clave ? "bg-blue-100" : f.estado === "descuadre" ? "bg-err-100" : ""
                   } ${f.estado === "sin_saldo" ? "text-ink-400" : ""}`}
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
@@ -840,7 +840,7 @@ export function CruceTerceroTab({
           )}
         </div>
         {(resumen.moduloFueraDelModulo.filas > 0 || resumen.moduloSinTercero.filas > 0 || cruceTercero.moduloNoAtribuido !== 0) && (
-          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             Del auxiliar no entraron al cruce:
             {resumen.moduloFueraDelModulo.filas > 0 && <> <b>{fmtContable(resumen.moduloFueraDelModulo.total)}</b> en cuentas del archivo sin una cuenta del módulo asignada en Consolidado ({Object.entries(resumen.moduloFueraDelModulo.porCuenta).map(([cuenta, valor]) => `${cuenta} ${fmtContable(valor)}`).join(" · ")});</>}
             {resumen.moduloSinTercero.filas > 0 && <> <b>{fmtContable(resumen.moduloSinTercero.total)}</b> en {contar(resumen.moduloSinTercero.filas)} {resumen.moduloSinTercero.filas === 1 ? "fila" : "filas"} sin tercero identificado;</>}

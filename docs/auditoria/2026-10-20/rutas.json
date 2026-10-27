@@ -1,0 +1,2810 @@
+{
+  "fecha": "2026-10-20",
+  "repo": ".",
+  "cobertura": {
+    "total": 80,
+    "page.tsx": 56,
+    "route.ts": 21,
+    "layout.tsx": 3,
+    "archivos_sin_inventariar": [],
+    "entradas_sin_archivo": []
+  },
+  "limites": "Auditoría estática completa de App Router y trazado de helpers relevantes; pruebas unitarias y Chromium aislado. Sin base real, env/secretos, correos, red real, despliegue ni migraciones aplicadas. Acciones y auth/dependencias auditados por agentes coordinados. No es una prueba de penetración de producción.",
+  "rutas": [
+    {
+      "id": 1,
+      "archivo": "src/app/(app)/auditoria/accesos/page.tsx",
+      "ruta": "/auditoria/accesos",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "auditoria:accesos",
+      "alcance_y_datos": "Privilegiada global; eventos limitados a 1000.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 23,
+          "codigo": "await requirePermiso(\"auditoria:accesos\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 46,
+          "codigo": "prisma.accessLog.groupBy({ by: [\"kind\"], where: whereScope, _count: { kind: true } }),"
+        },
+        {
+          "linea": 46,
+          "codigo": "prisma.accessLog.groupBy({"
+        },
+        {
+          "linea": 46,
+          "codigo": "prisma.accessLog.groupBy({"
+        },
+        {
+          "linea": 62,
+          "codigo": "prisma.accessLog.findMany({"
+        },
+        {
+          "linea": 68,
+          "codigo": "prisma.accessLog.findMany({ distinct: [\"userName\"], select: { userName: true }, orderBy: { userName: \"asc\" } }),"
+        }
+      ],
+      "sha256_fuente": "0eff3c09cc76157e1ab97d33d4b6b9c7925b2dcf2458bbb8fdae4f84bfdf1704",
+      "revisado": true
+    },
+    {
+      "id": 2,
+      "archivo": "src/app/(app)/auditoria/adopcion/page.tsx",
+      "ruta": "/auditoria/adopcion",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "requireReporteEjecutivo (superadministrador y permiso)",
+      "alcance_y_datos": "Redirección al informe ejecutivo, sin carga de datos propia.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 6,
+          "codigo": "await requireReporteEjecutivo();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "39ca1ab42ffbd8f92b5bd3de11ee110e55ad70cff1ba79e5dd6bc3e962c11d6e",
+      "revisado": true
+    },
+    {
+      "id": 3,
+      "archivo": "src/app/(app)/auditoria/ia/page.tsx",
+      "ruta": "/auditoria/ia",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "auditoria:ia",
+      "alcance_y_datos": "Auditoría global de IA, hasta 500 eventos.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 31,
+          "codigo": "await requirePermiso(\"auditoria:ia\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 39,
+          "codigo": "prisma.consumoIA.aggregate({"
+        },
+        {
+          "linea": 47,
+          "codigo": "prisma.consumoIA.count({ where: { ...whereMes, tipoOperacion: { in: TIPOS_ESCANEO } } }),"
+        },
+        {
+          "linea": 48,
+          "codigo": "prisma.consumoIA.groupBy({"
+        },
+        {
+          "linea": 54,
+          "codigo": "prisma.consumoIA.findMany({"
+        },
+        {
+          "linea": 58,
+          "codigo": "prisma.consumoIA.aggregate({ _sum: { costoCop: true }, _count: true }),"
+        },
+        {
+          "linea": 54,
+          "codigo": "prisma.consumoIA.findMany({"
+        },
+        {
+          "linea": 70,
+          "codigo": "prisma.client.findMany({ select: { id: true, name: true, nit: true } }),"
+        }
+      ],
+      "sha256_fuente": "da71d34c50b2f499b66ea5517f2caaa9dc08bff35dd9fc5fa6d7dfa96825815d",
+      "revisado": true
+    },
+    {
+      "id": 4,
+      "archivo": "src/app/(app)/auditoria/lectura/export/route.ts",
+      "ruta": "/auditoria/lectura/export",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "auditoria:ia directo en GET",
+      "alcance_y_datos": "CSV global hasta 2000 eventos, descarga no-store.",
+      "resultado": "R04: fórmula CSV neutralizada por root con celdaCsvSegura.",
+      "evidencia_guardas": [
+        {
+          "linea": 23,
+          "codigo": "const authz = await authorizePermiso(\"auditoria:ia\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 26,
+          "codigo": "const filas = await prisma.balanceLecturaDiagnostico.findMany({ orderBy: { creadoEn: \"desc\" }, take: 2000 });"
+        }
+      ],
+      "sha256_fuente": "1df9aece680b18f1e9f7f1f747786adc6f705e1fd127e9f8f972805226299e00",
+      "revisado": true
+    },
+    {
+      "id": 5,
+      "archivo": "src/app/(app)/auditoria/lectura/page.tsx",
+      "ruta": "/auditoria/lectura",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "auditoria:ia",
+      "alcance_y_datos": "Lecturas globales hasta 300 eventos.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 42,
+          "codigo": "await requirePermiso(\"auditoria:ia\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 48,
+          "codigo": "const filas = await prisma.balanceLecturaDiagnostico.findMany({"
+        }
+      ],
+      "sha256_fuente": "edb43c7f526c29bdfd32d3190d6b84f70adb9ff24450b3d381ac0a516eb6e08f",
+      "revisado": true
+    },
+    {
+      "id": 6,
+      "archivo": "src/app/(app)/auditoria/page.tsx",
+      "ruta": "/auditoria",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "auditoria:ver",
+      "alcance_y_datos": "Bitácora global permitida por rol.",
+      "resultado": "R06: findMany sin límite, búsqueda y filtrado en memoria; pendiente paginación.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "await requirePermiso(\"auditoria:ver\");"
+        },
+        {
+          "linea": 11,
+          "codigo": "authorizePermiso(\"auditoria:accesos\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 13,
+          "codigo": "prisma.auditEntry.findMany({"
+        }
+      ],
+      "sha256_fuente": "0ffa11562b05b193b24b12136bf13ee1a2b4746080aa301866be5cc30d01d3e4",
+      "revisado": true
+    },
+    {
+      "id": 7,
+      "archivo": "src/app/(app)/balance/[id]/diff/page.tsx",
+      "ruta": "/balance/[id]/diff",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:ver global y por cliente del balance",
+      "alcance_y_datos": "Comparación con balance previo del mismo cliente.",
+      "resultado": "R05 corregido: referencia mínima, permiso por cliente y luego detalle; consulta final fija el cliente autorizado.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "await requirePermiso(\"balance:ver\");"
+        },
+        {
+          "linea": 28,
+          "codigo": "await requirePermiso(\"balance:ver\", { clientId: referencia.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 24,
+          "codigo": "const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });"
+        },
+        {
+          "linea": 30,
+          "codigo": "const balance = await prisma.balancePruebaEncabezado.findUnique({"
+        },
+        {
+          "linea": 38,
+          "codigo": "prisma.balancePruebaEncabezado.findFirst({"
+        }
+      ],
+      "sha256_fuente": "51f8ac8d6dfbaf0b17899c2aa3b1e261ca9068dcb6ba4abc7dfb76f89f5a956c",
+      "revisado": true
+    },
+    {
+      "id": 8,
+      "archivo": "src/app/(app)/balance/[id]/export/route.ts",
+      "ruta": "/balance/[id]/export",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "balance:ver por cliente en GET",
+      "alcance_y_datos": "Excel autorizado, no-store y attachment.",
+      "resultado": "R05 corregido: gate global antes de consultar, referencia mínima y alcance antes del detalle; segunda lectura fija cliente.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "const permiso = await authorizePermiso(\"balance:ver\");"
+        },
+        {
+          "linea": 27,
+          "codigo": "const authz = await authorizePermiso(\"balance:ver\", { clientId: referencia.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 25,
+          "codigo": "const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });"
+        },
+        {
+          "linea": 30,
+          "codigo": "const balance = await prisma.balancePruebaEncabezado.findUnique({"
+        },
+        {
+          "linea": 82,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),"
+        }
+      ],
+      "sha256_fuente": "9089e5c7ecf43288bf4f6d2b9af407d3274600d97e111d6e516702feacfda051",
+      "revisado": true
+    },
+    {
+      "id": 9,
+      "archivo": "src/app/(app)/balance/[id]/page.tsx",
+      "ruta": "/balance/[id]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:ver global y por cliente",
+      "alcance_y_datos": "Detalle y relaciones dentro del cliente autorizado.",
+      "resultado": "R05 corregido: consulta inicial solo cliente; detalle y agregados tras autorización.",
+      "evidencia_guardas": [
+        {
+          "linea": 47,
+          "codigo": "await requirePermiso(\"balance:ver\");"
+        },
+        {
+          "linea": 58,
+          "codigo": "await requirePermiso(\"balance:ver\", { clientId });"
+        },
+        {
+          "linea": 95,
+          "codigo": "authorizePermiso(\"balance:crear\", { clientId }),"
+        },
+        {
+          "linea": 96,
+          "codigo": "authorizePermiso(\"balance:revisar\", { clientId }),"
+        },
+        {
+          "linea": 97,
+          "codigo": "authorizePermiso(\"balance:eliminar\", { clientId }),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 52,
+          "codigo": "const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });"
+        },
+        {
+          "linea": 60,
+          "codigo": "const balance = await prisma.balancePruebaEncabezado.findUnique({"
+        },
+        {
+          "linea": 99,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),"
+        },
+        {
+          "linea": 100,
+          "codigo": "prisma.balancePruebaEncabezado.findMany({"
+        },
+        {
+          "linea": 106,
+          "codigo": "prisma.comment.groupBy({ by: [\"anchor\"], where: { entityType: \"balance\", entityId: id }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 108,
+          "codigo": "prisma.validacionAlerta.findMany({"
+        },
+        {
+          "linea": 115,
+          "codigo": "prisma.balancePruebaEncabezado.count({"
+        },
+        {
+          "linea": 118,
+          "codigo": "prisma.perfilCargaBalance.count({"
+        },
+        {
+          "linea": 128,
+          "codigo": "prisma.clientAccount.findMany({"
+        },
+        {
+          "linea": 143,
+          "codigo": "? prisma.balanceTerceroEncabezado.findUnique({ where: { loteId: balance.loteId, clienteId: balance.clienteId }, select: { id: true } })"
+        },
+        {
+          "linea": 149,
+          "codigo": "prisma.balancePruebaEncabezado.findMany({ where: { clienteId: clientId, estaCongelado: true }, select: { id: true, periodo: true, version: true } }),"
+        }
+      ],
+      "sha256_fuente": "5cb71fe1e794b3f8ac826cd69355082731aac69de74becd2f0eb1e2afb260584",
+      "revisado": true
+    },
+    {
+      "id": 10,
+      "archivo": "src/app/(app)/balance/[id]/terceros/page.tsx",
+      "ruta": "/balance/[id]/terceros",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:ver global y por cliente",
+      "alcance_y_datos": "Autoriza encabezado antes de detalles y archivos del lote.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 25,
+          "codigo": "await requirePermiso(\"balance:ver\");"
+        },
+        {
+          "linea": 42,
+          "codigo": "await requirePermiso(\"balance:ver\", { clientId: balance.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 30,
+          "codigo": "const balance = await prisma.balancePruebaEncabezado.findUnique({"
+        },
+        {
+          "linea": 44,
+          "codigo": "const filasBalanceRaw = await prisma.balancePruebaDetalle.findMany({"
+        },
+        {
+          "linea": 56,
+          "codigo": "? await prisma.balanceTerceroEncabezado.findUnique({"
+        },
+        {
+          "linea": 63,
+          "codigo": "? await prisma.balanceTerceroDetalle.findMany({"
+        },
+        {
+          "linea": 111,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),"
+        }
+      ],
+      "sha256_fuente": "ffdf4c5b98036300459f25b57f1313e1849f27c288dc4eee021b90adacf5b19c",
+      "revisado": true
+    },
+    {
+      "id": 11,
+      "archivo": "src/app/(app)/balance/borradores/[loteId]/export/route.ts",
+      "ruta": "/balance/borradores/[loteId]/export",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "balance:crear o balance:revisar; puedeVerBorrador",
+      "alcance_y_datos": "Borrador asignado por cartera; sin cliente por creador; huérfano solo alcance global.",
+      "resultado": "R05 corregido: staging solo después de permiso por cartera/autor del lote; referencia mínima.",
+      "evidencia_guardas": [
+        {
+          "linea": 18,
+          "codigo": "const [carga, revisa] = await Promise.all([authorizePermiso(\"balance:crear\"), authorizePermiso(\"balance:revisar\")]);"
+        },
+        {
+          "linea": 27,
+          "codigo": "if (lote ? !puedeVerBorrador(lote, contexto) : !contexto.alcance.todos) {"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 23,
+          "codigo": "prisma.balanceImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, cargadoPorId: true, archivoNombre: true } }),"
+        },
+        {
+          "linea": 30,
+          "codigo": "const filasStaging = await prisma.balanceImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: \"asc\" } });"
+        }
+      ],
+      "sha256_fuente": "dc04a861376a3e93fa3748d9717a099a5fca311f654299db04c317a05bddf415",
+      "revisado": true
+    },
+    {
+      "id": 12,
+      "archivo": "src/app/(app)/balance/borradores/[loteId]/page.tsx",
+      "ruta": "/balance/borradores/[loteId]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:crear o balance:revisar; contextoAccesoBorradorActual; puedeVerBorrador",
+      "alcance_y_datos": "Cartera o autor para lote sin cliente; detalle pesado tras permiso.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 11,
+          "codigo": "puedeVerBorrador,"
+        },
+        {
+          "linea": 28,
+          "codigo": "authorizePermiso(\"balance:crear\"),"
+        },
+        {
+          "linea": 29,
+          "codigo": "authorizePermiso(\"balance:revisar\"),"
+        },
+        {
+          "linea": 46,
+          "codigo": "&& !puedeVerBorrador("
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 41,
+          "codigo": "prisma.balanceImportacionLote.findUnique({ where: { loteId } }),"
+        },
+        {
+          "linea": 60,
+          "codigo": "const balancePromovido = await prisma.balancePruebaEncabezado.findUnique({"
+        },
+        {
+          "linea": 86,
+          "codigo": "prisma.balanceImportacionStagingTercero.findFirst({"
+        },
+        {
+          "linea": 97,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 104,
+          "codigo": "prisma.ajustesCargaBalance.findMany({"
+        },
+        {
+          "linea": 111,
+          "codigo": "prisma.balanceImportacionLote.findMany({"
+        }
+      ],
+      "sha256_fuente": "148438b54567bf62f8778b55b1ccd2339c6f2afa07b7dbd0fb46a19b910d872c",
+      "revisado": true
+    },
+    {
+      "id": 13,
+      "archivo": "src/app/(app)/balance/borradores/page.tsx",
+      "ruta": "/balance/borradores",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:crear o balance:revisar; contextoAccesoBorradorActual; puedeVerBorrador",
+      "alcance_y_datos": "Filtrado por cartera/autor en consulta y defensa posterior.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "puedeVerBorrador,"
+        },
+        {
+          "linea": 24,
+          "codigo": "authorizePermiso(\"balance:crear\"),"
+        },
+        {
+          "linea": 25,
+          "codigo": "authorizePermiso(\"balance:revisar\"),"
+        },
+        {
+          "linea": 71,
+          "codigo": "puedeVerBorrador(header, contextoAcceso),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 41,
+          "codigo": "prisma.balanceImportacionLote.findMany({"
+        },
+        {
+          "linea": 62,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 73,
+          "codigo": "const resumenStaging = await prisma.balanceImportacionStaging.groupBy({"
+        }
+      ],
+      "sha256_fuente": "f4d879a315ebeaa63fc6f8a34b35a0466faba9c294c2caa422981ea78f84d931",
+      "revisado": true
+    },
+    {
+      "id": 14,
+      "archivo": "src/app/(app)/balance/mapeo/page.tsx",
+      "ruta": "/balance/mapeo",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Redirección al destino protegido config/mapeo-cliente",
+      "alcance_y_datos": "Sin datos; cliente codificado en query.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "c363fd6a11b0565e3c636ee6747714b522043002a518b3b8b03423abcfc8137d",
+      "revisado": true
+    },
+    {
+      "id": 15,
+      "archivo": "src/app/(app)/balance/page.tsx",
+      "ruta": "/balance",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "balance:ver; alcanceLecturaUsuario/alcanceEscrituraUsuario",
+      "alcance_y_datos": "Clientes y balances según cartera; bitácora limitada filtrada por cliente.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 25,
+          "codigo": "await requirePermiso(\"balance:ver\");"
+        },
+        {
+          "linea": 30,
+          "codigo": "authorizePermiso(\"balance:crear\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 35,
+          "codigo": "prisma.balancePruebaEncabezado.findMany({"
+        },
+        {
+          "linea": 46,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 52,
+          "codigo": "prisma.auditEntry.findMany({"
+        },
+        {
+          "linea": 68,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 74,
+          "codigo": "prisma.conciliacionModuloCierre.findMany({"
+        }
+      ],
+      "sha256_fuente": "cb4af5b9d5d57869f4e2820e7e8a0b4925e63e4e3e2be62ac22d9fc9de672de9",
+      "revisado": true
+    },
+    {
+      "id": 16,
+      "archivo": "src/app/(app)/conciliacion/en-proceso/page.tsx",
+      "ruta": "/conciliacion/en-proceso",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "conciliaciones:ver; alcanceLecturaUsuario/alcanceEscrituraUsuario",
+      "alcance_y_datos": "Listado limitado a clientes visibles.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "await requirePermiso(\"conciliaciones:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 12,
+          "codigo": "const recs = await prisma.reconciliation.findMany({"
+        }
+      ],
+      "sha256_fuente": "1ab1a295a7408f46b7dcab77888e267c99ad83e981a9b89999bb87da7fec9d6e",
+      "revisado": true
+    },
+    {
+      "id": 17,
+      "archivo": "src/app/(app)/conciliacion/nueva/page.tsx",
+      "ruta": "/conciliacion/nueva",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "conciliaciones:crear y modulos_datos:ver",
+      "alcance_y_datos": "Selector de seis módulos existentes, sin negocio ajeno.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 7,
+          "codigo": "await requirePermiso(\"conciliaciones:crear\");"
+        },
+        {
+          "linea": 8,
+          "codigo": "await requirePermiso(\"modulos_datos:ver\");"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "b0b5b6994cbb43990d8af4fbfdfdee66168a029628ef5cb9f2703826b9014e7e",
+      "revisado": true
+    },
+    {
+      "id": 18,
+      "archivo": "src/app/(app)/conciliacion/resultados/[id]/page.tsx",
+      "ruta": "/conciliacion/resultados/[id]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "conciliaciones:ver global y por cliente resuelto",
+      "alcance_y_datos": "Fallback histórico por nombre solo si coincide cliente único.",
+      "resultado": "R05 corregido: referencia cliente/nombre primero; filas y comentarios después del alcance; segunda lectura fija referencia.",
+      "evidencia_guardas": [
+        {
+          "linea": 21,
+          "codigo": "await requirePermiso(\"conciliaciones:ver\");"
+        },
+        {
+          "linea": 32,
+          "codigo": "await requirePermiso(\"conciliaciones:ver\", { clientId });"
+        },
+        {
+          "linea": 42,
+          "codigo": "const puedeEditar = (await authorizePermiso(\"conciliaciones:editar\", { clientId })).ok;"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 26,
+          "codigo": "const referencia = await prisma.reconciliation.findUnique({ where: { id }, select: { clientId: true, clientName: true } });"
+        },
+        {
+          "linea": 34,
+          "codigo": "const rec = await prisma.reconciliation.findUnique({"
+        }
+      ],
+      "sha256_fuente": "fbd1ad7e2d1d72aa9750c652ab4629d03a405c46667fda12675ad6558921299e",
+      "revisado": true
+    },
+    {
+      "id": 19,
+      "archivo": "src/app/(app)/conciliacion/resultados/page.tsx",
+      "ruta": "/conciliacion/resultados",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "conciliaciones:ver; alcanceLecturaUsuario/alcanceEscrituraUsuario",
+      "alcance_y_datos": "Listado de resultados dentro de cartera.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 8,
+          "codigo": "await requirePermiso(\"conciliaciones:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 13,
+          "codigo": "const recs = await prisma.reconciliation.findMany({"
+        }
+      ],
+      "sha256_fuente": "cb1e27d559af44450af356d9b2dd28bd15426e4ff3ff38a46b07283824ec1fd8",
+      "revisado": true
+    },
+    {
+      "id": 20,
+      "archivo": "src/app/(app)/config/clientes/exportar/route.ts",
+      "ruta": "/config/clientes/exportar",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "clientes:ver en GET",
+      "alcance_y_datos": "Catálogo global de clientes por decisión explícita actual; exportación no-store.",
+      "resultado": "Globalidad intencional del catálogo; no equivale a acceso a saldos.",
+      "evidencia_guardas": [
+        {
+          "linea": 15,
+          "codigo": "const authz = await authorizePermiso(\"clientes:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 22,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 37,
+          "codigo": "prisma.module.findMany({ orderBy: { name: \"asc\" }, select: { id: true, name: true } }),"
+        },
+        {
+          "linea": 38,
+          "codigo": "prisma.dianForm.findMany({"
+        },
+        {
+          "linea": 42,
+          "codigo": "prisma.user.findMany({ select: { id: true, name: true } }),"
+        },
+        {
+          "linea": 43,
+          "codigo": "prisma.clientAssignment.findMany({"
+        }
+      ],
+      "sha256_fuente": "509c1145164d2747b73dc544f4e122111cfab814323b5de3ded0109e5bc8eab3",
+      "revisado": true
+    },
+    {
+      "id": 21,
+      "archivo": "src/app/(app)/config/clientes/page.tsx",
+      "ruta": "/config/clientes",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "clientes:ver",
+      "alcance_y_datos": "Catálogo global de clientes intencional; capacidad de editar por alcance.",
+      "resultado": "No confundir lectura general de catálogo con IDOR.",
+      "evidencia_guardas": [
+        {
+          "linea": 21,
+          "codigo": "await requirePermiso(\"clientes:ver\");"
+        },
+        {
+          "linea": 24,
+          "codigo": "authorizePermiso(\"clientes:editar\").then((r) => r.ok),"
+        },
+        {
+          "linea": 25,
+          "codigo": "authorizePermiso(\"clientes:configurar\").then((r) => r.ok),"
+        },
+        {
+          "linea": 26,
+          "codigo": "authorizePermiso(\"clientes:crear\").then((r) => r.ok),"
+        },
+        {
+          "linea": 27,
+          "codigo": "authorizePermiso(\"clientes:eliminar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 33,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 50,
+          "codigo": "prisma.module.findMany({ orderBy: { name: \"asc\" } }),"
+        },
+        {
+          "linea": 51,
+          "codigo": "prisma.dianForm.findMany({"
+        },
+        {
+          "linea": 55,
+          "codigo": "prisma.erp.findMany({ orderBy: { name: \"asc\" }, select: { id: true, name: true, active: true } }),"
+        },
+        {
+          "linea": 56,
+          "codigo": "prisma.erpProcess.findMany({"
+        },
+        {
+          "linea": 61,
+          "codigo": "prisma.sector.findMany({ where: { active: true }, orderBy: { name: \"asc\" }, select: { id: true, name: true } }),"
+        },
+        {
+          "linea": 62,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 66,
+          "codigo": "prisma.userHierarchy.findMany({"
+        },
+        {
+          "linea": 69,
+          "codigo": "prisma.clientAssignment.findMany({"
+        }
+      ],
+      "sha256_fuente": "bab96a72c89eb149effe75b309d649dc93ad80a68f0442f3411d7b6a405121c2",
+      "revisado": true
+    },
+    {
+      "id": 22,
+      "archivo": "src/app/(app)/config/clientes/plantilla/route.ts",
+      "ruta": "/config/clientes/plantilla",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "clientes:crear y clientes:configurar en GET",
+      "alcance_y_datos": "Plantilla con referencias globales autorizadas.",
+      "resultado": "Attachment Excel y no-store.",
+      "evidencia_guardas": [
+        {
+          "linea": 14,
+          "codigo": "const crearAuthz = await authorizePermiso(\"clientes:crear\");"
+        },
+        {
+          "linea": 19,
+          "codigo": "const configAuthz = await authorizePermiso(\"clientes:configurar\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 33,
+          "codigo": "prisma.module.findMany({ orderBy: { name: \"asc\" }, select: { name: true } }),"
+        },
+        {
+          "linea": 34,
+          "codigo": "prisma.dianForm.findMany({ orderBy: { code: \"asc\" }, select: { name: true, code: true } }),"
+        },
+        {
+          "linea": 35,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 40,
+          "codigo": "prisma.erp.findMany({ where: { active: true }, orderBy: { name: \"asc\" }, select: { name: true } }),"
+        },
+        {
+          "linea": 41,
+          "codigo": "prisma.sector.findMany({ where: { active: true }, orderBy: { name: \"asc\" }, select: { name: true } }),"
+        }
+      ],
+      "sha256_fuente": "8cc1bf78e852546f29d85be124428c2b6087735fd7633bd98fbe093e56d5f8f9",
+      "revisado": true
+    },
+    {
+      "id": 23,
+      "archivo": "src/app/(app)/config/conceptos-nomina/page.tsx",
+      "ruta": "/config/conceptos-nomina",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:ver",
+      "alcance_y_datos": "Catálogo global de conceptos aprobado; escritura conserva cartera.",
+      "resultado": "No expone nómina ni valores de conciliación ajenos.",
+      "evidencia_guardas": [
+        {
+          "linea": 30,
+          "codigo": "await requirePermiso(\"modulos_datos:ver\");"
+        },
+        {
+          "linea": 32,
+          "codigo": "authorizePermiso(\"modulos_datos:editar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 37,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 41,
+          "codigo": "prisma.consolidacionModuloCliente.findMany({"
+        },
+        {
+          "linea": 49,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),"
+        }
+      ],
+      "sha256_fuente": "26b0c14909772c9738908ae4890b9773b88f85f2beaca1c228efd9b26f007613",
+      "revisado": true
+    },
+    {
+      "id": 24,
+      "archivo": "src/app/(app)/config/conceptos-nomina/plantilla/route.ts",
+      "ruta": "/config/conceptos-nomina/plantilla",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "modulos_datos:editar; alcanceLecturaUsuario/alcanceEscrituraUsuario de escritura",
+      "alcance_y_datos": "Referencias de clientes para editar nómina dentro de cartera.",
+      "resultado": "Attachment Excel y no-store.",
+      "evidencia_guardas": [
+        {
+          "linea": 24,
+          "codigo": "const authz = await authorizePermiso(\"modulos_datos:editar\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 33,
+          "codigo": "prisma.client.findMany({"
+        }
+      ],
+      "sha256_fuente": "3f1d3baaa503330cda141020a18838a9fe675690e08dac7d3e5bd75e463bdfeb",
+      "revisado": true
+    },
+    {
+      "id": 25,
+      "archivo": "src/app/(app)/config/conexiones/page.tsx",
+      "ruta": "/config/conexiones",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "conexiones:ver; administrar separado",
+      "alcance_y_datos": "Configuración y claves de campos; credenciales cifradas no pasan al cliente; historial limitado.",
+      "resultado": "Sin secreto descifrado en DTO; pruebas activas las revisa root.",
+      "evidencia_guardas": [
+        {
+          "linea": 15,
+          "codigo": "const authz = await authorizePermiso(\"conexiones:ver\");"
+        },
+        {
+          "linea": 17,
+          "codigo": "const administrar = await authorizePermiso(\"conexiones:administrar\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 20,
+          "codigo": "prisma.conexionIntegracion.findMany({ orderBy: [{ categoria: \"asc\" }, { nombre: \"asc\" }] }),"
+        },
+        {
+          "linea": 21,
+          "codigo": "prisma.ejecucionConexion.findMany({"
+        }
+      ],
+      "sha256_fuente": "f72c7adb9fb244d1699ef864b1184c484797a5a396b97332710f6ed25a9ddc25",
+      "revisado": true
+    },
+    {
+      "id": 26,
+      "archivo": "src/app/(app)/config/dian/page.tsx",
+      "ruta": "/config/dian",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "mapeos_dian:ver; configurar separado",
+      "alcance_y_datos": "Plantilla tributaria global sin cliente.",
+      "resultado": "R07: modelo DIAN global/prototipo; no asumir aislamiento multiempresa.",
+      "evidencia_guardas": [
+        {
+          "linea": 8,
+          "codigo": "await requirePermiso(\"mapeos_dian:ver\");"
+        },
+        {
+          "linea": 9,
+          "codigo": "const puedeConfigurar = (await authorizePermiso(\"mapeos_dian:configurar\")).ok;"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 10,
+          "codigo": "const forms = await prisma.dianForm.findMany({"
+        }
+      ],
+      "sha256_fuente": "6a7b93e1591faf6c6a06e068c5512e8cf4c4688ac84a9d97c0d25589cd133d5e",
+      "revisado": true
+    },
+    {
+      "id": 27,
+      "archivo": "src/app/(app)/config/maestros/page.tsx",
+      "ruta": "/config/maestros",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "maestros:ver",
+      "alcance_y_datos": "Catálogos maestros globales autorizados, incluidos datos de personal.",
+      "resultado": "Sin passwords ni credenciales en DTO.",
+      "evidencia_guardas": [
+        {
+          "linea": 15,
+          "codigo": "await requirePermiso(\"maestros:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 30,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 30,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 49,
+          "codigo": "prisma.userHierarchy.findMany({"
+        },
+        {
+          "linea": 52,
+          "codigo": "prisma.clientAssignment.groupBy({"
+        },
+        {
+          "linea": 57,
+          "codigo": "prisma.client.groupBy({"
+        },
+        {
+          "linea": 62,
+          "codigo": "prisma.clientErpProcess.findMany({"
+        },
+        {
+          "linea": 66,
+          "codigo": "prisma.erp.findMany({"
+        },
+        {
+          "linea": 70,
+          "codigo": "prisma.sector.findMany({"
+        },
+        {
+          "linea": 74,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 57,
+          "codigo": "prisma.client.groupBy({"
+        }
+      ],
+      "sha256_fuente": "ab4da32a1776b26783d0279d01fcc38b83fb13afcbfd2abc4c51e7beda8cbfc6",
+      "revisado": true
+    },
+    {
+      "id": 28,
+      "archivo": "src/app/(app)/config/mapeo/exportar/route.ts",
+      "ruta": "/config/mapeo/exportar",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "mapeo:ver directo en GET",
+      "alcance_y_datos": "Catálogo PUC estándar global.",
+      "resultado": "Attachment Excel y no-store.",
+      "evidencia_guardas": [
+        {
+          "linea": 17,
+          "codigo": "const authz = await authorizePermiso(\"mapeo:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 24,
+          "codigo": "prisma.standardAccount.findMany({ orderBy: { code: \"asc\" } }),"
+        },
+        {
+          "linea": 25,
+          "codigo": "prisma.subgrupoEstandar.findMany({ orderBy: { codigo: \"asc\" } }),"
+        }
+      ],
+      "sha256_fuente": "a754d53677b8a80b47e73794fa80e9f99ceb65c042b25c427711777a5bd70dba",
+      "revisado": true
+    },
+    {
+      "id": 29,
+      "archivo": "src/app/(app)/config/mapeo/page.tsx",
+      "ruta": "/config/mapeo",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "mapeo:ver; administrar separado",
+      "alcance_y_datos": "PUC estándar global; bitácora de administración hasta 1000.",
+      "resultado": "Sin saldos de otro cliente.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "await requirePermiso(\"mapeo:ver\");"
+        },
+        {
+          "linea": 10,
+          "codigo": "const canManage = (await authorizePermiso(\"mapeo:administrar\")).ok;"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 13,
+          "codigo": "prisma.standardAccount.findMany({ orderBy: { code: \"asc\" } }),"
+        },
+        {
+          "linea": 14,
+          "codigo": "prisma.subgrupoEstandar.findMany({ orderBy: { codigo: \"asc\" } }),"
+        },
+        {
+          "linea": 18,
+          "codigo": "? prisma.standardAccountLog.findMany({ orderBy: { createdAt: \"desc\" }, take: 1000 })"
+        }
+      ],
+      "sha256_fuente": "9a69f5e3715e33ad2bdc576f75e8743d050529a795d945c8af54afad1aa30cf6",
+      "revisado": true
+    },
+    {
+      "id": 30,
+      "archivo": "src/app/(app)/config/mapeo-cliente/page.tsx",
+      "ruta": "/config/mapeo-cliente",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "mapeo:ver",
+      "alcance_y_datos": "Catálogo PUC por cliente consultable global por decisión 19-oct; edición limitada por cartera.",
+      "resultado": "SQL parametrizado; no contiene movimientos/saldos.",
+      "evidencia_guardas": [
+        {
+          "linea": 12,
+          "codigo": "await requirePermiso(\"mapeo:ver\");"
+        },
+        {
+          "linea": 47,
+          "codigo": "? authorizePermiso(\"balance:revisar\", { clientId: clienteId }).then((result) => result.ok)"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 20,
+          "codigo": "const standardPromise = prisma.standardAccount.findMany({ orderBy: { code: \"asc\" } });"
+        },
+        {
+          "linea": 22,
+          "codigo": "const balances = await prisma.balancePruebaEncabezado.findMany({"
+        },
+        {
+          "linea": 50,
+          "codigo": "? prisma.clientAccount.findMany({"
+        },
+        {
+          "linea": 60,
+          "codigo": "? prisma.$queryRaw<Array<{ id: number; code: string; name: string; cuenta6Russell: string | null; coincidencia: Prisma.Decimal | null; actualizadoEn: Date; fechaBalance: Date; balanceId: number; periodo: string; version:"
+        },
+        {
+          "linea": 73,
+          "codigo": "? prisma.$queryRaw<Array<{ id: number; code: string; name: string; tipoFila: \"movimiento\" | \"agrupadora\"; fechaBalance: Date; periodo: string; version: string }>>(Prisma.sql`"
+        },
+        {
+          "linea": 100,
+          "codigo": "const origenes = clienteId && idsOrigen.length ? await prisma.balancePruebaEncabezado.findMany({"
+        }
+      ],
+      "sha256_fuente": "66b2a360e2a939e17077b5a9485c20d5ec5ac97371e5b8f0109e73c38fcb385f",
+      "revisado": true
+    },
+    {
+      "id": 31,
+      "archivo": "src/app/(app)/config/modulos/page.tsx",
+      "ruta": "/config/modulos",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos:ver",
+      "alcance_y_datos": "Descriptores globales de módulos.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 8,
+          "codigo": "await requirePermiso(\"modulos:ver\");"
+        },
+        {
+          "linea": 11,
+          "codigo": "authorizePermiso(\"modulos:configurar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 10,
+          "codigo": "prisma.module.findMany({ orderBy: { name: \"asc\" }, include: { fields: { orderBy: { order: \"asc\" } } } }),"
+        }
+      ],
+      "sha256_fuente": "43301ebe23e9c96bd4a53d5bb7a01105f0b70d63522db1afe14f6fc30fbd2373",
+      "revisado": true
+    },
+    {
+      "id": 32,
+      "archivo": "src/app/(app)/config/parametros/page.tsx",
+      "ruta": "/config/parametros",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "parametros:ver o parametros:administrar",
+      "alcance_y_datos": "Umbrales y reglas globales.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 12,
+          "codigo": "authorizePermiso(\"parametros:ver\").then((r) => r.ok),"
+        },
+        {
+          "linea": 13,
+          "codigo": "authorizePermiso(\"parametros:administrar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "5e02ec9300245e2f0c027e8bfa4a5b282bc4d18d3389b142ce9212e1926a423b",
+      "revisado": true
+    },
+    {
+      "id": 33,
+      "archivo": "src/app/(app)/config/perfiles-carga/[fuente]/page.tsx",
+      "ruta": "/config/perfiles-carga/[fuente]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "perfiles_carga:administrar",
+      "alcance_y_datos": "Fuente validada por catálogo; configuración central global.",
+      "resultado": "Sin path traversal por parámetro fuente.",
+      "evidencia_guardas": [
+        {
+          "linea": 18,
+          "codigo": "await requirePermiso(\"perfiles_carga:administrar\");"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "ab082023e4f5fa50eebdfc8ba82905675eebce521939484ffb2374c7fb892801",
+      "revisado": true
+    },
+    {
+      "id": 34,
+      "archivo": "src/app/(app)/config/perfiles-carga/page.tsx",
+      "ruta": "/config/perfiles-carga",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "perfiles_carga:administrar",
+      "alcance_y_datos": "Lista global de fuentes autorizadas.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 24,
+          "codigo": "await requirePermiso(\"perfiles_carga:administrar\");"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "37e095e7298b48ae922914c35580395a5311ae7e7f1151f37de3c7ed567a5dac",
+      "revisado": true
+    },
+    {
+      "id": 35,
+      "archivo": "src/app/(app)/config/permisos/page.tsx",
+      "ruta": "/config/permisos",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "roles:configurar",
+      "alcance_y_datos": "Matriz RBAC global privilegiada.",
+      "resultado": "Actor verificado; columna Superadministrador y permisos reservados gestionables solo por ese rol. La acción revalida; ver permisos-mapeo.md.",
+      "evidencia_guardas": [
+        {
+          "linea": 22,
+          "codigo": "await requirePermiso(\"roles:configurar\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 28,
+          "codigo": "prisma.role.findMany({"
+        },
+        {
+          "linea": 33,
+          "codigo": "prisma.permission.findMany({"
+        },
+        {
+          "linea": 37,
+          "codigo": "prisma.rolePermission.findMany({ select: { roleId: true, permissionId: true } }),"
+        }
+      ],
+      "sha256_fuente": "0f363594774792f1f44162bac0ad12474e984f809aa4d96ad15f71758877ea25",
+      "revisado": true
+    },
+    {
+      "id": 36,
+      "archivo": "src/app/(app)/config/prevalidador/[modulo]/page.tsx",
+      "ruta": "/config/prevalidador/[modulo]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "parametros:ver o parametros:administrar",
+      "alcance_y_datos": "Módulo validado por catálogo; volver solo ruta interna permitida.",
+      "resultado": "Sin redirección abierta confirmada.",
+      "evidencia_guardas": [
+        {
+          "linea": 40,
+          "codigo": "authorizePermiso(\"parametros:ver\").then((r) => r.ok),"
+        },
+        {
+          "linea": 41,
+          "codigo": "authorizePermiso(\"parametros:administrar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 54,
+          "codigo": "prisma.module.findMany({"
+        }
+      ],
+      "sha256_fuente": "0f031b2aa0389c5959c37a2b76cc451cba9d2a49d3c40cbdad8dab84fbacbc61",
+      "revisado": true
+    },
+    {
+      "id": 37,
+      "archivo": "src/app/(app)/config/prevalidador/page.tsx",
+      "ruta": "/config/prevalidador",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "parametros:ver o parametros:administrar",
+      "alcance_y_datos": "Redirige a configuración específica tras permiso.",
+      "resultado": "Sin hallazgo específico confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 14,
+          "codigo": "authorizePermiso(\"parametros:ver\").then((r) => r.ok),"
+        },
+        {
+          "linea": 15,
+          "codigo": "authorizePermiso(\"parametros:administrar\").then((r) => r.ok),"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "3203911dc8c0297baeb66a37d8541edeea324be24f0056f857d3dfde18744de5",
+      "revisado": true
+    },
+    {
+      "id": 38,
+      "archivo": "src/app/(app)/config/prompts/page.tsx",
+      "ruta": "/config/prompts",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "prompts:administrar",
+      "alcance_y_datos": "Prompts globales de IA privilegiados.",
+      "resultado": "Contenido como datos, sin ejecución directa en servidor.",
+      "evidencia_guardas": [
+        {
+          "linea": 8,
+          "codigo": "await requirePermiso(\"prompts:administrar\");"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "e3e6d606d50fe89b3a08fe4d7d19f62aafe16725903eb6f20cd9628bcef3ec11",
+      "revisado": true
+    },
+    {
+      "id": 39,
+      "archivo": "src/app/(app)/config/publicacion-modulos/page.tsx",
+      "ruta": "/config/publicacion-modulos",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "publicacion_modulos:ver",
+      "alcance_y_datos": "Control global de publicación restringido por RBAC.",
+      "resultado": "Root corrige fallback permisivo del helper de publicación.",
+      "evidencia_guardas": [
+        {
+          "linea": 7,
+          "codigo": "await requirePermiso(\"publicacion_modulos:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 11,
+          "codigo": "prisma.user.count({"
+        }
+      ],
+      "sha256_fuente": "27ff302cf3f9555b5514b6ecb9933f60be6c7ff78de04a71b4887d134805f78b",
+      "revisado": true
+    },
+    {
+      "id": 40,
+      "archivo": "src/app/(app)/config/reportes-ejecutivos/page.tsx",
+      "ruta": "/config/reportes-ejecutivos",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "requireReporteEjecutivo",
+      "alcance_y_datos": "Superadministrador exacto y permiso; informe global, eventos acotados.",
+      "resultado": "PDF/HTML analizados por separado.",
+      "evidencia_guardas": [
+        {
+          "linea": 53,
+          "codigo": "await requireReporteEjecutivo();"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 63,
+          "codigo": "const ultimoReporte = await prisma.reporteEjecutivoUsoIA.findFirst({"
+        },
+        {
+          "linea": 78,
+          "codigo": "prisma.auditEntry.findMany({"
+        },
+        {
+          "linea": 93,
+          "codigo": "prisma.accessLog.groupBy({"
+        },
+        {
+          "linea": 93,
+          "codigo": "prisma.accessLog.groupBy({"
+        },
+        {
+          "linea": 105,
+          "codigo": "prisma.platformVersion.findMany({"
+        },
+        {
+          "linea": 125,
+          "codigo": "prisma.client.findMany({ select: { id: true, name: true } }),"
+        },
+        {
+          "linea": 126,
+          "codigo": "prisma.user.findMany({ select: { name: true, email: true } }),"
+        }
+      ],
+      "sha256_fuente": "b569ae21280b85810570493e8b98c981960aa69e8bf517b91815a6b795dca7f9",
+      "revisado": true
+    },
+    {
+      "id": 41,
+      "archivo": "src/app/(app)/config/soporte/[id]/page.tsx",
+      "ruta": "/config/soporte/[id]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "soporte:administrar",
+      "alcance_y_datos": "Administración global de tickets internos y públicos; DTO curado sin token/hash.",
+      "resultado": "Sin IDOR respecto al rol administrador.",
+      "evidencia_guardas": [
+        {
+          "linea": 25,
+          "codigo": "await requirePermiso(\"soporte:administrar\");"
+        },
+        {
+          "linea": 27,
+          "codigo": "const puedeEliminar = (await authorizePermiso(\"soporte:eliminar\")).ok;"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 32,
+          "codigo": "const ticket = await prisma.supportTicket.findUnique({"
+        }
+      ],
+      "sha256_fuente": "93a88b3f80a565e86961bcd46be5dcdca8a1430448f473af11008dc3ebfc6adf",
+      "revisado": true
+    },
+    {
+      "id": 42,
+      "archivo": "src/app/(app)/config/soporte/page.tsx",
+      "ruta": "/config/soporte",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "soporte:administrar",
+      "alcance_y_datos": "Listado global máximo 500 tickets.",
+      "resultado": "Sin token/hash público en DTO.",
+      "evidencia_guardas": [
+        {
+          "linea": 12,
+          "codigo": "await requirePermiso(\"soporte:administrar\");"
+        },
+        {
+          "linea": 15,
+          "codigo": "const puedeEliminar = (await authorizePermiso(\"soporte:eliminar\")).ok;"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 17,
+          "codigo": "const tickets = await prisma.supportTicket.findMany({"
+        }
+      ],
+      "sha256_fuente": "c2c99103a50c5d4326047be3b3974361fb1dfe0260b3bf2550969da6ec62f0d4",
+      "revisado": true
+    },
+    {
+      "id": 43,
+      "archivo": "src/app/(app)/config/usuarios/page.tsx",
+      "ruta": "/config/usuarios",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "usuarios:ver; editar/configurar separados",
+      "alcance_y_datos": "Directorio global autorizado; datos de bloqueo solo a editores.",
+      "resultado": "No passwords/hashes; clave temporal por defecto solo administración autorizada.",
+      "evidencia_guardas": [
+        {
+          "linea": 20,
+          "codigo": "await requirePermiso(\"usuarios:ver\");"
+        },
+        {
+          "linea": 22,
+          "codigo": "authorizePermiso(\"usuarios:crear\").then((r) => r.ok),"
+        },
+        {
+          "linea": 23,
+          "codigo": "authorizePermiso(\"usuarios:editar\").then((r) => r.ok),"
+        },
+        {
+          "linea": 24,
+          "codigo": "authorizePermiso(\"usuarios:eliminar\").then((r) => r.ok),"
+        },
+        {
+          "linea": 51,
+          "codigo": "getCurrentUser(),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 29,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 46,
+          "codigo": "prisma.role.findMany({"
+        },
+        {
+          "linea": 29,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 57,
+          "codigo": "prisma.userHierarchy.findMany({"
+        }
+      ],
+      "sha256_fuente": "154fe2e1f194de02e140e863bbcf6006ea3df28b4e5da6badee9a9756133110d",
+      "revisado": true
+    },
+    {
+      "id": 44,
+      "archivo": "src/app/(app)/dashboard/page.tsx",
+      "ruta": "/dashboard",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "dashboard:ver o bienvenida sin consultas de negocio",
+      "alcance_y_datos": "KPIs y actividad con alcanceLecturaUsuario/alcanceEscrituraUsuario.",
+      "resultado": "R02 corregido: bitácora también filtra cliente, excluye globales para roles de cartera.",
+      "evidencia_guardas": [
+        {
+          "linea": 27,
+          "codigo": "const inicio = await authorizePermiso(\"dashboard:ver\");"
+        },
+        {
+          "linea": 29,
+          "codigo": "const usuario = await getCurrentUser();"
+        },
+        {
+          "linea": 36,
+          "codigo": "getCurrentUser(),"
+        },
+        {
+          "linea": 37,
+          "codigo": "authorizePermiso(\"conciliaciones:crear\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 48,
+          "codigo": "const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await prisma.$transaction(["
+        },
+        {
+          "linea": 49,
+          "codigo": "prisma.reconciliation.findMany({"
+        },
+        {
+          "linea": 58,
+          "codigo": "prisma.reconciliationRow.aggregate({ where: rowWhere, _sum: { diff: true } }),"
+        },
+        {
+          "linea": 59,
+          "codigo": "prisma.clientModule.count({ where: { status: \"configured\", ...cmWhere } }),"
+        },
+        {
+          "linea": 60,
+          "codigo": "prisma.clientModule.count({ where: { status: \"pending\", ...cmWhere } }),"
+        },
+        {
+          "linea": 61,
+          "codigo": "prisma.auditEntry.findMany({"
+        },
+        {
+          "linea": 67,
+          "codigo": "prisma.client.findMany({"
+        }
+      ],
+      "sha256_fuente": "cd7d9fd77f6c68ddd62f62d912d490ea796c115855b6aafa368bf7bd3afbdd33",
+      "revisado": true
+    },
+    {
+      "id": 45,
+      "archivo": "src/app/(app)/dian/[periodId]/page.tsx",
+      "ruta": "/dian/[periodId]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "dian:ver",
+      "alcance_y_datos": "DIAN sin clientId, formulario/detalle global y cliente fijo de ejemplo.",
+      "resultado": "R07 deuda funcional: prototipo global; no hallazgo IDOR multiempresa probado.",
+      "evidencia_guardas": [
+        {
+          "linea": 11,
+          "codigo": "await requirePermiso(\"dian:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 15,
+          "codigo": "const period = await prisma.dianPeriod.findUnique({ where: { id: periodId } });"
+        },
+        {
+          "linea": 18,
+          "codigo": "const form = await prisma.dianForm.findUnique({"
+        }
+      ],
+      "sha256_fuente": "6d2b3559f7bb876909ed4bfe731b9914aaf58a77a344e1648c61b2a363c616d4",
+      "revisado": true
+    },
+    {
+      "id": 46,
+      "archivo": "src/app/(app)/dian/page.tsx",
+      "ruta": "/dian",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "dian:ver",
+      "alcance_y_datos": "Periodos globales del prototipo.",
+      "resultado": "R07: definir propiedad por cliente antes de usar con múltiples clientes.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "await requirePermiso(\"dian:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 10,
+          "codigo": "const forms = await prisma.dianForm.findMany({ include: { periods: { orderBy: { periodKey: \"desc\" } } } });"
+        }
+      ],
+      "sha256_fuente": "5d86a7a8c299a81e4b753fdce1098e7f021a87dc1b8d5186fd4c27a08e0c4890",
+      "revisado": true
+    },
+    {
+      "id": 47,
+      "archivo": "src/app/(app)/estructura/page.tsx",
+      "ruta": "/estructura",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "estructura:ver",
+      "alcance_y_datos": "Organigrama global consultable por diseño explícito.",
+      "resultado": "Sin credenciales en DTO.",
+      "evidencia_guardas": [
+        {
+          "linea": 12,
+          "codigo": "await requirePermiso(\"estructura:ver\");"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 24,
+          "codigo": "prisma.user.findMany({"
+        },
+        {
+          "linea": 28,
+          "codigo": "prisma.userHierarchy.findMany({ select: { superiorId: true, subordinateId: true } }),"
+        },
+        {
+          "linea": 29,
+          "codigo": "prisma.clientAssignment.findMany({"
+        },
+        {
+          "linea": 33,
+          "codigo": "prisma.client.findMany({ select: { id: true, code: true, name: true } }),"
+        }
+      ],
+      "sha256_fuente": "3afc9c15754dcef62fb9388d3dece93a387509e11f95f2839eae30358fca63fa",
+      "revisado": true
+    },
+    {
+      "id": 48,
+      "archivo": "src/app/(app)/layout.tsx",
+      "ruta": "/",
+      "tipo": "layout.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "verifySession y mustChangePassword; helper personal notificaciones",
+      "alcance_y_datos": "Layout solo identidad vigente, navegación y campana propia.",
+      "resultado": "R01 corregido: destinatario, cartera y permiso/publicación revalidados; legado ambiguo oculto.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "const session = await verifySession();"
+        },
+        {
+          "linea": 23,
+          "codigo": "// sesión. No hace falta atravesar de nuevo getCurrentUser(). Las lecturas de"
+        },
+        {
+          "linea": 28,
+          "codigo": "listarNotificacionesActuales(),"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "4d87bd09058adaafc0b175245aa7f081e944197ff43d833ea5b4e294eb0b24fa",
+      "revisado": true
+    },
+    {
+      "id": 49,
+      "archivo": "src/app/(app)/modulos/[codigo]/[id]/export/route.ts",
+      "ruta": "/modulos/[codigo]/[id]/export",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "modulos_datos:ver global y cliente",
+      "alcance_y_datos": "Descriptor y encabezado coincidentes; Excel no-store.",
+      "resultado": "R05 corregido: referencia mínima de cliente/código antes del alcance; detalle después y cliente fijado en segunda query.",
+      "evidencia_guardas": [
+        {
+          "linea": 27,
+          "codigo": "const authz = await authorizePermiso(\"modulos_datos:ver\");"
+        },
+        {
+          "linea": 37,
+          "codigo": "const scope = await authorizePermiso(\"modulos_datos:ver\", { clientId: referencia.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 35,
+          "codigo": "const referencia = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });"
+        },
+        {
+          "linea": 39,
+          "codigo": "const encabezado = await prisma.moduloDatoEncabezado.findUnique({"
+        },
+        {
+          "linea": 56,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),"
+        }
+      ],
+      "sha256_fuente": "83d24747ecbe1ca73b8a66aa29b30450ee791787abbd51f2f882fc4a31a1797f",
+      "revisado": true
+    },
+    {
+      "id": 50,
+      "archivo": "src/app/(app)/modulos/[codigo]/[id]/page.tsx",
+      "ruta": "/modulos/[codigo]/[id]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:ver global y cliente",
+      "alcance_y_datos": "Descriptor de código e ID, detalle y marcas autorizados.",
+      "resultado": "R05 corregido: cartera validada sobre referencia mínima antes de encabezado completo, descriptor y detalle.",
+      "evidencia_guardas": [
+        {
+          "linea": 49,
+          "codigo": "await requirePermiso(\"modulos_datos:ver\");"
+        },
+        {
+          "linea": 58,
+          "codigo": "const scope = await authorizePermiso(\"modulos_datos:ver\", { clientId: referencia.clienteId });"
+        },
+        {
+          "linea": 76,
+          "codigo": "const permisoEditar = (await authorizePermiso(\"modulos_datos:editar\", { clientId: encabezado.clienteId })).ok;"
+        },
+        {
+          "linea": 419,
+          "codigo": "authorizePermiso(\"parametros:administrar\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 56,
+          "codigo": "const referencia = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });"
+        },
+        {
+          "linea": 60,
+          "codigo": "const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId, clienteId: referencia.clienteId, moduloCodigo } });"
+        },
+        {
+          "linea": 72,
+          "codigo": ": await prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, orderBy: { filaNum: \"asc\" } });"
+        },
+        {
+          "linea": 84,
+          "codigo": "prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: \"asc\" } }),"
+        },
+        {
+          "linea": 85,
+          "codigo": "prisma.comment.groupBy({ by: [\"anchor\"], where: { entityType: \"modulos_datos\", entityId: encabezadoId }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 87,
+          "codigo": "prisma.clientAccount.findMany({"
+        },
+        {
+          "linea": 92,
+          "codigo": "prisma.moduloDatoEncabezado.findMany({"
+        },
+        {
+          "linea": 115,
+          "codigo": "prisma.marcaCruceModulo.findMany({"
+        },
+        {
+          "linea": 408,
+          "codigo": "prisma.conciliacionModuloCierre.findUnique({"
+        }
+      ],
+      "sha256_fuente": "ff552d16fb39f34d1b3161ffd472e0f3baaaf6fd35106ae351de339ac3cc4905",
+      "revisado": true
+    },
+    {
+      "id": 51,
+      "archivo": "src/app/(app)/modulos/[codigo]/borradores/[loteId]/export/route.ts",
+      "ruta": "/modulos/[codigo]/borradores/[loteId]/export",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "modulos_datos:crear global y cliente",
+      "alcance_y_datos": "Código/lote coincidentes; Excel no-store.",
+      "resultado": "R05 corregido: referencia mínima y permiso antes de encabezado completo y staging.",
+      "evidencia_guardas": [
+        {
+          "linea": 22,
+          "codigo": "const authz = await authorizePermiso(\"modulos_datos:crear\");"
+        },
+        {
+          "linea": 33,
+          "codigo": "const scope = await authorizePermiso(\"modulos_datos:crear\", { clientId: referencia.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 29,
+          "codigo": "const referencia = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, moduloCodigo: true } });"
+        },
+        {
+          "linea": 35,
+          "codigo": "const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId, clienteId: referencia.clienteId, moduloCodigo } });"
+        },
+        {
+          "linea": 38,
+          "codigo": "const filas = await prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: \"asc\" } });"
+        },
+        {
+          "linea": 42,
+          "codigo": "prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),"
+        },
+        {
+          "linea": 44,
+          "codigo": "? prisma.moduloImportacionLote.findMany({"
+        }
+      ],
+      "sha256_fuente": "8bfb4a6f3b0a32e835bf64798e9f5ac4f9bdd1da62c1840e06cff7591f641d22",
+      "revisado": true
+    },
+    {
+      "id": 52,
+      "archivo": "src/app/(app)/modulos/[codigo]/borradores/[loteId]/page.tsx",
+      "ruta": "/modulos/[codigo]/borradores/[loteId]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:crear global y cliente",
+      "alcance_y_datos": "Código/lote coincidentes y cartera; mutaciones verificadas aparte.",
+      "resultado": "R05 corregido: cartera antes de cargar staging; destino de anexo filtra además cliente y módulo.",
+      "evidencia_guardas": [
+        {
+          "linea": 27,
+          "codigo": "await requirePermiso(\"modulos_datos:crear\");"
+        },
+        {
+          "linea": 35,
+          "codigo": "const scope = await authorizePermiso(\"modulos_datos:crear\", { clientId: referencia.clienteId });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 33,
+          "codigo": "const referencia = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, moduloCodigo: true } });"
+        },
+        {
+          "linea": 37,
+          "codigo": "const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId, clienteId: referencia.clienteId, moduloCodigo } });"
+        },
+        {
+          "linea": 55,
+          "codigo": "prisma.comment.groupBy({ by: [\"anchor\"], where: { entityType: \"modulos_borrador\", entityId: lote.id }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 56,
+          "codigo": "prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),"
+        },
+        {
+          "linea": 58,
+          "codigo": "prisma.ajustesCargaModulo.findUnique({"
+        },
+        {
+          "linea": 63,
+          "codigo": "? prisma.moduloImportacionLote.findMany({"
+        },
+        {
+          "linea": 82,
+          "codigo": "? prisma.archivoOriginalModulo.findUnique({ where: { loteId }, select: { disponible: true, revisionAsistencia: true, asistenciaJson: true } })"
+        },
+        {
+          "linea": 120,
+          "codigo": "const destino = await prisma.moduloDatoEncabezado.findUnique({"
+        },
+        {
+          "linea": 163,
+          "codigo": "? await prisma.consolidacionModuloCliente.findMany({"
+        },
+        {
+          "linea": 204,
+          "codigo": "? (await prisma.erp.findUnique({ where: { id: erpPropuesta }, select: { name: true } }))?.name ?? null"
+        }
+      ],
+      "sha256_fuente": "873923af2f9013ac28f4b6caa25918a7cf54ce3abdcc3689831fb9a1b686ceb3",
+      "revisado": true
+    },
+    {
+      "id": 53,
+      "archivo": "src/app/(app)/modulos/[codigo]/borradores/page.tsx",
+      "ruta": "/modulos/[codigo]/borradores",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:crear; alcanceLecturaUsuario/alcanceEscrituraUsuario",
+      "alcance_y_datos": "Borradores por código y cartera.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 18,
+          "codigo": "await requirePermiso(\"modulos_datos:crear\");"
+        },
+        {
+          "linea": 169,
+          "codigo": "<PestanasModulo moduloCodigo={moduloCodigo} activa=\"borradores\" borradoresPendientes={filas.length + porCompletar.length} puedeVerBorradores />"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 28,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 32,
+          "codigo": "prisma.moduloImportacionLote.findMany({"
+        },
+        {
+          "linea": 50,
+          "codigo": "? prisma.archivoOriginalModulo.findMany({"
+        },
+        {
+          "linea": 64,
+          "codigo": "? await prisma.moduloDatoEncabezado.findMany({"
+        },
+        {
+          "linea": 74,
+          "codigo": "prisma.comment.groupBy({ by: [\"entityId\"], where: { entityType: \"modulos_borrador\", entityId: { in: borradores.map((b) => b.id) } }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 76,
+          "codigo": "? prisma.moduloImportacionStaging.groupBy({"
+        }
+      ],
+      "sha256_fuente": "c41719bcb9b89085804721cfc3a0532ac72969bf9badedc7690529e3669ca17d",
+      "revisado": true
+    },
+    {
+      "id": 54,
+      "archivo": "src/app/(app)/modulos/[codigo]/page.tsx",
+      "ruta": "/modulos/[codigo]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:ver; alcanceLecturaUsuario/alcanceEscrituraUsuario",
+      "alcance_y_datos": "Datos por módulo y cartera.",
+      "resultado": "Sin IDOR confirmado.",
+      "evidencia_guardas": [
+        {
+          "linea": 15,
+          "codigo": "await requirePermiso(\"modulos_datos:ver\");"
+        },
+        {
+          "linea": 83,
+          "codigo": "authorizePermiso(\"modulos_datos:eliminar\"),"
+        },
+        {
+          "linea": 85,
+          "codigo": "authorizePermiso(\"modulos_datos:crear\"),"
+        },
+        {
+          "linea": 87,
+          "codigo": "authorizePermiso(\"perfiles_carga:administrar\"),"
+        },
+        {
+          "linea": 176,
+          "codigo": "puedeVerBorradores={autorizacionCrear.ok}"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 25,
+          "codigo": "prisma.client.findMany({"
+        },
+        {
+          "linea": 32,
+          "codigo": "prisma.moduloImportacionLote.count({ where: { moduloCodigo, ...filtroCliente } }),"
+        },
+        {
+          "linea": 33,
+          "codigo": "prisma.moduloDatoEncabezado.findMany({"
+        },
+        {
+          "linea": 58,
+          "codigo": "? prisma.archivoOriginalModulo.count({"
+        },
+        {
+          "linea": 71,
+          "codigo": "prisma.comment.groupBy({ by: [\"entityId\"], where: { entityType: \"modulos_datos\", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 72,
+          "codigo": "prisma.perfilCargaModulo.groupBy({ by: [\"clienteId\"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 73,
+          "codigo": "prisma.marcaCruceModulo.groupBy({ by: [\"clienteId\", \"periodo\"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),"
+        },
+        {
+          "linea": 76,
+          "codigo": "prisma.conciliacionModuloCierre.findMany({"
+        }
+      ],
+      "sha256_fuente": "5a094b4757b3c3baed1ef409b461886e6225295a6e50a529fe9683fd0da9c0a2",
+      "revisado": true
+    },
+    {
+      "id": 55,
+      "archivo": "src/app/(app)/modulos/[codigo]/patrones/[versionId]/page.tsx",
+      "ruta": "/modulos/[codigo]/patrones/[versionId]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "perfiles_carga:administrar global y origen",
+      "alcance_y_datos": "Versión coincide con módulo; cliente origen autorizado cuando existe.",
+      "resultado": "Consulta de metadata previa al gate, sin salida previa.",
+      "evidencia_guardas": [
+        {
+          "linea": 12,
+          "codigo": "await requirePermiso(\"perfiles_carga:administrar\");"
+        },
+        {
+          "linea": 24,
+          "codigo": "if (version.clienteOrigenId != null) await requirePermiso(\"perfiles_carga:administrar\", { clientId: version.clienteOrigenId, modo: \"lectura\" });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 19,
+          "codigo": "const version = await prisma.versionPatronArchivoModulo.findFirst({"
+        }
+      ],
+      "sha256_fuente": "2ee7dca720b5c69d4a54888c1e3bdf5f8e2751938bdf9a60234986c7b8cba82f",
+      "revisado": true
+    },
+    {
+      "id": 56,
+      "archivo": "src/app/(app)/modulos/[codigo]/patrones/nueva/page.tsx",
+      "ruta": "/modulos/[codigo]/patrones/nueva",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "perfiles_carga:administrar y origen de versión base",
+      "alcance_y_datos": "Base por código/ID; recepción solo UUID como dato y helper valida al consumir.",
+      "resultado": "Sin fetch arbitrario por URL/recepción.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "await requirePermiso(\"perfiles_carga:administrar\");"
+        },
+        {
+          "linea": 40,
+          "codigo": "if (baseFila?.clienteOrigenId != null) await requirePermiso(\"perfiles_carga:administrar\", { clientId: baseFila.clienteOrigenId, modo: \"lectura\" });"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 28,
+          "codigo": "prisma.erp.findMany({"
+        },
+        {
+          "linea": 34,
+          "codigo": "? prisma.versionPatronArchivoModulo.findFirst({"
+        }
+      ],
+      "sha256_fuente": "7066bdf5c2071cc69925fce71041859fb6f8f185b77f634eba3448dcd32c49a7",
+      "revisado": true
+    },
+    {
+      "id": 57,
+      "archivo": "src/app/(app)/modulos/[codigo]/patrones/page.tsx",
+      "ruta": "/modulos/[codigo]/patrones",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "modulos_datos:crear; listarPatronesDeModulo",
+      "alcance_y_datos": "Aprobadas compartidas; privadas solo cartera de origen; nota/cliente ocultos fuera de cartera.",
+      "resultado": "Muestras globales aprobadas son deliberadas; recortes anonimados; subida local exige compartir.",
+      "evidencia_guardas": [
+        {
+          "linea": 16,
+          "codigo": "await requirePermiso(\"modulos_datos:crear\");"
+        },
+        {
+          "linea": 28,
+          "codigo": "authorizePermiso(\"perfiles_carga:administrar\"),"
+        },
+        {
+          "linea": 43,
+          "codigo": "<PestanasModulo moduloCodigo={moduloCodigo} activa=\"patrones\" borradoresPendientes={borradoresPendientes + lecturasPendientes} puedeVerBorradores />"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 25,
+          "codigo": "prisma.moduloImportacionLote.count({"
+        },
+        {
+          "linea": 29,
+          "codigo": "moduloCodigo === \"INV\" ? prisma.archivoOriginalModulo.count({"
+        }
+      ],
+      "sha256_fuente": "d7f90ec605898ed3c8fea5165200f0f8fbe803ae6987c4ecc4cf12a428904ddd",
+      "revisado": true
+    },
+    {
+      "id": 58,
+      "archivo": "src/app/(app)/novedades/page.tsx",
+      "ruta": "/novedades",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "novedades:ver",
+      "alcance_y_datos": "Versiones globales; catálogo actualmente administrativo.",
+      "resultado": "Visor HTML iframe sandbox vacío; PDF sin JS/red. HTML descargado no conserva sandbox del visor.",
+      "evidencia_guardas": [
+        {
+          "linea": 9,
+          "codigo": "await requirePermiso(\"novedades:ver\");"
+        },
+        {
+          "linea": 12,
+          "codigo": "authorizePermiso(\"novedades:administrar\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 13,
+          "codigo": "prisma.platformVersion.findMany({"
+        }
+      ],
+      "sha256_fuente": "f0eea8e6dcc4889b83c096bdf88f23d4a144ac70be96835f7da650f3fdc4f782",
+      "revisado": true
+    },
+    {
+      "id": 59,
+      "archivo": "src/app/(app)/perfil/page.tsx",
+      "ruta": "/perfil",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "getCurrentUser; layout verifySession",
+      "alcance_y_datos": "Perfil propio y DTO mínimo.",
+      "resultado": "Sin lectura de otro ID por parámetro.",
+      "evidencia_guardas": [
+        {
+          "linea": 11,
+          "codigo": "const user = await getCurrentUser();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "a4b66a9837b560053da864b72098740bf44a0e8d384fb9584d6ddc972c4145c1",
+      "revisado": true
+    },
+    {
+      "id": 60,
+      "archivo": "src/app/(app)/reportes/[id]/page.tsx",
+      "ruta": "/reportes/[id]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "soporte:ver; público solo soporte:administrar",
+      "alcance_y_datos": "Todos los tickets internos visibles por decisión expresa; públicos privados.",
+      "resultado": "No falso positivo por ticket interno de otro autor; cambios solo autor/admin.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "await requirePermiso(\"soporte:ver\");"
+        },
+        {
+          "linea": 22,
+          "codigo": "getCurrentUser(),"
+        },
+        {
+          "linea": 23,
+          "codigo": "authorizePermiso(\"soporte:administrar\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 28,
+          "codigo": "const ticket = await prisma.supportTicket.findUnique({"
+        }
+      ],
+      "sha256_fuente": "a0e3ae37d2fab972fa676e8b54e2a7144af04d46766e70b4a513819f5f8b7a96",
+      "revisado": true
+    },
+    {
+      "id": 61,
+      "archivo": "src/app/(app)/reportes/page.tsx",
+      "ruta": "/reportes",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "soporte:ver",
+      "alcance_y_datos": "Solo tickets internos en lista compartida; preferencias del usuario actual.",
+      "resultado": "Sin tickets públicos/secretos de seguimiento.",
+      "evidencia_guardas": [
+        {
+          "linea": 17,
+          "codigo": "await requirePermiso(\"soporte:ver\");"
+        },
+        {
+          "linea": 19,
+          "codigo": "getCurrentUser(),"
+        },
+        {
+          "linea": 20,
+          "codigo": "authorizePermiso(\"soporte:crear\"),"
+        },
+        {
+          "linea": 21,
+          "codigo": "authorizePermiso(\"soporte:administrar\"),"
+        },
+        {
+          "linea": 23,
+          "codigo": "authorizePermiso(\"soporte:eliminar\"),"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 45,
+          "codigo": "prisma.supportTicket.findMany({"
+        },
+        {
+          "linea": 66,
+          "codigo": "prisma.supportUserPreference.findUnique({"
+        },
+        {
+          "linea": 82,
+          "codigo": "? await prisma.user.findMany({"
+        }
+      ],
+      "sha256_fuente": "f42aa63d8625ea423189e5181e1cfd4e06c6a724600525d14033477d5cc4d80e",
+      "revisado": true
+    },
+    {
+      "id": 62,
+      "archivo": "src/app/api/auditoria/reporte-ejecutivo/route.ts",
+      "ruta": "/api/auditoria/reporte-ejecutivo",
+      "tipo": "route.ts",
+      "metodos": [
+        "POST"
+      ],
+      "guarda_real": "same-origin y authorizeReporteEjecutivo fuera del try; acción revalida",
+      "alcance_y_datos": "POST informe global reservado a superadministrador exacto.",
+      "resultado": "R09 corregido: redirección de sesión anónima no se captura como 500; denegado autenticado devuelve 403.",
+      "evidencia_guardas": [
+        {
+          "linea": 15,
+          "codigo": "const autorizacion = await authorizeReporteEjecutivo();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "995192c009927da9e4622baa776199c217d2ad9b9b86de37687cc4c103f379dd",
+      "revisado": true
+    },
+    {
+      "id": 63,
+      "archivo": "src/app/api/auditoria/reporte-pdf/route.ts",
+      "ruta": "/api/auditoria/reporte-pdf",
+      "tipo": "route.ts",
+      "metodos": [
+        "POST"
+      ],
+      "guarda_real": "authorizeReporteEjecutivo",
+      "alcance_y_datos": "POST HTML acotado 6.000.000 caracteres; Chromium JS desactivado y red abortada excepto data/blob/about.",
+      "resultado": "Sin SSRF básica; PDF attachment y no-store.",
+      "evidencia_guardas": [
+        {
+          "linea": 30,
+          "codigo": "const authz = await authorizeReporteEjecutivo();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "1f1f02fc167619c8abd3f16599754d4cd09dc806fc60e8396ea55756cf9cb600",
+      "revisado": true
+    },
+    {
+      "id": 64,
+      "archivo": "src/app/api/balance/archivo-temporal/[loteId]/[numero]/route.ts",
+      "ruta": "/api/balance/archivo-temporal/[loteId]/[numero]",
+      "tipo": "route.ts",
+      "metodos": [
+        "PUT"
+      ],
+      "guarda_real": "balance:crear; actor; dueño del lote en guardarParte",
+      "alcance_y_datos": "PUT ID y número validados, límite de parte y metadata/propietario.",
+      "resultado": "R08: arrayBuffer antes del gate de dueño/cota sin Content-Length; coste de memoria pendiente.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "const authz = await authorizePermiso(\"balance:crear\");"
+        },
+        {
+          "linea": 21,
+          "codigo": "const usuario = await getCurrentUser();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "8ea57a3e02fd2a4274efa5602391dc87735a0b92937d275b0eb1e8a72ec86f41",
+      "revisado": true
+    },
+    {
+      "id": 65,
+      "archivo": "src/app/api/balance/archivo-temporal/route.ts",
+      "ruta": "/api/balance/archivo-temporal",
+      "tipo": "route.ts",
+      "metodos": [
+        "POST"
+      ],
+      "guarda_real": "balance:crear; actor; dueño por helper",
+      "alcance_y_datos": "POST Zod discriminado iniciar/finalizar/cancelar; bytes y número de partes acotados.",
+      "resultado": "Archivos temporales privados y expiración; consumo previo al dueño revisado por root.",
+      "evidencia_guardas": [
+        {
+          "linea": 37,
+          "codigo": "const authz = await authorizePermiso(\"balance:crear\");"
+        },
+        {
+          "linea": 39,
+          "codigo": "const usuario = await getCurrentUser();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "0ed9bd34e1a81f815b0a54340205426338b79d89d552ded2fb2de6dd27a10944",
+      "revisado": true
+    },
+    {
+      "id": 66,
+      "archivo": "src/app/api/modulos/archivos-originales/[id]/route.ts",
+      "ruta": "/api/modulos/archivos-originales/[id]",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "actor; modulos_datos:ver global y por cliente",
+      "alcance_y_datos": "Metadata duradera, disponibilidad, SHA256 y tamaño antes de servir.",
+      "resultado": "CSP sandbox/no scripts + attachment seguro + no-store/nosniff; alcance ajeno devuelve 404.",
+      "evidencia_guardas": [
+        {
+          "linea": 19,
+          "codigo": "const actor = await getCurrentUser();"
+        },
+        {
+          "linea": 24,
+          "codigo": "const permiso = await authorizePermiso(\"modulos_datos:ver\");"
+        },
+        {
+          "linea": 50,
+          "codigo": "const alcance = await authorizePermiso(\"modulos_datos:ver\", {"
+        },
+        {
+          "linea": 97,
+          "codigo": "...CABECERAS_ARCHIVO_PRIVADO,"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 34,
+          "codigo": "const archivo = await prisma.archivoOriginalModulo.findUnique({"
+        }
+      ],
+      "sha256_fuente": "7af0b2fb4ad3464915b8b01c09ec2deb77ae6446e2d4aff21b5b958d42754c6d",
+      "revisado": true
+    },
+    {
+      "id": 67,
+      "archivo": "src/app/api/modulos/marcas/soportes/[id]/route.ts",
+      "ruta": "/api/modulos/marcas/soportes/[id]",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "actor y modulos_datos:ver por cliente de marca",
+      "alcance_y_datos": "Alcance antes de descargar objeto; MIME del registro validado en subida.",
+      "resultado": "CSP sandbox/no scripts + nombre seguro + no-store/nosniff; posible oráculo 403 vs 404 de baja prioridad.",
+      "evidencia_guardas": [
+        {
+          "linea": 23,
+          "codigo": "const actor = await getCurrentUser();"
+        },
+        {
+          "linea": 43,
+          "codigo": "const autorizado = await authorizePermiso(\"modulos_datos:ver\", { clientId: soporte.marca.clienteId });"
+        },
+        {
+          "linea": 54,
+          "codigo": "...CABECERAS_ARCHIVO_PRIVADO,"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 32,
+          "codigo": "const soporte = await prisma.adjuntoMarcaCruce.findUnique({"
+        }
+      ],
+      "sha256_fuente": "7ab028d801368a27ca8e224dd91da4e47133acc5b121d5a3cc9a64c884039341",
+      "revisado": true
+    },
+    {
+      "id": 68,
+      "archivo": "src/app/api/modulos/patrones/muestras/[id]/route.ts",
+      "ruta": "/api/modulos/patrones/muestras/[id]",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "actor; modulos_datos:crear; origen si no aprobada",
+      "alcance_y_datos": "Muestra compartida al aprobar, original privado nunca usa esta ruta; integridad registrada verificada.",
+      "resultado": "CSP sandbox/no scripts + attachment seguro + no-store/nosniff. Compartición es funcional, no IDOR.",
+      "evidencia_guardas": [
+        {
+          "linea": 23,
+          "codigo": "const actor = await getCurrentUser();"
+        },
+        {
+          "linea": 25,
+          "codigo": "const permiso = await authorizePermiso(\"modulos_datos:crear\");"
+        },
+        {
+          "linea": 41,
+          "codigo": "const alcance = await authorizePermiso(\"modulos_datos:crear\", { clientId: version.clienteOrigenId, modo: \"lectura\" });"
+        },
+        {
+          "linea": 62,
+          "codigo": "...CABECERAS_ARCHIVO_PRIVADO,"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 35,
+          "codigo": "const version = await prisma.versionPatronArchivoModulo.findUnique({"
+        }
+      ],
+      "sha256_fuente": "e8b922e1b3a084461e48c34005fd0c9991a470faf249f194e0430067adfffde9",
+      "revisado": true
+    },
+    {
+      "id": 69,
+      "archivo": "src/app/api/novedades/reporte-pdf/route.ts",
+      "ruta": "/api/novedades/reporte-pdf",
+      "tipo": "route.ts",
+      "metodos": [
+        "POST"
+      ],
+      "guarda_real": "novedades:ver",
+      "alcance_y_datos": "POST HTML acotado; mismo renderizador aislado sin JS/red.",
+      "resultado": "PDF attachment, nombre por slug y no-store.",
+      "evidencia_guardas": [
+        {
+          "linea": 29,
+          "codigo": "const authz = await authorizePermiso(\"novedades:ver\");"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "d41d19a4dbb936d02c740cf59b7654be472e901287aa513b6139d745c8478de4",
+      "revisado": true
+    },
+    {
+      "id": 70,
+      "archivo": "src/app/api/registro-acceso/route.ts",
+      "ruta": "/api/registro-acceso",
+      "tipo": "route.ts",
+      "metodos": [
+        "POST"
+      ],
+      "guarda_real": "actor vigente",
+      "alcance_y_datos": "POST ruta acotada 512; telemetría propia, no respuestas de negocio.",
+      "resultado": "Sin cuota específica: posible ruido autenticado, pendiente si se prioriza abuso.",
+      "evidencia_guardas": [
+        {
+          "linea": 23,
+          "codigo": "// Solo se registra navegación de sesiones válidas (getCurrentUser aplica la"
+        },
+        {
+          "linea": 25,
+          "codigo": "const user = await getCurrentUser();"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "b9ea1c19f8ef4975f1e82f4c52f53b6120431f7751ec3c6c4958ae76a6754e59",
+      "revisado": true
+    },
+    {
+      "id": 71,
+      "archivo": "src/app/api/soporte/adjuntos/[id]/route.ts",
+      "ruta": "/api/soporte/adjuntos/[id]",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "actor; soporte:ver; público exige soporte:administrar",
+      "alcance_y_datos": "Internos compartidos intencionalmente; públicos ocultos a no-admin.",
+      "resultado": "R03 corregido: SVG activo aislado con CSP sandbox, sin scripts; no-store y nombre CRLF seguro.",
+      "evidencia_guardas": [
+        {
+          "linea": 17,
+          "codigo": "const actor = await getCurrentUser();"
+        },
+        {
+          "linea": 27,
+          "codigo": "authorizePermiso(\"soporte:ver\"),"
+        },
+        {
+          "linea": 28,
+          "codigo": "authorizePermiso(\"soporte:administrar\"),"
+        },
+        {
+          "linea": 56,
+          "codigo": "...CABECERAS_ARCHIVO_PRIVADO,"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 32,
+          "codigo": "const adjunto = await prisma.supportTicketAttachment.findUnique({"
+        }
+      ],
+      "sha256_fuente": "4f1e77ad8b3a8c9f49c7f5035b3c60e95d181c3f2460ef59c3ba4b943c38c650",
+      "revisado": true
+    },
+    {
+      "id": 72,
+      "archivo": "src/app/api/usuarios/[id]/foto/route.ts",
+      "ruta": "/api/usuarios/[id]/foto",
+      "tipo": "route.ts",
+      "metodos": [
+        "GET"
+      ],
+      "guarda_real": "actor vigente",
+      "alcance_y_datos": "Avatares visibles a usuarios internos por diseño; carga solo raster validado por firma.",
+      "resultado": "Defensa CSP sandbox/nosniff/no-store; clave de almacén no sale al cliente.",
+      "evidencia_guardas": [
+        {
+          "linea": 16,
+          "codigo": "const actor = await getCurrentUser();"
+        },
+        {
+          "linea": 41,
+          "codigo": "...CABECERAS_ARCHIVO_PRIVADO,"
+        }
+      ],
+      "evidencia_consultas": [
+        {
+          "linea": 25,
+          "codigo": "const usuario = await prisma.user.findUnique({"
+        }
+      ],
+      "sha256_fuente": "9a009186cb7a63b2caf77ccbf2bd59a82cfcd6ec7af575579827c6a1e959b204",
+      "revisado": true
+    },
+    {
+      "id": 73,
+      "archivo": "src/app/cambiar-contrasena/page.tsx",
+      "ruta": "/cambiar-contrasena",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "verifySession",
+      "alcance_y_datos": "Pantalla de cambio propio fuera de app para evitar loop.",
+      "resultado": "Mutación auditada aparte.",
+      "evidencia_guardas": [
+        {
+          "linea": 5,
+          "codigo": "await verifySession(); // exige sesión válida; no está bajo (app), así que no hay loop de redirección"
+        }
+      ],
+      "evidencia_consultas": [],
+      "sha256_fuente": "02237740f286d24d3428b9e0b91b714007a0592b6244a046a13815ba9125f4ab",
+      "revisado": true
+    },
+    {
+      "id": 74,
+      "archivo": "src/app/layout.tsx",
+      "ruta": "/",
+      "tipo": "layout.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Público, sin datos privados",
+      "alcance_y_datos": "Metadatos, fuentes y proveedores visuales.",
+      "resultado": "No requiere auth al no exponer negocio.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "c5f3fe28099972561b3f93e87e873ebd2bde864fe2c0949b5482b98351edb44a",
+      "revisado": true
+    },
+    {
+      "id": 75,
+      "archivo": "src/app/login/page.tsx",
+      "ruta": "/login",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Público",
+      "alcance_y_datos": "Formulario login, sin datos de negocio.",
+      "resultado": "Rate-limit/login auditados por root.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "033f88ff955595bc3065f6a16540c287686e7ff8a571b91f94629684140dc679",
+      "revisado": true
+    },
+    {
+      "id": 76,
+      "archivo": "src/app/page.tsx",
+      "ruta": "/",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Redirección fija a dashboard",
+      "alcance_y_datos": "Sin datos propios; destino protegido.",
+      "resultado": "Sin redirección abierta.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "832b647cd752da7f0ad0313ca426a04bfd851d972467bb003294a99b4caefde7",
+      "revisado": true
+    },
+    {
+      "id": 77,
+      "archivo": "src/app/sesion-expirada/route.ts",
+      "ruta": "/sesion-expirada",
+      "tipo": "route.ts",
+      "metodos": [],
+      "guarda_real": "Público GET",
+      "alcance_y_datos": "Borra cookie y redirige a login fijo.",
+      "resultado": "Logout inducible vía navegación; bajo impacto, sin datos ni redirección libre.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "85e29a451134ad1f39ebc2cfb5463b811c25698fdc9f312954f14e7d08efdf97",
+      "revisado": true
+    },
+    {
+      "id": 78,
+      "archivo": "src/app/soporte/layout.tsx",
+      "ruta": "/soporte",
+      "tipo": "layout.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Público, sin datos privados",
+      "alcance_y_datos": "Metadatos del portal público.",
+      "resultado": "Autorización de seguimiento en página destino.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "9a0787039dfaaa382e003834fa258d9a22bac2a496f44c4e6a09d4512ad664e0",
+      "revisado": true
+    },
+    {
+      "id": 79,
+      "archivo": "src/app/soporte/page.tsx",
+      "ruta": "/soporte",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Público",
+      "alcance_y_datos": "Formulario de ingreso de ticket; no listado de tickets ni configuración secreta.",
+      "resultado": "Cuota antispam implementada por agente acciones en mutación.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [],
+      "sha256_fuente": "1b8b78798c106892d9606fb4565cfd3cc601eeba3050d8ad47ca7ba31b4920f0",
+      "revisado": true
+    },
+    {
+      "id": 80,
+      "archivo": "src/app/soporte/tickets/[codigo]/page.tsx",
+      "ruta": "/soporte/tickets/[codigo]",
+      "tipo": "page.tsx",
+      "metodos": [
+        "render"
+      ],
+      "guarda_real": "Token fuerte validado y comparado por hash",
+      "alcance_y_datos": "Solo ticket del token, incluido enlace legado; estado/historial curado; sin adjuntos ni contactos privados.",
+      "resultado": "Acceso público por capacidad de token intencional, no IDOR por código.",
+      "evidencia_guardas": [],
+      "evidencia_consultas": [
+        {
+          "linea": 42,
+          "codigo": "const ticket = await prisma.supportTicket.findFirst({"
+        }
+      ],
+      "sha256_fuente": "29e509eeda3d41b3da4b78364f5cfbe0384d8b792eef11e7ea9f5a08287ebc3b",
+      "revisado": true
+    }
+  ]
+}

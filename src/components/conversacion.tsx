@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
 import { etiquetaEntidad } from "@/lib/comentarios";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { confirmarDeMarca } from "@/components/controles-marca";
 import {
   editarComentario,
   eliminarComentario,
@@ -152,7 +153,7 @@ export default function Conversacion({
     <div className={`flex flex-col rounded-lg border border-ink-150 bg-white ${className}`}>
       <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
         <Icon name="msg" size={15} />
-        <h3 className="text-[13px] font-semibold text-ink-800">
+        <h3 className="text-[13px] font-semibold text-navy-800">
           {titulo ?? `Conversación · ${etiquetaEntidad(tipo)} #${entityId}`}
         </h3>
         {comentarios.length > 0 && (
@@ -234,7 +235,7 @@ export default function Conversacion({
             <button
               onClick={enviar}
               disabled={!text.trim() || enviando}
-              className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Icon name="send" size={14} />
               {enviando ? <EstadoProcesando>Enviando</EstadoProcesando> : "Enviar"}
@@ -283,8 +284,8 @@ function Mensaje({
       notifySuccess("Comentario actualizado.");
     });
   };
-  const eliminar = () => {
-    if (ocupado || !confirm("¿Eliminar este comentario? No se puede deshacer.")) return;
+  const eliminar = async () => {
+    if (ocupado || !(await confirmarDeMarca({ titulo: "Eliminar comentario", mensaje: "¿Eliminar este comentario? No se puede deshacer.", accion: "Eliminar" }))) return;
     startAccion(async () => {
       const r = await eliminarComentario({ id: c.id });
       if (!r.ok) { notifyError(r.message); return; }
@@ -314,7 +315,7 @@ function Mensaje({
                 disabled={ocupado}
                 title="Editar el comentario"
                 aria-label="Editar el comentario"
-                className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-50"
+                className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-60"
               >
                 <Icon name="edit" size={13} />
               </button>
@@ -324,7 +325,7 @@ function Mensaje({
                 disabled={ocupado}
                 title="Eliminar el comentario"
                 aria-label="Eliminar el comentario"
-                className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
               >
                 <Icon name="trash" size={13} />
               </button>
@@ -346,7 +347,7 @@ function Mensaje({
                 type="button"
                 onClick={() => setEditando(false)}
                 disabled={ocupado}
-                className="rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+                className="rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
               >
                 Cancelar
               </button>
@@ -354,7 +355,7 @@ function Mensaje({
                 type="button"
                 onClick={guardar}
                 disabled={ocupado || !borrador.trim() || borrador.trim() === c.body}
-                className="rounded-md bg-navy-700 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md bg-navy-700 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {ocupado ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
               </button>

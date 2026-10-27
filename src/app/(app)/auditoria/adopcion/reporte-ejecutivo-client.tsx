@@ -20,6 +20,8 @@ import {
   htmlConEstilosEnLinea,
 } from "@/lib/correo/preparar-html-correo";
 import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
+import { absolutizarRecursosMarca, prepararMarcaParaCorreo } from "@/lib/marca/html";
+import { FUENTE_CORREO, NEUTRO } from "@/lib/marca/paleta";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import type {
   EnvioReportePrevio,
@@ -83,15 +85,15 @@ type MetaReporte = {
 type CanalEnvio = "correo" | "pdf" | "html";
 
 const BTN_PRIMARIO =
-  "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_REPORTE_PRINCIPAL =
-  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md shadow-navy-900/10 ring-1 ring-navy-900/10 transition hover:bg-navy-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
+  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md ring-1 ring-ink-150 transition hover:bg-navy-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_ATAJO =
   "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
 const BTN_ATAJO_ACTIVO =
-  "inline-flex items-center gap-1 rounded-md border border-navy-700 bg-navy-700 px-2.5 py-1 text-[11.5px] font-semibold text-white shadow-sm transition hover:bg-navy-800";
+  "inline-flex items-center gap-1 rounded-md border border-navy-700 bg-navy-700 px-2.5 py-1 text-[11.5px] font-semibold text-white shadow-sm transition hover:bg-navy-600";
 
 function fechaLarga(iso: string): string {
   const fecha = fmtDateTimeLong(iso);
@@ -123,7 +125,9 @@ function haceDias(n: number): { desde: string; hasta: string } {
 }
 
 function descargarHtml(reporte: ReporteEjecutivoUso): void {
-  const blob = new Blob([reporte.html], { type: "text/html;charset=utf-8" });
+  // El archivo se abre fuera de la plataforma: el logotipo y Lato con dirección absoluta.
+  const html = absolutizarRecursosMarca(reporte.html, window.location.origin);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -153,11 +157,14 @@ function descargarBlob(blob: Blob, nombre: string): void {
  * embebido (Outlook de escritorio sí lo respeta).
  */
 function prepararHtmlCorreo(htmlCompleto: string): string {
+  let html: string;
   try {
-    return htmlConEstilosEnLinea(htmlCompleto);
+    html = htmlConEstilosEnLinea(htmlCompleto);
   } catch {
-    return htmlCorreoConEstilosEmbebidos(htmlCompleto);
+    html = htmlCorreoConEstilosEmbebidos(htmlCompleto);
   }
+  // En el correo el manual pide Arial (§2.2) y el logotipo necesita una dirección absoluta.
+  return prepararMarcaParaCorreo(html, window.location.origin);
 }
 
 function htmlCorreoConEstilosEmbebidos(htmlCompleto: string): string {
@@ -166,7 +173,7 @@ function htmlCorreoConEstilosEmbebidos(htmlCompleto: string): string {
   const cuerpoMatch = htmlCompleto.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   const cuerpo = hacerBarrasCompatiblesCorreo((cuerpoMatch?.[1] ?? htmlCompleto).trim());
 
-  return `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a2330;font-size:14px;line-height:1.5;">
+  return `<div style="font-family:${FUENTE_CORREO};color:${NEUTRO.k90};font-size:14px;line-height:1.5;">
 ${estilos ? `<style type="text/css">${estilos}</style>` : ""}
 ${cuerpo}
 </div>`;
@@ -551,7 +558,7 @@ export function ReporteEjecutivoClient({
                   {periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
                 </span>
               </div>
-              <h2 className="mt-1 font-serif text-lg text-ink-900">
+              <h2 className="mt-1 text-lg text-navy-800">
                 Resumen de uso y avances
               </h2>
               <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
@@ -598,7 +605,7 @@ export function ReporteEjecutivoClient({
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
           <div className="min-w-0">
-            <h2 className="text-[13px] font-semibold text-ink-800">Reportes generados</h2>
+            <h2 className="text-[13px] font-semibold text-navy-800">Reportes generados</h2>
             <p className="text-[11.5px] text-ink-500">
               Historial de la plataforma. Al borrar uno, el período sugerido y el comparativo de uso
               vuelven al reporte anterior.
@@ -611,7 +618,7 @@ export function ReporteEjecutivoClient({
                 <button
                   type="button"
                   onClick={borrarTodosGenerados}
-                  className="rounded-md border border-err-500/40 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100/70"
+                  className="rounded-md border border-err-200 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100"
                 >
                   Sí, vaciar
                 </button>
@@ -660,7 +667,7 @@ export function ReporteEjecutivoClient({
                     <button
                       type="button"
                       onClick={() => borrarGenerado(reporte.id)}
-                      className="rounded-md border border-err-500/40 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100/70"
+                      className="rounded-md border border-err-200 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100"
                     >
                       Sí
                     </button>
@@ -691,7 +698,7 @@ export function ReporteEjecutivoClient({
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
           <div className="min-w-0">
-            <h2 className="text-[13px] font-semibold text-ink-800">Reportes enviados</h2>
+            <h2 className="text-[13px] font-semibold text-navy-800">Reportes enviados</h2>
             <p className="text-[11.5px] text-ink-500">
               Control de lo ya comunicado al cliente. Lo registrado aquí no se vuelve a proponer como
               avance nuevo.
@@ -779,7 +786,7 @@ export function ReporteEjecutivoClient({
             </label>
           </div>
           <div>
-            <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Período de uso</h3>
+            <h3 className="mb-2 text-[12.5px] font-semibold text-navy-800">Período de uso</h3>
             <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Atajos de período">
               {(
                 [
@@ -832,7 +839,7 @@ export function ReporteEjecutivoClient({
           </div>
 
           <div>
-            <h3 className="mb-1 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
+            <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">Novedades a incluir</h3>
             <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
               Lo que ya marcaste como enviado no se vuelve a proponer. Las cifras se conservan al recuperar un reporte guardado; solo se recalculan si solicitas actualizarlo.
             </p>
@@ -840,7 +847,7 @@ export function ReporteEjecutivoClient({
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
                   modoVersiones === "nuevas"
-                    ? "border-navy-600 bg-navy-700/5"
+                    ? "border-navy-600 bg-navy-50"
                     : "border-ink-150 hover:bg-ink-50"
                 }`}
               >
@@ -874,7 +881,7 @@ export function ReporteEjecutivoClient({
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
                   modoVersiones === "publicadas"
-                    ? "border-navy-600 bg-navy-700/5"
+                    ? "border-navy-600 bg-navy-50"
                     : "border-ink-150 hover:bg-ink-50"
                 }`}
               >
@@ -899,7 +906,7 @@ export function ReporteEjecutivoClient({
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
                   modoVersiones === "seleccion"
-                    ? "border-navy-600 bg-navy-700/5"
+                    ? "border-navy-600 bg-navy-50"
                     : "border-ink-150 hover:bg-ink-50"
                 }`}
               >
@@ -1051,7 +1058,7 @@ export function ReporteEjecutivoClient({
               {meta.porcentajeAdopcion != null ? ` · ${meta.porcentajeAdopcion}% adopción` : ""}
             </span>
           </div>
-          <h3 className="mt-2 font-serif text-xl text-ink-900">{reporte.titulo}</h3>
+          <h3 className="mt-2 text-xl font-light text-navy-800">{reporte.titulo}</h3>
           <p className="mt-1 text-[13px] text-ink-500">
             Vista previa del documento. Cópialo en formato correo, o descárgalo en HTML o PDF para
             enviarlo al cliente.

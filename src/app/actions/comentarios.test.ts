@@ -87,6 +87,7 @@ describe("editar y eliminar comentarios", () => {
     expect(mocks.tx.commentMention.createMany).toHaveBeenCalledWith({ data: [{ commentId: 409, userId: 4 }], skipDuplicates: true });
     expect(mocks.tx.comment.update.mock.calls[0][0].data).toMatchObject({ body: "Saldo en la 210510 @Luisa Gómez", editedAt: expect.any(Date) });
     expect(mocks.notificationCreateMany.mock.calls[0][0].data).toHaveLength(1);
+    expect(mocks.notificationCreateMany.mock.calls[0][0].data[0]).toMatchObject({ userId: 4, clientId: 122, entityType: "modulos_datos", entityId: 62 });
     expect(mocks.notificationCreateMany.mock.calls[0][0].data[0]).not.toHaveProperty("time");
     expect(mocks.schedule).toHaveBeenCalledWith(expect.objectContaining({ usuarioIds: [4], clienteId: 122, actorId: 7, permiso: "modulos_datos:ver" }));
     expect(mocks.schedule.mock.calls[0][0].texto).not.toContain("210510");

@@ -18,7 +18,8 @@ export type AlcanceAviso = {
   actorId?: number | null;
 };
 
-export async function destinatariosAviso(input: AlcanceAviso): Promise<string[]> {
+/** Identidades autorizadas, compartidas por correo y campana. No exige tener email válido. */
+export async function usuariosDestinatariosAviso(input: AlcanceAviso): Promise<{ id: number; email: string }[]> {
   if (input.clienteId === null || (!input.usuarioIds && !input.clienteId)) return [];
   let ids = input.usuarioIds;
   if (!ids) {
@@ -44,9 +45,9 @@ export async function destinatariosAviso(input: AlcanceAviso): Promise<string[]>
     prisma.user.findMany({ where: { id: { in: ids }, active: true }, select: { id: true, email: true, role: true } }),
     getMatriz(),
   ]);
-  const correos: string[] = [];
+  const destinatarios: { id: number; email: string }[] = [];
   for (const usuario of usuarios) {
-    if (!tienePermiso(matriz, usuario.role, input.permiso) || !z.email().safeParse(usuario.email).success) continue;
+    if (!tienePermiso(matriz, usuario.role, input.permiso)) continue;
     if (!(await moduloDisponibleParaRol(usuario.role, moduloDelPermiso(input.permiso)))) continue;
     if (input.permisoRuta && (!tienePermiso(matriz, usuario.role, input.permisoRuta)
       || !(await moduloDisponibleParaRol(usuario.role, moduloDelPermiso(input.permisoRuta))))) continue;
@@ -54,7 +55,12 @@ export async function destinatariosAviso(input: AlcanceAviso): Promise<string[]>
       const { asignaciones } = await getAsignacionesUsuario(usuario.id, usuario.role);
       if (!alcanzaCliente(asignaciones, usuario.id, input.clienteId, input.modoAlcance ?? "lectura")) continue;
     }
-    correos.push(usuario.email.toLowerCase());
+    destinatarios.push({ id: usuario.id, email: usuario.email });
   }
-  return [...new Set(correos)];
+  return destinatarios;
+}
+
+export async function destinatariosAviso(input: AlcanceAviso): Promise<string[]> {
+  const usuarios = await usuariosDestinatariosAviso(input);
+  return [...new Set(usuarios.filter((u) => z.email().safeParse(u.email).success).map((u) => u.email.toLowerCase()))];
 }

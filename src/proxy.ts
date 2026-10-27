@@ -42,6 +42,8 @@ export default async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$).*)",
+    // `marca/`: logotipos y fuentes del Manual de Marca (public/marca). Los documentos
+    // que la plataforma genera los cargan desde un iframe aislado o fuera de la sesión.
+    "/((?!api|_next/static|_next/image|favicon.ico|marca/|.*\\.svg$|.*\\.png$).*)",
   ],
 };

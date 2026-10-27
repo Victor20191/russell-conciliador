@@ -10,7 +10,7 @@ export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const ARROW_BUTTON_CLASS =
   "inline-grid h-9 w-9 place-items-center rounded-md border border-ink-200 bg-white text-ink-500 shadow-sm transition hover:border-ink-300 hover:bg-ink-50 hover:text-ink-800 disabled:cursor-not-allowed disabled:border-ink-150 disabled:bg-ink-50 disabled:text-ink-400 disabled:shadow-none";
 const PAGE_BUTTON_CLASS =
-  "inline-grid h-9 min-w-9 place-items-center rounded-md px-2 font-mono text-[12px] font-semibold transition";
+  "inline-grid h-9 min-w-9 place-items-center rounded-md px-2 tabular-nums text-[12px] font-semibold transition";
 const ACTIVE_PAGE_CLASS =
   "bg-navy-700 text-white shadow-sm";
 const INACTIVE_PAGE_CLASS =

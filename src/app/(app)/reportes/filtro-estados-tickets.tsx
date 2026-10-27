@@ -54,7 +54,7 @@ export default function FiltroEstadosTickets({
         className={`inline-flex h-9 items-center gap-2 rounded-md border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 ${abierto ? "border-ink-300 bg-ink-50 text-navy-700" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}>
         <Icon name="filter" size={13} />
         Estados
-        <span className="rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[10px] text-ink-500">{cantidad}/{ESTADOS_TICKET.length}</span>
+        <span className="rounded bg-ink-100 px-1.5 py-0.5 tabular-nums text-[10px] text-ink-500">{cantidad}/{ESTADOS_TICKET.length}</span>
         {mostrarTodos && <span className="text-[10px] text-blue-600">Temporal</span>}
         <Icon name="chev-d" size={12} className={`transition-transform ${abierto ? "rotate-180" : ""}`} />
       </button>

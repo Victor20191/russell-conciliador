@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
 import { fechaColombiaISO, fechaHoraColombiaISO } from "@/lib/fecha-hora";
+import { celdaCsv } from "@/lib/export/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +17,6 @@ const COLS = [
   "partidaDobleDiff", "ecuacionDiff", "manualOmitidas", "manualReparentadas", "manualDesacopladas",
   "manualReclasificadas", "diagnosticoIa", "confianza",
 ] as const;
-
-const csv = (v: unknown): string => {
-  const s = v == null ? "" : String(v);
-  return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 
 /** Exporta el dataset de medición de lectura a CSV. Mismo permiso que el tablero. */
 export async function GET() {
@@ -45,7 +41,7 @@ export async function GET() {
       diagnosticoIa: f.diagnosticoIa == null ? "" : JSON.stringify(f.diagnosticoIa),
       confianza: h.confianza,
     };
-    lineas.push(COLS.map((c) => csv(fila[c])).join(";"));
+    lineas.push(COLS.map((c) => celdaCsv(fila[c])).join(";"));
   }
   const body = "﻿" + lineas.join("\r\n"); // BOM para que Excel lea UTF-8
 

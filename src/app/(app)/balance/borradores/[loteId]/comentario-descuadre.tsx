@@ -63,7 +63,7 @@ export function ComentarioDescuadre({
   return (
     <section
       aria-labelledby="borrador-descuadrado"
-      className="overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"
+      className="overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-white shadow-sm"
     >
       {motivos.map((m) => (
         <input
@@ -75,7 +75,7 @@ export function ComentarioDescuadre({
         />
       ))}
       <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800 shadow-sm">
           <Icon name="warn" size={18} stroke={2} />
         </span>
         <div className="min-w-0 flex-1">
@@ -91,7 +91,7 @@ export function ComentarioDescuadre({
             {lineas.map((l) => (
               <li key={l.tipo} className="flex flex-wrap items-center gap-1.5" title={l.titulo}>
                 <span className="rounded border border-warn-200 bg-white px-2 py-0.5 text-[10.5px] font-medium text-warn-700">
-                  ✕ {l.texto}
+                  × {l.texto}
                 </span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
@@ -146,7 +146,7 @@ export function ComentarioDescuadre({
               type="button"
               onClick={guardar}
               disabled={!algunoEnBorrador}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {lineas.length === 1 ? "Guardar comentario" : "Guardar comentarios"}
             </button>
@@ -154,8 +154,8 @@ export function ComentarioDescuadre({
         }
       >
         <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-[#fffaf0] px-3 py-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white">
+          <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-white px-3 py-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800">
               <Icon name="warn" size={17} stroke={2} />
             </span>
             <p className="min-w-0 text-[12px] leading-relaxed text-ink-600">

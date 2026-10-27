@@ -18,6 +18,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { fmtDate } from "@/lib/format";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
+import { confirmarDeMarca } from "@/components/controles-marca";
 import {
   MODOS_CLASIFICADOR,
   MODOS_SUBTOTALES,
@@ -99,8 +100,8 @@ export function AjustesCargaModuloModal({
 
   const [eliminando, startEliminar] = useTransition();
   const [eliminandoObjetivo, setEliminandoObjetivo] = useState<number | null>(null);
-  const eliminar = (id: number) => {
-    if (!confirm(`¿Eliminar este perfil? La próxima carga de ${moduloLabel.toLowerCase()} con ese formato volverá a sugerir el mapeo de columnas desde cero.`)) return;
+  const eliminar = async (id: number) => {
+    if (!(await confirmarDeMarca({ titulo: "Eliminar perfil", mensaje: `¿Eliminar este perfil? La próxima carga de ${moduloLabel.toLowerCase()} con ese formato volverá a sugerir el mapeo de columnas desde cero.`, accion: "Eliminar" }))) return;
     setEliminandoObjetivo(id);
     startEliminar(async () => {
       try {
@@ -163,7 +164,7 @@ export function AjustesCargaModuloModal({
           {/* ---- Perfiles de formato guardados ---- */}
           <section className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-ink-800">Patrones manuales guardados</h3>
+              <h3 className="text-[12.5px] font-semibold text-navy-800">Patrones manuales guardados</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
                 El mapeo de columnas de los archivos de {etiquetaModulo.toLowerCase()} que este cliente carga con «Archivo manual». Un
                 archivo nuevo con 80 % o más de coincidencia en los títulos <span className="font-semibold">se lee con el mismo mapeo</span>,
@@ -227,7 +228,7 @@ export function AjustesCargaModuloModal({
                               <span>{p.vecesUsado} {p.vecesUsado === 1 ? "uso" : "usos"}</span>
                               <span>Último uso: {fmtDate(p.ultimoUsoEn)}</span>
                               <span>Guardado: {fmtDate(p.guardadoEn)}{p.guardadoPor ? ` por ${p.guardadoPor}` : ""}</span>
-                              <span className="max-w-[280px] truncate font-mono" title={p.archivoEjemplo ?? undefined}>
+                              <span className="max-w-[280px] truncate tabular-nums" title={p.archivoEjemplo ?? undefined}>
                                 Archivo: {p.archivoEjemplo ?? "sin ejemplo"}
                               </span>
                             </span>
@@ -238,7 +239,7 @@ export function AjustesCargaModuloModal({
                           <button
                             type="button"
                             onClick={() => setPerfilAbierto((actual) => actual === p.id ? null : p.id)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-200"
                           >
                             <Icon name={abierto ? "eye-off" : "eye"} size={13} />
                             {abierto
@@ -254,7 +255,7 @@ export function AjustesCargaModuloModal({
                               onClick={() => eliminar(p.id)}
                               title="Eliminar perfil (la próxima carga volverá a sugerir el mapeo)"
                               aria-label={`Eliminar formato ${indice + 1}`}
-                              className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                              className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
                             >
                               {eliminandoObjetivo === p.id ? (
                                 <EstadoProcesando etiqueta="Eliminando perfil" />
@@ -267,7 +268,7 @@ export function AjustesCargaModuloModal({
                       </div>
 
                       {abierto && (
-                        <div id={`perfil-carga-modulo-${p.id}`} className="border-t border-blue-100 bg-blue-50/20 px-3.5 py-3.5">
+                        <div id={`perfil-carga-modulo-${p.id}`} className="border-t border-blue-100 bg-blue-100 px-3.5 py-3.5">
                           <PerfilCargaModuloDetalle
                             key={`${p.id}:${p.actualizadoEn}:${modo}`}
                             perfil={p}
@@ -289,7 +290,7 @@ export function AjustesCargaModuloModal({
           {/* ---- Preferencias por defecto ---- */}
           <section className="flex flex-col gap-2 border-t border-ink-100 pt-3">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-ink-800">Preferencias de carga</h3>
+              <h3 className="text-[12.5px] font-semibold text-navy-800">Preferencias de carga</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
                 Se aplican automáticamente al elegir este cliente en <span className="font-semibold">Módulos › {etiquetaModulo}</span>:
                 la hoja preferida queda preseleccionada y las notas aparecen como aviso al cargar y al revisar el borrador. «Auto» deja que la lectura decida.
@@ -446,7 +447,7 @@ function PerfilCargaModuloDetalle({
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-blue-700">
             Estructura completa del formato
           </div>
-          <h4 className="mt-0.5 font-serif text-lg text-ink-900">Así leerá la plataforma este archivo de {moduloLabel.toLowerCase()}</h4>
+          <h4 className="mt-0.5 text-lg text-navy-800">Así leerá la plataforma este archivo de {moduloLabel.toLowerCase()}</h4>
           <p className="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-ink-500">
             Cada fila muestra el dato del módulo y la columna exacta que se tomará. “No se lee” significa que
             este formato no trae ese dato; si el módulo sabe derivarlo (p. ej. valor total = cantidad × unitario), lo calcula.
@@ -513,7 +514,7 @@ function PerfilCargaModuloDetalle({
                           )}
                         </span>
                       </td>
-                      <td className={`px-3 py-2 font-mono text-[10.5px] ${usada || global ? "text-ink-700" : "text-ink-400"}`}>
+                      <td className={`px-3 py-2 tabular-nums text-[10.5px] ${usada || global ? "text-ink-700" : "text-ink-400"}`}>
                         {global ? "Sin columna · un solo grupo global" : ubicacionColumna(numero)}
                       </td>
                       <td className="px-3 py-2 text-ink-500">{TIPO_LEGIBLE[rol.tipo] ?? rol.tipo}</td>
@@ -553,14 +554,14 @@ function PerfilCargaModuloDetalle({
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-100 pt-2 text-[10.5px] text-ink-400">
-            <span>Identificador del formato: <span className="font-mono">{perfil.huella}</span></span>
+            <span>Identificador del formato: <span className="tabular-nums">{perfil.huella}</span></span>
             <span>Actualizado: {fmtDate(perfil.actualizadoEn)}</span>
             <span>Los cambios aplican a cargas futuras; no modifican datos ya cargados.</span>
           </div>
         </>
       ) : (
         <div className="flex flex-col gap-4 rounded-lg border border-blue-200 bg-white p-3.5">
-          <div className="flex items-start gap-2 rounded-md border border-warn-200 bg-warn-100/60 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
+          <div className="flex items-start gap-2 rounded-md border border-warn-200 bg-warn-100 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
             <Icon name="info" size={14} className="mt-0.5 shrink-0" />
             <p>
               Estás cambiando cómo se interpretarán las <span className="font-semibold">próximas cargas</span> de
@@ -736,7 +737,7 @@ function PerfilCargaModuloDetalle({
               type="button"
               disabled={guardando}
               onClick={cancelar}
-              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
             >
               Cancelar
             </button>

@@ -78,7 +78,7 @@ export function ModalCuentasSinGuardar({
             type="button"
             onClick={onSalirSinGuardar}
             disabled={guardando}
-            className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+            className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
           >
             Salir sin guardar
           </button>

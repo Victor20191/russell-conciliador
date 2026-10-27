@@ -1,0 +1,695 @@
+[
+  {
+    "file": "src/app/(app)/auditoria/accesos/page.tsx",
+    "route": "/auditoria/accesos",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/auditoria/adopcion/page.tsx",
+    "route": "/auditoria/adopcion",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/auditoria/ia/page.tsx",
+    "route": "/auditoria/ia",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/auditoria/lectura/export/route.ts",
+    "route": "/auditoria/lectura/export",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/auditoria/lectura/page.tsx",
+    "route": "/auditoria/lectura",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/auditoria/page.tsx",
+    "route": "/auditoria",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/[id]/diff/page.tsx",
+    "route": "/balance/1/diff",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/[id]/export/route.ts",
+    "route": "/balance/1/export",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/[id]/page.tsx",
+    "route": "/balance/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/[id]/terceros/page.tsx",
+    "route": "/balance/1/terceros",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/borradores/[loteId]/export/route.ts",
+    "route": "/balance/borradores/00000000-0000-4000-8000-000000000000/export",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/borradores/[loteId]/page.tsx",
+    "route": "/balance/borradores/00000000-0000-4000-8000-000000000000",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/borradores/page.tsx",
+    "route": "/balance/borradores",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/mapeo/page.tsx",
+    "route": "/balance/mapeo",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/balance/page.tsx",
+    "route": "/balance",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/conciliacion/en-proceso/page.tsx",
+    "route": "/conciliacion/en-proceso",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/conciliacion/nueva/page.tsx",
+    "route": "/conciliacion/nueva",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/conciliacion/resultados/[id]/page.tsx",
+    "route": "/conciliacion/resultados/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/conciliacion/resultados/page.tsx",
+    "route": "/conciliacion/resultados",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/clientes/exportar/route.ts",
+    "route": "/config/clientes/exportar",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/clientes/page.tsx",
+    "route": "/config/clientes",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/clientes/plantilla/route.ts",
+    "route": "/config/clientes/plantilla",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/conceptos-nomina/page.tsx",
+    "route": "/config/conceptos-nomina",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/conceptos-nomina/plantilla/route.ts",
+    "route": "/config/conceptos-nomina/plantilla",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/conexiones/page.tsx",
+    "route": "/config/conexiones",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/dian/page.tsx",
+    "route": "/config/dian",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/maestros/page.tsx",
+    "route": "/config/maestros",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/mapeo/exportar/route.ts",
+    "route": "/config/mapeo/exportar",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/mapeo/page.tsx",
+    "route": "/config/mapeo",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/mapeo-cliente/page.tsx",
+    "route": "/config/mapeo-cliente",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/modulos/page.tsx",
+    "route": "/config/modulos",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/parametros/page.tsx",
+    "route": "/config/parametros",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/perfiles-carga/[fuente]/page.tsx",
+    "route": "/config/perfiles-carga/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/perfiles-carga/page.tsx",
+    "route": "/config/perfiles-carga",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/permisos/page.tsx",
+    "route": "/config/permisos",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/prevalidador/[modulo]/page.tsx",
+    "route": "/config/prevalidador/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/prevalidador/page.tsx",
+    "route": "/config/prevalidador",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/prompts/page.tsx",
+    "route": "/config/prompts",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/publicacion-modulos/page.tsx",
+    "route": "/config/publicacion-modulos",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/reportes-ejecutivos/page.tsx",
+    "route": "/config/reportes-ejecutivos",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/soporte/[id]/page.tsx",
+    "route": "/config/soporte/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/soporte/page.tsx",
+    "route": "/config/soporte",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/config/usuarios/page.tsx",
+    "route": "/config/usuarios",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/dashboard/page.tsx",
+    "route": "/dashboard",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/dian/[periodId]/page.tsx",
+    "route": "/dian/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/dian/page.tsx",
+    "route": "/dian",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/estructura/page.tsx",
+    "route": "/estructura",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/[id]/export/route.ts",
+    "route": "/modulos/inv/1/export",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/[id]/page.tsx",
+    "route": "/modulos/inv/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/borradores/[loteId]/export/route.ts",
+    "route": "/modulos/inv/borradores/00000000-0000-4000-8000-000000000000/export",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/borradores/[loteId]/page.tsx",
+    "route": "/modulos/inv/borradores/00000000-0000-4000-8000-000000000000",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/borradores/page.tsx",
+    "route": "/modulos/inv/borradores",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/page.tsx",
+    "route": "/modulos/inv",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/patrones/[versionId]/page.tsx",
+    "route": "/modulos/inv/patrones/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/patrones/nueva/page.tsx",
+    "route": "/modulos/inv/patrones/nueva",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/modulos/[codigo]/patrones/page.tsx",
+    "route": "/modulos/inv/patrones",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/novedades/page.tsx",
+    "route": "/novedades",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/perfil/page.tsx",
+    "route": "/perfil",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/reportes/[id]/page.tsx",
+    "route": "/reportes/1",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/(app)/reportes/page.tsx",
+    "route": "/reportes",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/auditoria/reporte-ejecutivo/route.ts",
+    "route": "/api/auditoria/reporte-ejecutivo",
+    "method": "POST",
+    "status": 307,
+    "location": "/sesion-expirada",
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/auditoria/reporte-pdf/route.ts",
+    "route": "/api/auditoria/reporte-pdf",
+    "method": "POST",
+    "status": 307,
+    "location": "/sesion-expirada",
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/balance/archivo-temporal/[loteId]/[numero]/route.ts",
+    "route": "/api/balance/archivo-temporal/00000000-0000-4000-8000-000000000000/1",
+    "method": "PUT",
+    "status": 307,
+    "location": "/sesion-expirada",
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/balance/archivo-temporal/route.ts",
+    "route": "/api/balance/archivo-temporal",
+    "method": "POST",
+    "status": 307,
+    "location": "/sesion-expirada",
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/modulos/archivos-originales/[id]/route.ts",
+    "route": "/api/modulos/archivos-originales/1",
+    "method": "GET",
+    "status": 401,
+    "location": null,
+    "bytes": 13,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/modulos/marcas/soportes/[id]/route.ts",
+    "route": "/api/modulos/marcas/soportes/1",
+    "method": "GET",
+    "status": 401,
+    "location": null,
+    "bytes": 13,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/modulos/patrones/muestras/[id]/route.ts",
+    "route": "/api/modulos/patrones/muestras/1",
+    "method": "GET",
+    "status": 401,
+    "location": null,
+    "bytes": 13,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/novedades/reporte-pdf/route.ts",
+    "route": "/api/novedades/reporte-pdf",
+    "method": "POST",
+    "status": 307,
+    "location": "/sesion-expirada",
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/registro-acceso/route.ts",
+    "route": "/api/registro-acceso",
+    "method": "POST",
+    "status": 204,
+    "location": null,
+    "bytes": 0,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/soporte/adjuntos/[id]/route.ts",
+    "route": "/api/soporte/adjuntos/1",
+    "method": "GET",
+    "status": 401,
+    "location": null,
+    "bytes": 13,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/api/usuarios/[id]/foto/route.ts",
+    "route": "/api/usuarios/1/foto",
+    "method": "GET",
+    "status": 401,
+    "location": null,
+    "bytes": 13,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/cambiar-contrasena/page.tsx",
+    "route": "/cambiar-contrasena",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/login/page.tsx",
+    "route": "/login",
+    "method": "GET",
+    "status": 200,
+    "location": null,
+    "bytes": 14906,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/page.tsx",
+    "route": "/",
+    "method": "GET",
+    "status": 307,
+    "location": "/dashboard",
+    "bytes": 6496,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/sesion-expirada/route.ts",
+    "route": "/sesion-expirada",
+    "method": "GET",
+    "status": 307,
+    "location": "/login",
+    "bytes": 6,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/soporte/page.tsx",
+    "route": "/soporte",
+    "method": "GET",
+    "status": 200,
+    "location": null,
+    "bytes": 17552,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  },
+  {
+    "file": "src/app/soporte/tickets/[codigo]/page.tsx",
+    "route": "/soporte/tickets/inv",
+    "method": "GET",
+    "status": 404,
+    "location": null,
+    "bytes": 8123,
+    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  }
+]

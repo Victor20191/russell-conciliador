@@ -234,15 +234,15 @@ export default function PerfilesCargaClient({
                 <tr key={claveFila(r)} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                   <td className="px-4 py-2.5">
                     <div className="font-medium text-ink-800">{r.name}</div>
-                    <div className="flex flex-wrap gap-x-2 font-mono text-[11px] text-ink-400">
+                    <div className="flex flex-wrap gap-x-2 tabular-nums text-[11px] text-ink-400">
                       <span>{r.code}</span>
                       <span>NIT {r.nit}</span>
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-ink-600">{r.erpName ?? <span className="text-ink-400">Sin ERP</span>}</td>
-                  <td className="px-4 py-2.5 text-right font-mono tabular-nums text-ink-700">{r.perfiles}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">{r.perfiles}</td>
                   {esBalance && (
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums text-ink-700">{r.correcciones ?? 0}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">{r.correcciones ?? 0}</td>
                   )}
                   <td className="px-4 py-2.5">
                     <Chip
@@ -271,7 +271,7 @@ export default function PerfilesCargaClient({
                           ? "Editar formatos, correcciones y preferencias de este cliente"
                           : "Editar formatos y preferencias de este cliente"}
                         aria-label={`Editar la memoria de carga de ${r.fuenteLabel} de ${r.name}`}
-                        className={`${BOTON_ACCION} border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100`}
+                        className={`${BOTON_ACCION} border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-200`}
                       >
                         <Icon name="edit" size={14} />
                       </button>
@@ -280,7 +280,7 @@ export default function PerfilesCargaClient({
                         onClick={() => setBorrando(r)}
                         title={`Eliminar TODA la memoria de carga de ${r.fuenteLabel} de este cliente`}
                         aria-label={`Eliminar la memoria de carga de ${r.fuenteLabel} de ${r.name}`}
-                        className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
+                        className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-err-300 hover:bg-err-50 hover:text-err-700`}
                       >
                         <Icon name="trash" size={14} />
                       </button>
@@ -319,7 +319,7 @@ export default function PerfilesCargaClient({
               type="button"
               onClick={confirmarBorrado}
               disabled={enProceso}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md bg-err-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-err-400 disabled:opacity-60"
             >
               <Icon name="trash" size={13} />
               {enProceso ? "Borrando…" : "Borrar todo"}
@@ -332,7 +332,7 @@ export default function PerfilesCargaClient({
             <p>
               Se borrará <strong>toda</strong> la memoria de carga de{" "}
               <strong>{borrando.fuenteLabel}</strong> de{" "}
-              <strong>{borrando.name}</strong> <span className="font-mono text-[11px] text-ink-400">({borrando.code})</span>:
+              <strong>{borrando.name}</strong> <span className="tabular-nums text-[11px] text-ink-400">({borrando.code})</span>:
             </p>
             <ul className="flex flex-col gap-1 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px]">
               <li>· {borrando.perfiles} formato(s) memorizado(s)</li>
@@ -393,7 +393,7 @@ function Resumen({ etiqueta, valor, detalle }: { etiqueta: string; valor: number
   return (
     <div className="rounded-lg border border-ink-150 bg-white px-4 py-3 shadow-sm">
       <div className="text-[10.5px] font-semibold uppercase tracking-wider text-ink-400">{etiqueta}</div>
-      <div className="mt-1 font-serif text-2xl tabular-nums text-ink-900">{valor}</div>
+      <div className="mt-1 text-2xl font-light tabular-nums text-navy-800">{valor}</div>
       <div className="text-[11px] text-ink-400">{detalle}</div>
     </div>
   );

@@ -66,7 +66,7 @@ export function DescongelarBalanceButton({
             type="button"
             onClick={descongelar}
             disabled={pending || !valida}
-            className="inline-flex items-center gap-1.5 rounded-md bg-warn-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-warn-500 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-warn-500 px-3 py-2 text-[12.5px] font-semibold text-navy-800 hover:bg-warn-400 disabled:opacity-60"
           >
             {pending ? "Abriendo…" : "Abrir balance"}
           </button>

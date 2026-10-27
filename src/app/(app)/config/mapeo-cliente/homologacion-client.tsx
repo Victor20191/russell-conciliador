@@ -70,10 +70,10 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
 
   return (
     <Card>
-      <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-3 text-[12px] leading-relaxed text-ink-600">
+      <div className="border-b border-ink-100 bg-blue-100 px-4 py-3 text-[12px] leading-relaxed text-ink-600">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <b className="text-ink-800">PUC acumulado de {cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null}
+            <b className="text-ink-800">PUC acumulado de {cliente}</b>{clienteNit ? <> · NIT <span className="tabular-nums">{clienteNit}</span></> : null}
           </div>
           {isPending && (
             <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-blue-700 animate-pulse">
@@ -85,7 +85,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
         <p className="mt-1">Reúne las cuentas de sus distintos balances y las reglas guardadas, en todos los niveles. Cada homologación se conserva para próximas cargas; al guardar puedes aplicarla también a balances existentes.</p>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
+        <h2 className="text-[13px] font-semibold text-navy-800">Mapeo de balance por cliente</h2>
         <SelectBuscable
           ariaLabel="Cliente del PUC"
           opciones={opcionesClientes}
@@ -105,7 +105,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
         />
         <div className="ml-auto flex items-center gap-2">
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-          {puedeMapear && clienteId != null && <button type="button" onClick={() => onEditar(null)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva regla</button>}
+          {puedeMapear && clienteId != null && <button type="button" onClick={() => onEditar(null)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600">Nueva regla</button>}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
@@ -132,20 +132,20 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
             <tbody>{pg.pageItems.map((a) => {
               const an = anomalias.get(a.code);
               const nombreStd = nombres.get(a.cuenta6Russell ?? "");
-              return <tr key={a.code} className={`border-b border-ink-50 hover:bg-ink-50 ${an ? "bg-warn-50/50" : ""}`}>
+              return <tr key={a.code} className={`border-b border-ink-50 hover:bg-ink-50 ${an ? "bg-warn-100" : ""}`}>
                 <td className="px-3 py-3"><Chip label={`N${a.level}`} tone="ink" /></td>
                 <td className="min-w-56 py-3 pr-3" style={{ paddingLeft: 12 + Math.max(0, a.level - 4) * 5 }}>
-                  <div className="font-mono font-semibold text-ink-800">{a.level > 6 && <span aria-hidden="true" className="mr-1 text-ink-300">└</span>}{a.code}</div>
+                  <div className="tabular-nums font-semibold text-ink-800">{a.level > 6 && <span aria-hidden="true" className="mr-1 text-ink-300">└</span>}{a.code}</div>
                   <div className="mt-0.5 text-[12px] text-ink-600">{a.name === a.code ? "Nombre no disponible" : a.name}</div>
                   {an && <div className="mt-1 text-[11px] text-warn-700">Difiere de su grupo: {an.cuenta6RussellDelGrupo}</div>}
                 </td>
                 <td className="min-w-52 px-3 py-3">
                   {puedeMapear && a.code.length >= 4 ? <button type="button" onClick={() => onEditar(a)} title={`Editar homologación de ${a.code}`} className="text-left hover:underline">
-                    {a.cuenta6Russell ? <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span><span className="mt-0.5 block text-[12px] text-ink-600">{nombreStd}</span></> : <Chip label={a.tipoFila === "agrupadora" ? "Regla de agrupación" : "Asignar"} tone={a.tipoFila === "agrupadora" ? "ink" : "warn"} />}
+                    {a.cuenta6Russell ? <><span className="tabular-nums text-blue-600">{a.cuenta6Russell}</span><span className="mt-0.5 block text-[12px] text-ink-600">{nombreStd}</span></> : <Chip label={a.tipoFila === "agrupadora" ? "Regla de agrupación" : "Asignar"} tone={a.tipoFila === "agrupadora" ? "ink" : "warn"} />}
                   </button> : <span>{a.cuenta6Russell ? `${a.cuenta6Russell} · ${nombreStd ?? ""}` : "—"}</span>}
                 </td>
                 <td className="px-3 py-3"><Chip label={a.tipoFila === "agrupadora" && !a.cuenta6Russell ? "Agrupadora" : !a.enMemoria ? "Último balance" : !a.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : esMapeoManual(a.origenMapeo) ? "Manual" : "Automático"} tone={esMapeoManual(a.origenMapeo) ? "blue" : "ink"} /></td>
-                <td className="px-3 py-3 font-mono text-ink-600">{a.coincidencia != null ? `${a.coincidencia}%` : "—"}</td>
+                <td className="px-3 py-3 tabular-nums text-ink-600">{a.coincidencia != null ? `${a.coincidencia}%` : "—"}</td>
                 <td className="px-3 py-3 text-[11px] text-ink-500">{a.actualizadoEn ? fmtDateTimeLong(a.actualizadoEn) : "—"}{a.actualizadoPor && <span className="block">{a.actualizadoPor}</span>}<OrigenHomologacion cuenta={a} /></td>
                 {puedeMapear && <td className="px-3 py-3">{a.code.length >= 4 && <button type="button" onClick={() => onEditar(a)} className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-navy-700 hover:bg-blue-50">{an ? "Corregir" : porConfirmar(a) ? "Confirmar / editar" : "Editar"}</button>}</td>}
               </tr>;
@@ -204,21 +204,21 @@ export function HomologacionClienteForm({ cuenta, clienteId, std, accounts, onCl
   ) : (
     <div className="flex w-full flex-wrap items-center justify-between gap-2">
       {cuenta?.enMemoria && cuenta.cuenta6Russell ? <button type="button" disabled={pending} onClick={() => setQuitar(true)} className="text-[12px] font-medium text-err-700 hover:underline">Quitar regla</button> : <span />}
-      <button type="submit" form="homologacion-cliente-form" disabled={pending || !codigo || !cuentaValida || !impacto?.ok} className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-800 disabled:opacity-50">{pending ? <EstadoProcesando>Guardando</EstadoProcesando> : aplicarExistentes ? "Guardar y actualizar balances" : "Guardar para próximas cargas"}</button>
+      <button type="submit" form="homologacion-cliente-form" disabled={pending || !codigo || !cuentaValida || !impacto?.ok} className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">{pending ? <EstadoProcesando>Guardando</EstadoProcesando> : aplicarExistentes ? "Guardar y actualizar balances" : "Guardar para próximas cargas"}</button>
     </div>
   )}>
-    {quitar ? <div className="space-y-3 text-[13px] leading-relaxed text-ink-700"><p>Se retirará la regla de <b className="font-mono">{cuenta?.code}</b> para próximas cargas. {cuenta && (esExcepcionCuenta(cuenta.origenMapeo) || cuenta.code.length !== 6) ? "Esa cuenta volverá a usar la regla de su grupo, si existe." : "También se retirarán las reglas de las cuentas de este grupo."}</p><p>Esta acción conserva los balances existentes. Para cambiar su homologación, vuelve y elige una cuenta estándar.</p><button type="button" onClick={() => setQuitar(false)} className="font-semibold text-blue-600 hover:underline">Volver a editar</button></div> : (
+    {quitar ? <div className="space-y-3 text-[13px] leading-relaxed text-ink-700"><p>Se retirará la regla de <b className="tabular-nums">{cuenta?.code}</b> para próximas cargas. {cuenta && (esExcepcionCuenta(cuenta.origenMapeo) || cuenta.code.length !== 6) ? "Esa cuenta volverá a usar la regla de su grupo, si existe." : "También se retirarán las reglas de las cuentas de este grupo."}</p><p>Esta acción conserva los balances existentes. Para cambiar su homologación, vuelve y elige una cuenta estándar.</p><button type="button" onClick={() => setQuitar(false)} className="font-semibold text-blue-600 hover:underline">Volver a editar</button></div> : (
       <form id="homologacion-cliente-form" action={action} className="space-y-4">
         <input type="hidden" name="clienteId" value={clienteId} /><input type="hidden" name="alcance" value={alcance} /><input type="hidden" name="aplicarExistentes" value={aplicarExistentes ? "1" : "0"} />
         <fieldset disabled={pending} className="space-y-4">
-          <label className="block text-[12px] font-semibold text-ink-700">Cuenta del cliente<input name="cuentaCliente" value={cuentaCliente} readOnly={!!cuenta} onChange={(e) => setCuentaCliente(e.target.value.trim())} pattern="\d{4,30}" required inputMode="numeric" placeholder="Código completo de la cuenta" className={`${INPUT} mt-1 font-mono ${cuenta ? "bg-ink-50" : ""}`} /></label>
+          <label className="block text-[12px] font-semibold text-ink-700">Cuenta del cliente<input name="cuentaCliente" value={cuentaCliente} readOnly={!!cuenta} onChange={(e) => setCuentaCliente(e.target.value.trim())} pattern="\d{4,30}" required inputMode="numeric" placeholder="Código completo de la cuenta" className={`${INPUT} mt-1 tabular-nums ${cuenta ? "bg-ink-50" : ""}`} /></label>
           {cuenta && <div className="text-[12px] text-ink-600"><p>{cuenta.name}</p><OrigenHomologacion cuenta={cuenta} />{!cuenta.enMemoria && <p className="mt-1">{cuenta.tipoFila === "agrupadora" ? "Agrupadora del catálogo del cliente. No se cuenta como movimiento pendiente de homologación." : "Cuenta recuperada de balances históricos."} Al guardar se incorporará a la memoria del cliente.</p>}</div>}
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-[12px] font-semibold text-ink-700">Buscar cuenta estándar<input value={busquedaStd} onChange={(e) => setBusquedaStd(e.target.value)} placeholder="Código o nombre Russell" className={`${INPUT} mt-1 font-normal`} /></label>
             <label className="block text-[12px] font-semibold text-ink-700">Cuenta estándar Russell<select name="codigo" required value={codigo} onChange={(e) => setCodigo(e.target.value)} className={`${INPUT} mt-1 font-normal`}><option value="">Selecciona una cuenta</option>{opciones.map((s) => <option key={s.code} value={s.code}>{s.code} · {s.name}</option>)}</select></label>
           </div>
           <fieldset className="rounded-md border border-ink-150 p-3"><legend className="px-1 text-[12px] font-semibold text-ink-700">Cuentas que reciben el cambio</legend>
-            {cuentaCliente.length === 6 ? <p className="text-[12px] text-ink-600">Regla del grupo <b className="font-mono">{grupo}</b>: se aplica a todas las cuentas que comienzan con este código.</p> : <div className="space-y-2 text-[12px] text-ink-700">
+            {cuentaCliente.length === 6 ? <p className="text-[12px] text-ink-600">Regla del grupo <b className="tabular-nums">{grupo}</b>: se aplica a todas las cuentas que comienzan con este código.</p> : <div className="space-y-2 text-[12px] text-ink-700">
               <label className="flex items-start gap-2"><input type="radio" name="seleccionAlcance" value="solo" checked={alcance === "solo"} onChange={() => setSeleccionAlcance("solo")} className="mt-0.5" /><span><b>Solo esta cuenta</b><span className="block text-ink-500">Código exacto {cuentaCliente || "seleccionado"}; conserva las demás cuentas.</span></span></label>
               {cuentaCliente.length > 6 && <label className="flex items-start gap-2"><input type="radio" name="seleccionAlcance" value="grupo" checked={alcance === "grupo"} onChange={() => setSeleccionAlcance("grupo")} className="mt-0.5" /><span><b>Todo el grupo {grupo}</b><span className="block text-ink-500">Incluye todas sus cuentas y reemplaza sus excepciones individuales.</span></span></label>}
             </div>}

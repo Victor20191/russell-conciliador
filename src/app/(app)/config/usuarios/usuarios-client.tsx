@@ -160,7 +160,7 @@ export default function UsuariosClient({
               {pg.pageItems.map((u) => {
                 const blocked = userIsBlocked(u);
                 return (
-                  <tr key={u.id} className="hover:bg-ink-50/50">
+                  <tr key={u.id} className="hover:bg-paper">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <Avatar src={u.avatarUrl} initials={u.initials} name={u.name} size={32} />
@@ -288,7 +288,7 @@ function UserActions({
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
       {permisos.editar && (
-        <button onClick={onEdit} className="text-blue-500 hover:underline">
+        <button onClick={onEdit} className="text-blue-600 hover:underline">
           Editar
         </button>
       )}
@@ -391,7 +391,7 @@ function SuperioresField({
             aria-expanded={open}
             aria-controls={dropdownId}
             onClick={() => setOpen((current) => !current)}
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[13px] text-ink-800 transition hover:border-ink-300 focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-600/15"
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[13px] text-ink-800 transition hover:border-ink-300 focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-100"
           >
             <span
               className={`min-w-0 flex-1 truncate ${
@@ -695,7 +695,7 @@ function EditUserForm({
                   size={48}
                   className="pointer-events-none ring-2 ring-white transition group-hover:ring-navy-300"
                 />
-                <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-navy-900/0 text-white transition group-hover:bg-navy-900/35">
+                <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-transparent text-white transition group-hover:bg-navy-900/40">
                   <Icon
                     name="eye"
                     size={14}
@@ -760,7 +760,7 @@ function EditUserForm({
             </label>
             <p id={`${passwordResetId}-ayuda`} className="mt-1.5 pl-6 text-[12px] leading-relaxed text-ink-500">
               Al marcarla y guardar, ingresará con{" "}
-              <code className="rounded bg-ink-50 px-1 py-0.5 font-mono text-ink-800">{claveTemporal}</code>{" "}
+              <code className="rounded bg-ink-50 px-1 py-0.5 tabular-nums text-ink-800">{claveTemporal}</code>{" "}
               y deberá elegir una nueva contraseña.
             </p>
           </div>
@@ -770,7 +770,7 @@ function EditUserForm({
             disabled={pending || resetToDefaultPassword}
             aria-expanded={resetOpen && !resetToDefaultPassword}
             aria-controls={`${passwordResetId}-manual`}
-            className="flex w-full items-center justify-between border-t border-ink-100 px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-between border-t border-ink-100 px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Usar otra contraseña temporal
             <Icon name={chevronDivulgacion(resetOpen && !resetToDefaultPassword)} size={16} />
@@ -805,7 +805,7 @@ function EditUserForm({
 
       {/* Fuera del modal de edición: evita overflow/clipping y queda por encima (z-60). */}
       {user.avatarUrl && fotoMedianaAbierta ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy-900/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy-900/40 p-4">
           <div
             role="dialog"
             aria-modal="true"
@@ -815,7 +815,7 @@ function EditUserForm({
             <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
               <h2
                 id="foto-perfil-mediana-titulo"
-                className="text-[13.5px] font-semibold text-ink-800"
+                className="text-[13.5px] font-semibold text-navy-800"
               >
                 Foto de perfil
               </h2>
@@ -869,7 +869,7 @@ function DeleteUserForm({ user, onClose }: { user: UserRow; onClose: () => void 
           type="submit"
           form="delete-user-form"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>

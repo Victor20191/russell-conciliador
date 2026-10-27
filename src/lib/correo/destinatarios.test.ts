@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ users: vi.fn(), assignments: vi.fn(), hierarch
 vi.mock("@/lib/prisma", () => ({ default: { user: { findMany: mocks.users }, clientAssignment: { findMany: mocks.assignments }, userHierarchy: { findMany: mocks.hierarchy } } }));
 vi.mock("@/lib/rbac/contexto", () => ({ getAsignacionesUsuario: mocks.scope, getMatriz: mocks.matrix }));
 vi.mock("@/lib/rbac/publicacion", () => ({ moduloDisponibleParaRol: mocks.published }));
-import { destinatariosAviso } from "./destinatarios";
+import { destinatariosAviso, usuariosDestinatariosAviso } from "./destinatarios";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.users.mockResolvedValue([{ id: 2, email: "ANA@example.com", role: "Senior" }]);
@@ -12,6 +12,12 @@ beforeEach(() => {
   mocks.published.mockResolvedValue(true);
 });
 describe("destinatarios de notificaciones", () => {
+  it("la campana identifica al usuario aunque no tenga una dirección de correo válida", async () => {
+    mocks.users.mockResolvedValue([{ id: 2, role: "Administrador", email: "incorrecto" }]);
+    const input = { permiso: "balance:ver", clienteId: 12, usuarioIds: [2] };
+    expect(await usuariosDestinatariosAviso(input)).toEqual([{ id: 2, email: "incorrecto" }]);
+    expect(await destinatariosAviso(input)).toEqual([]);
+  });
   it("no difunde avisos globales ni de un cliente desconocido", async () => {
     expect(await destinatariosAviso({ permiso: "balance:ver" })).toEqual([]);
     expect(await destinatariosAviso({ permiso: "balance:ver", clienteId: null, usuarioIds: [2] })).toEqual([]);

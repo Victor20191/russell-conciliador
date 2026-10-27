@@ -2,6 +2,7 @@ import { Card } from "@/components/ui";
 import { fmtContable } from "@/lib/format";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import { ControlesFormato } from "../controles-formato";
+import { IconoEnTexto } from "@/components/icons";
 
 const encabezadoTabla = "bg-ink-50 text-left text-ink-500";
 const celda = "px-2.5 py-1.5";
@@ -24,13 +25,13 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
         <ControlesFormato controles={formato} detalle />
       </div>
       {otras === 0 ? (
-        <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
-          ✓ Las edades cuadran con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral.
+        <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700">
+          <IconoEnTexto name="check" />Las edades cuadran con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
           {corte.fecha && corte.deducido && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+            <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
               Los días vencidos del archivo están calculados al <b>{fechaLegible(corte.deducido.fecha)}</b> ({corte.deducido.coincidencias} de {corte.deducido.filasConDias} documentos con días), no al corte del cargue ({fechaLegible(corte.fecha)}): sus edades están corridas. Pide el reporte al corte o ajusta la fecha de corte del cargue.
             </div>
           )}
@@ -107,7 +108,7 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
           {documentosRepetidos.cantidad > 0 && (
             <section>
               <div className="mb-1 text-[12.5px] font-semibold text-err-700">
-                ⚠ {documentosRepetidos.cantidad.toLocaleString("es-CO")} {documentosRepetidos.cantidad === 1 ? "documento aparece" : "documentos aparecen"} por el mismo valor bajo terceros distintos
+                <IconoEnTexto name="warn" />{documentosRepetidos.cantidad.toLocaleString("es-CO")} {documentosRepetidos.cantidad === 1 ? "documento aparece" : "documentos aparecen"} por el mismo valor bajo terceros distintos
               </div>
               <div className="overflow-x-auto rounded-md border border-ink-150">
                 <table className="w-full text-[12px]">

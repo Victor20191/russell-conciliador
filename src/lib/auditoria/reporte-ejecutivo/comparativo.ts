@@ -265,7 +265,7 @@ export const UMBRAL_ALERTA_USO_PCT = 5;
 export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso {
   const medida = c.comparable ? c.totales[0] : c.promedioDiario;
   const referencia = c.base === "reporte_anterior" ? "al reporte anterior" : "al período anterior";
-  const ventana = `${c.previo.desde} → ${c.previo.hasta}`;
+  const ventana = `${c.previo.desde} – ${c.previo.hasta}`;
   const pct = medida.variacionPct;
   const magnitud = pct == null
     ? `${num(Math.abs(medida.diferencia))} ${c.comparable ? "operaciones" : "operaciones por día"}`
@@ -317,7 +317,7 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
 export function alertaUsuarios(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso {
   const medida = c.totales.find((t) => t.etiqueta === "Usuarios que operaron") ?? c.totales[1];
   const referencia = c.base === "reporte_anterior" ? "al reporte anterior" : "al período anterior";
-  const cuantos = `${num(medida.previo)} → ${num(medida.actual)}`;
+  const cuantos = `${num(medida.previo)} a ${num(medida.actual)}`;
   const pct = medida.variacionPct;
   const magnitud = pct == null ? `${num(Math.abs(medida.diferencia))}` : `${num(Math.abs(pct))} %`;
   const rotacion = c.usuarios.nuevos.length > 0 || c.usuarios.salieron.length > 0
@@ -329,7 +329,7 @@ export function alertaUsuarios(c: ComparativoUso, umbralPct: number = UMBRAL_ALE
       clave: "usuarios",
       nivel: "estable",
       titulo: `Operaron ${num(medida.actual)} usuarios, igual que antes`,
-      mensaje: `La cantidad de personas que operó la plataforma se mantuvo (${cuantos}) frente ${referencia}.${rotacion}`,
+      mensaje: `La cantidad de personas que operó la plataforma se mantuvo (de ${cuantos}) frente ${referencia}.${rotacion}`,
       medida,
     };
   }

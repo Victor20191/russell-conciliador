@@ -50,7 +50,7 @@ export default function TicketEliminarModal({
           type="submit"
           form="eliminar-ticket-form"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
@@ -62,7 +62,7 @@ export default function TicketEliminarModal({
 
         <p className="text-[13px] text-ink-600">
           Vas a eliminar permanentemente el ticket{" "}
-          <strong className="font-mono">{ticket.code}</strong> — «{ticket.subject}».
+          <strong className="tabular-nums">{ticket.code}</strong> — «{ticket.subject}».
           {ticket.adjuntos > 0 && (
             <> También se borrarán sus {ticket.adjuntos} imagen(es) adjuntas.</>
           )}

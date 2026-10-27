@@ -68,7 +68,7 @@ export function propsRegionPantallaCompleta(activa: boolean, claseNormal = "") {
   return {
     "data-balance-table-fullscreen": activa ? "true" : undefined,
     className: activa
-      ? "fixed inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-inset ring-navy-900/10"
+      ? "fixed inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-inset ring-ink-150"
       : claseNormal,
   } as const;
 }
@@ -98,7 +98,7 @@ export function BotonPantallaCompleta({ activa, onToggle }: { activa: boolean; o
       <Icon name={activa ? "minimize" : "maximize"} size={13} />
       {/* En móvil solo el icono: la barra de la tabla ya va apretada y el título dice qué hace. */}
       <span className="hidden sm:inline">{activa ? "Salir de pantalla completa" : "Pantalla completa"}</span>
-      {activa && <kbd className="ml-0.5 hidden rounded border border-white/30 px-1 font-sans text-[9px] font-medium text-white/80 sm:inline">Esc</kbd>}
+      {activa && <kbd className="ml-0.5 hidden rounded border border-navy-500 px-1 font-sans text-[9px] font-medium text-navy-100 sm:inline">Esc</kbd>}
     </button>
   );
 }

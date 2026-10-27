@@ -102,7 +102,9 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
   try {
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true, origenMapeo: true } });
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
-    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
+    const clienteId = await clienteDeCuentaCliente(id);
+    if (clienteId == null) return { ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." };
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
     // Editar una EXCEPCIÓN por cuenta la mantiene como excepción: promoverla a
@@ -155,7 +157,9 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true, cuenta6Russell: true } });
     if (!row) return { ok: false, message: "La cuenta ya no existe." };
     if (!row.cuenta6Russell) return { ok: false, message: "La cuenta no tiene mapeo estándar para confirmar." };
-    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
+    const clienteId = await clienteDeCuentaCliente(id);
+    if (clienteId == null) return { ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." };
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     // Confirmar es aceptar la sugerencia AUTOMÁTICA tal cual, no elegir destino:
     // si esa sugerencia cambia de clase contable casi siempre es un error de la
@@ -211,7 +215,9 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
   try {
     const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, cuenta6Russell: true, clienteId: true } });
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
-    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
+    const clienteId = await clienteDeCuentaCliente(id);
+    if (clienteId == null) return { ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." };
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (row.clienteId != null) {
       const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId: row.clienteId, codigo: row.code, alcanceGrupo: row.code.length === 6 });
@@ -264,7 +270,9 @@ export async function alinearMapeoConGrupo(formData: FormData): Promise<ActionSt
     if (row.code.length <= 6) {
       return { ok: false, message: "Solo una cuenta auxiliar se alinea con su grupo: las de 6 dígitos SON la regla del grupo." };
     }
-    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
+    const clienteId = await clienteDeCuentaCliente(id);
+    if (clienteId == null) return { ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." };
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     const cuenta6 = row.code.slice(0, 6);
     const grupo = await prisma.clientAccount.findMany({
@@ -327,7 +335,9 @@ export async function declararExcepcionMapeo(formData: FormData): Promise<Action
       return { ok: false, message: "La cuenta no tiene estándar asignado: asígnalo antes de declararla excepción." };
     }
     if (row.code.length <= 6) return { ok: false, message: "Solo una cuenta auxiliar puede ser excepción de su grupo." };
-    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: await clienteDeCuentaCliente(id) });
+    const clienteId = await clienteDeCuentaCliente(id);
+    if (clienteId == null) return { ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." };
+    const scope = await authorizePermiso(PERMISO_HOMOLOGACION, { clientId: clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (esExcepcionCuenta(row.origenMapeo)) return { ok: true, message: `${row.code} ya es una excepción de solo esta cuenta.` };
     if (row.clienteId != null) {

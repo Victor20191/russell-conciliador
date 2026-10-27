@@ -83,7 +83,7 @@ export function FormulaValor({
     .slice(0, 2);
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-md border border-blue-200 bg-blue-50/40 px-2.5 py-2">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-md border border-blue-200 bg-blue-100 px-2.5 py-2">
       {formula.map((t, i) => (
         <div key={i} className="flex min-w-0 items-center gap-1.5">
           <select
@@ -112,7 +112,7 @@ export function FormulaValor({
             onClick={() => quitar(i)}
             disabled={formula.length <= MINIMO_TERMINOS_FORMULA}
             title={formula.length <= MINIMO_TERMINOS_FORMULA ? "La fórmula necesita al menos dos columnas" : "Quitar esta columna"}
-            className="shrink-0 rounded px-1.5 text-[14px] leading-none text-ink-400 hover:text-err-700 disabled:opacity-30"
+            className="shrink-0 rounded px-1.5 text-[14px] leading-none text-ink-400 hover:text-err-700 disabled:opacity-40"
           >
             ×
           </button>
@@ -199,7 +199,7 @@ export function ConfirmacionIvaValor({
 
   if (rotulo && confirmado) {
     return (
-      <p className="rounded-md border border-ok-100 bg-ok-100/40 px-2.5 py-1.5 text-[11.5px] leading-snug text-ok-700">
+      <p className="rounded-md border border-ok-100 bg-ok-100 px-2.5 py-1.5 text-[11.5px] leading-snug text-ok-700">
         Confirmado: «{rotulo}» excluye el IVA.{" "}
         <button type="button" onClick={() => setSpec((s) => (s ? retirarConfirmacionValor(s) : s))} className="font-semibold underline-offset-2 hover:underline">
           Cambiar
@@ -223,7 +223,7 @@ export function ConfirmacionIvaValor({
       });
     };
     return (
-      <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-2 text-[11.5px] leading-snug text-warn-700">
+      <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100 px-2.5 py-2 text-[11.5px] leading-snug text-warn-700">
         <p>
           Mapeaste como valor <b>«{rotulo}»</b>, que es una columna de total. <b>¿Confirmas que excluye el IVA?</b>
         </p>

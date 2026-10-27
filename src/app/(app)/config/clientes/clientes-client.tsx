@@ -24,6 +24,7 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { ImportClientesButton } from "./import-clientes-modal";
 import type { CodigoProcesoErp } from "@/lib/erp-procesos";
 import { AplicativosPorProceso } from "./aplicativos-por-proceso";
+import { confirmarDeMarca } from "@/components/controles-marca";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
@@ -235,7 +236,7 @@ export default function ClientesClient({
                     type="button"
                     onClick={() => setEditing(c)}
                     title="Ver información del cliente"
-                    className="block w-full px-4 py-2.5 text-left font-mono text-ink-500 transition hover:text-navy-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    className="block w-full px-4 py-2.5 text-left tabular-nums text-ink-500 transition hover:text-navy-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                   >
                     {c.nit}
                   </button>
@@ -612,7 +613,7 @@ function ClientModal({
             disabled
             placeholder="C-1042"
             title="El código se asigna automáticamente."
-            className="w-full cursor-not-allowed rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-mono text-[12.5px] text-ink-400 outline-none"
+            className="w-full cursor-not-allowed rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 tabular-nums text-[12.5px] text-ink-400 outline-none"
           />
         </CField>
         <CField label="Razón social" error={state?.errors?.name}>
@@ -627,7 +628,7 @@ function ClientModal({
             <input
               name="nit"
               defaultValue={client?.nit ?? ""}
-              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
+              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 tabular-nums text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
             />
           </CField>
           <CField label="Tipo de cliente" error={state?.errors?.tipo}>
@@ -834,7 +835,7 @@ function ClientModal({
                       <span
                         className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
                           checked
-                            ? "border-ok-500 bg-ok-500 text-white"
+                            ? "border-ok-500 bg-ok-500 text-navy-800"
                             : "border-ink-300 bg-white text-transparent"
                         }`}
                       >
@@ -861,7 +862,7 @@ function ClientModal({
                   <span
                     className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
                       dianActive
-                        ? "border-ok-500 bg-ok-500 text-white"
+                        ? "border-ok-500 bg-ok-500 text-navy-800"
                         : "border-ink-300 bg-white text-transparent"
                     }`}
                   >
@@ -903,7 +904,7 @@ function ClientModal({
                           <span
                             className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
                               checked
-                                ? "border-ok-500 bg-ok-500 text-white"
+                                ? "border-ok-500 bg-ok-500 text-navy-800"
                                 : "border-ink-300 bg-white text-transparent"
                             }`}
                           >
@@ -911,7 +912,7 @@ function ClientModal({
                           </span>
                           <span className="truncate">
                             {f.name}
-                            <span className="ml-1.5 font-mono text-[11px] text-ink-400">
+                            <span className="ml-1.5 tabular-nums text-[11px] text-ink-400">
                               {f.code}
                             </span>
                           </span>
@@ -956,12 +957,16 @@ function DeleteClientButton({ id, onDone }: { id: number; onDone: () => void }) 
           <button
             type="submit"
             disabled={pending}
-            onClick={(event) => {
-              if (!confirm("¿Eliminar este cliente y sus parametrizaciones?")) {
-                event.preventDefault();
+            onClick={async (event) => {
+              // Confirmación de la plataforma (no el `confirm()` del navegador): se detiene el
+              // envío y, si se confirma, se vuelve a enviar con este mismo botón.
+              event.preventDefault();
+              const boton = event.currentTarget;
+              if (await confirmarDeMarca({ titulo: "Eliminar cliente", mensaje: "¿Eliminar este cliente y sus parametrizaciones?", accion: "Eliminar" })) {
+                boton.form?.requestSubmit(boton);
               }
             }}
-            className="rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-100/70 disabled:opacity-60"
+            className="rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-100 disabled:opacity-60"
           >
             {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar"}
           </button>

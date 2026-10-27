@@ -21,14 +21,17 @@ export default async function BalanceDiffPage({ params }: { params: Promise<{ id
   const id = parseId(rawId);
   if (!id) notFound();
   const selectDet = { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true } as const;
+  const referencia = await prisma.balancePruebaEncabezado.findUnique({ where: { id }, select: { clienteId: true } });
+  if (!referencia) notFound();
+
+  // Alcance por cartera: leer este balance exige READ sobre su cliente.
+  await requirePermiso("balance:ver", { clientId: referencia.clienteId });
+
   const balance = await prisma.balancePruebaEncabezado.findUnique({
-    where: { id },
+    where: { id, clienteId: referencia.clienteId },
     include: { detalles: { select: selectDet } },
   });
   if (!balance) notFound();
-
-  // Alcance por cartera: leer este balance exige READ sobre su cliente.
-  await requirePermiso("balance:ver", { clientId: balance.clienteId });
 
   // Versión anterior (cargada antes de esta) del mismo cliente/período.
   const [previa, cuentasEstandar] = await Promise.all([

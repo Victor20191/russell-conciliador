@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/modal";
 import { Icon } from "@/components/icons";
+import { ImagenConRespaldo } from "@/components/imagen-con-respaldo";
 import { esDocumentoPorNombre } from "@/lib/soporte-estados";
 
 function srcAdjunto(id: number, download = false) {
@@ -41,12 +42,17 @@ export default function AdjuntosGaleria({ adjuntos }: { adjuntos: AdjuntoVista[]
                   className="relative block h-32 w-full bg-navy-800 p-3 text-left focus:outline-none"
                   title={`Ver ${adjunto.fileName}`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado */}
                   {/* navy-800: los SVG de marca suelen ir en blanco y desaparecen sobre fondo blanco. */}
-                  <img
+                  <ImagenConRespaldo
                     src={srcAdjunto(adjunto.id)}
                     alt={adjunto.fileName}
                     className="h-full w-full object-contain transition group-hover:scale-[1.02]"
+                    respaldo={
+                      <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-center text-[11px] text-navy-100">
+                        <Icon name="doc" size={20} />
+                        No se pudo mostrar la imagen
+                      </span>
+                    }
                   />
                   <span className="sr-only">Ver imagen {adjunto.fileName}</span>
                 </button>
@@ -120,11 +126,16 @@ export default function AdjuntosGaleria({ adjuntos }: { adjuntos: AdjuntoVista[]
       >
         {abierto && (
           <div className="flex min-h-[240px] items-center justify-center rounded-md bg-navy-800 p-4">
-            {/* eslint-disable-next-line @next/next/no-img-element -- endpoint autenticado */}
-            <img
+            <ImagenConRespaldo
               src={srcAdjunto(abierto.id)}
               alt={abierto.fileName}
               className="max-h-[70vh] w-full object-contain"
+              respaldo={
+                <span className="flex flex-col items-center gap-2 text-[12px] text-navy-100">
+                  <Icon name="doc" size={28} />
+                  No se pudo mostrar la imagen. Puedes descargarla.
+                </span>
+              }
             />
           </div>
         )}

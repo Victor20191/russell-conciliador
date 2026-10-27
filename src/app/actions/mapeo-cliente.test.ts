@@ -87,3 +87,42 @@ describe("la memoria del cliente la edita el senior asignado", () => {
     expect(mocks.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("las mutaciones del mapeo exigen el propietario inequívoco", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.authorize.mockResolvedValue({ ok: true, role: "Administrador" });
+    mocks.cliente.mockResolvedValue(23);
+    mocks.findUnique.mockResolvedValue({ code: "1105050101", clienteId: 23, cuenta6Russell: "110510", origenMapeo: "manual" });
+  });
+  const formulario = () => {
+    const f = new FormData();
+    f.set("id", "7");
+    f.set("codigo", "110505");
+    return f;
+  };
+  const acciones = [
+    { nombre: "editar", ejecutar: () => editarMapeoCliente(undefined, formulario()) },
+    { nombre: "confirmar", ejecutar: () => confirmarMapeoCliente(formulario()) },
+    { nombre: "eliminar", ejecutar: () => eliminarMapeoCliente(undefined, formulario()) },
+    { nombre: "alinear", ejecutar: () => alinearMapeoConGrupo(formulario()) },
+    { nombre: "declarar excepción", ejecutar: () => declararExcepcionMapeo(formulario()) },
+  ];
+
+  it.each(acciones)("$nombre verifica la cartera del propietario resuelto antes de escribir", async ({ ejecutar }) => {
+    mocks.authorize.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, message: "Fuera de cartera" });
+    expect(await ejecutar()).toEqual({ ok: false, message: "Fuera de cartera" });
+    expect(mocks.cliente).toHaveBeenCalledWith(7);
+    expect(mocks.authorize).toHaveBeenNthCalledWith(2, "balance:revisar", { clientId: 23 });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(acciones)("$nombre deniega identidad ambigua incluso con un administrador global", async ({ ejecutar }) => {
+    mocks.cliente.mockResolvedValue(null);
+    expect(await ejecutar()).toEqual({ ok: false, message: "No se pudo identificar de forma inequívoca el cliente de la cuenta." });
+    expect(mocks.authorize).toHaveBeenCalledTimes(1);
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+});

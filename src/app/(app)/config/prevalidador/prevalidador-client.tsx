@@ -41,7 +41,7 @@ export default function PrevalidadorConfigClient({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
+      <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5 text-[12.5px] text-warn-700">
         Los cambios rigen para los balances sin aprobación vigente y para las aprobaciones nuevas. Un balance aprobado
         conserva el catálogo con que se aprobó; para aplicarle el nuevo, revoca su aprobación y apruébalo otra vez.
       </div>
@@ -63,7 +63,7 @@ export default function PrevalidadorConfigClient({
 
       {puedeEditar && creando && (
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva cuenta del prevalidador</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Nueva cuenta del prevalidador</h2>
           <FilaEditor
             modulos={modulos}
             moduloIdPorDefecto={modulosVista[0]?.id}
@@ -77,7 +77,7 @@ export default function PrevalidadorConfigClient({
         <Card key={modulo.id} className="p-4">
           <div className="mb-3 flex items-center gap-2">
             <Icon name="settings" size={15} />
-            <h2 className="text-[14px] font-semibold text-ink-900">{modulo.name}</h2>
+            <h2 className="text-[14px] font-semibold text-navy-800">{modulo.name}</h2>
             <span className="text-[11px] text-ink-400">{modulo.code}</span>
           </div>
           <div className="flex flex-col gap-2">
@@ -128,7 +128,7 @@ function FilaEditor({
   }, [borrarState]);
 
   return (
-    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
+    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-sm transition-colors focus-within:border-blue-200">
       <form
         action={guardarAction}
         className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(8.5rem,1fr)_6rem_minmax(13rem,1.5fr)_minmax(13rem,1.4fr)_5rem_7rem_auto] xl:items-start"
@@ -157,7 +157,7 @@ function FilaEditor({
             inputMode="numeric"
             maxLength={4}
             placeholder="41"
-            className={`${CONTROL_CLASS} font-mono tabular-nums`}
+            className={`${CONTROL_CLASS} tabular-nums`}
           />
         </Campo>
 
@@ -192,7 +192,7 @@ function FilaEditor({
             min={0}
             max={9999}
             defaultValue={fila?.orden ?? 10}
-            className={`${CONTROL_CLASS} font-mono tabular-nums`}
+            className={`${CONTROL_CLASS} tabular-nums`}
           />
         </Campo>
 
@@ -225,7 +225,7 @@ function FilaEditor({
           <button
             type="submit"
             disabled={guardando}
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-60"
           >
             {!guardando && <Icon name={fila ? "check" : "plus"} size={13} />}
             {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : fila ? "Guardar" : "Agregar"}
@@ -236,7 +236,7 @@ function FilaEditor({
               onClick={() => setConfirmarBorrado(true)}
               title="Para retirarla del informe sin perder la configuración de los balances, desmarca «Activa»."
               aria-label={`Eliminar la cuenta ${fila.cuentaRussell} del prevalidador`}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-err-200 hover:bg-err-50 hover:text-err-700"
             >
               <Icon name="trash" size={13} />
             </button>
@@ -262,7 +262,7 @@ function FilaEditor({
       )}
 
       {fila && confirmarBorrado && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100 px-3 py-2">
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
             {fila.balancesConCuentaPropia > 0
               ? `Esta acción también eliminará ${fila.balancesConCuentaPropia} cuenta(s) propia(s) asociada(s).`
@@ -280,7 +280,7 @@ function FilaEditor({
             type="submit"
             form={`borrar-${fila.id}`}
             disabled={borrando}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             {!borrando && <Icon name="trash" size={12} />}
             {borrando ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Sí, eliminar"}

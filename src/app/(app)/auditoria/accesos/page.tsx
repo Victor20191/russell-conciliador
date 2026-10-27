@@ -105,7 +105,7 @@ export default async function AccesosPage({
 
       <div className="mb-4 grid gap-3 lg:grid-cols-2">
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-800">Rutas con más tráfico</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Rutas con más tráfico</h2>
           {rutas.length === 0 ? (
             <p className="py-6 text-center text-[12.5px] text-ink-400">Aún no hay navegaciones registradas.</p>
           ) : (
@@ -115,9 +115,9 @@ export default async function AccesosPage({
                   <div className="mb-1 flex items-baseline justify-between gap-3">
                     <span className="min-w-0 truncate text-[12.5px] text-ink-800">
                       {etiquetaRuta(r.path)}
-                      <span className="ml-1.5 font-mono text-[11px] text-ink-400">{r.path}</span>
+                      <span className="ml-1.5 tabular-nums text-[11px] text-ink-400">{r.path}</span>
                     </span>
-                    <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">{fmtNum(r._count.path)}</span>
+                    <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">{fmtNum(r._count.path)}</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
                     <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.round((r._count.path / maxRuta) * 100)}%` }} />
@@ -129,7 +129,7 @@ export default async function AccesosPage({
         </Card>
 
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-800">Usuarios más activos</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Usuarios más activos</h2>
           {usuarios.length === 0 ? (
             <p className="py-6 text-center text-[12.5px] text-ink-400">Sin accesos en el rango.</p>
           ) : (
@@ -140,7 +140,7 @@ export default async function AccesosPage({
                     <span className="min-w-0 truncate text-[12.5px] text-ink-800">{u.userName}</span>
                     <span className="shrink-0 text-[11px] text-ink-400">
                       {u._max.createdAt ? `último ${timeAgo(u._max.createdAt, ahora)}` : ""}
-                      <span className="ml-2 font-mono text-[12px] font-semibold text-ink-700">{fmtNum(u._count.userName)}</span>
+                      <span className="ml-2 tabular-nums text-[12px] font-semibold text-ink-700">{fmtNum(u._count.userName)}</span>
                     </span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100">

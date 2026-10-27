@@ -14,6 +14,9 @@ import {
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import type { ReporteEjecutivoUso } from "./reportes";
 import { aFecha, fechaColombiaISO } from "@/lib/fecha-hora";
+import { FUENTE_PANTALLA, MIND_MAGENTA, NEUTRO, SEA_GREEN, SPACE_BLUE } from "@/lib/marca/paleta";
+import { forzarTipografiaMarca, franjaHtml, logoHtml } from "@/lib/marca/html";
+import { TRIANGULO_BAJA, TRIANGULO_SUBE } from "./signos";
 
 // Vocabulario editorial cerrado: la IA puede seleccionar orientaciones, pero no
 // introducir personas, cifras o afirmaciones nuevas en el documento factual.
@@ -133,7 +136,7 @@ function seccionesAvances(nuevas: CambioDocumento[], mejoras: CambioDocumento[])
   const filasMejoras = [...porModulo.entries()]
     .sort(([a], [b]) => (ORDEN_MODULO.get(a) ?? 999) - (ORDEN_MODULO.get(b) ?? 999) || a.localeCompare(b, "es"))
     .map(([clave, cambios]) =>
-      `<tr><th colspan="4" style="text-align:left;background:#f7f8fa">${escapeHtml(ETIQUETA_MODULO.get(clave) ?? "Plataforma")}</th></tr>${cambios
+      `<tr><th colspan="4" style="text-align:left;background:${NEUTRO.k5}">${escapeHtml(ETIQUETA_MODULO.get(clave) ?? "Plataforma")}</th></tr>${cambios
         .map((c) => `<tr><td>${escapeHtml(c.version)}</td><td>${escapeHtml(ETIQUETA_TIPO_MEJORA[c.tipo.trim().toLowerCase()] ?? "Mejora")}</td><td>${escapeHtml(c.titulo)}</td><td>${escapeHtml(c.descripcion)}</td></tr>`)
         .join("")}`)
     .join("");
@@ -160,22 +163,26 @@ const pesos = (valor: number) => `$ ${new Intl.NumberFormat("es-CO").format(Math
 const dolares = (valor: number) =>
   `US$ ${new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(valor)}`;
 
-/** Colores del banner de alerta, en línea porque el HTML viaja suelto (correo/PDF). */
+/**
+ * Colores del banner de alerta, en línea porque el HTML viaja suelto (correo/PDF).
+ * Paleta del manual: el alza sobre el tinte de Sea Green con texto Space Blue (el
+ * verde no es legible como texto), la baja en Mind Magenta y lo estable en neutro.
+ */
 const ESTILO_ALERTA = {
-  alza: "background:#e5f0e8;border-left:6px solid #2f6b3f;color:#2f6b3f",
-  baja: "background:#f8e1de;border-left:6px solid #9a2a22;color:#9a2a22",
-  estable: "background:#f7f8fa;border-left:6px solid #566273;color:#2a3441",
+  alza: `background:${SEA_GREEN[20]};border-left:6px solid ${SEA_GREEN[100]};color:${SPACE_BLUE[100]}`,
+  baja: `background:${MIND_MAGENTA[20]};border-left:6px solid ${MIND_MAGENTA[100]};color:${MIND_MAGENTA[100]}`,
+  estable: `background:${NEUTRO.k5};border-left:6px solid ${NEUTRO.k75};color:${NEUTRO.k90}`,
 } as const;
 
-const SIGNO = { subio: "▲", bajo: "▼", igual: "=" } as const;
+const SIGNO = { subio: TRIANGULO_SUBE, bajo: TRIANGULO_BAJA, igual: "=" } as const;
 
-/** Verde sube, rojo baja, gris igual. Mismos tonos del banner y de la pantalla. */
-const COLOR_VARIACION = { subio: "#2f6b3f", bajo: "#9a2a22", igual: "#566273" } as const;
+/** Space Blue sube, Mind Magenta baja, gris igual. Mismos tonos del banner y de la pantalla. */
+const COLOR_VARIACION = { subio: SPACE_BLUE[100], bajo: MIND_MAGENTA[100], igual: NEUTRO.k75 } as const;
 
-const COLOR_ALERTA = { alza: "#2f6b3f", baja: "#9a2a22", estable: "#566273" } as const;
+const COLOR_ALERTA = { alza: SPACE_BLUE[100], baja: MIND_MAGENTA[100], estable: NEUTRO.k75 } as const;
 
 /** Flecha del banner: la del NIVEL, no la de la medida (un alza del 2 % es «estable»). */
-const SIGNO_ALERTA = { alza: "▲", baja: "▼", estable: "=" } as const;
+const SIGNO_ALERTA = { alza: TRIANGULO_SUBE, baja: TRIANGULO_BAJA, estable: "=" } as const;
 
 /**
  * Una fila comparada. `formato` la escribe en su unidad (pesos, tokens) y
@@ -195,7 +202,7 @@ function filaVariacion(v: VariacionUso, formato: (n: number) => string = numero,
  * debajo: leídas sueltas, «Anterior» y «Actual» no decían contra qué.
  */
 function columnaFechas(titulo: string, p: { desde: string; hasta: string }): string {
-  return `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:#566273">${escapeHtml(p.desde)} → ${escapeHtml(p.hasta)}</span></th>`;
+  return `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:${NEUTRO.k75}">${escapeHtml(p.desde)} – ${escapeHtml(p.hasta)}</span></th>`;
 }
 
 function encabezadosComparados(que: string, previo: { desde: string; hasta: string }, actual: { desde: string; hasta: string }): string {
@@ -232,15 +239,15 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const c = comparativo;
   const alertas = alertasComparativo(c);
   const referencia = c.base === "reporte_anterior"
-    ? `reporte anterior (${c.previo.desde} → ${c.previo.hasta}${c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""})`
-    : `período anterior (${c.previo.desde} → ${c.previo.hasta})`;
+    ? `reporte anterior (${c.previo.desde} – ${c.previo.hasta}${c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""})`
+    : `período anterior (${c.previo.desde} – ${c.previo.hasta})`;
   const aviso = c.comparable
     ? ""
     : `<p class="nota">Los períodos no miden lo mismo (${numero(c.previo.dias)} días frente a ${numero(c.actual.dias)}): la comparación se lee sobre el promedio diario, no sobre los totales.</p>`;
   const familias = c.porFamilia.slice(0, 8).map((v) => filaVariacion(v)).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}
-<p>Comparación del período actual (${escapeHtml(c.actual.desde)} → ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
+<p>Comparación del período actual (${escapeHtml(c.actual.desde)} – ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
 <table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map((v) => filaVariacion(v)).join("")}</tbody></table>
 <h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
 ${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map((v) => filaVariacion(v)).join("")}</tbody></table>` : ""}
@@ -251,7 +258,7 @@ ${familias ? `<h2 style="font-size:15px">Por módulo o proceso</h2><table><thead
 
 
 /** Gris para todo el bloque de costos: un gasto que sube no es «bueno» ni «malo». */
-const COLOR_COSTO = "#2a3441";
+const COLOR_COSTO = NEUTRO.k90;
 
 /**
  * Sección «Costos de IA»: qué costó el período, cómo se compara con el reporte
@@ -261,7 +268,7 @@ const COLOR_COSTO = "#2a3441";
 function seccionCostosIA(costos?: CostosIA | null): string {
   if (!hayConsumoIA(costos) || !costos) return "";
   const { actual, previo, mes } = costos;
-  const rango = `${escapeHtml(soloFecha(actual.desde))} → ${escapeHtml(soloFecha(actual.hasta))}`;
+  const rango = `${escapeHtml(soloFecha(actual.desde))} – ${escapeHtml(soloFecha(actual.hasta))}`;
   const resumen = actual.llamadas === 0
     ? `<p>En el período (${rango}) no se registró consumo de IA.</p>`
     : `<p>Las funciones con IA del período (${rango}) costaron <strong>${pesos(actual.costoCop)}</strong> (${escapeHtml(dolares(actual.costoUsd))}) en <strong>${numero(actual.tokens)}</strong> tokens y <strong>${numero(actual.llamadas)}</strong> operaciones.</p>`;
@@ -274,7 +281,7 @@ function seccionCostosIA(costos?: CostosIA | null): string {
     : "";
 
   const acumulado = mes && costos.mesEtiqueta
-    ? `<p>Acumulado de ${escapeHtml(costos.mesEtiqueta)} (${escapeHtml(soloFecha(mes.desde))} → ${escapeHtml(soloFecha(mes.hasta))}): <strong>${pesos(mes.costoCop)}</strong> en ${numero(mes.tokens)} tokens y ${numero(mes.llamadas)} operaciones.</p>`
+    ? `<p>Acumulado de ${escapeHtml(costos.mesEtiqueta)} (${escapeHtml(soloFecha(mes.desde))} – ${escapeHtml(soloFecha(mes.hasta))}): <strong>${pesos(mes.costoCop)}</strong> en ${numero(mes.tokens)} tokens y ${numero(mes.llamadas)} operaciones.</p>`
     : "";
 
   const detalle = actual.porOperacion.length > 1
@@ -314,7 +321,7 @@ function filaTicket(t: TicketAtendido): string {
  */
 function seccionTicketsAtendidos(tickets?: TicketsAtendidos | null): string {
   if (!tickets) return "";
-  const rango = `${escapeHtml(soloFecha(tickets.desde))} → ${escapeHtml(soloFecha(tickets.hasta))}`;
+  const rango = `${escapeHtml(soloFecha(tickets.desde))} – ${escapeHtml(soloFecha(tickets.hasta))}`;
   const nota = `<p class="nota">Tickets que el equipo de Russell reportó desde la plataforma y que pasaron a «Resuelto» o «Cerrado» dentro del período. Un ticket resuelto y luego cerrado aparece una sola vez, con su estado actual. La solución es la respuesta que se le dio a quien lo reportó.</p>`;
   if (tickets.total === 0) {
     return `\n<section id="tickets-atendidos"><h2>Tickets atendidos</h2><p>${SIN_TICKETS_ATENDIDOS}</p>${nota}</section>`;
@@ -352,13 +359,14 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
   const graficos = construirSeccionGraficosHtml({ uso, adopcion });
   return {
     titulo,
-    html: `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
-@page{size:letter;margin:16mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#1a2330;font:13px/1.55 'Helvetica Neue',Helvetica,Arial,sans-serif}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid #142b4a;padding-bottom:16px;margin-bottom:24px}.marca{font-size:11px;letter-spacing:2px;color:#142b4a;font-weight:bold}h1,h2{font-family:Georgia,'Times New Roman',serif;color:#142b4a}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid #dbe2ea;overflow-wrap:anywhere}th{background:#eef2f6}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:#566273;font-size:11px}footer{border-top:1px solid #dbe2ea;margin-top:24px;padding-top:10px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
-</style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
+    // Lato (con Arial de respaldo) se declara una sola vez, con la marca `rb-tipografia`.
+    html: forzarTipografiaMarca(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
+@page{size:letter;margin:25mm 30mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:${NEUTRO.k90};font:13px/1.55 ${FUENTE_PANTALLA}}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid ${SPACE_BLUE[100]};padding-bottom:16px;margin-bottom:24px}h1,h2{color:${SPACE_BLUE[100]}}h1{font-size:28px;font-weight:300;margin:0 0 8px}h2{font-size:20px;font-weight:400;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid ${NEUTRO.k20};overflow-wrap:anywhere;font-variant-numeric:tabular-nums}th{background:${SPACE_BLUE[20]};color:${SPACE_BLUE[100]}}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:${NEUTRO.k75};font-size:11px}footer{margin-top:24px;padding-top:10px}.rb-franja{margin-top:12px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
+</style></head><body><main><header>${logoHtml({ ancho: 180 })}<h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} – ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
 <section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${resumenTickets}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
 ${seccionesAvances(nuevas, mejoras)}${seccionTicketsAtendidos(tickets)}
-<section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer></main></body></html>`,
+<section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer>${franjaHtml(4)}</main></body></html>`),
   };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { PantallaError } from "@/components/pantalla-error";
+import { lato } from "./fuente-lato";
 import "./globals.css";
 
 /**
@@ -21,12 +22,13 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="es">
+    <html lang="es" className={lato.variable}>
       <body>
         <PantallaError
           error={error}
           retry={unstable_retry}
           className="min-h-screen"
+          conMarca
         />
       </body>
     </html>

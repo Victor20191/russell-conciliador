@@ -194,7 +194,7 @@ export default function MaestrosClient({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
               <div>
-                <h2 className="text-[13.5px] font-semibold text-ink-800">{title}</h2>
+                <h2 className="text-[13.5px] font-semibold text-navy-800">{title}</h2>
                 <p className="mt-0.5 text-[11.5px] text-ink-500">
                   {total} registro(s)
                 </p>
@@ -317,7 +317,7 @@ function MasterTab({
       <span className="truncate font-medium">{label}</span>
       <span
         className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-          active ? "bg-white/15 text-white" : "bg-ink-100 text-ink-500"
+          active ? "bg-navy-600 text-white" : "bg-ink-100 text-ink-500"
         }`}
       >
         {count}
@@ -376,7 +376,7 @@ function PersonasTable({
               .filter((a) => a.subordinadoId === row.id)
               .map((a) => nombrePorId.get(a.superiorId) ?? `Usuario ${a.superiorId}`);
             return (
-              <tr key={row.id} className="hover:bg-ink-50/50">
+              <tr key={row.id} className="hover:bg-paper">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-700 text-[11px] font-semibold text-white">
@@ -388,7 +388,7 @@ function PersonasTable({
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 font-mono text-[12px] text-ink-600">
+                <td className="px-4 py-3 tabular-nums text-[12px] text-ink-600">
                   {row.cedula ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-ink-600">{row.cargo ?? "—"}</td>
@@ -412,7 +412,7 @@ function PersonasTable({
                     <button
                       type="button"
                       onClick={() => onEdit(row)}
-                      className="text-blue-500 hover:underline"
+                      className="text-blue-600 hover:underline"
                     >
                       Editar
                     </button>
@@ -467,10 +467,10 @@ function CatalogTable({
         </thead>
         <tbody className="divide-y divide-ink-100">
           {rows.map((row) => (
-            <tr key={row.id} className="hover:bg-ink-50/50">
-              <td className="px-4 py-3 font-mono text-[12px] text-ink-700">{row.code}</td>
+            <tr key={row.id} className="hover:bg-paper">
+              <td className="px-4 py-3 tabular-nums text-[12px] text-ink-700">{row.code}</td>
               <td className="px-4 py-3 font-medium text-ink-800">{row.name}</td>
-              <td className="px-4 py-3 font-mono text-[12px] text-ink-600">{row.order}</td>
+              <td className="px-4 py-3 tabular-nums text-[12px] text-ink-600">{row.order}</td>
               <td className="px-4 py-3 text-ink-600">{row.clients} cliente(s)</td>
               <td className="px-4 py-3"><EstadoBadge active={row.active} /></td>
               <td className="px-4 py-3">
@@ -478,7 +478,7 @@ function CatalogTable({
                   <button
                     type="button"
                     onClick={() => onEdit(row)}
-                    className="text-blue-500 hover:underline"
+                    className="text-blue-600 hover:underline"
                   >
                     Editar
                   </button>
@@ -564,7 +564,7 @@ function SuperioresField({
             aria-expanded={open}
             aria-controls={dropdownId}
             onClick={() => setOpen((current) => !current)}
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[13px] text-ink-800 transition hover:border-ink-300 focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-600/15"
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[13px] text-ink-800 transition hover:border-ink-300 focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-100"
           >
             <span
               className={`min-w-0 flex-1 truncate ${
@@ -681,7 +681,7 @@ function PersonaModal({
           <input
             name="cedula"
             defaultValue={row?.cedula ?? ""}
-            className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+            className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
           />
         </FormField>
         <FormField label="Cargo" error={state?.errors?.cargo}>
@@ -810,7 +810,7 @@ function CatalogModal({
             name="code"
             defaultValue={row?.code ?? ""}
             required
-            className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+            className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
           />
         </FormField>
         <FormField label="Nombre" error={state?.errors?.name}>
@@ -827,7 +827,7 @@ function CatalogModal({
             type="number"
             min={0}
             defaultValue={row?.order ?? 0}
-            className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+            className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
           />
         </FormField>
         <label className="flex items-center gap-2 text-[13px] text-ink-800">
@@ -874,7 +874,7 @@ function DeletePersonaModal({
           type="submit"
           form="delete-maestro-persona"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
@@ -928,7 +928,7 @@ function DeleteCatalogModal({
           type="submit"
           form="delete-maestro-catalogo"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>

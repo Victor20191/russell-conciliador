@@ -1,3 +1,5 @@
+import { contentDispositionSeguro } from "@/lib/modulos/respuesta-archivo";
+import { CABECERAS_ARCHIVO_PRIVADO } from "@/lib/seguridad/cabeceras-archivo";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
@@ -49,13 +51,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const esDescarga = url.searchParams.has("download") || url.searchParams.has("descargar");
     const headers: Record<string, string> = {
       "Content-Type": tipoContenidoSoporte(objeto.contentType, soporte.tipoContenido),
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, max-age=600",
+      ...CABECERAS_ARCHIVO_PRIVADO,
     };
     if (esDescarga) {
-      const nombreSeguro = (soporte.nombreArchivo || "soporte").replace(/[\\/"]/g, "");
-      headers["Content-Disposition"] =
-        `attachment; filename="${nombreSeguro}"; filename*=UTF-8''${encodeURIComponent(soporte.nombreArchivo || "soporte")}`;
+      headers["Content-Disposition"] = contentDispositionSeguro(soporte.nombreArchivo || "adjunto");
     }
     return new Response(cuerpoBinario(objeto.cuerpo), { headers });
   } catch (e) {

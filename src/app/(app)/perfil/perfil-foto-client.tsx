@@ -119,7 +119,7 @@ function FotoUploader({
       </div>
 
       {!storageReady && (
-        <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
+        <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
           El almacenamiento de fotos aún no está configurado. Pídele al
           administrador que defina las variables S3 (S3/MinIO/R2).
         </div>
@@ -160,7 +160,7 @@ function FotoUploader({
           <button
             type="submit"
             disabled={quitando}
-            className="inline-flex items-center gap-1.5 rounded-md border border-err-100 bg-err-100/60 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             <Icon name="x" size={13} />
             {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Quitar foto"}

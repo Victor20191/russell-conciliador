@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransit
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
-import { Icon } from "@/components/icons";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
 import { INFO_CONTENIDO_ARCHIVO, type ContenidoArchivoCargue } from "@/lib/modulos/ingresos/contenido-archivo";
@@ -112,7 +112,7 @@ function FilaConceptoAgrupado({ grupo, abierto, columnas, onAlternar, selecciona
         <ul className="flex flex-col gap-1">
           {r.cuentas.map((c) => (
             <li key={c.cuentaArchivo} className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
-              <span className="rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo">{c.cuentaArchivo}</span>
+              <span className="rounded border border-ok-300 bg-ok-100 px-1 py-0.5 tabular-nums font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo">{c.cuentaArchivo}</span>
               <span className="text-ink-400">→</span>
               {c.russell.length === 0 ? (
                 <span className="font-medium text-warn-700">sin cuenta</span>
@@ -175,7 +175,7 @@ function DetalleModuloFila({ detalle, etiqueta, descripcionDe, excluidos, onAlte
           const fuera = excluidos?.has(d.clasificador) === true;
           const contenido = (
             <>
-              <span className="shrink-0 font-mono text-[11.5px] text-ink-600 sm:w-[110px]">{d.clasificador}</span>
+              <span className="shrink-0 tabular-nums text-[11.5px] text-ink-600 sm:w-[110px]">{d.clasificador}</span>
               <span className={`min-w-0 flex-1 truncate text-[12px] ${fuera ? "text-ink-400" : "text-ink-700"}`} title={descripcion ?? undefined}>{descripcion ?? ""}</span>
               <span className={`shrink-0 tabular-nums text-[12px] ${fuera ? "text-ink-400 line-through" : "text-ink-800"}`}>{fmtContable(d.total)}</span>
             </>
@@ -525,7 +525,7 @@ const unirConY = (partes: readonly string[]): string =>
  */
 function AvisoCuentasDispares({ dispares, etiqueta }: { dispares: CuentaDisparCruce[]; etiqueta: (clave: string) => string }) {
   return (
-    <details className="mt-1 w-full rounded border border-warn-500 bg-warn-100/40 px-2 py-1 text-[11px] font-normal leading-snug text-warn-700">
+    <details className="mt-1 w-full rounded border border-warn-500 bg-warn-100 px-2 py-1 text-[11px] font-normal leading-snug text-warn-700">
       <summary className="cursor-pointer font-semibold">
         Revisa las cuentas: {dispares.length === 1 ? "1 concepto no tiene" : `${dispares.length} conceptos no tienen`} todas las cuentas de este renglón
       </summary>
@@ -746,7 +746,7 @@ export default function DatoCargadoClient({
   return (
     <div className="flex flex-col gap-4">
       {avisoSoloLectura && (
-        <div role="status" className="flex items-start gap-2 rounded-md border border-navy-700/30 bg-navy-700/5 px-3 py-2.5 text-[12.5px] text-ink-800">
+        <div role="status" className="flex items-start gap-2 rounded-md border border-navy-300 bg-navy-50 px-3 py-2.5 text-[12.5px] text-ink-800">
           <Icon name="shield" size={15} className="mt-0.5 shrink-0 text-navy-700" />
           <p>{avisoSoloLectura}</p>
         </div>
@@ -774,7 +774,7 @@ export default function DatoCargadoClient({
           <a
             href={`/modulos/${moduloCodigo.toLowerCase()}/${encabezadoId}/export`}
             data-sin-aviso-salida
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100 xl:mb-1 xl:ml-2"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-200 xl:mb-1 xl:ml-2"
             title="Exporta a Excel el detalle y el consolidado de este cargue"
           >
             <Icon name="download" size={13} /> Exportar a Excel
@@ -877,7 +877,7 @@ function PropuestaDelArchivo({
   if (!("cuenta" in propuesta)) {
     return (
       <div className="text-[10.5px] leading-snug text-warn-700">
-        <span className="rounded border border-warn-500/40 bg-warn-100/30 px-1 py-0.5 font-semibold">Sin cuenta del archivo</span>{" "}
+        <span className="rounded border border-warn-200 bg-warn-100 px-1 py-0.5 font-semibold">Sin cuenta del archivo</span>{" "}
         {propuesta.motivo}
       </div>
     );
@@ -887,9 +887,9 @@ function PropuestaDelArchivo({
     <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] leading-snug text-ink-500">
       <span className="rounded border border-ink-200 bg-ink-50 px-1 py-0.5 font-semibold text-ink-600">Cuenta del archivo</span>
       <span>
-        <span className="font-mono tabular-nums text-ink-700">{propuesta.cuentaCliente}</span>
+        <span className="tabular-nums text-ink-700">{propuesta.cuentaCliente}</span>
         {propuesta.nombreCliente ? ` ${propuesta.nombreCliente}` : ""} →{" "}
-        <span className="font-mono tabular-nums text-ink-700">{propuesta.cuenta}</span>
+        <span className="tabular-nums text-ink-700">{propuesta.cuenta}</span>
         {propuesta.via === "homologacion" ? " · homologada en el balance" : " · deducida por la estructura del PUC"}
       </span>
       {!yaEsta && onUsar && (
@@ -924,12 +924,12 @@ function SugerenciaConcepto({ s, asignadas, onUsar }: { s: SugerenciaConsolidado
       {s.cuentas.length > 0 && (
         <>
           {": "}
-          {s.cuentas.map((c) => <span key={c} className="mr-1 rounded border border-ink-200 bg-white px-1 font-mono text-ink-700">{c}</span>)}
+          {s.cuentas.map((c) => <span key={c} className="mr-1 rounded border border-ink-200 bg-white px-1 tabular-nums text-ink-700">{c}</span>)}
         </>
       )}
       {s.via === "multi" && <span className="text-ink-500"> — en el cruce van juntas, en un renglón agrupado contra la suma de las cuentas; para verlo cuenta por cuenta, asígnale una sola cuenta.</span>}
       {s.via === "archivo" && s.origenCuentaArchivo === "estructura" && (
-        <span className="ml-1 rounded border border-warn-500 bg-warn-100/40 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
+        <span className="ml-1 rounded border border-warn-500 bg-warn-100 px-1 font-semibold text-warn-700" title="La cuenta del cliente no está homologada en el balance: la cuenta Russell salió de su estructura PUC. Homológala en el balance para confirmarla.">
           sin homologar en el balance
         </span>
       )}
@@ -975,7 +975,7 @@ function PanelClasesAgrupador({ agrupadores, clienteId, moduloCodigo, encabezado
           <span className="text-ink-500">· {agrupadores.length} centro{agrupadores.length === 1 ? "" : "s"} en el archivo</span>
           {sinClase > 0 && <span className="ml-2 rounded-full border border-warn-500 bg-warn-100 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700">{sinClase} sin clase</span>}
         </span>
-        <span className="text-ink-400">{abierto ? "▾" : "▸"}</span>
+        <Icon name={abierto ? "chev-d" : "chev-r"} size={12} className="shrink-0 text-ink-400" />
       </button>
       {abierto && (
         <div className="px-3 pb-3">
@@ -1443,7 +1443,7 @@ function ConsolidadoTab({
                   disabled={deshabilitada}
                   onClick={() => pedirCambioAgrupar(o.id)}
                   title={activa ? "Agrupación de este cargue" : !o.disponible ? o.motivo ?? undefined : motivoAgruparBloqueado ?? undefined}
-                  className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-50`}
+                  className={`rounded-full border px-2.5 py-1 font-semibold ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"} disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   {o.etiqueta}
                 </button>
@@ -1454,7 +1454,7 @@ function ConsolidadoTab({
         </div>
       )}
       {resumenArchivo && (
-        <div className="shrink-0 border-b border-ink-100 bg-ok-100/30 px-3 py-2 text-[11.5px] leading-snug text-ink-700">
+        <div className="shrink-0 border-b border-ink-100 bg-ok-100 px-3 py-2 text-[11.5px] leading-snug text-ink-700">
           <b className="text-ok-700">Este archivo trae la cuenta contable del cliente.</b>{" "}
           {resumenArchivo.porArchivo} {resumenArchivo.porArchivo === 1 ? "renglón cruza" : "renglones cruzan"} por ella y no {resumenArchivo.porArchivo === 1 ? "necesita" : "necesitan"} el catálogo de conceptos
           {resumenArchivo.control > 0 ? `; ${resumenArchivo.control} van al control de deducciones o quedan fuera del módulo por su cuenta` : ""}
@@ -1537,7 +1537,7 @@ function ConsolidadoTab({
                 type="button"
                 disabled={nSel === 0 || ocupado}
                 onClick={() => setMasivoAbierto(true)}
-                className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                 title={nSel === 0 ? `Marca ${etiquetaPlural} en la tabla para asignarles cuentas en bloque` : undefined}
               >
                 Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
@@ -1547,7 +1547,7 @@ function ConsolidadoTab({
                   type="button"
                   disabled={ocupado}
                   onClick={guardarPropuestas}
-                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {guardandoTodo ? "Guardando…" : `Guardar propuestas (${propuestas.length})`}
                 </button>
@@ -1585,7 +1585,7 @@ function ConsolidadoTab({
               <th className="px-3 py-2 font-semibold">
                 <EncabezadoOrdenable etiqueta={`Cuentas (${etiquetaNivel} díg) — una o varias`} columna="cuentas" orden={orden} onOrdenar={ordenarPor} />
               </th>
-              <th className="px-3 py-2 text-center font-semibold">💬</th>
+              <th className="px-3 py-2 text-center font-semibold"><Icon name="msg" size={13} className="mx-auto" /><span className="sr-only">Conversación</span></th>
             </tr>
             <tr className="bg-ink-50">
               {puedeEditar && <th className="px-3 pb-2" />}
@@ -1650,7 +1650,7 @@ function ConsolidadoTab({
               const marcada = seleccion.has(c.clasificador);
               const conCuentaDelPeriodo = asignadas.some((cod) => codigosExtra.has(cod));
               return (
-                <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100/20" : marcada ? "bg-blue-50/50" : ""}`}>
+                <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100" : marcada ? "bg-blue-100" : ""}`}>
                   {puedeEditar && (
                     <td className="px-3 py-2">
                       <input
@@ -1673,11 +1673,11 @@ function ConsolidadoTab({
                     {/* Nómina: cuenta contable del cliente que trae el archivo (un renglón por cuenta).
                         Agrupando por cuenta ya es el renglón: no se repite. */}
                     {c.cuentaArchivo && agruparPorNomina?.actual !== "cuenta" && (
-                      <span className="ml-1.5 rounded border border-ok-500/60 bg-ok-100/40 px-1 py-0.5 font-mono text-[10.5px] font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo para este concepto">{c.cuentaArchivo}</span>
+                      <span className="ml-1.5 rounded border border-ok-300 bg-ok-100 px-1 py-0.5 tabular-nums text-[10.5px] font-semibold text-ok-700" title="Cuenta contable del cliente que trae el archivo para este concepto">{c.cuentaArchivo}</span>
                     )}
                     {/* Nómina sin agrupar por código: el código del concepto más repetido del renglón. */}
                     {agruparPorNomina && agruparPorNomina.actual !== "codigo" && c.codigoArchivo && (
-                      <span className="ml-1.5 rounded border border-ink-200 bg-white px-1 py-0.5 font-mono text-[10.5px] text-ink-500" title={agruparPorNomina.actual === "cuenta" ? "Código del concepto más repetido en las filas de esta cuenta" : "Código del concepto en el archivo"}>cód. {c.codigoArchivo}</span>
+                      <span className="ml-1.5 rounded border border-ink-200 bg-white px-1 py-0.5 tabular-nums text-[10.5px] text-ink-500" title={agruparPorNomina.actual === "cuenta" ? "Código del concepto más repetido en las filas de esta cuenta" : "Código del concepto en el archivo"}>cód. {c.codigoArchivo}</span>
                     )}
                     {/* Nombre del concepto cuando el clasificador es un código (Nómina). */}
                     {c.descripcion && (
@@ -1696,14 +1696,14 @@ function ConsolidadoTab({
                           return (
                             <span
                               key={cod}
-                              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11.5px] ${delPeriodo ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-blue-200 bg-blue-50 text-blue-800"}`}
+                              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11.5px] ${delPeriodo ? "border-warn-500 bg-warn-100 text-warn-700" : "border-blue-200 bg-blue-50 text-blue-800"}`}
                               title={`${etiquetaRussell(cod, nombrePorCuenta.get(cod))}${delPeriodo ? ` · solo ${periodo}` : ""}`}
                             >
                               <span className="font-semibold">R - {cod}</span>
                               {nombrePorCuenta.get(cod) && <span className={`max-w-[120px] truncate ${delPeriodo ? "" : "text-blue-600"}`}>{nombrePorCuenta.get(cod)}</span>}
                               {delPeriodo && <span className="text-[10px] font-semibold uppercase tracking-wide">solo {periodo}</span>}
-                              {ctas.length === 0 && codigosConocidos.has(cod) && <span className="font-bold text-warn-700" title="El cliente no tiene cuentas homologadas a este subgrupo">⚠</span>}
-                              {puedeEditar && <button type="button" onClick={() => quitarCuenta(c.clasificador, cod)} className={`${delPeriodo ? "text-warn-700/60" : "text-blue-400"} hover:text-err-700`} title="Quitar">×</button>}
+                              {ctas.length === 0 && codigosConocidos.has(cod) && <span className="font-bold text-warn-700" title="El cliente no tiene cuentas homologadas a este subgrupo"><Icon name="warn" size={12} stroke={2.2} className="inline-block align-[-2px]" /></span>}
+                              {puedeEditar && <button type="button" onClick={() => quitarCuenta(c.clasificador, cod)} className={`${delPeriodo ? "text-navy-500" : "text-blue-600"} hover:text-err-700`} title="Quitar">×</button>}
                             </span>
                           );
                         })}
@@ -1781,11 +1781,11 @@ function ConsolidadoTab({
                                 disabled={ocupado || !sucia}
                                 onClick={() => guardar(c.clasificador)}
                                 title={resueltaPorArchivo ? "Opcional: deja esta cuenta en la memoria del cliente para los archivos que no traigan la cuenta contable." : undefined}
-                                className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-md border border-ok-500 bg-ok-100 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-200 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {/* Gris sin cambios pendientes: si la fila tiene cuentas, dice que YA están
                                     guardadas (TKT-75: «Guardar» apagado se leía como «no se guardó»). */}
-                                {guardandoEsta ? "…" : !sucia && asignadas.length > 0 ? "✓ Guardado" : resueltaPorArchivo ? "Guardar en memoria" : "Guardar"}
+                                {guardandoEsta ? "…" : !sucia && asignadas.length > 0 ? <><IconoEnTexto name="check" />Guardado</> : resueltaPorArchivo ? "Guardar en memoria" : "Guardar"}
                               </button>
                               {resueltaPorArchivo ? (
                                 <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ok-700" title="La cuenta sale de la cuenta contable que trae el archivo: ya cruza sin guardarla.">
@@ -1888,7 +1888,7 @@ function ConsolidadoTab({
               type="button"
               disabled={cambiandoAgrupar}
               onClick={confirmarCambioAgrupar}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {cambiandoAgrupar ? "Cambiando…" : "Cambiar agrupación"}
             </button>
@@ -2041,7 +2041,7 @@ function OtrasCuentasPlan({
     const on = asignadas.has(c.codigo);
     const ctas = homologacionCliente[c.codigo] ?? [];
     return (
-      <label key={c.codigo} className={`flex cursor-pointer items-start gap-2.5 border-b border-ink-50 px-3 py-2 last:border-0 ${on ? "bg-warn-100/30" : "hover:bg-ink-50"}`}>
+      <label key={c.codigo} className={`flex cursor-pointer items-start gap-2.5 border-b border-ink-50 px-3 py-2 last:border-0 ${on ? "bg-warn-100" : "hover:bg-ink-50"}`}>
         <input type="checkbox" checked={on} onChange={alMarcar} className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] font-semibold text-ink-800">
@@ -2189,7 +2189,7 @@ function ModalAsignacionMasiva({
         type="button"
         disabled={elegidas.length === 0}
         onClick={() => setPaso("confirmar")}
-        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
       >
         Continuar{elegidas.length > 0 ? ` (${elegidas.length} cuenta${elegidas.length === 1 ? "" : "s"})` : ""}
       </button>
@@ -2198,7 +2198,7 @@ function ModalAsignacionMasiva({
         <button
           type="button"
           onClick={() => onAplicar(elegidas, "reemplazar")}
-          className="rounded-md border border-err-500 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100/50"
+          className="rounded-md border border-err-500 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100"
         >
           Reemplazar las existentes
         </button>
@@ -2240,7 +2240,7 @@ function ModalAsignacionMasiva({
             </p>
             {conCuentas > 0 && (
               <p className="mt-1.5 text-[12px] font-medium text-warn-700">
-                ⚠ {conCuentas} de ellos ya {conCuentas === 1 ? "tiene cuentas asignadas" : "tienen cuentas asignadas"}: «Agregar» las conserva, «Reemplazar» las descarta.
+                <IconoEnTexto name="warn" />{conCuentas} de ellos ya {conCuentas === 1 ? "tiene cuentas asignadas" : "tienen cuentas asignadas"}: «Agregar» las conserva, «Reemplazar» las descarta.
               </p>
             )}
           </div>
@@ -2358,7 +2358,7 @@ function DetalleTab({ columnas: columnasDelCargue, columnasVisibles, totalFilas,
                   <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
                 </th>
               ))}
-              <th className="px-2.5 py-2 text-center font-semibold">💬</th>
+              <th className="px-2.5 py-2 text-center font-semibold"><Icon name="msg" size={13} className="mx-auto" /><span className="sr-only">Conversación</span></th>
             </tr>
             <tr className="bg-ink-50">
               <th className="px-2.5 pb-2" />
@@ -2451,7 +2451,7 @@ function AvisoSignoContrario({ resumen, moduloCodigo, moduloLabel }: { resumen: 
   };
   const una = resumen.filas.length === 1 ? resumen.filas[0] : null;
   return (
-    <div role="alert" className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">
+    <div role="alert" className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] leading-snug text-warn-700">
       <span className="font-semibold">
         El archivo de {moduloLabel.toLocaleLowerCase("es")} parece venir con el signo contrario a la contabilidad
       </span>{" "}
@@ -2529,7 +2529,7 @@ function CruceContableTab({
   // El clasificador del cruce puede traer el centro («1050 ∥ GYA»): el nombre se busca por el
   // concepto, que es lo que el usuario reconoce.
   const descripcionDeClasificador = (clave: string): string | null =>
-    descripcionPorClasificador[clave] ?? descripcionPorClasificador[clave.split(" ∥ ")[0]] ?? null;
+    descripcionPorClasificador[clave] ?? descripcionPorClasificador[clave.split(SEPARADOR_AGRUPADOR)[0]] ?? null;
   const etiquetaConceptoCruce = (clave: string): string => {
     const descripcion = descripcionDeClasificador(clave);
     return `«${clave}${descripcion ? ` ${descripcion}` : ""}»`;
@@ -2680,7 +2680,7 @@ function CruceContableTab({
         </p>
       )}
       {cruceContable.avisoBalance && (
-        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
+        <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
       {signoContrario && <AvisoSignoContrario resumen={signoContrario} moduloCodigo={moduloCodigo} moduloLabel={moduloLabel} />}
       {resumenMarcas && (resumenMarcas.conDiferencia > 0 || (resumenMarcas.bajoUmbral ?? 0) > 0) && (
@@ -2800,7 +2800,7 @@ function CruceContableTab({
                       return (
                         <tr
                           key={renglon.cuenta}
-                          className={`${primero ? "border-t border-ink-100" : ""} ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}
+                          className={`${primero ? "border-t border-ink-100" : ""} ${f.estado === "descuadre" ? "bg-err-100" : ""}`}
                         >
                           <td className={`px-3 py-2 font-medium text-ink-800 ${agrupada ? "border-l-2 border-l-blue-300" : ""}`}>
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -3053,7 +3053,7 @@ function CruceContableTab({
             </div>
           )}
           {sinReglaContableFilas > 0 && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+            <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
               Se omitieron <b>{sinReglaContableFilas}</b> {sinReglaContableFilas === 1 ? "fila contable" : "filas contables"} porque no tienen una regla activa del prevalidador para {moduloEnMinuscula}: sin ella no se sabe si la cuenta es del módulo.
             </div>
           )}
@@ -3173,8 +3173,8 @@ function CuentasSoloVisiblesCard({ resumen, detalle, moduloLabel }: { resumen: R
                         <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(f.diferencia)}</td>
                       </tr>
                       {expandida && hijos.map((h) => (
-                        <tr key={h.cuenta8} className="bg-ink-50/50 text-[11.5px] text-ink-600">
-                          <td className="py-1 pl-10 pr-3"><span className="font-mono">{h.cuenta8}</span> {h.nombre}</td>
+                        <tr key={h.cuenta8} className="bg-paper text-[11.5px] text-ink-600">
+                          <td className="py-1 pl-10 pr-3"><span className="tabular-nums">{h.cuenta8}</span> {h.nombre}</td>
                           <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">{fmtContable(h.valor)}</td>
                           <td colSpan={2} />
                         </tr>
@@ -3231,13 +3231,13 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
     const abierta = abiertas.has(f.subcuenta);
     return (
       <Fragment key={f.subcuenta}>
-        <tr className={`border-t border-ink-100 ${!soloVisible && f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+        <tr className={`border-t border-ink-100 ${!soloVisible && f.estado === "descuadre" ? "bg-err-100" : ""}`}>
           <td className="px-3 py-2 font-medium text-ink-800">
             <div className="flex items-center gap-1.5">
               <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
                 <Icon name={chevronDivulgacion(abierta)} size={13} />
               </button>
-              <span className="font-mono">{f.subcuenta}</span> {f.etiqueta}
+              <span className="tabular-nums">{f.subcuenta}</span> {f.etiqueta}
             </div>
           </td>
           <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
@@ -3254,13 +3254,13 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-600">Cuentas del cliente</div>
                   {f.cuentas.length === 0 ? <div className="text-[11px] text-ink-400">Ninguna en el balance.</div> : f.cuentas.map((c) => (
-                    <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
+                    <div key={c.cuenta8} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="tabular-nums">{c.cuenta8}</span> {c.nombre} <span className="text-ink-400">· clase {c.clase}</span></span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.valor)}</span></div>
                   ))}
                 </div>
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-600">Conceptos del módulo</div>
                   {f.conceptos.length === 0 ? <div className="text-[11px] text-ink-400">Ningún concepto con esta subcuenta.</div> : f.conceptos.map((c) => (
-                    <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="font-mono">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
+                    <div key={c.clasificador} className="flex justify-between gap-2 text-[11.5px] text-ink-700"><span className="min-w-0"><span className="tabular-nums">{c.codigo}</span>{c.agrupador ? <span className="text-ink-400"> · {c.agrupador}</span> : null} {c.descripcion ?? ""}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{fmtContable(c.total)}</span></div>
                   ))}
                 </div>
               </div>
@@ -3364,14 +3364,14 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
 /** Deducciones a pasivo/activo/ingreso: por cuenta del cliente contra el balance. Solo informa. */
 /** Nómina · Novedades: validaciones propias del archivo y de la homologación. */
 function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
-  const ok = "rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700";
+  const ok = "rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700";
   return (
     <>
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Homologación de conceptos</div>
         <div className="flex flex-col gap-2 text-[12px]">
-          {v.sinCuenta.length === 0 ? <div className={ok}>✓ Todos los conceptos de gasto tienen cuenta Russell resuelta.</div> : (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-warn-700">
+          {v.sinCuenta.length === 0 ? <div className={ok}><IconoEnTexto name="check" />Todos los conceptos de gasto tienen cuenta Russell resuelta.</div> : (
+            <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-warn-700">
               <b>{v.sinCuenta.length}</b> concepto(s) sin cuenta confirmada (suman en el renglón «Saldo del módulo sin cuenta» del cruce contable): {v.sinCuenta.slice(0, 12).map((c) => `${c.clasificador}${c.descripcion ? ` ${c.descripcion}` : ""} (${fmtContable(c.total)})`).join("  ·  ")}{v.sinCuenta.length > 12 ? " …" : ""}. Confírmalos en la pestaña Consolidado.
             </div>
           )}
@@ -3381,7 +3381,7 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
             </div>
           )}
           {(v.cuentaArchivoPorEstructura ?? []).length > 0 && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-warn-700">
+            <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-warn-700">
               <b>{v.cuentaArchivoPorEstructura.length}</b> concepto(s) cruzan por una cuenta del archivo que el balance no tiene homologada: la cuenta Russell se derivó por su estructura PUC.{" "}
               {v.cuentaArchivoPorEstructura.slice(0, 12).map((c) => `${c.clasificador}${c.descripcion ? ` ${c.descripcion}` : ""}: ${c.cuentaCliente} → ${c.cuenta6} (${fmtContable(c.total)})`).join("  ·  ")}
               {v.cuentaArchivoPorEstructura.length > 12 ? " …" : ""}. Homológalas en el balance para que no dependan de la estructura.
@@ -3402,7 +3402,7 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
       </Card>
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Neto por fila (devengo − deducción)</div>
-        {v.netos.length === 0 ? <div className={ok}>✓ En las filas que traen devengo, deducción y neto, el neto cuadra.</div> : (
+        {v.netos.length === 0 ? <div className={ok}><IconoEnTexto name="check" />En las filas que traen devengo, deducción y neto, el neto cuadra.</div> : (
           <div className="overflow-x-auto rounded-md border border-ink-150">
             <table className="w-full text-[12px]">
               <thead className="bg-ink-50 text-left text-ink-500"><tr><th className="px-2.5 py-1.5 font-semibold">Fila</th><th className="px-2.5 py-1.5 font-semibold">Cédula</th><th className="px-2.5 py-1.5 text-right font-semibold">Devengo</th><th className="px-2.5 py-1.5 text-right font-semibold">Deducción</th><th className="px-2.5 py-1.5 text-right font-semibold">Neto</th><th className="px-2.5 py-1.5 text-right font-semibold">Esperado</th></tr></thead>
@@ -3424,9 +3424,9 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
       </Card>
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cédulas con varios nombres</div>
-        {v.cedulas.length === 0 ? <div className={ok}>✓ Cada cédula aparece con un solo nombre.</div> : (
+        {v.cedulas.length === 0 ? <div className={ok}><IconoEnTexto name="check" />Cada cédula aparece con un solo nombre.</div> : (
           <ul className="flex flex-col gap-1 text-[12px] text-ink-700">
-            {v.cedulas.slice(0, 50).map((c) => <li key={c.cedula}><span className="font-mono">{c.cedula}</span>: {c.nombres.join(" / ")} <span className="text-ink-400">({c.filas} filas)</span></li>)}
+            {v.cedulas.slice(0, 50).map((c) => <li key={c.cedula}><span className="tabular-nums">{c.cedula}</span>: {c.nombres.join(" / ")} <span className="text-ink-400">({c.filas} filas)</span></li>)}
           </ul>
         )}
       </Card>
@@ -3482,7 +3482,7 @@ function ConciliacionEnFirmePanel({
 
   if (enFirme && cierre) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-navy-700/30 bg-navy-700/5 px-3 py-2 text-[12px] text-ink-800">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-navy-300 bg-navy-50 px-3 py-2 text-[12px] text-ink-800">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="inline-flex items-center gap-1 font-semibold text-navy-700"><Icon name="check" size={13} /> Conciliación en firme</span>
           <span>cerró <b>{cierre.cerradoPor}</b> · {cierre.cerradoEn}</span>
@@ -3510,7 +3510,7 @@ function ConciliacionEnFirmePanel({
               type="button"
               onClick={desbloquear}
               disabled={pending || justificacion.trim().length < MIN_JUSTIFICACION_DESBLOQUEO}
-              className="inline-flex items-center gap-1.5 rounded-md bg-warn-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-warn-500 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md bg-warn-500 px-3 py-2 text-[12.5px] font-semibold text-navy-800 hover:bg-warn-400 disabled:opacity-60"
             >
               {pending ? "Desbloqueando…" : "Desbloquear conciliación"}
             </button>
@@ -3559,7 +3559,7 @@ function ConciliacionEnFirmePanel({
           onClick={() => setConfirmarCierre(true)}
           disabled={!!motivoNoCerrable}
           title={motivoNoCerrable ?? "Cerrar la conciliación y bloquear las cuentas del módulo en el balance"}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Icon name="check" size={13} /> Cerrar conciliación
         </button>
@@ -3601,7 +3601,7 @@ function ResumenMarcasBanner({ resumen, tolerancia }: { resumen: ResumenMarcas; 
   return (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
-        todo ? "border-ok-500 bg-ok-100/30 text-ok-700" : "border-warn-500 bg-warn-100/30 text-warn-700"
+        todo ? "border-ok-500 bg-ok-100 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"
       }`}
     >
       <span className="font-semibold">
@@ -3753,7 +3753,7 @@ function TablaCedulaActivos({
           const reclasificacion = hayReclasificacionEntreColumnas(f);
           return (
             <Fragment key={f.cuenta4}>
-              <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+              <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100" : ""}`}>
                 <td className="px-3 py-2 font-medium text-ink-800">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {hijos.length > 0 || (f.detalleModulo?.length ?? 0) > 0 ? (
@@ -4005,7 +4005,7 @@ function ObservacionesMarcas({
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
-        <h3 className="min-w-0 text-[12.5px] font-semibold text-ink-800">Observaciones · marcas de auditoría</h3>
+        <h3 className="min-w-0 text-[12.5px] font-semibold text-navy-800">Observaciones · marcas de auditoría</h3>
         {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
             {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
@@ -4147,7 +4147,7 @@ function ObservacionMarca({
             disabled={ocupado}
             title="Retirar la marca (se lleva sus soportes)"
             aria-label="Retirar la marca"
-            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
           >
             <Icon name="trash" size={13} />
           </button>
@@ -4195,7 +4195,7 @@ function ModalElegirRenglonMarca({
                 <button
                   type="button"
                   onClick={() => onElegir(f)}
-                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800"
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
                 >
                   Pasar aquí
                 </button>
@@ -4333,7 +4333,7 @@ function ModalMarca({
           type="button"
           onClick={guardar}
           disabled={!nota.trim() || guardando}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Guardando…" : origen ? "Pasar la marca" : fila.marca ? "Guardar cambios" : "Poner marca"}
         </button>
@@ -4419,7 +4419,7 @@ function ModalMarca({
         )}
 
         {!origen && fila.desactualizada && fila.marca && (
-          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
           </div>
         )}
@@ -4464,7 +4464,7 @@ function ModalMarca({
 function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: NovedadesVm; titulo?: string | null; encabezadoId: number }) {
   return (
     <div className="flex flex-col gap-4">
-      {titulo && <h2 className="text-[15px] font-semibold text-ink-800">{titulo}</h2>}
+      {titulo && <h2 className="text-[15px] font-semibold text-navy-800">{titulo}</h2>}
       {novedades.activos && <ValidacionesActivosCard v={novedades.activos} />}
       {novedades.comentariosAlertas && novedades.comentariosAlertas.length > 0 && (
         <ComentariosAlertasCard
@@ -4492,10 +4492,10 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validación automática</div>
         {novedades.negativos.length === 0 ? (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin existencias ni costos negativos.</div>
+          <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700"><IconoEnTexto name="check" />Sin existencias ni costos negativos.</div>
         ) : (
           <div className="flex flex-col gap-2">
-            <div className="text-[12.5px] font-semibold text-err-700">⚠ {novedades.negativos.length} {novedades.negativos.length === 1 ? "ítem" : "ítems"} con existencias o costos negativos</div>
+            <div className="text-[12.5px] font-semibold text-err-700"><IconoEnTexto name="warn" />{novedades.negativos.length} {novedades.negativos.length === 1 ? "ítem" : "ítems"} con existencias o costos negativos</div>
             <div className="overflow-x-auto rounded-md border border-ink-150">
               <table className="w-full text-[12px]">
                 <thead className="bg-ink-50 text-left text-ink-500"><tr><th className="px-2.5 py-1.5 font-semibold">Fila</th><th className="px-2.5 py-1.5 font-semibold">Referencia</th><th className="px-2.5 py-1.5 font-semibold">Campo</th><th className="px-2.5 py-1.5 text-right font-semibold">Valor</th></tr></thead>
@@ -4518,7 +4518,7 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Descuadre valor total vs cantidad × unitario</div>
         {novedades.descuadres.length === 0 ? (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ El valor total cuadra con cantidad × valor unitario.</div>
+          <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700"><IconoEnTexto name="check" />El valor total cuadra con cantidad × valor unitario.</div>
         ) : (
           <div className="overflow-x-auto rounded-md border border-ink-150">
             <table className="w-full text-[12px]">
@@ -4660,7 +4660,7 @@ function VersionesTab({
             {versiones.map((version) => {
               const actual = version.id === versionActualId;
               return (
-                <tr key={version.id} className={`border-t border-ink-100 ${actual ? "bg-blue-50/50" : "hover:bg-ink-50"}`}>
+                <tr key={version.id} className={`border-t border-ink-100 ${actual ? "bg-blue-100" : "hover:bg-ink-50"}`}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
                       <Chip label={`v${version.version}`} tone={version.esOficial ? "ok" : "ink"} />
@@ -4708,14 +4708,14 @@ function AlertasCostoCard({ alertas }: { alertas: NonNullable<NovedadesVm["alert
     <Card className="p-4">
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Alertas de costo por referencia</div>
       {alertas.length === 0 ? (
-        <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
-          ✓ Ninguna referencia con costo cero y existencias, sin existencias y con costo, ni con costo unitario 1.
+        <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700">
+          <IconoEnTexto name="check" />Ninguna referencia con costo cero y existencias, sin existencias y con costo, ni con costo unitario 1.
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             {resumen.map((r) => (
-              <div key={r.tipo} className={`rounded-md border px-3 py-1.5 text-[12px] ${r.referencias > 0 ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-ink-150 text-ink-500"}`}>
+              <div key={r.tipo} className={`rounded-md border px-3 py-1.5 text-[12px] ${r.referencias > 0 ? "border-warn-500 bg-warn-100 text-warn-700" : "border-ink-150 text-ink-500"}`}>
                 <span className="font-semibold">{r.etiqueta}:</span> {r.referencias} {r.referencias === 1 ? "referencia" : "referencias"}
                 {r.valorTotal !== 0 ? <> · {fmtContable(r.valorTotal)}</> : null}
               </div>

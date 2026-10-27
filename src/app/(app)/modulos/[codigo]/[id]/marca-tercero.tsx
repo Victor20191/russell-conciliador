@@ -125,7 +125,7 @@ export function ObservacionesMarcasTercero({
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
-        <h3 className="min-w-0 text-[12.5px] font-semibold text-ink-800">Observaciones · marcas del cruce por tercero</h3>
+        <h3 className="min-w-0 text-[12.5px] font-semibold text-navy-800">Observaciones · marcas del cruce por tercero</h3>
         {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
             {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
@@ -216,7 +216,7 @@ export function ObservacionesMarcasTercero({
                       disabled={ocupado}
                       title="Retirar la marca (se lleva sus soportes)"
                       aria-label="Retirar la marca"
-                      className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                      className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
                     >
                       <Icon name="trash" size={13} />
                     </button>
@@ -286,7 +286,7 @@ export function ModalMarcaTercero({
           type="button"
           onClick={guardar}
           disabled={!nota.trim() || guardando}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Guardando…" : fila.marca ? "Guardar cambios" : "Poner marca"}
         </button>
@@ -315,7 +315,7 @@ export function ModalMarcaTercero({
         )}
 
         {fila.desactualizada && fila.marca && (
-          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
             La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
           </div>
         )}

@@ -50,12 +50,12 @@ export function DiferenciasCorte({ comparacion, etiquetaA = "Este balance", etiq
               return (
                 <tr key={d.cuenta8} className="border-t border-ink-100">
                   <td className="px-4 py-2">
-                    <span className="font-mono font-semibold">{d.cuenta8}</span> · {d.nombre}
+                    <span className="tabular-nums font-semibold">{d.cuenta8}</span> · {d.nombre}
                     {d.estado !== "descuadre" && <span className="ml-2 text-err-700">{ETIQUETA_ESTADO_DIFERENCIA[d.estado]}</span>}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoA)}</td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums text-ink-600">{fmtContable(d.saldoB)}</td>
-                  <td className="whitespace-nowrap bg-err-50 px-4 py-2 text-right font-mono font-semibold tabular-nums text-err-700">
+                  <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-ink-600">{fmtContable(d.saldoA)}</td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-ink-600">{fmtContable(d.saldoB)}</td>
+                  <td className="whitespace-nowrap bg-err-50 px-4 py-2 text-right tabular-nums font-semibold text-err-700">
                     {fmtContable(d.diferencia)}
                     {menor && <span className="block font-sans text-[10.5px] font-medium">Diferencia menor de {fmt(tolerancia)}</span>}
                   </td>
@@ -140,10 +140,10 @@ export function CortePanel({ balanceId, vista, puedeRevisar, accionesPorBalance 
     : vista.estado === "sin_comparar" ? "Balances del mismo corte · sin comparar"
     : "Balances del mismo corte";
   return (
-    <section id="corte" aria-label="Balances del mismo corte" className={`my-4 scroll-mt-20 rounded-lg border p-4 ${inconsistentes > 0 ? "border-err-200 bg-err-50/40" : "border-ink-200 bg-white"}`}>
+    <section id="corte" aria-label="Balances del mismo corte" className={`my-4 scroll-mt-20 rounded-lg border p-4 ${inconsistentes > 0 ? "border-err-200 bg-err-100" : "border-ink-200 bg-white"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className={`text-[14px] font-semibold ${inconsistentes > 0 ? "text-err-700" : "text-ink-800"}`}>{titulo}</h2>
+          <h2 className={`text-[14px] font-semibold ${inconsistentes > 0 ? "text-err-700" : "text-navy-800"}`}>{titulo}</h2>
           <p className="mt-1 text-[12px] text-ink-500">
             {vista.etiqueta}. Los balances que terminan en la misma fecha —mensual, anual, por cuenta o por terceros— deben coincidir en sus saldos finales: los módulos concilian contra esa columna. Una diferencia desde {fmt(vista.tolerancia)} en una cuenta los vuelve inconsistentes y se resuelve eliminando uno de los balances; por debajo se muestra, pero no impide cerrar.
           </p>
@@ -192,7 +192,7 @@ export function CortePanel({ balanceId, vista, puedeRevisar, accionesPorBalance 
       {vista.anterioresEnFirme.length > 0 && (
         <div className="mt-4 space-y-2">
           {vista.anterioresEnFirme.map((a) => (
-            <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-navy-700/30 bg-navy-700/5 px-4 py-3 text-[12.5px]">
+            <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-navy-300 bg-navy-50 px-4 py-3 text-[12.5px]">
               <span>
                 La conciliación de <b>{a.enFirme.map((f) => `${f.moduloCodigo} · ${f.periodo}`).join(", ")}</b> sigue contra la versión anterior{" "}
                 <Link href={`/balance/${a.id}`} className="font-semibold underline">{a.version}</Link> de esta línea.

@@ -37,7 +37,7 @@ export type VersionRow = {
 };
 
 const BTN_PRIMARIO =
-  "rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:opacity-60";
+  "rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60";
 
 type VersionModal = { mode: "create" } | { mode: "edit"; version: VersionRow };
 

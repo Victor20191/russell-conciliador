@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import * as z from "zod";
+import { ajustarHtmlAMarca, conMarcaDocumento } from "@/lib/marca/html";
 import { revalidatePath, updateTag } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
@@ -238,7 +239,8 @@ async function leerCachePersistente(huella: string): Promise<ReporteCacheado | n
 
     if (!cacheado) return null;
     return {
-      report: { titulo: cacheado.titulo, html: cacheado.html },
+      // Un reporte guardado antes de aplicar el Manual de Marca también sale con ella.
+      report: { titulo: cacheado.titulo, html: conMarcaDocumento(ajustarHtmlAMarca(cacheado.html)) },
       generatedAt: cacheado.actualizadoEn.toISOString(),
       totalVersions: cacheado.totalVersiones,
       totalChanges: cacheado.totalCambios,
@@ -318,7 +320,13 @@ function construirPromptReporte(params: {
     "- Usa CSS autocontenido dentro de <style>.",
     "- Optimiza para PDF en tamaño carta: márgenes limpios, secciones con break-inside: avoid y @media print.",
     "- Usa tarjetas, tablas visuales simples o barras CSS solo con los conteos exactos de la base factual.",
-    "- Mantén un estilo sobrio, ejecutivo y funcional, compatible con la identidad Russell.",
+    "- Mantén un estilo sobrio, ejecutivo y funcional, con el Manual de Marca de Russell Bedford:",
+    "  - Tipografía Lato (respaldo Arial, Helvetica, sans-serif) en todo el documento; títulos en Lato Light.",
+    "  - Usa SOLO estos colores: Space Blue #001871 (principal: títulos, acentos y barras) y sus tintes #33468D, #6674AA, #99A3C6, #CCD1E3;",
+    "    Sea Green #00BFB3 (#CCF2F0), Earth Orange #ED8B00 (#FBE8CC), Sky Blue #00A9CE (#CCEEF5) y Mind Magenta #981D97 (#EAD2EA) como complementarios;",
+    "    texto #3C3C3B, bordes #DADADA, fondos #FFFFFF y #F6F6F6. Sin degradados ni otros colores.",
+    "  - Sea Green, Earth Orange y Sky Blue nunca como color de texto: el texto va en #3C3C3B o #001871.",
+    "  - No dibujes ni escribas el logotipo de Russell Bedford: el sistema agrega el oficial arriba del documento y la franja de color al pie.",
     "",
     "Reglas editoriales obligatorias:",
     "- Escribe en español de Colombia, con tono ejecutivo y claro para usuarios no técnicos.",
@@ -421,8 +429,8 @@ function envolverHtmlBasico(contenido: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Reporte detallado de funcionalidades</title>
 <style>
-body{margin:0;background:#f5f7fb;color:#202634;font-family:Arial,Helvetica,sans-serif;line-height:1.55}
-main{max-width:1080px;margin:28px auto;background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:28px}
+body{margin:0;background:#F6F6F6;color:#3C3C3B;font-family:Lato,Arial,Helvetica,sans-serif;line-height:1.55}
+main{max-width:1080px;margin:28px auto;background:#FFFFFF;border:1px solid #DADADA;border-radius:8px;padding:28px}
 pre{white-space:pre-wrap;font-family:inherit}
 @media print{body{background:#fff}main{border:0;margin:0;max-width:none}.section,article{break-inside:avoid}}
 </style>
@@ -454,7 +462,9 @@ function normalizarReporteHtml(texto: string): ReporteNovedades {
 
   return {
     titulo: extraerTituloHtml(html),
-    html,
+    // Lo redacta un modelo de IA: la marca (logotipo oficial, franja, paleta y
+    // Lato) se impone en código en vez de confiar en que siga las instrucciones.
+    html: conMarcaDocumento(ajustarHtmlAMarca(html)),
   };
 }
 

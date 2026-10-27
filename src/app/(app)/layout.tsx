@@ -8,7 +8,7 @@ import { moduloPublicadoParaRol } from "@/lib/rbac/modulos-plataforma";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { urlAvatar } from "@/lib/avatares";
 import { getVersionApp } from "@/lib/version-app-servidor";
-import prisma from "@/lib/prisma";
+import { listarNotificacionesActuales } from "@/lib/notificaciones-lectura";
 import { fmtDateTime } from "@/lib/format";
 import { permisosAyuda } from "@/lib/ayuda/fichas";
 import { rolesPorPermiso } from "@/lib/ayuda/roles";
@@ -27,20 +27,7 @@ export default async function AppLayout({
   const [matriz, publicacionModulos, notifications, versionApp, cookieStore] = await Promise.all([
     getMatriz(),
     getPublicacionModulos(),
-    prisma.notification.findMany({
-      where: { unread: true },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        kind: true,
-        who: true,
-        text: true,
-        target: true,
-        createdAt: true,
-        unread: true,
-      },
-    }),
+    listarNotificacionesActuales(),
     getVersionApp(),
     cookies(),
   ]);

@@ -152,10 +152,10 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
               <span className="shrink-0 font-normal text-ink-500">{fmtTokens(total?.llamadas ?? 0)} llamada(s)</span>
             </button>
           </td>
-          <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] font-semibold text-ink-700">{fmtTokens(total?.tokens ?? 0)}</td>
-          <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] font-semibold text-ink-700">{fmtUsd(total?.costoUsd ?? 0)}</td>
-          <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] text-ink-500">{fmtTrm(trmPromedio)}</td>
-          <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[12px] font-semibold text-ink-800">{fmtCop(total?.costoCop ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] font-semibold text-ink-700">{fmtTokens(total?.tokens ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] font-semibold text-ink-700">{fmtUsd(total?.costoUsd ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] text-ink-500">{fmtTrm(trmPromedio)}</td>
+          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[12px] font-semibold text-ink-800">{fmtCop(total?.costoCop ?? 0)}</td>
         </tr>,
       );
     }
@@ -176,31 +176,31 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
               title={fechaContraida ? "Expandir fecha" : "Contraer fecha"}
             >
               <Icon name={chevronDivulgacion(!fechaContraida)} size={12} className="shrink-0 text-ink-400" />
-              <span className="font-mono text-ink-600">{totalFecha?.label ?? fecha}</span>
+              <span className="tabular-nums text-ink-600">{totalFecha?.label ?? fecha}</span>
               <span className="shrink-0 font-normal text-ink-400">{fmtTokens(totalFecha?.llamadas ?? 0)} llamada(s)</span>
             </button>
           </td>
-          <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-[11px] font-semibold text-ink-600">{fmtTokens(totalFecha?.tokens ?? 0)}</td>
-          <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-[11px] font-semibold text-ink-600">{fmtUsd(totalFecha?.costoUsd ?? 0)}</td>
-          <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-[11px] text-ink-400">{fmtTrm(trmFecha)}</td>
-          <td className="whitespace-nowrap px-4 py-2 text-right font-mono text-[11.5px] font-semibold text-ink-700">{fmtCop(totalFecha?.costoCop ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-[11px] font-semibold text-ink-600">{fmtTokens(totalFecha?.tokens ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-[11px] font-semibold text-ink-600">{fmtUsd(totalFecha?.costoUsd ?? 0)}</td>
+          <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-[11px] text-ink-400">{fmtTrm(trmFecha)}</td>
+          <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-[11.5px] font-semibold text-ink-700">{fmtCop(totalFecha?.costoCop ?? 0)}</td>
         </tr>,
       );
     }
     if (fechaContraida) continue;
     filas.push(
       <tr key={e.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-        <td className="whitespace-nowrap px-4 py-2.5 font-mono text-[11.5px] text-ink-500">{e.ts}</td>
+        <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-[11.5px] text-ink-500">{e.ts}</td>
         <td className="px-4 py-2.5 text-ink-800">
           {e.tipo}
-          <span className="ml-1.5 font-mono text-[10.5px] text-ink-400">{e.modelo}</span>
+          <span className="ml-1.5 tabular-nums text-[10.5px] text-ink-400">{e.modelo}</span>
         </td>
         <td className="whitespace-nowrap px-4 py-2.5 text-ink-600">{e.usuario ?? "—"}</td>
         <td className="max-w-[220px] truncate px-4 py-2.5 text-ink-600" title={e.archivo ?? undefined}>{e.archivo ?? "—"}</td>
-        <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] text-ink-600">{fmtTokens(e.tokens)}</td>
-        <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] text-ink-600">{fmtUsd(e.costoUsd)}</td>
-        <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[11.5px] text-ink-500">{fmtTrm(e.trm)}</td>
-        <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-[12px] font-semibold text-ink-800">{fmtCop(e.costoCop)}</td>
+        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] text-ink-600">{fmtTokens(e.tokens)}</td>
+        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] text-ink-600">{fmtUsd(e.costoUsd)}</td>
+        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[11.5px] text-ink-500">{fmtTrm(e.trm)}</td>
+        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-[12px] font-semibold text-ink-800">{fmtCop(e.costoCop)}</td>
       </tr>,
     );
   }
@@ -208,13 +208,13 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-ink-800">Detalle de llamadas a la IA · por cliente y fecha</h2>
+        <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-navy-800">Detalle de llamadas a la IA · por cliente y fecha</h2>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={expandirTodos}
             disabled={!hayClientes || !hayContraidos}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
             title="Expandir todo"
           >
             <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} />
@@ -224,7 +224,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
             type="button"
             onClick={contraerTodos}
             disabled={!hayClientes || todosContraidos}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-40"
             title="Contraer todo"
           >
             <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} />

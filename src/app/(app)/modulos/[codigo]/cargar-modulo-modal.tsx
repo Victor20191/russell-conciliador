@@ -13,7 +13,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { unstable_isUnrecognizedActionError, useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
-import { Icon } from "@/components/icons";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
@@ -189,7 +189,7 @@ function ConfirmarClasificadorCarga({
   const nombre = etiqueta.toLowerCase();
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
         {etiqueta} <span className="text-err-600">*</span> · el patrón lo lee en {describir(patron)}
       </span>
@@ -201,7 +201,7 @@ function ConfirmarClasificadorCarga({
           className={campo}
         >
           {modo !== "global" && columna < 1 && <option value={0}>— elige la columna —</option>}
-          <option value={CLASIFICADOR_GLOBAL}>🌐 Un único {nombre} para todo el archivo</option>
+          <option value={CLASIFICADOR_GLOBAL}>Un único {nombre} para todo el archivo</option>
           {opcionesColumnaAnalisis(analisis).map((o) => <option key={o.index1} value={o.index1}>{o.label}</option>)}
         </select>
         {modo !== "global" && (
@@ -273,7 +273,7 @@ function ConfirmarCentroCarga({
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
   const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
         ¿Separar por centro de costo? <span className="text-err-600">*</span> ·{" "}
         {conPatron ? `el patrón lo lee en la columna ${letra}` : `en el mapeo, el centro de costo es la columna ${letra}`}
@@ -335,7 +335,7 @@ function ConfirmarAgruparPorCarga({
   const letra = (columna: number) => letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   const muestras = (columna: number) => [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
         ¿Cómo agrupar los conceptos? <span className="text-err-600">*</span>
         {origen === "patron" && " · marcada la última que usó este cliente con este patrón"}
@@ -380,7 +380,7 @@ function AvisoCuentaArchivo({ analisis, columna, conPatron = true }: { analisis:
   const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
   const letra = letraColumnaModulo(columna + (analisis.columnaInicial ?? 0));
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-ok-500/60 bg-ok-100/30 px-3 py-2.5 text-[11px] leading-snug text-ink-600">
+    <div className="flex flex-col gap-1 rounded-md border border-ok-300 bg-ok-100 px-3 py-2.5 text-[11px] leading-snug text-ink-600">
       <span className="font-medium text-ok-700">
         {conPatron
           ? `El patrón lee la cuenta contable del cliente en la columna ${letra}.`
@@ -427,7 +427,7 @@ function ConfirmarContenidoActivos({
 }) {
   const oferta = ofertaAnexoActivos(contenido, vigente ? { ...vigente, lados: vigente.lados ?? null } : null);
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
         ¿Qué trae este archivo? <span className="text-err-600">*</span>
       </span>
@@ -441,7 +441,7 @@ function ConfirmarContenidoActivos({
       </div>
       {contenido && <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ACTIVOS[contenido].ayuda}</span>}
       {oferta.ofrecer && vigente && (
-        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+        <div className="flex flex-col gap-1 rounded-md border border-navy-300 bg-white px-2.5 py-2">
           <span className="text-[11px] font-medium text-ink-700">
             {vigente.periodo} ya tiene la v{vigente.version} cargada ({vigente.filas.toLocaleString("es-CO")} filas · total {fmt(vigente.total)})
             {vigente.lados ? ` con ${vigente.lados.conCosto ? "el costo" : "la depreciación"}` : ""}.
@@ -460,7 +460,7 @@ function ConfirmarContenidoActivos({
         </div>
       )}
       {oferta.aviso && (
-        <span className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
+        <span className="rounded-md border border-warn-500 bg-warn-100 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
       )}
       {contenido && contenido !== "ambos" && !oferta.ofrecer && (
         <span className="text-[11px] leading-snug text-ink-600">
@@ -498,7 +498,7 @@ function ConfirmarContenidoCarga({
 }) {
   const oferta = ofertaAnexo(contenido, vigente);
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
       <span className="text-[11px] font-medium text-ink-600">
         ¿Qué trae este archivo? <span className="text-err-600">*</span>
       </span>
@@ -514,7 +514,7 @@ function ConfirmarContenidoCarga({
         <span className="text-[11px] leading-snug text-ink-500">{INFO_CONTENIDO_ARCHIVO[contenido].ayuda}</span>
       )}
       {exigeSignoVentas(contenido) && (
-        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+        <div className="flex flex-col gap-1 rounded-md border border-navy-300 bg-white px-2.5 py-2">
           <span className="text-[11px] font-medium text-ink-700">
             ¿Con qué signo vienen las ventas (facturas) en el archivo? <span className="text-err-600">*</span>
           </span>
@@ -531,7 +531,7 @@ function ConfirmarContenidoCarga({
       )}
       {/* En un archivo mixto el signo de las notas se dice frente al de las ventas: va después. */}
       {exigeSignoNotasCredito(contenido) && (contenido !== "mixto" || ventas) && (
-        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+        <div className="flex flex-col gap-1 rounded-md border border-navy-300 bg-white px-2.5 py-2">
           <span className="text-[11px] font-medium text-ink-700">
             ¿Con qué signo vienen las notas crédito en el archivo? <span className="text-err-600">*</span>
           </span>
@@ -553,7 +553,7 @@ function ConfirmarContenidoCarga({
         </div>
       )}
       {oferta.ofrecer && vigente && (
-        <div className="flex flex-col gap-1 rounded-md border border-navy-600/40 bg-white px-2.5 py-2">
+        <div className="flex flex-col gap-1 rounded-md border border-navy-300 bg-white px-2.5 py-2">
           <span className="text-[11px] font-medium text-ink-700">
             {vigente.periodo} ya tiene la v{vigente.version} cargada ({vigente.filas.toLocaleString("es-CO")} filas · total {fmt(vigente.total)}).
             ¿Este archivo es parte de ese cargue? <span className="text-err-600">*</span>
@@ -571,7 +571,7 @@ function ConfirmarContenidoCarga({
         </div>
       )}
       {oferta.aviso && (
-        <span className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
+        <span className="rounded-md border border-warn-500 bg-warn-100 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">{oferta.aviso}</span>
       )}
       <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón y el mapeo guardado no se modifican.</span>
     </div>
@@ -1231,7 +1231,7 @@ function CargarModal({
           type="button"
           onClick={ubicarMarcaTotales}
           disabled={ubicandoCelda || colSubtotales < 1 || !filaMarcaTotales}
-          className="justify-self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="justify-self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {ubicandoCelda ? "Ubicando…" : "Ubicar celda"}
         </button>
@@ -1240,9 +1240,9 @@ function CargarModal({
         La plataforma lee la coordenada exacta —por ejemplo, columna M + fila 1347 = M1347— y la usa para reconocer el total.
       </span>
       {!marcaManualLista ? (
-        <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Ubica una celda con contenido antes de crear el borrador.</span>
+        <span className="text-[11px] font-semibold leading-snug text-err-700"><IconoEnTexto name="warn" />Ubica una celda con contenido antes de crear el borrador.</span>
       ) : (
-        <span className="rounded-md border border-ok-500 bg-ok-100/40 px-2.5 py-1.5 text-[11px] font-medium leading-snug text-ok-700">
+        <span className="rounded-md border border-ok-500 bg-ok-100 px-2.5 py-1.5 text-[11px] font-medium leading-snug text-ok-700">
           {direccionMarcaTotales} ubicada: «{celdaTxtVisible(valorMarcaTotalesVisible)}».
         </span>
       )}
@@ -1331,7 +1331,7 @@ function CargarModal({
               ) : (
                 <>
                   {aplicativos.delCliente.length === 0 ? (
-                    <p className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">
+                    <p className="rounded-md border border-warn-500 bg-warn-100 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">
                       El cliente no tiene aplicativo de {aplicativos.campoNombre.toLowerCase()} registrado. El que elijas se agregará a su ficha.
                     </p>
                   ) : (
@@ -1440,7 +1440,7 @@ function CargarModal({
 
       {fase === "sin_patron" && analisis && (
         <div className="flex flex-col gap-3 text-[12.5px]">
-          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">
+          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">
             <p className="font-semibold">
               Este archivo no coincide con ningún patrón de {aplicativoAnalizado?.nombre ?? "este aplicativo"} para {moduloLabel.toLowerCase()}.
             </p>
@@ -1498,7 +1498,7 @@ function CargarModal({
       {fase === "patron" && analisis?.coincidencia && spec && (
         <div className="flex flex-col gap-3 text-[12.5px]">
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-          <div className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-2.5 text-ok-700">
+          <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-2.5 text-ok-700">
             <p className="text-[12.5px] font-semibold">
               Patrón {aplicativoAnalizado?.nombre} · versión {analisis.coincidencia.version} · {analisis.coincidencia.porcentaje} % de coincidencia
             </p>
@@ -1508,7 +1508,7 @@ function CargarModal({
             </p>
           </div>
           {analisis.coincidencia.advertencias.length > 0 && (
-            <ul className="list-disc rounded-md border border-warn-500 bg-warn-100/30 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
+            <ul className="list-disc rounded-md border border-warn-500 bg-warn-100 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
               {analisis.coincidencia.advertencias.map((a) => <li key={a}>{a}</li>)}
             </ul>
           )}
@@ -1519,7 +1519,7 @@ function CargarModal({
             const { rotulo, confirmado } = confirmacionValor({ valor: rolValor, confirmarValorSinImpuestos }, spec, analisis.encabezado ?? []);
             if (!rotulo) return null;
             return (
-              <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+              <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
                 {confirmado
                   ? <>El patrón lee el valor de <b>«{rotulo}»</b>; el administrador confirmó que excluye el IVA.</>
                   : <>El patrón lee el valor de <b>«{rotulo}»</b> y nadie confirmó que excluya el IVA: la carga se detendrá. Pide a un administrador que lo confirme en el patrón.</>}
@@ -1527,7 +1527,7 @@ function CargarModal({
             );
           })()}
           {analisis.advertenciaHojas && (
-            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">{analisis.advertenciaHojas}</p>
+            <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">{analisis.advertenciaHojas}</p>
           )}
           {(analisis.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -1599,7 +1599,7 @@ function CargarModal({
             />
           )}
           {confirmarTotal ? (
-            <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+            <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-100 px-3 py-2.5">
               <span className="text-[11px] font-medium text-ink-600">
                 ¿El archivo trae el valor total? <span className="text-err-600">*</span>
               </span>

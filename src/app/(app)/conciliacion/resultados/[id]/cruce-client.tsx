@@ -75,22 +75,22 @@ export default function CruceClient({
                 const nc = commentsByAccount(r.cuenta).length;
                 return (
                   <tr key={r.id} onClick={() => setSelected(r.cuenta)} className={`cursor-pointer border-b border-ink-50 last:border-0 ${selected === r.cuenta ? "bg-blue-50" : "hover:bg-ink-50"}`}>
-                    <td className="px-3 py-2 font-mono text-ink-700">{r.cuenta}{nc > 0 && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-ai-100 px-1.5 text-[10px] font-semibold text-ai-700"><Icon name="msg" size={9} />{nc}</span>}</td>
+                    <td className="px-3 py-2 tabular-nums text-ink-700">{r.cuenta}{nc > 0 && <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-ai-100 px-1.5 text-[10px] font-semibold text-ai-700"><Icon name="msg" size={9} />{nc}</span>}</td>
                     <td className="px-3 py-2 text-ink-700">{r.desc}</td>
-                    <td className="px-3 py-2 text-right font-mono text-ink-700">{fmt(r.cont)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-ink-700">{fmt(r.mod)}</td>
-                    <td className={`px-3 py-2 text-right font-mono ${r.diff === 0 ? "text-ink-400" : r.diff > 0 ? "text-ok-700" : "text-err-700"}`}>{fmt(r.diff)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-ink-500">{r.diff === 0 ? "—" : fmtPct(variation)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmt(r.cont)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmt(r.mod)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${r.diff === 0 ? "text-ink-400" : r.diff > 0 ? "text-ok-700" : "text-err-700"}`}>{fmt(r.diff)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-500">{r.diff === 0 ? "—" : fmtPct(variation)}</td>
                     <td className="px-3 py-2"><Chip label={st.label} tone={st.tone} /></td>
                   </tr>
                 );
               })}
               <tr className="bg-navy-800 text-white">
                 <td className="px-3 py-2.5 font-semibold" colSpan={2}>TOTALES</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmt(rows.reduce((s, r) => s + r.cont, 0))}</td>
-                <td className="px-3 py-2.5 text-right font-mono">{fmt(rows.reduce((s, r) => s + r.mod, 0))}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-[#FF9991]">{fmt(rows.reduce((s, r) => s + r.diff, 0))}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-[#FF9991]" colSpan={2}>{fmtPct(rows.reduce((s, r) => s + r.cont, 0) !== 0 ? (rows.reduce((s, r) => s + r.diff, 0) / rows.reduce((s, r) => s + r.cont, 0)) * 100 : 0)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmt(rows.reduce((s, r) => s + r.cont, 0))}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmt(rows.reduce((s, r) => s + r.mod, 0))}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-err-200">{fmt(rows.reduce((s, r) => s + r.diff, 0))}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-err-200" colSpan={2}>{fmtPct(rows.reduce((s, r) => s + r.cont, 0) !== 0 ? (rows.reduce((s, r) => s + r.diff, 0) / rows.reduce((s, r) => s + r.cont, 0)) * 100 : 0)}</td>
               </tr>
             </tbody>
           </table>
@@ -108,11 +108,11 @@ export default function CruceClient({
         <Card className="self-start">
           <div className="border-b border-ink-100 px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[12px] text-ink-500">{sel.cuenta}</span>
+              <span className="tabular-nums text-[12px] text-ink-500">{sel.cuenta}</span>
               <Chip label={statusOf(sel.diff, materiality, sel.manualStatus).label} tone={statusOf(sel.diff, materiality, sel.manualStatus).tone} />
               <span className="ml-auto"><Chip label={`${sel.items} ítems`} tone="ink" /></span>
             </div>
-            <h3 className="mt-1 text-[13px] font-semibold text-ink-800">{sel.desc}</h3>
+            <h3 className="mt-1 text-[13px] font-semibold text-navy-800">{sel.desc}</h3>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-[12px]">
             <KV label="Saldo contabilidad" value={fmt(sel.cont)} />
@@ -132,7 +132,7 @@ export default function CruceClient({
                 {commentsByAccount(sel.cuenta).length === 0 && <p className="text-[12px] text-ink-400">Sin comentarios para esta cuenta.</p>}
                 {commentsByAccount(sel.cuenta).map((c) => (
                   <div key={c.id} className="flex gap-2.5">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">{c.initials}</div>
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-700 text-[10px] font-semibold text-white">{c.initials}</div>
                     <div className="text-[12px] text-ink-700">
                       <div><b>{c.who}</b> <span className="text-ink-400">· {c.time}</span></div>
                       <div className="mt-0.5 leading-snug">{c.text}</div>
@@ -213,7 +213,7 @@ function KV({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-[10.5px] uppercase tracking-wider text-ink-400">{label}</div>
-      <div className="mt-0.5 font-mono text-ink-800">{value}</div>
+      <div className="mt-0.5 tabular-nums text-ink-800">{value}</div>
     </div>
   );
 }

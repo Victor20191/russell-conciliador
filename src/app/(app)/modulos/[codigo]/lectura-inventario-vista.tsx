@@ -25,7 +25,7 @@ const nombresRoles: Record<string, string> = {
 
 export function EjemplosLectura({ ejemplos }: { ejemplos: EjemploLecturaInventario[] }) {
   if (!ejemplos.length) return null;
-  return <section className="space-y-3 rounded-md border border-blue-200 bg-blue-50/20 p-3" aria-label="Ejemplos de interpretación del archivo">
+  return <section className="space-y-3 rounded-md border border-blue-200 bg-blue-100 p-3" aria-label="Ejemplos de interpretación del archivo">
     <div>
       <p className="font-semibold text-ink-800">Así interpretamos tu archivo</p>
       <p className="mt-1 text-[11.5px] leading-relaxed text-ink-600">Comprueba estos ejemplos antes de continuar. Cada campo muestra la celda de donde se tomó; si algo no corresponde, explícalo abajo para ajustar la lectura.</p>
@@ -69,7 +69,7 @@ export function ResumenAsistencia({ actual, anterior }: { actual: ResumenLectura
           <tr key={fila.etiqueta} className="border-b border-ink-100 last:border-0">
             <th scope="row" className="px-3 py-2 text-left font-normal text-ink-600">{fila.etiqueta}</th>
             {anterior && <td className="px-3 py-2 text-right tabular-nums text-ink-500">{fila.anterior}</td>}
-            <td className={`px-3 py-2 text-right font-medium tabular-nums ${anterior && fila.actual !== fila.anterior ? "bg-blue-50/40 text-navy-800" : "text-ink-800"}`}>{fila.actual}</td>
+            <td className={`px-3 py-2 text-right font-medium tabular-nums ${anterior && fila.actual !== fila.anterior ? "bg-blue-100 text-navy-800" : "text-ink-800"}`}>{fila.actual}</td>
           </tr>
         ))}</tbody>
       </table>

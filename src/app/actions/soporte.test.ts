@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  cuota: vi.fn(),
   schedule: vi.fn(),
   create: vi.fn(),
   queryRaw: vi.fn(),
@@ -21,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   eliminarEvidenciaTicket: vi.fn(),
 }));
 
+vi.mock("@/lib/request", () => ({ getClientIp: vi.fn(async () => "192.0.2.1") }));
+vi.mock("@/lib/seguridad/limite-solicitudes", () => ({ consumirCuotaSolicitud: mocks.cuota, CUOTA_SOPORTE_PUBLICO: { ambito: "soporte-publico" } }));
 vi.mock("@/lib/correo/notificaciones", () => ({ programarAvisoCorreo: mocks.schedule }));
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
@@ -70,6 +73,7 @@ vi.mock("@/lib/storage/evidencias-tickets", () => ({
   eliminarEvidenciaTicket: mocks.eliminarEvidenciaTicket,
 }));
 
+import { MATRIZ } from "@/lib/rbac/catalogo";
 import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
 import {
   agregarMensajeTicket,
@@ -148,6 +152,9 @@ function formularioEliminar(code = "TKT-7") {
 describe("Server Actions de soporte", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.cuota.mockResolvedValue({ permitida: true, reintentarEnSegundos: 0 });
+    mocks.platformModuleFindMany.mockResolvedValue([]);
+    mocks.rolePermissionFindMany.mockResolvedValue(Object.entries(MATRIZ).flatMap(([rol, permisos]) => permisos.map((permiso) => ({ role: { code: rol }, permission: { code: permiso } }))));
     mocks.create.mockResolvedValue({ id: 1 });
     mocks.queryRaw.mockResolvedValue([{ consecutivo: BigInt(7) }]);
     mocks.authorizePermiso.mockResolvedValue({ ok: true, userId: 9, role: "Administrador" });
@@ -157,6 +164,21 @@ describe("Server Actions de soporte", () => {
     mocks.messageCreate.mockResolvedValue({ id: 1 });
     mocks.eventCreate.mockResolvedValue({ id: 1 });
     mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(false);
+  });
+
+  it("rechaza exceso de tickets públicos antes de generar código o escribir", async () => {
+    mocks.cuota.mockResolvedValue({ permitida: false, reintentarEnSegundos: 900 });
+    expect(await crearTicketSoporte(undefined, formularioReporte())).toMatchObject({ ok: false, message: expect.stringContaining("15 minutos") });
+    expect(mocks.queryRaw).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
+  it("falla cerrado si la cuota compartida no está disponible", async () => {
+    mocks.cuota.mockRejectedValue(new Error("Base no disponible"));
+    expect(await crearTicketSoporte(undefined, formularioReporte())).toMatchObject({ ok: false });
+    expect(mocks.queryRaw).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("crea el ticket público sin exigir sesión y entrega un enlace no adivinable", async () => {
@@ -229,6 +251,7 @@ describe("Server Actions de soporte", () => {
     const resultado = await crearNovedadInterna(undefined, formularioNovedad());
     expect(resultado.ok).toBe(true);
     expect(resultado.ticketId).toBe(1);
+    expect(mocks.cuota).not.toHaveBeenCalled();
     expect(mocks.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         createdById: 4,

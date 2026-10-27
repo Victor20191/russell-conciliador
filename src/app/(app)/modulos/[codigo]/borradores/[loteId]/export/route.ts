@@ -26,15 +26,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
   try {
-    const [lote, filas] = await Promise.all([
-      prisma.moduloImportacionLote.findUnique({ where: { loteId } }),
-      prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
-    ]);
-    if (!lote || lote.moduloCodigo !== moduloCodigo || filas.length === 0 || lote.clienteId == null) {
+    const referencia = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, moduloCodigo: true } });
+    if (!referencia || referencia.moduloCodigo !== moduloCodigo || referencia.clienteId == null) {
       return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
     }
-    const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
+    const scope = await authorizePermiso("modulos_datos:crear", { clientId: referencia.clienteId });
     if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
+    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId, clienteId: referencia.clienteId, moduloCodigo } });
+    if (!lote || lote.clienteId == null) return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
+
+    const filas = await prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
+    if (filas.length === 0) return NextResponse.json({ message: "El borrador no existe." }, { status: 404 });
 
     const [cliente, hermanos] = await Promise.all([
       prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),

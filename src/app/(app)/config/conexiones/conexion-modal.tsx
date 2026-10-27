@@ -141,7 +141,7 @@ function CampoFormulario({
         value={String(valor ?? "")}
         onChange={(event) => onChange(event.target.value)}
         placeholder={campo.placeholder}
-        className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+        className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
       />
       {campo.ayuda && <span className="text-[11px] text-ink-500">{campo.ayuda}</span>}
       {error?.[0] && <span className="text-[11px] text-err-700">{error[0]}</span>}
@@ -277,7 +277,7 @@ export function ConexionModal({
               setCodigo(event.target.value);
             }}
             placeholder="conexion_russell"
-            className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+            className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
           />
           <span className="text-[11px] text-ink-500">
             Único, en minúsculas. Se usa para referenciar la conexión.
@@ -390,7 +390,7 @@ export function ConexionModal({
                       }
                       placeholder={definida ? "•••••• (conservar actual)" : campo.placeholder}
                       autoComplete="new-password"
-                      className="rounded-md border border-ink-200 px-3 py-2 font-mono text-[13px]"
+                      className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
                     />
                     {definida && (
                       <span className="text-[11px] text-ink-500">

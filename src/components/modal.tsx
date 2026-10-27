@@ -46,7 +46,7 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-3 sm:items-center sm:p-6">
       {/* Columna flex con altura acotada: el cuerpo hace scroll y el footer
           (con el botón Guardar) queda SIEMPRE visible, incluso con formularios
           largos o en pantallas/ventanas de poca altura. */}
@@ -54,7 +54,7 @@ export function Modal({
         className={`flex max-h-full w-full ${ANCHOS[size]} flex-col overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg`}
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-ink-100 px-4 py-3">
-          <h2 className="min-w-0 break-words text-[13.5px] font-semibold text-ink-800">{title}</h2>
+          <h2 className="min-w-0 break-words text-[13.5px] font-semibold text-navy-800">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Cerrar"

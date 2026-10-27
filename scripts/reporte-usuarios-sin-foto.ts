@@ -7,9 +7,10 @@
  */
 import "dotenv/config";
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import ExcelJS from "exceljs";
 import prisma from "../src/lib/prisma";
+import { escribirLibroMarca, estiloEncabezado } from "../src/lib/export/marca-excel";
 
 type Fila = {
   id: number;
@@ -82,7 +83,7 @@ async function main() {
     { header: "Métrica", key: "metrica", width: 55 },
     { header: "Valor", key: "valor", width: 18 },
   ];
-  wsResumen.getRow(1).font = { bold: true };
+  wsResumen.getRow(1).eachCell((c) => estiloEncabezado(c));
   wsResumen.addRows([
     { metrica: "Total usuarios", valor: total },
     { metrica: "Con foto asignada (clave_foto)", valor: conFoto },
@@ -116,7 +117,8 @@ async function main() {
   });
   escribirDetalle(wsTodos, filas);
 
-  await wb.xlsx.writeFile(outPath);
+  // Informe para Russell: Arial y paleta del Manual de Marca, como las exportaciones de la plataforma.
+  await writeFile(outPath, await escribirLibroMarca(wb));
 
   console.log(
     JSON.stringify(
@@ -150,12 +152,7 @@ function escribirDetalle(ws: ExcelJS.Worksheet, filas: Fila[]) {
     { header: "Creado en", key: "creado", width: 22 },
     { header: "Actualizado en", key: "actualizado", width: 22 },
   ];
-  ws.getRow(1).font = { bold: true };
-  ws.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FFE8EEF5" },
-  };
+  ws.getRow(1).eachCell((c) => estiloEncabezado(c));
 
   for (const u of filas) {
     ws.addRow({

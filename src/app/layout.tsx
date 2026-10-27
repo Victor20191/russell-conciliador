@@ -1,39 +1,18 @@
-import type { Metadata } from "next";
-import localFont from "next/font/local";
+import type { Metadata, Viewport } from "next";
+import { lato } from "./fuente-lato";
+import { SPACE_BLUE } from "@/lib/marca/paleta";
 import "./globals.css";
-
-// Fuentes alojadas en el repo (subconjunto latino, woff2) en vez de next/font/google: el build
-// no depende de que Google responda con el formato de URL que Turbopack sabe leer. En el VPS,
-// Google devolvió URLs «fonts.gstatic.com/l/font?kit=…&skey=…» y `next build` fallaba con
-// «next/font/google queries have exactly one entry». Misma tipografía y mismas variables CSS.
-const ibmPlexSans = localFont({
-  variable: "--font-ibm-plex-sans",
-  src: [{ path: "./fonts/ibm-plex-sans.woff2", weight: "400 700", style: "normal" }], // fuente variable
-  fallback: ["system-ui", "Arial", "sans-serif"],
-  adjustFontFallback: "Arial",
-});
-
-const ibmPlexMono = localFont({
-  variable: "--font-ibm-plex-mono",
-  src: [
-    { path: "./fonts/ibm-plex-mono-400.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/ibm-plex-mono-500.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/ibm-plex-mono-600.woff2", weight: "600", style: "normal" },
-  ],
-  fallback: ["ui-monospace", "monospace"],
-});
-
-const newsreader = localFont({
-  variable: "--font-newsreader",
-  src: [{ path: "./fonts/newsreader.woff2", weight: "400 500", style: "normal" }], // fuente variable
-  fallback: ["Georgia", "serif"],
-  adjustFontFallback: "Times New Roman",
-});
+import { ControlesDeMarca } from "@/components/controles-marca";
 
 export const metadata: Metadata = {
   title: "Russell Conciliador",
   description:
     "Plataforma de conciliación y diagnóstico contable y tributario — Russell Bedford",
+};
+
+// La barra del navegador móvil, en el azul institucional (Manual de Marca §3.1).
+export const viewport: Viewport = {
+  themeColor: SPACE_BLUE[100],
 };
 
 export default function RootLayout({
@@ -42,14 +21,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="es"
-      className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} ${newsreader.variable}`}
-    >
+    <html lang="es" className={lato.variable}>
       {/* suppressHydrationWarning: extensiones del navegador (ColorZilla → cz-shortcut-listen,
           Grammarly → data-gr-*, etc.) inyectan atributos en <body> antes de que React
           hidrate. Solo silencia el aviso de atributos de ESTE nodo, no de su contenido. */}
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        {children}
+        <ControlesDeMarca />
+      </body>
     </html>
   );
 }

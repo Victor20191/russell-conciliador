@@ -75,7 +75,7 @@ export function FiltroEstadoListado({
         onChange={(event) => setEstado((event.target.value || null) as EstadoPeriodoModulo | null)}
         aria-label="Filtrar por estado"
         className={`h-8 rounded-md border bg-white px-2 text-[12px] font-normal normal-case tracking-normal text-ink-700 shadow-sm outline-none transition focus:border-blue-400 ${
-          estado ? "border-blue-300 bg-blue-50/50" : "border-ink-200"
+          estado ? "border-blue-300 bg-blue-100" : "border-ink-200"
         }`}
       >
         <option value="">Todos ({total})</option>
@@ -109,7 +109,8 @@ export function BadgeComentarios({ n }: { n: number }) {
       className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-600"
       title={`${n} comentario(s)`}
     >
-      💬 {n}
+      <Icon name="msg" size={11} stroke={2} />
+      {n}
     </span>
   );
 }
@@ -119,13 +120,13 @@ export function ClienteCelda({ nombre, nit, href }: { nombre: string; nit: strin
   return (
     <span className="inline-flex flex-col gap-0.5">
       {href ? (
-        <Link href={href} className="font-medium text-ink-800 hover:text-blue-500 hover:underline">
+        <Link href={href} className="font-medium text-ink-800 hover:text-blue-600 hover:underline">
           {nombre}
         </Link>
       ) : (
         <span className="font-medium text-ink-800">{nombre}</span>
       )}
-      {nit && <span className="font-mono text-[10.5px] text-ink-400">{nit}</span>}
+      {nit && <span className="tabular-nums text-[10.5px] text-ink-400">{nit}</span>}
     </span>
   );
 }
@@ -160,7 +161,7 @@ export function VersionCelda({
         href ? (
           <Link
             href={href}
-            className="text-[10.5px] text-blue-500 hover:underline"
+            className="text-[10.5px] text-blue-600 hover:underline"
             title={`Ver las ${versiones} versiones del período`}
           >
             {conteo}
@@ -208,7 +209,7 @@ export function HeaderOrdenable<C extends string = ColumnaOrdenModulo>({
       className={`inline-flex items-center gap-1 font-semibold transition hover:text-ink-800 ${
         alineacion === "right" ? "ml-auto" : ""
       } ${activo ? "text-ink-800" : "text-ink-500"}`}
-      aria-sort={activo ? (direccion === "asc" ? "ascending" : "descending") : "none"}
+      aria-label={`${label}: ${activo ? `orden ${direccion === "asc" ? "ascendente" : "descendente"}` : "ordenar"}`}
     >
       <span>{label}</span>
       {activo ? (

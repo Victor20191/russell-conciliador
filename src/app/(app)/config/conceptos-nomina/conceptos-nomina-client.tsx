@@ -299,12 +299,12 @@ export default function ConceptosNominaClient({
                 >
                   <td className="px-4 py-2.5">
                     <div className="font-medium text-ink-800">{r.clienteNombre}</div>
-                    <div className="flex flex-wrap gap-x-2 font-mono text-[11px] text-ink-400">
+                    <div className="flex flex-wrap gap-x-2 tabular-nums text-[11px] text-ink-400">
                       <span>{r.clienteCodigo}</span>
                       <span>NIT {r.clienteNit}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-ink-700">
+                  <td className="px-4 py-2.5 tabular-nums text-ink-700">
                     {r.codigo}
                     {CHIP_AGRUPAR_POR[r.agruparPor] && (
                       <span className="ml-1.5 rounded border border-ink-200 bg-ink-50 px-1 py-0.5 font-sans text-[10.5px] font-semibold text-ink-600" title={CHIP_AGRUPAR_POR[r.agruparPor]!.titulo}>
@@ -322,13 +322,13 @@ export default function ConceptosNominaClient({
                       {r.cuentas.map((c, i) => (
                         <div key={`${c.cuentaCliente}|${c.codigo}|${i}`} className="flex flex-wrap items-center gap-1 text-[11px]">
                           {c.cuentaCliente && (
-                            <span className="font-mono text-ink-500" title={c.subcuentaPuc ? `Subcuenta PUC ${c.subcuentaPuc}` : undefined}>{c.cuentaCliente}</span>
+                            <span className="tabular-nums text-ink-500" title={c.subcuentaPuc ? `Subcuenta PUC ${c.subcuentaPuc}` : undefined}>{c.cuentaCliente}</span>
                           )}
                           {c.cuentaCliente && <span className="text-ink-300">→</span>}
                           {c.codigo ? (
                             <span
                               title={c.nombre ?? undefined}
-                              className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-blue-800"
+                              className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 tabular-nums text-blue-800"
                             >
                               {c.codigo}
                             </span>
@@ -353,7 +353,7 @@ export default function ConceptosNominaClient({
                           onClick={() => setBorrando(r)}
                           title="Eliminar este concepto y sus cuentas"
                           aria-label={`Eliminar el concepto ${r.codigo}${r.agrupador ? ` (${r.agrupador})` : ""} de ${r.clienteNombre}`}
-                          className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
+                          className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-err-300 hover:bg-err-50 hover:text-err-700`}
                         >
                           <Icon name="trash" size={14} />
                         </button>
@@ -395,7 +395,7 @@ export default function ConceptosNominaClient({
                 type="button"
                 onClick={confirmarBorrado}
                 disabled={enProceso}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                className="rounded-md bg-err-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-err-400 disabled:opacity-60"
               >
                 {enProceso ? "Eliminando…" : "Eliminar"}
               </button>
@@ -404,7 +404,7 @@ export default function ConceptosNominaClient({
         >
           <p className="text-[12.5px] leading-relaxed text-ink-600">
             Se retirará el concepto{" "}
-            <span className="font-mono font-semibold text-ink-800">{borrando.codigo}</span>
+            <span className="tabular-nums font-semibold text-ink-800">{borrando.codigo}</span>
             {borrando.concepto ? ` («${borrando.concepto}»)` : ""}
             {borrando.agrupador ? ` del centro «${borrando.agrupador}»` : ""} de{" "}
             <span className="font-semibold">{borrando.clienteNombre}</span> y sus{" "}

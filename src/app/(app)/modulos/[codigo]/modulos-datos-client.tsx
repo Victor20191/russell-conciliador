@@ -334,9 +334,9 @@ function CargadosPorCliente({
             <span className="text-ink-400">
               <Icon name="doc" size={16} />
             </span>
-            <h2 className="min-w-0 break-words text-[13px] font-semibold text-ink-800">{grupo.clienteNombre}</h2>
+            <h2 className="min-w-0 break-words text-[13px] font-semibold text-navy-800">{grupo.clienteNombre}</h2>
             {grupo.clienteNit && (
-              <span className="font-mono text-[11px] text-ink-400">{grupo.clienteNit}</span>
+              <span className="tabular-nums text-[11px] text-ink-400">{grupo.clienteNit}</span>
             )}
             <span className="ml-auto text-[11px] text-ink-400">
               {grupo.periodos.length === 1 ? "1 período" : `${grupo.periodos.length} períodos`}
@@ -372,15 +372,15 @@ function CargadosPorCliente({
                   const totalArchivos = 1 + anexos.length;
                   return (
                   <tr key={p.periodo} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    <td className="px-4 py-2.5 font-mono font-medium text-ink-800">{p.periodo}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-ink-600">
+                    <td className="px-4 py-2.5 tabular-nums font-medium text-ink-800">{p.periodo}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-600">
                       {/* El conteo abre la bitácora de versiones del período, desde
                           donde se entra a cada cargue (no solo al vigente). */}
                       {p.versiones > 1 ? (
                         <Link
                           href={`${ruta}/${p.id}?tab=versiones`}
                           title={`Ver las ${p.versiones} versiones de ${p.periodo}`}
-                          className="text-blue-500 hover:underline"
+                          className="text-blue-600 hover:underline"
                         >
                           {p.versiones}
                         </Link>
@@ -404,7 +404,7 @@ function CargadosPorCliente({
                         {p.archivoNombre ? (
                           <Link
                             href={`${ruta}/${p.id}`}
-                            className="truncate font-medium text-blue-500 hover:underline"
+                            className="truncate font-medium text-blue-600 hover:underline"
                             title={p.archivoNombre}
                           >
                             {p.archivoNombre}

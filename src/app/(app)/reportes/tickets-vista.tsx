@@ -166,7 +166,7 @@ export default function TicketsVista({
             <>
               {/* Mientras se busca, el conteo deja claro cuánto se está
                   escondiendo: la lupa filtra el tablero entero, no una columna. */}
-              <span className="shrink-0 font-mono text-[11px] text-ink-400">
+              <span className="shrink-0 tabular-nums text-[11px] text-ink-400">
                 {visibles.length} de {tickets.length}
               </span>
               <button
@@ -368,7 +368,7 @@ function TablaTickets({
               }}
               className="cursor-pointer border-t border-ink-100 transition hover:bg-ink-50 focus:bg-ink-50 focus:outline-none"
             >
-              <td className="px-4 py-3 font-mono text-xs font-semibold text-ink-700">{ticket.code}</td>
+              <td className="px-4 py-3 tabular-nums text-xs font-semibold text-ink-700">{ticket.code}</td>
               <td className="px-4 py-3 text-ink-800">{ticket.subject}</td>
               <td className="px-4 py-3 text-ink-600">{ticket.esMio ? "Tú" : ticket.reportante}</td>
               <td className="px-4 py-3 text-ink-600">{ticket.ubicacion ?? "—"}</td>

@@ -95,7 +95,7 @@ export default function ModulosClient({ modules, puedeConfigurar }: { modules: M
         ) : (
         <Card>
           <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
-            <h2 className="text-[13px] font-semibold text-ink-800">
+            <h2 className="text-[13px] font-semibold text-navy-800">
               {active.name} · campos estándar
             </h2>
             <Chip label={`${active.fields.length} campo(s)`} tone="ink" />
@@ -132,7 +132,7 @@ export default function ModulosClient({ modules, puedeConfigurar }: { modules: M
                 <tbody>
                   {active.fields.map((f, i) => (
                     <tr key={f.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                      <td className="px-4 py-2.5 font-mono text-navy-700">{f.key}</td>
+                      <td className="px-4 py-2.5 tabular-nums text-navy-700">{f.key}</td>
                       <td className="px-4 py-2.5 text-ink-800">{f.label}</td>
                       <td className="px-4 py-2.5"><Chip label={f.type} tone="ink" /></td>
                       <td className="px-4 py-2.5">
@@ -158,7 +158,7 @@ export default function ModulosClient({ modules, puedeConfigurar }: { modules: M
                               disabled={i === 0 || pending}
                               title="Subir"
                               aria-busy={pending}
-                              className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
+                              className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-40"
                             >
                               {pending ? (
                                 <EstadoProcesando etiqueta="Subiendo campo" />
@@ -185,7 +185,7 @@ export default function ModulosClient({ modules, puedeConfigurar }: { modules: M
                               disabled={i === active.fields.length - 1 || pending}
                               title="Bajar"
                               aria-busy={pending}
-                              className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
+                              className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-40"
                             >
                               {pending ? (
                                 <EstadoProcesando etiqueta="Bajando campo" />
@@ -243,7 +243,7 @@ export default function ModulosClient({ modules, puedeConfigurar }: { modules: M
         {/* Equivalencias (informativo, fiel al prototipo) */}
         <Card>
           <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
-            <h2 className="text-[13px] font-semibold text-ink-800">Tablas de equivalencias estándar</h2>
+            <h2 className="text-[13px] font-semibold text-navy-800">Tablas de equivalencias estándar</h2>
             <Chip label="Plan único de cuentas (PUC)" tone="blue" />
           </div>
           <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
@@ -288,7 +288,7 @@ function ColumnasMotor({ active, puedeConfigurar, onSynced }: { active: ModuleWi
   return (
     <Card>
       <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-ink-800">{active.name} · columnas del motor</h2>
+        <h2 className="text-[13px] font-semibold text-navy-800">{active.name} · columnas del motor</h2>
         <Chip label={`${cols.length} columna(s)`} tone="ink" />
         {puedeConfigurar && (
           <div className="ml-auto">
@@ -328,7 +328,7 @@ function ColumnasMotor({ active, puedeConfigurar, onSynced }: { active: ModuleWi
           <tbody>
             {cols.map((c) => (
               <tr key={c.nombre} className="border-b border-ink-50 last:border-0">
-                <td className="px-3 py-2.5 font-mono text-navy-700">{c.nombre}</td>
+                <td className="px-3 py-2.5 tabular-nums text-navy-700">{c.nombre}</td>
                 <td className="px-3 py-2.5 text-ink-800">{c.etiqueta}</td>
                 <td className="px-3 py-2.5"><Chip label={tipoLabel(c.tipo)} tone="ink" /></td>
                 <td className="px-3 py-2.5">{c.requerido ? <Chip label="Sí" tone="err" /> : <Chip label="No" tone="ink" />}</td>
@@ -391,7 +391,7 @@ function FieldModal({
             name="key"
             defaultValue={field?.key ?? ""}
             placeholder="codigo_item"
-            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
+            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 tabular-nums text-[12.5px] outline-none focus:border-blue-400"
           />
         </Field>
         <Field label="Etiqueta" error={state?.errors?.label}>

@@ -9,6 +9,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtDate, fmtDateTimeLong } from "@/lib/format";
 import type { ReporteNovedades } from "@/lib/novedades/reportes";
+import { absolutizarRecursosMarca } from "@/lib/marca/html";
 
 // Versión reducida para el selector de alcance del reporte (no necesita el
 // detalle completo de cambios, solo cuántos trae cada versión).
@@ -28,9 +29,9 @@ type MetaReporte = {
 };
 
 const BTN_PRIMARIO =
-  "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_REPORTE_PRINCIPAL =
-  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md shadow-navy-900/10 ring-1 ring-navy-900/10 transition hover:bg-navy-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
+  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md ring-1 ring-ink-150 transition hover:bg-navy-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_ATAJO =
@@ -52,7 +53,9 @@ function slug(texto: string): string {
 }
 
 function descargarHtml(reporte: ReporteNovedades): void {
-  const blob = new Blob([reporte.html], { type: "text/html;charset=utf-8" });
+  // El archivo se abre fuera de la plataforma: el logotipo y Lato con dirección absoluta.
+  const html = absolutizarRecursosMarca(reporte.html, window.location.origin);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -195,7 +198,7 @@ export function ReporteFuncionalNovedades({
                 {totalVersions} versiones · {totalChanges} cambios
               </span>
             </div>
-            <h2 className="mt-1 font-serif text-lg text-ink-900">
+            <h2 className="mt-1 text-lg text-navy-800">
               Reporte detallado de funcionalidades con IA
             </h2>
             <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
@@ -259,7 +262,7 @@ export function ReporteFuncionalNovedades({
           <div className="flex flex-col gap-2.5">
             <label
               className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                modo === "todas" ? "border-navy-600 bg-navy-700/5" : "border-ink-150 hover:bg-ink-50"
+                modo === "todas" ? "border-navy-600 bg-navy-50" : "border-ink-150 hover:bg-ink-50"
               }`}
             >
               <input
@@ -279,7 +282,7 @@ export function ReporteFuncionalNovedades({
 
             <label
               className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                modo === "seleccion" ? "border-navy-600 bg-navy-700/5" : "border-ink-150 hover:bg-ink-50"
+                modo === "seleccion" ? "border-navy-600 bg-navy-50" : "border-ink-150 hover:bg-ink-50"
               }`}
             >
               <input
@@ -374,7 +377,7 @@ export function ReporteFuncionalNovedades({
               {meta.totalVersions} versiones · {meta.totalChanges} cambios documentados
             </span>
           </div>
-          <h3 className="mt-2 font-serif text-xl text-ink-900">{reporte.titulo}</h3>
+          <h3 className="mt-2 text-xl font-light text-navy-800">{reporte.titulo}</h3>
           <p className="mt-1 text-[13px] text-ink-500">
             Vista previa del documento. Descárgalo en HTML o PDF con los botones de abajo.
           </p>

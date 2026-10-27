@@ -224,7 +224,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                 className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${filtro === f.valor ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}
               >
                 {f.etiqueta}
-                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${filtro === f.valor ? "bg-white/20 text-white" : f.valor === "diferencias" && conteos[f.valor] > 0 ? "bg-err-100 text-err-700" : f.valor === "por_mapear" && conteos[f.valor] > 0 ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>
+                <span className={`rounded-full px-1.5 text-[10px] font-semibold ${filtro === f.valor ? "bg-navy-600 text-white" : f.valor === "diferencias" && conteos[f.valor] > 0 ? "bg-err-100 text-err-700" : f.valor === "por_mapear" && conteos[f.valor] > 0 ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>
                   {conteos[f.valor]}
                 </span>
               </button>
@@ -250,8 +250,8 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
           <Card key={c.clientId}>
             <div className="flex flex-wrap items-center gap-2.5 border-b border-ink-100 px-4 py-3">
               <span className="text-ink-400"><Icon name="doc" size={16} /></span>
-              <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
-              <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
+              <h2 className="text-[13px] font-semibold text-navy-800">{c.clientName}</h2>
+              <span className="tabular-nums text-[11px] text-ink-400">{c.clientNit}</span>
               {conDiferencias > 0 && <Chip label={`${plural(conDiferencias, "corte", "cortes")} con diferencias`} tone="err" />}
               {sinComparar > 0 && <Chip label={`${sinComparar} sin comparar`} tone="warn" />}
               <span className="ml-auto text-[11px] text-ink-400">
@@ -320,7 +320,7 @@ function CeldaCorte({ grupo }: { grupo: CorteGroup }) {
   return (
     <td
       rowSpan={grupo.rows.length}
-      className={`border-b border-ink-100 px-3 py-2.5 ${varios ? `border-l-[3px] bg-ink-50/70 align-top ${FRANJA_ESTADO_CORTE[grupo.estado]}` : "align-middle"}`}
+      className={`border-b border-ink-100 px-3 py-2.5 ${varios ? `border-l-[3px] bg-ink-50/60 align-top ${FRANJA_ESTADO_CORTE[grupo.estado]}` : "align-middle"}`}
     >
       <div className="font-medium text-ink-800">{grupo.fechaCorte}</div>
       {varios && (
@@ -348,7 +348,7 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
   const etiquetaFila = apertura ? `${p.period} · ${etiquetaApertura(p.apertura)}` : p.period;
   const difiere = grupo.estado === "inconsistente" && grupo.rows.length > 1;
   return (
-    <tr className={`${ultima ? "border-b border-ink-100" : "border-b border-ink-50"} ${difiere ? "bg-err-50/40" : ""} hover:bg-ink-50`}>
+    <tr className={`${ultima ? "border-b border-ink-100" : "border-b border-ink-50"} ${difiere ? "bg-err-100" : ""} hover:bg-ink-50`}>
       {primera && <CeldaCorte grupo={grupo} />}
       <td className="px-3 py-2.5">
         <span className="flex flex-wrap items-center gap-1.5">
@@ -370,13 +370,13 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
           ? <Chip label={etiquetaApertura(p.apertura)} tone={apertura === "tercero" ? "blue" : "ink"} />
           : <span className="text-ink-300" title="Cargue anterior al registro del tipo de balance.">—</span>}
       </td>
-      <td className="px-3 py-2.5 text-right font-mono text-ink-600">
+      <td className="px-3 py-2.5 text-right tabular-nums text-ink-600">
         {/* El conteo abre la bitácora de versiones de la línea, desde donde se entra y
             se descarga cada versión. */}
         <Link
           href={`/balance/${p.id}?tab=versiones`}
           title={`Ver las ${p.versions} versión(es) de ${etiquetaFila}`}
-          className="text-blue-500 hover:underline"
+          className="text-blue-600 hover:underline"
         >
           {p.versions}
         </Link>
@@ -409,12 +409,12 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
           <div className="h-1.5 w-12 overflow-hidden rounded-full bg-ink-150">
             <div className={`h-full ${p.complete === 100 ? "bg-ok-500" : "bg-warn-500"}`} style={{ width: `${p.complete}%` }} />
           </div>
-          <span className="font-mono text-[11px] text-ink-500">{p.complete}%</span>
+          <span className="tabular-nums text-[11px] text-ink-500">{p.complete}%</span>
         </div>
       </td>
       <td className="px-3 py-2.5">
         <span className="flex flex-wrap items-center gap-1.5">
-          <span className="whitespace-nowrap font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
+          <span className="whitespace-nowrap tabular-nums text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
           {p.unmapped > 0 && <Chip label={`${p.unmapped} sin mapeo`} tone="warn" />}
         </span>
       </td>
@@ -425,7 +425,7 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
         )}
       </td>
       <td className="px-3 py-2.5 text-right">
-        <Link href={`/balance/${p.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
+        <Link href={`/balance/${p.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-600 hover:underline" title={`Abrir ${etiquetaFila}`}>
           Ver <Icon name="chev-r" size={12} />
         </Link>
       </td>
@@ -443,7 +443,7 @@ function AuditTab({ rows, clients }: { rows: AuditRow[]; clients: { id: number; 
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-ink-800">Audit log</h2>
+        <h2 className="text-[13px] font-semibold text-navy-800">Audit log</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <select
             value={clienteId}
@@ -475,11 +475,11 @@ function AuditTab({ rows, clients }: { rows: AuditRow[]; clients: { id: number; 
           <tbody>
             {pg.pageItems.map((r, i) => (
               <tr key={pg.start + i} className="border-b border-ink-50 last:border-0">
-                <td className="px-4 py-2.5 font-mono text-ink-600">{r.date}</td>
+                <td className="px-4 py-2.5 tabular-nums text-ink-600">{r.date}</td>
                 <td className="px-4 py-2.5 text-ink-800">{r.actor}</td>
                 <td className="px-4 py-2.5"><Chip label={r.role} tone={r.role.includes("Cliente") ? "blue" : "ink"} /></td>
                 <td className="px-4 py-2.5 font-medium text-ink-700">{r.action}</td>
-                <td className="px-4 py-2.5 font-mono text-ink-400">{r.ip}</td>
+                <td className="px-4 py-2.5 tabular-nums text-ink-400">{r.ip}</td>
                 <td className="px-4 py-2.5 text-ink-500">{r.details}</td>
               </tr>
             ))}
@@ -503,7 +503,7 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
   return (
     <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
-      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-navy-600 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
     </button>
   );
 }

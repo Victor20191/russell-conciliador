@@ -59,10 +59,10 @@ export default async function DianDetailPage({ params }: { params: Promise<{ per
       />
 
       {form.objective && (
-        <div className="mb-4 rounded-lg bg-navy-800 px-4 py-3 text-[12.5px] text-[#C9D4E2]">
-          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#7C8DA3]">Objetivo</div>
+        <div className="mb-4 rounded-lg bg-navy-800 px-4 py-3 text-[12.5px] text-navy-100">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-navy-300">Objetivo</div>
           <p className="mt-0.5">{form.objective}</p>
-          <div className="mt-2 text-[10.5px] font-semibold uppercase tracking-wider text-[#7C8DA3]">Conclusión</div>
+          <div className="mt-2 text-[10.5px] font-semibold uppercase tracking-wider text-navy-300">Conclusión</div>
           <p className="mt-0.5 text-white">{form.conclusion}</p>
         </div>
       )}

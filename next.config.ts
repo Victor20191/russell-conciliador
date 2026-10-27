@@ -81,6 +81,13 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: securityHeaders,
       },
+      {
+        // Lato (Manual de Marca §2.1, licencia SIL OFL) también para los documentos que
+        // la plataforma genera: su vista previa vive en un iframe aislado y su descarga
+        // se abre fuera de la plataforma, y una fuente solo se comparte con CORS.
+        source: "/marca/fuentes/:archivo*",
+        headers: [{ key: "Access-Control-Allow-Origin", value: "*" }],
+      },
     ];
   },
 };

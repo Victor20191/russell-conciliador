@@ -432,7 +432,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
             <button
               type="button"
               onClick={limpiarFiltrosColumnas}
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-200"
             >
               <Icon name="x" size={11} /> Limpiar columnas
             </button>
@@ -452,7 +452,7 @@ function BreakdownTab({ arbol, estandar, puedeHomologar, balanceId, comentarios,
           <EncabezadoTablaBalance filtros={filtrosColumnas} onChange={actualizarFiltroColumna} />
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {visible.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro." : "Sin cuentas para este filtro."}</td></tr>
             ) : (
               visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeHomologar, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada, bloqueos))
             )}
@@ -499,7 +499,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       className={`border-b border-ink-100 ${esGrupo ? (sinMapeo ? "bg-warn-100" : nodo.nivel <= 2 ? "bg-ink-100" : "bg-ink-50") : "hover:bg-ink-50"} ${tieneHijos ? "cursor-pointer" : ""}`}
       onClick={tieneHijos ? () => toggle(nodo.key) : undefined}
     >
-      <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
+      <td className="px-4 py-2 tabular-nums text-ink-600" style={{ paddingLeft: pad }}>
         {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={chevronDivulgacion(isOpen)} size={12} /></span>}
         <span className={esGrupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{nodo.code}</span>
         <span className="ml-2 rounded border border-ink-200 bg-white px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-ink-500">{NIVEL_LABEL[nodo.nivel]}</span>
@@ -567,7 +567,7 @@ function celdaNaturaleza(nodo: NodoBalance, val: ValCtx): React.ReactNode {
     return (
       <span
         title={`Naturaleza contraria de hasta ${fmt(val.umbrales.naturaleza)}: se muestra como información y no requiere “Dar OK”.`}
-        className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500"
+        className="inline-flex items-center rounded border border-err-100 bg-err-100 px-1.5 py-0.5 text-[10px] font-medium text-err-500"
       >
         Naturaleza contraria · informativa
       </span>
@@ -595,7 +595,7 @@ function celdaNaturaleza(nodo: NodoBalance, val: ValCtx): React.ReactNode {
     <span className="inline-flex flex-col items-start gap-1">
       <span title={`Saldo contrario a la naturaleza de la cuenta, por encima de ${fmt(val.umbrales.naturaleza)}.`}><Chip label="Naturaleza contraria" tone="err" /></span>
       {val.puede && (
-        <button type="button" onClick={(e) => { e.stopPropagation(); val.onOk(nodo); }} title="Dar OK a esta alerta (exige un comentario justificativo)" className="whitespace-nowrap rounded border border-ok-500 bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-500 hover:text-white">Dar OK</button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); val.onOk(nodo); }} title="Dar OK a esta alerta (exige un comentario justificativo)" className="whitespace-nowrap rounded border border-ok-500 bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-500 hover:text-navy-800">Dar OK</button>
       )}
     </span>
   );
@@ -606,7 +606,7 @@ function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: N
   if (nodo.nivel !== 8) return null;
 
   const contenido = nodo.std ? (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">
+    <span className="inline-flex items-center gap-1.5 tabular-nums text-[11.5px] text-blue-600">
       {nodo.coincidencia != null && nodo.coincidencia < 100 ? "≈" : "→"} {nodo.std}
       {nodo.coincidencia != null && (
         <span className={`rounded px-1 text-[10px] font-semibold ${nodo.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : nodo.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{nodo.coincidencia}%</span>
@@ -724,7 +724,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
         disabled={pending || !alcance}
         onClick={accion === "asignar" ? confirmarAsignar : confirmarPendiente}
         title={alcance ? "Guardar con el alcance elegido" : "Elige primero el alcance del cambio"}
-        className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? (
           <EstadoProcesando>{accion === "asignar" ? "Homologando" : accion === "quitar" ? "Quitando" : "Guardando"}</EstadoProcesando>
@@ -748,11 +748,11 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-600">Homologación seleccionada</p>
             <p className="mt-1 text-[12.5px] text-ink-700">
-              <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}
+              <span className="tabular-nums font-semibold">{nodo.code}</span> — {nodo.name}
             </p>
             <p className="mt-1 inline-flex items-center gap-2 text-[12.5px] font-semibold text-blue-700">
               <span aria-hidden>→</span>
-              <span className="font-mono">{seleccionada.code}</span>
+              <span className="tabular-nums">{seleccionada.code}</span>
               <span>{seleccionada.name}</span>
             </p>
           </div>
@@ -768,7 +768,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
       ) : accion === "pendiente" || accion === "quitar" ? (
         <div className="flex flex-col gap-4">
           <p className="text-[12.5px] text-ink-600">
-            Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
+            Cuenta del cliente <span className="tabular-nums font-semibold">{nodo.code}</span> — {nodo.name}.
           </p>
           <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-700">
             {accion === "pendiente" ? (
@@ -794,7 +794,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-[12.5px] text-ink-600">
-            Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
+            Cuenta del cliente <span className="tabular-nums font-semibold">{nodo.code}</span> — {nodo.name}.
             Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6) a la que corresponde.
           </p>
           <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
@@ -841,7 +841,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
                   onClick={() => { setCodigoSeleccionado(o.code); setAccion("asignar"); }}
                   className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50"
                 >
-                  <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
+                  <span className="tabular-nums text-[11.5px] font-semibold text-ink-700">{o.code}</span>
                   <span className="text-[12.5px] text-ink-700">{o.name}</span>
                   {o.code === nodo.std && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
                 </button>
@@ -892,7 +892,7 @@ function SelectorAlcance({ nodo, cuenta6, alcance, setAlcance, pending, accionLa
                 </span>
                 {opcion.titulo}
               </span>
-              <span className={`mt-1 block text-[11.5px] leading-relaxed ${activa ? "text-white/90" : "text-ink-500"}`}>{opcion.detalle}</span>
+              <span className={`mt-1 block text-[11.5px] leading-relaxed ${activa ? "text-navy-100" : "text-ink-500"}`}>{opcion.detalle}</span>
             </button>
           );
         })}
@@ -934,7 +934,7 @@ function ValidarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balance
     <Modal open onClose={onClose} title="Validar alerta · Naturaleza contraria" size="lg">
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-ink-600">
-          Cuenta <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}. Vas a dar <span className="font-semibold">OK</span> a su naturaleza contraria: la alerta se retira de la vista y queda registrada como validada. Si cargas una versión nueva con el mismo saldo final, el OK pasa a esa versión.
+          Cuenta <span className="tabular-nums font-semibold">{nodo.code}</span> — {nodo.name}. Vas a dar <span className="font-semibold">OK</span> a su naturaleza contraria: la alerta se retira de la vista y queda registrada como validada. Si cargas una versión nueva con el mismo saldo final, el OK pasa a esa versión.
         </p>
         <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
           El <span className="font-semibold">comentario es obligatorio</span> — justifica por qué el saldo es correcto pese a la alerta. Se publicará en la conversación de la cuenta.
@@ -949,7 +949,7 @@ function ValidarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balance
         />
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
-          <button type="button" onClick={guardar} disabled={pending || !listo} className="rounded-md bg-ok-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={guardar} disabled={pending || !listo} className="rounded-md bg-ok-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60">
             {pending ? <EstadoProcesando>Validando</EstadoProcesando> : "Validar y dar OK"}
           </button>
         </div>
@@ -975,7 +975,7 @@ function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => vo
       <div className="flex flex-col gap-3">
         <p className="text-[12.5px] text-ink-600">
           Vas a eliminar del balance el registro <span className="font-semibold">{nodo.name}</span>
-          {nodo.code ? <span className="font-mono text-ink-500"> ({nodo.code})</span> : null}
+          {nodo.code ? <span className="tabular-nums text-ink-500"> ({nodo.code})</span> : null}
           {" "}— saldo {fmt(nodo.balance)}. Se quita del detalle y los totales/mapeo se recalculan.
         </p>
         <p className="rounded-md bg-err-100 px-3 py-2 text-[11.5px] text-err-700">
@@ -983,7 +983,7 @@ function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => vo
         </p>
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
-          <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60">
             {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar registro"}
           </button>
         </div>
@@ -1001,7 +1001,7 @@ function ClasesTab({ sums, balanced, diffCuadre, umbrales }: { sums: Sums; balan
   const fila = (label: string, valor: number, bold = false) => (
     <div className="flex items-center justify-between border-b border-ink-100 px-4 py-2.5 last:border-0">
       <span className={`text-[12.5px] ${bold ? "font-semibold text-ink-800" : "text-ink-600"}`}>{label}</span>
-      <span className={`whitespace-nowrap font-mono text-[13px] ${bold ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(valor)}</span>
+      <span className={`whitespace-nowrap tabular-nums text-[13px] ${bold ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(valor)}</span>
     </div>
   );
   return (
@@ -1081,7 +1081,7 @@ function DescargaVersion({ id, version }: { id: number; version: string }) {
       href={`/balance/${id}/export?tipo=${tipo}`}
       title={`${titulo} · versión ${version}`}
       aria-label={`${titulo} de la versión ${version}`}
-      className="inline-flex items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100/40 hover:text-ok-700"
+      className="inline-flex items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100 hover:text-ok-700"
     >
       <Icon name="download" size={11} /> {etiqueta}
     </a>
@@ -1133,7 +1133,7 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                     </Link>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
                 <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
                 <td className="px-4 py-2.5">
@@ -1147,10 +1147,10 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                     <span className="text-ink-400" title="Versión cargada antes de registrar el tipo de balance.">—</span>
                   )}
                 </td>
-                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{v.rows}</td>
-                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right tabular-nums text-ink-700">{v.rows}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right tabular-nums text-ink-700">{fmt(v.sumA)}</td>
                 <td className="border-l border-ink-150 px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>
-                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-600">{i === versions.length - 1 ? "—" : `+${v.changes}`}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right tabular-nums text-ink-600">{i === versions.length - 1 ? "—" : `+${v.changes}`}</td>
                 <td className="px-4 py-2.5 text-ink-500">
                   {v.note}
                   {v.approvalNote && (
@@ -1180,7 +1180,7 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
   return (
     <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
-      {count != null && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>}
+      {count != null && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-navy-600 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>}
     </button>
   );
 }
@@ -1190,7 +1190,7 @@ function FiltroBtn({ on, onClick, label, count, tone }: { on: boolean; onClick: 
     <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition ${on ? "bg-navy-700 text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>
       {label}
       {count != null && count > 0 && (
-        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-navy-600 text-white" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>{count}</span>
       )}
     </button>
   );

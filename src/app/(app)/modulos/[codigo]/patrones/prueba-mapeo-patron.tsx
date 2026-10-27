@@ -125,7 +125,7 @@ export function PruebaMapeoPatron({
           type="button"
           onClick={probar}
           disabled={probando || !puedeProbar}
-          className="whitespace-nowrap rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50"
+          className="whitespace-nowrap rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-60"
         >
           {probando ? "Probando…" : resultado ? "Volver a probar" : "Probar el mapeo"}
         </button>

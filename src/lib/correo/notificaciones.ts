@@ -4,7 +4,8 @@ import prisma from "@/lib/prisma";
 import type { ConexionIntegracion } from "@/generated/prisma/client";
 import { descifrarCredenciales } from "@/lib/conexiones/credenciales";
 import { enviarSmtp, ErrorSmtp, mensajeErrorSmtp } from "@/lib/conexiones/smtp";
-import { mensajeNotificacion, ErrorPlantillaNotificacion } from "./plantilla-notificacion";
+import { CID_LOGO_CORREO, mensajeNotificacion, ErrorPlantillaNotificacion } from "./plantilla-notificacion";
+import { logoCorreo } from "@/lib/marca/recursos-correo";
 import { destinatariosAviso, type AlcanceAviso } from "./destinatarios";
 
 export type AvisoCorreo = AlcanceAviso & { titulo: string; texto: string; ruta?: string; entidad?: { tipo: string; id: number }; referencia: string };
@@ -35,10 +36,16 @@ export async function enviarCorreoRegistrado(
     if (!conexion.activa || !["smtp", "gmail"].includes(conexion.proveedor)) throw new ErrorSmtp("Activa una conexión SMTP o Gmail antes de enviar.");
     const config = (conexion.configuracion ?? {}) as Record<string, unknown>;
     const credenciales = descifrarCredenciales(conexion.credenciales);
-    const mensaje = mensajeNotificacion({ titulo: aviso.titulo, texto: aviso.texto, ruta: aviso.ruta, urlPlataforma: config.url_plataforma });
+    // El logotipo oficial viaja incrustado; si no se pudo leer, el encabezado sale sin él.
+    const logo = await logoCorreo();
+    const mensaje = mensajeNotificacion({
+      titulo: aviso.titulo, texto: aviso.texto, ruta: aviso.ruta, urlPlataforma: config.url_plataforma,
+      logoSrc: logo ? `cid:${CID_LOGO_CORREO}` : null,
+    });
+    const imagenes = logo ? [{ cid: CID_LOGO_CORREO, nombre: "russell-bedford.png", contenido: logo, tipo: "image/png" as const }] : undefined;
     for (const destinatario of [...new Set(destinatarios)]) {
       try {
-        await enviarSmtp(config, credenciales, { ...mensaje, destinatario });
+        await enviarSmtp(config, credenciales, { ...mensaje, destinatario, imagenes });
         aceptados++;
       } catch (error) {
         fallidos++;

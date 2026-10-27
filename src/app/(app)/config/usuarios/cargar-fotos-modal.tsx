@@ -69,9 +69,9 @@ function CargarFotosModal({ onClose }: { onClose: () => void }) {
           <p className="text-[12.5px] leading-relaxed text-ink-600">
             Sube un archivo <span className="font-semibold">.zip</span> con las fotos. Cada imagen debe
             llamarse con la <span className="font-semibold">cédula</span> del usuario, por ejemplo{" "}
-            <code className="rounded bg-ink-100 px-1 font-mono text-[11.5px]">52123456.jpg</code>. Formatos
+            <code className="rounded bg-ink-100 px-1 tabular-nums text-[11.5px]">52123456.jpg</code>. Formatos
             admitidos: JPG, PNG o WEBP (máx. 4 MB cada una). Las personas deben existir ya como usuarios.
-            Los sufijos de copia como <code className="rounded bg-ink-100 px-1 font-mono text-[11.5px]">-1</code>{" "}
+            Los sufijos de copia como <code className="rounded bg-ink-100 px-1 tabular-nums text-[11.5px]">-1</code>{" "}
             solo se aceptan cuando el prefijo coincide con una cédula existente.
           </p>
           <label className="flex flex-col gap-1.5">
@@ -99,7 +99,7 @@ function CargarFotosModal({ onClose }: { onClose: () => void }) {
 function ResultadoOk({ resumen }: { resumen: NonNullable<CargarFotosState["resumen"]> }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+      <div className="rounded-md border border-ok-100 bg-ok-100 px-3 py-2.5 text-[12.5px] text-ok-700">
         Se asignaron <span className="font-semibold">{resumen.asignadas}</span> foto(s) de perfil.
       </div>
       <DetalleResumen resumen={resumen} />
@@ -142,7 +142,7 @@ function DetalleResumen({ resumen }: { resumen: NonNullable<CargarFotosState["re
           </div>
           <ul className="max-h-40 overflow-y-auto px-3 py-1.5 text-[11.5px] text-ink-700">
             {b.items.map((it, i) => (
-              <li key={i} className="border-b border-ink-50 py-0.5 font-mono last:border-0">
+              <li key={i} className="border-b border-ink-50 py-0.5 tabular-nums last:border-0">
                 {it}
               </li>
             ))}

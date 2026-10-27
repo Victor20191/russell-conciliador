@@ -81,7 +81,7 @@ function BloqueGrupo({
   };
 
   return (
-    <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2.5 text-[12px] text-ink-700">
+    <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2.5 text-[12px] text-ink-700">
       <div className="font-semibold text-warn-700">
         {grupo.grupo === "global" ? `Agrupador «${etiqueta}»` : `Filas sin ${clasificadorEtiqueta.toLowerCase()}`}
       </div>
@@ -128,7 +128,7 @@ function BloqueGrupo({
           type="button"
           disabled={!nombre.trim() || bloqueado || guardando}
           onClick={aplicar}
-          className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Aplicando…" : "Poner nombre"}
         </button>

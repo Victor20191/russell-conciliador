@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useImagenRota } from "@/components/imagen-con-respaldo";
 
 /**
  * Avatar de usuario: pinta la foto de perfil si existe y, si no (o si la imagen
- * falla al cargar), cae a las iniciales — el comportamiento actual de toda la
+ * falla al cargar, también antes de la hidratación), cae a las iniciales — el comportamiento actual de toda la
  * plataforma. Usa `<img>` nativo a propósito: la foto se sirve por un endpoint
  * autenticado (`/api/usuarios/[id]/foto`) y el optimizador de `next/image`
  * haría un fetch del servidor SIN la cookie de sesión.
@@ -22,7 +22,7 @@ export function Avatar({
   size?: number;
   className?: string;
 }) {
-  const [fallo, setFallo] = useState(false);
+  const [fallo, revisar, marcarFallo] = useImagenRota();
   const dim = { width: size, height: size } as const;
 
   if (src && !fallo) {
@@ -34,7 +34,8 @@ export function Avatar({
         title={name}
         width={size}
         height={size}
-        onError={() => setFallo(true)}
+        ref={revisar}
+        onError={marcarFallo}
         style={dim}
         className={`shrink-0 rounded-full bg-ink-100 object-cover ${className}`}
       />

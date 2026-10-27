@@ -3,7 +3,9 @@ import nodemailer from "nodemailer";
 import { z } from "zod";
 
 export class ErrorSmtp extends Error {}
-export type MensajeSmtp = { destinatario: string; asunto: string; texto: string; html: string };
+/** Imagen que el HTML cita con `cid:` (el logotipo del encabezado). */
+export type ImagenEnLinea = { cid: string; nombre: string; contenido: Buffer; tipo: "image/png" };
+export type MensajeSmtp = { destinatario: string; asunto: string; texto: string; html: string; imagenes?: ImagenEnLinea[] };
 
 function transporteSmtp(config: Record<string, unknown>, credenciales: Record<string, string>) {
   const host = String(config.host ?? "").trim();
@@ -66,6 +68,11 @@ export async function enviarSmtp(config: Record<string, unknown>, credenciales: 
       from: { name: "Russell Conciliador", address: remitente },
       to: { address: mensaje.destinatario, name: "" },
       subject: mensaje.asunto, text: mensaje.texto, html: mensaje.html,
+      // Contenido ya leído (el transporte no lee archivos ni direcciones por su cuenta).
+      attachments: mensaje.imagenes?.map((imagen) => ({
+        filename: imagen.nombre, content: imagen.contenido, contentType: imagen.tipo,
+        cid: imagen.cid, contentDisposition: "inline" as const,
+      })),
       headers: { "Auto-Submitted": "auto-generated" },
     });
     if (!resultado.accepted.some((correo) => correo.toLowerCase() === mensaje.destinatario.toLowerCase())) {
