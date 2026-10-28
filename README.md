@@ -43,8 +43,11 @@ reconciliar esta diferencia con la revisión del código que se despliegue.
 
 ## Operación en producción
 
-Requisitos: Node.js compatible con Next.js 16 (mínimo 20.9), PostgreSQL y las
-variables privadas de la instalación. `.env` es local y no se versiona.
+Requisitos: Node.js 24 LTS desde 24.22.1 (la de `.nvmrc`; `engines` también
+admite 22.23.4+ y 26.12.1+), PostgreSQL y las variables privadas de la
+instalación. `.env` es local y no se versiona. Esas versiones corrigen el aviso
+de seguridad de Node.js del 21/Oct/2026 (CVE-2026-111497, descompresión Brotli,
+y fallas de TLS y DNS); `npm audit` no lo cubre, porque es el ejecutable.
 
 Variables esenciales:
 
@@ -59,6 +62,7 @@ Para actualizar una instalación existente, con un respaldo previo y la revisió
 correcta del código:
 
 ```bash
+node -v   # 24.22.1 o posterior de la rama 24 (.nvmrc)
 npm ci
 npm run db:status
 npm run db:deploy
@@ -68,7 +72,9 @@ npm start
 ```
 
 El gestor de procesos del servidor debe conservar el entorno usado durante el
-build. `db:deploy` aplica las migraciones pendientes y no propone reiniciar la base.
+build. Al actualizar Node, también él se reinicia con el ejecutable nuevo (con
+PM2, `pm2 update`) y se comprueba el de cada proceso, no solo el de la terminal.
+`db:deploy` aplica las migraciones pendientes y no propone reiniciar la base.
 La exportación SQL conserva la estructura lógica, pero no reconstruye propietarios
 ni permisos de usuarios PostgreSQL. No debe restaurarse
 encima de una base existente ni combinarse con `migrate deploy` en una base nueva
