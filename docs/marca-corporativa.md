@@ -8,7 +8,7 @@ Revisión del 27 de octubre de 2026. Fuente: la carpeta `01_Marca_Corporativa` q
 | `Logo_Imagotipo Azul oscuro_Logo_PDF…pdf` (vectorial) | `public/marca/russell-bedford-azul.svg` y `-blanco.svg`: el mismo trazado del PDF, con el azul en el RGB que fija el manual (§3.1, `#001871`; el PDF viene en CMYK y, convertido tal cual, daría `#252E61`) y en blanco para los fondos de color (§1.2). Es el logotipo de la interfaz, el PDF, el HTML y las presentaciones |
 | `Isotipo_Azul oscuro_Logo_PDF…pdf` (vectorial) | `public/marca/isotipo-azul.svg` y `-blanco.svg`: el globo como motivo decorativo del login (§4.1) |
 | `Logos en PNG/Logo Azul Oscuro_Imagotipo…png` y `Logo Blanco_Imagotipo…png` | `russell-bedford-azul-600.png` y `-blanco-600.png` (solo se recortó el lienzo transparente): el correo, porque los clientes de correo no muestran SVG. Sirvieron además para comprobar que el SVG es el mismo arte (misma proporción; el isotipo coincide en un 98 % de su superficie) |
-| `Logos en PNG/Isotipo Azul Oscuro…png` e `Isotipo Blanco…png` | Referencia del isotipo (el motivo usa el SVG vectorial) |
+| `Logos en PNG/Isotipo Azul Oscuro…png` e `Isotipo Blanco…png` | Referencia del isotipo (el motivo usa el SVG vectorial). El azul es la fuente de `src/app/favicon.ico`, `icon.png` y `apple-icon.png` (recortado al arte, un solo color `#001871`) |
 
 Errata del manual: en §3.2 la fila RGB de Sky Blue dice «R:152, G:29, B:206»; su hexadecimal oficial (`#00a9ce`, el que se usa) corresponde a R0 G169 B206.
 
@@ -33,7 +33,7 @@ Lo que queda fuera de la guía está en la sección «Lo que queda fuera de la g
 | 3.2 | Complementarios Sea Green, Earth Orange, Sky Blue y Mind Magenta con sus tintes; para gráficos corporativos y áreas | Estados de la interfaz (éxito, advertencia, información, error), gráficos del reporte, franja y marca de esquina. Las transparencias solo van al 20, 40, 60 u 80 %, que sobre blanco son exactamente los tintes. Sin desenfoques ni filtros de color | `css-compilado.test.ts` (cada color, mezcla y transparencia del CSS publicado); recorridos y control por píxel |
 | 3.3 | Positivo y negativo | Variante `azul` o `blanco` según el fondo; tinte de un complementario con texto Space Blue | Capturas |
 | 4.1 | No modificar, tapar ni separar las partes; usar el color principal y la versión negativa cuando se pierda visibilidad | Componente único; espacio libre reservado | — |
-| 4.1 | El globo solo como motivo decorativo, nunca como logo, ni distorsionado ni girado | `MotivoGlobo` (decorativo, sin texto alternativo) en el login, recortado y sin girar. Con el menú contraído no se muestra marca. El ícono de la pestaña y de la app es la marca de esquina de la presentación oficial (§5.2): las cinco barras | `src/app/favicon.ico`, `icon.png`, `apple-icon.png` |
+| 4.1 | El globo solo como motivo decorativo, nunca como logo, ni distorsionado ni girado | `MotivoGlobo` (decorativo, sin texto alternativo) en el login, recortado y sin girar. Con el menú contraído no se muestra marca. El ícono de la pestaña y de la app es el isotipo azul oficial, por decisión del usuario (28/Oct/2026): es el símbolo de la marca en el espacio que el navegador reserva al ícono, no un logo dentro de la interfaz | `src/app/favicon.ico`, `icon.png`, `apple-icon.png` |
 | 4.2 | No agregar palabras para leerse con el nombre | «Conciliador» va aparte (chip de versión, rótulo) y fuera del espacio libre | Capturas |
 | 4.2 | Espacio libre de al menos el 20 % del ancho del logo | `espacioLibreLogo()` (padding), `logoHtml` y las portadas | — |
 | 4.2 | Ancho mínimo de 30 mm | `ANCHO_MINIMO_LOGO_PX = 114` (30 mm a 96 ppp); un ancho menor se lleva al mínimo | — |
@@ -74,7 +74,7 @@ En todos los casos se usa algo del manual:
 2. **Texto de los complementarios claros**: Sea Green, Earth Orange y Sky Blue no alcanzan 3:1 sobre blanco, así que su texto va en Space Blue y sus fondos sólidos llevan texto Space Blue (el «positivo» del manual).
 3. **Grises**: tintes del negro de proceso con que el manual compone su texto; las sombras son ese mismo negro con transparencia.
 4. **Glifos que Lato no trae**: los dibuja Arial, como dispone §2.2.
-5. **Ícono de la app**: la marca de esquina de §5.2, porque el imagotipo no cabe a 16 px (su mínimo es 30 mm) y el globo no puede usarse como logo (§4.1).
+5. **Ícono de la app**: el isotipo azul oficial (decisión del usuario, 28/Oct/2026; hasta el 27/Oct fue la marca de esquina de §5.2). El imagotipo no cabe a 16 px (su mínimo es 30 mm).
 
 
 ## Verificación
