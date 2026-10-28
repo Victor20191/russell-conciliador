@@ -1,6 +1,8 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { verifySession } from "@/lib/dal";
 import { ROLES_MATRIZ } from "@/lib/rbac/catalogo";
+import { puedeEditarRolMatriz, puedeGestionarPermisoMatriz } from "@/lib/rbac/politica-matriz";
 import {
   ARBOL_MODULOS,
   nivelActual,
@@ -18,12 +20,13 @@ import PermisosClient, {
 export default async function PermisosPage() {
   // Editar la matriz rol×permiso es administración de la herramienta.
   await requirePermiso("roles:configurar");
+  const session = await verifySession();
 
   const [roles, permisos, concesiones] = await Promise.all([
     // Solo los roles canónicos de la matriz se editan aquí; los legado
     // (Consulta/Auditor/Líder) quedan fuera de la pantalla (la action lo refuerza).
     prisma.role.findMany({
-      where: { active: true, code: { in: [...ROLES_MATRIZ] } },
+      where: { active: true, code: { in: ROLES_MATRIZ.filter((rol) => puedeEditarRolMatriz(session.role, rol)) } },
       orderBy: { rank: "desc" },
       select: { id: true, code: true, name: true },
     }),
@@ -39,6 +42,7 @@ export default async function PermisosPage() {
   // Permisos por módulo.
   const porModulo = new Map<string, PermisoLite[]>();
   for (const p of permisos) {
+    if (!puedeGestionarPermisoMatriz(session.role, p.code)) continue;
     const arr = porModulo.get(p.module) ?? [];
     arr.push(p);
     porModulo.set(p.module, arr);

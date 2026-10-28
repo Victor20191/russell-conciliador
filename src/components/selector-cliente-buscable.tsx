@@ -212,7 +212,7 @@ export function SelectorClienteBuscable({
                   }`}
                 >
                   <span className="min-w-0 truncate font-medium">{cliente.name}</span>
-                  <span className="shrink-0 font-mono text-[11.5px] text-ink-500">{cliente.nit}</span>
+                  <span className="shrink-0 tabular-nums text-[11.5px] text-ink-500">{cliente.nit}</span>
                 </div>
               ))}
               {coincidencias.length > opcionesVisibles.length && (

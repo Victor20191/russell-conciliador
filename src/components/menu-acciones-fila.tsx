@@ -163,7 +163,7 @@ export function MenuAccionesFila({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={navegarMenu}
           style={{ top: posicion.top, left: posicion.left }}
-          className="fixed z-[80] max-h-[calc(100vh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-200 bg-white p-1.5 text-left shadow-xl ring-1 ring-navy-900/5"
+          className="fixed z-[80] max-h-[calc(100vh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-200 bg-white p-1.5 text-left shadow-xl ring-1 ring-ink-150"
         >
           <div className="flex flex-col">
             {acciones.map((accion, indice) => (
@@ -197,7 +197,7 @@ export function MenuAccionesFila({
           {conDescripcion && (
             <div
               id={`${menuId}-descripcion`}
-              className="mt-1 min-h-10 rounded-md border border-blue-100 bg-blue-50/70 px-2.5 py-2 text-[10.5px] leading-snug text-blue-800"
+              className="mt-1 min-h-10 rounded-md border border-blue-100 bg-blue-100 px-2.5 py-2 text-[10.5px] leading-snug text-blue-800"
             >
               {descripcionActiva ?? "Pasa el cursor o enfoca una opción para ver qué hace."}
             </div>

@@ -31,6 +31,7 @@ import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Client, type QueryResultRow } from "pg";
 import ExcelJS from "exceljs";
+import { escribirLibroMarca, estiloEncabezado } from "../src/lib/export/marca-excel";
 import { advisoryKey, LOCK_NAMESPACE } from "../src/lib/candados";
 import * as reglas from "../src/lib/modulos/nomina/homologacion";
 // Las reglas anteriores (las de master antes de la rama), solo para reconocer lo que salió de ellas.
@@ -277,7 +278,7 @@ async function informe(p: Plan, modo: "simulacion" | "aplicado", archivo: string
   const hoja =(titulo: string, cols: [string, string, number][], filas: F[]) => {
     const ws = wb.addWorksheet(titulo, { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = cols.map(([key, header, width]) => ({ key, header, width }));
-    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).eachCell((c) => estiloEncabezado(c));
     ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
     for (const f of filas) ws.addRow(f);
     for (const [key] of cols) if (/saldo/i.test(key)) ws.getColumn(key).numFmt = "#,##0.00;-#,##0.00";
@@ -333,7 +334,8 @@ async function informe(p: Plan, modo: "simulacion" | "aplicado", archivo: string
     ["cliente", "Cliente", 34], ["concepto", "Concepto", 12], ["nombre", "Nombre", 32], ["centro", "Centro de costo", 14], ["antes", "Russell antes", 11], ["despues", "Russell después", 12], ["motivo", "Motivo", 70],
   ], p.nomina.map((n) => ({ ...n, motivo: n.accion === "fusionar" ? `${n.motivo} (ya había una fila igual con esa cuenta: se unen)` : n.motivo })));
   mkdirSync(path.dirname(archivo), { recursive: true });
-  await wb.xlsx.writeFile(archivo);
+  // Informe para Russell: Arial y paleta del Manual de Marca, como las exportaciones de la plataforma.
+  writeFileSync(archivo, await escribirLibroMarca(wb));
 }
 
 // ===== Aplicar

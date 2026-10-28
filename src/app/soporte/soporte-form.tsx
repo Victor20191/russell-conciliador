@@ -6,7 +6,7 @@ import { crearTicketSoporte } from "@/app/actions/soporte";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { copiarTextoAlPortapapeles } from "@/lib/portapapeles";
 
-const INPUT = "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+const INPUT = "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] font-normal normal-case tracking-normal text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
 function ErrorCampo({ mensajes }: { mensajes?: string[] }) {
   return mensajes?.[0] ? <p className="text-xs text-err-700">{mensajes[0]}</p> : null;
@@ -29,7 +29,7 @@ export default function SoporteForm() {
     return (
       <div className="rounded-lg border border-ok-100 bg-ok-100 p-5" role="status">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ok-700">Ticket creado</p>
-        <h3 className="mt-2 font-mono text-lg font-semibold text-ink-900">{state.code}</h3>
+        <h3 className="mt-2 tabular-nums text-lg font-semibold text-navy-800">{state.code}</h3>
         <p className="mt-3 text-sm leading-6 text-ink-700">
           Guarda este enlace: es la credencial privada para consultar el estado y la solución del ticket.
         </p>

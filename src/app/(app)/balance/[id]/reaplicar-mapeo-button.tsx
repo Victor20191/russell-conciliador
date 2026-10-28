@@ -51,7 +51,7 @@ export function ReaplicarMapeoButton({
         onClick={() => setAbierto(true)}
         className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[12.5px] font-medium transition ${
           fueraDeClase > 0
-            ? "border-warn-300 bg-warn-50 text-warn-700 hover:bg-warn-100"
+            ? "border-warn-300 bg-warn-50 text-warn-700 hover:bg-warn-200"
             : "border-ink-200 text-ink-700 hover:bg-ink-50"
         }`}
       >

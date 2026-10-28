@@ -51,6 +51,9 @@ export const verifySession = cache(async () => {
 export const getCurrentUser = cache(async () => {
   try {
     const session = await verifySession();
+    // La sesión temporal solo permite cambiar la contraseña. Los endpoints de
+    // autoservicio/archivos que usan este helper tampoco pueden saltarse esa compuerta.
+    if (session.mustChangePassword) return null;
     return {
       id: session.userId,
       name: session.name,

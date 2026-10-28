@@ -54,7 +54,7 @@ function ListaBarras({
 
   return (
     <Card className="p-4">
-      <h2 className="text-[13px] font-semibold text-ink-800">{titulo}</h2>
+      <h2 className="text-[13px] font-semibold text-navy-800">{titulo}</h2>
       {subtitulo && <p className="mt-0.5 text-[11.5px] text-ink-500">{subtitulo}</p>}
       {filas.length === 0 ? (
         <p className="py-8 text-center text-[12.5px] text-ink-400">{vacio}</p>
@@ -72,7 +72,7 @@ function ListaBarras({
                       <span className="block truncate text-[11px] text-ink-400">{item.detalle}</span>
                     )}
                   </div>
-                  <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">
+                  <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">
                     {fmtNum(total)}
                   </span>
                 </div>
@@ -99,7 +99,7 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
 
   return (
     <Card className="min-w-0 p-4 lg:col-span-2">
-      <h2 className="text-[13px] font-semibold text-ink-800">Ritmo de uso diario</h2>
+      <h2 className="text-[13px] font-semibold text-navy-800">Ritmo de uso diario</h2>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
         Acciones por día en el período
         {(serie?.length ?? 0) > 21 ? " (últimos 21 días del rango)" : ""}
@@ -160,7 +160,7 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
                         {(d.usuarios ?? []).map((u) => (
                           <tr key={u.usuario} className="border-t border-ink-100 even:bg-ink-50">
                             <td className="break-words px-3 py-2 leading-snug">{u.usuario}</td>
-                            <td className="px-3 py-2 text-right align-top font-mono font-semibold tabular-nums text-navy-700">{fmtNum(u.total)}</td>
+                            <td className="px-3 py-2 text-right align-top tabular-nums font-semibold text-navy-700">{fmtNum(u.total)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -180,8 +180,8 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
 }
 
 const TONO_ALERTA: Record<"alza" | "baja" | "estable", string> = {
-  alza: "border-ok-500/30 bg-ok-100 text-ok-700",
-  baja: "border-err-500/30 bg-err-100 text-err-700",
+  alza: "border-ok-200 bg-ok-100 text-ok-700",
+  baja: "border-err-200 bg-err-100 text-err-700",
   estable: "border-ink-150 bg-ink-50 text-ink-700",
 };
 
@@ -202,7 +202,7 @@ function Delta({ v }: { v: VariacionUso }) {
   const flecha = v.direccion === "subio" ? "▲" : v.direccion === "bajo" ? "▼" : "=";
   const pct = v.variacionPct == null ? "nuevo" : `${Math.abs(v.variacionPct)} %`;
   return (
-    <span className={`font-mono text-[11.5px] font-semibold tabular-nums ${tono}`}>
+    <span className={`tabular-nums text-[11.5px] font-semibold ${tono}`}>
       {flecha} {pct}
     </span>
   );
@@ -213,9 +213,9 @@ function FilaVariacion({ v }: { v: VariacionUso }) {
     <li className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0">
       <span className="min-w-0 truncate text-[12.5px] text-ink-800">{v.etiqueta}</span>
       <span className="flex shrink-0 items-baseline gap-2">
-        <span className="font-mono text-[12.5px] tabular-nums text-ink-400">{fmtNum(v.previo)}</span>
+        <span className="tabular-nums text-[12.5px] text-ink-400">{fmtNum(v.previo)}</span>
         <span className="text-[11px] text-ink-300">→</span>
-        <span className="font-mono text-[12.5px] font-semibold tabular-nums text-navy-700">{fmtNum(v.actual)}</span>
+        <span className="tabular-nums text-[12.5px] font-semibold text-navy-700">{fmtNum(v.actual)}</span>
         <Delta v={v} />
       </span>
     </li>
@@ -241,7 +241,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
     <Card className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 className="text-[13px] font-semibold text-ink-800">¿Subió o bajó el uso?</h2>
+          <h2 className="text-[13px] font-semibold text-navy-800">¿Subió o bajó el uso?</h2>
           <p className="mt-0.5 text-[11.5px] text-ink-500">
             {origen} vs. actual ({c.actual.desde} → {c.actual.hasta})
           </p>
@@ -260,7 +260,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
           </span>
           <div className="min-w-0">
             <p className="text-[13px] font-semibold">{alerta.titulo}</p>
-            <p className="mt-0.5 text-[11.5px] opacity-90">{alerta.mensaje}</p>
+            <p className="mt-0.5 text-[11.5px] opacity-80">{alerta.mensaje}</p>
           </div>
         </div>
       ))}
@@ -338,22 +338,22 @@ export function CostosIACard({ costos }: { costos?: CostosIA | null }) {
 
   return (
     <Card className="p-4">
-      <h2 className="text-[13px] font-semibold text-ink-800">Costos de IA</h2>
+      <h2 className="text-[13px] font-semibold text-navy-800">Costos de IA</h2>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
         Consumo de las funciones con IA entre {fecha(actual.desde)} y {fecha(actual.hasta)}.
       </p>
 
       <div className="mt-3 grid grid-cols-3 gap-3">
         <div>
-          <p className="font-mono text-[17px] font-semibold tabular-nums text-navy-700">{fmt(actual.costoCop)}</p>
+          <p className="tabular-nums text-[17px] font-semibold text-navy-700">{fmt(actual.costoCop)}</p>
           <p className="text-[11px] text-ink-500">Gasto del período</p>
         </div>
         <div>
-          <p className="font-mono text-[17px] font-semibold tabular-nums text-ink-800">{fmtNum(actual.tokens)}</p>
+          <p className="tabular-nums text-[17px] font-semibold text-ink-800">{fmtNum(actual.tokens)}</p>
           <p className="text-[11px] text-ink-500">Tokens</p>
         </div>
         <div>
-          <p className="font-mono text-[17px] font-semibold tabular-nums text-ink-800">{fmtNum(actual.llamadas)}</p>
+          <p className="tabular-nums text-[17px] font-semibold text-ink-800">{fmtNum(actual.llamadas)}</p>
           <p className="text-[11px] text-ink-500">Operaciones con IA</p>
         </div>
       </div>
@@ -369,14 +369,14 @@ export function CostosIACard({ costos }: { costos?: CostosIA | null }) {
               >
                 <span className="min-w-0 truncate text-[12.5px] text-ink-800">{v.etiqueta}</span>
                 <span className="flex shrink-0 items-baseline gap-2">
-                  <span className="font-mono text-[12.5px] tabular-nums text-ink-400">
+                  <span className="tabular-nums text-[12.5px] text-ink-400">
                     {enPesos ? fmt(v.previo) : fmtNum(v.previo)}
                   </span>
                   <span className="text-[11px] text-ink-300">→</span>
-                  <span className="font-mono text-[12.5px] font-semibold tabular-nums text-navy-700">
+                  <span className="tabular-nums text-[12.5px] font-semibold text-navy-700">
                     {enPesos ? fmt(v.actual) : fmtNum(v.actual)}
                   </span>
-                  <span className="font-mono text-[11.5px] font-semibold tabular-nums text-ink-500">
+                  <span className="tabular-nums text-[11.5px] font-semibold text-ink-500">
                     {v.direccion === "subio" ? "▲" : v.direccion === "bajo" ? "▼" : "="}{" "}
                     {v.variacionPct == null ? "nuevo" : `${Math.abs(v.variacionPct)} %`}
                   </span>
@@ -412,7 +412,7 @@ export function CostosIACard({ costos }: { costos?: CostosIA | null }) {
                 {o.nombre}
                 <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(o.llamadas)} operación(es)</span>
               </span>
-              <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-ink-700">
+              <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">
                 {fmt(o.costoCop)}
               </span>
             </li>
@@ -438,7 +438,7 @@ export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVi
 
   return (
     <Card className="p-4">
-      <h2 className="text-[13px] font-semibold text-ink-800">Tickets atendidos</h2>
+      <h2 className="text-[13px] font-semibold text-navy-800">Tickets atendidos</h2>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
         Tickets del equipo que pasaron a «Resuelto» o «Cerrado» entre {soloFecha(tickets.desde)} y{" "}
         {soloFecha(tickets.hasta)}.
@@ -451,7 +451,7 @@ export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVi
       ) : (
         <>
           <div className="mt-3 flex items-baseline gap-2">
-            <p className="font-mono text-[17px] font-semibold tabular-nums text-navy-700">
+            <p className="tabular-nums text-[17px] font-semibold text-navy-700">
               {fmtNum(tickets.total)}
             </p>
             <p className="text-[11px] text-ink-500">{desgloseTicketsAtendidos(tickets)}</p>
@@ -463,7 +463,7 @@ export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVi
                 className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0"
               >
                 <span className="min-w-0 truncate text-[12.5px] text-ink-800">
-                  <span className="font-mono font-semibold">{t.codigo}</span> · {t.asunto}
+                  <span className="tabular-nums font-semibold">{t.codigo}</span> · {t.asunto}
                   {t.ubicacion && <span className="ml-1.5 text-[11px] text-ink-400">{t.ubicacion}</span>}
                 </span>
                 <span className="shrink-0 text-[11.5px] tabular-nums text-ink-500">
@@ -514,7 +514,7 @@ export function IndicadoresUso({
     <section aria-label="Indicadores de uso de la plataforma" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="font-serif text-lg text-ink-900">Indicadores de uso</h2>
+          <h2 className="text-lg text-navy-800">Indicadores de uso</h2>
           <p className="mt-0.5 text-[12.5px] text-ink-500">
             Actividad real de los usuarios en el período {periodoLabel}. Estos indicadores están
             siempre disponibles en la plataforma.

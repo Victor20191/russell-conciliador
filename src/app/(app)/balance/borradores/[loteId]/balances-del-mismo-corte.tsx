@@ -27,7 +27,7 @@ export function BalancesDelMismoCorte({ resultado, cargando }: { resultado: Comp
   return (
     <section aria-label="Balances del mismo corte" className="max-w-3xl rounded-lg border border-ink-200 bg-white p-3">
       <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="text-[12.5px] font-semibold text-ink-800">Balances del mismo corte · {resultado.etiqueta}</h3>
+        <h3 className="text-[12.5px] font-semibold text-navy-800">Balances del mismo corte · {resultado.etiqueta}</h3>
         {cargando && <span className="text-[11px] text-ink-400">actualizando…</span>}
       </div>
       <p className="mt-0.5 text-[11px] text-ink-500">

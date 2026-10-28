@@ -260,8 +260,10 @@ async function probarGraph(
         body: cuerpo,
         signal: AbortSignal.timeout(TIMEOUT_CONEXION_MS),
         cache: "no-store",
+        redirect: "manual",
       },
     );
+    if (res.status >= 300 && res.status < 400) return interpretarEstadoHttp(res.status, "Microsoft 365");
     if (res.ok) {
       return {
         ok: true,
@@ -303,7 +305,9 @@ async function probarOAuth(
       body: cuerpo,
       signal: AbortSignal.timeout(TIMEOUT_CONEXION_MS),
       cache: "no-store",
+      redirect: "manual",
     });
+    if (res.status >= 300 && res.status < 400) return interpretarEstadoHttp(res.status, "OAuth");
     if (res.ok) {
       return { ok: true, mensaje: "El servidor OAuth emitió un token con las credenciales configuradas." };
     }
@@ -378,7 +382,9 @@ async function probarWebhook(
       }),
       signal: AbortSignal.timeout(TIMEOUT_CONEXION_MS),
       cache: "no-store",
+      redirect: "manual",
     });
+    if (res.status >= 300 && res.status < 400) return interpretarEstadoHttp(res.status, "webhook");
     if (res.ok) return { ok: true, mensaje: `El webhook respondió ${res.status}.` };
     if (res.status === 401 || res.status === 403) {
       return { ok: false, mensaje: `El webhook respondió ${res.status}: el secreto fue rechazado.` };

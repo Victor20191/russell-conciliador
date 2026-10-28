@@ -33,8 +33,8 @@ export type ResultadoAsistenciaVista = {
 };
 
 const campo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50";
-const primario = "rounded-md bg-navy-700 px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50";
-const secundario = "rounded-md border border-ink-200 bg-white px-3 py-2 text-[12px] font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50";
+const primario = "rounded-md bg-navy-700 px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
+const secundario = "rounded-md border border-ink-200 bg-white px-3 py-2 text-[12px] font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-60";
 
 /** La carga y la corrección usan la misma recepción, preguntas y comparación. */
 export function AsistenciaInventarioPanel({
@@ -161,17 +161,17 @@ export function AsistenciaInventarioPanel({
           : "Reconocemos el formato y preparamos el borrador. Solo necesitamos tu ayuda si algún dato admite más de una interpretación."}</p>
       </div>
 
-      {resultado.message && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-50/40 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
+      {resultado.message && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-100 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
       {error && <p role="alert" className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-err-700">{error}</p>}
       {resultado.resumen && <ResumenAsistencia actual={resultado.resumen} anterior={propuesta ? resultado.resumenAnterior : null} />}
       {(resultado.advertencias?.length ?? 0) > 0 && (
-        <ul className="list-disc space-y-1 rounded-md border border-warn-300 bg-warn-100/30 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
+        <ul className="list-disc space-y-1 rounded-md border border-warn-300 bg-warn-100 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
           {resultado.advertencias?.map((aviso, index) => <li key={`${index}-${aviso}`}>{aviso}</li>)}
         </ul>
       )}
       <EjemplosLectura ejemplos={resultado.ejemplosLectura ?? []} />
 
-      <fieldset disabled={trabajando || consultando || confirmado} className="flex min-w-0 flex-col gap-3 disabled:opacity-70">
+      <fieldset disabled={trabajando || consultando || confirmado} className="flex min-w-0 flex-col gap-3 disabled:opacity-80">
         {preguntas.map((pregunta) => (
           <label key={pregunta.id} className="flex min-w-0 flex-col gap-1.5">
             <span className="font-medium text-ink-800">{pregunta.etiqueta}</span>
@@ -233,14 +233,14 @@ export function AsistenciaInventarioPanel({
           onReprocesar={(m) => ejecutar("preparar", m)}
         />
       ) : (
-        <button type="button" onClick={() => abrirConstructor(true)} disabled={trabajando} className="self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] font-semibold text-navy-700 hover:bg-blue-100 disabled:opacity-50">
+        <button type="button" onClick={() => abrirConstructor(true)} disabled={trabajando} className="self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] font-semibold text-navy-700 hover:bg-blue-200 disabled:opacity-60">
           Diseñador de formato
         </button>
       ))}
 
       {(resultado.edicionesManuales ?? 0) > 0 && <p className="text-[11px] leading-relaxed text-ink-500">El borrador tiene {resultado.edicionesManuales} cambio(s) manual(es). La nueva lectura conservará los que se puedan aplicar a las mismas filas.</p>}
       {propuestaVigente && resultado.hayEdicionesIncompatibles && (
-        <label className="flex items-start gap-2 rounded-md border border-warn-300 bg-warn-100/40 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
+        <label className="flex items-start gap-2 rounded-md border border-warn-300 bg-warn-100 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
           <input type="checkbox" className="mt-0.5" checked={descartarIncompatibles} disabled={trabajando} onChange={(e) => setDescartarIncompatibles(e.target.checked)} />
           <span>Revisé la comparación y acepto descartar los cambios manuales que ya no correspondan a la nueva lectura.</span>
         </label>

@@ -17,7 +17,7 @@ export function LecturasInventarioPendientes({ lecturas, roles }: { lecturas: Le
   if (lecturas.length === 0) return null;
   return (
     <Card className="mb-5 overflow-hidden">
-      <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-3">
+      <div className="border-b border-ink-100 bg-blue-100 px-4 py-3">
         <h2 className="text-[12px] font-semibold text-navy-800">Lecturas por completar <span className="ml-1 rounded-full bg-blue-100 px-1.5 text-[10px]">{lecturas.length}</span></h2>
         <p className="mt-1 text-[11.5px] text-ink-500">Los originales están guardados. Retoma las preguntas o reintenta la lectura sin subir de nuevo el archivo.</p>
       </div>

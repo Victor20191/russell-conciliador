@@ -8,7 +8,7 @@ import type { ControlesFormatoCartera, EstadoControlFormato } from "@/lib/modulo
 import { esTipoFormatoDeclarable, INFO_TIPO_FORMATO } from "@/lib/modulos/cartera/tipo-formato";
 
 const TONO: Record<EstadoControlFormato, string> = {
-  cuadra: "border-ok-100 bg-ok-100/40 text-ok-700",
+  cuadra: "border-ok-100 bg-ok-100 text-ok-700",
   descuadre: "border-err-200 bg-err-50 text-err-700",
   no_validado: "border-ink-150 bg-ink-50 text-ink-600",
 };
@@ -50,7 +50,7 @@ export function ControlesFormato({
         {controles.deducido ? " · deducido del mapeo, el patrón no lo declara" : ""}
       </div>
       {retirado.length > 0 && (
-        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+        <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
           Este cargue se leyó con el formato «{retirado.join(" + ")}», que ya no se acepta: sin documento ni edades no hay con qué validar el
           auxiliar. Lo cargado se conserva con sus controles; para el próximo período pide el auxiliar por documento o por edades.
         </div>

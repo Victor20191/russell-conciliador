@@ -10,11 +10,11 @@ export const COLOR_ROL: Record<RolLecturaInventario, string> = {
   descripcion: "border-ink-400 bg-ink-100 text-ink-700",
   cantidad: "border-warn-500 bg-warn-100 text-warn-700",
   valorUnitario: "border-ok-500 bg-ok-100 text-ok-700",
-  valorTotal: "border-ok-700 bg-ok-100 text-ok-700",
+  valorTotal: "border-ok-500 bg-ok-100 text-ok-700",
 };
 
-export const claseBoton = "rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-50";
-export const claseBotonPrimario = "rounded-md bg-navy-700 px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50";
+export const claseBoton = "rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-60";
+export const claseBotonPrimario = "rounded-md bg-navy-700 px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 export const claseCampo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400";
 
 export function letraColumna(numero: number): string {

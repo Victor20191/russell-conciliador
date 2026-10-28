@@ -1,0 +1,39 @@
+{
+  "graph": {
+    "sourceModules": 1038,
+    "testAndFixtureModules": 350,
+    "nextEntries": 88,
+    "appReachableSourceModules": 641,
+    "operationalRoots": 37,
+    "operationReachableSourceModules": 129,
+    "disconnectedSourceModules": 5
+  },
+  "versions": {
+    "next": "16.4.2",
+    "eslint-config-next": "16.4.2",
+    "prisma": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@prisma/adapter-pg": "7.10.1",
+    "vitest": "4.1.12",
+    "typescript": "5.9.3"
+  },
+  "unresolvedImports": [],
+  "assetImports": [
+    {
+      "file": "src/app/global-error.tsx",
+      "line": 5,
+      "asset": "src/app/globals.css"
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "line": 3,
+      "asset": "src/app/globals.css"
+    }
+  ],
+  "scriptServerOnly": [],
+  "nonliteralImports": [],
+  "manifestLockMismatch": [],
+  "npmLsProblems": [],
+  "removedMcpPresent": false,
+  "generatedPrismaVersion": "7.10.1"
+}

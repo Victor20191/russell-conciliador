@@ -50,13 +50,13 @@ export default function ResultadosTabla({ rows }: { rows: ResultadoRow[] }) {
           <tbody>
             {pg.pageItems.map((r) => (
               <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                <td className="px-4 py-2.5 font-mono text-[11.5px] text-ink-500">{r.id}</td>
+                <td className="px-4 py-2.5 tabular-nums text-[11.5px] text-ink-500">{r.id}</td>
                 <td className="px-4 py-2.5 text-ink-800">{r.clientName}</td>
                 <td className="px-4 py-2.5 text-ink-600">{r.module}</td>
                 <td className="px-4 py-2.5 text-ink-600">{r.period}</td>
                 <td className="px-4 py-2.5 text-ink-500">{r.erp}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-ink-700">{r.diff}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-ink-600">{r.items}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">{r.diff}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-ink-600">{r.items}</td>
                 <td className="px-4 py-2.5">
                   <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusChip(r.status)}`}>
                     {r.status}
@@ -64,7 +64,7 @@ export default function ResultadosTabla({ rows }: { rows: ResultadoRow[] }) {
                 </td>
                 <td className="px-4 py-2.5 text-ink-600">{r.owner}</td>
                 <td className="px-4 py-2.5 text-right">
-                  <Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline">Ver <Icon name="chev-r" size={12} /></Link>
+                  <Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-600 hover:underline">Ver <Icon name="chev-r" size={12} /></Link>
                 </td>
               </tr>
             ))}

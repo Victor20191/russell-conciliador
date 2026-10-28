@@ -8,7 +8,7 @@ import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState,
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Icon, type IconName } from "@/components/icons";
+import { Icon, type IconName, IconoEnTexto } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import {
@@ -243,7 +243,7 @@ export function ProteccionSubtotalesPanel({
               type="button"
               onClick={onForzar}
               disabled={analizando || !hayCandidatas}
-              className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-ink-100 disabled:bg-ink-50 disabled:text-ink-400"
+              className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-200 disabled:cursor-not-allowed disabled:border-ink-100 disabled:bg-ink-50 disabled:text-ink-400"
             >
               {analizando
                 ? "Analizando jerarquía…"
@@ -285,7 +285,7 @@ export function AvisoPropagacionReubicacion({
   const n = contarPendientes(propagaciones);
   if (n === 0) return null;
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-warn-200 bg-warn-50/70 px-3 py-2 text-[12px] text-warn-800">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-warn-200 bg-warn-100 px-3 py-2 text-[12px] text-warn-800">
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <span className="mt-px shrink-0 text-warn-700"><Icon name="warn" size={13} /></span>
         <span>
@@ -307,9 +307,9 @@ export function AvisoPropagacionReubicacion({
 
 export function AvisoAutoCorreccionSoloHojas({ cuentas, onDeshacer }: { cuentas: number; onDeshacer: () => void }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-ok-200 bg-ok-100 px-3 py-2 text-[12px] text-ok-800">
       <div className="flex min-w-0 flex-1 items-start gap-2">
-        <span className="mt-px font-bold text-ok-700">✓</span>
+        <Icon name="check" size={14} stroke={2.2} className="mt-px shrink-0 text-ok-700" />
         <span>
           <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{cuentas}</span> cuenta(s) por orden. Solo suman las cuentas del último nivel; revisa el resultado y guarda para fijarlo.
         </span>
@@ -531,7 +531,7 @@ function MenuVersionesBorrador({
                 return (
                   <div
                     key={h.loteId}
-                    className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${esta ? "bg-blue-50/60" : "hover:bg-ink-50"}`}
+                    className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${esta ? "bg-blue-100" : "hover:bg-ink-50"}`}
                   >
                     <span className="w-14 shrink-0">
                       {esta ? (
@@ -539,7 +539,7 @@ function MenuVersionesBorrador({
                       ) : (
                         <Link
                           href={`/balance/borradores/${h.loteId}`}
-                          className="text-[12px] font-semibold text-blue-500 hover:underline"
+                          className="text-[12px] font-semibold text-blue-600 hover:underline"
                         >
                           v{h.version}
                         </Link>
@@ -562,7 +562,7 @@ function MenuVersionesBorrador({
                       href={`/balance/borradores/${h.loteId}/export`}
                       title={`Descargar el borrador v${h.version} a Excel`}
                       aria-label={`Descargar el borrador v${h.version} a Excel`}
-                      className="inline-flex shrink-0 items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100/40 hover:text-ok-700"
+                      className="inline-flex shrink-0 items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100 hover:text-ok-700"
                     >
                       <Icon name="download" size={11} /> Excel
                     </a>
@@ -600,7 +600,7 @@ function NotasCargaCliente({
     return actuales ? (
       <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
         <div className="mb-0.5 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 font-semibold"><span aria-hidden>📌</span> Notas de carga de este cliente</span>
+          <span className="flex items-center gap-1.5 font-semibold"><Icon name="doc" size={13} /> Notas de carga de este cliente</span>
           <button type="button" onClick={abrir} className="shrink-0 rounded-md border border-blue-300 bg-white px-2 py-0.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100">
             Editar
           </button>
@@ -609,7 +609,7 @@ function NotasCargaCliente({
       </div>
     ) : (
       <button type="button" onClick={abrir} className="mb-3 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-ink-500 hover:text-blue-700">
-        <span aria-hidden>📌</span> Agregar notas de carga de este cliente
+        <Icon name="doc" size={13} /> Agregar notas de carga de este cliente
       </button>
     );
   }
@@ -1390,19 +1390,19 @@ export default function BorradorDetailClient({
       {porTercero && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
-          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta. Si algún tercero no se detectó y quedó como fila, exclúyelo a mano desde «Más acciones» (⋯) › <span className="font-semibold">Omitir del cálculo</span>.</span>
+          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta. Si algún tercero no se detectó y quedó como fila, exclúyelo a mano desde «Más acciones» (…) › <span className="font-semibold">Omitir del cálculo</span>.</span>
         </div>
       )}
       {relistadoGuiones > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
-          <span><span className="font-semibold">Re-listado con guiones detectado.</span> Se marcaron <span className="font-semibold">{relistadoGuiones}</span> fila(s) con código en notación de guiones (p. ej. <span className="font-mono">1105-05-04</span>) que duplican una cuenta ya listada con su código plano (<span className="font-mono">11050504</span>): se muestran <span className="line-through">tachadas</span> y NO cuentan (se concilia por el código plano). Si alguna hiciera falta, la puedes rescatar con «Incluir».</span>
+          <span><span className="font-semibold">Re-listado con guiones detectado.</span> Se marcaron <span className="font-semibold">{relistadoGuiones}</span> fila(s) con código en notación de guiones (p. ej. <span className="tabular-nums">1105-05-04</span>) que duplican una cuenta ya listada con su código plano (<span className="tabular-nums">11050504</span>): se muestran <span className="line-through">tachadas</span> y NO cuentan (se concilia por el código plano). Si alguna hiciera falta, la puedes rescatar con «Incluir».</span>
         </div>
       )}
       {clasesCorregidas > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
-          <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="font-mono">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="font-mono">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
+          <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="tabular-nums">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="tabular-nums">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
         </div>
       )}
       {infoFilasExcluidas && (
@@ -1422,15 +1422,15 @@ export default function BorradorDetailClient({
             {filasOcultas > 0 && (
               <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
                 <Icon name="warn" size={14} />
-                <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+                <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="tabular-nums">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="tabular-nums">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
               </div>
             )}
           </div>
         </Modal>
       )}
       {correccionesAplicadas > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
-          <span className="mt-px font-bold text-ok-700">✓</span>
+        <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100 px-3 py-2 text-[12px] text-ok-800">
+          <Icon name="check" size={14} stroke={2.2} className="mt-px shrink-0 text-ok-700" />
           <span>
             <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Un administrador puede verlas, editarlas o borrarlas en <span className="font-semibold">Administración › Perfiles de carga</span>.
           </span>
@@ -1523,7 +1523,7 @@ export default function BorradorDetailClient({
               {hayCambios && <span className="text-[11px] font-medium text-warn-700">Guarda para incluir tus cambios</span>}
               <a
                 href={`/balance/borradores/${loteId}/export`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-200"
                 title={hayCambios
                   ? "El Excel exporta lo GUARDADO. Guarda tus cambios para que salgan reflejados."
                   : "Exporta a Excel todo el árbol del borrador"}
@@ -1571,7 +1571,7 @@ export default function BorradorDetailClient({
             )}
           </span>
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={guardarCambios} disabled={!hayCambios || guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-45">
+            <button type="button" onClick={guardarCambios} disabled={!hayCambios || guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-40">
               {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
             </button>
             <DescartarCambiosBoton
@@ -1581,7 +1581,7 @@ export default function BorradorDetailClient({
               onDescartarUltimo={descartarUltimoCambio}
               onDescartarTodo={descartarTodosLosCambios}
               disabled={!hayCambios || guardando}
-              className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45"
+              className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-40"
             />
           </div>
         </div>
@@ -1751,7 +1751,7 @@ export default function BorradorDetailClient({
                 <button
                   type="button"
                   onClick={() => elegirApertura(aperturaSugerida(porTercero))}
-                  className="font-semibold text-blue-500 underline decoration-dotted underline-offset-2 hover:text-blue-600"
+                  className="font-semibold text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-600"
                 >
                   {etiquetaApertura(aperturaSugerida(porTercero))}
                 </button>
@@ -1786,8 +1786,8 @@ export default function BorradorDetailClient({
           </div>
           {clienteSelId == null && (
             <span className="inline-flex flex-wrap items-center gap-2 text-[11px] text-warn-700">
-              {nitDetectado ? <>NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente.</> : <>No se detectó el cliente.</>}
-              <button type="button" onClick={() => setGateAbierto(true)} className="rounded border border-warn-300 bg-warn-50 px-2 py-0.5 font-semibold text-warn-700 hover:bg-warn-100">
+              {nitDetectado ? <>NIT detectado <span className="tabular-nums">{nitDetectado}</span> sin cliente coincidente.</> : <>No se detectó el cliente.</>}
+              <button type="button" onClick={() => setGateAbierto(true)} className="rounded border border-warn-300 bg-warn-50 px-2 py-0.5 font-semibold text-warn-700 hover:bg-warn-200">
                 Elegir cliente y período
               </button>
             </span>
@@ -1910,8 +1910,8 @@ function ValidacionHeader({
 
 /** Colores de cada nivel de diferencia en el encabezado de validación. */
 const TONO_NIVEL: Record<NivelDiferencia, string> = {
-  cero: "border-ok-100 bg-ok-100/40 text-ok-700",
-  informativa: "border-err-100 bg-err-100/30 text-err-500",
+  cero: "border-ok-100 bg-ok-100 text-ok-700",
+  informativa: "border-err-100 bg-err-100 text-err-500",
   alerta: "border-warn-200 bg-warn-50 text-warn-700",
 };
 
@@ -1940,7 +1940,7 @@ function ModalAyudaValidaciones({ onClose, umbrales }: { onClose: () => void; um
               <span className="font-semibold text-ink-800">«Cuadra: Activo = Pasivo + Patrimonio + Resultado»</span> — aplica la ecuación contable sobre los saldos ya calculados a partir del detalle.
             </li>
             <li>
-              <span className="font-semibold text-ink-800">Las tarjetas por clase</span> (Activo, Pasivo, Patrimonio, Ingresos, Gastos, Costos, Resultado) — comparan el total que se calculó sumando el detalle cargado contra el total que trae el propio archivo para esa clase. Cuando coinciden se muestra «✓ archivo … — cruza».
+              <span className="font-semibold text-ink-800">Las tarjetas por clase</span> (Activo, Pasivo, Patrimonio, Ingresos, Gastos, Costos, Resultado) — comparan el total que se calculó sumando el detalle cargado contra el total que trae el propio archivo para esa clase. Cuando coinciden se muestra «archivo … — cruza» con un visto bueno.
             </li>
           </ul>
         </section>
@@ -2055,7 +2055,7 @@ function AdvertenciaArchivoFuente({
                   type="button"
                   onClick={guardarComentario}
                   disabled={!comentarioBorradorListo}
-                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Guardar comentario
                 </button>
@@ -2063,8 +2063,8 @@ function AdvertenciaArchivoFuente({
             }
           >
             <div className="flex flex-col gap-4">
-              <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-[#fffaf0] px-3 py-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white">
+              <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-white px-3 py-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800">
                   <Icon name="warn" size={17} stroke={2} />
                 </span>
                 <div className="min-w-0">
@@ -2132,7 +2132,7 @@ function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }
   const nivel = cuadra == null ? null : nivelDiferencia(diff, umbrales);
   const informativo = nivel === "informativa" && explicacion?.resuelta !== true;
   const resuelta = nivel === "cero" || explicacion?.resuelta === true;
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100" : informativo ? "border-err-100 bg-err-100" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-3 py-2 ${tono}`}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</div>
@@ -2140,10 +2140,10 @@ function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }
       {archivo == null ? (
         <div className="mt-0.5 text-[10.5px] text-ink-400">solo calculado (sin total en archivo)</div>
       ) : nivel === "cero" ? (
-        <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
+        <div className="mt-0.5 text-[10.5px] text-ok-700"><IconoEnTexto name="check" />archivo {fmt(archivo)} — cruza</div>
       ) : explicacion?.resuelta ? (
         <div className="mt-0.5 text-[10.5px] text-ok-700">
-          ✓ archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada por {explicacion.filas.length} {explicacion.filas.length === 1 ? "reubicación aprobada" : "reubicaciones aprobadas"} · residual {fmt(explicacion.residual)}
+          <IconoEnTexto name="check" />archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada por {explicacion.filas.length} {explicacion.filas.length === 1 ? "reubicación aprobada" : "reubicaciones aprobadas"} · residual {fmt(explicacion.residual)}
         </div>
       ) : (
         <div className={`mt-0.5 text-[10.5px] ${informativo ? "text-err-500" : "text-err-700"}`}>
@@ -2161,7 +2161,7 @@ function MiniDato({ k, v, archivo, cuadra, diff, umbrales, explicacion }: { k: s
   const nivel = cuadra == null ? null : nivelDiferencia(diff, umbrales);
   const informativo = nivel === "informativa" && explicacion?.resuelta !== true;
   const resuelta = nivel === "cero" || explicacion?.resuelta === true;
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100" : informativo ? "border-err-100 bg-err-100" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-2.5 py-1.5 ${tono}`}>
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{k}</div>
@@ -2169,10 +2169,10 @@ function MiniDato({ k, v, archivo, cuadra, diff, umbrales, explicacion }: { k: s
       {archivo == null ? (
         <div className="mt-0.5 text-[10px] text-ink-400">solo calculado</div>
       ) : nivel === "cero" ? (
-        <div className="mt-0.5 text-[10px] text-ok-700">✓ archivo {fmt(archivo)}</div>
+        <div className="mt-0.5 text-[10px] text-ok-700"><IconoEnTexto name="check" />archivo {fmt(archivo)}</div>
       ) : explicacion?.resuelta ? (
         <div className="mt-0.5 text-[10px] text-ok-700">
-          ✓ archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada · residual {fmt(explicacion.residual)}
+          <IconoEnTexto name="check" />archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada · residual {fmt(explicacion.residual)}
         </div>
       ) : (
         <div className={`mt-0.5 text-[10px] ${informativo ? "text-err-500" : "text-err-700"}`}>
@@ -2225,7 +2225,7 @@ function ManipulacionesRiesgosasPanel({
           Bloquea la carga
         </span>
       </div>
-      <div className="border-t border-black/5 bg-white/70">
+      <div className="border-t border-ink-150 bg-white">
         {riesgos.map((riesgo) => {
           const clasesQueExplica = [riesgo.claseOrigen, riesgo.claseDestino]
             .filter((clase, indice, todas) => todas.indexOf(clase) === indice)
@@ -2238,7 +2238,7 @@ function ManipulacionesRiesgosasPanel({
             <div key={riesgo.filaNum} className="flex flex-col gap-2 border-t border-ink-100 px-4 py-3 first:border-t-0 lg:flex-row lg:items-center">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[11px] text-ink-500">{riesgo.codigoCrudo || riesgo.codigo}</span>
+                  <span className="tabular-nums text-[11px] text-ink-500">{riesgo.codigoCrudo || riesgo.codigo}</span>
                   <span className="text-[12px] font-semibold text-ink-800">{riesgo.nombre}</span>
                   <span className="rounded border border-err-200 bg-err-50 px-1.5 py-0.5 text-[10px] font-semibold text-err-700">
                     {nombreClaseContable(riesgo.claseOrigen)} → {nombreClaseContable(riesgo.claseDestino)}
@@ -2258,7 +2258,7 @@ function ManipulacionesRiesgosasPanel({
                 <button type="button" onClick={() => onRevisar(riesgo.filaNum)} className="rounded-md border border-warn-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-warn-800 hover:bg-warn-50">
                   Revisar y justificar
                 </button>
-                <button type="button" onClick={() => onDeshacer(riesgo.filaNum)} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
+                <button type="button" onClick={() => onDeshacer(riesgo.filaNum)} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-200">
                   Deshacer y no repetir
                 </button>
               </div>}
@@ -2295,7 +2295,7 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones, onAyuda
   const colapsarTodo = () => setExpandidos(new Set());
   const hayContenidoExpandido = indicesConDetalle.some((indice) => expandidos.has(indice));
   return (
-    <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
+    <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100" : "border-ok-100 bg-ok-100"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <button
@@ -2406,8 +2406,8 @@ function DetalleCuentasHallazgo({ hallazgo }: { hallazgo: Hallazgo }) {
         </thead>
         <tbody>
           {filas.map((f, i) => (
-            <tr key={i} className={`border-t border-ink-100 ${f.destacada ? "bg-blue-50/60" : ""}`}>
-              <td className="whitespace-nowrap px-2 py-1 font-mono text-ink-700">{f.cuenta.codigo}</td>
+            <tr key={i} className={`border-t border-ink-100 ${f.destacada ? "bg-blue-100" : ""}`}>
+              <td className="whitespace-nowrap px-2 py-1 tabular-nums text-ink-700">{f.cuenta.codigo}</td>
               <td className="max-w-[220px] truncate px-2 py-1 text-ink-700" title={f.cuenta.nombre}>{f.cuenta.nombre || "—"}</td>
               <td className="whitespace-nowrap px-2 py-1 text-ink-500">{f.rol}</td>
               <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmtContable(f.cuenta.saldoInicial)}</td>
@@ -2643,9 +2643,9 @@ export function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose
   return (
     <Modal open onClose={onClose} title="Convertir cuenta en agrupadora" size="3xl" footer={footer}>
       <div className="space-y-4 text-[12px]">
-        <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+        <div className="rounded-lg border border-blue-200 bg-blue-100 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] text-ink-500">{origen.codigoCrudo}</span>
+            <span className="tabular-nums text-[11px] text-ink-500">{origen.codigoCrudo}</span>
             <span className="font-semibold text-ink-800">{origen.nombre}</span>
             <span className="rounded border border-blue-200 bg-white px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-navy-700">
               {nombreNivelCuenta(origen.codigo)} · Agrupadora manual
@@ -2656,7 +2656,7 @@ export function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose
           </p>
         </div>
 
-        <div className={`rounded-md border px-3 py-2 ${sugeridas.length > 0 ? "border-ok-200 bg-ok-100/40 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
+        <div className={`rounded-md border px-3 py-2 ${sugeridas.length > 0 ? "border-ok-200 bg-ok-100 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
           <div className="flex items-center justify-between gap-3">
             <span>
               {sugeridas.length > 0
@@ -2686,9 +2686,9 @@ export function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose
                 const elegida = seleccionadas.has(cuenta.filaNum);
                 const sugerida = sugeridas.includes(cuenta.filaNum);
                 return (
-                  <label key={cuenta.filaNum} className={`grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border px-2.5 py-2 sm:grid-cols-[auto_6rem_minmax(0,1fr)_8rem] ${elegida ? "border-blue-300 bg-blue-50" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
+                  <label key={cuenta.filaNum} className={`grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border px-2.5 py-2 sm:grid-cols-[auto_6rem_minmax(0,1fr)_8rem] ${elegida ? "border-blue-300 bg-blue-50" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-100"}`}>
                     <input className="row-span-3 self-start sm:row-span-1 sm:self-center" type="checkbox" checked={elegida} onChange={() => alternar(cuenta.filaNum)} />
-                    <span className="min-w-0 truncate font-mono text-[11px] text-ink-500">{cuenta.codigoCrudo}</span>
+                    <span className="min-w-0 truncate tabular-nums text-[11px] text-ink-500">{cuenta.codigoCrudo}</span>
                     <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:col-start-auto sm:flex-nowrap">
                       <span className="min-w-32 flex-1 truncate font-medium text-ink-800 sm:min-w-0" title={cuenta.nombre}>{cuenta.nombre}</span>
                       {sugerida && <span className="shrink-0 rounded-full bg-ok-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ok-700">Sugerido</span>}
@@ -2705,7 +2705,7 @@ export function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose
 
         {comparacion && (
           <div>
-            <div className={`mb-2 rounded-md border px-3 py-2 ${comparacion.coincide ? "border-ok-200 bg-ok-100/40 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
+            <div className={`mb-2 rounded-md border px-3 py-2 ${comparacion.coincide ? "border-ok-200 bg-ok-100 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
               <span className="font-semibold">{comparacion.coincide ? "Los cuatro valores coinciden." : "Los valores seleccionados no coinciden completamente."}</span>{" "}
               Este control es informativo y no impide convertir ni guardar la cuenta.
             </div>
@@ -2783,13 +2783,13 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
 
   const footer = (
     <>
-      <button type="button" onClick={onClose} disabled={guardando} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50">Cancelar</button>
+      <button type="button" onClick={onClose} disabled={guardando} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
       {origen?.padreManual != null && (
         <button
           type="button"
           disabled={guardando}
           onClick={() => onConfirmar(origen.filaNum, null)}
-          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12.5px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12.5px] font-semibold text-blue-700 hover:bg-blue-200 disabled:opacity-60"
         >
           Revertir movimiento cta
         </button>
@@ -2805,7 +2805,7 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
             cruceRiesgoso ? { justificacion: justificacion.trim(), memorizar } : undefined,
           );
         }}
-        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-45"
+        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {guardando
           ? <EstadoProcesando>Aprobando</EstadoProcesando>
@@ -2829,9 +2829,9 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
             )}
           </div>
           {origen ? (
-            <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+            <div className="rounded-lg border border-blue-200 bg-blue-100 px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[11px] text-ink-500">{origen.codigoCrudo}</span>
+                <span className="tabular-nums text-[11px] text-ink-500">{origen.codigoCrudo}</span>
                 <span className="font-semibold text-ink-800">{origen.nombre}</span>
                 <span className={`rounded border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide ${origen.tipoFila === "agrupadora" ? "border-ink-200 bg-white text-ink-600" : "border-blue-200 bg-blue-100 text-navy-700"}`}>{tipoVisibleCuenta(origen)}</span>
                 {origen.descendientes.length > 0 && <Chip label={`Moverá también ${origen.descendientes.length} descendiente(s)`} tone="blue" />}
@@ -2847,7 +2847,7 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
               <div className="mt-2 max-h-60 space-y-1 overflow-y-auto" role="listbox" aria-label="Cuentas disponibles para mover">
                 {origenesVisibles.map((c) => (
                   <button key={c.filaNum} type="button" onClick={() => elegirOrigen(c.filaNum)} className="flex w-full items-center gap-2 rounded-md border border-transparent px-2.5 py-2 text-left hover:border-blue-200 hover:bg-blue-50">
-                    <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
+                    <span className="w-24 shrink-0 tabular-nums text-[11px] text-ink-500">{c.codigoCrudo}</span>
                     <span className="min-w-0 flex-1 truncate font-medium text-ink-800">{c.nombre}</span>
                     <span className="shrink-0 rounded border border-ink-150 bg-white px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-ink-500">{tipoVisibleCuenta(c)}</span>
                   </button>
@@ -2874,9 +2874,9 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
                   const sugerido = esDestinoSugerido(origen, c);
                   const elegido = destinoId === c.filaNum;
                   return (
-                    <label key={c.filaNum} className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition ${elegido ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/60"}`}>
+                    <label key={c.filaNum} className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition ${elegido ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-100"}`}>
                       <input type="radio" name="destino-reubicacion" checked={elegido} onChange={() => setDestinoId(c.filaNum)} className="mt-0.5" />
-                      <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
+                      <span className="w-24 shrink-0 tabular-nums text-[11px] text-ink-500">{c.codigoCrudo}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-ink-800" title={c.nombre}>{c.nombre}</span>
                         {rutaVisibleCuenta(c) && <span className="block truncate text-[10.5px] text-ink-400">{rutaVisibleCuenta(c)}</span>}
@@ -3082,7 +3082,7 @@ function MenuAccionesCuenta({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={navegarMenu}
           style={{ top: posicion.top, left: posicion.left }}
-          className="fixed z-[80] max-h-[calc(100vh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-200 bg-white p-1.5 text-left shadow-xl ring-1 ring-navy-900/5"
+          className="fixed z-[80] max-h-[calc(100vh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-200 bg-white p-1.5 text-left shadow-xl ring-1 ring-ink-150"
         >
           <div className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400">
             Acciones de cuenta
@@ -3118,7 +3118,7 @@ function MenuAccionesCuenta({
           </div>
           <div
             id={`${menuId}-descripcion`}
-            className="mt-1 min-h-12 rounded-md border border-blue-100 bg-blue-50/70 px-2.5 py-2 text-[10.5px] leading-snug text-blue-800"
+            className="mt-1 min-h-12 rounded-md border border-blue-100 bg-blue-100 px-2.5 py-2 text-[10.5px] leading-snug text-blue-800"
           >
             {descripcionActiva ?? "Pasa el cursor o enfoca una opción para ver qué hace."}
           </div>
@@ -3381,7 +3381,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     const estadoVisualFila = esMatch
       ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
       : reparentada
-        ? "bg-blue-100/70 ring-1 ring-inset ring-blue-300 hover:bg-blue-100"
+        ? "bg-blue-100 ring-1 ring-inset ring-blue-300 hover:bg-blue-200"
         : esMov
           ? "hover:bg-ink-50/60"
           : "bg-ink-50/40";
@@ -3460,7 +3460,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         data-selection-key={n.filaNum}
         data-selected={filaSeleccionada === String(n.filaNum) ? "true" : undefined}
         data-move-target={destinoDestacado === n.filaNum ? "true" : undefined}
-        className={`border-t border-ink-100 transition-colors ${esAgrupadora ? "font-semibold" : ""} ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}
+        className={`border-t border-ink-100 transition-colors ${esAgrupadora ? "font-semibold" : ""} ${omitida ? "opacity-40" : ""} ${estadoVisualFila}`}
       >
         <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
@@ -3469,7 +3469,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
             ) : (
               <span className="inline-block w-[13px]" />
             )}
-            <span className="font-mono text-[11px] text-ink-500">{n.codigoCrudo || "—"}</span>
+            <span className="tabular-nums text-[11px] text-ink-500">{n.codigoCrudo || "—"}</span>
             {numero && !n.subtotalDuplicado && n.tipoFila !== "total" && (
               <span
                 title={`Nivel contable: ${nombreNivelCuenta(n.codigo)} · tipo interno: ${esMov ? "Movimiento" : "Agrupadora"}`}
@@ -3507,7 +3507,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
             ) : null}
             {descuadrado && (
               <AyudaInstantanea
-                className={`cursor-help rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100/35 font-medium text-err-500"}`}
+                className={`cursor-help rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100 font-medium text-err-500"}`}
                 texto={descuadreAccionable
                   ? `Δ subrayado = total del archivo (${fmt(n.saldoFinal)}) − suma de sus ${n.hijos.length} cuentas (por prefijo de código) = ${fmt(n.descuadre!)}. El subtotal no cuadra con su desglose: puede ser una cuenta faltante, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama).`
                   : `Δ informativo = ${fmt(n.descuadre!)} (menor a ${fmt(umbrales.descuadre)}). Se muestra para referencia, pero no cuenta como alerta ni en el diagnóstico superior.`}
@@ -3522,7 +3522,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
             )}
             {magnitudContraria && (
               <span
-                className={`rounded px-1.5 py-0.5 text-[10.5px] ${magnitudAcc ? "border border-warn-300 bg-warn-50 font-semibold text-warn-700" : "border border-warn-100 bg-warn-50/50 font-medium text-warn-600"}`}
+                className={`rounded px-1.5 py-0.5 text-[10.5px] ${magnitudAcc ? "border border-warn-300 bg-warn-50 font-semibold text-warn-700" : "border border-warn-100 bg-warn-100 font-medium text-warn-600"}`}
                 title={`Vino con signo CONTRARIO al dominante de su columna y se subió en negativo (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}). Alerta de MAGNITUD: el saldo es correcto; verifica que la naturaleza de la cuenta sea la esperada.`}
               >
                 ± magnitud
@@ -3535,7 +3535,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                 title="Ver el detalle de esta reubicación: dónde estaba, dónde quedó y de dónde vino el cambio."
                 className="inline-flex cursor-pointer rounded-full transition hover:opacity-80"
               >
-                <Chip label="↳ movida aquí" tone="blue" />
+                <Chip label="→ movida aquí" tone="blue" />
               </button>
             )}
             {!soloLectura && accionesCuenta.length > 0 && (
@@ -3585,7 +3585,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     >
       {label}
       {count != null && count > 0 && (
-        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>
+        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-navy-600" : "bg-warn-100 text-warn-700"}`}>
           {count}
         </span>
       )}
@@ -3613,7 +3613,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
           <button
             type="button"
             onClick={limpiarFiltrosColumnas}
-            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-200"
           >
             <Icon name="x" size={11} /> Limpiar columnas
           </button>
@@ -3760,7 +3760,7 @@ function celdaValidacionBorrador(
   if (estado === "alerta") return <Chip label="Alerta" tone="err" />;
   if (estado === "informativa") {
     return (
-      <span className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500">
+      <span className="inline-flex items-center rounded border border-err-100 bg-err-100 px-1.5 py-0.5 text-[10px] font-medium text-err-500">
         Informativo
       </span>
     );
@@ -3843,16 +3843,16 @@ function RutaReubicacion({
         {niveles.map(({ nodo, distinto }, i) => (
           <li key={nodo.filaNum} style={{ paddingLeft: i * SANGRIA_NIVEL_REUBICACION }}>
             <div className={`flex items-start gap-2 rounded px-1.5 py-1 ${distinto ? resalte : "text-ink-600"}`}>
-              <span aria-hidden className="w-3 shrink-0 font-mono text-[11px] leading-5 text-ink-300">{i > 0 ? "└" : ""}</span>
-              <span className="shrink-0 font-mono text-[11px] leading-5 tabular-nums opacity-80">{nodo.codigoCrudo || nodo.codigo || "—"}</span>
+              <span aria-hidden className="w-3 shrink-0 tabular-nums text-[11px] leading-5 text-ink-300">{i > 0 ? "└" : ""}</span>
+              <span className="shrink-0 tabular-nums text-[11px] leading-5 opacity-80">{nodo.codigoCrudo || nodo.codigo || "—"}</span>
               <span className="text-[12px] font-medium leading-5">{nodo.nombre}</span>
             </div>
           </li>
         ))}
         <li style={{ paddingLeft: ruta.length * SANGRIA_NIVEL_REUBICACION }}>
           <div className="flex items-start gap-2 rounded-md border border-blue-400 bg-blue-50 px-1.5 py-1">
-            <span aria-hidden className="w-3 shrink-0 font-mono text-[11px] leading-5 text-blue-400">{ruta.length > 0 ? "└" : ""}</span>
-            <span className="shrink-0 font-mono text-[11px] leading-5 tabular-nums text-navy-600">{cuenta.codigoCrudo || cuenta.codigo || "—"}</span>
+            <span aria-hidden className="w-3 shrink-0 tabular-nums text-[11px] leading-5 text-blue-600">{ruta.length > 0 ? "└" : ""}</span>
+            <span className="shrink-0 tabular-nums text-[11px] leading-5 text-navy-600">{cuenta.codigoCrudo || cuenta.codigo || "—"}</span>
             <span className="text-[12px] font-semibold leading-5 text-navy-800">{cuenta.nombre}</span>
           </div>
         </li>
@@ -3883,7 +3883,7 @@ function DetalleReubicacionModal({
       <div className="space-y-4 text-[12.5px]">
         <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
           <div className="flex flex-wrap items-baseline gap-2">
-            <span className="font-mono text-[12px] text-ink-500">{cuenta.codigoCrudo || cuenta.codigo}</span>
+            <span className="tabular-nums text-[12px] text-ink-500">{cuenta.codigoCrudo || cuenta.codigo}</span>
             <span className="text-[13.5px] font-semibold text-ink-800">{cuenta.nombre}</span>
           </div>
           <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -4025,7 +4025,7 @@ function GateClientePeriodo({
     >
       <div className="flex flex-col gap-3 text-[12.5px]">
         <p className="text-ink-600">
-          {nitDetectado ? <>El NIT detectado <span className="font-mono">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente (NIT) en el archivo.</>}{" "}
+          {nitDetectado ? <>El NIT detectado <span className="tabular-nums">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente (NIT) en el archivo.</>}{" "}
           Elige el cliente y el período para aplicar sus preferencias y notas de carga, y poder cargar el balance.
         </p>
         {obligatorio && (

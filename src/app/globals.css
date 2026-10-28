@@ -1,62 +1,177 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 
-/* ===== Sistema visual Russell Bedford — portado a Tailwind v4 ===== */
+/* Las clases salen solo del código de la aplicación: sin esto Tailwind escanea todo
+   el proyecto y las cadenas de pruebas, documentos o presentaciones con forma de
+   clase (p. ej. un color arbitrario de una prueba) terminan en el CSS publicado. */
+@source "../";
+@source not "../**/*.test.ts";
+
+/* ===== Sistema visual Russell Bedford — Manual de Marca Corporativa =====
+   La plataforma solo usa lo que fija el manual:
+   - Tipografía (§2): Lato. Arial es su alternativa y respaldo.
+   - Color (§3): el azul institucional PAN 2748 RBI Space Blue, los cuatro
+     complementarios y sus tintes oficiales al 80, 60, 40 y 20 %. No existen
+     tonos más oscuros ni colores fuera de esa lista.
+   - Neutros: la escala del negro de proceso (K) con que el manual compone su
+     texto (#3C3C3B, K90) y su logotipo negro (#1D1D1B, K100).
+   `--color-*: initial` retira la paleta por defecto de Tailwind, así ninguna
+   clase puede pintar un color ajeno al manual (una clase con otro color no
+   genera nada).
+   `src/lib/marca/paleta.ts` repite estos valores para lo que se dibuja fuera
+   de CSS (Excel, PDF, correos, gráficos) y su prueba los mantiene iguales. */
 @theme {
-  /* Navy institucional */
-  --color-navy-900: #091628;
-  --color-navy-800: #0b1f3a;
-  --color-navy-700: #142b4a;
-  --color-navy-600: #1e3a5f;
-  --color-navy-500: #345a82;
+  --color-*: initial;
+  --font-*: initial;
 
-  /* Azul */
-  --color-blue-500: #2f6fa7;
-  --color-blue-400: #5c9bd0;
-  --color-blue-100: #e5eef7;
-  --color-blue-50: #f2f7fc;
+  --color-white: #ffffff;
+  --color-black: #1d1d1b;
 
-  /* Tinta / grises
-     Los tonos 500 y 400 también se usan como texto pequeño sobre paper,
-     ink-50 e ink-100. Conservan una jerarquía suave, pero ambos superan 4.5:1
-     incluso sobre el fondo claro más exigente del sistema. */
-  --color-ink-900: #0e1721;
-  --color-ink-800: #1a2330;
-  --color-ink-700: #2a3441;
-  --color-ink-600: #475160;
-  --color-ink-500: #566273;
-  --color-ink-400: #626e7e;
-  --color-ink-300: #bcc2cc;
-  --color-ink-200: #dce0e7;
-  --color-ink-150: #e7eaef;
-  --color-ink-100: #eff1f4;
-  --color-ink-50: #f7f8fa;
-  --color-paper: #fbfbfc;
+  /* §3.1 Color principal: PAN 2748 RBI Space Blue y sus tintes */
+  --color-space-blue: #001871;
+  --color-space-blue-80: #33468d;
+  --color-space-blue-60: #6674aa;
+  --color-space-blue-40: #99a3c6;
+  --color-space-blue-20: #ccd1e3;
 
-  /* Semánticos */
-  --color-ok-700: #2f6b3f;
-  --color-ok-500: #4a8c5c;
-  --color-ok-100: #e5f0e8;
-  --color-warn-700: #8a5a11;
-  --color-warn-500: #b8801f;
-  --color-warn-100: #faefd7;
-  --color-err-700: #9a2a22;
-  --color-err-500: #c53a30;
-  --color-err-100: #f8e1de;
+  /* §3.2 Colores complementarios y sus tintes */
+  --color-sea-green: #00bfb3; /* PAN 3262 RBI Sea Green */
+  --color-sea-green-80: #33ccc2;
+  --color-sea-green-60: #66d9d1;
+  --color-sea-green-40: #99e5e1;
+  --color-sea-green-20: #ccf2f0;
+  --color-earth-orange: #ed8b00; /* PAN 144 RBI Earth Orange */
+  --color-earth-orange-80: #f1a233;
+  --color-earth-orange-60: #f4b966;
+  --color-earth-orange-40: #f8d199;
+  --color-earth-orange-20: #fbe8cc;
+  --color-sky-blue: #00a9ce; /* PAN 312 RBI Sky Blue */
+  --color-sky-blue-80: #33bad8;
+  --color-sky-blue-60: #66cbe2;
+  --color-sky-blue-40: #99ddeb;
+  --color-sky-blue-20: #cceef5;
+  --color-mind-magenta: #981d97; /* PAN 254 RBI Mind Magenta */
+  --color-mind-magenta-80: #ad4aac;
+  --color-mind-magenta-60: #c177c1;
+  --color-mind-magenta-40: #d6a5d5;
+  --color-mind-magenta-20: #ead2ea;
 
-  /* IA */
-  --color-ai-700: #5a2e8e;
-  --color-ai-500: #7a4db0;
-  --color-ai-100: #efe7f7;
+  /* Familias de la interfaz. El número es el PAPEL del tono, no su oscuridad:
+       50 y 100  fondo suave ............ tinte 20 %
+       200       borde suave ............ tinte 40 %
+       300       borde .................. tinte 60 %
+       400       acento claro ........... tinte 80 %
+       500, 600  acento sólido .......... color al 100 %
+       700 a 900 texto .................. el color legible de la familia
+     Sea Green, Earth Orange y Sky Blue no alcanzan 3:1 sobre blanco, así que
+     su texto es Space Blue (el «positivo» del manual: azul sobre el tinte del
+     complementario); un fondo sólido de esos tres lleva texto Space Blue. */
 
-  /* Tipografías (variables provistas por next/font) */
-  --font-sans: var(--font-ibm-plex-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-serif: var(--font-newsreader), Georgia, "Times New Roman", serif;
-  --font-mono: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Navy: el color principal en todas sus apariciones */
+  --color-navy-900: var(--color-space-blue);
+  --color-navy-800: var(--color-space-blue);
+  --color-navy-700: var(--color-space-blue);
+  --color-navy-600: var(--color-space-blue-80);
+  --color-navy-500: var(--color-space-blue-60);
+  --color-navy-400: var(--color-space-blue-40);
+  --color-navy-300: var(--color-space-blue-40);
+  --color-navy-200: var(--color-space-blue-20);
+  --color-navy-100: var(--color-space-blue-20);
+  --color-navy-50: var(--color-space-blue-20);
 
-  /* Sombras institucionales */
-  --shadow-sm: 0 1px 0 rgba(11, 31, 58, 0.04), 0 1px 2px rgba(11, 31, 58, 0.04);
-  --shadow-md: 0 1px 0 rgba(11, 31, 58, 0.04), 0 4px 12px rgba(11, 31, 58, 0.06);
-  --shadow-lg: 0 1px 0 rgba(11, 31, 58, 0.04), 0 12px 32px rgba(11, 31, 58, 0.1);
+  /* Blue: acento interactivo (selección, foco, información) en Sky Blue;
+     su texto, en Space Blue */
+  --color-blue-50: var(--color-sky-blue-20);
+  --color-blue-100: var(--color-sky-blue-20);
+  --color-blue-200: var(--color-sky-blue-40);
+  --color-blue-300: var(--color-sky-blue-60);
+  --color-blue-400: var(--color-sky-blue);
+  --color-blue-500: var(--color-sky-blue);
+  --color-blue-600: var(--color-space-blue-80);
+  --color-blue-700: var(--color-space-blue);
+  --color-blue-800: var(--color-space-blue);
+  --color-blue-900: var(--color-space-blue);
+
+  /* Neutros: negro de proceso. 400 y 500 se usan como texto pequeño sobre
+     paper, ink-50 e ink-100 y superan 4.5:1 en todos esos fondos. */
+  --color-ink-900: #1d1d1b; /* K100 */
+  --color-ink-800: #3c3c3b; /* K90: el texto del manual */
+  --color-ink-700: #4a4a49;
+  --color-ink-600: #575756; /* K80 */
+  --color-ink-500: #626261;
+  --color-ink-400: #6b6b6a;
+  --color-ink-300: #b2b2b2; /* K40 */
+  --color-ink-200: #dadada; /* K20 */
+  --color-ink-150: #e4e4e3;
+  --color-ink-100: #ededed; /* K10 */
+  --color-ink-50: #f6f6f6; /* K5 */
+  --color-paper: #fbfbfb;
+
+  /* Éxito: Sea Green */
+  --color-ok-50: var(--color-sea-green-20);
+  --color-ok-100: var(--color-sea-green-20);
+  --color-ok-200: var(--color-sea-green-40);
+  --color-ok-300: var(--color-sea-green-60);
+  --color-ok-400: var(--color-sea-green-80);
+  --color-ok-500: var(--color-sea-green);
+  --color-ok-600: var(--color-sea-green);
+  --color-ok-700: var(--color-space-blue);
+  --color-ok-800: var(--color-space-blue);
+  --color-ok-900: var(--color-space-blue);
+
+  /* Advertencia: Earth Orange */
+  --color-warn-50: var(--color-earth-orange-20);
+  --color-warn-100: var(--color-earth-orange-20);
+  --color-warn-200: var(--color-earth-orange-40);
+  --color-warn-300: var(--color-earth-orange-60);
+  --color-warn-400: var(--color-earth-orange-80);
+  --color-warn-500: var(--color-earth-orange);
+  --color-warn-600: var(--color-earth-orange);
+  --color-warn-700: var(--color-space-blue);
+  --color-warn-800: var(--color-space-blue);
+  --color-warn-900: var(--color-space-blue);
+
+  /* Error: Mind Magenta (legible como texto: 7.5:1 sobre blanco) */
+  --color-err-50: var(--color-mind-magenta-20);
+  --color-err-100: var(--color-mind-magenta-20);
+  --color-err-200: var(--color-mind-magenta-40);
+  --color-err-300: var(--color-mind-magenta-60);
+  --color-err-400: var(--color-mind-magenta-80);
+  --color-err-500: var(--color-mind-magenta);
+  --color-err-600: var(--color-mind-magenta);
+  --color-err-700: var(--color-mind-magenta);
+  --color-err-800: var(--color-mind-magenta);
+  --color-err-900: var(--color-mind-magenta);
+
+  /* IA: Sky Blue */
+  --color-ai-50: var(--color-sky-blue-20);
+  --color-ai-100: var(--color-sky-blue-20);
+  --color-ai-200: var(--color-sky-blue-40);
+  --color-ai-300: var(--color-sky-blue-60);
+  --color-ai-400: var(--color-sky-blue-80);
+  --color-ai-500: var(--color-sky-blue);
+  --color-ai-600: var(--color-sky-blue);
+  --color-ai-700: var(--color-space-blue);
+  --color-ai-800: var(--color-space-blue);
+  --color-ai-900: var(--color-space-blue);
+
+  /* §2 Tipografía: Lato y, como respaldo, Arial (la secundaria del manual).
+     No hay fuente monoespaciada ni serif: las cifras de Lato ya son tabulares
+     (todas miden lo mismo), así que los montos se alinean con `tabular-nums`. */
+  /* El respaldo dentro de var() cubre un documento sin la variable de next/font. */
+  --font-sans: var(--font-lato, Lato), Arial, Helvetica, sans-serif;
+  --default-mono-font-family: var(--font-sans);
+  /* Lato se publica en 300, 400, 700 y 900: el «medio» es su regular y el
+     «semi-negrita» su negrita, sin pesos sintéticos. */
+  --font-weight-medium: 400;
+  --font-weight-semibold: 700;
+
+  /* Sombras: negro de proceso (K100) con transparencia, también las grandes
+     que Tailwind trae en negro puro */
+  --shadow-sm: 0 1px 0 rgb(29 29 27 / 0.04), 0 1px 2px rgb(29 29 27 / 0.05);
+  --shadow-md: 0 1px 0 rgb(29 29 27 / 0.04), 0 4px 12px rgb(29 29 27 / 0.07);
+  --shadow-lg: 0 1px 0 rgb(29 29 27 / 0.04), 0 12px 32px rgb(29 29 27 / 0.12);
+  --shadow-xl: 0 20px 25px -5px rgb(29 29 27 / 0.1), 0 8px 10px -6px rgb(29 29 27 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(29 29 27 / 0.25);
 }
 
 html,
@@ -99,6 +214,83 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Lo que pinta el navegador también va en la paleta del manual: casillas,
+   radios, rangos y barras de progreso nativos, la selección de texto y el foco
+   de los elementos que no dibujan el suyo (`:where` no le quita prioridad al
+   anillo o borde de foco que ya declara cada componente). */
+:root {
+  accent-color: var(--color-space-blue);
+  /* Barras de desplazamiento en gris K40; se hereda a cada contenedor (el menú
+     lateral fija la suya en azul). Sin esto, Windows las pinta con sus grises. */
+  scrollbar-color: var(--color-ink-300) transparent;
+}
+
+::selection {
+  background-color: var(--color-sky-blue-40);
+  color: var(--color-space-blue);
+}
+
+/* Corrector ortográfico y texto resaltado desde un enlace: el navegador los
+   marca en rojo y en amarillo, que el manual no tiene. */
+::spelling-error {
+  text-decoration: underline wavy var(--color-mind-magenta);
+}
+
+::grammar-error {
+  text-decoration: underline wavy var(--color-sky-blue);
+}
+
+::target-text {
+  background-color: var(--color-earth-orange-40);
+  color: var(--color-space-blue);
+}
+
+:where(:focus-visible) {
+  outline: 2px solid var(--color-sky-blue);
+  outline-offset: 2px;
+}
+
+@layer base {
+  /* Texto guía de los campos. El preflight de Tailwind lo pinta con el color del
+     texto al 50 %, que no es un tinte del manual: toma el gris de la escala K.
+     En la capa base, para que `placeholder:text-…` de un componente lo cambie. */
+  ::placeholder {
+    color: var(--color-ink-400);
+  }
+
+  /* Autocompletado: el navegador pinta el campo de celeste y el texto en negro
+     puro con `!important`. Una sombra interior blanca tapa ese fondo (el anillo
+     de foco es una sombra exterior y Tailwind la compone con `--tw-inset-shadow`)
+     y el texto vuelve al color del manual. */
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    --tw-inset-shadow: inset 0 0 0 1000px var(--color-white);
+    box-shadow: var(--tw-inset-shadow);
+    -webkit-text-fill-color: var(--color-ink-800);
+    caret-color: var(--color-ink-800);
+  }
+}
+
+/* Campos de fecha: el navegador dibuja el ícono del calendario en negro puro y
+   resalta el tramo que se edita (día, mes o año) con el azul del sistema. El
+   ícono es el mismo calendario en gris K80. `:focus` no alcanza esos tramos
+   desde el CSS de la página; `:focus-within` sí, y solo marca el activo. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23575756' stroke-width='1.4'%3E%3Crect x='2' y='3' width='12' height='11' rx='1.5'/%3E%3Cpath d='M2 6.5h12M5 1.5v3M11 1.5v3'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+}
+
+::-webkit-datetime-edit-day-field:focus-within,
+::-webkit-datetime-edit-month-field:focus-within,
+::-webkit-datetime-edit-year-field:focus-within {
+  background-color: var(--color-sky-blue-40);
+  color: var(--color-space-blue);
+}
+
 /* Un control inactivo se distingue por el cursor y una superficie desaturada,
    no haciendo ilegible su etiqueta. Esta regla neutraliza las opacidades
    utilitarias del componente sin alterar sus colores semánticos. */
@@ -118,11 +310,19 @@ button:disabled {
   filter: none;
 }
 
+/* En las ventanas de la marca (calendario), un día fuera de rango solo se atenúa: sin el
+   recuadro gris de un botón inactivo. */
+[data-rb-emergente] button:disabled {
+  border-color: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-ink-300) !important;
+}
+
 /* El cierre de sesión conserva el contraste del menú oscuro mientras espera. */
 button.sidebar-logout:disabled {
   border-color: transparent !important;
-  color: #a9b6c8 !important;
-  background-color: rgb(255 255 255 / 10%) !important;
+  color: var(--color-space-blue-20) !important;
+  background-color: var(--color-space-blue-80) !important;
   cursor: wait;
 }
 
@@ -224,53 +424,55 @@ button.sidebar-logout:disabled {
   }
 }
 
-/* Resalta la fila contable completa solo en las vistas de detalle. */
+/* Resalta la fila contable completa solo en las vistas de detalle. Paso a paso
+   del manual: el cursor pinta Sky Blue al 20 % con filetes al 40 %; la fila
+   seleccionada sube a 40 % con filetes al 100 %. */
 .balance-detail-row-hover tbody tr > td:not([colspan]) {
   transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 
 @media (hover: hover) {
   .balance-detail-row-hover tbody tr:hover > td:not([colspan]) {
-    background-color: var(--color-blue-100);
+    background-color: var(--color-sky-blue-20);
     box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent);
+      inset 0 1px 0 var(--color-sky-blue-40),
+      inset 0 -1px 0 var(--color-sky-blue-40);
   }
 
   .balance-detail-row-hover tbody tr:hover > td:not([colspan]):first-child {
     box-shadow:
-      inset 1px 0 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent),
-      inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent);
+      inset 1px 0 0 var(--color-sky-blue-40),
+      inset 0 1px 0 var(--color-sky-blue-40),
+      inset 0 -1px 0 var(--color-sky-blue-40);
   }
 
   .balance-detail-row-hover tbody tr:hover > td:not([colspan]):last-child {
     box-shadow:
-      inset -1px 0 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent),
-      inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent),
-      inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 30%, transparent);
+      inset -1px 0 0 var(--color-sky-blue-40),
+      inset 0 1px 0 var(--color-sky-blue-40),
+      inset 0 -1px 0 var(--color-sky-blue-40);
   }
 }
 
 .balance-detail-row-hover tbody tr[data-selected="true"] > td:not([colspan]) {
-  background-color: color-mix(in srgb, var(--color-blue-100) 78%, var(--color-blue-500));
+  background-color: var(--color-sky-blue-40);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent);
+    inset 0 1px 0 var(--color-sky-blue),
+    inset 0 -1px 0 var(--color-sky-blue);
 }
 
 .balance-detail-row-hover tbody tr[data-selected="true"] > td:not([colspan]):first-child {
   box-shadow:
-    inset 1px 0 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent);
+    inset 1px 0 0 var(--color-sky-blue),
+    inset 0 1px 0 var(--color-sky-blue),
+    inset 0 -1px 0 var(--color-sky-blue);
 }
 
 .balance-detail-row-hover tbody tr[data-selected="true"] > td:not([colspan]):last-child {
   box-shadow:
-    inset -1px 0 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent);
+    inset -1px 0 0 var(--color-sky-blue),
+    inset 0 1px 0 var(--color-sky-blue),
+    inset 0 -1px 0 var(--color-sky-blue);
 }
 
 /* Encabezado de columnas INMÓVIL en las tablas largas (balance y borrador): los
@@ -329,7 +531,7 @@ button.sidebar-logout:disabled {
 
 @keyframes balance-move-target-pulse {
   0%, 100% { background-color: transparent; }
-  20%, 70% { background-color: color-mix(in srgb, var(--color-blue-100) 72%, var(--color-blue-500)); }
+  20%, 70% { background-color: var(--color-sky-blue-40); }
 }
 
 /* Al reubicar, identifica brevemente la agrupadora de destino; la cuenta movida
@@ -337,13 +539,26 @@ button.sidebar-logout:disabled {
 .balance-detail-row-hover tbody tr[data-move-target="true"] > td:not([colspan]) {
   animation: balance-move-target-pulse 1.3s ease-in-out 2;
   box-shadow:
-    inset 0 2px 0 color-mix(in srgb, var(--color-blue-500) 70%, transparent),
-    inset 0 -2px 0 color-mix(in srgb, var(--color-blue-500) 70%, transparent);
+    inset 0 2px 0 var(--color-sky-blue),
+    inset 0 -2px 0 var(--color-sky-blue);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .balance-detail-row-hover tbody tr[data-move-target="true"] > td:not([colspan]) {
     animation: none;
-    background-color: color-mix(in srgb, var(--color-blue-100) 72%, var(--color-blue-500));
+    background-color: var(--color-sky-blue-40);
   }
+}
+
+/* Franja institucional (Manual §5.1 y §5.2): los cuatro colores que cierran la
+   portada, las diapositivas y el membrete, en el mismo orden y en partes
+   iguales. */
+.franja-marca {
+  background-image: linear-gradient(
+    to right,
+    var(--color-space-blue) 0 25%,
+    var(--color-mind-magenta) 25% 50%,
+    var(--color-sea-green) 50% 75%,
+    var(--color-earth-orange) 75% 100%
+  );
 }

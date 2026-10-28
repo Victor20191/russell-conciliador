@@ -11,7 +11,7 @@ export const LoginSchema = z.object({
   password: z
     .string()
     .min(1, { error: "La contraseña es obligatoria." })
-    .trim(),
+    .max(1024, { error: "La contraseña es demasiado larga." }),
 });
 
 export type LoginState =
@@ -504,11 +504,13 @@ export const RevisionPrevalidadorSchema = z.object({
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })
+  .max(72, { error: "La contraseña no puede superar 72 bytes." })
+  .refine((valor) => new TextEncoder().encode(valor).byteLength <= 72, { error: "La contraseña no puede superar 72 bytes." })
   .regex(/[A-Za-z]/, { error: "Debe incluir al menos una letra." })
   .regex(/[0-9]/, { error: "Debe incluir al menos un número." });
 
 export const ChangePasswordSchema = z.object({
-  current: z.string().min(1, { error: "Ingresa tu contraseña actual." }),
+  current: z.string().min(1, { error: "Ingresa tu contraseña actual." }).max(1024, { error: "La contraseña es demasiado larga." }),
   next: PasswordSchema,
 });
 

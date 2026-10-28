@@ -78,7 +78,7 @@ export default function SubgruposConciliacionPanel({
 
       {puedeEditar && creando && (
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nuevo subgrupo que concilia</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Nuevo subgrupo que concilia</h2>
           <SubgrupoNuevo
             modulo={modulo}
             nombrePlan={nombrePlan}
@@ -92,7 +92,7 @@ export default function SubgruposConciliacionPanel({
       <Card className="p-4">
         <div className="mb-1 flex items-center gap-2">
           <Icon name="settings" size={15} />
-          <h2 className="text-[14px] font-semibold text-ink-900">Subgrupos que concilia · 4 dígitos</h2>
+          <h2 className="text-[14px] font-semibold text-navy-800">Subgrupos que concilia · 4 dígitos</h2>
           <span className="text-[11px] text-ink-400">{modulo.code}</span>
         </div>
         <p className="mb-3 text-[11.5px] leading-relaxed text-ink-500">
@@ -119,7 +119,7 @@ export default function SubgruposConciliacionPanel({
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ink-150 bg-ink-50/60 px-3.5 py-2.5"
             >
               <p className="min-w-0 text-[12.5px] text-ink-700">
-                <span className="font-mono tabular-nums text-ink-900">{codigo}</span> {nombrePlan.get(codigo) ?? ""}
+                <span className="tabular-nums text-ink-900">{codigo}</span> {nombrePlan.get(codigo) ?? ""}
               </p>
               <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-500">
                 <Icon name="info" size={12} /> Fijo · a 6 dígitos, con la depreciación relacionada
@@ -172,7 +172,7 @@ function SubgrupoNuevo({
           list={listaPlan}
           placeholder="1435"
           autoFocus
-          className={`${CONTROL_CLASS} font-mono tabular-nums`}
+          className={`${CONTROL_CLASS} tabular-nums`}
         />
       </Campo>
 
@@ -197,7 +197,7 @@ function SubgrupoNuevo({
         <button
           type="submit"
           disabled={guardando}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-60"
         >
           {!guardando && <Icon name="plus" size={13} />}
           {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Agregar"}
@@ -229,10 +229,10 @@ function SubgrupoFila({
   }, [state]);
 
   return (
-    <div className="rounded-lg border border-ink-150 bg-white px-3.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <div className="rounded-lg border border-ink-150 bg-white px-3.5 py-2.5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="min-w-0 flex-1 text-[12.5px] text-ink-700">
-          <span className="font-mono tabular-nums text-ink-900">{subgrupo.subgrupo}</span>{" "}
+          <span className="tabular-nums text-ink-900">{subgrupo.subgrupo}</span>{" "}
           {nombre ?? <span className="text-ink-400">No está en el plan estándar Russell</span>}
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -248,7 +248,7 @@ function SubgrupoFila({
               disabled={unico || quitando}
               title={unico ? "El módulo debe conciliar al menos un subgrupo." : `Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo.`}
               aria-label={`Quitar el subgrupo ${subgrupo.subgrupo} de los que concilia el módulo`}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Icon name="trash" size={13} />
             </button>
@@ -257,7 +257,7 @@ function SubgrupoFila({
       </div>
 
       {!soloLectura && confirmar && (
-        <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+        <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100 px-3 py-2">
           <input type="hidden" name="id" value={subgrupo.id} />
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
             ¿Quitar el subgrupo {subgrupo.subgrupo}? Deja de conciliarse en los cargues abiertos: sus cuentas salen del cruce
@@ -274,7 +274,7 @@ function SubgrupoFila({
           <button
             type="submit"
             disabled={quitando}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             {!quitando && <Icon name="trash" size={12} />}
             {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Sí, quitar"}

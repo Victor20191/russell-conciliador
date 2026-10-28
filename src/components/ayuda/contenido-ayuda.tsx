@@ -85,7 +85,7 @@ function Etapas({ etapas, ...p }: { etapas: readonly EtapaAyuda[] } & Pick<Conte
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <section className="mt-5">
-      <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">{titulo}</h3>
+      <h3 className="mb-2 text-[12.5px] font-semibold text-navy-800">{titulo}</h3>
       {children}
     </section>
   );
@@ -93,7 +93,7 @@ function Seccion({ titulo, children }: { titulo: string; children: React.ReactNo
 
 function Pestana({ pestana, ...p }: { pestana: PestanaAyuda } & Pick<ContenidoAyudaProps, "rolesAyuda" | "rol" | "permisos">) {
   return (
-    <div className="rounded-lg border border-ink-150 bg-paper/60 px-3 py-2.5">
+    <div className="rounded-lg border border-ink-150 bg-paper px-3 py-2.5">
       <p className="mb-2 text-[12px] leading-snug text-ink-600">{pestana.proposito}</p>
       <Etapas etapas={pestana.etapas} {...p} />
     </div>
@@ -109,7 +109,7 @@ export default function ContenidoAyuda(props: ContenidoAyudaProps) {
       <Icon name="help" size={14} className="mt-0.5 shrink-0 text-ink-400" />
       <span>
         ¿No encontraste lo que buscabas?{" "}
-        <Link href="/reportes" onClick={onNavegar} className="font-medium text-blue-500 hover:underline">
+        <Link href="/reportes" onClick={onNavegar} className="font-medium text-blue-600 hover:underline">
           Reportar a Mesa de ayuda
         </Link>
       </span>
@@ -142,7 +142,7 @@ export default function ContenidoAyuda(props: ContenidoAyudaProps) {
           <ul className="space-y-1">
             {ficha.antesDeEmpezar.map((t) => (
               <li key={t} className="flex gap-1.5 text-[12px] leading-snug text-ink-600">
-                <Icon name="info" size={13} className="mt-0.5 shrink-0 text-blue-500" />
+                <Icon name="info" size={13} className="mt-0.5 shrink-0 text-blue-600" />
                 <span>{t}</span>
               </li>
             ))}
@@ -182,7 +182,7 @@ export default function ContenidoAyuda(props: ContenidoAyudaProps) {
                         >
                           {x.titulo}
                           {x.id === props.pestanaAnunciada && (
-                            <span className={`ml-1 font-normal ${activa ? "text-white/80" : "text-ink-400"}`}>· estás aquí</span>
+                            <span className={`ml-1 font-normal ${activa ? "text-navy-100" : "text-ink-400"}`}>· estás aquí</span>
                           )}
                         </button>
                       );
@@ -227,7 +227,7 @@ export default function ContenidoAyuda(props: ContenidoAyudaProps) {
           <ul className="flex flex-wrap gap-x-3 gap-y-1">
             {relacionadas.map((r) => (
               <li key={r.href}>
-                <Link href={r.href} onClick={onNavegar} className="text-[12px] font-medium text-blue-500 hover:underline">
+                <Link href={r.href} onClick={onNavegar} className="text-[12px] font-medium text-blue-600 hover:underline">
                   {r.label}
                 </Link>
               </li>

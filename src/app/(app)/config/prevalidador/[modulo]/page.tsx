@@ -113,7 +113,7 @@ export default async function PrevalidadorModuloPage({
             <Card className="p-4">
               <div className="mb-1 flex items-center gap-2">
                 <Icon name="settings" size={15} />
-                <h2 className="text-[14px] font-semibold text-ink-900">Cuentas relacionadas</h2>
+                <h2 className="text-[14px] font-semibold text-navy-800">Cuentas relacionadas</h2>
                 <span className="text-[11px] text-ink-400">{modulo.code}</span>
               </div>
               <p className="text-[11.5px] text-ink-500">

@@ -69,17 +69,17 @@ export default function DianDetailClient({
                 const nc = commentsFor(l.k).length;
                 return (
                   <tr key={l.k} onClick={() => setSelectedKey(l.k)} className={`cursor-pointer border-b border-ink-50 ${selectedKey === l.k ? "bg-blue-50" : "hover:bg-ink-50"}`}>
-                    <td className="px-3 py-2 font-mono text-[11px] text-ink-500">{l.k}</td>
+                    <td className="px-3 py-2 tabular-nums text-[11px] text-ink-500">{l.k}</td>
                     <td className="px-3 py-2 text-ink-800">{l.label}</td>
-                    <td className="px-3 py-2 text-right font-mono text-ink-700">{l.decl === 0 ? "—" : fmt(l.decl)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-ink-700">{l.cont === 0 ? "—" : fmt(l.cont)}</td>
-                    <td className={`px-3 py-2 text-right font-mono ${l.diff === 0 ? "text-ink-400" : l.diff > 0 ? "text-ok-700" : "text-err-700"}`}>{l.diff === 0 ? "$ 0" : fmt(l.diff)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{l.decl === 0 ? "—" : fmt(l.decl)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink-700">{l.cont === 0 ? "—" : fmt(l.cont)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${l.diff === 0 ? "text-ink-400" : l.diff > 0 ? "text-ok-700" : "text-err-700"}`}>{l.diff === 0 ? "$ 0" : fmt(l.diff)}</td>
                     <td className="px-3 py-2"><span className="inline-flex items-center gap-1"><Chip label={st.label} tone={st.tone} />{nc > 0 && <span className="inline-flex items-center gap-0.5 rounded-full bg-ai-100 px-1.5 text-[10px] font-semibold text-ai-700"><Icon name="msg" size={9} />{nc}</span>}</span></td>
                   </tr>
                 );
               })}
               {sec && (() => { const t = secTotal(sec); return (
-                <tr className="bg-navy-800 text-white"><td className="px-3 py-2.5 font-semibold" colSpan={2}>TOTAL {sec.title}</td><td className="px-3 py-2.5 text-right font-mono">{fmt(t.decl)}</td><td className="px-3 py-2.5 text-right font-mono">{fmt(t.cont)}</td><td className="px-3 py-2.5 text-right font-mono text-[#FF9991]">{fmt(t.diff)}</td><td></td></tr>
+                <tr className="bg-navy-800 text-white"><td className="px-3 py-2.5 font-semibold" colSpan={2}>TOTAL {sec.title}</td><td className="px-3 py-2.5 text-right tabular-nums">{fmt(t.decl)}</td><td className="px-3 py-2.5 text-right tabular-nums">{fmt(t.cont)}</td><td className="px-3 py-2.5 text-right tabular-nums text-err-200">{fmt(t.diff)}</td><td></td></tr>
               ); })()}
             </tbody>
           </table>
@@ -90,8 +90,8 @@ export default function DianDetailClient({
       {sel && (
         <Card className="self-start">
           <div className="border-b border-ink-100 px-4 py-3">
-            <div className="font-mono text-[11px] text-ink-500">{sel.k}</div>
-            <h3 className="mt-0.5 text-[12.5px] font-semibold text-ink-800">{sel.label}</h3>
+            <div className="tabular-nums text-[11px] text-ink-500">{sel.k}</div>
+            <h3 className="mt-0.5 text-[12.5px] font-semibold text-navy-800">{sel.label}</h3>
           </div>
           <div className="grid grid-cols-1 gap-1.5 border-b border-ink-100 px-4 py-3 text-[12px]">
             <KV label="Declaración DIAN" value={fmt(sel.decl)} />
@@ -102,7 +102,7 @@ export default function DianDetailClient({
             <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cuentas mapeadas</div>
             <div className="mt-2 flex flex-col gap-1.5">
               {mappingFor(sel.k).length === 0 ? <span className="text-[12px] italic text-ink-400">Sin mapeo configurado</span> : mappingFor(sel.k).map((m, i) => (
-                <div key={i} className="flex items-center gap-2 text-[12px]"><Chip label={m.sign === "+" ? "+" : "−"} tone={m.sign === "+" ? "ok" : "err"} /><span className="font-mono text-ink-700">{m.account}</span><span className="text-ink-500">{m.desc}</span></div>
+                <div key={i} className="flex items-center gap-2 text-[12px]"><Chip label={m.sign === "+" ? "+" : "−"} tone={m.sign === "+" ? "ok" : "err"} /><span className="tabular-nums text-ink-700">{m.account}</span><span className="text-ink-500">{m.desc}</span></div>
               ))}
             </div>
           </div>
@@ -158,5 +158,5 @@ export default function DianDetailClient({
 }
 
 function KV({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-center justify-between"><span className="text-ink-500">{label}</span><span className="font-mono text-ink-800">{value}</span></div>;
+  return <div className="flex items-center justify-between"><span className="text-ink-500">{label}</span><span className="tabular-nums text-ink-800">{value}</span></div>;
 }

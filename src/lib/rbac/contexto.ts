@@ -16,7 +16,6 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { verifySession } from "@/lib/dal";
-import { matrizConLegado } from "@/lib/rbac/catalogo";
 import { ROL_SOCIO, ROLES_ALCANCE_GLOBAL, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
@@ -29,9 +28,10 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 // `entorno:administrar` al eliminar la pantalla de variables de entorno; v12: el
 // Senior recibe los permisos operativos del Staff y elimina cargues de módulo, 19/Oct/2026; v13: consulta
 // para todos y edición por Gerente/Socio de catálogos, parametrización y clientes, 19/Oct/2026; v14:
-// `auditoria:ver` solo para Administrador/Superadministrador, 22/Oct/2026): una clave nueva
+// `auditoria:ver` solo para Administrador/Superadministrador, 22/Oct/2026; v15:
+// retirar el catálogo de respaldo en runtime, incluso con matriz vacía): una clave nueva
 // evita que el despliegue siga sirviendo la matriz anterior desde el Data Cache.
-export const RBAC_CACHE_TAG = "rbac-matriz-v14";
+export const RBAC_CACHE_TAG = "rbac-matriz-v15";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {
@@ -41,7 +41,8 @@ async function leerMatrizDeBD(): Promise<Matriz> {
       permission: { select: { code: true } },
     },
   });
-  if (filas.length === 0) return matrizConLegado();
+  // Una matriz vacía no concede permisos. El catálogo inicial se instala con
+  // db:inicializar:rbac; nunca sustituye las revocaciones de la base en runtime.
   const m: Matriz = {};
   for (const f of filas) (m[f.role.code] ??= []).push(f.permission.code);
   return m;
@@ -59,12 +60,9 @@ const getMatrizCached = unstable_cache(leerMatrizDeBD, [RBAC_CACHE_TAG], {
  * se invalida con updateTag(RBAC_CACHE_TAG) cuando el admin edita.
  */
 export const getMatriz = cache(async (): Promise<Matriz> => {
-  try {
-    return await getMatrizCached();
-  } catch {
-    // Si la BD no responde, no abrir el acceso: usar el catálogo conocido.
-    return matrizConLegado();
-  }
+  // Un fallo de lectura debe abortar la operación, no restaurar permisos de
+  // fábrica que el administrador pudo haber revocado.
+  return getMatrizCached();
 });
 
 /**
@@ -253,11 +251,16 @@ export const clienteDeFilaConciliacion = cache(async (rowId: number): Promise<nu
   return row ? clienteDeConciliacion(row.reconciliationId) : null;
 });
 
-/** Cliente de una cuenta del mapeo (ClientAccount referencia al cliente por nombre). */
+/** La FK del mapeo prevalece sobre el nombre histórico, que puede renombrarse o reutilizarse. */
 export const clienteDeCuentaCliente = cache(async (accountId: number): Promise<number | null> => {
   const cuenta = await prisma.clientAccount.findUnique({
     where: { id: accountId },
-    select: { clientName: true },
+    select: { clienteId: true, clientName: true },
   });
-  return clientIdPorNombre(cuenta?.clientName);
+  if (!cuenta) return null;
+  if (cuenta.clienteId != null) {
+    return Number.isSafeInteger(cuenta.clienteId) && cuenta.clienteId > 0 ? cuenta.clienteId : null;
+  }
+  // Compatibilidad con filas anteriores a la FK: solo un nombre inequívoco.
+  return clientIdPorNombre(cuenta.clientName);
 });

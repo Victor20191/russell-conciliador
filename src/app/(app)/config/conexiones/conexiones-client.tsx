@@ -137,7 +137,7 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
         </button>}
       </header>
 
-      {!cifradoListo && <div role="status" className="rounded-lg border border-warn-200 bg-warn-100/50 px-4 py-3 text-[13px] text-warn-700">
+      {!cifradoListo && <div role="status" className="rounded-lg border border-warn-200 bg-warn-100 px-4 py-3 text-[13px] text-warn-700">
         El servidor necesita su clave de cifrado antes de guardar credenciales. Configura MASTER_ENCRYPTION_KEY con 32 bytes.
       </div>}
 
@@ -148,7 +148,7 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
           { proveedor: "api_rest", icono: "link", titulo: "Otras conexiones", detalle: "APIs, Microsoft 365, S3 y webhooks" },
         ] as const).map((opcion) => <button key={opcion.proveedor} type="button"
           onClick={() => setModal({ proveedorInicial: opcion.proveedor })}
-          className="group flex items-center gap-3 rounded-lg border border-ink-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40 focus-visible:outline-2 focus-visible:outline-blue-500">
+          className="group flex items-center gap-3 rounded-lg border border-ink-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-blue-500">
           <span className="rounded-lg bg-navy-700 p-2.5 text-white"><Icon name={opcion.icono} size={20} /></span>
           <span className="min-w-0 flex-1"><span className="block text-[14px] font-semibold text-navy-800">{opcion.titulo}</span>
             <span className="mt-1 block text-[12px] text-ink-500">{opcion.detalle}</span></span>
@@ -156,9 +156,9 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
         </button>)}
       </div>}
 
-      <Card className="border-blue-100 bg-blue-50/60 p-4">
+      <Card className="border-blue-100 bg-blue-100 p-4">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-500">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
             <Icon name="info" size={16} />
           </div>
           <div>
@@ -176,11 +176,11 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-100 text-blue-500">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-100 text-blue-600">
               <Icon name="link" size={16} />
             </div>
             <div>
-              <div className="font-mono text-xl font-semibold text-ink-900">{configuradas}</div>
+              <div className="tabular-nums text-xl font-semibold text-ink-900">{configuradas}</div>
               <div className="text-[12px] text-ink-500">Configuradas</div>
             </div>
           </div>
@@ -191,7 +191,7 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
               <Icon name="check" size={16} />
             </div>
             <div>
-              <div className="font-mono text-xl font-semibold text-ok-700">{activas}</div>
+              <div className="tabular-nums text-xl font-semibold text-ok-700">{activas}</div>
               <div className="text-[12px] text-ink-500">Activas</div>
             </div>
           </div>
@@ -202,7 +202,7 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
               <Icon name="check" size={16} />
             </div>
             <div>
-              <div className="font-mono text-xl font-semibold text-navy-800">{conPruebaOk}</div>
+              <div className="tabular-nums text-xl font-semibold text-navy-800">{conPruebaOk}</div>
               <div className="text-[12px] text-ink-500">Prueba correcta</div>
             </div>
           </div>
@@ -342,14 +342,14 @@ function TarjetaConexion({
     <Card className="flex h-full flex-col p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-500">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
             <Icon name={iconoCategoria(conexion.categoria)} size={18} />
           </div>
           <div className="min-w-0">
             <div className="text-[10.5px] font-semibold uppercase tracking-wider text-ink-400">
               {etiquetaCategoria(conexion.categoria)} · {etiquetaEntorno(conexion.entorno)}
             </div>
-            <h2 className="truncate text-[15px] font-semibold text-ink-900" title={conexion.nombre}>
+            <h2 className="truncate text-[15px] font-semibold text-navy-800" title={conexion.nombre}>
               {conexion.nombre}
             </h2>
           </div>
@@ -361,17 +361,17 @@ function TarjetaConexion({
         {conexion.descripcion ?? proveedor?.descripcion ?? "Sin descripción."}
       </p>
       {conexion.configuracion.usar_en_plataforma === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
-        <p className="mt-2 text-[11px] font-semibold text-blue-500">Clave seleccionada para Russell</p>}
+        <p className="mt-2 text-[11px] font-semibold text-blue-600">Clave seleccionada para Russell</p>}
 
       {conexion.configuracion.usar_para_notificaciones === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
-        <p className="mt-2 text-[11px] font-semibold text-blue-500">SMTP de notificaciones de Russell</p>}
+        <p className="mt-2 text-[11px] font-semibold text-blue-600">SMTP de notificaciones de Russell</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">
             Identificador
           </div>
-          <div className="mt-0.5 truncate font-mono text-[12px] text-ink-700" title={conexion.codigo}>
+          <div className="mt-0.5 truncate tabular-nums text-[12px] text-ink-700" title={conexion.codigo}>
             {conexion.codigo}
           </div>
         </div>
@@ -405,7 +405,7 @@ function TarjetaConexion({
         {mensajePrueba ? (
           <div
             className={`flex items-start gap-1.5 rounded-md px-2.5 py-2 text-[11.5px] leading-snug ${
-              pruebaOk ? "bg-ok-100/70 text-ok-700" : pruebaFallo ? "bg-err-100/70 text-err-700" : "bg-ink-50 text-ink-600"
+              pruebaOk ? "bg-ok-100 text-ok-700" : pruebaFallo ? "bg-err-100 text-err-700" : "bg-ink-50 text-ink-600"
             }`}
           >
             <span className="mt-0.5 shrink-0">
@@ -450,7 +450,7 @@ function TarjetaConexion({
             type="button"
             onClick={onEjecutar}
             disabled={probando || ejecutando || cambiandoEstado}
-            className="inline-flex items-center gap-1.5 rounded-md bg-ok-700 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-ok-700/90 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-ok-700 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60"
           >
             <Icon name="play" size={12} />
             {ejecutando ? <EstadoProcesando>Ejecutando</EstadoProcesando> : "Ejecutar ahora"}
@@ -460,7 +460,7 @@ function TarjetaConexion({
             type="button"
             onClick={onAlternarEstado}
             disabled={probando || ejecutando || cambiandoEstado}
-            className="inline-flex items-center gap-1.5 rounded-md bg-ok-700 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-ok-700/90 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-ok-700 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60"
           >
             <Icon name="check" size={12} />
             {cambiandoEstado ? <EstadoProcesando>Activando</EstadoProcesando> : "Activar"}
@@ -474,7 +474,7 @@ function TarjetaConexion({
             type="button"
             onClick={onAlternarEstado}
             disabled={probando || ejecutando || cambiandoEstado}
-            className="inline-flex items-center gap-1.5 rounded-md border border-warn-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-warn-700 transition hover:bg-warn-100/60 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md border border-warn-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-warn-700 transition hover:bg-warn-100 disabled:opacity-60"
           >
             {cambiandoEstado ? <EstadoProcesando>Desactivando</EstadoProcesando> : "Desactivar"}
           </button>
@@ -522,7 +522,7 @@ function EliminarConexionModal({
           type="submit"
           form="eliminar-conexion"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>

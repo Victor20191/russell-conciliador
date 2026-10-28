@@ -1,0 +1,107 @@
+{
+  "fecha_utc": "2026-10-20T22:05:49.038112+00:00",
+  "base_commit": "36d5d449754e66108e5714fb2f105810c7c1d6e6",
+  "version_tecnica": "3.3.0",
+  "estado": "Correcciones locales; sin commit/push/despliegue ni BD real",
+  "cobertura": {
+    "rutas": 80,
+    "archivos_acciones": 38,
+    "acciones": 197,
+    "rutas_faltantes": [],
+    "rutas_sobrantes": [],
+    "hashes_fuente_desactualizados": [],
+    "entradas_framework": 88,
+    "imports_locales_sin_resolver": 0,
+    "imports_dinamicos_no_literales": 0,
+    "scripts_con_server_only": 0
+  },
+  "comprobaciones": [
+    {
+      "comando": "npm run test",
+      "exit_code": 0,
+      "archivos_aprobados": 350,
+      "archivos_omitidos": 3,
+      "pruebas_aprobadas": 4297,
+      "pruebas_omitidas": 4,
+      "evidencia": "pruebas-resumen.txt",
+      "motivo_omitidas": "Captura golden desde staging e integraciones IA reales; requieren opt-in y no se activaron."
+    },
+    {
+      "comando": "npm run lint",
+      "exit_code": 0,
+      "errores": 0,
+      "avisos": 0,
+      "evidencia": "lint.txt"
+    },
+    {
+      "comando": "npm run build",
+      "exit_code": 0,
+      "incluye": "prisma generate y chequeo TypeScript",
+      "evidencia": "build.txt"
+    },
+    {
+      "comando": "npx prisma validate",
+      "exit_code": 0,
+      "evidencia": "prisma.txt"
+    },
+    {
+      "comando": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "comando": "npm audit --omit=dev --json",
+      "exit_code": 0,
+      "vulnerabilidades": 0,
+      "evidencia": "dependencias-produccion.json"
+    },
+    {
+      "comando": "npm audit --json",
+      "exit_code": 1,
+      "altas": 5,
+      "criticas": 0,
+      "nota": "braces y cadena transitiva de herramientas ESLint; pendiente version compatible",
+      "evidencia": "dependencias-completas.json"
+    },
+    {
+      "comando": "smoke HTTP en build local aislado",
+      "peticiones": 77,
+      "errores_5xx": 0,
+      "accesos_anonomos_200": [
+        "/login",
+        "/soporte"
+      ],
+      "evidencia": "http-rutas.json"
+    },
+    {
+      "comando": "cookies invalidas y cabecera subrequest",
+      "peticiones": 10,
+      "denegadas": 10,
+      "evidencia": "http-cabeceras.json"
+    },
+    {
+      "comando": "Chromium SVG antes/despues",
+      "script_antes": true,
+      "script_despues": false,
+      "figura_visible_ambos": true,
+      "evidencia": "svg-navegador.json"
+    },
+    {
+      "comando": "Chromium selector compartido",
+      "flujos": 6,
+      "errores_navegador": 0,
+      "evidencia": "selector-navegador.txt"
+    }
+  ],
+  "aislamiento": "DATABASE_URL de validaciones apuntó a 127.0.0.1:9. Servidor HTTP con env -i, clave ficticia y directorio temporal sin .env. No autenticacion con usuarios reales.",
+  "limites": [
+    "Inventario y revision estatica exhaustivos; tests dinamicos de regresiones y smoke anonimo, no todas las combinaciones de roles/datos.",
+    "Concurrencia mediante dobles: no se ejecutaron candados ni migraciones en PostgreSQL real.",
+    "No se verificaron VPS, TLS/proxy, proveedores IA, SMTP ni visibilidad remota del repositorio.",
+    "Escaneo heuristico del checkout, no del historial ni todos los datos personales."
+  ],
+  "migraciones_sin_aplicar": [
+    "20261020210000_notificaciones_por_destinatario",
+    "20261020220000_limites_solicitud_publica"
+  ],
+  "clasificacion": "patch propuesto para release futura; version conservada y sin borrador en BD"
+}

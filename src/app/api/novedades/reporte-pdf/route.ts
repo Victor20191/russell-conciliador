@@ -3,6 +3,8 @@ import * as z from "zod";
 import { authorizePermiso } from "@/lib/rbac";
 import { registrarError } from "@/lib/errores";
 import { generarPdfReporteNovedades } from "@/lib/novedades/pdf";
+import { ajustarHtmlAMarca } from "@/lib/marca/html";
+import { incrustarMarcaParaPdf } from "@/lib/marca/recursos-pdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +39,12 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "El reporte no tiene un formato válido para generar PDF." }, { status: 400 });
     }
 
-    const pdf = await generarPdfReporteNovedades(parsed.data);
+    // Paleta y tipografía del manual también en reportes generados antes de aplicarlo;
+    // el Chromium del PDF no tiene red, así que el logotipo y Lato viajan incrustados.
+    const pdf = await generarPdfReporteNovedades({
+      ...parsed.data,
+      html: await incrustarMarcaParaPdf(ajustarHtmlAMarca(parsed.data.html)),
+    });
 
     return new Response(pdf, {
       headers: {

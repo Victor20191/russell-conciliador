@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Icon } from "@/components/icons";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { fmt } from "@/lib/format";
 
 const INDICADORES_ARCHIVO_FUENTE = [
@@ -31,10 +31,10 @@ export function AdvertenciaArchivoFuenteDetalle({
   return (
     <section
       aria-labelledby={tituloId}
-      className={`overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm ${className}`.trim()}
+      className={`overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-white shadow-sm ${className}`.trim()}
     >
       <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800 shadow-sm">
           <Icon name="warn" size={18} stroke={2} />
         </span>
         <div className="min-w-0 flex-1">
@@ -81,7 +81,7 @@ export function AdvertenciaArchivoFuenteDetalle({
                 key={indicador}
                 className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700"
               >
-                ✓ {indicador}
+                <IconoEnTexto name="check" />{indicador}
               </span>
             ))}
           </div>

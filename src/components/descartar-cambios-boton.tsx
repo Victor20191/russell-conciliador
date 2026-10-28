@@ -51,7 +51,7 @@ export function DescartarCambiosBoton({
         disabled={disabled}
         className={
           className ??
-          "inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
+          "inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
         }
       >
         {etiqueta}
@@ -127,7 +127,7 @@ function OpcionDescartar({
 }) {
   const estilos =
     tono === "err"
-      ? "border-err-100 hover:border-err-200 hover:bg-err-100/40"
+      ? "border-err-100 hover:border-err-200 hover:bg-err-100"
       : "border-ink-150 hover:border-ink-300 hover:bg-ink-50";
   const iconoEstilo = tono === "err" ? "bg-err-100 text-err-700" : "bg-ink-100 text-ink-600";
   return (
@@ -135,7 +135,7 @@ function OpcionDescartar({
       type="button"
       onClick={onClick}
       disabled={deshabilitado}
-      className={`flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent ${estilos}`}
+      className={`flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent ${estilos}`}
     >
       <span
         className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${iconoEstilo}`}

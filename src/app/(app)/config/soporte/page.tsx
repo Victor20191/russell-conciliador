@@ -55,8 +55,8 @@ export default async function SoporteAdminPage() {
     <div className="w-full">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-500">Configuración · Xentria</p>
-          <h1 className="mt-1 font-serif text-2xl text-ink-900">Gestión de reportes</h1>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600">Configuración · Xentria</p>
+          <h1 className="mt-1 text-2xl font-light text-navy-800">Gestión de reportes</h1>
           <p className="mt-1.5 text-sm text-ink-500">
             Bandeja de novedades reportadas. Abre un ticket para ver sus imágenes, cambiar su estado y documentar la solución.
           </p>

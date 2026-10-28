@@ -49,6 +49,7 @@ import { hoyColombiaISO, motivoFechaFutura, nombreFecha } from "@/lib/fecha-carg
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { cuentaDelClasificador } from "@/lib/modulos/cuenta-clasificador";
 import { esCodigoDeduccion, parsearRangosCodigos, textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
+import { IconoEnTexto } from "@/components/icons";
 
 export type RolModulo = {
   nombre: string;
@@ -139,7 +140,7 @@ export function CamposCargueCartera({
             onClick={usarTrmOficial}
             disabled={consultandoTrm || !fechaCorte}
             title="Consultar la TRM oficial de la fecha de corte"
-            className="shrink-0 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700 disabled:opacity-50"
+            className="shrink-0 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700 disabled:opacity-60"
           >
             {consultandoTrm ? "…" : "Oficial"}
           </button>
@@ -406,7 +407,7 @@ export function EditorMapeoModulo({
   return (
     <div ref={raizRef} className="flex flex-col gap-4">
       {analisis.advertenciaHojas && (
-        <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
+        <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
           {analisis.advertenciaHojas}
         </p>
       )}
@@ -493,7 +494,7 @@ export function EditorMapeoModulo({
                   >
                     <option value={0}>— sin mapear —</option>
                     {/* Nómina no: su clasificador es el código del concepto (`admiteClasificadorUnico`). */}
-                    {rc.nombre === clasificadorRol && !esNomina && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
+                    {rc.nombre === clasificadorRol && !esNomina && <option value={-1}>Un único clasificador para todo el archivo</option>}
                     {opciones.map((o) => (
                       <option key={o.index1} value={o.index1}>{o.label}</option>
                     ))}
@@ -592,7 +593,7 @@ export function EditorMapeoModulo({
               <>
                 <ul className="mt-1 flex flex-wrap gap-1">
                   {rangosDetectados.map((r) => (
-                    <li key={r.columna} className={`rounded border px-1.5 py-0.5 text-[10.5px] ${r.clase === "excluir" ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-ink-200 bg-white text-ink-600"}`}>
+                    <li key={r.columna} className={`rounded border px-1.5 py-0.5 text-[10.5px] ${r.clase === "excluir" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-ink-200 bg-white text-ink-600"}`}>
                       {r.etiqueta}{r.clase === "excluir" ? " · no suma" : ""}
                     </li>
                   ))}
@@ -606,7 +607,7 @@ export function EditorMapeoModulo({
 
       <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
         {modo === "global" ? (
-          <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
+          <span className="text-[11.5px] leading-snug text-ink-600"><b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
         ) : (
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">¿Cómo viene «{clasificadorEtiqueta}» en el archivo?</span>
@@ -673,9 +674,9 @@ export function EditorMapeoModulo({
               const colSenal = spec.columnas[rolSenal] ?? 0;
               const colTipo = spec.columnas[clasificadorRol] ?? 0;
               if (colSenal < 1)
-                return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa columna está «sin mapear»: mapéala arriba, o elige otra que esté vacía en los renglones de sección. Si no, no se detectaría ninguna sección.</span>;
+                return <span className="text-[11px] font-semibold leading-snug text-err-700"><IconoEnTexto name="warn" />Esa columna está «sin mapear»: mapéala arriba, o elige otra que esté vacía en los renglones de sección. Si no, no se detectaría ninguna sección.</span>;
               if (colSenal === colTipo)
-                return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa es la MISMA columna del tipo (nunca está vacía): elige otra —normalmente la Descripción— que sí venga vacía en los renglones de sección.</span>;
+                return <span className="text-[11px] font-semibold leading-snug text-err-700"><IconoEnTexto name="warn" />Esa es la MISMA columna del tipo (nunca está vacía): elige otra —normalmente la Descripción— que sí venga vacía en los renglones de sección.</span>;
               return null;
             })()}
           </label>

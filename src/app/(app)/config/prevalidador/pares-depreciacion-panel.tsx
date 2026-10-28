@@ -88,7 +88,7 @@ export default function ParesDepreciacionPanel({
 
       {puedeEditar && creando && (
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">Nueva pareja activo → depreciación</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Nueva pareja activo → depreciación</h2>
           <ParNuevo
             modulo={modulo}
             nombre4={nombre4}
@@ -104,7 +104,7 @@ export default function ParesDepreciacionPanel({
       <Card className="p-4">
         <div className="mb-1 flex items-center gap-2">
           <Icon name="settings" size={15} />
-          <h2 className="text-[14px] font-semibold text-ink-900">Activo y su depreciación</h2>
+          <h2 className="text-[14px] font-semibold text-navy-800">Activo y su depreciación</h2>
           <span className="text-[11px] text-ink-400">{modulo.code}</span>
         </div>
         <p className="mb-3 text-[11.5px] leading-relaxed text-ink-500">
@@ -172,7 +172,7 @@ function ParNuevo({
           list={listaActivos}
           placeholder="1516"
           autoFocus
-          className={`${CONTROL_CLASS} font-mono tabular-nums`}
+          className={`${CONTROL_CLASS} tabular-nums`}
         />
       </Campo>
 
@@ -189,7 +189,7 @@ function ParNuevo({
           maxLength={8}
           list={listaCuentas}
           placeholder="159205"
-          className={`${CONTROL_CLASS} font-mono tabular-nums`}
+          className={`${CONTROL_CLASS} tabular-nums`}
         />
       </Campo>
 
@@ -208,7 +208,7 @@ function ParNuevo({
         <button
           type="submit"
           disabled={guardando}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-60"
         >
           {!guardando && <Icon name="plus" size={13} />}
           {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
@@ -238,13 +238,13 @@ function ParFila({
   }, [state]);
 
   return (
-    <div className="rounded-lg border border-ink-150 bg-white px-3.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <div className="rounded-lg border border-ink-150 bg-white px-3.5 py-2.5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="min-w-0 flex-1 text-[12.5px] text-ink-700">
-          <span className="font-mono tabular-nums text-ink-900">{par.subgrupo}</span>{" "}
+          <span className="tabular-nums text-ink-900">{par.subgrupo}</span>{" "}
           {nombreActivo ?? <span className="text-ink-400">No está en el plan</span>}
           <span className="px-2 text-ink-400">→</span>
-          <span className="font-mono tabular-nums text-ink-900">{par.cuenta6}</span>{" "}
+          <span className="tabular-nums text-ink-900">{par.cuenta6}</span>{" "}
           {nombreCuenta ?? <span className="text-ink-400">No está en el plan</span>}
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -259,7 +259,7 @@ function ParFila({
               disabled={quitando}
               title={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}.`}
               aria-label={`Quitar la pareja ${par.subgrupo} → ${par.cuenta6}`}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Icon name="trash" size={13} />
             </button>
@@ -268,7 +268,7 @@ function ParFila({
       </div>
 
       {!soloLectura && confirmar && (
-        <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+        <form action={action} className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100 px-3 py-2">
           <input type="hidden" name="id" value={par.id} />
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
             ¿Quitar la pareja {par.subgrupo} → {par.cuenta6}? En los cargues abiertos el activo queda con la depreciación en
@@ -285,7 +285,7 @@ function ParFila({
           <button
             type="submit"
             disabled={quitando}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             {!quitando && <Icon name="trash" size={12} />}
             {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Sí, quitar"}

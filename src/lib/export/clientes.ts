@@ -10,6 +10,7 @@
 // (Parametrizado / Pendiente / No activo) y formato DIAN (Sí / No).
 
 import ExcelJS from "exceljs";
+import { EXCEL, escribirLibroMarca } from "./marca-excel";
 import { fmtDate } from "@/lib/format";
 import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
@@ -39,14 +40,14 @@ export type CatalogoExportClientes = {
 const HOJA_CLIENTES = "Clientes";
 const HOJA_RESUMEN = "Resumen";
 
-const COLOR_HEADER = "FF0F2744";
-const COLOR_HEADER_DIAN = "FF254E7A";
-const COLOR_FILL = "FFFFFFFF";
-const COLOR_ZEBRA = "FFF6F8FB";
-const COLOR_BORDER = "FFD8E0EA";
-const COLOR_OK = "FFE3F4E9"; // verde suave — Parametrizado / Sí
-const COLOR_WARN = "FFFFF4D6"; // ámbar suave — Pendiente
-const COLOR_OFF = "FFF1F3F6"; // gris — No activo / No
+const COLOR_HEADER = EXCEL.encabezado;
+const COLOR_HEADER_DIAN = EXCEL.encabezadoSecundario;
+const COLOR_FILL = EXCEL.fondo;
+const COLOR_ZEBRA = EXCEL.cebra;
+const COLOR_BORDER = EXCEL.borde;
+const COLOR_OK = EXCEL.exito; // Sea Green 20 % — Parametrizado / Sí
+const COLOR_WARN = EXCEL.advertencia; // Earth Orange 20 % — Pendiente
+const COLOR_OFF = EXCEL.apagado; // gris — No activo / No
 
 const FIJAS = [
   "Código",
@@ -127,7 +128,7 @@ function estilizarEncabezado(
   fila.height = 30;
   for (let col = 1; col <= totalColumnas; col++) {
     const cell = fila.getCell(col);
-    cell.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11 };
+    cell.font = { color: { argb: EXCEL.textoEncabezado }, bold: true, size: 11 };
     cell.fill = relleno(col >= desdeDian ? COLOR_HEADER_DIAN : COLOR_HEADER);
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     cell.border = BORDE;
@@ -257,13 +258,12 @@ export async function crearExportacionClientes(
         cell.fill = relleno(fondo);
       }
     }
-    // Código y NIT en fuente monoespaciada para que se lean como identificadores.
-    row.getCell(1).font = { name: "Consolas", size: 10.5 };
-    row.getCell(3).font = { name: "Consolas", size: 10.5 };
+    // Código y NIT en negrita para que se lean como identificadores (Arial, la del manual en documentos editables).
+    row.getCell(1).font = { bold: true, size: 10.5 };
+    row.getCell(3).font = { bold: true, size: 10.5 };
   }
 
   agregarResumen(wb, clientes, generadoEn);
 
-  const buffer = await wb.xlsx.writeBuffer();
-  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as ArrayBuffer);
+  return escribirLibroMarca(wb);
 }

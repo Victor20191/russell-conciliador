@@ -13,7 +13,7 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
       <div className="min-w-0 flex-1 basis-72">
-        <h1 className="break-words font-serif text-xl text-ink-900 sm:text-2xl">{title}</h1>
+        <h1 className="break-words text-xl font-light text-navy-800 sm:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 break-words text-[13px] text-ink-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -46,7 +46,7 @@ export function CardHeader({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 px-4 py-3">
-      <h2 className="min-w-0 text-[13px] font-semibold text-ink-800">{title}</h2>
+      <h2 className="min-w-0 text-[13px] font-semibold text-navy-800">{title}</h2>
       {right}
     </div>
   );
@@ -95,59 +95,17 @@ export function StatCard({
     warn: "text-warn-700",
     err: "text-err-700",
     ink: "text-ink-900",
-    blue: "text-blue-500",
+    blue: "text-blue-600",
   };
   return (
     <Card className="p-4">
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
         {label}
       </div>
-      <div className={`mt-1.5 break-words font-mono font-semibold ${valueClassName} ${accent[tone]}`}>
+      <div className={`mt-1.5 break-words tabular-nums font-semibold ${valueClassName} ${accent[tone]}`}>
         {value}
       </div>
       {hint && <div className="mt-1 text-[12px] text-ink-500">{hint}</div>}
-    </Card>
-  );
-}
-
-export function ModulePlaceholder({
-  icon,
-  title,
-  description,
-  bullets,
-}: {
-  icon: IconName;
-  title: string;
-  description: string;
-  bullets?: string[];
-}) {
-  return (
-    <Card className="p-8">
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-500">
-          <Icon name={icon} size={22} />
-        </div>
-        <div>
-          <h2 className="font-serif text-xl text-ink-900">{title}</h2>
-          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-ink-600">
-            {description}
-          </p>
-          {bullets && (
-            <ul className="mt-4 space-y-1.5">
-              {bullets.map((b) => (
-                <li key={b} className="flex items-center gap-2 text-[13px] text-ink-700">
-                  <span className="text-ok-500"><Icon name="check" size={14} /></span>
-                  {b}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-5 inline-flex items-center gap-2 rounded-md bg-warn-100 px-3 py-1.5 text-[12px] font-medium text-warn-700">
-            <Icon name="warn" size={13} />
-            Módulo enrutado — UI detallada en migración progresiva desde el prototipo
-          </div>
-        </div>
-      </div>
     </Card>
   );
 }
@@ -156,7 +114,7 @@ export function BackLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-blue-500 hover:underline"
+      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-blue-600 hover:underline"
     >
       <Icon name="chev-l" size={13} />
       {label}

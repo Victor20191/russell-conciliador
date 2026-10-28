@@ -54,16 +54,12 @@ export function SelectBuscable({
   cargando?: boolean;
 }) {
   const [seleccionLocal, setSeleccionLocal] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSeleccionLocal(null);
-  }, [value]);
-
-  const valorEfectivo = seleccionLocal ?? value;
+  const [valorRecibido, setValorRecibido] = useState(value);
+  const valorEfectivo = valorRecibido === value ? (seleccionLocal ?? value) : value;
   const seleccionada = opciones.find((opcion) => opcion.value === valorEfectivo) ?? null;
   const [busqueda, setBusqueda] = useState("");
   const [abierto, setAbierto] = useState(false);
-  const [indiceActivo, setIndiceActivo] = useState(0);
+  const [indiceActivoLocal, setIndiceActivo] = useState<number | null>(null);
   const contenedorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const idBase = useId();
@@ -79,6 +75,19 @@ export function SelectBuscable({
     [coincidencias],
   );
 
+  // Descarta la selección optimista antes de pintar un valor nuevo del padre.
+  // El ajuste condicionado evita el render adicional de un efecto y conserva el foco.
+  if (valorRecibido !== value) {
+    setValorRecibido(value);
+    setSeleccionLocal(null);
+    setIndiceActivo(null);
+  }
+  const indiceSeleccionado = opcionesVisibles.findIndex((opcion) => opcion.value === valorEfectivo);
+  const indiceActivo = Math.max(
+    0,
+    Math.min(indiceActivoLocal ?? indiceSeleccionado, opcionesVisibles.length - 1),
+  );
+
   useEffect(() => {
     const cerrarAlHacerClickAfuera = (event: PointerEvent) => {
       if (!contenedorRef.current?.contains(event.target as Node)) {
@@ -91,13 +100,6 @@ export function SelectBuscable({
   }, []);
 
   useEffect(() => {
-    if (abierto) {
-      const idx = opcionesVisibles.findIndex((o) => o.value === valorEfectivo);
-      setIndiceActivo(idx >= 0 ? idx : 0);
-    }
-  }, [abierto, valorEfectivo]);
-
-  useEffect(() => {
     if (!abierto) return;
     const opcion = opcionesVisibles[indiceActivo];
     if (opcion) {
@@ -108,7 +110,7 @@ export function SelectBuscable({
   const elegir = (opcion: OpcionBuscable) => {
     setBusqueda("");
     setAbierto(false);
-    setIndiceActivo(0);
+    setIndiceActivo(null);
     setSeleccionLocal(opcion.value);
     onChange(opcion.value);
   };
@@ -118,6 +120,7 @@ export function SelectBuscable({
     setAbierto(true);
     setIndiceActivo(0);
     if (permitirLimpiar) {
+      setSeleccionLocal("");
       onChange("");
     }
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -159,6 +162,7 @@ export function SelectBuscable({
           value={busqueda !== "" ? busqueda : (seleccionada?.label ?? "")}
           placeholder={placeholder}
           onFocus={() => {
+            if (!abierto) setIndiceActivo(null);
             setAbierto(true);
             requestAnimationFrame(() => inputRef.current?.select());
           }}
@@ -173,13 +177,13 @@ export function SelectBuscable({
               event.preventDefault();
               setAbierto(true);
               if (opcionesVisibles.length > 0) {
-                setIndiceActivo((actual) => Math.min(actual + 1, opcionesVisibles.length - 1));
+                setIndiceActivo(Math.min(indiceActivo + 1, opcionesVisibles.length - 1));
               }
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setAbierto(true);
               if (opcionesVisibles.length > 0) {
-                setIndiceActivo((actual) => Math.max(actual - 1, 0));
+                setIndiceActivo(Math.max(indiceActivo - 1, 0));
               }
             } else if (event.key === "Enter" && abierto && opcionesVisibles[indiceActivo]) {
               event.preventDefault();
@@ -217,11 +221,12 @@ export function SelectBuscable({
           disabled={cargando}
           onClick={() => {
             if (cargando) return;
+            if (!abierto) setIndiceActivo(null);
             setAbierto((actual) => !actual);
             inputRef.current?.focus();
           }}
           aria-label={abierto ? "Cerrar lista" : "Mostrar lista"}
-          className="mr-1 rounded p-1 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700 disabled:opacity-50"
+          className="mr-1 rounded p-1 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700 disabled:opacity-60"
         >
           <Icon name="chev-d" size={14} className={`transition ${abierto ? "rotate-180" : ""}`} />
         </button>
@@ -253,7 +258,7 @@ export function SelectBuscable({
                   <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                     <span className="min-w-0 truncate font-medium">{opcion.label}</span>
                     {opcion.sublabel && (
-                      <span className="shrink-0 font-mono text-[11.5px] text-ink-500">
+                      <span className="shrink-0 tabular-nums text-[11.5px] text-ink-500">
                         {opcion.sublabel}
                       </span>
                     )}

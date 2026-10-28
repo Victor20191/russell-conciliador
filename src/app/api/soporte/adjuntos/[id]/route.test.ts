@@ -93,6 +93,31 @@ describe("GET /api/soporte/adjuntos/[id]", () => {
     expect(respuesta.headers.get("Content-Disposition")).toContain('attachment; filename="captura-pantalla.png"');
   });
 
+  it("aísla un SVG con scripts al abrirlo directamente y evita reutilizarlo tras revocar permisos", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch("/api/registro-acceso",{method:"POST"})</script><rect width="12" height="12"/></svg>';
+    mocks.findUnique.mockResolvedValueOnce({ objectKey: "tickets/12/imagen.svg", contentType: "image/svg+xml", fileName: "imagen.svg", ticket: { createdById: 99 } });
+    mocks.obtenerEvidenciaTicket.mockResolvedValueOnce({ cuerpo: new TextEncoder().encode(svg), contentType: "image/svg+xml" });
+    const respuesta = await llamar();
+    expect(respuesta.status).toBe(200);
+    expect(await respuesta.text()).toBe(svg);
+    const politica = respuesta.headers.get("Content-Security-Policy")!;
+    expect(politica.split("; ")).toContain("sandbox");
+    expect(politica).toContain("default-src 'none'");
+    expect(politica).toContain("script-src 'none'");
+    expect(politica).not.toContain("allow-same-origin");
+    expect(respuesta.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(respuesta.headers.get("Cache-Control")).toContain("no-store");
+  });
+
+  it("descarga nombres con Unicode y saltos de línea sin inyectar cabeceras", async () => {
+    mocks.findUnique.mockResolvedValueOnce({ objectKey: "tickets/12/imagen.svg", contentType: "image/svg+xml", fileName: '../../evidencia "ñ"\r\nX-Inyectado: 1.svg', ticket: { createdById: 99 } });
+    const respuesta = await GET(new Request("http://localhost/api/soporte/adjuntos/12?download=1"), { params: Promise.resolve({ id: "12" }) });
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("Content-Disposition")).not.toMatch(/[\r\n]/);
+    expect(respuesta.headers.get("Content-Disposition")).toContain("filename*=UTF-8''");
+    expect(respuesta.headers.get("X-Inyectado")).toBeNull();
+  });
+
   it("oculta evidencia pública a usuarios no administradores", async () => {
     mocks.findUnique.mockResolvedValueOnce({
       objectKey: "tickets/publico/captura.png",

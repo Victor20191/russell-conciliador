@@ -100,7 +100,7 @@ export default function TicketDetalleModal({
             <button
               type="button"
               onClick={() => setBorradoDe(detalle.id)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-err-500/40 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
+              className="inline-flex items-center gap-1.5 rounded-md border border-err-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100"
             >
               <Icon name="trash" size={14} /> Eliminar
             </button>
@@ -118,7 +118,7 @@ export default function TicketDetalleModal({
         <div className="flex flex-col gap-4">
           <header className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-[15px] font-semibold text-ink-900">{detalle.subject}</h3>
+              <h3 className="text-[15px] font-semibold text-navy-800">{detalle.subject}</h3>
               <p className="mt-0.5 text-[11.5px] text-ink-500">
                 {detalle.reportante} · {fmtDateTime(detalle.createdAt)}
               </p>

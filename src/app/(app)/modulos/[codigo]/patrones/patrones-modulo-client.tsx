@@ -26,7 +26,7 @@ function pertenece(version: VersionPatronVm, bandeja: Bandeja) {
   return version.estado === "inactiva";
 }
 
-const botonAccion = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-45";
+const botonAccion = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-40";
 
 function tamano(bytes: number | null): string {
   if (bytes == null) return "";
@@ -69,7 +69,7 @@ export default function PatronesModuloClient({
       <div className="flex flex-wrap gap-2 border-b border-ink-200 pb-3" role="tablist" aria-label="Estado de los patrones">
         {BANDEJAS.map((nombre) => {
           const cantidad = patrones.reduce((n, p) => n + p.versiones.filter((v) => pertenece(v, nombre)).length, 0);
-          return <button key={nombre} type="button" role="tab" aria-selected={bandeja === nombre} onClick={() => setBandeja(nombre)} className={`rounded-md px-3 py-2 text-[12px] font-semibold ${bandeja === nombre ? "bg-navy-700 text-white" : "bg-ink-50 text-ink-600 hover:bg-ink-100"}`}>{nombre}<span className="ml-2 tabular-nums opacity-75">{cantidad}</span></button>;
+          return <button key={nombre} type="button" role="tab" aria-selected={bandeja === nombre} onClick={() => setBandeja(nombre)} className={`rounded-md px-3 py-2 text-[12px] font-semibold ${bandeja === nombre ? "bg-navy-700 text-white" : "bg-ink-50 text-ink-600 hover:bg-ink-100"}`}>{nombre}<span className="ml-2 tabular-nums opacity-80">{cantidad}</span></button>;
         })}
       </div>
 
@@ -230,7 +230,7 @@ function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onC
           ))}
         </fieldset>
         {cambiaNivel && (
-          <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+          <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
             Hoy cada fila de este formato se lee como {NIVEL_FILA[formato.nivel]}; con este tipo se leerá como {NIVEL_FILA[nivelNuevo]}.
             Cambia qué suma en el período y qué entra como control. Confírmalo con la muestra antes de guardar.
           </p>
@@ -311,7 +311,7 @@ function BorrarVersionModal({ version, erpNombre, onClose }: { version: VersionP
       title={`Borrar versión · ${erpNombre} v${version.version}`}
       size="md"
       footer={
-        <button type="button" disabled={borrando} onClick={borrar} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
+        <button type="button" disabled={borrando} onClick={borrar} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60">
           <Icon name="trash" size={12} />{borrando ? "Borrando…" : "Borrar versión"}
         </button>
       }
@@ -445,7 +445,7 @@ function FilaVersion({
                 Muestra de {version.muestra.cliente}
               </span>
             ) : puedeAdministrar && (
-              <button type="button" disabled={ocupado} onClick={() => { setClienteMuestraId(clienteSugerido); setIndicandoCliente(true); }} className="mt-0.5 block text-[10.5px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+              <button type="button" disabled={ocupado} onClick={() => { setClienteMuestraId(clienteSugerido); setIndicandoCliente(true); }} className="mt-0.5 block text-[10.5px] font-semibold text-blue-700 hover:underline disabled:opacity-60">
                 Indicar cliente
               </button>
             )}
@@ -473,13 +473,13 @@ function FilaVersion({
                 disabled={ocupado || (!reactivarLocal && !version.muestra)}
                 title={version.muestra || reactivarLocal ? undefined : "Sube la muestra antes de aprobar"}
                 onClick={() => cambiarEstado(reactivarLocal ? "validada_cliente" : "aprobada")}
-                className={`${botonAccion} border-ok-500 text-ok-700 hover:bg-ok-100/40`}
+                className={`${botonAccion} border-ok-500 text-ok-700 hover:bg-ok-100`}
               >
                 <Icon name="check" size={11} />{reactivarLocal ? "Reactivar para cliente" : version.estado === "inactiva" ? "Reactivar" : "Aprobar"}
               </button>
             )}
             {puedeDeclararTipo && (
-              <button type="button" disabled={ocupado} onClick={() => setDeclarando(true)} className={`${botonAccion} ${version.formato?.declarado ? "border-ink-200 text-ink-700 hover:bg-ink-50" : "border-warn-500 text-warn-700 hover:bg-warn-100/40"}`}>
+              <button type="button" disabled={ocupado} onClick={() => setDeclarando(true)} className={`${botonAccion} ${version.formato?.declarado ? "border-ink-200 text-ink-700 hover:bg-ink-50" : "border-warn-500 text-warn-700 hover:bg-warn-100"}`}>
                 <Icon name="edit" size={11} />{version.formato?.declarado ? "Cambiar tipo" : "Declarar tipo"}
               </button>
             )}

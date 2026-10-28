@@ -11,7 +11,7 @@ export default function TicketUrlPagina({ url, className = "" }: { url: string |
     <p className={`break-all text-[12px] text-ink-600 ${className}`}>
       <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">URL:</span>
       {esUrlHttp(url) ? (
-        <a href={url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-500 hover:underline">
+        <a href={url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">
           {url}
         </a>
       ) : (

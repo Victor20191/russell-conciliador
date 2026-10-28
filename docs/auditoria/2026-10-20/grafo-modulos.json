@@ -1,0 +1,489 @@
+{
+  "method": "TypeScript AST; project import resolution; Next implicit entries; operation/test roots separated; files tracked plus new nonignored source; excludes docs and report artifacts",
+  "baselineCommit": "36d5d449754e66108e5714fb2f105810c7c1d6e6",
+  "versions": {
+    "next": "16.4.2",
+    "eslint-config-next": "16.4.2",
+    "prisma": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@prisma/adapter-pg": "7.10.1",
+    "vitest": "4.1.12",
+    "typescript": "5.9.3"
+  },
+  "summary": {
+    "sourceModules": 1043,
+    "testAndFixtureModules": 354,
+    "nextEntries": 88,
+    "appReachableSourceModules": 642,
+    "operationalRoots": 37,
+    "operationReachableSourceModules": 129,
+    "disconnectedSourceModules": 5
+  },
+  "entries": [
+    "src/app/(app)/auditoria/accesos/page.tsx",
+    "src/app/(app)/auditoria/adopcion/page.tsx",
+    "src/app/(app)/auditoria/ia/page.tsx",
+    "src/app/(app)/auditoria/lectura/export/route.ts",
+    "src/app/(app)/auditoria/lectura/page.tsx",
+    "src/app/(app)/auditoria/page.tsx",
+    "src/app/(app)/balance/[id]/diff/page.tsx",
+    "src/app/(app)/balance/[id]/export/route.ts",
+    "src/app/(app)/balance/[id]/page.tsx",
+    "src/app/(app)/balance/[id]/terceros/page.tsx",
+    "src/app/(app)/balance/borradores/[loteId]/export/route.ts",
+    "src/app/(app)/balance/borradores/[loteId]/page.tsx",
+    "src/app/(app)/balance/borradores/loading.tsx",
+    "src/app/(app)/balance/borradores/page.tsx",
+    "src/app/(app)/balance/mapeo/page.tsx",
+    "src/app/(app)/balance/page.tsx",
+    "src/app/(app)/conciliacion/en-proceso/page.tsx",
+    "src/app/(app)/conciliacion/nueva/page.tsx",
+    "src/app/(app)/conciliacion/resultados/[id]/page.tsx",
+    "src/app/(app)/conciliacion/resultados/page.tsx",
+    "src/app/(app)/config/clientes/exportar/route.ts",
+    "src/app/(app)/config/clientes/page.tsx",
+    "src/app/(app)/config/clientes/plantilla/route.ts",
+    "src/app/(app)/config/conceptos-nomina/page.tsx",
+    "src/app/(app)/config/conceptos-nomina/plantilla/route.ts",
+    "src/app/(app)/config/conexiones/page.tsx",
+    "src/app/(app)/config/dian/page.tsx",
+    "src/app/(app)/config/maestros/page.tsx",
+    "src/app/(app)/config/mapeo-cliente/page.tsx",
+    "src/app/(app)/config/mapeo/exportar/route.ts",
+    "src/app/(app)/config/mapeo/page.tsx",
+    "src/app/(app)/config/modulos/page.tsx",
+    "src/app/(app)/config/parametros/page.tsx",
+    "src/app/(app)/config/perfiles-carga/[fuente]/page.tsx",
+    "src/app/(app)/config/perfiles-carga/page.tsx",
+    "src/app/(app)/config/permisos/page.tsx",
+    "src/app/(app)/config/prevalidador/[modulo]/page.tsx",
+    "src/app/(app)/config/prevalidador/page.tsx",
+    "src/app/(app)/config/prompts/page.tsx",
+    "src/app/(app)/config/publicacion-modulos/page.tsx",
+    "src/app/(app)/config/reportes-ejecutivos/page.tsx",
+    "src/app/(app)/config/soporte/[id]/page.tsx",
+    "src/app/(app)/config/soporte/page.tsx",
+    "src/app/(app)/config/usuarios/page.tsx",
+    "src/app/(app)/dashboard/page.tsx",
+    "src/app/(app)/dian/[periodId]/page.tsx",
+    "src/app/(app)/dian/page.tsx",
+    "src/app/(app)/error.tsx",
+    "src/app/(app)/estructura/page.tsx",
+    "src/app/(app)/layout.tsx",
+    "src/app/(app)/loading.tsx",
+    "src/app/(app)/modulos/[codigo]/[id]/export/route.ts",
+    "src/app/(app)/modulos/[codigo]/[id]/page.tsx",
+    "src/app/(app)/modulos/[codigo]/borradores/[loteId]/export/route.ts",
+    "src/app/(app)/modulos/[codigo]/borradores/[loteId]/page.tsx",
+    "src/app/(app)/modulos/[codigo]/borradores/loading.tsx",
+    "src/app/(app)/modulos/[codigo]/borradores/page.tsx",
+    "src/app/(app)/modulos/[codigo]/page.tsx",
+    "src/app/(app)/modulos/[codigo]/patrones/[versionId]/page.tsx",
+    "src/app/(app)/modulos/[codigo]/patrones/loading.tsx",
+    "src/app/(app)/modulos/[codigo]/patrones/nueva/page.tsx",
+    "src/app/(app)/modulos/[codigo]/patrones/page.tsx",
+    "src/app/(app)/novedades/page.tsx",
+    "src/app/(app)/perfil/page.tsx",
+    "src/app/(app)/reportes/[id]/page.tsx",
+    "src/app/(app)/reportes/page.tsx",
+    "src/app/api/auditoria/reporte-ejecutivo/route.ts",
+    "src/app/api/auditoria/reporte-pdf/route.ts",
+    "src/app/api/balance/archivo-temporal/[loteId]/[numero]/route.ts",
+    "src/app/api/balance/archivo-temporal/route.ts",
+    "src/app/api/modulos/archivos-originales/[id]/route.ts",
+    "src/app/api/modulos/marcas/soportes/[id]/route.ts",
+    "src/app/api/modulos/patrones/muestras/[id]/route.ts",
+    "src/app/api/novedades/reporte-pdf/route.ts",
+    "src/app/api/registro-acceso/route.ts",
+    "src/app/api/soporte/adjuntos/[id]/route.ts",
+    "src/app/api/usuarios/[id]/foto/route.ts",
+    "src/app/cambiar-contrasena/page.tsx",
+    "src/app/error.tsx",
+    "src/app/global-error.tsx",
+    "src/app/layout.tsx",
+    "src/app/login/page.tsx",
+    "src/app/page.tsx",
+    "src/app/sesion-expirada/route.ts",
+    "src/app/soporte/layout.tsx",
+    "src/app/soporte/page.tsx",
+    "src/app/soporte/tickets/[codigo]/page.tsx",
+    "src/proxy.ts"
+  ],
+  "scripts": [
+    "prisma/backfill-roles.ts",
+    "prisma/inicializar-rbac.ts",
+    "prisma/load-puc-maestro.ts",
+    "prisma/load-subgrupos.ts",
+    "prisma/purgar-accesos.ts",
+    "prisma/seed-admin-negocio.ts",
+    "prisma/seed-comentar.ts",
+    "prisma/seed-novedades.ts",
+    "prisma/seed-prompts.ts",
+    "prisma/sync-matriz.ts",
+    "prisma/verificar-enforcement.ts",
+    "prisma/verificar-vigencia.ts",
+    "scripts/_export-catalogos.ts",
+    "scripts/backfill-clave-tercero.ts",
+    "scripts/cargar-novedades-borrador.ts",
+    "scripts/completar_jerarquia.ts",
+    "scripts/corregir-desfase-zona-horaria.ts",
+    "scripts/corregir-plan-espejo-nomina.ts",
+    "scripts/exportar-estructura-bd.ts",
+    "scripts/generate-ai-context-cuentas-estandar.ts",
+    "scripts/importar-erps-clientes-por-nit.ts",
+    "scripts/migrar-balances-por-corte.ts",
+    "scripts/migrar-patrones-desde-perfiles.ts",
+    "scripts/nomina-cuentas-categorias-1oct.ts",
+    "scripts/novedades-desde-commits.ts",
+    "scripts/plan-espejo/reglas-anteriores/agrupar-por.ts",
+    "scripts/plan-espejo/reglas-anteriores/grupos-concepto.ts",
+    "scripts/plan-espejo/reglas-anteriores/homologacion.ts",
+    "scripts/podar-terceros-no-conservados.ts",
+    "scripts/prevalidador-base-saldo.ts",
+    "scripts/purgar-cuentas-cliente-sin-codigo.ts",
+    "scripts/reasignar-cuentas-plan-30sep.ts",
+    "scripts/recalcular-cuadre-borradores.ts",
+    "scripts/rehomologar-fuera-de-clase.ts",
+    "scripts/release-version.ts",
+    "scripts/reporte-usuarios-sin-foto.ts",
+    "scripts/respaldar-copia-cierres.ts"
+  ],
+  "disconnected": [
+    {
+      "file": "src/lib/access-log-retencion.ts",
+      "incoming": [
+        "prisma/purgar-accesos.ts",
+        "src/lib/access-log-retencion.test.ts"
+      ],
+      "operational": true,
+      "tested": true
+    },
+    {
+      "file": "src/lib/balance/golden/snapshot.ts",
+      "incoming": [
+        "src/lib/balance/golden.test.ts",
+        "src/lib/balance/golden/capturar.test.ts"
+      ],
+      "operational": false,
+      "tested": true
+    },
+    {
+      "file": "src/lib/import/erps-clientes-workbook.ts",
+      "incoming": [
+        "scripts/importar-erps-clientes-por-nit.ts",
+        "src/lib/import/erps-clientes-workbook.test.ts"
+      ],
+      "operational": true,
+      "tested": true
+    },
+    {
+      "file": "src/lib/modulos/sugerencias-perfil.ts",
+      "incoming": [
+        "src/lib/modulos/sugerencias-perfil.test.ts"
+      ],
+      "operational": false,
+      "tested": true
+    },
+    {
+      "file": "src/lib/openrouter.ts",
+      "incoming": [
+        "src/lib/conexiones/clientes-ia.test.ts"
+      ],
+      "operational": false,
+      "tested": true
+    }
+  ],
+  "scriptServerOnly": [],
+  "unresolvedLocal": [],
+  "assetImports": [
+    {
+      "file": "src/app/global-error.tsx",
+      "line": 5,
+      "asset": "src/app/globals.css"
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "line": 3,
+      "asset": "src/app/globals.css"
+    }
+  ],
+  "nonliteralImports": [],
+  "importsByPackage": [
+    {
+      "name": "@anthropic-ai/sdk",
+      "moduleCount": 5,
+      "examples": [
+        "src/lib/anthropic.ts",
+        "src/lib/balance/extraccion/esquema.test.ts",
+        "src/lib/balance/extraccion/extraer.ts"
+      ]
+    },
+    {
+      "name": "@aws-sdk/client-s3",
+      "moduleCount": 4,
+      "examples": [
+        "scripts/migrar-patrones-desde-perfiles.ts",
+        "src/lib/conexiones/pruebas.ts",
+        "src/lib/storage/evidencias-tickets.ts"
+      ]
+    },
+    {
+      "name": "@prisma/adapter-pg",
+      "moduleCount": 24,
+      "examples": [
+        "prisma/backfill-roles.ts",
+        "prisma/inicializar-rbac.ts",
+        "prisma/load-puc-maestro.ts"
+      ]
+    },
+    {
+      "name": "bcryptjs",
+      "moduleCount": 5,
+      "examples": [
+        "src/app/actions/auth.ts",
+        "src/app/actions/import-maestros.ts",
+        "src/app/actions/maestros.ts"
+      ]
+    },
+    {
+      "name": "crypto",
+      "moduleCount": 4,
+      "examples": [
+        "src/app/actions/import-maestros.ts",
+        "src/app/actions/modulos-datos.ts",
+        "src/lib/crypto.ts"
+      ]
+    },
+    {
+      "name": "dotenv",
+      "moduleCount": 37,
+      "examples": [
+        "prisma.config.ts",
+        "prisma/backfill-roles.ts",
+        "prisma/inicializar-rbac.ts"
+      ]
+    },
+    {
+      "name": "eslint",
+      "moduleCount": 1,
+      "examples": [
+        "eslint.config.mjs"
+      ]
+    },
+    {
+      "name": "eslint-config-next",
+      "moduleCount": 1,
+      "examples": [
+        "eslint.config.mjs"
+      ]
+    },
+    {
+      "name": "exceljs",
+      "moduleCount": 31,
+      "examples": [
+        "scripts/corregir-plan-espejo-nomina.ts",
+        "scripts/reporte-usuarios-sin-foto.ts",
+        "src/lib/balance/extraccion/hojas-cliente.test.ts"
+      ]
+    },
+    {
+      "name": "fs",
+      "moduleCount": 1,
+      "examples": [
+        "scripts/completar_jerarquia.ts"
+      ]
+    },
+    {
+      "name": "jose",
+      "moduleCount": 3,
+      "examples": [
+        "src/lib/jwt.ts",
+        "src/proxy.test.ts",
+        "src/proxy.ts"
+      ]
+    },
+    {
+      "name": "jszip",
+      "moduleCount": 5,
+      "examples": [
+        "src/app/actions/cargar-fotos.ts",
+        "src/lib/avatares.test.ts",
+        "src/lib/balance/extraccion/ingesta.test.ts"
+      ]
+    },
+    {
+      "name": "next",
+      "moduleCount": 177,
+      "examples": [
+        "next.config.ts",
+        "src/app/(app)/auditoria/accesos/accesos-filters.tsx",
+        "src/app/(app)/auditoria/adopcion/page.tsx"
+      ]
+    },
+    {
+      "name": "node:child_process",
+      "moduleCount": 2,
+      "examples": [
+        "scripts/exportar-estructura-bd.ts",
+        "scripts/novedades-desde-commits.ts"
+      ]
+    },
+    {
+      "name": "node:crypto",
+      "moduleCount": 24,
+      "examples": [
+        "scripts/exportar-estructura-bd.ts",
+        "scripts/importar-erps-clientes-por-nit.ts",
+        "scripts/rehomologar-fuera-de-clase.ts"
+      ]
+    },
+    {
+      "name": "node:fs",
+      "moduleCount": 28,
+      "examples": [
+        "scripts/cargar-novedades-borrador.ts",
+        "scripts/corregir-desfase-zona-horaria.ts",
+        "scripts/corregir-plan-espejo-nomina.ts"
+      ]
+    },
+    {
+      "name": "node:http",
+      "moduleCount": 1,
+      "examples": [
+        "src/lib/conexiones/pruebas.test.ts"
+      ]
+    },
+    {
+      "name": "node:net",
+      "moduleCount": 3,
+      "examples": [
+        "src/lib/conexiones/pruebas.test.ts",
+        "src/lib/conexiones/pruebas.ts",
+        "src/lib/seguridad/limite-solicitudes.ts"
+      ]
+    },
+    {
+      "name": "node:path",
+      "moduleCount": 11,
+      "examples": [
+        "scripts/corregir-plan-espejo-nomina.ts",
+        "scripts/exportar-estructura-bd.ts",
+        "scripts/importar-erps-clientes-por-nit.ts"
+      ]
+    },
+    {
+      "name": "node:stream",
+      "moduleCount": 1,
+      "examples": [
+        "src/lib/balance/extraccion/ingesta.ts"
+      ]
+    },
+    {
+      "name": "node:url",
+      "moduleCount": 3,
+      "examples": [
+        "src/lib/balance/golden.test.ts",
+        "src/lib/balance/golden/capturar.test.ts",
+        "vitest.config.ts"
+      ]
+    },
+    {
+      "name": "node:zlib",
+      "moduleCount": 1,
+      "examples": [
+        "scripts/corregir-desfase-zona-horaria.ts"
+      ]
+    },
+    {
+      "name": "nodemailer",
+      "moduleCount": 1,
+      "examples": [
+        "src/lib/conexiones/smtp.ts"
+      ]
+    },
+    {
+      "name": "path",
+      "moduleCount": 1,
+      "examples": [
+        "scripts/completar_jerarquia.ts"
+      ]
+    },
+    {
+      "name": "pg",
+      "moduleCount": 4,
+      "examples": [
+        "scripts/corregir-desfase-zona-horaria.ts",
+        "scripts/corregir-plan-espejo-nomina.ts",
+        "src/lib/balance/golden/capturar.test.ts"
+      ]
+    },
+    {
+      "name": "playwright",
+      "moduleCount": 1,
+      "examples": [
+        "src/lib/novedades/pdf.ts"
+      ]
+    },
+    {
+      "name": "prisma",
+      "moduleCount": 1,
+      "examples": [
+        "prisma.config.ts"
+      ]
+    },
+    {
+      "name": "react",
+      "moduleCount": 160,
+      "examples": [
+        "src/app/(app)/auditoria/adopcion/indicadores-uso.tsx",
+        "src/app/(app)/auditoria/adopcion/reporte-ejecutivo-client.tsx",
+        "src/app/(app)/auditoria/ia/consumo-tabla.tsx"
+      ]
+    },
+    {
+      "name": "react-dom",
+      "moduleCount": 27,
+      "examples": [
+        "src/app/(app)/balance/[id]/acciones-corte.test.ts",
+        "src/app/(app)/balance/[id]/comentario-aprobacion.test.ts",
+        "src/app/(app)/balance/[id]/corte-panel.test.ts"
+      ]
+    },
+    {
+      "name": "server-only",
+      "moduleCount": 72,
+      "examples": [
+        "src/app/(app)/config/prevalidador/datos.ts",
+        "src/lib/access-log.ts",
+        "src/lib/anthropic.ts"
+      ]
+    },
+    {
+      "name": "vitest",
+      "moduleCount": 354,
+      "examples": [
+        "src/app/(app)/balance/[id]/acciones-corte.test.ts",
+        "src/app/(app)/balance/[id]/comentario-aprobacion.test.ts",
+        "src/app/(app)/balance/[id]/corte-panel.test.ts"
+      ]
+    },
+    {
+      "name": "xlsx",
+      "moduleCount": 8,
+      "examples": [
+        "src/lib/balance/extraccion/estilos-xls.ts",
+        "src/lib/balance/extraccion/hojas-cliente.test.ts",
+        "src/lib/balance/extraccion/hojas-cliente.ts"
+      ]
+    },
+    {
+      "name": "zod",
+      "moduleCount": 41,
+      "examples": [
+        "scripts/cargar-novedades-borrador.ts",
+        "src/app/actions/aplicativos-cliente.ts",
+        "src/app/actions/asistencia-inventario.ts"
+      ]
+    }
+  ]
+}

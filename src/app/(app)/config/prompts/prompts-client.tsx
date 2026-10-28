@@ -15,7 +15,7 @@ import { copiarPromptAlPortapapeles } from "./portapapeles";
 export default function PromptsClient({ prompts }: { prompts: PromptVista[] }) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-ai-100 bg-ai-100/30 px-3 py-2.5 text-[12.5px] text-ai-700">
+      <div className="rounded-md border border-ai-100 bg-ai-100 px-3 py-2.5 text-[12.5px] text-ai-700">
         Estos son los <span className="font-semibold">prompts de sistema</span> que guían a la IA. Los datos variables
         (parámetros del archivo, vista previa, plan de cuentas y lista de cuentas a mapear) se agregan
         automáticamente en cada llamada y no se editan aquí.
@@ -89,7 +89,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Icon name="ai" size={15} />
-            <h2 className="text-[14px] font-semibold text-ink-900">{prompt.nombre}</h2>
+            <h2 className="text-[14px] font-semibold text-navy-800">{prompt.nombre}</h2>
             <Chip label={prompt.esPredeterminado ? "Predeterminado" : "Personalizado"} tone={prompt.esPredeterminado ? "ink" : "ai"} />
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{prompt.descripcion}</p>
@@ -110,7 +110,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
             onClick={copiarContenido}
             aria-label={`${copiado ? "Copiado" : "Copiar contenido"}: ${prompt.nombre}`}
             title="Copiar el contenido visible del prompt"
-            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors ${copiado ? "border-ok-200 bg-ok-100/50 text-ok-700" : "border-ink-200 bg-white text-ink-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"}`}
+            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors ${copiado ? "border-ok-200 bg-ok-100 text-ok-700" : "border-ink-200 bg-white text-ink-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"}`}
           >
             <Icon name={copiado ? "check" : "doc"} size={13} stroke={1.8} />
             <span className="sr-only" aria-live="polite">{copiado ? "Copiado" : "Copiar"}</span>
@@ -129,7 +129,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
           }}
           rows={16}
           spellCheck={false}
-          className="w-full resize-y rounded-md border border-ink-200 bg-ink-50/40 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink-800 outline-none focus:border-blue-400"
+          className="w-full resize-y rounded-md border border-ink-200 bg-ink-50/40 px-3 py-2.5 tabular-nums text-[12px] leading-relaxed text-ink-800 outline-none focus:border-blue-400"
         />
 
         <div className="flex flex-wrap items-center gap-2">
@@ -162,7 +162,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
                 onClick={() => setConfirmarReset(true)}
                 disabled={prompt.esPredeterminado}
                 title={prompt.esPredeterminado ? "Ya está en el valor predeterminado." : undefined}
-                className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+                className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
               >
                 Restaurar predeterminado
               </button>
@@ -171,7 +171,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
             <button
               type="submit"
               disabled={!sucio || guardando}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
             >
               {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
             </button>

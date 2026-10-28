@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Icon } from "@/components/icons";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
@@ -803,7 +803,7 @@ function CargarBalanceModal({
           )}
 
           {!segundoPasoCliente && configuracionIA && (
-            <div className="rounded-md border border-ai-100 bg-ai-100/30 px-3 py-2.5">
+            <div className="rounded-md border border-ai-100 bg-ai-100 px-3 py-2.5">
               <label className="flex flex-col gap-1.5">
                 <span className="text-[11.5px] font-medium text-ink-700">Proveedor de IA para esta carga</span>
                 <select
@@ -824,7 +824,7 @@ function CargarBalanceModal({
           )}
 
           {clients.length === 0 ? (
-            <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
+            <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5 text-[12.5px] text-warn-700">
               No tienes clientes asignados con alcance para cargar balances.
             </div>
           ) : (
@@ -845,7 +845,7 @@ function CargarBalanceModal({
               )}
 
               {mostrarSelectorCliente && (
-                <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5">
+                <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5">
                   <SelectorClienteBuscable
                     clients={clients}
                     value={clienteCarga}
@@ -885,7 +885,7 @@ function CargarBalanceModal({
               {!segundoPasoCliente && inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
               {!segundoPasoCliente && archivoGrande && (
                 <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
-                  <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
+                  <span className="font-semibold"><IconoEnTexto name="warn" />¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
                 </p>
               )}
               {cancelando && leyendo && (
@@ -914,8 +914,8 @@ function CargarBalanceModal({
             !leerState.requiereCliente &&
             (leerState.message !== MENSAJE_RECUPERAR_LECTURA || reintentoLecturaPendiente) &&
             (leerState.errorProveedorIA ? (
-              <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12px] text-warn-700">
-                <p className="font-semibold">⚠️ Inconveniente temporal del proveedor de IA</p>
+              <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5 text-[12px] text-warn-700">
+                <p className="font-semibold"><IconoEnTexto name="warn" />Inconveniente temporal del proveedor de IA</p>
                 <p className="mt-1 font-medium">{leerState.message}</p>
                 <p className="mt-1">
                   Es una falla del servicio externo de IA, <span className="font-semibold">no del aplicativo ni de tu archivo</span>. Espera unos minutos y vuelve a intentar la lectura.
@@ -1101,24 +1101,24 @@ function IdentificacionCliente({
     // consolidado o un export sin NIT, pero suele ser un cliente equivocado.
     const discrepa = nitDetectado != null && !nitCoincide(nitDetectado, cliente.nit);
     return (
-      <section className="rounded-lg border border-ok-100 bg-ok-100/55 px-3.5 py-3" aria-label="Cliente identificado">
+      <section className="rounded-lg border border-ok-100 bg-ok-100 px-3.5 py-3" aria-label="Cliente identificado">
         <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-ok-700">
-          <span className="inline-flex size-5 items-center justify-center rounded-full bg-white/80" aria-hidden="true">✓</span>
+          <span className="inline-flex size-5 items-center justify-center rounded-full bg-white" aria-hidden="true"><Icon name="check" size={12} stroke={2.4} /></span>
           Cliente identificado
         </div>
         {discrepa && (
-          <p className="mb-2 rounded-md border border-warn-200 bg-warn-100/70 px-2.5 py-2 text-[11.5px] font-medium text-warn-700">
-            ⚠️ El NIT leído del archivo no coincide con el del cliente seleccionado. Verifica que sea la empresa correcta antes de cargar.
+          <p className="mb-2 rounded-md border border-warn-200 bg-warn-100 px-2.5 py-2 text-[11.5px] font-medium text-warn-700">
+            <IconoEnTexto name="warn" />El NIT leído del archivo no coincide con el del cliente seleccionado. Verifica que sea la empresa correcta antes de cargar.
           </p>
         )}
         <dl className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_2fr]">
           <div>
             <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">NIT leído del archivo</dt>
-            <dd className="mt-0.5 font-mono text-[12.5px] font-semibold text-ink-800">{nitDetectado ?? "No detectado"}</dd>
+            <dd className="mt-0.5 tabular-nums text-[12.5px] font-semibold text-ink-800">{nitDetectado ?? "No detectado"}</dd>
           </div>
           <div>
             <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">NIT del cliente</dt>
-            <dd className="mt-0.5 font-mono text-[12.5px] font-semibold text-ink-800">{cliente.nit}</dd>
+            <dd className="mt-0.5 tabular-nums text-[12.5px] font-semibold text-ink-800">{cliente.nit}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">Razón social</dt>
@@ -1126,7 +1126,7 @@ function IdentificacionCliente({
           </div>
         </dl>
         {nitDetectado == null && (
-          <div className="mt-3 border-t border-ok-200/80 pt-3">
+          <div className="mt-3 border-t border-ok-200 pt-3">
             <p className="mb-2 text-[11.5px] text-ink-600">
               El archivo no traía NIT. Confirma este cliente o busca otro por razón social o NIT antes de continuar.
             </p>
@@ -1152,12 +1152,12 @@ function IdentificacionCliente({
   }
 
   return (
-    <section className="rounded-lg border border-warn-200 bg-warn-100/55 px-3.5 py-3" aria-label="Cliente pendiente por identificar">
+    <section className="rounded-lg border border-warn-200 bg-warn-100 px-3.5 py-3" aria-label="Cliente pendiente por identificar">
       <div className="mb-2">
         <div className="text-[12px] font-semibold text-warn-700">Cliente pendiente por identificar</div>
         <p className="mt-0.5 text-[11.5px] text-ink-600">
           {nitDetectado ? (
-            <>El archivo se leyó con el NIT <span className="font-mono font-semibold text-ink-800">{nitDetectado}</span>, pero no coincide con un cliente disponible.</>
+            <>El archivo se leyó con el NIT <span className="tabular-nums font-semibold text-ink-800">{nitDetectado}</span>, pero no coincide con un cliente disponible.</>
           ) : (
             <>No se encontró un NIT de cliente en el archivo.</>
           )}{" "}
@@ -1385,7 +1385,7 @@ function ContextoTerceros({
                   De {diagnostico.totalFilas} terceros leídos, <span className="font-semibold">{diagnostico.sinDocumento}</span> quedaron sin documento reconocido
                   {diagnostico.sinNombre > 0 && <> y <span className="font-semibold">{diagnostico.sinNombre}</span> sin nombre</>}.
                   {diagnostico.ejemplos.length > 0 && (
-                    <> Ejemplos sin reconocer: <span className="font-mono">{diagnostico.ejemplos.join(", ")}</span>.</>
+                    <> Ejemplos sin reconocer: <span className="tabular-nums">{diagnostico.ejemplos.join(", ")}</span>.</>
                   )}
                 </>
               ) : (
@@ -1477,7 +1477,7 @@ function ContextoTerceros({
                   indicaciones: indicaciones.trim() || null,
                 })
               }
-              className="rounded-md bg-ai-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-ai-600 disabled:opacity-60"
+              className="rounded-md bg-ai-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
             >
               {releyendo ? <EstadoProcesando>Releyendo</EstadoProcesando> : "Releer con IA usando este contexto"}
             </button>
@@ -1600,13 +1600,13 @@ export function EditorEstructura({
             onClick={() => setAyudaAbierta((v) => !v)}
             aria-expanded={ayudaAbierta}
             aria-controls="guia-campos-balance"
-            className="inline-flex w-fit items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
+            className="inline-flex w-fit items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-200"
           >
             <Icon name="doc" size={12} /> Guía detallada de los campos
             <Icon name={chevronDivulgacion(ayudaAbierta)} size={12} />
           </button>
           {ayudaAbierta && (
-            <div id="guia-campos-balance" className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50/40 px-3 py-3 text-[11.5px] leading-relaxed text-ink-600">
+            <div id="guia-campos-balance" className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-100 px-3 py-3 text-[11.5px] leading-relaxed text-ink-600">
               <div>
                 <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Para qué sirve</div>
                 <p>Reprocesa el archivo con el mapa de columnas corregido, <span className="font-semibold">sin IA y al instante</span>. Úsalo cuando la lectura automática asignó mal una columna, la fila del encabezado, el signo del crédito o cómo se detecta el detalle. No modifica el archivo original: genera una lectura nueva que reemplaza a la anterior.</p>
@@ -1622,7 +1622,7 @@ export function EditorEstructura({
               <div>
                 <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Columnas por rol (elige la letra, o «no existe»)</div>
                 <dl className="flex flex-col gap-1">
-                  <div><dt className="inline font-semibold">Código de cuenta *:</dt> <dd className="inline">(obligatoria) la columna con el código PUC (<span className="font-mono">1105</span>, <span className="font-mono">110505</span>…). Si el código viene partido en varias columnas, déjala en «usa columnas fragmentadas» y usa el campo de más abajo.</dd></div>
+                  <div><dt className="inline font-semibold">Código de cuenta *:</dt> <dd className="inline">(obligatoria) la columna con el código PUC (<span className="tabular-nums">1105</span>, <span className="tabular-nums">110505</span>…). Si el código viene partido en varias columnas, déjala en «usa columnas fragmentadas» y usa el campo de más abajo.</dd></div>
                   <div><dt className="inline font-semibold">Nombre de la cuenta:</dt> <dd className="inline">la descripción de la cuenta («CAJA GENERAL»).</dd></div>
                   <div><dt className="inline font-semibold">Saldo inicial:</dt> <dd className="inline">el saldo anterior, al inicio del período.</dd></div>
                   <div><dt className="inline font-semibold">Débitos / Créditos:</dt> <dd className="inline">los movimientos débito y crédito del período.</dd></div>
@@ -1635,7 +1635,7 @@ export function EditorEstructura({
               <div>
                 <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Casos especiales</div>
                 <dl className="flex flex-col gap-1">
-                  <div><dt className="inline font-semibold">Columnas del código fragmentado:</dt> <dd className="inline">cuando el código no está en una columna, sino repartido (col 1 = «11», col 2 = «05», col 3 = «05»). Escribe los números de columna separados por coma (<span className="font-mono">1, 2, 3</span>): se concatenan en orden para formar el código.</dd></div>
+                  <div><dt className="inline font-semibold">Columnas del código fragmentado:</dt> <dd className="inline">cuando el código no está en una columna, sino repartido (col 1 = «11», col 2 = «05», col 3 = «05»). Escribe los números de columna separados por coma (<span className="tabular-nums">1, 2, 3</span>): se concatenan en orden para formar el código.</dd></div>
                   <div><dt className="inline font-semibold">Convención del crédito:</dt> <dd className="inline"><span className="font-semibold">Magnitud</span> = débitos y créditos vienen como positivos (lo normal). <span className="font-semibold">Firmado</span> = el archivo trae los créditos con signo negativo.</dd></div>
                   <div><dt className="inline font-semibold">Detección de cuentas de detalle:</dt> <dd className="inline"><span className="font-semibold">Por jerarquía de códigos (auto)</span> decide qué cuenta es de movimiento por la longitud/jerarquía del código PUC. <span className="font-semibold">Por columna marcadora</span> se usa cuando el archivo tiene una columna que marca el detalle (p. ej. «I» o «1»): eliges la columna y el valor que lo marca. <span className="font-semibold">Todas son movimiento</span> cuando el archivo trae una lista plana de cuentas imputables sin agrupadoras (ninguna se agrupa).</dd></div>
                   <div><dt className="inline font-semibold">Agregar por tercero:</dt> <dd className="inline">en balances abiertos por tercero, suma los terceros y deja el saldo a nivel de cuenta.</dd></div>
@@ -1795,7 +1795,7 @@ export function EditorEstructura({
                 disabled={guardando || reprocesando}
                 onClick={() => onGuardar(ed)}
                 title="Guarda esta estructura como perfil del cliente (para futuras cargas del mismo layout), sin reprocesar el archivo."
-                className="rounded-md border border-ok-300 bg-ok-100/40 px-3 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60"
+                className="rounded-md border border-ok-300 bg-ok-100 px-3 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-200 disabled:opacity-60"
               >
                 {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar perfil (sin reprocesar)"}
               </button>
@@ -1828,7 +1828,7 @@ export function EditorEstructura({
                 type="button"
                 disabled={guardandoNotas || notas.trim() === (notasCliente ?? "").trim()}
                 onClick={() => onGuardarNotas(notas.trim())}
-                className="mt-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                className="mt-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-200 disabled:opacity-60"
               >
                 {guardandoNotas ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar notas del cliente"}
               </button>
@@ -1870,7 +1870,7 @@ function DetalleMovimiento({
           <tbody>
             {cuentas.map((c, i) => (
               <tr key={`${c.code}-${i}`} className="border-t border-ink-100">
-                <td className="whitespace-nowrap px-2 py-1 font-mono text-ink-500">{c.code}</td>
+                <td className="whitespace-nowrap px-2 py-1 tabular-nums text-ink-500">{c.code}</td>
                 <td className="max-w-[220px] truncate px-2 py-1 text-ink-700" title={c.name}>{c.name}</td>
                 <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmt(c.prevBalance)}</td>
                 <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmt(c.debitos ?? 0)}</td>
@@ -1901,10 +1901,10 @@ function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
           <tbody>
             {excepciones.map((e, i) => (
               <tr key={i} className="border-t border-ink-100 align-top">
-                <td className="px-2.5 py-1.5 font-mono text-ink-500">{e.fila ?? "—"}</td>
+                <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{e.fila ?? "—"}</td>
                 <td className="px-2.5 py-1.5 text-ink-700">
                   {e.regla}
-                  {e.valor && <span className="block font-mono text-[10.5px] text-ink-400">{e.valor}</span>}
+                  {e.valor && <span className="block tabular-nums text-[10.5px] text-ink-400">{e.valor}</span>}
                 </td>
                 <td className="px-2.5 py-1.5 text-ink-500">{e.accion}</td>
               </tr>
@@ -1931,7 +1931,7 @@ function ErroresTabla({ errores }: { errores: NonNullable<ImportBalanceState["er
           <tbody>
             {errores.map((e, i) => (
               <tr key={i} className="border-t border-ink-100">
-                <td className="px-2.5 py-1.5 font-mono text-ink-500">{e.fila || "—"}</td>
+                <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{e.fila || "—"}</td>
                 <td className="px-2.5 py-1.5 text-ink-700">{e.mensaje}</td>
               </tr>
             ))}
@@ -1954,7 +1954,7 @@ function SelectorHojas({
 }) {
   const activa = hojas.find((h) => h.nombre === elegida) ?? null;
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-warn-100 bg-warn-100/30 px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5">
       <p className="text-[12px] leading-relaxed text-warn-700">
         Este archivo tiene <span className="font-semibold">{hojas.length} hojas</span>. Selecciona cuál es el balance
         que quieres cargar.
@@ -1973,7 +1973,7 @@ function SelectorHojas({
             >
               {h.nombre}
               {!h.vistaPreviaOmitida && (
-                <span className={on ? "text-white/90" : "text-ink-400"}> · {h.totalFilas} fila(s)</span>
+                <span className={on ? "text-navy-100" : "text-ink-400"}> · {h.totalFilas} fila(s)</span>
               )}
             </button>
           );
@@ -2014,7 +2014,7 @@ function PreviewHoja({ hoja }: { hoja: HojaPreview }) {
           <tbody>
             {hoja.muestra.map((fila, i) => (
               <tr key={i} className="even:bg-ink-50/40">
-                <td className="border-r border-ink-100 px-2 py-1 text-right font-mono text-ink-400">{i + 1}</td>
+                <td className="border-r border-ink-100 px-2 py-1 text-right tabular-nums text-ink-400">{i + 1}</td>
                 {cols.map((j) => (
                   <td key={j} className="whitespace-nowrap px-2 py-1 text-ink-700">{celdaTexto(fila[j] ?? null)}</td>
                 ))}

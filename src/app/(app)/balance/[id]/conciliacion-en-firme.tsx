@@ -30,14 +30,14 @@ export type BloqueoCuentaVm = {
  */
 export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cierres: CierreFirmeVm[]; balanceId: number; periodo: string }) {
   return (
-    <div className="mb-4 rounded-md border border-navy-700/30 bg-navy-700/5 px-3 py-2 text-[12px] text-ink-800">
+    <div className="mb-4 rounded-md border border-navy-300 bg-navy-50 px-3 py-2 text-[12px] text-ink-800">
       <div className="mb-1 inline-flex items-center gap-1 font-semibold text-navy-700">
         <Icon name="check" size={13} /> Conciliación en firme · {periodo}
       </div>
       <ul className="flex flex-col gap-0.5">
         {cierres.map((c) => (
           <li key={c.id} className="flex flex-wrap items-center gap-x-2">
-            <span className="font-mono font-semibold">{c.moduloCodigo}</span>
+            <span className="tabular-nums font-semibold">{c.moduloCodigo}</span>
             <span>{c.periodo}</span>
             <span className="text-ink-500">·</span>
             <span>cerró <b>{c.cerradoPor}</b> · {c.cerradoEn}</span>
@@ -72,7 +72,7 @@ export function DistintivoCuentaEnFirme({ bloqueo, compacto = false }: { bloqueo
   return (
     <span
       title={titulo}
-      className="inline-flex items-center gap-1 rounded border border-navy-700/30 bg-navy-700/10 px-1.5 py-px text-[10px] font-semibold text-navy-700"
+      className="inline-flex items-center gap-1 rounded border border-navy-300 bg-navy-50 px-1.5 py-px text-[10px] font-semibold text-navy-700"
     >
       <Icon name="check" size={9} /> En firme · {bloqueo.moduloCodigo}{compacto ? null : <> #{bloqueo.moduloDatoEncabezadoId}</>}
       {!compacto && <span className="font-normal text-ink-500">· {bloqueo.cerradoPor} · {bloqueo.cerradoEn}</span>}

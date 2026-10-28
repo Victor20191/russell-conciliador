@@ -20,7 +20,7 @@ export default async function NuevaConciliacionPage() {
               href={`/modulos/${modulo.codigo.toLowerCase()}`}
               className="block rounded-lg p-5 transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
             >
-              <h2 className="text-sm font-semibold text-ink-900">{modulo.label}</h2>
+              <h2 className="text-sm font-semibold text-navy-800">{modulo.label}</h2>
               <p className="mt-2 text-[13px] text-ink-500">
                 Carga, revisión y cruce contable de {modulo.label.toLowerCase()}.
               </p>

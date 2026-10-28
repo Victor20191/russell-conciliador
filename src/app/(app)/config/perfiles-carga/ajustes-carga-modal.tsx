@@ -20,6 +20,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { fmtDate } from "@/lib/format";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
+import { confirmarDeMarca } from "@/components/controles-marca";
 
 type ColumnaSimple = Exclude<keyof SpecCarga["columnas"], "codigoFragmentos">;
 
@@ -91,8 +92,8 @@ export function AjustesCargaModal({
 
   const [eliminando, startEliminar] = useTransition();
   const [eliminandoObjetivo, setEliminandoObjetivo] = useState<string | null>(null);
-  const eliminar = (id: number) => {
-    if (!confirm("¿Eliminar este perfil? La próxima carga con ese formato volverá a detectar la estructura (con IA).")) return;
+  const eliminar = async (id: number) => {
+    if (!(await confirmarDeMarca({ titulo: "Eliminar perfil", mensaje: "¿Eliminar este perfil? La próxima carga con ese formato volverá a detectar la estructura (con IA).", accion: "Eliminar" }))) return;
     setEliminandoObjetivo(`perfil:${id}`);
     startEliminar(async () => {
       try {
@@ -108,8 +109,8 @@ export function AjustesCargaModal({
       }
     });
   };
-  const eliminarCorreccion = (id: number) => {
-    if (!confirm("¿Eliminar esta corrección? Dejará de aplicarse automáticamente en las próximas cargas de este cliente.")) return;
+  const eliminarCorreccion = async (id: number) => {
+    if (!(await confirmarDeMarca({ titulo: "Eliminar corrección", mensaje: "¿Eliminar esta corrección? Dejará de aplicarse automáticamente en las próximas cargas de este cliente.", accion: "Eliminar" }))) return;
     setEliminandoObjetivo(`correccion:${id}`);
     startEliminar(async () => {
       try {
@@ -125,8 +126,8 @@ export function AjustesCargaModal({
       }
     });
   };
-  const limpiarCorrecciones = () => {
-    if (!confirm("¿Eliminar TODAS las correcciones memorizadas de este cliente? Las próximas cargas no aplicarán ningún ajuste automático por cuenta.")) return;
+  const limpiarCorrecciones = async () => {
+    if (!(await confirmarDeMarca({ titulo: "Eliminar todas las correcciones", mensaje: "¿Eliminar TODAS las correcciones memorizadas de este cliente? Las próximas cargas no aplicarán ningún ajuste automático por cuenta.", accion: "Eliminar todas" }))) return;
     setEliminandoObjetivo("correcciones:todas");
     startEliminar(async () => {
       try {
@@ -186,7 +187,7 @@ export function AjustesCargaModal({
           {/* ---- Perfiles de estructura guardados ---- */}
           <section className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-ink-800">Perfiles de formato guardados</h3>
+              <h3 className="text-[12.5px] font-semibold text-navy-800">Perfiles de formato guardados</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
                 La estructura del archivo memorizada por formato: con perfil, la carga se procesa al instante y{" "}
                 <span className="font-semibold">sin IA</span>. Se crean automáticamente en cuanto la lectura queda asociada a este cliente.
@@ -238,7 +239,7 @@ export function AjustesCargaModal({
                             <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] text-ink-400">
                               <span>{p.vecesUsado} {p.vecesUsado === 1 ? "uso" : "usos"}</span>
                               <span>Último uso: {fmtDate(p.ultimoUsoEn)}</span>
-                              <span className="max-w-[280px] truncate font-mono" title={p.archivoEjemplo ?? undefined}>
+                              <span className="max-w-[280px] truncate tabular-nums" title={p.archivoEjemplo ?? undefined}>
                                 Archivo: {p.archivoEjemplo ?? "sin ejemplo"}
                               </span>
                             </span>
@@ -249,7 +250,7 @@ export function AjustesCargaModal({
                           <button
                             type="button"
                             onClick={() => setPerfilAbierto((actual) => actual === p.id ? null : p.id)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-200"
                           >
                             <Icon name={abierto ? "eye-off" : "eye"} size={13} />
                             {abierto
@@ -265,7 +266,7 @@ export function AjustesCargaModal({
                               onClick={() => eliminar(p.id)}
                               title="Eliminar perfil (la próxima carga volverá a detectar este formato)"
                               aria-label={`Eliminar formato ${indice + 1}`}
-                              className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                              className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
                             >
                               {eliminandoObjetivo === `perfil:${p.id}` ? (
                                 <EstadoProcesando etiqueta="Eliminando perfil" />
@@ -278,7 +279,7 @@ export function AjustesCargaModal({
                       </div>
 
                       {abierto && (
-                        <div id={`perfil-carga-${p.id}`} className="border-t border-blue-100 bg-blue-50/20 px-3.5 py-3.5">
+                        <div id={`perfil-carga-${p.id}`} className="border-t border-blue-100 bg-blue-100 px-3.5 py-3.5">
                           <PerfilCargaDetalle
                             key={`${p.id}:${p.actualizadoEn}:${modo}`}
                             perfil={p}
@@ -301,7 +302,7 @@ export function AjustesCargaModal({
           <section className="flex flex-col gap-2 border-t border-ink-100 pt-3">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h3 className="text-[12.5px] font-semibold text-ink-800">Correcciones por cuenta memorizadas</h3>
+                <h3 className="text-[12.5px] font-semibold text-navy-800">Correcciones por cuenta memorizadas</h3>
                 <p className="text-[11.5px] leading-relaxed text-ink-500">
                   Los ajustes hechos en el borrador (reclasificar, desacoplar, omitir y re-parentar) se memorizan al
                   guardar cambios y se <span className="font-semibold">re-aplican solos</span> en cada nueva carga de este cliente.
@@ -312,7 +313,7 @@ export function AjustesCargaModal({
                   type="button"
                   disabled={eliminando}
                   onClick={limpiarCorrecciones}
-                  className="shrink-0 rounded-md border border-err-200 px-2.5 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50"
+                  className="shrink-0 rounded-md border border-err-200 px-2.5 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-60"
                 >
                   {eliminandoObjetivo === "correcciones:todas" ? (
                     <EstadoProcesando>Eliminando</EstadoProcesando>
@@ -342,7 +343,7 @@ export function AjustesCargaModal({
                   <tbody>
                     {(data.correcciones ?? []).map((c) => (
                       <tr key={c.id} className="border-t border-ink-100 align-top">
-                        <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-[10.5px] text-ink-700">{c.cuenta}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-[10.5px] text-ink-700">{c.cuenta}</td>
                         <td className="max-w-[180px] truncate px-2.5 py-1.5 text-ink-600" title={c.nombre ?? undefined}>{c.nombre ?? "—"}</td>
                         <td className="px-2.5 py-1.5 text-ink-600">{c.resumen}</td>
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.vecesAplicada}×</td>
@@ -354,7 +355,7 @@ export function AjustesCargaModal({
                               disabled={eliminando}
                               onClick={() => eliminarCorreccion(c.id)}
                               title="Eliminar corrección (deja de aplicarse en las próximas cargas)"
-                              className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                              className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
                             >
                               {eliminandoObjetivo === `correccion:${c.id}` ? (
                                 <EstadoProcesando etiqueta="Eliminando corrección" />
@@ -375,7 +376,7 @@ export function AjustesCargaModal({
           {/* ---- Preferencias por defecto ---- */}
           <section className="flex flex-col gap-2 border-t border-ink-100 pt-3">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-ink-800">Preferencias de carga</h3>
+              <h3 className="text-[12.5px] font-semibold text-navy-800">Preferencias de carga</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
                 Se aplican automáticamente cuando el asistente detecta o solicita este cliente. «Auto» deja que la lectura decida. El estándar contable es NIF en todas las cargas.
               </p>
@@ -612,7 +613,7 @@ function PerfilCargaDetalle({
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-blue-700">
             Estructura completa del formato
           </div>
-          <h4 className="mt-0.5 font-serif text-lg text-ink-900">Así leerá la plataforma este archivo</h4>
+          <h4 className="mt-0.5 text-lg text-navy-800">Así leerá la plataforma este archivo</h4>
           <p className="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-ink-500">
             Cada fila muestra el dato contable y la columna exacta que se tomará. “No se lee” significa que
             este formato no trae ese dato y la plataforma aplicará su regla de cálculo.
@@ -666,7 +667,7 @@ function PerfilCargaDetalle({
               <tbody>
                 <tr className="border-t border-ink-100">
                   <td className="px-3 py-2 font-semibold text-ink-700">Código de cuenta</td>
-                  <td className="px-3 py-2 font-mono text-[10.5px] text-ink-700">{fuenteCodigo}</td>
+                  <td className="px-3 py-2 tabular-nums text-[10.5px] text-ink-700">{fuenteCodigo}</td>
                   <td className="px-3 py-2 text-ink-500">
                     {codigoFragmentado
                       ? "Concatena los fragmentos en el orden indicado para formar el PUC."
@@ -680,7 +681,7 @@ function PerfilCargaDetalle({
                   return (
                     <tr key={columna.key} className="border-t border-ink-100">
                       <td className="px-3 py-2 font-medium text-ink-700">{columna.nombre}</td>
-                      <td className={`px-3 py-2 font-mono text-[10.5px] ${usada ? "text-ink-700" : "text-ink-400"}`}>
+                      <td className={`px-3 py-2 tabular-nums text-[10.5px] ${usada ? "text-ink-700" : "text-ink-400"}`}>
                         {ubicacionColumna(numero)}
                       </td>
                       <td className="px-3 py-2 text-ink-500">{columna.explicacion}</td>
@@ -718,14 +719,14 @@ function PerfilCargaDetalle({
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-100 pt-2 text-[10.5px] text-ink-400">
-            <span>Identificador del formato: <span className="font-mono">{perfil.huella}</span></span>
+            <span>Identificador del formato: <span className="tabular-nums">{perfil.huella}</span></span>
             <span>Actualizado: {fmtDate(perfil.actualizadoEn)}</span>
             <span>Los cambios aplican a cargas futuras; no modifican balances ya cargados.</span>
           </div>
         </>
       ) : (
         <div className="flex flex-col gap-4 rounded-lg border border-blue-200 bg-white p-3.5">
-          <div className="flex items-start gap-2 rounded-md border border-warn-200 bg-warn-100/60 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
+          <div className="flex items-start gap-2 rounded-md border border-warn-200 bg-warn-100 px-3 py-2.5 text-[11.5px] leading-relaxed text-warn-700">
             <Icon name="info" size={14} className="mt-0.5 shrink-0" />
             <p>
               Estás cambiando cómo se interpretarán las <span className="font-semibold">próximas cargas</span> de
@@ -777,7 +778,7 @@ function PerfilCargaDetalle({
           <fieldset className="flex flex-col gap-3 border-t border-ink-100 pt-3">
             <legend className="pr-2 text-[12px] font-semibold text-ink-800">2. Mapa completo de columnas</legend>
 
-            <div className="grid grid-cols-1 gap-3 rounded-md border border-blue-100 bg-blue-50/40 p-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 rounded-md border border-blue-100 bg-blue-100 p-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] font-medium text-ink-600">Cómo viene el código de cuenta</span>
                 <select
@@ -971,7 +972,7 @@ function PerfilCargaDetalle({
               type="button"
               disabled={guardando}
               onClick={cancelar}
-              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
             >
               Cancelar
             </button>

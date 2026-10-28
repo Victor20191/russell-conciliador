@@ -90,7 +90,7 @@ export function ListaNoModulares({
         const marcada = seleccion.has(h.cuenta8);
         const contenido = (
           <>
-            <span className="shrink-0 font-mono sm:w-[110px] text-[11.5px] text-ink-600">{h.cuenta8}</span>
+            <span className="shrink-0 tabular-nums sm:w-[110px] text-[11.5px] text-ink-600">{h.cuenta8}</span>
             <span className="min-w-0 flex-1 truncate text-[12px] text-ink-700" title={h.nombre}>{h.nombre}</span>
             <span className={`shrink-0 tabular-nums text-[12px] ${marcada ? "text-ink-400 line-through" : "text-ink-800"}`}>
               {fmtContable(h.valor)}
@@ -129,14 +129,14 @@ export function ListaNoModulares({
 export function ResumenNoModulares({ cuentas }: { cuentas: readonly CuentaNoModular[] }) {
   if (cuentas.length === 0) return null;
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-warn-500/40 bg-warn-100/20 px-2.5 py-1.5">
+    <div className="flex flex-col gap-1 rounded-md border border-warn-200 bg-warn-100 px-2.5 py-1.5">
       <span className="text-[11px] font-semibold text-warn-700">
         {cuentas.length === 1 ? "Cuenta no modular restada" : `${cuentas.length} cuentas no modulares restadas`}
       </span>
       <ul className="flex flex-col gap-0.5">
         {cuentas.map((c) => (
           <li key={c.cuenta8} className="flex items-baseline gap-2 text-[11.5px] text-ink-700">
-            <span className="font-mono text-ink-600">{c.cuenta8}</span>
+            <span className="tabular-nums text-ink-600">{c.cuenta8}</span>
             <span className="min-w-0 flex-1 truncate" title={c.nombre}>{c.nombre}</span>
             <span className="shrink-0 tabular-nums">{fmtContable(c.valorAlMarcar)}</span>
           </li>
@@ -220,7 +220,7 @@ export function ResumenClasificadoresNoModulares({
       ? "Concepto no contabilizado restado"
       : `${clasificadores.length} conceptos no contabilizados restados`;
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-warn-500/40 bg-warn-100/20 px-2.5 py-1.5">
+    <div className="flex flex-col gap-1 rounded-md border border-warn-200 bg-warn-100 px-2.5 py-1.5">
       <span className="text-[11px] font-semibold text-warn-700">{titulo}</span>
       <ul className="flex flex-col gap-0.5">
         {clasificadores.map((c) => (

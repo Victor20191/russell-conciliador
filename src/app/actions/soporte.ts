@@ -8,6 +8,8 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { getClientIp } from "@/lib/request";
+import { consumirCuotaSolicitud, CUOTA_SOPORTE_PUBLICO } from "@/lib/seguridad/limite-solicitudes";
 import { mensajeErrorBD } from "@/lib/errores";
 import {
   SupportTicketCreateSchema,
@@ -144,6 +146,10 @@ export async function crearTicketSoporte(
 
   const token = crearTokenAccesoTicket();
   try {
+    const cuota = await consumirCuotaSolicitud(CUOTA_SOPORTE_PUBLICO, await getClientIp());
+    if (!cuota.permitida) {
+      return { ok: false, message: "Se alcanzó el límite de solicitudes de soporte. Intenta nuevamente en 15 minutos." };
+    }
     const code = await siguienteCodigoTicket();
     await prisma.supportTicket.create({
       data: {

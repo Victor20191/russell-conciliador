@@ -97,7 +97,7 @@ export function GrillaMuestra({ ventana, modelo, seleccion, onSeleccion, llena =
             const tipoLeido = lectura.filas.get(fila);
             const problemaFila = lectura.problemasFila.get(fila);
             const ignorada = ignoradas.has(fila);
-            const fondo = ignorada ? "bg-ink-50 text-ink-400 line-through" : tipoLeido === "registro" ? "bg-blue-100/70" : tipoLeido ? "bg-ok-100" : "";
+            const fondo = ignorada ? "bg-ink-50 text-ink-400 line-through" : tipoLeido === "registro" ? "bg-blue-100" : tipoLeido ? "bg-ok-100" : "";
             const filaElegida = seleccion?.tipo === "fila" && seleccion.fila === fila;
             return (
               <tr key={fila} className={fondo}>
@@ -132,7 +132,7 @@ export function GrillaMuestra({ ventana, modelo, seleccion, onSeleccion, llena =
                       onClick={() => onSeleccion({ tipo: "celda", fila, columna })}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSeleccion({ tipo: "celda", fila, columna }); } }}
                       title={problema ?? (celda.t || undefined)}
-                      className={`max-w-[16rem] cursor-pointer border-b border-r border-ink-100 px-2 py-1 align-top outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 ${elegida ? "bg-blue-100 ring-2 ring-inset ring-navy-600" : ""} ${problema && !elegida ? "bg-err-100/60 shadow-[inset_0_0_0_2px_var(--color-err-500)]" : ""} ${leida && !elegida ? "text-ink-900" : "text-ink-700"} ${celda.negrita ? "font-semibold" : ""}`}
+                      className={`max-w-[16rem] cursor-pointer border-b border-r border-ink-100 px-2 py-1 align-top outline-none focus:ring-2 focus:ring-inset focus:ring-blue-400 ${elegida ? "bg-blue-100 ring-2 ring-inset ring-navy-600" : ""} ${problema && !elegida ? "bg-err-100 shadow-[inset_0_0_0_2px_var(--color-err-500)]" : ""} ${leida && !elegida ? "text-ink-900" : "text-ink-700"} ${celda.negrita ? "font-semibold" : ""}`}
                     >
                       <div className="flex min-w-0 items-start gap-1">
                         {marcas.length > 0 && (

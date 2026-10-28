@@ -64,11 +64,11 @@ export default function AuditoriaTabla({
           <tbody>
             {pg.pageItems.map((e) => (
               <tr key={e.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                <td className="whitespace-nowrap px-4 py-2.5 font-mono text-[11.5px] text-ink-500">{e.ts}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-[11.5px] text-ink-500">{e.ts}</td>
                 <td className="whitespace-nowrap px-4 py-2.5 text-ink-800">{e.user}</td>
                 <td className="px-4 py-2.5"><span className={`inline-flex rounded px-2 py-0.5 text-[10.5px] font-semibold ${actionTone(e.action)}`}>{e.action}</span></td>
                 <td className="px-4 py-2.5 text-ink-700">{e.entity}</td>
-                <td className="whitespace-nowrap px-4 py-2.5 font-mono text-[11.5px] text-ink-400">{e.ip ?? "—"}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-[11.5px] text-ink-400">{e.ip ?? "—"}</td>
                 <td className="px-4 py-2.5 text-ink-500">{e.detail}</td>
               </tr>
             ))}

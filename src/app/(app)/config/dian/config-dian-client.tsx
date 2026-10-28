@@ -37,7 +37,7 @@ export default function ConfigDianClient({
       <div className="mb-4 flex flex-wrap gap-2">
         {forms.map((f) => (
           <button key={f.id} onClick={() => setActiveId(f.id)} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${f.id === active.id ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
-            {f.name} <span className={`font-mono text-[11px] ${f.id === active.id ? "text-white/80" : "text-ink-500"}`}>{f.code}</span>
+            {f.name} <span className={`tabular-nums text-[11px] ${f.id === active.id ? "text-navy-100" : "text-ink-500"}`}>{f.code}</span>
           </button>
         ))}
       </div>
@@ -54,13 +54,13 @@ export default function ConfigDianClient({
                     const rows = mapFor(l.k);
                     return (
                       <tr key={l.k} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                        <td className="px-4 py-2 font-mono text-[11px] text-ink-500">{l.k}</td>
+                        <td className="px-4 py-2 tabular-nums text-[11px] text-ink-500">{l.k}</td>
                         <td className="px-4 py-2 text-ink-800">{l.label}</td>
                         <td className="px-4 py-2">
                           {rows.length === 0 ? <span className="text-[11.5px] italic text-ink-400">Sin mapeo</span> : (
                             <div className="flex flex-wrap gap-1.5">
                               {rows.map((m, i) => (
-                                <span key={i} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.sign === "+" ? "bg-ok-100 text-ok-700" : "bg-err-100 text-err-700"}`}>{m.sign === "+" ? "+" : "−"} <span className="font-mono">{m.account}</span></span>
+                                <span key={i} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.sign === "+" ? "bg-ok-100 text-ok-700" : "bg-err-100 text-err-700"}`}>{m.sign === "+" ? "+" : "−"} <span className="tabular-nums">{m.account}</span></span>
                               ))}
                             </div>
                           )}
@@ -140,13 +140,13 @@ function MappingEditor({
               <option value="+">+ Suma</option>
               <option value="-">− Resta</option>
             </select>
-            <input value={r.account} onChange={(e) => setRow(i, { account: e.target.value })} placeholder="240801" className="w-28 rounded-md border border-ink-200 px-2 py-1.5 font-mono text-[12px] outline-none focus:border-blue-400" />
+            <input value={r.account} onChange={(e) => setRow(i, { account: e.target.value })} placeholder="240801" className="w-28 rounded-md border border-ink-200 px-2 py-1.5 tabular-nums text-[12px] outline-none focus:border-blue-400" />
             <input value={r.desc} onChange={(e) => setRow(i, { desc: e.target.value })} placeholder="Descripción de la cuenta" className="flex-1 rounded-md border border-ink-200 px-2 py-1.5 text-[12px] outline-none focus:border-blue-400" />
             <button onClick={() => remove(i)} title="Eliminar" className="rounded p-1 text-err-500 hover:bg-err-100"><Icon name="x" size={14} /></button>
           </div>
         ))}
       </div>
-      <button onClick={add} className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-500 hover:underline"><Icon name="plus" size={13} /> Agregar cuenta</button>
+      <button onClick={add} className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-600 hover:underline"><Icon name="plus" size={13} /> Agregar cuenta</button>
       {error && <p role="alert" className="mt-2 text-[12px] font-medium text-err-700">{error}</p>}
     </Modal>
   );

@@ -52,7 +52,7 @@ export default function EnProcesoTabla({ rows }: { rows: EnProcesoRow[] }) {
               const st = PROCESS_LABEL[r.status] ?? { label: r.status, tone: "warn" as const };
               return (
                 <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                  <td className="px-4 py-2.5 font-mono text-[11.5px] text-ink-500">{r.id}</td>
+                  <td className="px-4 py-2.5 tabular-nums text-[11.5px] text-ink-500">{r.id}</td>
                   <td className="px-4 py-2.5 text-ink-800">{r.clientName}</td>
                   <td className="px-4 py-2.5 text-ink-600">{r.module}</td>
                   <td className="px-4 py-2.5 text-ink-600">{r.period}</td>
@@ -60,7 +60,7 @@ export default function EnProcesoTabla({ rows }: { rows: EnProcesoRow[] }) {
                   <td className="px-4 py-2.5 text-ink-500">{r.lastActivity ?? "—"}</td>
                   <td className="px-4 py-2.5 text-ink-600">{r.owner}</td>
                   <td className="px-4 py-2.5 text-right">
-                    <Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline">Abrir <Icon name="chev-r" size={12} /></Link>
+                    <Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-600 hover:underline">Abrir <Icon name="chev-r" size={12} /></Link>
                   </td>
                 </tr>
               );

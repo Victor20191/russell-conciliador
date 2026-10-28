@@ -8,7 +8,7 @@ export type IconName =
   | "eye" | "eye-off" | "menu" | "info" | "help" | "help-circle" | "move-tree" | "trash" | "edit"
   | "maximize" | "minimize"
   | "reconcile" | "tax" | "grid" | "building" | "database" | "account-link"
-  | "file-check" | "shield" | "hierarchy" | "sliders";
+  | "file-check" | "shield" | "hierarchy" | "sliders" | "grip" | "star";
 
 export function Icon({
   name,
@@ -87,20 +87,17 @@ export function Icon({
     case "shield": return <svg {...props}><path d="m12 2 8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z" /><path d="m8 12 3 3 5-6" /></svg>;
     case "hierarchy": return <svg {...props}><rect x="9" y="2" width="6" height="5" rx="1" /><rect x="2" y="17" width="6" height="5" rx="1" /><rect x="16" y="17" width="6" height="5" rx="1" /><path d="M12 7v5M5 17v-5h14v5" /></svg>;
     case "sliders": return <svg {...props}><path d="M5 3v4m0 4v10M12 3v10m0 4v4M19 3v4m0 4v10" /><circle cx="5" cy="9" r="2" /><circle cx="12" cy="15" r="2" /><circle cx="19" cy="9" r="2" /></svg>;
+    case "grip": return <svg {...props}><circle cx="9" cy="6" r="1" /><circle cx="15" cy="6" r="1" /><circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="9" cy="18" r="1" /><circle cx="15" cy="18" r="1" /></svg>;
+    case "star": return <svg {...props}><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" /></svg>;
     default: return null;
   }
 }
 
-// Recreación geométrica del logotipo Russell Bedford
-export function BrandMark({ size = 28 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 44 44" width={size} height={size}>
-      <circle cx="22" cy="22" r="20.5" fill="#3B7CB8" />
-      <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="square">
-        <line x1="6" y1="32" x2="32" y2="6" />
-        <line x1="11" y1="36" x2="36" y2="11" />
-        <line x1="16" y1="40" x2="40" y2="16" />
-      </g>
-    </svg>
-  );
+/**
+ * Ícono dentro de una línea de texto (en lugar de ✓, ⚠ y otros símbolos que no
+ * tienen Lato ni Arial: el navegador los dibujaría con otra fuente o como emoji).
+ * Toma el color del texto que lo rodea.
+ */
+export function IconoEnTexto({ name, size = 12 }: { name: IconName; size?: number }) {
+  return <Icon name={name} size={size} stroke={2.2} className="mr-1 inline-block shrink-0 align-[-2px]" />;
 }

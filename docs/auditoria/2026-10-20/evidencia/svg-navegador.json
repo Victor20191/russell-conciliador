@@ -1,0 +1,18 @@
+[
+  {
+    "protegido": false,
+    "scriptEjecutado": true,
+    "solicitudesScript": 1,
+    "figuraVisible": true,
+    "errores": []
+  },
+  {
+    "protegido": true,
+    "scriptEjecutado": false,
+    "solicitudesScript": 0,
+    "figuraVisible": true,
+    "errores": [
+      "Blocked script execution in 'http://russell.invalid/adjunto.svg' because the document's frame is sandboxed and the 'allow-scripts' permission is not set."
+    ]
+  }
+]

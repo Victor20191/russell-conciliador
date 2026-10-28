@@ -70,7 +70,7 @@ export default async function SoporteTicketDetallePage({
       <div className="mb-5 mt-4 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-semibold text-ink-700">{ticket.code}</span>
+            <span className="tabular-nums text-xs font-semibold text-ink-700">{ticket.code}</span>
             <Chip label={etiquetaEstadoTicket(ticket.status)} tone={tonoEstadoTicket(ticket.status)} />
             {ticket.createdById === null && (
               <span className="rounded-full bg-ink-100 px-2.5 py-0.5 text-[10px] font-semibold text-ink-600">
@@ -78,7 +78,7 @@ export default async function SoporteTicketDetallePage({
               </span>
             )}
           </div>
-          <h1 className="mt-2 font-serif text-2xl text-ink-900">{ticket.subject}</h1>
+          <h1 className="mt-2 text-2xl font-light text-navy-800">{ticket.subject}</h1>
           <p className="mt-1 text-[13px] text-ink-500">
             Reportado por {reportante} · {fmtDateTime(ticket.createdAt)}
           </p>

@@ -140,7 +140,7 @@ export function EliminarDatosModuloButton({
               type="button"
               onClick={confirmar}
               disabled={eliminando}
-              className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
             >
               {eliminando ? (
                 <EstadoProcesando etiqueta="Eliminando" />
@@ -171,7 +171,7 @@ export function EliminarDatosModuloButton({
                   title={motivo ?? undefined}
                   className={`flex gap-3 rounded-lg border p-3.5 transition ${
                     motivo
-                      ? "cursor-not-allowed border-ink-150 bg-ink-50 opacity-70"
+                      ? "cursor-not-allowed border-ink-150 bg-ink-50 opacity-80"
                       : seleccionada
                         ? "cursor-pointer border-err-400 bg-err-50 ring-1 ring-err-200"
                         : "cursor-pointer border-ink-150 hover:border-ink-200 hover:bg-ink-50"
@@ -184,12 +184,12 @@ export function EliminarDatosModuloButton({
                     checked={seleccionada}
                     disabled={motivo != null}
                     onChange={() => setAlcance(opcion.value)}
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-red-600"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-err-600"
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[12.5px] font-semibold text-ink-800">{opcion.titulo}</span>
-                      <span className="rounded-full border border-ink-150 bg-white px-2 py-0.5 font-mono text-[10.5px] text-ink-600">
+                      <span className="rounded-full border border-ink-150 bg-white px-2 py-0.5 tabular-nums text-[10.5px] text-ink-600">
                         {opcion.conteo}
                       </span>
                     </span>

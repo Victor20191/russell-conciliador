@@ -13,11 +13,9 @@ import { createSession, deleteSession, limpiarPreferenciaNavegacion } from "@/li
 import { verifySession, getCurrentUser } from "@/lib/dal";
 import { getClientIp, getUserAgent } from "@/lib/request";
 import { registrarAcceso } from "@/lib/access-log";
-import {
-  isAccountBlocked,
-  isLockedOut,
-  nextFailedLoginState,
-} from "@/lib/login-throttle";
+import { isAccountBlocked } from "@/lib/login-throttle";
+import { finalizarLogin, registrarFalloLogin } from "@/lib/login-intentos";
+import { consumirCuotaSolicitud, CUOTA_LOGIN } from "@/lib/seguridad/limite-solicitudes";
 import prisma from "@/lib/prisma";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
@@ -45,6 +43,10 @@ export async function login(
   // especial que no debe capturarse). Dentro del try van las operaciones de BD.
   let destino: string | null = null;
   try {
+    const cuota = await consumirCuotaSolicitud(CUOTA_LOGIN, ip);
+    if (!cuota.permitida) {
+      return { message: "Demasiados intentos. Intenta de nuevo en unos minutos." };
+    }
     const user = await prisma.user.findUnique({ where: { email } });
     const now = new Date();
     if (isAccountBlocked(user?.blockedUntil, now)) {
@@ -57,47 +59,39 @@ export async function login(
     if (!user || !user.active || !ok) {
       await prisma.loginAttempt.create({ data: { email, ip, success: false } });
       if (user?.active) {
-        const failedState = nextFailedLoginState({
-          failedLoginAttempts: user.failedLoginAttempts,
-          lastFailedLoginAt: user.lastFailedLoginAt,
-          now,
-        });
-        await prisma.user.update({
-          where: { id: user.id },
-          data: failedState,
-        });
-        if (isLockedOut(failedState.failedLoginAttempts)) {
+        if (await registrarFalloLogin(user.id, now)) {
           return { message: "Demasiados intentos. Intenta de nuevo en unos minutos." };
         }
       }
       return { message: "Credenciales inválidas." };
     }
 
-    await prisma.loginAttempt.create({ data: { email, ip, success: true } });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLoginAt: now,
-        failedLoginAttempts: 0,
-        lastFailedLoginAt: null,
-        blockedUntil: null,
-      },
+    const resultado = await finalizarLogin({
+      userId: user.id, passwordHash: user.password, sessionVersion: user.sessionVersion,
     });
-    await createSession(user.id, user.role, user.sessionVersion);
+    if (!resultado.ok) {
+      await prisma.loginAttempt.create({ data: { email, ip, success: false } });
+      return { message: resultado.bloqueada
+        ? "Demasiados intentos. Intenta de nuevo en unos minutos."
+        : "Credenciales inválidas." };
+    }
+    const vigente = resultado.user;
+    await prisma.loginAttempt.create({ data: { email, ip, success: true } });
+    await createSession(vigente.id, vigente.role, vigente.sessionVersion);
     await limpiarPreferenciaNavegacion();
 
     // Registro de acceso (ingreso). Best-effort: registrarAcceso nunca lanza.
     await registrarAcceso({
-      userId: user.id,
-      userName: user.name,
-      role: user.role,
+      userId: vigente.id,
+      userName: vigente.name,
+      role: vigente.role,
       path: "/login",
       kind: "ingreso",
       ip,
       userAgent: await getUserAgent(),
     });
 
-    destino = user.mustChangePassword ? "/cambiar-contrasena" : "/dashboard";
+    destino = vigente.mustChangePassword ? "/cambiar-contrasena" : "/dashboard";
   } catch (e) {
     registrarError("login", e);
     return {
@@ -154,7 +148,7 @@ export async function changePassword(
   let destino: string | null = null;
   try {
     const user = await prisma.user.findUnique({ where: { id: session.userId } });
-    if (!user) {
+    if (!user || !user.active) {
       // Sesión válida pero usuario inexistente: cerrar sesión.
       destino = "/login";
     } else {
@@ -163,10 +157,15 @@ export async function changePassword(
 
       const newVersion = user.sessionVersion + 1;
       const newHash = await bcrypt.hash(parsed.data.next, 10);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { password: newHash, mustChangePassword: false, sessionVersion: newVersion },
+      const actualizado = await prisma.user.updateMany({
+        // Evita que dos cambios simultáneos reutilicen la misma versión de
+        // sesión o que un cambio pendiente revierta un restablecimiento/admin.
+        where: { id: user.id, active: true, password: user.password, sessionVersion: user.sessionVersion },
+        data: { password: newHash, mustChangePassword: false, sessionVersion: { increment: 1 } },
       });
+      if (actualizado.count !== 1) {
+        return { ok: false, message: "La cuenta cambió mientras actualizabas la contraseña. Inicia sesión de nuevo." };
+      }
       // Reeditar la cookie actual con la nueva versión para no expulsar al propio usuario.
       await createSession(user.id, user.role, newVersion);
       // `pwd=1` hace que el dashboard confirme el cambio con un toast (FlashToast).

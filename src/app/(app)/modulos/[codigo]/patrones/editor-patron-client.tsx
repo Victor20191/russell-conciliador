@@ -512,11 +512,11 @@ export default function EditorPatronClient({
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Link href={ruta} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Volver a patrones</Link>
-        <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(false)} className="rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50">
+        <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(false)} className="rounded-md border border-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-60">
           {guardando ? "Guardando…" : edicion ? "Guardar cambios" : "Guardar como pendiente"}
         </button>
         {!edicion && (
-          <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50">
+          <button type="button" disabled={!puedeGuardar} title={motivoNoGuardar?.texto} onClick={() => guardar(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {guardando ? "Guardando…" : `Guardar y aprobar${erpNombre ? ` para ${erpNombre}` : ""}`}
           </button>
         )}

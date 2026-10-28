@@ -52,11 +52,9 @@ const getPublicacionCached = unstable_cache(
 );
 
 export const getPublicacionModulos = cache(async (): Promise<PlatformModuleState[]> => {
-  try {
-    return await getPublicacionCached();
-  } catch {
-    return MODULOS_PLATAFORMA;
-  }
+  // Si no se puede comprobar la publicación, abortar: el catálogo de fábrica
+  // podría volver a habilitar un módulo que el administrador dejó oculto.
+  return getPublicacionCached();
 });
 
 export async function moduloDisponibleParaRol(

@@ -162,9 +162,28 @@ export default async function BorradoresPage() {
     })),
   );
 
-  const rows: BorradorRow[] = base.map(({ periodoInicioISO: _i, periodoFinISO: _f, ...r }) => {
+  const rows: BorradorRow[] = base.map((r) => {
     const v = versiones.get(r.loteId) ?? { version: 1, versionesGrupo: 1, claveGrupo: null };
-    return { ...r, version: v.version, versionesGrupo: v.versionesGrupo, claveGrupo: v.claveGrupo };
+    // Proyectar solo los campos que necesita el cliente; los ISO crudos son internos.
+    return {
+      loteId: r.loteId,
+      archivoNombre: r.archivoNombre,
+      archivos: r.archivos,
+      conEncabezado: r.conEncabezado,
+      nitDetectado: r.nitDetectado,
+      cliente: r.cliente,
+      periodo: r.periodo,
+      cuentasMovimiento: r.cuentasMovimiento,
+      cuadre: r.cuadre,
+      apertura: r.apertura,
+      cargadoPor: r.cargadoPor,
+      creadoEn: r.creadoEn,
+      fecha: r.fecha,
+      hora: r.hora,
+      version: v.version,
+      versionesGrupo: v.versionesGrupo,
+      claveGrupo: v.claveGrupo,
+    };
   });
 
   return (

@@ -247,7 +247,7 @@ export function ClienteBorradorCelda({
           {cliente.nombre ?? `Cliente #${cliente.id}`}
         </span>
         {(cliente.nit ?? nitDetectado) && (
-          <span className="font-mono text-[10.5px] text-ink-400">
+          <span className="tabular-nums text-[10.5px] text-ink-400">
             {cliente.nit ?? nitDetectado}
           </span>
         )}
@@ -266,7 +266,7 @@ export function ClienteBorradorCelda({
           Aún no está asignado
         </span>
         {(nitDetectado ?? cliente.nit) && (
-          <span className="font-mono text-[10.5px] text-ink-400">
+          <span className="tabular-nums text-[10.5px] text-ink-400">
             {nitDetectado ?? cliente.nit}
           </span>
         )}
@@ -283,7 +283,7 @@ export function ClienteBorradorCelda({
         Histórico · sin cliente asignado
       </span>
       {nitDetectado && (
-        <span className="font-mono text-[10.5px] text-ink-400">
+        <span className="tabular-nums text-[10.5px] text-ink-400">
           NIT detectado: {nitDetectado}
         </span>
       )}
@@ -312,7 +312,7 @@ export function ArchivosBorradorCelda({
       <span className="flex flex-wrap items-center gap-1.5">
         <Link
           href={`/balance/borradores/${loteId}`}
-          className="font-medium text-blue-500 hover:underline"
+          className="font-medium text-blue-600 hover:underline"
           title={principal}
         >
           {principal}
@@ -477,9 +477,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
         className={`inline-flex items-center gap-1 font-semibold transition hover:text-ink-800 ${
           alineacion === "right" ? "ml-auto" : ""
         } ${activo ? "text-ink-800" : "text-ink-500"}`}
-        aria-sort={
-          activo ? (ordenDir === "asc" ? "ascending" : "descending") : "none"
-        }
+        aria-label={`${label}: ${activo ? `orden ${ordenDir === "asc" ? "ascendente" : "descendente"}` : "ordenar"}`}
       >
         <span>{label}</span>
         {activo ? (
@@ -580,7 +578,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
             </thead>
             <tbody>
               {pg.pageItems.map((r) => (
-                <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
+                <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-paper">
                   <td className="px-3 py-2">
                     <ArchivosBorradorCelda
                       loteId={r.loteId}
@@ -596,7 +594,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                       nitDetectado={r.nitDetectado}
                     />
                   </td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo}</td>
+                  <td className="px-3 py-2 tabular-nums text-[11px] text-ink-600">{r.periodo}</td>
                   <td className="px-3 py-2">
                     <VersionBorradorCelda
                       version={r.version}
@@ -681,7 +679,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               type="button"
               onClick={onDescartar}
               disabled={descartando}
-              className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
             >
               {descartando ? (
                 <EstadoProcesando etiqueta="Descartando" />

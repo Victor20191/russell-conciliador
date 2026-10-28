@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { EXCEL, escribirLibroMarca } from "@/lib/export/marca-excel";
 import { PROCESOS_ERP } from "@/lib/erp-procesos";
 
 export type CatalogoPlantillaClientes = {
@@ -26,11 +27,11 @@ const FIJAS = [
   "Staff (ejecuta) * - uno o varios, separar con ;",
 ];
 
-const COLOR_HEADER = "FF0F2744";
-const COLOR_HEADER_DIAN = "FF254E7A";
-const COLOR_FILL = "FFF6F8FB";
-const COLOR_WARN = "FFFFF4D6";
-const COLOR_BORDER = "FFD8E0EA";
+const COLOR_HEADER = EXCEL.encabezado;
+const COLOR_HEADER_DIAN = EXCEL.encabezadoSecundario;
+const COLOR_FILL = EXCEL.cebra;
+const COLOR_WARN = EXCEL.advertencia;
+const COLOR_BORDER = EXCEL.borde;
 
 function valoresUnicos(valores: string[]): string[] {
   return [...new Set(valores.map((v) => v.trim()).filter(Boolean))].sort((a, b) =>
@@ -88,7 +89,7 @@ function estilizarFilaEncabezado(ws: ExcelJS.Worksheet, totalColumnas: number, d
   fila.height = 28;
   for (let col = 1; col <= totalColumnas; col++) {
     const cell = fila.getCell(col);
-    cell.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11 };
+    cell.font = { color: { argb: EXCEL.textoEncabezado }, bold: true, size: 11 };
     cell.fill = {
       type: "pattern",
       pattern: "solid",
@@ -157,7 +158,7 @@ function agregarReferencias(wb: ExcelJS.Workbook, catalogo: CatalogoPlantillaCli
     ]);
   }
 
-  ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  ws.getRow(1).font = { bold: true, color: { argb: EXCEL.textoEncabezado } };
   ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_HEADER } };
   ws.columns.forEach((col) => {
     col.width = 24;
@@ -191,7 +192,7 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
         right: { style: "thin", color: { argb: COLOR_BORDER } },
       };
       if (col === 1) {
-        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.font = { bold: true, color: { argb: EXCEL.textoEncabezado } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_HEADER } };
       }
     });
@@ -317,6 +318,5 @@ export async function crearPlantillaImportacionClientes(
   ws.getCell(2, staffCol).note = "Para varios staff, separa nombres con punto y coma (;).";
   ws.getCell("A2").note = "Esta fila se ignora porque contiene EJEMPLO. Puedes borrarla.";
 
-  const buffer = await wb.xlsx.writeBuffer();
-  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as ArrayBuffer);
+  return escribirLibroMarca(wb);
 }

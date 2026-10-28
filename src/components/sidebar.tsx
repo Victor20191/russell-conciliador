@@ -4,7 +4,8 @@ import { Fragment, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Icon, BrandMark } from "@/components/icons";
+import { Icon } from "@/components/icons";
+import { LogoRussellBedford } from "@/components/marca";
 import { Avatar } from "@/components/avatar";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { workNav, configNav, configSecciones, type NavChild, type NavItem } from "@/lib/nav";
@@ -21,7 +22,7 @@ function BotonCerrarSesion() {
       title="Cerrar sesión"
       aria-busy={pending}
       disabled={pending}
-      className="sidebar-logout inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#A9B6C8] transition enabled:hover:bg-white/10 enabled:hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A9B6C8]"
+      className="sidebar-logout inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-navy-300 transition enabled:hover:bg-navy-600 enabled:hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-300"
     >
       {pending ? (
         <EstadoProcesando etiqueta="Cerrando sesión" />
@@ -135,7 +136,7 @@ export default function Sidebar({
           type="button"
           aria-label="Cerrar menú"
           onClick={onCloseMobile}
-          className="fixed inset-0 z-40 bg-navy-900/50 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-navy-900/40 lg:hidden"
         />
       )}
       <aside
@@ -154,31 +155,28 @@ export default function Sidebar({
           onDesktopHoverChange?.(true);
         }}
         onMouseLeave={() => onDesktopHoverChange?.(false)}
-        className={`sidebar-motion fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col overflow-hidden border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+        className={`sidebar-motion fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col overflow-hidden border-r border-navy-900 bg-navy-800 text-navy-100 transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
         } ${desktopCollapsed ? "lg:w-14 lg:cursor-pointer" : "lg:w-[232px]"}`}
       >
-      {/* Marca + versión de la plataforma */}
-      <div className={`border-b border-white/10 px-[18px] py-3.5 ${desktopCollapsed ? "lg:px-3.5" : ""}`}>
-        <div className={`flex items-center gap-2.5 ${desktopCollapsed ? "lg:justify-center lg:gap-0" : ""}`}>
-          <BrandMark size={28} />
-          <div className={`sidebar-reveal min-w-0 flex-1 whitespace-nowrap font-serif text-sm font-medium leading-tight text-white ${desktopCollapsed ? "lg:sr-only" : ""}`}>
-            Russell Bedford
-            <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
-              Conciliador
-            </small>
-          </div>
+      {/* Marca + versión de la plataforma. El logotipo blanco sobre el azul
+          institucional (§1.2) con su espacio libre (padding del componente, 20 %
+          del ancho). Con el menú contraído no cabe a su ancho mínimo de 30 mm y
+          el isotipo no puede hacer de logo (§4.1): la marca se oculta. */}
+      <div className={`border-b border-navy-600 ${desktopCollapsed ? "lg:hidden" : ""}`}>
+        <div className="flex items-start justify-between">
+          <LogoRussellBedford variante="blanco" ancho={130} prioridad className="sidebar-reveal" />
           <button
             type="button"
             onClick={onCloseMobile}
             aria-label="Cerrar menú"
-            className="rounded p-1 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white lg:hidden"
+            className="mt-3 mr-3 rounded p-1 text-navy-300 transition hover:bg-navy-600 hover:text-white lg:hidden"
           >
             <Icon name="x" size={18} />
           </button>
         </div>
         {etiquetaVer && (
-          <div className={`sidebar-reveal mt-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
+          <div className="sidebar-reveal px-[26px] pb-3.5">
             {puedeVerNovedades ? (
               <Link
                 href="/novedades"
@@ -188,18 +186,18 @@ export default function Sidebar({
                     ? `${etiquetaVer} · ${appVersion.title}`
                     : `Changelog · ${etiquetaVer}`
                 }
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-wide text-[#A9B6C8] transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                className="inline-flex items-center gap-1.5 rounded-full border border-navy-600 px-2 py-0.5 text-[10px] font-medium tracking-wide text-navy-200 transition hover:bg-navy-600 hover:text-white"
               >
-                <span className="h-1 w-1 rounded-full bg-emerald-400/90" aria-hidden />
-                {etiquetaVer}
+                <span className="h-1 w-1 rounded-full bg-ok-500" aria-hidden />
+                Conciliador · {etiquetaVer}
               </Link>
             ) : (
               <span
                 title={appVersion?.title ?? undefined}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-wide text-[#A9B6C8]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-navy-600 px-2 py-0.5 text-[10px] font-medium tracking-wide text-navy-200"
               >
-                <span className="h-1 w-1 rounded-full bg-emerald-400/90" aria-hidden />
-                {etiquetaVer}
+                <span className="h-1 w-1 rounded-full bg-ok-500" aria-hidden />
+                Conciliador · {etiquetaVer}
               </span>
             )}
           </div>
@@ -243,12 +241,12 @@ export default function Sidebar({
       </div>
 
       {/* Usuario + logout */}
-      <div className={`flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 ${desktopCollapsed ? "lg:justify-center lg:gap-0 lg:px-2 lg:pb-9" : "lg:pr-8"}`}>
+      <div className={`flex items-center gap-2.5 border-t border-navy-600 px-[18px] py-3 ${desktopCollapsed ? "lg:justify-center lg:gap-0 lg:px-2 lg:pb-9" : "lg:pr-8"}`}>
         <Link
           href="/perfil"
           onClick={onCloseMobile}
           title="Mi perfil"
-          className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 -m-1 transition hover:bg-white/5 ${desktopCollapsed ? "lg:m-0 lg:justify-center lg:gap-0 lg:p-0" : ""}`}
+          className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 -m-1 transition hover:bg-navy-600 ${desktopCollapsed ? "lg:m-0 lg:justify-center lg:gap-0 lg:p-0" : ""}`}
         >
           <Avatar
             src={user?.avatarUrl}
@@ -260,7 +258,7 @@ export default function Sidebar({
             <div className="truncate text-[12.5px] font-semibold text-white">
               {user?.name ?? "Usuario"}
             </div>
-            <div className="truncate text-[10.5px] text-[#7C8DA3]">
+            <div className="truncate text-[10.5px] text-navy-300">
               {user?.role ?? ""}
             </div>
           </div>
@@ -302,7 +300,7 @@ function NavGroupItem({
           title={item.label}
           aria-label={item.label}
           className={`mx-auto hidden h-9 w-9 items-center justify-center rounded-md transition lg:flex lg:[&_svg]:size-4 ${
-            active ? "bg-white/10 text-white" : "hover:bg-white/5"
+            active ? "bg-navy-600 text-white shadow-[inset_3px_0_0_0_var(--color-sky-blue)]" : "hover:bg-navy-600 hover:text-white"
           }`}
         >
           <span className="shrink-0 text-current"><Icon name={item.icon} /></span>
@@ -314,19 +312,19 @@ function NavGroupItem({
         title={item.label}
         aria-expanded={open}
         className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:hidden" : ""} ${
-          active ? "bg-white/10 text-white" : "hover:bg-white/5"
+          active ? "bg-navy-600 text-white shadow-[inset_3px_0_0_0_var(--color-sky-blue)]" : "hover:bg-navy-600 hover:text-white"
         }`}
       >
         <span className="shrink-0 text-current"><Icon name={item.icon} /></span>
         <span className="sidebar-reveal truncate">{item.label}</span>
         {inDevelopment && <DevBadge />}
         {item.count != null && <Count n={item.count} />}
-        <span className="sidebar-reveal ml-auto opacity-50">
+        <span className="sidebar-reveal ml-auto text-navy-300">
           <Icon name={chevronDivulgacion(open)} size={11} />
         </span>
       </button>
       {open && (
-        <div className={`sidebar-reveal mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
+        <div className={`sidebar-reveal mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-navy-600 pl-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
           {item.children.map((ch) => {
             const childActive = isChildActive(pathname, ch.href);
             return (
@@ -335,13 +333,13 @@ function NavGroupItem({
                 href={ch.href}
                 className={`flex items-center gap-2 rounded px-2.5 py-2 text-[12.5px] transition ${
                   childActive
-                    ? "bg-white/10 text-white"
-                    : "text-[#A9B6C8] hover:bg-white/5"
+                    ? "bg-navy-600 text-white shadow-[inset_3px_0_0_0_var(--color-sky-blue)]"
+                    : "text-navy-300 hover:bg-navy-600 hover:text-white"
                 }`}
               >
                 <span
                   className={`h-1 w-1 rounded-full ${
-                    childActive ? "bg-blue-400" : "bg-[#5E7290]"
+                    childActive ? "bg-blue-400" : "bg-navy-500"
                   }`}
                 />
                 <span className="truncate">{ch.label}</span>
@@ -374,7 +372,7 @@ function TopLink({
       title={item.label}
       aria-label={desktopCollapsed ? item.label : undefined}
       className={`flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:h-9 lg:w-9 lg:self-center lg:justify-center lg:gap-0 lg:rounded-md lg:p-0 lg:[&_svg]:size-4" : ""} ${
-        active ? "bg-white/10 text-white" : "hover:bg-white/5"
+        active ? "bg-navy-600 text-white shadow-[inset_3px_0_0_0_var(--color-sky-blue)]" : "hover:bg-navy-600 hover:text-white"
       }`}
     >
       <span className="shrink-0"><Icon name={item.icon} /></span>
@@ -397,7 +395,7 @@ function DevBadge() {
 
 function Count({ n }: { n: number }) {
   return (
-    <span className="ml-auto rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+    <span className="ml-auto rounded-full bg-navy-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
       {n}
     </span>
   );
@@ -405,7 +403,7 @@ function Count({ n }: { n: number }) {
 
 function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
   return (
-    <div className={`sidebar-reveal whitespace-nowrap px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3] ${collapsed ? "lg:sr-only" : ""}`}>
+    <div className={`sidebar-reveal whitespace-nowrap px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-navy-300 ${collapsed ? "lg:sr-only" : ""}`}>
       {children}
     </div>
   );

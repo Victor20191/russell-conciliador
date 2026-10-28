@@ -30,8 +30,9 @@ export default async function DashboardPage({
     return <InicioEnPreparacion nombre={usuario?.name?.split(" ")[0] ?? ""} pwd={pwd} />;
   }
   // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
-  // ven la plataforma completa). La actividad del equipo (auditoría) es
-  // transversal y global, así que solo la ven los administradores (`auditoria:ver`, 22/Oct/2026).
+  // ven la plataforma completa). La actividad del equipo requiere además
+  // `auditoria:ver` (solo administradores, 22/Oct/2026) y conserva el filtro
+  // de cartera porque su texto puede contener datos sensibles de clientes.
   const [user, crearConciliacionAuth, alc, auditoriaAuth] = await Promise.all([
     getCurrentUser(),
     authorizePermiso("conciliaciones:crear"),
@@ -62,6 +63,7 @@ export default async function DashboardPage({
     prisma.clientModule.count({ where: { status: "pending", ...cmWhere } }),
     // Dentro de la transacción por arreglo no cabe una promesa vacía: sin permiso, no trae filas.
     prisma.auditEntry.findMany({
+      where: alc.todos ? {} : { clientId: { in: alc.clientIds } },
       orderBy: { createdAt: "desc" },
       take: puedeVerAuditoria ? 6 : 0,
       select: { id: true, user: true, action: true, entity: true, detail: true, createdAt: true },
@@ -109,7 +111,7 @@ export default async function DashboardPage({
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Conciliaciones recientes" right={<Link href="/conciliacion/resultados" className="text-[12px] font-medium text-blue-500 hover:underline">Ver todas</Link>} />
+          <CardHeader title="Conciliaciones recientes" right={<Link href="/conciliacion/resultados" className="text-[12px] font-medium text-blue-600 hover:underline">Ver todas</Link>} />
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
@@ -127,14 +129,14 @@ export default async function DashboardPage({
               <tbody>
                 {recs.map((r) => (
                   <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    <td className="px-4 py-2.5 font-mono text-[11.5px] text-ink-500">{r.id}</td>
+                    <td className="px-4 py-2.5 tabular-nums text-[11.5px] text-ink-500">{r.id}</td>
                     <td className="px-4 py-2.5 text-ink-800">{r.clientName}</td>
                     <td className="px-4 py-2.5 text-ink-600">{r.module}</td>
                     <td className="px-4 py-2.5 text-ink-500">{r.erp}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-ink-700">{r.diff}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink-700">{r.diff}</td>
                     <td className="px-4 py-2.5"><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusChip(r.status)}`}>{STATUS_LABEL[r.status] ?? r.status}</span></td>
                     <td className="px-4 py-2.5 text-ink-600">{r.owner}</td>
-                    <td className="px-4 py-2.5 text-right"><Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline">Ver <Icon name="chev-r" size={12} /></Link></td>
+                    <td className="px-4 py-2.5 text-right"><Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-600 hover:underline">Ver <Icon name="chev-r" size={12} /></Link></td>
                   </tr>
                 ))}
               </tbody>
@@ -149,7 +151,7 @@ export default async function DashboardPage({
               <div className="divide-y divide-ink-50">
                 {activity.map((a) => (
                   <div key={a.id} className="flex gap-2.5 px-4 py-2.5">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">{initials(a.user)}</div>
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-700 text-[10px] font-semibold text-white">{initials(a.user)}</div>
                     <div className="text-[12px] text-ink-700">
                       <div><b>{a.user}</b> <span className="text-ink-500">{a.action.toLowerCase()}</span> <b>{a.entity}</b></div>
                       <div className="text-[11px] text-ink-400">{a.detail}</div>
@@ -165,11 +167,11 @@ export default async function DashboardPage({
             <div className="divide-y divide-ink-50">
               {pendingClients.map((c) => (
                 <div key={c.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="font-mono text-[11px] text-ink-400">{c.erp?.name ?? "Sin ERP"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="tabular-nums text-[11px] text-ink-400">{c.erp?.name ?? "Sin ERP"}</span></div>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">{c.modules.map((m) => <Chip key={m.id} label={m.module.name} tone="warn" />)}</div>
                 </div>
               ))}
-              {pendingClients.length === 0 && <div className="px-4 py-6 text-center text-[12.5px] text-ink-400">Sin pendientes 🎉</div>}
+              {pendingClients.length === 0 && <div className="px-4 py-6 text-center text-[12.5px] text-ink-400">Sin pendientes</div>}
             </div>
           </Card>
         </div>

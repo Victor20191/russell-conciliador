@@ -63,7 +63,7 @@ export function ComentarioAprobacion({
           tituloId="advertencia-archivo-fuente-oficial"
           className="mb-4"
           detalle={justificacionArchivoFuente ? (
-            <div className="border-t border-warn-100 bg-white/55 px-4 py-3.5 sm:pl-16">
+            <div className="border-t border-warn-100 bg-white px-4 py-3.5 sm:pl-16">
               <div className="mb-1.5 flex flex-wrap items-center gap-2">
                 <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-warn-700">
                   Justificación de aprobación
@@ -86,10 +86,10 @@ export function ComentarioAprobacion({
       {muestraDescuadre && (
         <section
           aria-labelledby="justificacion-descuadre"
-          className="mb-4 overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"
+          className="mb-4 overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-white shadow-sm"
         >
           <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800 shadow-sm">
               <Icon name="warn" size={18} stroke={2} />
             </span>
             <div className="min-w-0 flex-1">
@@ -110,9 +110,9 @@ export function ComentarioAprobacion({
               {v2 ? (
                 <ul className="mt-2 flex flex-col gap-2.5">
                   {motivosV2.map((m) => (
-                    <li key={m.tipo} className="rounded-md border border-warn-100 bg-white/70 px-3 py-2">
+                    <li key={m.tipo} className="rounded-md border border-warn-100 bg-white px-3 py-2">
                       <div className="text-[12px] font-semibold text-ink-700">
-                        ✕ {ETIQUETA_CONDICION[m.tipo]}
+                        × {ETIQUETA_CONDICION[m.tipo]}
                         <span className="ml-1.5 font-normal text-ink-500">{textoMotivoDescuadre(m).titulo}</span>
                       </div>
                       <blockquote className="mt-1 max-w-4xl whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-ink-800">
@@ -124,7 +124,7 @@ export function ComentarioAprobacion({
               ) : (
                 <ul className="mt-1.5 flex flex-col gap-0.5 text-[12px] text-ink-700">
                   {motivosRecuadro.map((m) => (
-                    <li key={m.tipo}>✕ {textoMotivoDescuadre(m).titulo}</li>
+                    <li key={m.tipo}>× {textoMotivoDescuadre(m).titulo}</li>
                   ))}
                 </ul>
               )}
@@ -147,10 +147,10 @@ export function ComentarioAprobacion({
       {comentario && !muestraAdvertenciaArchivoFuente && !muestraDescuadre && (
         <section
           aria-labelledby="comentario-aprobacion"
-          className="mb-4 overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"
+          className="mb-4 overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-white shadow-sm"
         >
           <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-navy-800 shadow-sm">
               <Icon name="warn" size={18} stroke={2} />
             </span>
             <div className="min-w-0 flex-1">

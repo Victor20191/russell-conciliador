@@ -9,6 +9,7 @@
 // saldo, recalcula solo. Se mantiene además la columna "Δ descuadre (app)" con el
 // valor autoritativo (con re-atribución de gemelos) para cotejar.
 import ExcelJS from "exceljs";
+import { EXCEL, escribirLibroMarca, estiloEncabezado } from "./marca-excel";
 import type { NodoBorrador } from "@/lib/balance/borrador";
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 
@@ -45,7 +46,7 @@ export async function crearExportacionBorrador(
     { header: "Δ vs cuentas (fórmula)", key: "deltaFormula", width: 20 },
     { header: "Δ descuadre (app)", key: "delta", width: 18 },
   ];
-  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).eachCell((c) => estiloEncabezado(c));
 
   // Columnas (letra) para construir las fórmulas: H = "Saldo actual", I = "Suma hijos".
   const COL_SALDO = "H";
@@ -88,14 +89,14 @@ export async function crearExportacionBorrador(
     // encabezados); el descuadre en rojo para localizarlo.
     if (esAgrup) row.font = { bold: true };
     if (nodo.descuadre != null && nodo.descuadre !== 0) {
-      row.getCell("delta").font = { color: { argb: "FFC01919" }, bold: true };
-      row.getCell("deltaFormula").font = { color: { argb: "FFC01919" }, bold: true };
+      row.getCell("delta").font = { color: { argb: EXCEL.error }, bold: true };
+      row.getCell("deltaFormula").font = { color: { argb: EXCEL.error }, bold: true };
     }
     // Fila OMITIDA: se conserva (línea a línea) pero se muestra tachada/gris.
-    if (nodo.omitida) row.font = { color: { argb: "FF98A2B3" }, italic: true, strike: true };
+    if (nodo.omitida) row.font = { color: { argb: EXCEL.textoApagado }, italic: true, strike: true };
   });
 
   ws.views = [{ state: "frozen", ySplit: 1 }];
   ws.autoFilter = { from: "A1", to: "K1" };
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return escribirLibroMarca(wb);
 }

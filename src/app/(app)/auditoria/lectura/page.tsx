@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard, Chip } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { fmtDateTime, fmtNum } from "@/lib/format";
 import { requirePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
@@ -142,7 +143,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
 
       <div className="mb-4 grid gap-3 lg:grid-cols-2">
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-800">Disparo por heurística</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">Disparo por heurística</h2>
           {heurOrdenadas.length === 0 ? (
             <p className="py-6 text-center text-[12.5px] text-ink-400">Aún no hay reportes medidos.</p>
           ) : (
@@ -151,7 +152,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
                 <li key={k}>
                   <div className="mb-1 flex items-baseline justify-between gap-3">
                     <span className="min-w-0 truncate text-[12.5px] text-ink-800">{HEUR_LABEL[k] ?? k}</span>
-                    <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">{fmtNum(n)} rep.</span>
+                    <span className="shrink-0 tabular-nums text-[12px] font-semibold text-ink-700">{fmtNum(n)} rep.</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
                     <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.round((n / maxHeur) * 100)}%` }} />
@@ -163,7 +164,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
         </Card>
 
         <Card className="p-4">
-          <h2 className="mb-1 text-[13px] font-semibold text-ink-800">Convergencia — combinaciones nuevas</h2>
+          <h2 className="mb-1 text-[13px] font-semibold text-navy-800">Convergencia — combinaciones nuevas</h2>
           <p className="mb-3 text-[11.5px] text-ink-500">
             Cada vez que aparece una combinación de heurísticas nunca vista, la cola aún no cierra. Si dejan de aparecer al acumular reportes → converge (seguir parchando); si siguen saliendo → diverge (rediseñar).
           </p>
@@ -173,7 +174,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
             <ul className="space-y-2">
               {nuevosRecientes.map((c, i) => (
                 <li key={i} className="flex items-start gap-2 text-[12px]">
-                  <span className="shrink-0 text-ai-600">★</span>
+                  <Icon name="star" size={13} stroke={2} className="mt-px shrink-0 text-ai-600" />
                   <span className="min-w-0">
                     <span className="font-medium text-ink-800">{c.sig}</span>
                     <span className="ml-1.5 text-[11px] text-ink-400">{fmtDateTime(c.fecha)} · {c.archivo}</span>
@@ -211,10 +212,10 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
                   <tr key={f.id} className="border-t border-ink-100 hover:bg-ink-50/60">
                     <td className="whitespace-nowrap px-3 py-1.5 text-ink-500">{fmtDateTime(f.creadoEn)}</td>
                     <td className="max-w-[220px] truncate px-3 py-1.5 text-ink-800" title={f.archivoNombre}>
-                      {f.diagnosticoIa != null && <span className="mr-1 text-ai-600" title="Se pidió diagnóstico asistido con IA">✦</span>}
+                      {f.diagnosticoIa != null && <span className="mr-1 text-ai-600" title="Se pidió diagnóstico asistido con IA"><Icon name="ai" size={12} stroke={2} className="inline-block align-[-2px]" /></span>}
                       {f.archivoNombre}
                     </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-ink-600">{fmtNum(f.filas)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-ink-600">{fmtNum(f.filas)}</td>
                     <td className="px-3 py-1.5 text-ink-500">{f.formato ?? "—"}</td>
                     <td className="px-3 py-1.5">
                       <Chip label={f.cuadradoInicial ? "Sí" : "No"} tone={f.cuadradoInicial ? "ok" : "warn"} />
@@ -222,7 +223,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
                     <td className="px-3 py-1.5">
                       {f.cuadradoFinal == null ? <span className="text-ink-400">—</span> : <Chip label={f.cuadradoFinal ? "Sí" : "No"} tone={f.cuadradoFinal ? "ok" : "err"} />}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono text-[11px] text-ink-600">
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-[11px] text-ink-600">
                       {(h.partidaDobleDiff ?? 0) === 0 && (h.ecuacionDiff ?? 0) === 0
                         ? <span className="text-ink-400">—</span>
                         : `${fmtNum(Math.round(h.partidaDobleDiff ?? 0))} / ${fmtNum(Math.round(h.ecuacionDiff ?? 0))}`}
@@ -234,7 +235,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
                     </td>
                     <td className="px-3 py-1.5">
                       {mano === 0 ? <span className="text-ink-400">—</span> : (
-                        <span className="font-mono text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas · ${f.manualReclasificadas} reclasificadas`}>
+                        <span className="tabular-nums text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas · ${f.manualReclasificadas} reclasificadas`}>
                           {mano}
                         </span>
                       )}

@@ -4,6 +4,7 @@ import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { registrarError } from "@/lib/errores";
 import { prepararHtmlReporteEjecutivoPdf } from "@/lib/auditoria/reporte-ejecutivo/pdf";
 import { generarPdfReporteNovedades } from "@/lib/novedades/pdf";
+import { incrustarMarcaParaPdf } from "@/lib/marca/recursos-pdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +44,8 @@ export async function POST(req: NextRequest) {
 
     const pdf = await generarPdfReporteNovedades({
       ...parsed.data,
-      html: prepararHtmlReporteEjecutivoPdf(parsed.data.html),
+      // El Chromium del PDF no tiene red: el logotipo y Lato viajan incrustados.
+      html: await incrustarMarcaParaPdf(prepararHtmlReporteEjecutivoPdf(parsed.data.html)),
       media: "print",
       ajustarEscalaVistaPrevia: false,
     });

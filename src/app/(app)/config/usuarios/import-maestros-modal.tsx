@@ -99,7 +99,7 @@ function ResultadoOk({
   const orden = ["Socio", "Gerente", "Senior", "Staff"];
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+      <div className="rounded-md border border-ok-100 bg-ok-100 px-3 py-2.5 text-[12.5px] text-ok-700">
         Se crearon <span className="font-semibold">{resumen.creados}</span> personas:{" "}
         {orden
           .filter((r) => resumen.porRol[r])
@@ -107,7 +107,7 @@ function ResultadoOk({
           .join(" · ")}
         .
       </div>
-      <div className="rounded-md border border-warn-100 bg-warn-100/40 p-3">
+      <div className="rounded-md border border-warn-100 bg-warn-100 p-3">
         <p className="text-[11.5px] font-semibold text-warn-700">
           Contraseña temporal (cópiala ahora, no se vuelve a mostrar)
         </p>
@@ -115,7 +115,7 @@ function ResultadoOk({
           Es la misma para todas las personas creadas. Cada una deberá cambiarla en su primer ingreso.
         </p>
         <div className="mt-2 flex items-center gap-2">
-          <code className="flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 font-mono text-[13px] text-ink-800">
+          <code className="flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-[13px] text-ink-800">
             {resumen.passwordTemporal}
           </code>
           <button
@@ -152,7 +152,7 @@ function ErroresTabla({ errores }: { errores: ErrorImport[] }) {
             {errores.map((e, i) => (
               <tr key={i} className="border-t border-ink-100">
                 <td className="px-2.5 py-1.5 text-ink-600">{e.hoja}</td>
-                <td className="px-2.5 py-1.5 font-mono text-ink-500">{e.fila || "—"}</td>
+                <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{e.fila || "—"}</td>
                 <td className="px-2.5 py-1.5 text-ink-700">{e.mensaje}</td>
               </tr>
             ))}

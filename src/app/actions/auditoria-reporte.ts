@@ -262,8 +262,8 @@ function envolverHtmlBasico(cuerpo: string): string {
 <meta charset="utf-8" />
 <title>Reporte de uso y avances</title>
 <style>
-  body { font-family: Georgia, 'Times New Roman', serif; color: #1a2332; margin: 32px; line-height: 1.5; }
-  h1 { font-size: 22px; }
+  body { font-family: Lato, Arial, Helvetica, sans-serif; color: #3C3C3B; margin: 32px; line-height: 1.5; }
+  h1 { font-size: 22px; font-weight: 300; color: #001871; }
 </style>
 </head>
 <body>
@@ -728,6 +728,8 @@ const SELECT_ENVIO = {
  * aún no existe en el entorno, la pantalla funciona como antes (sin historial).
  */
 export async function listarEnviosReporteEjecutivo(limite = 50): Promise<EnvioReportePrevio[]> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return [];
   try {
     const filas = await prisma.envioReporteEjecutivo.findMany({
       orderBy: [{ enviadoEn: "desc" }, { id: "desc" }],

@@ -40,7 +40,7 @@ function sign(t: DiffRow["type"]) { return t === "added" ? "+" : t === "removed"
 
 function GitView({ rows }: { rows: DiffRow[] }) {
   return (
-    <Card className="overflow-hidden p-0 font-mono text-[12px]">
+    <Card className="overflow-hidden p-0 tabular-nums text-[12px]">
       {rows.map((r, i) => (
         <div key={i} className={`grid items-center gap-2 border-b border-ink-50 px-3 py-1.5 last:border-0 ${r.type === "added" ? "bg-ok-100" : r.type === "removed" ? "bg-err-100" : ""}`} style={{ gridTemplateColumns: "20px 90px 1fr 130px 130px 120px" }}>
           <span className={`font-bold ${r.type === "added" ? "text-ok-700" : r.type === "removed" ? "text-err-700" : "text-ink-500"}`}>{sign(r.type)}</span>
@@ -74,12 +74,12 @@ function SideView({ rows, version, versionAnterior }: { rows: DiffRow[]; version
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className={`border-b border-ink-50 last:border-0 ${r.type === "added" ? "bg-ok-100" : r.type === "removed" ? "bg-err-100" : ""}`}>
-                <td className="px-4 py-2 font-mono text-ink-600">{r.code}</td>
+                <td className="px-4 py-2 tabular-nums text-ink-600">{r.code}</td>
                 <td className="px-4 py-2 text-ink-800">{r.name}</td>
                 <td className="px-4 py-2">{r.type === "added" ? <Chip label="+ Nueva" tone="ok" /> : r.type === "removed" ? <Chip label="− Eliminada" tone="err" /> : <Chip label="~ Modificada" tone="ink" />}</td>
-                <td className="px-4 py-2 text-right font-mono text-ink-500">{r.type === "added" ? "—" : fmt(r.before)}</td>
-                <td className="px-4 py-2 text-right font-mono font-semibold text-ink-800">{r.type === "removed" ? "—" : fmt(r.after)}</td>
-                <td className={`px-4 py-2 text-right font-mono ${r.delta > 0 ? "text-ok-700" : "text-err-700"}`}>{r.delta > 0 ? "+" : ""}{fmt(r.delta)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-ink-500">{r.type === "added" ? "—" : fmt(r.before)}</td>
+                <td className="px-4 py-2 text-right tabular-nums font-semibold text-ink-800">{r.type === "removed" ? "—" : fmt(r.after)}</td>
+                <td className={`px-4 py-2 text-right tabular-nums ${r.delta > 0 ? "text-ok-700" : "text-err-700"}`}>{r.delta > 0 ? "+" : ""}{fmt(r.delta)}</td>
                 <td className="px-4 py-2">{r.flag && <Chip label={r.flag} tone="err" />}</td>
               </tr>
             ))}
@@ -100,9 +100,9 @@ function SxsView({ rows, version, versionAnterior }: { rows: DiffRow[]; version:
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className={`border-b border-ink-50 ${r.type === "added" ? "bg-ink-50 opacity-40" : ""}`}>
-                  <td className="px-4 py-2 font-mono text-ink-500">{r.code}</td>
+                  <td className="px-4 py-2 tabular-nums text-ink-500">{r.code}</td>
                   <td className="px-4 py-2 text-ink-700">{r.name}</td>
-                  <td className="px-4 py-2 text-right font-mono text-ink-600">{r.type === "added" ? "—" : fmt(r.before)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-ink-600">{r.type === "added" ? "—" : fmt(r.before)}</td>
                 </tr>
               ))}
             </tbody>
@@ -116,9 +116,9 @@ function SxsView({ rows, version, versionAnterior }: { rows: DiffRow[]; version:
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className={`border-b border-ink-50 ${r.type === "added" ? "bg-ok-100" : r.delta !== 0 ? "bg-warn-100" : ""}`}>
-                  <td className="px-4 py-2 font-mono text-ink-500">{r.code}</td>
+                  <td className="px-4 py-2 tabular-nums text-ink-500">{r.code}</td>
                   <td className="px-4 py-2 text-ink-700">{r.name}</td>
-                  <td className="px-4 py-2 text-right font-mono font-semibold text-ink-800">{r.type === "removed" ? "—" : fmt(r.after)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums font-semibold text-ink-800">{r.type === "removed" ? "—" : fmt(r.after)}</td>
                 </tr>
               ))}
             </tbody>

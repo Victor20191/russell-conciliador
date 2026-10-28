@@ -91,7 +91,7 @@ export function AgregarParteBalance({
         onClick={() => setAbierto(true)}
         disabled={bloqueo != null}
         title={bloqueo ?? "El ERP entregó el balance del período en varios archivos: agrega aquí las demás partes"}
-        className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 transition hover:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Icon name="plus" size={13} /> Agregar otra parte
       </button>
@@ -106,7 +106,7 @@ export function AgregarParteBalance({
               type="button"
               onClick={agregar}
               disabled={!archivo || procesando}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
             >
               {procesando
                 ? <EstadoProcesando>{progreso != null ? `Subiendo ${progreso}%` : "Leyendo y agregando"}</EstadoProcesando>
@@ -213,7 +213,7 @@ export function CuentasRepetidasPartesAviso({
           const ultima = r.ocurrencias[r.ocurrencias.length - 1];
           return (
             <li key={r.codigo} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-mono font-semibold">{r.codigo}</span>
+              <span className="tabular-nums font-semibold">{r.codigo}</span>
               <span className="min-w-0 truncate">{r.nombre}</span>
               <span className="text-ink-500">
                 {r.ocurrencias.map((o) => `parte ${o.parte}: ${fmtContable(o.saldoFinal)}`).join(" · ")}

@@ -102,10 +102,10 @@ export default function PanelAyuda({ rolesAyuda, rol, permisos, modulosVisibles 
       className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-ink-150 bg-white shadow-2xl sm:w-[400px] xl:w-[420px]"
     >
       <div className="flex items-start gap-2 border-b border-ink-100 px-4 py-3">
-        <Icon name="help-circle" size={18} className="mt-1 shrink-0 text-blue-500" />
+        <Icon name="help-circle" size={18} className="mt-1 shrink-0 text-blue-600" />
         <div className="min-w-0 flex-1">
           <p className="text-[10.5px] font-semibold uppercase tracking-wider text-ink-400">Ayuda</p>
-          <h2 id={ID_TITULO} ref={tituloRef} tabIndex={-1} className="text-[14px] font-semibold leading-snug text-ink-800 outline-none">
+          <h2 id={ID_TITULO} ref={tituloRef} tabIndex={-1} className="text-[14px] font-semibold leading-snug text-navy-800 outline-none">
             {titulo}
           </h2>
         </div>

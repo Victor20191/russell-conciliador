@@ -50,7 +50,7 @@ export function CorregirLecturaInventario({ loteId, periodo, roles, bloqueado, c
         onClick={abrir}
         disabled={bloqueado || consultando}
         title={bloqueado ? "Guarda o descarta tus cambios antes de corregir la lectura." : continuar ? "Retomar la lectura del archivo conservado, sin volver a subirlo." : "Volver a leer el original con asistencia y comparar el resultado."}
-        className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-[11.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-50"
+        className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-[11.5px] font-semibold text-navy-700 hover:bg-blue-50 disabled:opacity-60"
       >
         {continuar ? "Continuar lectura" : "Corregir lectura"}
       </button>
@@ -59,7 +59,7 @@ export function CorregirLecturaInventario({ loteId, periodo, roles, bloqueado, c
           {errorConsulta ? (
             <div className="flex flex-col gap-3 text-[12px]">
               <p role="alert" className="text-err-700">No pudimos recuperar la lectura guardada. El borrador no cambió.</p>
-              <button type="button" onClick={abrir} disabled={consultando} className="self-end rounded-md bg-navy-700 px-3 py-2 font-semibold text-white disabled:opacity-50">Reintentar consulta</button>
+              <button type="button" onClick={abrir} disabled={consultando} className="self-end rounded-md bg-navy-700 px-3 py-2 font-semibold text-white disabled:opacity-60">Reintentar consulta</button>
             </div>
           ) : resultado ? (
             <AsistenciaInventarioPanel

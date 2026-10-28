@@ -67,7 +67,7 @@ export default function VistaCiclo(p: VistaCicloProps) {
                       </span>
                     ))}
                     {enlace && (!enlace.permiso || p.puedeAbrir(enlace.permiso)) && (
-                      <Link href={enlace.href} onClick={p.onNavegar} className="ml-auto text-[11.5px] font-medium text-blue-500 hover:underline">
+                      <Link href={enlace.href} onClick={p.onNavegar} className="ml-auto text-[11.5px] font-medium text-blue-600 hover:underline">
                         Ir a la pantalla
                       </Link>
                     )}

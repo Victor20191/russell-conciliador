@@ -2,10 +2,11 @@ import { ajustarMaquetacionReporte } from "./maquetacion";
 
 const MARCA_ESTILOS_IMPRESION = "rd-estilos-impresion";
 
+// Formato del membrete del Manual de Marca (§5.1): tamaño carta, 2,5 cm arriba y abajo, 3 cm a los lados.
 const ESTILOS_IMPRESION = `<style id="${MARCA_ESTILOS_IMPRESION}">
 @page {
   size: Letter;
-  margin: 12mm 13mm 14mm;
+  margin: 25mm 30mm;
 }
 
 @media print {

@@ -32,13 +32,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
   const encabezadoId = Number(id);
   if (!descriptorBase || !Number.isInteger(encabezadoId)) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
   try {
+    const referencia = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });
+    if (!referencia || referencia.moduloCodigo !== moduloCodigo) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
+    const scope = await authorizePermiso("modulos_datos:ver", { clientId: referencia.clienteId });
+    if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
     const encabezado = await prisma.moduloDatoEncabezado.findUnique({
-      where: { id: encabezadoId },
+      where: { id: encabezadoId, clienteId: referencia.clienteId, moduloCodigo },
       include: { detalles: { orderBy: { filaNum: "asc" } } },
     });
     if (!encabezado || encabezado.moduloCodigo !== moduloCodigo) return NextResponse.json({ message: "El dato no existe." }, { status: 404 });
-    const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
-    if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
     // Las cuentas que concilia el módulo en este cargue (las del cierre si el período está en firme).
     const descriptor = await resolverDescriptorVigente(descriptorBase, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
     // Nómina: por qué se agrupan los conceptos del Consolidado de este cargue («Agrupar por»).

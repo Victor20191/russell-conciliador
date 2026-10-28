@@ -8,6 +8,7 @@
 // validación real la hace la Server Action contra la BD.
 
 import ExcelJS from "exceljs";
+import { EXCEL, escribirLibroMarca } from "@/lib/export/marca-excel";
 import { GRUPOS_CONCEPTO_NOMINA } from "@/lib/modulos/nomina/grupos-concepto";
 
 export type CatalogoPlantillaConceptos = {
@@ -31,10 +32,10 @@ export const HEADERS_PLANTILLA_CONCEPTOS = [
   "Centro de costo / clase",
 ];
 
-const COLOR_HEADER = "FF0F2744";
-const COLOR_FILL = "FFF6F8FB";
-const COLOR_WARN = "FFFFF4D6";
-const COLOR_BORDER = "FFD8E0EA";
+const COLOR_HEADER = EXCEL.encabezado;
+const COLOR_FILL = EXCEL.cebra;
+const COLOR_WARN = EXCEL.advertencia;
+const COLOR_BORDER = EXCEL.borde;
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -87,7 +88,7 @@ function agregarReferencias(wb: ExcelJS.Workbook, catalogo: CatalogoPlantillaCon
     ]);
   }
 
-  ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  ws.getRow(1).font = { bold: true, color: { argb: EXCEL.textoEncabezado } };
   ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_HEADER } };
   ws.columns.forEach((col) => {
     col.width = 26;
@@ -121,7 +122,7 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
       cell.alignment = { vertical: "top", wrapText: true };
       cell.border = BORDE;
       if (col === 1) {
-        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.font = { bold: true, color: { argb: EXCEL.textoEncabezado } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_HEADER } };
       }
     });
@@ -144,7 +145,7 @@ export async function crearPlantillaConceptosNomina(
   encabezado.height = 28;
   for (let col = 1; col <= HEADERS_PLANTILLA_CONCEPTOS.length; col++) {
     const cell = encabezado.getCell(col);
-    cell.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11 };
+    cell.font = { color: { argb: EXCEL.textoEncabezado }, bold: true, size: 11 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_HEADER } };
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     cell.border = BORDE;
@@ -183,6 +184,5 @@ export async function crearPlantillaConceptosNomina(
   }
   // La cuenta NO se valida con lista: acepta la del cliente o la Russell, y varias separadas con «;».
 
-  const buffer = await wb.xlsx.writeBuffer();
-  return Buffer.from(buffer);
+  return escribirLibroMarca(wb);
 }

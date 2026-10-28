@@ -63,13 +63,15 @@ function Burbuja({
   // separa por color para que no se pierda entre la conversación.
   const oficial = entrada.tipo === "respuesta";
   const deXentria = entrada.lado === "xentria";
+  // La respuesta va sobre Sea Green con texto Space Blue (el blanco no se lee
+  // sobre ese complementario); los mensajes de Xentria, sobre el azul institucional.
   const caja = oficial
-    ? "border-ok-700 bg-ok-700"
+    ? "border-ok-500 bg-ok-500"
     : deXentria
       ? "border-navy-700 bg-navy-700"
       : "border-ink-150 bg-white";
-  const texto = oficial || deXentria ? "text-white" : "text-ink-800";
-  const firma = oficial || deXentria ? "text-white/70" : "text-ink-500";
+  const texto = oficial ? "text-navy-800" : deXentria ? "text-white" : "text-ink-800";
+  const firma = oficial ? "text-navy-700" : deXentria ? "text-navy-100" : "text-ink-500";
   const etiqueta =
     entrada.tipo === "apertura"
       ? "Novedad reportada"

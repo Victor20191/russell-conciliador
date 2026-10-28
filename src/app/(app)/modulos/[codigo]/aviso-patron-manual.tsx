@@ -6,7 +6,7 @@
 import { fmtDate } from "@/lib/format";
 import type { FormatoManualAnalisis } from "@/lib/modulos/formatos-manuales";
 
-const boton = "rounded-md border px-2.5 py-1 text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-50";
+const boton = "rounded-md border px-2.5 py-1 text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60";
 
 export function AvisoPatronManual({
   formato,
@@ -27,7 +27,7 @@ export function AvisoPatronManual({
   if (formato) {
     const usos = formato.vecesUsado === 1 ? "usado 1 vez" : `usado ${formato.vecesUsado} veces`;
     return (
-      <div className="flex flex-col gap-1.5 rounded-md border border-ok-500 bg-ok-100/30 px-3 py-2 text-[11.5px] leading-relaxed">
+      <div className="flex flex-col gap-1.5 rounded-md border border-ok-500 bg-ok-100 px-3 py-2 text-[11.5px] leading-relaxed">
         <span className="font-semibold text-ok-700">
           Patrón manual de {cliente} · {formato.anterior ? "coincide con su encabezado exacto" : `${formato.porcentaje} % de coincidencia`}
         </span>

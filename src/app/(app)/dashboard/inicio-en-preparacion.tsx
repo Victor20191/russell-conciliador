@@ -33,7 +33,7 @@ export default async function InicioEnPreparacion({ nombre, pwd }: { nombre: str
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {accesos.map((it) => (
             <Link key={it.href} href={it.href} className="group">
-              <Card className="flex items-center gap-3 p-4 transition group-hover:border-blue-200 group-hover:bg-blue-50/40">
+              <Card className="flex items-center gap-3 p-4 transition group-hover:border-blue-200 group-hover:bg-blue-100">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-ink-50 text-navy-700">
                   <Icon name={it.icon} size={17} />
                 </span>

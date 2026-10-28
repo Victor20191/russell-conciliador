@@ -7,6 +7,7 @@
 // no recortan la descarga. El catálogo del cliente es independiente.
 
 import ExcelJS from "exceljs";
+import { EXCEL, escribirLibroMarca } from "./marca-excel";
 import { construirPucRussell, profundidadPuc, type CuentaCuatroPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 
 /** Una cuenta del plan estándar Russell (pestaña «Detalle Subcuentas N6»). */
@@ -34,10 +35,10 @@ export type DatosExportacionPuc = {
 
 const HOJA_ESTANDAR = "Detalle Subcuentas N6";
 
-const COLOR_HEADER = "FF0F2744";
-const COLOR_FILL = "FFFFFFFF";
-const COLOR_ZEBRA = "FFF6F8FB";
-const COLOR_BORDER = "FFD8E0EA";
+const COLOR_HEADER = EXCEL.encabezado;
+const COLOR_FILL = EXCEL.fondo;
+const COLOR_ZEBRA = EXCEL.cebra;
+const COLOR_BORDER = EXCEL.borde;
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -101,7 +102,7 @@ function agregarHoja<T>(
   encabezado.height = 28;
   columnas.forEach((_, i) => {
     const cell = encabezado.getCell(i + 1);
-    cell.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11 };
+    cell.font = { color: { argb: EXCEL.textoEncabezado }, bold: true, size: 11 };
     cell.fill = relleno(COLOR_HEADER);
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     cell.border = BORDE;
@@ -135,13 +136,13 @@ function agregarHoja<T>(
         wrapText: c.wrap ?? false,
       };
       cell.fill = relleno(fondo);
-      if (c.mono) cell.font = { name: "Consolas", size: 10.5 };
+      if (c.mono) cell.font = { bold: true, size: 10.5 };
     });
   });
 
   if (filas.length === 0 && nota) {
     const row = ws.addRow([nota]);
-    row.getCell(1).font = { italic: true, color: { argb: "FF6B7684" } };
+    row.getCell(1).font = { italic: true, color: { argb: EXCEL.textoSecundario } };
     ws.mergeCells(row.number, 1, row.number, Math.max(columnas.length, 1));
   }
 
@@ -201,8 +202,8 @@ export async function crearExportacionPuc(
     row.getCell(1).numFmt = "@";
     row.getCell(2).alignment = { vertical: "middle", indent: profundidadPuc(fila.nivel), wrapText: true };
     if (fila.nivel <= 2) row.eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: fila.nivel === 1 ? "FFFFFFFF" : "FF0F2744" } };
-      cell.fill = relleno(fila.nivel === 1 ? COLOR_HEADER : "FFE9EFF5");
+      cell.font = { bold: true, color: { argb: fila.nivel === 1 ? EXCEL.textoEncabezado : EXCEL.titulo } };
+      cell.fill = relleno(fila.nivel === 1 ? COLOR_HEADER : EXCEL.nivel2);
     });
   });
 
@@ -214,6 +215,5 @@ export async function crearExportacionPuc(
     "El plan estándar no tiene cuentas cargadas.",
   );
 
-  const buffer = await wb.xlsx.writeBuffer();
-  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as ArrayBuffer);
+  return escribirLibroMarca(wb);
 }

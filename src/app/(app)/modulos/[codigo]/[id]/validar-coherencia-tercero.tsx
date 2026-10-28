@@ -75,7 +75,7 @@ export function ModalValidarCoherencia({
           type="button"
           onClick={aplicar}
           disabled={seleccionadas.length === 0 || guardando}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Aplicando…" : `Aplicar ${seleccionadas.length} ${seleccionadas.length === 1 ? "emparejamiento" : "emparejamientos"}`}
         </button>
@@ -120,7 +120,7 @@ export function ModalValidarCoherencia({
               {sugerencias.map((s) => {
                 const marcada = marcadas.has(s.claveModulo);
                 return (
-                  <tr key={s.claveModulo} className={`border-t border-ink-100 ${marcada ? "bg-blue-50/60" : ""}`}>
+                  <tr key={s.claveModulo} className={`border-t border-ink-100 ${marcada ? "bg-blue-100" : ""}`}>
                     <td className="px-2 py-1.5 align-top">
                       <input type="checkbox" checked={marcada} onChange={() => alternar(s.claveModulo)} aria-label={`Aplicar ${s.claveModulo}`} />
                     </td>

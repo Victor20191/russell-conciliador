@@ -13,9 +13,10 @@ import {
 } from "@/lib/soporte-estados";
 import { catalogoUbicacionesNovedad, type RutaNovedad } from "@/lib/soporte-rutas";
 import type { SupportTicketInternalCreateState } from "@/lib/definitions";
+import { ImagenConRespaldo } from "@/components/imagen-con-respaldo";
 
 const INPUT =
-  "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+  "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] font-normal normal-case tracking-normal text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
 function ErrorCampo({ mensajes }: { mensajes?: string[] }) {
   return mensajes?.[0] ? <p className="text-xs text-err-700">{mensajes[0]}</p> : null;
@@ -257,11 +258,15 @@ export default function NuevaNovedadForm({
                     {previews.map((preview) => (
                       <figure key={preview.nombre} className="overflow-hidden rounded-md border border-ink-150 bg-ink-50">
                         {preview.src ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <ImagenConRespaldo
                             src={preview.src}
                             alt={preview.nombre}
                             className="h-28 w-full bg-navy-800 object-contain p-2"
+                            respaldo={
+                              <div className="flex h-28 w-full items-center justify-center bg-ink-100 text-[13px] font-semibold uppercase text-ink-500">
+                                {preview.nombre.split(".").pop()}
+                              </div>
+                            }
                           />
                         ) : (
                           <div className="flex h-28 w-full items-center justify-center bg-ink-100 text-[13px] font-semibold uppercase text-ink-500">

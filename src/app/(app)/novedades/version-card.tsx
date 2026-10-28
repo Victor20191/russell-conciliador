@@ -56,7 +56,7 @@ export function VersionCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-100 px-4 py-3.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[13px] font-semibold text-navy-700">v{version.number}</span>
+            <span className="tabular-nums text-[13px] font-semibold text-navy-700">v{version.number}</span>
             <Chip label={etiquetaEstadoVersion(version.status)} tone={toneDeEstadoVersion(version.status)} />
             {version.releasedAt && (
               <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-500">
@@ -65,14 +65,14 @@ export function VersionCard({
               </span>
             )}
           </div>
-          <h2 className="mt-1 font-serif text-lg text-ink-900">{version.title}</h2>
+          <h2 className="mt-1 text-lg text-navy-800">{version.title}</h2>
           {version.summary && (
             <p className="mt-1 max-w-2xl whitespace-pre-line text-[13px] text-ink-600">{version.summary}</p>
           )}
         </div>
         {canManage && (
           <div className="flex shrink-0 items-center gap-x-3 text-[12.5px]">
-            <button onClick={onAddChange} className="font-medium text-blue-500 hover:underline">
+            <button onClick={onAddChange} className="font-medium text-blue-600 hover:underline">
               Agregar cambio
             </button>
             <button onClick={onEdit} className="text-ink-600 hover:underline">
@@ -150,7 +150,7 @@ function ChangeItem({
         </div>
         {canManage && (
           <div className="flex shrink-0 items-center gap-x-3 text-[12px]">
-            <button onClick={onEdit} className="text-blue-500 hover:underline">
+            <button onClick={onEdit} className="text-blue-600 hover:underline">
               Editar
             </button>
             <button onClick={onDelete} className="text-err-700 hover:underline">
@@ -197,7 +197,7 @@ function ChangeItem({
       {mostrarProbar && change.route && (
         <Link
           href={change.route}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-700/90"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
         >
           Probar funcionalidad
           <Icon name="chev-r" size={13} />

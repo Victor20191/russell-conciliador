@@ -70,7 +70,7 @@ export function AplicativosPorProceso({
           return (
             <div key={proceso.codigo} className="rounded-md border border-ink-150 bg-white p-2.5">
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="rounded bg-navy-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-navy-700">{proceso.codigo}</span>
+                <span className="rounded bg-navy-50 px-1.5 py-0.5 tabular-nums text-[10px] font-semibold text-navy-700">{proceso.codigo}</span>
                 <span className="truncate text-[11.5px] font-medium text-ink-700">{proceso.nombre}</span>
               </div>
               {proceso.detalle && <p className="mb-1.5 text-[10.5px] text-ink-400">{proceso.detalle}</p>}
@@ -103,7 +103,7 @@ export function AplicativosPorProceso({
                 onChange={(event) => agregar(proceso.codigo, event.target.value)}
                 aria-label={`Agregar aplicativo de ${proceso.nombre}`}
                 disabled={disponibles.length === 0}
-                className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:opacity-50"
+                className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:opacity-60"
               >
                 <option value="">Agregar aplicativo…</option>
                 {disponibles.map((erp) => (

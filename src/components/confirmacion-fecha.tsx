@@ -6,6 +6,7 @@
 // La regla y los textos viven en `src/lib/fecha-cargue.ts`; quien usa el aviso guarda QUÉ valor
 // se confirmó, así que cambiar la fecha vuelve a pedir la confirmación sin reiniciar nada.
 import type { ReactNode } from "react";
+import { IconoEnTexto } from "@/components/icons";
 
 export function ConfirmacionFecha({
   error,
@@ -31,10 +32,10 @@ export function ConfirmacionFecha({
     );
   }
   if (confirmada) {
-    return <p className="text-[11px] font-medium leading-snug text-ok-700">✓ {confirmadaTexto}</p>;
+    return <p className="text-[11px] font-medium leading-snug text-ok-700"><IconoEnTexto name="check" />{confirmadaTexto}</p>;
   }
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-2 text-[11.5px] leading-snug text-warn-700">
+    <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100 px-2.5 py-2 text-[11.5px] leading-snug text-warn-700">
       <span>{pregunta} ¿Es correcto?</span>
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button

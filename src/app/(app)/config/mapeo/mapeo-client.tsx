@@ -88,7 +88,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
     <>
     <Card>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-ink-800">Plan de cuentas estándar — Russell Bedford</h2>
+        <h2 className="text-[13px] font-semibold text-navy-800">Plan de cuentas estándar — Russell Bedford</h2>
         <Chip label={`${pg.total} cuentas`} tone="ink" />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <input
@@ -114,7 +114,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}
-                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800"
+                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
               >
                 Nueva Subcuenta
               </button>
@@ -123,7 +123,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
         </div>
       </div>
       {canManage && (
-        <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2 text-[11.5px] text-ink-600">
+        <div className="border-b border-ink-100 bg-blue-100 px-4 py-2 text-[11.5px] text-ink-600">
           Haz clic en el <b>código del sistema</b> para editar la cuenta. Cada cambio (crear, editar, eliminar) queda registrado en la <b>bitácora</b>.
         </div>
       )}
@@ -144,13 +144,13 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
           <tbody>
             {pg.pageItems.map((s) => (
               <tr key={s.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                <td className="px-4 py-2.5 font-mono text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>
+                <td className="px-4 py-2.5 tabular-nums text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>
                   {canManage ? (
                     <button
                       type="button"
                       onClick={() => setEditTarget(s)}
                       title="Editar cuenta estándar"
-                      className="font-mono font-semibold text-blue-600 hover:underline"
+                      className="tabular-nums font-semibold text-blue-600 hover:underline"
                     >
                       {s.code}
                     </button>
@@ -264,7 +264,7 @@ function StandardAccountForm({
                 onClick={onDelete}
                 disabled={locked}
                 title={locked ? "No se puede eliminar: la cuenta ya tiene balances asociados." : undefined}
-                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
                 Eliminar
               </button>
@@ -381,7 +381,7 @@ function DeleteStandardAccountForm({ account, onClose }: { account: StdAccount; 
           type="submit"
           form="delete-standard-account-form"
           disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
         >
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
@@ -391,7 +391,7 @@ function DeleteStandardAccountForm({ account, onClose }: { account: StdAccount; 
         <input type="hidden" name="id" value={account.id} />
         <p className="text-[13px] text-ink-600">
           Vas a eliminar permanentemente la cuenta estándar{" "}
-          <strong className="font-mono">{account.code}</strong> · {account.name}. Esta acción
+          <strong className="tabular-nums">{account.code}</strong> · {account.name}. Esta acción
           quedará registrada en la bitácora y no se puede deshacer.
         </p>
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
@@ -453,9 +453,9 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
             <tbody>
               {pg.pageItems.map((l) => (
                 <tr key={l.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-[11.5px] text-ink-500">{fmtFecha(l.createdAt)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-[11.5px] text-ink-500">{fmtFecha(l.createdAt)}</td>
                   <td className="px-3 py-2"><Chip label={l.action} tone={logTone(l.action)} /></td>
-                  <td className="px-3 py-2 font-mono text-ink-700">{l.code}</td>
+                  <td className="px-3 py-2 tabular-nums text-ink-700">{l.code}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-ink-800">{l.user}</td>
                   <td className="px-3 py-2 text-ink-600">{l.detail}</td>
                 </tr>
@@ -481,7 +481,7 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
   return (
     <button type="button" role="tab" aria-selected={on} onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
-      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-navy-600 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
     </button>
   );
 }
@@ -518,17 +518,17 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes, locked
   return <>
     <Card>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
-        <div><h2 className="text-[13px] font-semibold text-ink-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
+        <div><h2 className="text-[13px] font-semibold text-navy-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => { setQ(e.target.value); setColapsadosBusqueda(new Set()); }} placeholder="Código (11… o **05) o nombre de cuenta…" title={AYUDA_COMODIN} className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
-          {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva Cuenta</button>}
+          {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-600">Nueva Cuenta</button>}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-ink-100 bg-ink-50/50 px-4 py-2">
-        <button type="button" onClick={() => setColapsados(new Set(ramas))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-ink-100 bg-paper px-4 py-2">
+        <button type="button" onClick={() => setColapsados(new Set(ramas))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-60">
           <span aria-hidden="true"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} /></span> Colapsar todo
         </button>
-        <button type="button" onClick={() => setColapsados(colapsarPucHastaNivel(filtradas, nivelMostrado))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50">
+        <button type="button" onClick={() => setColapsados(colapsarPucHastaNivel(filtradas, nivelMostrado))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-60">
           <span aria-hidden="true"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} /></span> Expandir todo
         </button>
         <label className="flex items-center gap-2 text-[12px] text-ink-600 sm:ml-2">
@@ -561,12 +561,12 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes, locked
               <td className="py-2.5 pr-4" style={{ paddingLeft: 16 + profundidadPuc(fila.nivel) * 22 }}>
                 <div className="flex items-center gap-2">
                   {tieneHijos ? (
-                    <button type="button" onClick={() => alternarRama(fila.codigo)} aria-expanded={expandida} aria-label={`${expandida ? "Colapsar" : "Expandir"} ${fila.codigo} ${fila.nombre}`} title={expandida ? "Colapsar nivel" : "Expandir nivel"} className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 ${fila.nivel === 1 ? "hover:bg-white/10" : "hover:bg-ink-100"}`}>
+                    <button type="button" onClick={() => alternarRama(fila.codigo)} aria-expanded={expandida} aria-label={`${expandida ? "Colapsar" : "Expandir"} ${fila.codigo} ${fila.nombre}`} title={expandida ? "Colapsar nivel" : "Expandir nivel"} className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 ${fila.nivel === 1 ? "hover:bg-navy-600" : "hover:bg-ink-100"}`}>
                       <span aria-hidden="true"><Icon name={chevronDivulgacion(expandida)} size={14} /></span>
                     </button>
                   ) : <span className="w-6 shrink-0" aria-hidden="true" />}
                   <div>
-                    {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</>}
+                    {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 tabular-nums font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 tabular-nums font-semibold">{fila.codigo}</span>{fila.nombre}</>}
                     {fila.nivel === 4 && !fila.catalogada && <span className="ml-2 text-[11px] text-ink-400">Sin ficha de cuenta</span>}
                   </div>
                 </div>
@@ -613,7 +613,7 @@ function SubgrupoForm({ mode, subgrupo, locked = false, onClose, onDelete }: { m
                 onClick={onDelete}
                 disabled={locked}
                 title={locked ? "No se puede eliminar: la cuenta está en uso en balances o en los módulos." : undefined}
-                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Eliminar
               </button>
@@ -669,7 +669,7 @@ function DeleteSubgrupoForm({ subgrupo, onClose }: { subgrupo: Subgrupo; onClose
       onClose={onClose}
       title="Eliminar subgrupo"
       footer={
-        <button type="submit" form="delete-subgrupo-form" disabled={pending} className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
+        <button type="submit" form="delete-subgrupo-form" disabled={pending} className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-400 disabled:opacity-60">
           {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
@@ -677,7 +677,7 @@ function DeleteSubgrupoForm({ subgrupo, onClose }: { subgrupo: Subgrupo; onClose
       <form id="delete-subgrupo-form" action={action} className="flex flex-col gap-4">
         <input type="hidden" name="id" value={subgrupo.id} />
         <p className="text-[13px] text-ink-600">
-          Vas a eliminar el subgrupo <strong className="font-mono">{subgrupo.codigo}</strong> · {subgrupo.nombre}. Las cuentas de ese
+          Vas a eliminar el subgrupo <strong className="tabular-nums">{subgrupo.codigo}</strong> · {subgrupo.nombre}. Las cuentas de ese
           subgrupo seguirán existiendo, pero en el balance se mostrarán con su código (sin nombre) hasta que lo vuelvas a crear.
         </p>
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}

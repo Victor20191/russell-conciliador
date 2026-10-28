@@ -1,3 +1,4 @@
+import { CABECERAS_ARCHIVO_PRIVADO } from "@/lib/seguridad/cabeceras-archivo";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { obtenerObjeto } from "@/lib/storage/objetos";
@@ -37,11 +38,7 @@ export async function GET(
     return new Response(body, {
       headers: {
         "Content-Type": objeto.contentType,
-        // Defensa en profundidad: no permitir MIME sniffing del binario servido.
-        "X-Content-Type-Options": "nosniff",
-        // El query ?v=updatedAt invalida la caché al cambiar la foto, así que
-        // podemos cachear de forma privada un rato sin servir una foto vieja.
-        "Cache-Control": "private, max-age=600",
+        ...CABECERAS_ARCHIVO_PRIVADO,
         "Content-Length": String(objeto.cuerpo.byteLength),
       },
     });

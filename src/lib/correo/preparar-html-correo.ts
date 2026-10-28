@@ -14,11 +14,12 @@ import {
   serializarDeclaraciones,
   type Declaracion,
 } from "./estilos-en-linea";
+import { FUENTE_CORREO, NEUTRO } from "@/lib/marca/paleta";
 
-/** Tipografía y color base por si el documento no los define en <body>. */
+/** Tipografía (Arial en el correo, Manual de Marca §2.2) y color base por si el documento no los define en <body>. */
 const BASE: Declaracion[] = [
-  { propiedad: "font-family", valor: "'Helvetica Neue',Helvetica,Arial,sans-serif", importante: false },
-  { propiedad: "color", valor: "#1a2330", importante: false },
+  { propiedad: "font-family", valor: FUENTE_CORREO, importante: false },
+  { propiedad: "color", valor: NEUTRO.k90, importante: false },
   { propiedad: "font-size", valor: "14px", importante: false },
   { propiedad: "line-height", valor: "1.5", importante: false },
 ];

@@ -29,7 +29,7 @@ export default function AuditoriaTabs({
             href={t.href}
             className={`-mb-px border-b-2 px-3 py-2 text-[13px] font-semibold transition-colors ${
               activo
-                ? "border-blue-500 text-blue-500"
+                ? "border-blue-500 text-blue-600"
                 : "border-transparent text-ink-500 hover:text-ink-800"
             }`}
           >

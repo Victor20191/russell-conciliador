@@ -7,6 +7,7 @@
 // archivo completo y, si los ejemplos no alcanzan, se los da a la asistencia como contexto
 // obligatorio. Los datos solo se SEÑALAN: nada se escribe a mano ni se reordena el archivo.
 import { useEffect, useMemo, useState } from "react";
+import { Icon, IconoEnTexto } from "@/components/icons";
 import { BotonPantallaCompleta, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { ROLES_LECTURA_INVENTARIO, type RolLecturaInventario } from "@/lib/modulos/extraccion/lectura-estructurada";
@@ -68,7 +69,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
   const [filaTitulos, setFilaTitulos] = useState<number>(modelo.columnas[0]?.filaTitulos ?? 1);
   // Pantalla completa: el archivo y los campos ocupan todo el viewport (mismo modo que las tablas largas).
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
-  const region = propsRegionPantallaCompleta(pantallaCompleta, "rounded-md border border-blue-200 bg-blue-50/20 p-3");
+  const region = propsRegionPantallaCompleta(pantallaCompleta, "rounded-md border border-blue-200 bg-blue-100 p-3");
   // Texto de cada celda vista, para mostrar el valor de lo asignado aunque ya no esté en pantalla.
   const [textos, setTextos] = useState<ReadonlyMap<string, string>>(() => new Map());
   const specClave = useMemo(() => (spec ? JSON.stringify(spec) : ""), [spec]);
@@ -148,7 +149,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
       </div>
 
       {problemas.length > 0 && (
-        <details className="shrink-0 rounded-md border border-err-200 bg-err-100/30" open>
+        <details className="shrink-0 rounded-md border border-err-200 bg-err-100" open>
           <summary className="cursor-pointer px-3 py-2 font-medium text-err-700">Lo que la lectura todavía no entiende ({problemas.length}{problemas.length >= 20 ? "+" : ""})</summary>
           <ul className="max-h-40 space-y-1 overflow-auto border-t border-err-200 px-3 py-2">
             {problemas.map((p) => (
@@ -183,7 +184,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
             {ventana && <span className="ml-auto tabular-nums">Filas {ventana.filas[0]?.fila ?? 0}–{ventana.filas.at(-1)?.fila ?? 0}{ventana.lectura ? ` · la lectura reconoce ${ventana.lectura.registros.toLocaleString("es-CO")} producto(s)` : ""}</span>}
           </div>
           {ventana && ventana.columnasTotales > ventana.columnas && <p className="text-[11px] text-warn-700">Se muestran las primeras {ventana.columnas} de {ventana.columnasTotales} columnas.</p>}
-          {errorVentana && <p role="alert" className="rounded-md bg-err-100/50 px-3 py-2 text-err-700">{errorVentana}</p>}
+          {errorVentana && <p role="alert" className="rounded-md bg-err-100 px-3 py-2 text-err-700">{errorVentana}</p>}
           {cargando && !ventana && <p role="status" className="text-ink-500">Abriendo el archivo…</p>}
           {ventana && <GrillaMuestra ventana={ventana} modelo={modelo} seleccion={seleccion} onSeleccion={alternarSeleccion} llena={pantallaCompleta} />}
           <p className="text-[11px] text-ink-500">
@@ -229,15 +230,15 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
               onIgnorarColumna={(columna) => { actualizar({ ...modelo, ignorarColumnas: [...modelo.ignorarColumnas.filter((c) => c.columna !== columna), { columna, motivo: motivo.trim() }] }); setMotivo(""); }}
             />
           )}
-          {aviso && <p role={aviso.nivel === "error" ? "alert" : "status"} className={`rounded-md px-3 py-2 text-[11.5px] ${aviso.nivel === "error" ? "bg-err-100/50 text-err-700" : "bg-warn-100/50 text-warn-700"}`}>{aviso.mensaje}</p>}
+          {aviso && <p role={aviso.nivel === "error" ? "alert" : "status"} className={`rounded-md px-3 py-2 text-[11.5px] ${aviso.nivel === "error" ? "bg-err-100 text-err-700" : "bg-warn-100 text-warn-700"}`}>{aviso.mensaje}</p>}
 
           <div className="rounded-md border border-ink-150 bg-white p-3">
             <div className="mb-2 flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Productos de ejemplo">
               <span className="mr-1 text-[11.5px] font-medium text-ink-700">Campos del producto</span>
-              {modelo.productos.length > 1 && modelo.productos.map((p, i) => (
+              {modelo.productos.length > 1 && modelo.productos.map((_, i) => (
                 <span key={i} className="inline-flex items-center">
                   <button type="button" role="tab" aria-selected={i === productoActivo} onClick={() => setProductoActivo(i)} className={`rounded-l-md border px-2 py-0.5 text-[11px] font-semibold ${i === productoActivo ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-700 hover:bg-ink-50"}`}>{i + 1}</button>
-                  <button type="button" aria-label={`Quitar el producto ${i + 1}`} onClick={() => { actualizar(quitarProducto(modelo, i)); setProductoActivo(0); }} className="rounded-r-md border border-l-0 border-ink-200 bg-white px-1.5 py-0.5 text-[11px] text-ink-500 hover:bg-err-100/40 hover:text-err-700">×</button>
+                  <button type="button" aria-label={`Quitar el producto ${i + 1}`} onClick={() => { actualizar(quitarProducto(modelo, i)); setProductoActivo(0); }} className="rounded-r-md border border-l-0 border-ink-200 bg-white px-1.5 py-0.5 text-[11px] text-ink-500 hover:bg-err-100 hover:text-err-700">×</button>
                 </span>
               ))}
               {modelo.productos.length < MAX_PRODUCTOS_EJEMPLO && <button type="button" className="ml-auto text-[11px] font-medium text-blue-700 underline" title="Útil si el formato varía entre productos" onClick={() => { actualizar(agregarProducto(modelo)); setProductoActivo(modelo.productos.length); }}>+ otro producto de ejemplo</button>}
@@ -351,9 +352,9 @@ function PartesDeCelda({ fila, columna, texto, producto, modelo, tramo, onTramo,
             <li key={`${p.inicio}-${p.fin}`}
               draggable={!trabajando}
               onDragStart={(e) => { e.dataTransfer.setData(MIME_DATO, JSON.stringify(dato(p))); e.dataTransfer.setData("text/plain", p.valor); e.dataTransfer.effectAllowed = "copy"; }}
-              className={`flex min-w-0 cursor-grab items-center gap-2 rounded-md border px-2 py-1.5 active:cursor-grabbing ${destino ? "border-ok-500 bg-ok-100/40" : elegida ? "border-navy-600 bg-blue-50" : "border-ink-200 bg-ink-50/40 hover:border-blue-400"}`}
+              className={`flex min-w-0 cursor-grab items-center gap-2 rounded-md border px-2 py-1.5 active:cursor-grabbing ${destino ? "border-ok-500 bg-ok-100" : elegida ? "border-navy-600 bg-blue-50" : "border-ink-200 bg-ink-50/40 hover:border-blue-400"}`}
             >
-              <span aria-hidden className="text-ink-400">⠿</span>
+              <Icon name="grip" size={14} stroke={2.4} className="shrink-0 text-ink-400" />
               <button type="button" onClick={() => onTramo(elegida ? null : { inicio: p.inicio, fin: p.fin })} className="min-w-0 flex-1 text-left" title="Arrástrala a un campo o elige el campo en la lista">
                 {p.rotulo && <span className="mr-1.5 text-[10.5px] uppercase tracking-wide text-ink-500">{p.rotulo}</span>}
                 <span className="break-words font-medium text-ink-800">{p.valor}</span>
@@ -381,7 +382,7 @@ function PartesDeCelda({ fila, columna, texto, producto, modelo, tramo, onTramo,
         })}
       </ul>
       {pendientesSugeridas > 0 && (
-        <button type="button" disabled={trabajando} onClick={onAsignarSugeridas} className="self-start rounded-md bg-navy-700 px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50">
+        <button type="button" disabled={trabajando} onClick={onAsignarSugeridas} className="self-start rounded-md bg-navy-700 px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
           Asignar las partes como se propone ({pendientesSugeridas})
         </button>
       )}
@@ -396,7 +397,7 @@ function PartesDeCelda({ fila, columna, texto, producto, modelo, tramo, onTramo,
             onSelect={(e) => capturar(e.currentTarget)}
             onMouseUp={(e) => capturar(e.currentTarget)}
             onKeyUp={(e) => capturar(e.currentTarget)}
-            className={`${claseCampo} resize-y font-mono text-[11.5px]`}
+            className={`${claseCampo} resize-y tabular-nums text-[11.5px]`}
           />
           {especial && <p className="text-[11px] text-warn-700">Esta celda tiene saltos de línea especiales: usa las partes o la celda completa.</p>}
           {tramo && !partes.some((p) => p.inicio === tramo.inicio && p.fin === tramo.fin) && (
@@ -405,7 +406,7 @@ function PartesDeCelda({ fila, columna, texto, producto, modelo, tramo, onTramo,
               onDragStart={(e) => { e.dataTransfer.setData(MIME_DATO, JSON.stringify(dato({ inicio: tramo.inicio, fin: tramo.fin, valor: "", rotulo: null, rolSugerido: null, marcaSugerida: null }))); e.dataTransfer.effectAllowed = "copy"; }}
               className="self-start cursor-grab rounded-md border border-navy-500 bg-blue-50 px-2 py-1 font-medium text-navy-800"
             >
-              ⠿ «{texto.slice(...nucleoTramo(texto, tramo.inicio, tramo.fin))}» · arrástralo a un campo
+              <IconoEnTexto name="grip" />«{texto.slice(...nucleoTramo(texto, tramo.inicio, tramo.fin))}» · arrástralo a un campo
             </span>
           )}
         </div>
@@ -441,7 +442,7 @@ function CampoDestino({ rol, producto, columna, porSeccion, textos, hayDato, tra
         setSobre(false);
         try { onSoltar(JSON.parse(e.dataTransfer.getData(MIME_DATO)) as DatoArrastrado); } catch { /* no es un dato del archivo */ }
       }}
-      className={`flex min-w-0 items-center gap-2 rounded-md border border-dashed px-2 py-1.5 ${sobre ? "border-navy-600 bg-blue-100" : asignado || columna ? "border-ok-500 bg-ok-100/30" : "border-ink-300 bg-white"}`}
+      className={`flex min-w-0 items-center gap-2 rounded-md border border-dashed px-2 py-1.5 ${sobre ? "border-navy-600 bg-blue-100" : asignado || columna ? "border-ok-500 bg-ok-100" : "border-ink-300 bg-white"}`}
     >
       <span className={`shrink-0 rounded border px-1 text-[10px] font-semibold ${COLOR_ROL[rol]}`}>{INICIAL_ROL[rol]}</span>
       <span className="w-28 shrink-0 text-[11.5px] text-ink-700">{ETIQUETA_ROL[rol]}</span>
@@ -452,7 +453,7 @@ function CampoDestino({ rol, producto, columna, porSeccion, textos, hayDato, tra
             : porSeccion ? <span className="text-ink-500">Sale del título de sección</span>
               : <span className="text-ink-400">Suelta aquí la parte</span>}
       </button>
-      {(asignado || columna) && <button type="button" aria-label={`Quitar ${ETIQUETA_ROL[rol]}`} disabled={trabajando} onClick={onQuitar} className="shrink-0 rounded px-1.5 text-ink-500 hover:bg-err-100/40 hover:text-err-700">×</button>}
+      {(asignado || columna) && <button type="button" aria-label={`Quitar ${ETIQUETA_ROL[rol]}`} disabled={trabajando} onClick={onQuitar} className="shrink-0 rounded px-1.5 text-ink-500 hover:bg-err-100 hover:text-err-700">×</button>}
     </li>
   );
 }
@@ -503,7 +504,7 @@ function OtraSeleccion({ seleccion, dato, trabajando, filaTitulos, onFilaTitulos
       {dato && (
         <div className="flex flex-wrap gap-1.5">
           {ROLES_LECTURA_INVENTARIO.map((rol) => (
-            <button key={rol} type="button" disabled={trabajando} onClick={() => onSoltar({ tipo: "rol", rol }, dato)} className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${COLOR_ROL[rol]} hover:brightness-95 disabled:opacity-50`}>
+            <button key={rol} type="button" disabled={trabajando} onClick={() => onSoltar({ tipo: "rol", rol }, dato)} className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${COLOR_ROL[rol]} hover:border-current disabled:opacity-60`}>
               {INICIAL_ROL[rol]} · {ETIQUETA_ROL[rol]}
             </button>
           ))}
@@ -532,7 +533,7 @@ function Marcas({ modelo, textos, trabajando, hayDato, dato, onSoltar, onModelo 
     if (!t) return `${letraColumna(m.columna)}${m.fila}`;
     return `«${t.slice(...nucleoTramo(t, m.inicio, m.fin)).slice(0, 40)}» · ${letraColumna(m.columna)}${m.fila}`;
   };
-  const quitar = (accion: () => ModeloUsuarioInventario) => <button type="button" disabled={trabajando} onClick={() => onModelo(accion())} className="rounded px-1 text-ink-500 hover:bg-err-100/40 hover:text-err-700" aria-label="Quitar">×</button>;
+  const quitar = (accion: () => ModeloUsuarioInventario) => <button type="button" disabled={trabajando} onClick={() => onModelo(accion())} className="rounded px-1 text-ink-500 hover:bg-err-100 hover:text-err-700" aria-label="Quitar">×</button>;
   const zona = (destino: DestinoDato, etiqueta: string) => (
     <button
       type="button"

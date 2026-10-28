@@ -14,7 +14,7 @@ de lo que cambiaste.
 
 ## Contexto que debes conservar
 
-- Es una aplicación Next.js 16.2.7 con App Router, React 19, TypeScript,
+- Es una aplicación Next.js 16.4.2 con App Router, React 19, TypeScript,
   Tailwind v4, Server Actions, Prisma 7 y PostgreSQL.
 - La aplicación es contable: sus flujos centrales son clientes, maestros,
   balance de comprobación, extracción y mapeo asistidos por IA, borradores,
@@ -61,7 +61,7 @@ No declares que algo quedó listo solo porque compila: separa claramente
 
 ## Política estricta de versión
 
-La plataforma comienza actualmente en `1.4.0`. No cambies ese número al usar el
+La versión vigente se consulta en `package.json`. No la cambies al usar el
 agente salvo que el cambio realizado justifique una release.
 
 Usa esta clasificación:

@@ -32,9 +32,12 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) notFound();
 
-  const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId } });
-  if (!lote || lote.moduloCodigo !== moduloCodigo) notFound();
-  if (lote.clienteId == null) notFound();
+  const referencia = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, moduloCodigo: true } });
+  if (!referencia || referencia.moduloCodigo !== moduloCodigo || referencia.clienteId == null) notFound();
+  const scope = await authorizePermiso("modulos_datos:crear", { clientId: referencia.clienteId });
+  if (!scope.ok) notFound();
+  const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId, clienteId: referencia.clienteId, moduloCodigo } });
+  if (!lote || lote.clienteId == null) notFound();
   // Las filas se leen aquí para los agregados, pero NO viajan al navegador (la tabla pide el
   // detalle grupo por grupo con la acción filasBorradorModulo) y de `datos` solo se traen las
   // claves que esta página usa: la llave del ítem (anexo) y las columnas numéricas que deciden
@@ -48,8 +51,6 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const agruparPor = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
   const filas = await filasDelLote(loteId, { roles: rolesDatos, agruparPor });
   if (filas.length === 0) notFound();
-  const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
-  if (!scope.ok) notFound();
 
   const [comentariosGrp, cliente, ajustesCarga, lotesHermanos, originalInventario] = await Promise.all([
     // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
@@ -119,7 +120,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   let nombresDestino: { version: number; nombres: string[] } | null = null;
   if (lote.anexoEncabezadoId != null) {
     const destino = await prisma.moduloDatoEncabezado.findUnique({
-      where: { id: lote.anexoEncabezadoId },
+      where: { id: lote.anexoEncabezadoId, clienteId: lote.clienteId, moduloCodigo },
       select: { id: true, version: true, periodo: true, esOficial: true, total: true, detalles: { select: { clasificador: true, datos: true } } },
     });
     if (destino) {

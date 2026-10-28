@@ -74,7 +74,7 @@ function PersonaCard({ nodo, onClick }: { nodo: PersonaNodo; onClick: () => void
           {resumenPersona(nodo)}
         </div>
       </div>
-      <Icon name="chev-r" size={16} className="shrink-0 text-ink-400 transition group-hover:text-blue-500" />
+      <Icon name="chev-r" size={16} className="shrink-0 text-ink-400 transition group-hover:text-blue-600" />
     </button>
   );
 }
@@ -121,7 +121,7 @@ function ListaClientes({ clientes, derivados }: { clientes: ClienteRef[]; deriva
           {clientes.map((c) => (
             <li key={c.id} className="flex items-center gap-2 px-4 py-2.5">
               <Icon name="folder" size={14} className="shrink-0 text-ink-400" />
-              <span className="font-mono text-[12px] text-ink-500">{c.code}</span>
+              <span className="tabular-nums text-[12px] text-ink-500">{c.code}</span>
               <span className="truncate text-[13px] text-ink-800">{c.name}</span>
             </li>
           ))}
@@ -164,7 +164,7 @@ export default function EstructuraClient({ arbol }: { arbol: EstructuraArbol }) 
           <button
             type="button"
             onClick={() => setPath([])}
-            className="font-medium text-blue-500 hover:underline"
+            className="font-medium text-blue-600 hover:underline"
           >
             Inicio
           </button>
@@ -180,7 +180,7 @@ export default function EstructuraClient({ arbol }: { arbol: EstructuraArbol }) 
                   <button
                     type="button"
                     onClick={() => irHasta(i)}
-                    className="font-medium text-blue-500 hover:underline"
+                    className="font-medium text-blue-600 hover:underline"
                   >
                     {n?.name ?? "—"}
                   </button>
@@ -273,7 +273,7 @@ function DetallePersona({
           <Avatar initials={nodo.initials} role={nodo.role} lg />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="truncate font-serif text-xl text-ink-900">{nodo.name}</h2>
+              <h2 className="truncate text-xl font-light text-navy-800">{nodo.name}</h2>
               <Chip label={nodo.role} tone={tono(nodo.role)} />
             </div>
             {nodo.cargo && <p className="mt-0.5 text-[12.5px] text-ink-500">{nodo.cargo}</p>}

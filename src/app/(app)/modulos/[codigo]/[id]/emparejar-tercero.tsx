@@ -85,7 +85,7 @@ export function ModalEmparejarTercero({
           type="button"
           onClick={emparejar}
           disabled={!claveDestino || guardando}
-          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {guardando ? "Emparejando…" : "Emparejar"}
         </button>

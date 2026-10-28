@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
+<head><style id="rb-tipografia">@font-face{font-family:Lato;font-style:normal;font-weight:300;font-display:swap;src:url(../public/marca/fuentes/lato-300-normal.woff2) format("woff2")}@font-face{font-family:Lato;font-style:normal;font-weight:400;font-display:swap;src:url(../public/marca/fuentes/lato-400-normal.woff2) format("woff2")}@font-face{font-family:Lato;font-style:italic;font-weight:400;font-display:swap;src:url(../public/marca/fuentes/lato-400-italic.woff2) format("woff2")}@font-face{font-family:Lato;font-style:normal;font-weight:700;font-display:swap;src:url(../public/marca/fuentes/lato-700-normal.woff2) format("woff2")}@font-face{font-family:Lato;font-style:italic;font-weight:700;font-display:swap;src:url(../public/marca/fuentes/lato-700-italic.woff2) format("woff2")}@font-face{font-family:Lato;font-style:normal;font-weight:900;font-display:swap;src:url(../public/marca/fuentes/lato-900-normal.woff2) format("woff2")}body{font-family:Lato, Arial, Helvetica, sans-serif;color:#3C3C3B}code,kbd,pre,samp,tt{font-family:inherit}button,input,select,textarea{font:inherit;color:inherit}hr{border:0;border-top:1px solid #DADADA}a{color:#001871}</style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Russell Diagnóstico - Presentación Detallada de Funcionalidades Recientes (Junio 2026)</title>
@@ -12,10 +12,10 @@
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Lato, Arial, Helvetica, sans-serif;
             line-height: 1.6;
-            color: #333;
-            background-color: #f8f9fa;
+            color: #3C3C3B;
+            background-color: #FBFBFB;
         }
         
         .container {
@@ -24,15 +24,9 @@
             padding: 20px;
         }
         
-        header {
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-            color: white;
-            padding: 30px 0;
-            text-align: center;
-            margin-bottom: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
+        header { background: transparent; color: #001871; padding: 0 0 36px; text-align: center; margin-bottom: 30px; }
+        header h1 { font-weight: 300; color: #001871; }
+        header p { color: #3C3C3B; }
         
         header h1 {
             font-size: 2.5rem;
@@ -48,18 +42,18 @@
             background: white;
             margin-bottom: 30px;
             border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px #E4E4E3;
             overflow: hidden;
         }
         
         .section-header {
-            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            background: #F6F6F6;
             padding: 20px;
-            border-bottom: 1px solid #d1d5db;
+            border-bottom: 1px solid #DADADA;
         }
         
         .section-header h2 {
-            color: #1e3a8a;
+            color: #33468D;
             font-size: 1.8rem;
             display: flex;
             align-items: center;
@@ -73,7 +67,7 @@
         .subsection {
             margin-bottom: 25px;
             padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #EDEDED;
         }
         
         .subsection:last-child {
@@ -82,7 +76,7 @@
         }
         
         .subsection h3 {
-            color: #1e40af;
+            color: #33468D;
             font-size: 1.4rem;
             margin-bottom: 15px;
             display: flex;
@@ -103,7 +97,7 @@
             top: 0;
             bottom: 0;
             width: 3px;
-            background: linear-gradient(to bottom, #3b82f6, #1d4ed8);
+            background: #6674AA;
         }
         
         .timeline-item {
@@ -120,35 +114,35 @@
             width: 12px;
             height: 12px;
             background: white;
-            border: 3px solid #3b82f6;
+            border: 3px solid #6674AA;
             border-radius: 50%;
             z-index: 10;
         }
         
         .timeline-date {
             font-weight: bold;
-            color: #1e3a8a;
+            color: #33468D;
             display: block;
             margin-bottom: 5px;
         }
         
         .timeline-content {
-            background: #f8fafc;
+            background: #FBFBFB;
             padding: 15px;
             border-radius: 8px;
-            border-left: 3px solid #e5e7eb;
+            border-left: 3px solid #E4E4E3;
         }
         
         .technical-details {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
+            background: #F6F6F6;
+            border: 1px solid #CCEEF5;
             border-radius: 6px;
             padding: 15px;
             margin: 15px 0;
         }
         
         .technical-details h4 {
-            color: #0284c7;
+            color: #6674AA;
             margin-bottom: 10px;
             font-size: 1.1rem;
         }
@@ -165,35 +159,40 @@
         }
         
         .benefit-card {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
+            background: #FBFBFB;
+            border: 1px solid #CCF2F0;
             border-radius: 8px;
             padding: 15px;
             text-align: center;
         }
         
         .benefit-icon {
-            font-size: 2rem;
-            margin-bottom: 10px;
-            color: #16a34a;
+            width: 16px;
+            height: 16px;
+            margin-bottom: 12px;
+            border-radius: 50%;
+            background: #00BFB3;
         }
+        .benefit-card:nth-child(4n+2) .benefit-icon { background: #ED8B00; }
+        .benefit-card:nth-child(4n+3) .benefit-icon { background: #00A9CE; }
+        .benefit-card:nth-child(4n+4) .benefit-icon { background: #981D97; }
         
         .benefit-card h4 {
-            color: #15803d;
+            color: #001871;
             margin-bottom: 8px;
         }
         
         .benefit-card p {
             font-size: 0.9rem;
-            color: #166534;
+            color: #001871;
         }
         
         .code-sample {
-            background: #1f2937;
-            color: #f9fafb;
+            background: #1D1D1B;
+            color: #FBFBFB;
             padding: 15px;
             border-radius: 6px;
-            font-family: 'Courier New', Courier, monospace;
+            font-family: Lato, Arial, Helvetica, sans-serif;
             font-size: 0.9rem;
             overflow-x: auto;
             margin: 15px 0;
@@ -205,21 +204,21 @@
             gap: 15px;
             margin-bottom: 10px;
             padding: 10px;
-            background: #eff6ff;
+            background: #F6F6F6;
             border-radius: 6px;
         }
         
         .commit-hash {
-            font-family: 'Courier New', Courier, monospace;
-            background: #dbeafe;
-            color: #1e40af;
+            font-family: Lato, Arial, Helvetica, sans-serif;
+            background: #EDEDED;
+            color: #33468D;
             padding: 2px 8px;
             border-radius: 4px;
             font-size: 0.9rem;
         }
         
         .commit-date {
-            color: #6b7280;
+            color: #6B6B6A;
             font-size: 0.9rem;
         }
         
@@ -232,32 +231,32 @@
         
         .stat-card {
             background: white;
-            border: 1px solid #e5e7eb;
+            border: 1px solid #E4E4E3;
             border-radius: 8px;
             padding: 20px;
             text-align: center;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 1px 3px #E4E4E3;
         }
         
         .stat-value {
             font-size: 2rem;
             font-weight: bold;
-            color: #1e3a8a;
+            color: #33468D;
             display: block;
             margin-bottom: 5px;
         }
         
         .stat-label {
-            color: #6b7280;
+            color: #6B6B6A;
             font-size: 0.9rem;
         }
         
         .footer {
             text-align: center;
             padding: 30px;
-            color: #6b7280;
+            color: #6B6B6A;
             font-size: 0.9rem;
-            border-top: 1px solid #e5e7eb;
+            border-top: 1px solid #E4E4E3;
             margin-top: 40px;
         }
         
@@ -270,23 +269,23 @@
         }
         
         .badge-success {
-            background: #dcfce7;
-            color: #166534;
+            background: #CCF2F0;
+            color: #001871;
         }
         
         .badge-warning {
-            background: #fef3c7;
-            color: #92400e;
+            background: #FBE8CC;
+            color: #001871;
         }
         
         .badge-info {
-            background: #dbeafe;
-            color: #1e40af;
+            background: #EDEDED;
+            color: #33468D;
         }
         
         .badge-secondary {
-            background: #f3f4f6;
-            color: #4b5563;
+            background: #F6F6F6;
+            color: #575756;
         }
         
         @media (max-width: 768px) {
@@ -308,17 +307,17 @@
         }
     </style>
 </head>
-<body>
+<body><div aria-hidden="true" class="rb-esquina" style="position:absolute;top:0;right:48px;line-height:0"><span style="display:inline-block;width:9px;height:36px;margin-left:4px;border-radius:0 0 5px 5px;background:#981D97"></span><span style="display:inline-block;width:9px;height:36px;margin-left:4px;border-radius:0 0 5px 5px;background:#00A9CE"></span><span style="display:inline-block;width:9px;height:36px;margin-left:4px;border-radius:0 0 5px 5px;background:#00A9CE"></span><span style="display:inline-block;width:9px;height:36px;margin-left:4px;border-radius:0 0 5px 5px;background:#001871"></span><span style="display:inline-block;width:9px;height:36px;margin-left:4px;border-radius:0 0 5px 5px;background:#001871"></span></div><div class="rb-portada" style="max-width:1080px;margin:0 auto;padding:96px 28px 40px;text-align:center;line-height:0"><img src="../public/marca/russell-bedford-azul.svg" width="360" height="78" alt="Russell Bedford · taking you further" style="display:inline-block;width:360px;height:78px;border:0"></div>
     <header>
         <h1>Russell Diagnóstico</h1>
         <p>Presentación Detallada de Funcionalidades Recientes</p>
         <p>Junio 2026 - Mejoras en IA, Perfil, Auditoría y Balance</p>
-    </header>
+    </header><table class="rb-franja" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed"><tbody><tr><td width="25%" height="4" bgcolor="#001871" style="width:25%;height:4px;padding:0;background-color:#001871;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#981D97" style="width:25%;height:4px;padding:0;background-color:#981D97;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#00BFB3" style="width:25%;height:4px;padding:0;background-color:#00BFB3;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#ED8B00" style="width:25%;height:4px;padding:0;background-color:#ED8B00;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td></tr></tbody></table>
     
     <div class="container">
         <section>
             <div class="section-header">
-                <h2>📊 Resumen Ejecutivo</h2>
+                <h2>Resumen Ejecutivo</h2>
             </div>
             <div class="section-content">
                 <div class="stats-grid">
@@ -344,22 +343,22 @@
                 
                 <div class="benefits">
                     <div class="benefit-card">
-                        <div class="benefit-icon">🤖</div>
+                        <div class="benefit-icon"></div>
                         <h4>Inteligencia Artificial Empresarial</h4>
                         <p>Gestión dinámica de prompts y monitoreo de costos de IA para optimización continua</p>
                     </div>
                     <div class="benefit-card">
-                        <div class="benefit-icon">👤</div>
+                        <div class="benefit-icon"></div>
                         <h4>Experiencia de Usuario Centrada</h4>
                         <p>Personalización avanzada y funcionalidades de exportación para mayor productividad</p>
                     </div>
                     <div class="benefit-card">
-                        <div class="benefit-icon">🔒</div>
+                        <div class="benefit-icon"></div>
                         <h4>Gobernanza y Trazabilidad</h4>
                         <p>Auditoría integral y registro de accesos para cumplimiento y seguridad</p>
                     </div>
                     <div class="benefit-card">
-                        <div class="benefit-icon">⚡</div>
+                        <div class="benefit-icon"></div>
                         <h4>Excelencia Operativa</h4>
                         <p>Optimizaciones de rendimiento y mejoras en el módulo de balance financiero</p>
                     </div>
@@ -369,7 +368,7 @@
         
         <section>
             <div class="section-header">
-                <h2>🤖 Módulo de Inteligencia Artificial</h2>
+                <h2>Módulo de Inteligencia Artificial</h2>
             </div>
             <div class="section-content">
                 <div class="subsection">
@@ -433,22 +432,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">⚙️</div>
+                            <div class="benefit-icon"></div>
                             <h4>Flexibilidad operativa</h4>
                             <p>Los administradores pueden ajustar los prompts sin requerir despliegues de código, permitiendo experimentación y optimización continua</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">💰</div>
+                            <div class="benefit-icon"></div>
                             <h4>Optimización de costos</h4>
                             <p>Mejora en el caching reduce el consumo de tokens de IA al evitar lecturas repetidas de la misma información</li>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🎯</div>
+                            <div class="benefit-icon"></div>
                             <h4>Calidad consistente</h4>
                             <p>Los prompts se cargan desde una fuente centralizada garantizando uniformidad en todos los usos de IA</li>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📜</div>
+                            <div class="benefit-icon"></div>
                             <h4>Trazabilidad completa</h4>
                             <p>Historial de cambios mediante el sistema de auditoría existente para cumplimiento y revisión</li>
                         </div>
@@ -513,22 +512,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">📊</div>
+                            <div class="benefit-icon"></div>
                             <h4>Transparencia financiera</h4>
                             <p>Visibilidad completa de los costos asociados al uso de IA para mejor toma de decisiones presupuestarias</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🔍</div>
+                            <div class="benefit-icon"></div>
                             <h4>Optimización de recursos</h4>
                             <p>Identificación de patrones de consumo para optimizar uso y reducir gastos innecesarios</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">👥</div>
+                            <div class="benefit-icon"></div>
                             <h4>Responsabilidad operativa</h4>
                             <p>Trazabilidad completa de quién utilizó qué recursos y cuándo para auditoría interna</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📈</div>
+                            <div class="benefit-icon"></div>
                             <h4>Planificación presupuestaria</h4>
                             <p>Datos históricos para forecasting preciso de gastos de IA y optimización de modelos utilizados</p>
                         </div>
@@ -539,7 +538,7 @@
         
         <section>
             <div class="section-header">
-                <h2>👤 Módulo de Perfil y Exportación</h2>
+                <h2>Módulo de Perfil y Exportación</h2>
             </div>
             <div class="section-content">
                 <div class="subsection">
@@ -588,22 +587,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">🎨</div>
+                            <div class="benefit-icon"></div>
                             <h4>Personalización mejorada</h4>
                             <p>Experiencia de usuario más personalizada y profesional que mejora el sentido de pertenencia</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📦</div>
+                            <div class="benefit-icon"></div>
                             <h4>Escalabilidad</h4>
                             <p>Almacenamiento externo evita crecimiento excesivo de la base de datos y mejora el rendimiento</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">⏱️</div>
+                            <div class="benefit-icon"></div>
                             <h4>Eficiencia operativa</h4>
                             <p>Carga masiva ahorra tiempo significativo en entornos con muchos usuarios (ej: onboarding de nuevos empleados)</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🔄</div>
+                            <div class="benefit-icon"></div>
                             <h4>Consistencia visual</h4>
                             <p>Interfaz uniforme con fallbacks gracefully diseñados que garantizan buena UX en todas las condiciones</p>
                         </div>
@@ -657,22 +656,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">📤</div>
+                            <div class="benefit-icon"></div>
                             <h4>Reportabilidad mejorada</h4>
                             <p>Facilita la generación de reportes ejecutivos, auditorías y análisis externos sin intervención técnica</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🔗</div>
+                            <div class="benefit-icon"></div>
                             <h4>Interoperabilidad</h4>
                             <p>Formato Excel ampliamente compatible con otras herramientas empresariales y sistemas de reporting</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">⏰</div>
+                            <div class="benefit-icon"></div>
                             <h4>Ahorro de tiempo</h4>
                             <p>Eliminación de procesos manuales de extracción de datos que antes requerían consultas SQL o reportes personalizados</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🎯</div>
+                            <div class="benefit-icon"></div>
                             <h4>Precisión de datos</h4>
                             <p>Exportación directa desde la fuente de verdad garantiza consistencia y elimina errores de transcripción manual</p>
                         </div>
@@ -683,7 +682,7 @@
         
         <section>
             <div class="section-header">
-                <h2>🔒 Módulo de Auditoría y Balance</h2>
+                <h2>Módulo de Auditoría y Balance</h2>
             </div>
             <div class="section-content">
                 <div class="subsection">
@@ -747,22 +746,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">🛡️</div>
+                            <div class="benefit-icon"></div>
                             <h4>Seguridad mejorada</h4>
                             <p>Trazabilidad completa de quién accedió a qué y cuándo para detección temprana de accesos no autorizados</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📋</div>
+                            <div class="benefit-icon"></div>
                             <h4>Cumplimiento normativo</h4>
                             <p>Facilita el cumplimiento de requisitos de auditoría interna y externa (SOX, GDPR, etc.)</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📈</div>
+                            <div class="benefit-icon"></div>
                             <h4>Análisis de uso</h4>
                             <p>Información valiosa para optimización de experiencia de usuario basada en patrones reales de navegación</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🔍</div>
+                            <div class="benefit-icon"></div>
                             <h4>Detección de anomalías</h4>
                             <p>Identificación fácil de accesos inusuales (horarios estranos, IPs desconocidas, frecuencia elevada)</p>
                         </div>
@@ -832,22 +831,22 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">🔍</div>
+                            <div class="benefit-icon"></div>
                             <h4>Usabilidad superior</h4>
                             <p>Búsqueda en tiempo real que permite encontrar cuentas específicas rápidamente en balances grandes</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">⚡</div>
+                            <div class="benefit-icon"></div>
                             <h4>Rendimiento optimizado</h4>
                             <p>Carga más rápida y mejor manejo de grandes volúmenes de datos mediante consultas optimizadas</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🎯</div>
+                            <div class="benefit-icon"></div>
                             <h4>Precisión de datos</h4>
                             <p>Lógica de importación más robusta que evita incluir cuentas incorrectas o duplicadas</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🧹</div>
+                            <div class="benefit-icon"></div>
                             <h4>Interfaz limpia</h4>
                             <p>Eliminación de complejidad innecesaria que reduce la carga cognitiva y mejora la experiencia de usuario</p>
                         </div>
@@ -858,7 +857,7 @@
         
         <section>
             <div class="section-header">
-                <h2>✨ Mejoras de Experiencia de Usuario</h2>
+                <h2>Mejoras de Experiencia de Usuario</h2>
             </div>
             <div class="section-content">
                 <div class="subsection">
@@ -896,17 +895,17 @@
                     
                     <div class="benefits">
                         <div class="benefit-card">
-                            <div class="benefit-icon">🧭</div>
+                            <div class="benefit-icon"></div>
                             <h4>Navegación intuitiva</h4>
                             <p>Menú organizado que reduce el tiempo de búsqueda y mejora la descubrimiento de funcionalidades</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">👁️</div>
+                            <div class="benefit-icon"></div>
                             <h4>Menor carga cognitiva</h4>
                             <p>Interfaz más limpia y organizada que facilita el enfoque en las tareas importantes</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">📱</div>
+                            <div class="benefit-icon"></div>
                             <h4>Experiencia consistente</hnd>
                             <p>Diseño adaptable que mantiene usabilidad óptima en desktop, tablet y móvil</p>
                         </div>
@@ -935,7 +934,7 @@
         
         <section>
             <div class="section-header">
-                <h2>📈 Impacto y Próximos Pasos</h2>
+                <h2>Impacto y Próximos Pasos</h2>
             </div>
             <div class="section-content">
                 <div class="subsection">
@@ -943,22 +942,22 @@
                     
                     <div class="benefits" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
                         <div class="benefit-card">
-                            <div class="benefit-icon">👥</div>
+                            <div class="benefit-icon"></div>
                             <h4>Para usuarios finales</h4>
                             <p>Experiencia más personalizada, eficiente y satisfactoria que reduce fricción y aumenta la adopción de la plataforma</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">⚙️</div>
+                            <div class="benefit-icon"></div>
                             <h4>Para administradores</h4>
                             <p>Herramientas avanzadas de control, monitoreo y personalización que reducen el overhead operativo y mejoran la gobernanza</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🏢</div>
+                            <div class="benefit-icon"></div>
                             <h4>Para la organización</h4>
                             <p>Mejor cumplimiento normativo, reducción de costos operativos y mayor escalabilidad para soportar crecimiento</p>
                         </div>
                         <div class="benefit-card">
-                            <div class="benefit-icon">🚀</div>
+                            <div class="benefit-icon"></div>
                             <h4>Para el producto</h4>
                             <p>Base tecnológica más sólida con menos deuda técnica que facilita futuras innovaciones y mantenibilidad</p>
                         </div>
@@ -985,5 +984,5 @@
             <p>© 2026 Russell Diagnóstico - Todos los derechos reservados</p>
         </footer>
     </div>
-</body>
+<div class="rb-pie" style="max-width:1080px;margin:56px auto 0;padding:0 28px 30px;text-align:right;line-height:0"><img src="../public/marca/russell-bedford-azul.svg" width="150" height="33" alt="Russell Bedford · taking you further" style="display:inline-block;width:150px;height:33px;border:0"></div><div style="max-width:1080px;margin:24px auto 0"><table class="rb-franja" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;table-layout:fixed"><tbody><tr><td width="25%" height="4" bgcolor="#001871" style="width:25%;height:4px;padding:0;background-color:#001871;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#981D97" style="width:25%;height:4px;padding:0;background-color:#981D97;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#00BFB3" style="width:25%;height:4px;padding:0;background-color:#00BFB3;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td><td width="25%" height="4" bgcolor="#ED8B00" style="width:25%;height:4px;padding:0;background-color:#ED8B00;font-size:1px;line-height:4px;mso-line-height-rule:exactly">&nbsp;</td></tr></tbody></table></div></body>
 </html>

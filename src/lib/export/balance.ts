@@ -15,6 +15,7 @@ import {
   type RevisionHistorialVM,
 } from "@/lib/balance/prevalidador/historial";
 import { fmtDateTime } from "@/lib/format";
+import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
 export type TipoExportBalance = "homologado" | "comparativo" | "prevalidador";
 export type MetaExportBalance = { cliente: string; periodo: string; version: string | number; generadoEn: Date };
@@ -39,10 +40,10 @@ function textoCatalogoInforme(revision: RevisionPrevalidadorExport | undefined):
 }
 
 const NUM_FMT = "#,##0.00;-#,##0.00";
-const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF1F5" } };
-const N1_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC6D0DE" } };
-const N2_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDE3EC" } };
-const N4_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F3F8" } };
+// Jerarquía en los tintes de Space Blue del manual; el último nivel, en neutro.
+const N1_FILL = rellenoMarca(EXCEL.nivel1);
+const N2_FILL = rellenoMarca(EXCEL.nivel2);
+const N4_FILL = rellenoMarca(EXCEL.nivel3);
 
 // Nombres de CLASE (primer dígito) del PUC colombiano.
 const CLASES: Record<string, string> = {
@@ -64,14 +65,13 @@ const nivelPUC = (code: string): { numero: number; descripcion: string } => {
 function titulo(ws: ExcelJS.Worksheet, meta: MetaExportBalance, texto: string, cols: number) {
   ws.mergeCells(1, 1, 1, cols);
   ws.getCell("A1").value = `${texto} — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
-  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.getCell("A1").font = { bold: true, size: 12, color: { argb: EXCEL.titulo } };
   ws.addRow([]);
 }
 
 function encabezados(ws: ExcelJS.Worksheet, cols: string[]) {
   const row = ws.addRow(cols);
-  row.font = { bold: true };
-  row.eachCell((c) => (c.fill = HEADER_FILL));
+  row.eachCell((c) => estiloEncabezado(c));
 }
 
 export type ClaseSubtotal = { clase: string; nombre: string; row: number };
@@ -152,14 +152,13 @@ function hojaValidacion(wb: ExcelJS.Workbook, meta: MetaExportBalance, clases: C
 
   ws.mergeCells(1, 1, 1, 2);
   ws.getCell("A1").value = `Validación del balance — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
-  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.getCell("A1").font = { bold: true, size: 12, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = "Fórmulas vivas sobre la hoja «Balance homologado» (signo: débito +, crédito −). Si editas el balance, recalculan.";
-  ws.getCell("A2").font = { italic: true, size: 9, color: { argb: "FF667085" } };
+  ws.getCell("A2").font = { italic: true, size: 9, color: { argb: EXCEL.textoSecundario } };
 
   const seccion = (txt: string) => {
     const r = ws.addRow([txt, ""]);
-    r.font = { bold: true };
-    r.eachCell((c) => (c.fill = HEADER_FILL));
+    r.eachCell((c) => estiloEncabezado(c));
     return r.number;
   };
   const kv = (label: string, formula: string, opts: { bold?: boolean } = {}) => {
@@ -179,7 +178,7 @@ function hojaValidacion(wb: ExcelJS.Workbook, meta: MetaExportBalance, clases: C
   seccion("Sumas por clase (saldo actual, con signo)");
   for (const c of clases) kv(`${c.clase} · ${c.nombre}`, ref("H", c.row));
   const nTotal = kv("Suma de clases (debe ser 0)", sumCol("H"), { bold: true });
-  estado("Ecuación contable", `IF(ABS(B${nTotal})<=1,"✓ CUADRA","✗ DESCUADRE "&TEXT(B${nTotal},"#,##0.00"))`);
+  estado("Ecuación contable", `IF(ABS(B${nTotal})<=1,"CUADRA","DESCUADRE "&TEXT(B${nTotal},"#,##0.00"))`);
 
   ws.addRow([]);
   // B) Partida doble — Σ débito = Σ crédito.
@@ -187,7 +186,7 @@ function hojaValidacion(wb: ExcelJS.Workbook, meta: MetaExportBalance, clases: C
   const nDeb = kv("Total débito", sumCol("F"));
   const nCred = kv("Total crédito", sumCol("G"));
   const nDif = kv("Diferencia (débito − crédito)", `B${nDeb}-B${nCred}`, { bold: true });
-  estado("Partida doble", `IF(ABS(B${nDif})<=1,"✓ CUADRA","✗ DESCUADRE")`);
+  estado("Partida doble", `IF(ABS(B${nDif})<=1,"CUADRA","DESCUADRE")`);
 
   ws.addRow([]);
   // C) Control de movimiento — saldo anterior + débito − crédito = saldo actual.
@@ -197,7 +196,7 @@ function hojaValidacion(wb: ExcelJS.Workbook, meta: MetaExportBalance, clases: C
   const nC2 = kv("Σ Crédito", sumCol("G"));
   const nSF = kv("Σ Saldo actual", sumCol("H"));
   const nCtrl = kv("Control (SA + D − C − Saldo)", `B${nSA}+B${nD2}-B${nC2}-B${nSF}`, { bold: true });
-  estado("Estado del control", `IF(ABS(B${nCtrl})<=1,"✓ OK","✗ REVISAR")`);
+  estado("Estado del control", `IF(ABS(B${nCtrl})<=1,"OK","REVISAR")`);
 
   ws.getColumn(1).width = 44;
   ws.getColumn(2).width = 26;
@@ -292,7 +291,7 @@ function hojaPrevalidador(wb: ExcelJS.Workbook, prevalidador: PrevalidadorVM, me
       "Agrupadoras excluidas para evitar doble conteo",
       prevalidador.anidamientos.map((a) => a.cuenta8).join(", "),
     ]);
-    aviso.font = { italic: true, color: { argb: "FF667085" } };
+    aviso.font = { italic: true, color: { argb: EXCEL.textoSecundario } };
   }
 
   [24, 16, 22, 18, 16, 18, 24, 22, 22, 22, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
@@ -316,7 +315,7 @@ function hojaTrazabilidadPrevalidador(
   const ws = wb.addWorksheet("Trazabilidad prevalidador");
   ws.mergeCells("A1:B1");
   ws.getCell("A1").value = `Trazabilidad del prevalidador — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
-  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.getCell("A1").font = { bold: true, size: 12, color: { argb: EXCEL.titulo } };
   ws.addRow([]);
   const estado = revision?.vigente ? "APROBADO Y VIGENTE" : `NO APROBADO · ${revision?.estado ?? "sin revisión"}`;
   const filas: Array<[string, string]> = [
@@ -336,7 +335,7 @@ function hojaTrazabilidadPrevalidador(
   ws.getColumn(2).width = 90;
   ws.getCell("B3").font = {
     bold: true,
-    color: { argb: revision?.vigente ? "FF18794E" : "FFB42318" },
+    color: { argb: revision?.vigente ? EXCEL.titulo : EXCEL.error },
   };
 }
 
@@ -345,14 +344,13 @@ function hojaHistorialPrevalidador(wb: ExcelJS.Workbook, historial: RevisionHist
   const ws = wb.addWorksheet("Historial prevalidador");
   ws.mergeCells("A1:D1");
   ws.getCell("A1").value = `Historial de revisiones del prevalidador — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
-  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.getCell("A1").font = { bold: true, size: 12, color: { argb: EXCEL.titulo } };
   ws.addRow([]);
   const header = ws.addRow(["Fecha", "Usuario", "Acción", "Comentario"]);
-  header.font = { bold: true };
-  header.eachCell((c) => (c.fill = HEADER_FILL));
+  header.eachCell((c) => estiloEncabezado(c));
   if (historial.length === 0) {
     const vacio = ws.addRow(["Sin aprobaciones ni revocaciones registradas."]);
-    vacio.font = { italic: true, color: { argb: "FF667085" } };
+    vacio.font = { italic: true, color: { argb: EXCEL.textoSecundario } };
   }
   for (const h of historial) {
     const situacion = etiquetaSituacionRevision(h.situacion);
@@ -360,7 +358,7 @@ function hojaHistorialPrevalidador(wb: ExcelJS.Workbook, historial: RevisionHist
     const row = ws.addRow([fmtDateTime(h.fecha), h.usuario, accion, h.comentario]);
     row.alignment = { vertical: "top" };
     row.getCell(4).alignment = { vertical: "top", wrapText: true };
-    row.getCell(3).font = { bold: true, color: { argb: h.accion === "aprobada" ? "FF18794E" : "FFB42318" } };
+    row.getCell(3).font = { bold: true, color: { argb: h.accion === "aprobada" ? EXCEL.titulo : EXCEL.error } };
   }
   [22, 28, 26, 90].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.views = [{ state: "frozen", ySplit: 3 }];
@@ -392,5 +390,5 @@ export async function crearExportacionBalance(
     const clases = hojaHomologado(wb, datos.arbol, meta);
     hojaValidacion(wb, meta, clases);
   }
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return escribirLibroMarca(wb);
 }

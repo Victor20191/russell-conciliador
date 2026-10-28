@@ -11,6 +11,7 @@ import {
 } from "@/lib/soporte";
 import { historialDeTicket, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 import TicketHistorial from "@/components/ticket-historial";
+import { LogoRussellBedford } from "@/components/marca";
 
 /**
  * Insignia del estado en el portal público. No usa `Chip` (este layout no
@@ -68,13 +69,14 @@ export default async function SeguimientoTicketPage({
   return (
     <main className="min-h-screen bg-ink-50 px-5 py-10 sm:px-8">
       <div className="mx-auto max-w-3xl">
-        <Link href="/soporte" className="text-xs font-semibold text-blue-500 hover:text-navy-700">← Reportar otro ticket</Link>
+        <LogoRussellBedford variante="azul" ancho={140} className="-ml-7 -mt-7" prioridad />
+        <Link href="/soporte" className="block text-xs font-semibold text-blue-600 hover:text-navy-700">← Reportar otro ticket</Link>
         <div className="mt-5 overflow-hidden rounded-xl border border-ink-150 bg-paper shadow-lg">
           <div className="border-b border-ink-150 bg-navy-800 px-6 py-6 text-white sm:px-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9CADC0]">Seguimiento privado</p>
-                <h1 className="mt-1 font-mono text-xl font-semibold">{ticket.code}</h1>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-navy-200">Seguimiento privado</p>
+                <h1 className="mt-1 text-xl font-bold tabular-nums">{ticket.code}</h1>
               </div>
               <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
                 TONO_INSIGNIA[tonoEstadoTicket(ticket.status)] ?? TONO_INSIGNIA.warn
@@ -89,7 +91,7 @@ export default async function SeguimientoTicketPage({
               <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
                 Solicitud de {ticket.reporterFirstName} {ticket.reporterLastName}
               </p>
-              <h2 className="mt-2 font-serif text-2xl text-ink-900">{ticket.subject}</h2>
+              <h2 className="mt-2 text-2xl font-light text-navy-800">{ticket.subject}</h2>
             </section>
 
             <section>

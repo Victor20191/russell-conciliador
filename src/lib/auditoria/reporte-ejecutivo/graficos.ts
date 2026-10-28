@@ -3,6 +3,7 @@
 
 import type { ResumenAdopcion } from "./adopcion";
 import type { ResumenUsoFactual } from "./metricas";
+import { EARTH_ORANGE, FUENTE_PANTALLA, NEUTRO, SEA_GREEN, SKY_BLUE, SPACE_BLUE } from "@/lib/marca/paleta";
 
 const MARCA_GRAFICOS = "rd-graficos-uso";
 
@@ -49,40 +50,40 @@ function construirDetalleUsuariosHtml(uso: ResumenUsoFactual): string {
                 .join(" · ")
             : "Sin acciones auditables registradas.";
           const familias = usuario.porFamilia.length
-            ? `<span style="display:block;margin-top:0.25rem;font-size:10.5px;color:#626e7e;">Procesos: ${usuario.porFamilia
+            ? `<span style="display:block;margin-top:0.25rem;font-size:10.5px;color:${NEUTRO.k70};">Procesos: ${usuario.porFamilia
                 .map((familia) => escapeHtml(familia.nombre))
                 .join(" · ")}</span>`
             : "";
 
           const correo = usuario.correo
-            ? `<span style="display:block;margin-top:0.15rem;font-size:10.5px;font-weight:400;color:#566273;word-break:break-all;">${escapeHtml(usuario.correo)}</span>`
-            : `<span style="display:block;margin-top:0.15rem;font-size:10.5px;font-weight:400;color:#8a94a1;">Correo no documentado</span>`;
+            ? `<span style="display:block;margin-top:0.15rem;font-size:10.5px;font-weight:400;color:${NEUTRO.k75};word-break:break-all;">${escapeHtml(usuario.correo)}</span>`
+            : `<span style="display:block;margin-top:0.15rem;font-size:10.5px;font-weight:400;color:${NEUTRO.k70};">Correo no documentado</span>`;
 
           return `
       <tr class="rd-user-row" style="break-inside:avoid;page-break-inside:avoid;">
-        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;font-weight:600;color:#1a2330;">${escapeHtml(usuario.usuario)}${correo}</td>
-        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(usuario.conexiones)}</td>
-        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(usuario.totalAcciones)}</td>
-        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;color:#2a3441;line-height:1.4;">${acciones}${familias}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid ${NEUTRO.k15};vertical-align:top;font-weight:600;color:${NEUTRO.k90};">${escapeHtml(usuario.usuario)}${correo}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid ${NEUTRO.k15};vertical-align:top;text-align:right;font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-weight:600;color:${SPACE_BLUE[100]};">${fmtNum(usuario.conexiones)}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid ${NEUTRO.k15};vertical-align:top;text-align:right;font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-weight:600;color:${SPACE_BLUE[100]};">${fmtNum(usuario.totalAcciones)}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid ${NEUTRO.k15};vertical-align:top;color:${NEUTRO.k85};line-height:1.4;">${acciones}${familias}</td>
       </tr>`;
         })
         .join("")
-    : `<tr><td colspan="4" style="padding:0.85rem;text-align:center;color:#566273;">Sin conexiones ni acciones auditables en el período.</td></tr>`;
+    : `<tr><td colspan="4" style="padding:0.85rem;text-align:center;color:${NEUTRO.k75};">Sin conexiones ni acciones auditables en el período.</td></tr>`;
 
   return `
-<section class="rd-user-detail" id="rd-detalle-usuarios" style="break-inside:auto;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #dce0e7;border-radius:10px;background:#fff;">
+<section class="rd-user-detail" id="rd-detalle-usuarios" style="break-inside:auto;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k20};border-radius:10px;background:#fff;">
   <div class="rd-user-detail-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
-    <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Detalle de actividad por usuario</h3>
-    <p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">Cada usuario se identifica con su nombre y su correo. Conexiones corresponde a inicios de sesión exitosos en el período. Las acciones provienen de la bitácora auditable y se muestran sin limitar usuarios.</p>
+    <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">Detalle de actividad por usuario</h3>
+    <p style="margin:0 0 0.85rem;font-size:12px;color:${NEUTRO.k75};">Cada usuario se identifica con su nombre y su correo. Conexiones corresponde a inicios de sesión exitosos en el período. Las acciones provienen de la bitácora auditable y se muestran sin limitar usuarios.</p>
   </div>
   <div style="overflow:visible;">
     <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.5px;">
       <thead style="display:table-header-group;">
-        <tr style="background:#f2f7fc;color:#142b4a;">
-          <th style="width:26%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid #dce0e7;">Usuario y correo</th>
-          <th style="width:12%;padding:0.55rem 0.7rem;text-align:right;border-bottom:1px solid #dce0e7;">Conexiones</th>
-          <th style="width:11%;padding:0.55rem 0.7rem;text-align:right;border-bottom:1px solid #dce0e7;">Acciones</th>
-          <th style="width:51%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid #dce0e7;">Qué realizó en la app</th>
+        <tr style="background:${SPACE_BLUE[20]};color:${SPACE_BLUE[100]};">
+          <th style="width:24%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid ${NEUTRO.k20};">Usuario y correo</th>
+          <th style="width:15%;padding:0.55rem 0.45rem;text-align:right;border-bottom:1px solid ${NEUTRO.k20};overflow-wrap:normal;word-break:normal;">Conexiones</th>
+          <th style="width:12%;padding:0.55rem 0.45rem;text-align:right;border-bottom:1px solid ${NEUTRO.k20};overflow-wrap:normal;word-break:normal;">Acciones</th>
+          <th style="width:49%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid ${NEUTRO.k20};">Qué realizó en la app</th>
         </tr>
       </thead>
       <tbody>${filas}
@@ -102,12 +103,12 @@ function graficoBarrasHorizontales(params: {
   colorBarra?: string;
   vacio?: string;
 }): string {
-  const color = params.colorBarra ?? "#142b4a";
+  const color = params.colorBarra ?? SPACE_BLUE[100];
   if (params.items.length === 0) {
     return `
-<section class="rd-chart" id="${params.id}" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">${escapeHtml(params.titulo)}</h3>
-  <p style="margin:0;font-size:12.5px;color:#566273;">${escapeHtml(params.vacio ?? "Sin datos en el período.")}</p>
+<section class="rd-chart" id="${params.id}" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k15};border-radius:10px;background:#fff;">
+  <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">${escapeHtml(params.titulo)}</h3>
+  <p style="margin:0;font-size:12.5px;color:${NEUTRO.k75};">${escapeHtml(params.vacio ?? "Sin datos en el período.")}</p>
 </section>`;
   }
 
@@ -116,20 +117,20 @@ function graficoBarrasHorizontales(params: {
     .map((item) => {
       const ancho = pct(item.valor, max);
       const sub = item.sub
-        ? `<span style="display:block;font-size:11px;color:#626e7e;margin-top:1px;">${escapeHtml(item.sub)}</span>`
+        ? `<span style="display:block;font-size:11px;color:${NEUTRO.k70};margin-top:1px;">${escapeHtml(item.sub)}</span>`
         : "";
       return `
     <div style="margin:0 0 0.65rem;">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:auto;border-collapse:collapse;margin:0 0 0.28rem;">
         <tbody><tr>
         <td valign="bottom" style="padding:0;vertical-align:bottom;">
-          <span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(item.etiqueta)}</span>
+          <span style="font-size:12.5px;color:${NEUTRO.k90};font-weight:500;">${escapeHtml(item.etiqueta)}</span>
           ${sub}
         </td>
-        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;white-space:nowrap;">${fmtNum(item.valor)}</span></td>
+        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:${SPACE_BLUE[100]};white-space:nowrap;">${fmtNum(item.valor)}</span></td>
         </tr></tbody>
       </table>
-      <div style="height:8px;border-radius:999px;background:#eff1f4;overflow:hidden;">
+      <div style="height:8px;border-radius:999px;background:${NEUTRO.k10};overflow:hidden;">
         <div style="height:100%;width:${ancho}%;border-radius:999px;background:${color};"></div>
       </div>
     </div>`;
@@ -137,12 +138,12 @@ function graficoBarrasHorizontales(params: {
     .join("");
 
   const subtitulo = params.subtitulo
-    ? `<p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">${escapeHtml(params.subtitulo)}</p>`
+    ? `<p style="margin:0 0 0.85rem;font-size:12px;color:${NEUTRO.k75};">${escapeHtml(params.subtitulo)}</p>`
     : "";
 
   return `
-<section class="rd-chart" id="${params.id}" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">${escapeHtml(params.titulo)}</h3>
+<section class="rd-chart" id="${params.id}" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k15};border-radius:10px;background:#fff;">
+  <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">${escapeHtml(params.titulo)}</h3>
   ${subtitulo}
   ${filas}
 </section>`;
@@ -152,16 +153,16 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
   const total = adopcion.totalCambios;
   if (total === 0) {
     return `
-<section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de nuevas funcionalidades</h3>
-  <p style="margin:0;font-size:12.5px;color:#566273;">No hay funcionalidades nuevas en este reporte cuya actividad relacionada revisar. Las mejoras y correcciones no se miden como adopción.</p>
+<section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k15};border-radius:10px;background:#fff;">
+  <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">Adopción de nuevas funcionalidades</h3>
+  <p style="margin:0;font-size:12.5px;color:${NEUTRO.k75};">No hay funcionalidades nuevas en este reporte cuya actividad relacionada revisar. Las mejoras y correcciones no se miden como adopción.</p>
 </section>`;
   }
 
   const segmentos: Array<{ label: string; valor: number; color: string }> = [
-    { label: "Con actividad relacionada", valor: adopcion.usadas, color: "#2f6b3f" },
-    { label: "Sin actividad relacionada", valor: adopcion.sinEvidencia, color: "#b8801f" },
-    { label: "No se puede medir", valor: adopcion.noMedibles, color: "#626e7e" },
+    { label: "Con actividad relacionada", valor: adopcion.usadas, color: SEA_GREEN[100] },
+    { label: "Sin actividad relacionada", valor: adopcion.sinEvidencia, color: EARTH_ORANGE[100] },
+    { label: "No se puede medir", valor: adopcion.noMedibles, color: NEUTRO.k70 },
   ].filter((s) => s.valor > 0);
 
   const max = Math.max(...segmentos.map((s) => s.valor), 1);
@@ -173,11 +174,11 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
     <div style="margin:0 0 0.65rem;">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:auto;border-collapse:collapse;margin:0 0 0.28rem;">
         <tbody><tr>
-        <td valign="bottom" style="padding:0;vertical-align:bottom;"><span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(s.label)}</span></td>
-        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;">${fmtNum(s.valor)} <span style="color:#626e7e;font-weight:500;">(${pctTotal}%)</span></span></td>
+        <td valign="bottom" style="padding:0;vertical-align:bottom;"><span style="font-size:12.5px;color:${NEUTRO.k90};font-weight:500;">${escapeHtml(s.label)}</span></td>
+        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;color:${SPACE_BLUE[100]};">${fmtNum(s.valor)} <span style="color:${NEUTRO.k70};font-weight:500;">(${pctTotal}%)</span></span></td>
         </tr></tbody>
       </table>
-      <div style="height:10px;border-radius:999px;background:#eff1f4;overflow:hidden;">
+      <div style="height:10px;border-radius:999px;background:${NEUTRO.k10};overflow:hidden;">
         <div style="height:100%;width:${ancho}%;border-radius:999px;background:${s.color};"></div>
       </div>
     </div>`;
@@ -190,10 +191,10 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
       : `${adopcion.porcentajeAdopcion}% de las funcionalidades medibles tienen actividad relacionada`;
 
   return `
-<section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de nuevas funcionalidades</h3>
-  <p style="margin:0 0 0.45rem;font-size:12px;color:#566273;">${escapeHtml(pctAdop)} · ${fmtNum(total)} funcionalidades en alcance</p>
-  <p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">La actividad corresponde al módulo relacionado. No confirma que una funcionalidad específica haya sido usada ni identifica usuarios. «Sin actividad relacionada» tampoco prueba que no se haya usado.</p>
+<section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k15};border-radius:10px;background:#fff;">
+  <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">Adopción de nuevas funcionalidades</h3>
+  <p style="margin:0 0 0.45rem;font-size:12px;color:${NEUTRO.k75};">${escapeHtml(pctAdop)} · ${fmtNum(total)} funcionalidades en alcance</p>
+  <p style="margin:0 0 0.85rem;font-size:12px;color:${NEUTRO.k75};">La actividad corresponde al módulo relacionado. No confirma que una funcionalidad específica haya sido usada ni identifica usuarios. «Sin actividad relacionada» tampoco prueba que no se haya usado.</p>
   ${filas}
 </section>`;
 }
@@ -216,7 +217,7 @@ export function construirSeccionGraficosHtml(params: {
       etiqueta: f.nombre,
       valor: f.total,
     })),
-    colorBarra: "#2f6fa7",
+    colorBarra: SKY_BLUE[100],
     vacio: "No hubo consultas a módulos operativos en el período.",
   });
 
@@ -228,7 +229,7 @@ export function construirSeccionGraficosHtml(params: {
       etiqueta: f.nombre,
       valor: f.total,
     })),
-    colorBarra: "#142b4a",
+    colorBarra: SPACE_BLUE[100],
     vacio: "No hubo acciones registradas en el período.",
   });
 
@@ -250,7 +251,7 @@ export function construirSeccionGraficosHtml(params: {
           .filter(Boolean)
           .join(" · ") || undefined,
     })),
-    colorBarra: "#2f6fa7",
+    colorBarra: SKY_BLUE[100],
     vacio: "No hubo usuarios con acciones en el período.",
   });
 
@@ -264,7 +265,7 @@ export function construirSeccionGraficosHtml(params: {
       etiqueta: a.nombre,
       valor: a.total,
     })),
-    colorBarra: "#1e3a5f",
+    colorBarra: SPACE_BLUE[80],
     vacio: "Sin acciones en el período.",
   });
 
@@ -276,7 +277,7 @@ export function construirSeccionGraficosHtml(params: {
       etiqueta: c.nombre,
       valor: c.total,
     })),
-    colorBarra: "#345a82",
+    colorBarra: SEA_GREEN[100],
     vacio: "No hubo operaciones vinculadas a clientes en el período.",
   });
 
@@ -287,21 +288,21 @@ export function construirSeccionGraficosHtml(params: {
   const serie = uso.serieDiaria.slice(-14);
   const totalSerie = serie.reduce((acc, d) => acc + d.total, 0);
   const maxDia = Math.max(...serie.map((d) => d.total), 1);
-  const cell = "padding:0.42rem 0.6rem;border-bottom:1px solid #e7eaef;";
+  const cell = `padding:0.42rem 0.6rem;border-bottom:1px solid ${NEUTRO.k15};`;
   const filasDia = serie
     .map((d, i) => {
       const ancho = pct(d.total, maxDia);
       const pctPeriodo = totalSerie > 0 ? Math.round((d.total / totalSerie) * 1000) / 10 : 0;
-      const fondo = i % 2 === 1 ? "background:#fafbfc;" : "";
+      const fondo = i % 2 === 1 ? `background:${NEUTRO.k2};` : "";
       return `
         <tr style="${fondo}break-inside:avoid;page-break-inside:avoid;">
-          <td style="${cell}color:#1a2330;font-weight:500;white-space:nowrap;">${escapeHtml(fechaCorta(d.fecha))}</td>
-          <td style="${cell}color:#566273;white-space:nowrap;">${escapeHtml(diaSemana(d.fecha))}</td>
-          <td style="${cell}text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;white-space:nowrap;">${fmtNum(d.total)}</td>
-          <td style="${cell}text-align:right;font-family:ui-monospace,Menlo,monospace;color:#566273;white-space:nowrap;">${pctPeriodo}%</td>
+          <td style="${cell}color:${NEUTRO.k90};font-weight:500;white-space:nowrap;">${escapeHtml(fechaCorta(d.fecha))}</td>
+          <td style="${cell}color:${NEUTRO.k75};white-space:nowrap;">${escapeHtml(diaSemana(d.fecha))}</td>
+          <td style="${cell}text-align:right;font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-weight:600;color:${SPACE_BLUE[100]};white-space:nowrap;">${fmtNum(d.total)}</td>
+          <td style="${cell}text-align:right;font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;color:${NEUTRO.k75};white-space:nowrap;">${pctPeriodo}%</td>
           <td style="${cell}width:40%;">
-            <div style="height:8px;border-radius:999px;background:#eff1f4;overflow:hidden;">
-              <div style="height:100%;width:${ancho}%;border-radius:999px;background:#142b4a;"></div>
+            <div style="height:8px;border-radius:999px;background:${NEUTRO.k10};overflow:hidden;">
+              <div style="height:100%;width:${ancho}%;border-radius:999px;background:${SPACE_BLUE[100]};"></div>
             </div>
           </td>
         </tr>`;
@@ -310,40 +311,40 @@ export function construirSeccionGraficosHtml(params: {
 
   const tablaDia =
     serie.length === 0
-      ? `<p style="margin:0;font-size:12.5px;color:#566273;">Sin actividad diaria en el período.</p>`
+      ? `<p style="margin:0;font-size:12.5px;color:${NEUTRO.k75};">Sin actividad diaria en el período.</p>`
       : `<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.5px;">
       <thead style="display:table-header-group;">
-        <tr style="background:#f2f7fc;color:#142b4a;">
-          <th style="width:14%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Fecha</th>
-          <th style="width:16%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Día</th>
-          <th style="width:16%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid #dce0e7;">Acciones</th>
-          <th style="width:14%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid #dce0e7;">% del total</th>
-          <th style="width:40%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Comparativo</th>
+        <tr style="background:${SPACE_BLUE[20]};color:${SPACE_BLUE[100]};">
+          <th style="width:14%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid ${NEUTRO.k20};">Fecha</th>
+          <th style="width:16%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid ${NEUTRO.k20};">Día</th>
+          <th style="width:16%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid ${NEUTRO.k20};">Acciones</th>
+          <th style="width:14%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid ${NEUTRO.k20};">% del total</th>
+          <th style="width:40%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid ${NEUTRO.k20};">Comparativo</th>
         </tr>
       </thead>
       <tbody>${filasDia}
       </tbody>
       <tfoot>
-        <tr style="background:#f7f9fb;">
-          <td colspan="2" style="padding:0.5rem 0.6rem;font-weight:600;color:#1a2330;">Total del período mostrado</td>
-          <td style="padding:0.5rem 0.6rem;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(totalSerie)}</td>
-          <td colspan="2" style="padding:0.5rem 0.6rem;color:#566273;">${serie.length} ${serie.length === 1 ? "día con datos" : "días con datos"}</td>
+        <tr style="background:${NEUTRO.k5};">
+          <td colspan="2" style="padding:0.5rem 0.6rem;font-weight:600;color:${NEUTRO.k90};">Total del período mostrado</td>
+          <td style="padding:0.5rem 0.6rem;text-align:right;font-family:${FUENTE_PANTALLA};font-variant-numeric:tabular-nums;font-weight:600;color:${SPACE_BLUE[100]};">${fmtNum(totalSerie)}</td>
+          <td colspan="2" style="padding:0.5rem 0.6rem;color:${NEUTRO.k75};">${serie.length} ${serie.length === 1 ? "día con datos" : "días con datos"}</td>
         </tr>
       </tfoot>
     </table>`;
 
   const actividadDiaria = `
-<section class="rd-chart" id="rd-chart-diario" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Ritmo de uso diario</h3>
-  <p style="margin:0 0 0.6rem;font-size:12px;color:#566273;">Acciones por día${serie.length < uso.serieDiaria.length ? " (últimos 14 días con datos en el rango)" : ""}</p>
+<section class="rd-chart" id="rd-chart-diario" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k15};border-radius:10px;background:#fff;">
+  <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">Ritmo de uso diario</h3>
+  <p style="margin:0 0 0.6rem;font-size:12px;color:${NEUTRO.k75};">Acciones por día${serie.length < uso.serieDiaria.length ? " (últimos 14 días con datos en el rango)" : ""}</p>
   ${tablaDia}
 </section>`;
 
   return `
 <section id="${MARCA_GRAFICOS}" class="rd-graficos-uso" style="margin:1.75rem 0 2rem;">
   <div class="rd-graficos-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
-    <h2 style="margin:0 0 0.35rem;font-family:Georgia,'Times New Roman',serif;font-size:1.35rem;color:#0e1721;border-left:3px solid #142b4a;padding-left:0.65rem;">Uso en gráficos</h2>
-    <p style="margin:0 0 1rem;font-size:13px;color:#475160;">Distribución factual del período. Las consultas provienen de la navegación y las operaciones de la bitácora auditable; se muestran por separado e incluyen únicamente familias operativas publicadas.</p>
+    <h2 style="margin:0 0 0.35rem;font-family:${FUENTE_PANTALLA};font-size:1.35rem;color:${SPACE_BLUE[100]};font-weight:400;border-left:3px solid ${SPACE_BLUE[100]};padding-left:0.65rem;">Uso en gráficos</h2>
+    <p style="margin:0 0 1rem;font-size:13px;color:${NEUTRO.k80};">Distribución factual del período. Las consultas provienen de la navegación y las operaciones de la bitácora auditable; se muestran por separado e incluyen únicamente familias operativas publicadas.</p>
   </div>
   <div style="display:grid;grid-template-columns:1fr;gap:0;">
     ${modulosConsultados}

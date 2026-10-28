@@ -231,7 +231,7 @@ export function AlcanceCuentasTercero({
           </div>
 
           {(fuera > 0 || contableExcluidoFilas > 0) && (
-            <div className="flex flex-col gap-2 rounded-md border border-warn-500 bg-warn-100/20 px-3 py-2 text-[12px] text-ink-700">
+            <div className="flex flex-col gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-ink-700">
               <b className="text-warn-700">No entran al cruce</b>
               {fueraDelModulo.length > 0 && (
                 <div>

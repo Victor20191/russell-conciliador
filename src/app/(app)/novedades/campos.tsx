@@ -6,13 +6,13 @@ import type { ActionState } from "@/lib/definitions";
 // Helpers de formulario compartidos por los modales de versión y de cambio.
 
 export const INPUT_CLS =
-  "rounded-md border border-ink-200 px-3 py-2 text-[13px] focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-600/15";
+  "rounded-md border border-ink-200 px-3 py-2 text-[13px] focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-100";
 
 export const BTN_GUARDAR =
-  "rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:opacity-60";
+  "rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60";
 
 export const BTN_ELIMINAR =
-  "rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-err-700/90 disabled:opacity-60";
+  "rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-err-400 disabled:opacity-60";
 
 export function Campo({
   label,

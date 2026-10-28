@@ -21,10 +21,10 @@ import {
 const SIN_ESTADOS_OCULTOS: readonly EstadoTicket[] = [];
 
 const TONO_COLUMNA: Record<string, { punto: string; conteo: string; zona: string }> = {
-  warn: { punto: "bg-warn-500", conteo: "bg-warn-100 text-warn-700", zona: "border-warn-500 bg-warn-100/50" },
-  ai: { punto: "bg-ai-500", conteo: "bg-ai-100 text-ai-700", zona: "border-ai-500 bg-ai-100/50" },
-  blue: { punto: "bg-navy-500", conteo: "bg-blue-100 text-navy-700", zona: "border-navy-500 bg-blue-100/50" },
-  ok: { punto: "bg-ok-500", conteo: "bg-ok-100 text-ok-700", zona: "border-ok-500 bg-ok-100/50" },
+  warn: { punto: "bg-warn-500", conteo: "bg-warn-100 text-warn-700", zona: "border-warn-500 bg-warn-100" },
+  ai: { punto: "bg-ai-500", conteo: "bg-ai-100 text-ai-700", zona: "border-ai-500 bg-ai-100" },
+  blue: { punto: "bg-navy-500", conteo: "bg-blue-100 text-navy-700", zona: "border-navy-500 bg-blue-100" },
+  ok: { punto: "bg-ok-500", conteo: "bg-ok-100 text-ok-700", zona: "border-ok-500 bg-ok-100" },
   ink: { punto: "bg-ink-400", conteo: "bg-ink-100 text-ink-600", zona: "border-ink-400 bg-ink-100/60" },
 };
 
@@ -205,7 +205,7 @@ export default function KanbanTablero({
                 soltarEn(columna.estado, Number.isFinite(id) && id > 0 ? id : arrastrando);
               }}
               className={`flex min-h-[16rem] flex-col rounded-lg border-2 border-dashed p-2.5 transition ${
-                enZona ? tono.zona : "border-transparent bg-ink-50/70"
+                enZona ? tono.zona : "border-transparent bg-ink-50/60"
               }`}
             >
               <header className="flex flex-col gap-1.5 px-1 pb-2.5">
@@ -229,7 +229,7 @@ export default function KanbanTablero({
                   {/* El contador SIEMPRE refleja el total de la columna, no lo
                       que deja ver la búsqueda: buscar es una lupa, no un
                       segundo filtro que esconda cuántas tarjetas hay en total. */}
-                  <span className={`ml-auto rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold ${tono.conteo}`}>
+                  <span className={`ml-auto rounded-full px-2 py-0.5 tabular-nums text-[11px] font-semibold ${tono.conteo}`}>
                     {cartas.length}
                   </span>
                 </div>
@@ -317,7 +317,7 @@ export default function KanbanTablero({
             <button
               type="button"
               onClick={guardarSolucion}
-              className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-800"
+              className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
             >
               Marcar como resuelto
             </button>
@@ -390,7 +390,7 @@ function TarjetaTicket({
       onDragEnd={onDragEnd}
       className={`rounded-md border border-ink-150 bg-paper shadow-sm transition focus-within:border-blue-400 hover:border-blue-400 ${
         puedeMover ? "cursor-grab active:cursor-grabbing" : ""
-      } ${moviendo ? "opacity-50" : ""}`}
+      } ${moviendo ? "opacity-60" : ""}`}
     >
       {/* El cuerpo entero abre el detalle. Va como <button> —y no como enlace—
           porque el destino es un modal: así el teclado lo activa con Enter y
@@ -402,7 +402,7 @@ function TarjetaTicket({
         className="block w-full px-3 py-2.5 text-left focus:outline-none"
       >
         <span className="flex items-center gap-2">
-          <span className="font-mono text-[11px] font-semibold text-ink-600">{ticket.code}</span>
+          <span className="tabular-nums text-[11px] font-semibold text-ink-600">{ticket.code}</span>
           {ticket.adjuntos > 0 && (
             <span
               className="ml-auto inline-flex items-center gap-1 text-[11px] text-ink-400"
@@ -454,7 +454,7 @@ function TarjetaTicket({
               onClick={onEliminar}
               title={`Eliminar ${ticket.code}`}
               aria-label={`Eliminar ${ticket.code}`}
-              className={`inline-flex shrink-0 items-center gap-1 rounded border border-err-500/40 bg-white px-1.5 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100 ${
+              className={`inline-flex shrink-0 items-center gap-1 rounded border border-err-200 bg-white px-1.5 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100 ${
                 puedeMover ? "" : "ml-auto"
               }`}
             >

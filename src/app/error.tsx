@@ -26,6 +26,7 @@ export default function RootError({
       error={error}
       retry={unstable_retry}
       className="min-h-screen"
+      conMarca
     />
   );
 }

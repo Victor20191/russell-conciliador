@@ -7,7 +7,7 @@ import { eliminarBalance, reemplazarBalanceConciliado } from "@/app/actions/bala
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 
 const BOTON_ROJO = "inline-flex items-center gap-1 rounded border border-err-500 bg-white px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-60";
-const BOTON_NAVY = "inline-flex items-center gap-1 rounded border border-navy-700 bg-white px-2 py-1 text-[11.5px] font-semibold text-navy-700 hover:bg-navy-700/5 disabled:opacity-60";
+const BOTON_NAVY = "inline-flex items-center gap-1 rounded border border-navy-700 bg-white px-2 py-1 text-[11.5px] font-semibold text-navy-700 hover:bg-navy-50 disabled:opacity-60";
 
 /**
  * Eliminar OTRO balance del corte (solo esa versión) desde el panel «Balances del mismo corte»:
@@ -35,7 +35,7 @@ export function EliminarBalanceCorteButton({ balanceId, nombre }: { balanceId: n
         onClose={() => setAbierto(false)}
         title={`Eliminar ${nombre}`}
         footer={
-          <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-500 disabled:opacity-60">
+          <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60">
             {pending ? "Eliminando…" : "Eliminar esta versión"}
           </button>
         }

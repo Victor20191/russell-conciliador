@@ -104,7 +104,7 @@ export default function CuentasConciliacionPanel({
 
       {puedeEditar && creando && (
         <Card className="p-4">
-          <h2 className="mb-3 text-[13px] font-semibold text-ink-900">{modulo.conCategoria ? "Nueva cuenta" : "Nueva cuenta que concilia"}</h2>
+          <h2 className="mb-3 text-[13px] font-semibold text-navy-800">{modulo.conCategoria ? "Nueva cuenta" : "Nueva cuenta que concilia"}</h2>
           <CuentaEditor {...comunes} onListo={() => setCreando(false)} onCancelar={() => setCreando(false)} />
         </Card>
       )}
@@ -112,7 +112,7 @@ export default function CuentasConciliacionPanel({
       <Card className="p-4">
         <div className="mb-1 flex items-center gap-2">
           <Icon name="settings" size={15} />
-          <h2 className="text-[14px] font-semibold text-ink-900">Cuentas que concilia · 6 dígitos</h2>
+          <h2 className="text-[14px] font-semibold text-navy-800">Cuentas que concilia · 6 dígitos</h2>
           <span className="text-[11px] text-ink-400">{modulo.code}</span>
         </div>
         <p className="mb-3 text-[11.5px] text-ink-500">
@@ -140,7 +140,7 @@ export default function CuentasConciliacionPanel({
             className="flex w-full flex-wrap items-center gap-2 px-4 py-3 text-left hover:bg-ink-50/60"
           >
             <Icon name={chevronDivulgacion(verVisibles)} size={13} className="shrink-0 text-ink-400" />
-            <h2 className="text-[14px] font-semibold text-ink-900">Cuentas solo visibles</h2>
+            <h2 className="text-[14px] font-semibold text-navy-800">Cuentas solo visibles</h2>
             <span className="text-[11px] text-ink-400">{visibles.length}</span>
             <span className="ml-auto text-[11.5px] font-semibold text-blue-700">{verVisibles ? "Ocultar" : "Ver cuentas"}</span>
           </button>
@@ -214,7 +214,7 @@ function CuentaEditor({
   const esVisible = cuenta?.categoria === "visible";
 
   return (
-    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
+    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-sm transition-colors focus-within:border-blue-200">
       <form action={guardarAction} className={conOrigen || conCategoria ? GRID_CON_ORIGEN : GRID_SIN_ORIGEN}>
         <fieldset disabled={soloLectura} className="contents">
         {cuenta && <input type="hidden" name="id" value={cuenta.id} />}
@@ -237,7 +237,7 @@ function CuentaEditor({
             maxLength={8}
             list={listaPlan}
             placeholder="130505"
-            className={`${CONTROL_CLASS} font-mono tabular-nums`}
+            className={`${CONTROL_CLASS} tabular-nums`}
           />
         </Campo>
 
@@ -290,7 +290,7 @@ function CuentaEditor({
           <button
             type="submit"
             disabled={guardando}
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-60"
           >
             {!guardando && <Icon name={cuenta ? "check" : "plus"} size={13} />}
             {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : cuenta ? "Guardar" : "Agregar"}
@@ -302,7 +302,7 @@ function CuentaEditor({
               disabled={unica}
               title={unica ? "El módulo debe conciliar al menos una cuenta." : `Quitar la cuenta ${cuenta.cuenta} de las que concilia el módulo.`}
               aria-label={`Quitar la cuenta ${cuenta.cuenta} de las que concilia el módulo`}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Icon name="trash" size={13} />
             </button>
@@ -322,7 +322,7 @@ function CuentaEditor({
       )}
 
       {cuenta && confirmarBorrado && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100 px-3 py-2">
           <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
             {esVisible
               ? `¿Quitar la cuenta ${cuenta.cuenta}? Deja de mostrarse en el cruce de los cargues abiertos.`
@@ -340,7 +340,7 @@ function CuentaEditor({
             type="submit"
             form={`quitar-cuenta-${cuenta.id}`}
             disabled={quitando}
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             {!quitando && <Icon name="trash" size={12} />}
             {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Sí, quitar"}

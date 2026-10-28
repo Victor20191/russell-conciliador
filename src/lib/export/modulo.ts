@@ -11,6 +11,7 @@ import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCa
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import type { ControlDeduccionesNomina, VistaSubcuentaNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import { fechaDeCelda, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
 /** `esValor` y `familia`, como en la pantalla: el saldo efectivo y los rangos de vencimiento. */
 export type ColumnaExportModulo = { nombre: string; etiqueta: string; tipo: "texto" | "numero" | "moneda" | "fecha"; esValor?: boolean; familia?: { clave: string; etiqueta: string } };
@@ -48,9 +49,9 @@ export type MetaExportModulo = {
 
 const NUM_FMT = "#,##0.00;-#,##0.00";
 const INT_FMT = "#,##0.##;-#,##0.##";
-const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF1F5" } };
-const GRUPO_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDE3EC" } };
-const TOTAL_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC6D0DE" } };
+// Grupos y totales en los tintes de Space Blue del manual.
+const GRUPO_FILL = rellenoMarca(EXCEL.nivel2);
+const TOTAL_FILL = rellenoMarca(EXCEL.nivel1);
 
 const SIN_CLASIFICAR = "(sin clasificar)";
 const esNum = (t: ColumnaExportModulo["tipo"]) => t === "moneda" || t === "numero";
@@ -108,13 +109,12 @@ function hojaDetalle(
   // Encabezado descriptivo por encima de la tabla (título + metadatos).
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente}`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version}${meta.archivo ? ` · ${meta.archivo}` : ""}`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
   const header = ws.getRow(HEADER_ROW);
-  header.font = { bold: true };
-  header.fill = HEADER_FILL;
+  header.eachCell((c) => estiloEncabezado(c));
   columnas.forEach((c, i) => {
     if (esNum(c.tipo)) header.getCell(i + 2).alignment = { horizontal: "right" };
   });
@@ -177,12 +177,11 @@ function hojaConsolidado(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, con
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Consolidado`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version}`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
-  ws.getRow(HEADER_ROW).font = { bold: true };
-  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.getRow(HEADER_ROW).eachCell((c) => estiloEncabezado(c));
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
 
   const primera = HEADER_ROW + 1;
@@ -233,12 +232,11 @@ function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: strin
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de totales del archivo`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version} · los subtotales no se cargan: se comparan contra la suma de sus movimientos`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
-  ws.getRow(HEADER_ROW).font = { bold: true };
-  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.getRow(HEADER_ROW).eachCell((c) => estiloEncabezado(c));
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
   for (const c of control) {
     const row = ws.addRow({
@@ -246,8 +244,8 @@ function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: strin
       estado: c.estado === "cuadra" ? "SÍ COINCIDE" : c.estado === "descuadre" ? "NO COINCIDE" : "NO VALIDADO",
     });
     for (const k of ["sumaMovimientos", "subtotalArchivo", "diferencia"]) row.getCell(k).numFmt = NUM_FMT;
-    if (c.estado === "descuadre") row.font = { bold: true, color: { argb: "FFB91C1C" } };
-    if (c.estado === "no_validado") row.font = { bold: true, color: { argb: "FF6B7280" } };
+    if (c.estado === "descuadre") row.font = { bold: true, color: { argb: EXCEL.error } };
+    if (c.estado === "no_validado") row.font = { bold: true, color: { argb: EXCEL.textoSecundario } };
   }
 }
 
@@ -290,12 +288,11 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Cruce por tercero`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version} · ${cruce.fuente}`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
-  ws.getRow(HEADER_ROW).font = { bold: true };
-  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.getRow(HEADER_ROW).eachCell((c) => estiloEncabezado(c));
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
 
   for (const f of resumen.filas) {
@@ -327,7 +324,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
     });
     for (const k of numericas) row.getCell(k).numFmt = NUM_FMT;
     row.getCell("coincidencia").numFmt = "0%";
-    if (f.estado !== "cuadra" && f.estado !== "sin_saldo") row.font = { color: { argb: "FFB91C1C" } };
+    if (f.estado !== "cuadra" && f.estado !== "sin_saldo") row.font = { color: { argb: EXCEL.error } };
   }
   const total = ws.addRow({
     clave: "Totales",
@@ -351,7 +348,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
     if (valor === 0) continue;
     const row = ws.addRow({ nombre: texto, contable: valor });
     row.getCell("contable").numFmt = NUM_FMT;
-    row.font = { color: { argb: "FF6B7280" } };
+    row.font = { color: { argb: EXCEL.textoSecundario } };
   }
 }
 
@@ -377,19 +374,18 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Cruce por subcuenta PUC sumando clases`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Corte ${meta.periodo} · v${meta.version} · saldo final del balance`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
-  ws.getRow(HEADER_ROW).font = { bold: true };
-  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.getRow(HEADER_ROW).eachCell((c) => estiloEncabezado(c));
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
   const num = ["contable", "modulo", "diferencia"];
   const estado: Record<string, string> = { cuadra: "Cuadra", descuadre: "Diferencia", solo_contable: "Solo contabilidad", solo_modulo: "Solo nómina" };
   const agregarFilas = (filas: typeof vista.filas, soloVisible: boolean) => {
     for (const f of filas) {
       const fila = ws.addRow({ subcuenta: f.subcuenta, etiqueta: f.etiqueta, contable: f.contable, modulo: f.modulo, diferencia: f.diferencia, estado: soloVisible ? "Solo visible" : estado[f.estado] ?? f.estado });
-      fila.font = { bold: true, color: !soloVisible && f.estado === "descuadre" ? { argb: "FFB91C1C" } : undefined };
+      fila.font = { bold: true, color: !soloVisible && f.estado === "descuadre" ? { argb: EXCEL.error } : undefined };
       for (const k of num) fila.getCell(k).numFmt = NUM_FMT;
       for (const c of f.cuentas) {
         const r = ws.addRow({ cuenta: c.cuenta8, nombre: `${c.nombre} (clase ${c.clase})`, contable: c.valor });
@@ -413,11 +409,11 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
   if (visibles.length > 0) {
     ws.addRow({});
     const titulo = ws.addRow({ subcuenta: "Solo visibles", etiqueta: "No cuentan para la conciliación" });
-    titulo.font = { bold: true, color: { argb: "FF6B7280" } };
+    titulo.font = { bold: true, color: { argb: EXCEL.textoSecundario } };
     agregarFilas(visibles, true);
     const tv = vista.totalesVisibles ?? { contable: 0, modulo: 0, diferencia: 0 };
     const totalVisibles = ws.addRow({ subcuenta: "Total solo visibles", contable: tv.contable, modulo: tv.modulo, diferencia: tv.diferencia });
-    totalVisibles.font = { bold: true, color: { argb: "FF6B7280" } };
+    totalVisibles.font = { bold: true, color: { argb: EXCEL.textoSecundario } };
     for (const k of num) totalVisibles.getCell(k).numFmt = NUM_FMT;
   }
   if (vista.sinSubcuenta.length > 0) {
@@ -425,7 +421,7 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
     for (const c of vista.sinSubcuenta) {
       const r = ws.addRow({ etiqueta: "Sin subcuenta conocida", cuenta: c.codigo, nombre: c.descripcion ?? "", modulo: c.total });
       r.getCell("modulo").numFmt = NUM_FMT;
-      r.font = { color: { argb: "FF6B7280" } };
+      r.font = { color: { argb: EXCEL.textoSecundario } };
     }
   }
 }
@@ -445,18 +441,17 @@ function hojaControlDeducciones(wb: ExcelJS.Workbook, nomina: CruceNominaExportM
   ];
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de deducciones`;
-  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A1").font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
   ws.getCell("A2").value = `Corte ${meta.periodo} · v${meta.version} · saldo final del balance · solo informa, no suma al gasto`;
-  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  ws.getCell("A2").font = { color: { argb: EXCEL.textoSecundario } };
   const HEADER_ROW = 4;
-  ws.getRow(HEADER_ROW).font = { bold: true };
-  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.getRow(HEADER_ROW).eachCell((c) => estiloEncabezado(c));
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
   const num = ["contable", "modulo", "diferencia"];
   for (const f of control.filas) {
     const r = ws.addRow({ cuenta: f.cuentaCliente, nombre: f.nombre ?? "", balance: f.cuentasBalance.join(", "), conceptos: f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · "), contable: f.contable, modulo: f.modulo, diferencia: f.diferencia });
     for (const k of num) r.getCell(k).numFmt = NUM_FMT;
-    if (!f.cuadra) r.font = { color: { argb: "FFB91C1C" } };
+    if (!f.cuadra) r.font = { color: { argb: EXCEL.error } };
   }
   const total = ws.addRow({ cuenta: "Totales", contable: control.totales.contable, modulo: control.totales.modulo, diferencia: control.totales.diferencia });
   total.font = { bold: true };
@@ -493,5 +488,5 @@ export async function crearExportacionModulo(input: {
     hojaCruceSubcuenta(wb, input.cruceNomina, input.meta);
     hojaControlDeducciones(wb, input.cruceNomina, input.meta);
   }
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return escribirLibroMarca(wb);
 }

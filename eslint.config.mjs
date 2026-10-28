@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Informes y diagnósticos locales; no forman parte de la aplicación.
+    "outputs/**",
+    "output/**",
+    "_tmp_*",
   ]),
 ]);
 

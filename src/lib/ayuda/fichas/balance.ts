@@ -276,7 +276,7 @@ export const FICHA_BALANCE_DETALLE: FichaAyuda = {
               fuente: { archivo: ACCIONES_BALANCE, funcion: "validarAlerta" },
             },
             {
-              nombre: "Eliminar registro sin mapeo (✕)",
+              nombre: "Eliminar registro sin mapeo (×)",
               queHace: "Quita del balance una cuenta del cliente sin cuenta Russell; se recuerda para las próximas cargas del cliente.",
               regla: REGLAS.cargarBalance,
               condiciones: ["Balance abierto.", "No en cuentas en firme."],

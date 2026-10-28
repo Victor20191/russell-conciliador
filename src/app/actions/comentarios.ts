@@ -286,7 +286,11 @@ export async function publicarComentario(input: {
       const quien = actor?.name ?? "Alguien";
       try {
         await prisma.notification.createMany({
-          data: menciones.map(() => ({
+          data: menciones.map((userId) => ({
+            userId,
+            clientId: alc.scoped ? alc.clientId : null,
+            entityType: tipo,
+            entityId,
             kind: "comment",
             who: quien,
             text: `${quien} te mencionó en ${etiqueta} #${entityId}`,
@@ -398,7 +402,11 @@ export async function editarComentario(input: { id: number; body: string; mencio
     if (nuevas.length) {
       try {
         await prisma.notification.createMany({
-          data: nuevas.map(() => ({
+          data: nuevas.map((userId) => ({
+            userId,
+            clientId: tipo === "dian" ? null : clientId,
+            entityType: tipo,
+            entityId: comentario.entityId,
             kind: "comment",
             who: quien,
             text: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}`,
