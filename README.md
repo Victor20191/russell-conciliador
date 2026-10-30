@@ -64,12 +64,31 @@ correcta del código:
 ```bash
 node -v   # 24.22.1 o posterior de la rama 24 (.nvmrc)
 npm ci
+npm ls next zod sharp   # deben coincidir con package-lock.json
 npm run db:status
 npm run db:deploy
 export NEXT_DEPLOYMENT_ID=$(git rev-parse --short HEAD)
 npm run build
-npm start
+pm2 reload ecosystem.config.js --update-env
+pm2 save
 ```
+
+La primera vez, y cada vez que cambie `ecosystem.config.js` o sus límites, PM2
+debe recrear el proceso (un `reload` no cambia el script ni los argumentos de Node):
+
+```bash
+pm2 delete russell-lfm && pm2 start ecosystem.config.js && pm2 save
+```
+
+`npm ci` no es opcional: sin él, `git pull` y el build siguen usando las
+dependencias anteriores. El log de PM2 muestra la versión de Next que arrancó
+(`▲ Next.js x.y.z`); debe ser la del lock.
+
+`ecosystem.config.js` arranca Next sin pasar por `npm start`, para que PM2 vigile
+el proceso real. Limita el heap de Node (`HEAP_MAX_MB`, 2048 por defecto) y
+reinicia el proceso si su memoria supera `REINICIO_MEMORIA_MB` (heap + 768).
+Ajustar ambos a la RAM del VPS, que comparte con PostgreSQL. Instalar además
+`pm2-logrotate` para que el log de errores no crezca sin límite.
 
 El gestor de procesos del servidor debe conservar el entorno usado durante el
 build. Al actualizar Node, también él se reinicia con el ejecutable nuevo (con
