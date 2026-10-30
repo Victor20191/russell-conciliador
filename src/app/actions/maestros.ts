@@ -499,10 +499,10 @@ export async function updateMaestroCatalogo(
 
   try {
     if (parsed.data.tipo === "erp") {
-      // «Archivo manual» lo usa la carga de módulos: no se renombra de código ni se desactiva.
+      // «Formato propio» (código MANUAL) lo usa la carga de módulos: no se renombra de código ni se desactiva.
       const actual = await prisma.erp.findUnique({ where: { id: parsed.data.id }, select: { code: true } });
       if (actual?.code === ERP_MANUAL_CODE && (data.code !== ERP_MANUAL_CODE || !data.active)) {
-        return { ok: false, message: "«Archivo manual» es del sistema: no se puede desactivar ni cambiar su código." };
+        return { ok: false, message: "«Formato propio» es del sistema: no se puede desactivar ni cambiar su código." };
       }
       await prisma.erp.update({ where: { id: parsed.data.id }, data });
     } else {
@@ -543,7 +543,7 @@ export async function deleteMaestroCatalogo(
         prisma.versionPatronArchivoModulo.count({ where: { erpId: id } }),
       ]);
       if (!erp) return { ok: false, message: "El ERP no existe." };
-      if (erp.code === ERP_MANUAL_CODE) return { ok: false, message: "«Archivo manual» es del sistema: no se puede eliminar." };
+      if (erp.code === ERP_MANUAL_CODE) return { ok: false, message: "«Formato propio» es del sistema: no se puede eliminar." };
       if (versionesPatron > 0) {
         return { ok: false, message: `Este ERP tiene ${versionesPatron} versión(es) de patrones de archivo. Desactívalo en lugar de eliminarlo.` };
       }

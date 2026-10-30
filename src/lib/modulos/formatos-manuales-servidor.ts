@@ -1,6 +1,6 @@
 import "server-only";
 
-// «Patrones manuales» del cliente (21/Oct/2026): lecturas y escritura de `perfiles_carga_modulo`.
+// «Formatos propios» del cliente (21/Oct/2026): lecturas y escritura de `perfiles_carga_modulo`.
 // La lógica (llave, coincidencia, qué hacer al confirmar) vive en `formatos-manuales.ts`, puro.
 import type { Prisma } from "@/generated/prisma/client";
 import prisma from "@/lib/prisma";
@@ -39,7 +39,7 @@ const aFormato = (f: FilaFormato): FormatoManualGuardado => ({
   creadoPor: f.creadoPor,
 });
 
-/** Los patrones manuales del cliente en un módulo. */
+/** Los formatos propios del cliente en un módulo. */
 export async function formatosManualesDelCliente(
   clienteId: number,
   moduloCodigo: string,
@@ -49,7 +49,7 @@ export async function formatosManualesDelCliente(
   return filas.map(aFormato);
 }
 
-/** Lo que el borrador muestra junto a la casilla «Guardar este patrón manual para {cliente}». */
+/** Lo que el borrador muestra junto a la casilla «Guardar como formato propio de {cliente}». */
 export async function formatoManualDelBorrador(
   descriptor: DescriptorModulo,
   clienteId: number,
@@ -78,7 +78,7 @@ export type ResultadoGuardadoFormato = {
 };
 
 /**
- * Guarda (o cuenta el uso de) el patrón manual al CONFIRMAR un cargue con «Archivo manual». Con el
+ * Guarda (o cuenta el uso de) el formato propio al CONFIRMAR un cargue con «Formato propio». Con el
  * candado `formato-manual:{cliente}:{módulo}` decide sobre lo guardado en ese instante. Título,
  * mapeo y archivo de ejemplo se escriben siempre juntos: los números de columna del mapeo apuntan a
  * ese encabezado. «Guardado el / por» cambia solo cuando cambia el mapeo.
@@ -133,7 +133,7 @@ export async function guardarFormatoManualConfirmado(args: {
   });
 }
 
-/** Un patrón manual en la pestaña «Patrones manuales» del módulo. */
+/** Un formato propio en la pestaña «Formatos propios» del módulo. */
 export type FormatoManualVm = {
   id: number;
   titulos: string[];
@@ -150,7 +150,7 @@ export type FormatoManualVm = {
 
 export type ClienteFormatosManualesVm = { clienteId: number; cliente: string; nit: string | null; formatos: FormatoManualVm[] };
 
-/** Patrones manuales del módulo, agrupados por cliente, dentro del alcance de quien consulta. */
+/** Formatos propios del módulo, agrupados por cliente, dentro del alcance de quien consulta. */
 export async function listarFormatosManualesDeModulo(descriptor: DescriptorModulo): Promise<ClienteFormatosManualesVm[]> {
   const alcance = await alcanceLecturaUsuario();
   const filas = await prisma.perfilCargaModulo.findMany({

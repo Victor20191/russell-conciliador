@@ -38,7 +38,7 @@ export const AREAS_QUIEN_HACE_QUE: readonly { titulo: string; fichas: readonly F
   },
   {
     titulo: "Módulos de conciliación",
-    fichas: ["modulo.cargados", "modulo.borradores", "modulo.borrador", "modulo.cargue", "modulo.patrones", "modulo.patrones_manuales"],
+    fichas: ["modulo.cargados", "modulo.borradores", "modulo.borrador", "modulo.cargue", "modulo.patrones", "modulo.formatos_propios"],
   },
   { titulo: "Catálogos contables", fichas: ["catalogo.plan_russell", "catalogo.mapeo_cliente", "catalogo.conceptos_nomina"] },
   { titulo: "Clientes y equipo", fichas: ["equipo.clientes", "equipo.usuarios", "equipo.estructura", "equipo.perfil"] },

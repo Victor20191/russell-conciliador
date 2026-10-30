@@ -100,7 +100,7 @@ async function aplicativoDePatron(erpIdCrudo: unknown) {
   if (!Number.isInteger(erpId) || erpId <= 0) throw new ErrorPatron("Elige el aplicativo del patrón.");
   const erp = await prisma.erp.findUnique({ where: { id: erpId }, select: { id: true, code: true, name: true, active: true } });
   if (!erp) throw new ErrorPatron("El aplicativo ya no existe.");
-  if (erp.code === ERP_MANUAL_CODE) throw new ErrorPatron("«Archivo manual» no tiene patrones: se mapea en cada carga.");
+  if (erp.code === ERP_MANUAL_CODE) throw new ErrorPatron("«Formato propio» no tiene patrones: se mapea en cada carga.");
   if (!erp.active) throw new ErrorPatron(`El aplicativo ${erp.name} está inactivo en el catálogo.`);
   return erp;
 }

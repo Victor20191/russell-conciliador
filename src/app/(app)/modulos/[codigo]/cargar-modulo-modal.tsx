@@ -1,12 +1,12 @@
 "use client";
 
 // Modal de carga del motor genérico de módulos. El analista confirma de qué APLICATIVO es el
-// archivo (o elige otro, o «Archivo manual») y el período; el servidor compara el archivo con los
+// archivo (o elige otro, o «Formato propio») y el período; el servidor compara el archivo con los
 // patrones de ese aplicativo:
 //  - coincide ≥ 80 %: confirmación breve (solo datos del cargue) y borrador, sin mapear columnas;
 //  - Inventarios: prepara el borrador automáticamente y pide ayuda solo ante ambigüedades;
 //  - otros módulos sin coincidencia: un administrador crea el patrón;
-//  - «Archivo manual»: mapeo de columnas a mano, memorizado por cliente.
+//  - «Formato propio» (aplicativo MANUAL; antes «Archivo manual»): mapeo de columnas a mano, memorizado por cliente.
 
 import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
@@ -59,7 +59,7 @@ import {
   type AplicativoOpcion,
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
-import { AvisoPatronManual } from "./aviso-patron-manual";
+import { AvisoFormatoPropio } from "./aviso-formato-propio";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
 import { prepararBorradorInventario } from "@/app/actions/asistencia-inventario";
@@ -741,7 +741,7 @@ function CargarModal({
   // El aplicativo no tiene patrón y quien carga configura la lectura en este modal (no Inventarios,
   // que tiene su asistencia). Al confirmar el borrador podrá guardar el formato como patrón.
   const [configurando, setConfigurando] = useState(false);
-  // Archivo manual: «No usar este patrón manual» (21/Oct/2026). Se respeta al cambiar de hoja y al leer.
+  // «Formato propio»: «No usar este formato» del cliente (21/Oct/2026). Se respeta al cambiar de hoja y al leer.
   const [sinFormatoManual, setSinFormatoManual] = useState(false);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
@@ -954,7 +954,7 @@ function CargarModal({
         setDestinoCarga(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.modo === "patron" && configurando) notifySuccess(`Esta hoja coincide con un patrón de ${r.aplicativo?.nombre ?? "el aplicativo"}: se leerá con él.`);
-        // El patrón manual que coincidió se ve en el recuadro de la fase de mapeo.
+        // El formato propio que coincidió se ve en el recuadro de la fase de mapeo.
       } catch {
         notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
       }
@@ -1064,7 +1064,7 @@ function CargarModal({
       } else {
         fd.set("specJson", JSON.stringify(spec));
         if (configurando) fd.set("configurarEnCarga", "1");
-        // «No usar este patrón manual»: el servidor no lo vuelve a aplicar ni lo anota en el lote.
+        // «No usar este formato» propio: el servidor no lo vuelve a aplicar ni lo anota en el lote.
         if (sinFormatoManual) fd.set("formatoManual", "ninguno");
       }
       if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
@@ -1661,7 +1661,7 @@ function CargarModal({
               para {nombreCliente} hasta que un administrador lo apruebe.
             </p>
           ) : (
-            <AvisoPatronManual
+            <AvisoFormatoPropio
               formato={analisis.formatoManual ?? null}
               cliente={nombreCliente}
               sinFormato={sinFormatoManual}

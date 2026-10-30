@@ -3,7 +3,7 @@
 // Aplicativos (ERP) del cliente vistos desde la CARGA de un módulo: qué aplicativos tiene el
 // cliente en el campo del módulo (Contabilidad para Cartera, CxP e Ingresos) y el alta del que
 // el analista confirme para el archivo. Si el cliente no lo tenía, se agrega a su ficha: queda
-// «usando dos». «Otro» crea el aplicativo en el catálogo; «Archivo manual» es uno más del catálogo.
+// «usando dos». «Otro» crea el aplicativo en el catálogo; «Formato propio» (código MANUAL) es uno más del catálogo.
 import { revalidatePath } from "next/cache";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
@@ -23,7 +23,7 @@ export type AplicativosCargaModulo = {
   /** Nombre del campo de la ficha que usa el módulo («Contabilidad», «Nómina»…). */
   campoNombre?: string;
   delCliente: AplicativoOpcion[];
-  /** Aplicativos activos del catálogo (incluye «Archivo manual»). */
+  /** Aplicativos activos del catálogo (incluye «Formato propio»). */
   catalogo: AplicativoOpcion[];
 };
 

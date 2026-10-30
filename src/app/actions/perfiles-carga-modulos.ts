@@ -49,7 +49,7 @@ export type PerfilCargaModuloResumen = {
   resumenColumnas: string; // "tipo de inventario B · referencia A · valor total F"
   estructura: SpecModulo;
   actualizadoEn: string; // ISO
-  /** Títulos con que se reconoce (21/Oct/2026); vacío = patrón anterior (solo coincidencia exacta). */
+  /** Títulos con que se reconoce (21/Oct/2026); vacío = formato anterior (solo coincidencia exacta). */
   titulos: string[];
   /** Cuándo y quién guardó el mapeo vigente (ISO); en los anteriores, su creación. */
   guardadoEn: string;
@@ -206,7 +206,7 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
         // Una edición humana blinda el perfil frente a futuras detecciones automáticas:
         // las cargas solo registrarán su uso, no pisarán su mapa con la heurística.
         origen: "manual",
-        // «Guardado el / por» del patrón manual. Los títulos guardados no se tocan: los números de
+        // «Guardado el / por» del formato propio. Los títulos guardados no se tocan: los números de
         // columna del mapeo siguen apuntando a ese encabezado.
         guardadoEn: new Date(),
         guardadoPor: user?.name ?? null,
@@ -237,10 +237,10 @@ export async function actualizarPerfilCargaModulo(input: EditarPerfilCargaModulo
       clientId: perfil.clienteId,
     });
     revalidatePath(PATH);
-    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/patrones-manuales`);
+    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/formatos-propios`);
     return {
       ok: true,
-      message: "Patrón manual actualizado. Las próximas cargas de este formato usarán este mapeo de columnas.",
+      message: "Formato propio actualizado. Las próximas cargas de este formato usarán este mapeo de columnas.",
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("actualizarPerfilCargaModulo", e) };
@@ -273,9 +273,9 @@ export async function eliminarPerfilCargaModulo(id: number): Promise<ActionState
       clientId: perfil.clienteId,
     });
     revalidatePath(PATH);
-    // También se ve en la pestaña «Patrones manuales» del módulo.
-    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/patrones-manuales`);
-    return { ok: true, message: "Patrón manual eliminado." };
+    // También se ve en la pestaña «Formatos propios» del módulo.
+    revalidatePath(`/modulos/${perfil.moduloCodigo.toLowerCase()}/formatos-propios`);
+    return { ok: true, message: "Formato propio eliminado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarPerfilCargaModulo", e) };
   }

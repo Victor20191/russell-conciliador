@@ -25,7 +25,7 @@ describe("resolverAyuda", () => {
     ["/modulos/cxp/patrones", "modulo.patrones"],
     ["/modulos/cxp/patrones/nueva", "modulo.patrones"],
     ["/modulos/cxp/patrones/12", "modulo.patrones"],
-    ["/modulos/ing/patrones-manuales", "modulo.patrones_manuales"],
+    ["/modulos/ing/formatos-propios", "modulo.formatos_propios"],
     ["/modulos/afi/88", "modulo.cargue"],
   ])("%s → %s", (ruta, ficha) => {
     expect(resolverAyuda(ruta)?.fichaId).toBe(ficha);

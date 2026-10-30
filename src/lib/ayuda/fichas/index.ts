@@ -16,7 +16,7 @@ import {
   fichaModuloCargados,
   fichaModuloCargue,
   fichaModuloPatrones,
-  fichaModuloPatronesManuales,
+  fichaModuloFormatosPropios,
 } from "./modulos";
 import { FICHA_CONCEPTOS_NOMINA, FICHA_MAPEO_CLIENTE, FICHA_PLAN_RUSSELL } from "./catalogos";
 import { FICHA_CLIENTES, FICHA_ESTRUCTURA, FICHA_PERFIL, FICHA_USUARIOS } from "./clientes-equipo";
@@ -51,7 +51,7 @@ const FICHAS_MODULO: Partial<Record<FichaId, (d: DescriptorModulo) => FichaAyuda
   "modulo.borradores": fichaModuloBorradores,
   "modulo.borrador": fichaModuloBorrador,
   "modulo.patrones": fichaModuloPatrones,
-  "modulo.patrones_manuales": fichaModuloPatronesManuales,
+  "modulo.formatos_propios": fichaModuloFormatosPropios,
   "modulo.cargue": fichaModuloCargue,
   "parametros.filtros_cuentas": fichaFiltrosCuentas,
 };

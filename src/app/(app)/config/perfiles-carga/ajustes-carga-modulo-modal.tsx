@@ -41,8 +41,8 @@ const TIPO_LEGIBLE: Record<string, string> = {
 /**
  * Personalización de la CARGA de UN MÓDULO (Inventarios, Cartera, CxP, Ingresos,
  * Activos Fijos, Nómina) para UN cliente, dentro de Configuración › Perfiles de carga
- * (ruta admin-only, permiso `perfiles_carga:administrar`): patrones manuales (mapeo de
- * columnas de «Archivo manual», guardados al confirmar el cargue desde el 21/Oct/2026) y
+ * (ruta admin-only, permiso `perfiles_carga:administrar`): formatos propios (mapeo de
+ * columnas hecho a mano con «Formato propio», guardados al confirmar el cargue desde el 21/Oct/2026) y
  * preferencias por defecto (hoja, notas) que el asistente aplica cuando se elige el cliente.
  *
  * Es el gemelo de `AjustesCargaModal` (balance): mismos modos y misma disposición.
@@ -164,17 +164,17 @@ export function AjustesCargaModuloModal({
           {/* ---- Perfiles de formato guardados ---- */}
           <section className="flex flex-col gap-2">
             <div>
-              <h3 className="text-[12.5px] font-semibold text-navy-800">Patrones manuales guardados</h3>
+              <h3 className="text-[12.5px] font-semibold text-navy-800">Formatos propios guardados</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
-                El mapeo de columnas de los archivos de {etiquetaModulo.toLowerCase()} que este cliente carga con «Archivo manual». Un
+                El mapeo de columnas de los archivos de {etiquetaModulo.toLowerCase()} que este cliente carga con la opción «Formato propio». Un
                 archivo nuevo con 80 % o más de coincidencia en los títulos <span className="font-semibold">se lee con el mismo mapeo</span>,
                 sin importar el nombre de la hoja. Se guardan al confirmar el cargue (casilla del borrador) y también se ven en{" "}
-                <span className="font-semibold">Módulos › {etiquetaModulo} › Patrones manuales</span>.
+                <span className="font-semibold">Módulos › {etiquetaModulo} › Formatos propios</span>.
               </p>
             </div>
             {data.perfiles.length === 0 ? (
               <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3 text-center text-[11.5px] text-ink-400">
-                Este cliente aún no tiene un patrón manual de {etiquetaModulo.toLowerCase()}. Se guarda al confirmar un cargue con «Archivo manual».
+                Este cliente aún no tiene un formato propio de {etiquetaModulo.toLowerCase()}. Se guarda al confirmar un cargue con la opción «Formato propio».
               </p>
             ) : (
               <div className="flex flex-col gap-2">
@@ -205,10 +205,10 @@ export function AjustesCargaModuloModal({
                           <span className="min-w-0">
                             <span className="flex flex-wrap items-center gap-2">
                               <span className="text-[12.5px] font-semibold text-ink-800">
-                                Patrón {indice + 1} · hoja del ejemplo «{p.hoja || "sin nombre"}»
+                                Formato {indice + 1} · hoja del ejemplo «{p.hoja || "sin nombre"}»
                               </span>
                               {p.titulos.length === 0 ? (
-                                <Chip label="Patrón anterior · solo coincidencia exacta" tone="warn" />
+                                <Chip label="Formato anterior · solo coincidencia exacta" tone="warn" />
                               ) : (
                                 <Chip
                                   label={p.origen === "manual" ? "Revisado manualmente" : "Detectado automáticamente"}

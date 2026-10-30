@@ -61,7 +61,7 @@ export function fichaModuloCargados(d: DescriptorModulo): FichaAyuda {
           {
             nombre: `Cargar ${d.label}`,
             queHace:
-              "Abre la carga: eliges cliente, aplicativo, archivo y período. Si el archivo coincide en un 80 % o más con un patrón del aplicativo se lee solo; si no, puedes configurar la lectura o usar «Archivo manual».",
+              "Abre la carga: eliges cliente, aplicativo, archivo y período. Si el archivo coincide en un 80 % o más con un patrón del aplicativo se lee solo; si no, puedes configurar la lectura o elegir «Formato propio» y mapear las columnas a mano. Con «Formato propio», si el cliente tiene un formato guardado que coincida, se aplica su mapeo («No usar este formato» vuelve a la sugerencia automática).",
             regla: REGLAS.cargarModulo,
             condiciones: [
               "El período no puede ser futuro y se confirma con «Sí, es correcto».",
@@ -340,8 +340,8 @@ export function fichaModuloBorrador(d: DescriptorModulo): FichaAyuda {
             regla: REGLAS.cargarModulo,
           },
           {
-            nombre: "Guardar este patrón manual",
-            queHace: "Con «Archivo manual», guarda los títulos y el mapeo para reconocer el archivo del cliente la próxima vez.",
+            nombre: "Guardar como formato propio",
+            queHace: "Con «Formato propio», guarda los títulos y el mapeo para reconocer el archivo del cliente la próxima vez.",
             regla: REGLAS.cargarModulo,
           },
           {
@@ -448,26 +448,26 @@ export function fichaModuloPatrones(d: DescriptorModulo): FichaAyuda {
   };
 }
 
-export function fichaModuloPatronesManuales(d: DescriptorModulo): FichaAyuda {
+export function fichaModuloFormatosPropios(d: DescriptorModulo): FichaAyuda {
   return {
-    id: "modulo.patrones_manuales",
-    titulo: `Patrones manuales · ${d.label}`,
+    id: "modulo.formatos_propios",
+    titulo: `Formatos propios · ${d.label}`,
     proposito:
-      "Los patrones de «Archivo manual» de cada cliente: los títulos con que se reconoce su archivo y el mapeo guardado. Un archivo con 80 % o más de coincidencia en los títulos se lee con ese mapeo.",
+      "Los formatos propios de cada cliente, mapeados a mano al cargar con la opción «Formato propio»: los títulos con que se reconoce su archivo y el mapeo de columnas. Un archivo del mismo cliente con 80 % o más de coincidencia en los títulos se lee con ese mapeo. A diferencia de los patrones de archivo, no se comparten con otros clientes.",
     etapas: [
       {
         titulo: "Consultar y borrar",
         acciones: [
           { nombre: "N títulos", queHace: "Despliega los títulos con que se reconoce el archivo.", regla: REGLAS.verPatrones },
-          { nombre: "Borrar", queHace: "Borra el patrón manual del cliente.", regla: REGLAS.administrarPatrones },
+          { nombre: "Borrar", queHace: "Borra el formato propio del cliente.", regla: REGLAS.administrarPatrones },
         ],
       },
     ],
-    estados: [{ etiqueta: "Patrón anterior · solo coincidencia exacta", significado: "Patrón sin títulos guardados: solo reconoce el mismo encabezado." }],
+    estados: [{ etiqueta: "Formato anterior · solo coincidencia exacta", significado: "Formato sin títulos guardados: solo reconoce el mismo encabezado." }],
     preguntas: [
       {
-        pregunta: "¿Cómo se crea un patrón manual?",
-        respuesta: "Al confirmar un cargue hecho con «Archivo manual», con la casilla «Guardar este patrón manual» marcada.",
+        pregunta: "¿Cómo se crea un formato propio?",
+        respuesta: "Al confirmar un cargue hecho con la opción «Formato propio», con la casilla «Guardar como formato propio» marcada.",
       },
     ],
   };

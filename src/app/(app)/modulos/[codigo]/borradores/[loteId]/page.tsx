@@ -208,7 +208,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const propuestaPatron = nombreErpPropuesta
     ? { aplicativo: nombreErpPropuesta, motivo: null }
     : motivoSinPropuesta ? { aplicativo: null, motivo: motivoSinPropuesta } : null;
-  // «Archivo manual»: qué pasará con el patrón manual del cliente al confirmar (21/Oct/2026).
+  // «Formato propio»: qué pasará con el formato propio del cliente al confirmar (21/Oct/2026).
   const propuestaFormatoManual = leerPropuestaFormatoManualDeLote(lote.specJson);
   const formatoManual = propuestaFormatoManual && lote.clienteId != null
     ? await formatoManualDelBorrador(descriptor, lote.clienteId, cliente?.name ?? "este cliente", propuestaFormatoManual)

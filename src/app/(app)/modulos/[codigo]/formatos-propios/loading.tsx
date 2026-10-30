@@ -1,11 +1,11 @@
 import { Card } from "@/components/ui";
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-export default function LoadingPatronesManuales() {
+export default function LoadingFormatosPropios() {
   return (
-    <div aria-busy="true" aria-label="Cargando patrones manuales" className="animate-pulse">
+    <div aria-busy="true" aria-label="Cargando formatos propios" className="animate-pulse">
       <div className="mb-4 text-[12.5px] font-medium text-ink-500">
-        <EstadoProcesando>Cargando patrones manuales</EstadoProcesando>
+        <EstadoProcesando>Cargando formatos propios</EstadoProcesando>
       </div>
       <div className="mb-6">
         <div className="h-7 w-56 rounded bg-ink-150" />

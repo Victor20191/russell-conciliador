@@ -28,7 +28,7 @@ export default async function PerfilesCargaModuloPage({ params }: { params: Prom
     <div>
       <PageHeader
         title={`Perfiles de carga · ${descriptor.label}`}
-        subtitle={`Cómo lee la plataforma el archivo de ${descriptor.label.toLowerCase()} de cada cliente: patrones manuales (mapeo de columnas de «Archivo manual») y preferencias de carga. Los patrones manuales se guardan al confirmar un cargue en Módulos › ${descriptor.label} y también se ven en su pestaña «Patrones manuales».`}
+        subtitle={`Cómo lee la plataforma el archivo de ${descriptor.label.toLowerCase()} de cada cliente: formatos propios (mapeo de columnas hecho a mano) y preferencias de carga. Los formatos propios se guardan al confirmar un cargue en Módulos › ${descriptor.label} y también se ven en su pestaña «Formatos propios».`}
       />
       <PerfilesCargaClient fuente={codigo} rows={rows} totalClientes={totalClientes} />
     </div>
