@@ -43,7 +43,7 @@ describe("aplicativos del cliente en la carga", () => {
     mocks.erpFindMany.mockResolvedValue([
       { id: 2, code: "SIESA", name: "SIESA" },
       { id: 3, code: "SAP", name: "SAP" },
-      { id: 9, code: "MANUAL", name: "Archivo manual" },
+      { id: 9, code: "MANUAL", name: "Formato propio" },
     ]);
 
     const r = await listarAplicativosCargaModulo(17, "cxp");
@@ -52,7 +52,7 @@ describe("aplicativos del cliente en la carga", () => {
       ok: true,
       campoNombre: "Contabilidad",
       delCliente: [{ id: 2, nombre: "SIESA", manual: false }],
-      catalogo: [{ id: 2, manual: false }, { id: 3, manual: false }, { id: 9, nombre: "Archivo manual", manual: true }],
+      catalogo: [{ id: 2, manual: false }, { id: 3, manual: false }, { id: 9, nombre: "Formato propio", manual: true }],
     });
     expect(mocks.asignacionesFindMany.mock.calls[0][0].where).toEqual({ clientId: 17, process: { code: "CONT" } });
     expect(mocks.authorizePermiso).toHaveBeenCalledWith("modulos_datos:crear", { clientId: 17, modo: "lectura" });

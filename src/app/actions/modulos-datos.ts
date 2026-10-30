@@ -385,7 +385,7 @@ export type AnalisisModulo = {
    * Camino de la carga: «patron» (el archivo coincide con un patrón del aplicativo y se lee sin
    * mapear), «sin_patron» (no coincide: quien carga configura la lectura en el modal —trae la
    * vista de la hoja y la sugerencia— o un administrador crea el patrón) o «manual» (aplicativo
-   * «Archivo manual»: se mapea a mano y se memoriza por cliente).
+   * «Formato propio», código MANUAL: se mapea a mano y se memoriza por cliente).
    */
   modo?: "patron" | "sin_patron" | "manual";
   aplicativo?: { id: number; nombre: string; manual: boolean };
@@ -401,7 +401,7 @@ export type AnalisisModulo = {
     mejor: { version: number; porcentaje: number; hoja: string; faltantes: string[]; faltantesRequeridos: string[] } | null;
   };
   /**
-   * «Archivo manual»: el patrón manual del cliente que coincidió con el archivo (21/Oct/2026), con
+   * «Formato propio»: el formato del cliente que coincidió con el archivo (21/Oct/2026), con
    * su % —o sin él, si es un perfil anterior reconocido por su huella exacta—. Ausente = el mapeo
    * es la sugerencia automática.
    */
@@ -820,11 +820,11 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     // podría agregar este archivo. No se confía para nada más; la promoción lo vuelve a validar.
     const periodoAnalisis = String(formData.get("periodo") ?? "").trim();
 
-    // ARCHIVO MANUAL: el analista mapea las columnas. Los PATRONES MANUALES del cliente (21/Oct/2026)
+    // ARCHIVO MANUAL: el analista mapea las columnas. Los FORMATOS PROPIOS del cliente (21/Oct/2026)
     // se reconocen por % de coincidencia de sus títulos, sin mirar la hoja; los perfiles anteriores
     // (sin títulos guardados), por su huella exacta. Es el único camino que usa la memoria por cliente.
     if (aplicativo.manual) {
-      // «No usar este patrón»: el modal vuelve a analizar con la sugerencia automática.
+      // «No usar este formato»: el modal vuelve a analizar con la sugerencia automática.
       const sinFormato = String(formData.get("formatoManual") ?? "") === "ninguno";
       const formatos = sinFormato ? [] : await formatosManualesDelCliente(clienteId, descriptor.codigo);
       // El patrón se aplica tal cual: si su valor es una columna de «total», la confirmación del IVA
@@ -897,7 +897,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
 
     // SIN PATRÓN: la carga no sigue sola, pero quien carga puede configurar la lectura aquí mismo
     // (salvo Inventarios, que tiene su asistencia). Para eso viaja la vista de la hoja y la
-    // sugerencia heurística; nunca el perfil del cliente, que es la memoria de «Archivo manual».
+    // sugerencia heurística; nunca el perfil del cliente, que es la memoria de «Formato propio».
     const specSugerido = sugerirSpec(descriptor, hoja);
     const [vigentePeriodo, agruparPorUltimo] = await Promise.all([
       vigenteDelPeriodo(descriptor, clienteId, periodoAnalisis),
@@ -1444,7 +1444,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       propuesta?: PropuestaPatronLote | null;
       /** …o por qué no se podrá (el cargue sigue igual). */
       sinPropuesta?: string | null;
-      /** Archivo manual: el patrón manual del cliente con que coincide el archivo (o el perfil anterior). */
+      /** Archivo manual: el formato propio del cliente con que coincide el archivo (o el perfil anterior). */
       formatoManual?: Pick<PropuestaFormatoManual, "formatoUsadoId" | "perfilLegadoId" | "porcentaje">;
     };
     // Un mapeo que no sirve es un error del formulario, no del archivo: se responde sin marcar el
@@ -1475,7 +1475,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       if (!hoja) return "El archivo no tiene hojas legibles.";
       const editado = specDelFormulario();
       if (editado && "rechazo" in editado) return editado;
-      // Con qué patrón manual del cliente coincide la hoja que se lee (salvo «No usar este patrón»).
+      // Con qué formato propio del cliente coincide la hoja que se lee (salvo «No usar este formato»).
       // El navegador no lo dice: se vuelve a calcular aquí, sobre la misma hoja.
       const sinFormato = String(formData.get("formatoManual") ?? "") === "ninguno";
       const formatos = sinFormato ? [] : await formatosManualesDelCliente(clienteId, descriptor.codigo);
@@ -1504,7 +1504,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 
     // APLICATIVO SIN PATRÓN, LECTURA CONFIGURADA EN LA CARGA (Cartera, CxP, Ingresos, Activos
     // fijos, Nómina): el mapeo lo arma quien carga en el modal. No toca la memoria por cliente
-    // («Archivo manual»): al confirmar, el formato se puede guardar como patrón del aplicativo.
+    // («Formato propio»): al confirmar, el formato se puede guardar como patrón del aplicativo.
     const lecturaConfigurada = async (): Promise<Lectura | Rechazo | string> => {
       if (descriptor.codigo === "INV") {
         return { rechazo: "En Inventarios la lectura sin patrón la hace la asistencia: vuelve a analizar el archivo." };
@@ -1618,7 +1618,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // Las reglas que combinan celdas/filas necesitan la confirmación vinculada a
     // su interpretación. El camino genérico no debe omitir esa compuerta.
     if (spec.lecturaEstructurada) return { ok: false, message: "Este formato necesita la asistencia de lectura de Inventarios para revisar y confirmar su interpretación." };
-    // Archivo manual: el patrón manual que se podrá guardar al CONFIRMAR (21/Oct/2026). Se toma de la
+    // Archivo manual: el formato propio que se podrá guardar al CONFIRMAR (21/Oct/2026). Se toma de la
     // lectura ANTES de los ajustes de este cargue —centro de costo, agrupación, contenido, signos,
     // período, TRM, fila del total, rangos que no suman—: lo que se guarda es el formato, no el cargue.
     const propuestaFormatoManual: PropuestaFormatoManual | null = aplicativo.manual
@@ -1817,13 +1817,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       // solo el servidor, tomado ANTES de los ajustes de este archivo) o por qué no se puede.
       ...(lectura.propuesta ? { propuestaPatron: lectura.propuesta } : {}),
       ...(configurarEnCarga && lectura.sinPropuesta ? { propuestaPatronMotivo: lectura.sinPropuesta } : {}),
-      // Archivo manual: el patrón manual que se guarda (o cuyo uso se cuenta) al confirmar.
+      // Archivo manual: el formato propio que se guarda (o cuyo uso se cuenta) al confirmar.
       ...(propuestaFormatoManual ? { propuestaFormatoManual } : {}),
     };
     const detalleFormatoManual = propuestaFormatoManual?.formatoUsadoId != null
-      ? ` · patrón manual del cliente (${propuestaFormatoManual.porcentaje ?? 100} %)${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
+      ? ` · formato propio del cliente (${propuestaFormatoManual.porcentaje ?? 100} %)${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
       : propuestaFormatoManual?.perfilLegadoId != null
-        ? ` · patrón manual anterior del cliente${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
+        ? ` · formato propio anterior del cliente${origen === "perfil" ? "" : ", con el mapeo ajustado"}`
         : "";
     const clasificadorDelCargue = patron?.clasificadorCambiado
       ? ` · ${descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"} solo para este cargue: ${
@@ -1883,7 +1883,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             data: { vecesUsado: { increment: 1 }, ultimoUsoEn: new Date() },
           });
         }
-        // El patrón manual del cliente ya NO se guarda al leer (21/Oct/2026): un borrador que se
+        // El formato propio del cliente ya NO se guarda al leer (21/Oct/2026): un borrador que se
         // descarta no debe tocar la memoria. Queda en el spec del lote y se guarda al confirmar.
       }, {
         maxWait: 5_000,
@@ -2767,7 +2767,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         ? ` El formato coincide con el patrón aprobado ${erpPatron.erp.name} v${patron.version}.`
         : ` Formato guardado como patrón ${erpPatron.erp.name} v${patron.version}: se usará para ${cliente.name} hasta que un administrador lo apruebe para todos.`
       : "";
-    // «Archivo manual»: el patrón manual del cliente se guarda (o se cuenta su uso) al CONFIRMAR, después
+    // «Formato propio»: el formato del cliente se guarda (o se cuenta su uso) al CONFIRMAR, después
     // de la promoción y al mejor esfuerzo: si falla, el cargue ya quedó y solo se avisa.
     const propuestaFormato = resultado.reutilizado ? null : leerPropuestaFormatoManualDeLote(lote.specJson);
     let textoFormato = "";
@@ -2782,12 +2782,12 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           casilla: formData.get("guardarFormatoManual"),
           usuario: user ? { id: user.id, name: user.name } : null,
         });
-        if (guardado.hecho === "creó") textoFormato = ` Formato guardado como patrón manual de ${cliente.name}.`;
-        else if (guardado.hecho === "reemplazó") textoFormato = ` Se actualizó el patrón manual de ${cliente.name} con este mapeo.`;
-        if (guardado.hecho) detalleFormatoCargue = ` · patrón manual: ${guardado.hecho}`;
+        if (guardado.hecho === "creó") textoFormato = ` Se guardó como formato propio de ${cliente.name}.`;
+        else if (guardado.hecho === "reemplazó") textoFormato = ` Se actualizó el formato propio de ${cliente.name} con este mapeo.`;
+        if (guardado.hecho) detalleFormatoCargue = ` · formato propio: ${guardado.hecho}`;
       } catch (e) {
-        registrarError("cargarBorradorModulo.patronManual", e);
-        textoFormato = " No se pudo guardar el patrón manual del cliente; el cargue sí quedó.";
+        registrarError("cargarBorradorModulo.formatoPropio", e);
+        textoFormato = " No se pudo guardar el formato propio del cliente; el cargue sí quedó.";
       }
     }
     const mensaje = (resultado.modo === "agregar"

@@ -194,9 +194,9 @@ describe("patrones de archivo", () => {
     expect(mocks.tx.versionPatronArchivoModulo.create).not.toHaveBeenCalled();
   });
 
-  it("no crea patrones para «Archivo manual» ni con un mapeo que no lee filas", async () => {
-    mocks.erpFindUnique.mockResolvedValueOnce({ id: 9, code: "MANUAL", name: "Archivo manual", active: true });
-    expect(await crearVersionPatron(formulario())).toEqual({ ok: false, message: "«Archivo manual» no tiene patrones: se mapea en cada carga." });
+  it("no crea patrones para «Formato propio» ni con un mapeo que no lee filas", async () => {
+    mocks.erpFindUnique.mockResolvedValueOnce({ id: 9, code: "MANUAL", name: "Formato propio", active: true });
+    expect(await crearVersionPatron(formulario())).toEqual({ ok: false, message: "«Formato propio» no tiene patrones: se mapea en cada carga." });
 
     const sinValor = formulario({ specJson: JSON.stringify({ ...SPEC, columnas: { tipo: 1 } }) });
     expect(await crearVersionPatron(sinValor)).toEqual({ ok: false, message: "Falta la columna obligatoria «Valor total»." });

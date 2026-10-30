@@ -13,7 +13,7 @@ export type FichaId =
   | "modulo.borradores"
   | "modulo.borrador"
   | "modulo.patrones"
-  | "modulo.patrones_manuales"
+  | "modulo.formatos_propios"
   | "modulo.cargue"
   | "catalogo.plan_russell"
   | "catalogo.mapeo_cliente"
@@ -87,7 +87,7 @@ function resolverModulo(s: string[]): FichaId | null {
   }
   // Nuevo patrón (`/patrones/nueva`) y la edición de una versión comparten la ficha de patrones.
   if (s[0] === "patrones") return s.length <= 2 ? "modulo.patrones" : null;
-  if (s[0] === "patrones-manuales") return s.length === 1 ? "modulo.patrones_manuales" : null;
+  if (s[0] === "formatos-propios") return s.length === 1 ? "modulo.formatos_propios" : null;
   if (s.length === 1 && ENTERO.test(s[0]!)) return "modulo.cargue";
   return null;
 }

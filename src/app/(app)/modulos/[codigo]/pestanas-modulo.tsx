@@ -2,11 +2,11 @@ import Link from "next/link";
 
 // Pestañas de un módulo: «Cargados» (`/modulos/[codigo]`, lo oficial), «Borradores» (lo
 // pendiente de confirmar), «Patrones de archivo» (cómo se lee el archivo de cada aplicativo) y
-// «Patrones manuales» (21/Oct/2026: los mapeos de «Archivo manual» guardados por cliente).
+// «Formatos propios» (21/Oct/2026: los mapeos hechos a mano guardados por cliente).
 // Son enlaces reales —cada pestaña es su propia ruta con su `loading.tsx`— y
 // la activa la decide la página, no el pathname del cliente. Borradores y patrones
 // exigen `modulos_datos:crear`, igual que sus pantallas: los roles de consulta no las ven.
-export type PestanaModulo = "cargados" | "borradores" | "patrones" | "patrones_manuales";
+export type PestanaModulo = "cargados" | "borradores" | "patrones" | "formatos_propios";
 
 export function PestanasModulo({
   moduloCodigo,
@@ -27,7 +27,7 @@ export function PestanasModulo({
       ? [
           { id: "borradores" as const, label: "Borradores", href: `${ruta}/borradores`, contador: borradoresPendientes },
           { id: "patrones" as const, label: "Patrones de archivo", href: `${ruta}/patrones` },
-          { id: "patrones_manuales" as const, label: "Patrones manuales", href: `${ruta}/patrones-manuales` },
+          { id: "formatos_propios" as const, label: "Formatos propios", href: `${ruta}/formatos-propios` },
         ]
       : []),
   ];

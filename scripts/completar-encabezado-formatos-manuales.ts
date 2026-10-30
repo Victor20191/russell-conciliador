@@ -1,6 +1,6 @@
 // ============================================================
-// «Patrones manuales» (21/Oct/2026): completa los TÍTULOS de los perfiles anteriores de
-// `perfiles_carga_modulo`, para que dejen de reconocerse solo por su huella exacta (que incluye el
+// «Formatos propios» del cliente (21/Oct/2026; antes «patrones manuales»): completa los TÍTULOS
+// de los perfiles anteriores de `perfiles_carga_modulo`, para que dejen de reconocerse solo por su huella exacta (que incluye el
 // nombre de la hoja) y pasen a reconocerse por % de coincidencia, como los que se guardan al
 // confirmar un cargue desde esta fecha.
 //

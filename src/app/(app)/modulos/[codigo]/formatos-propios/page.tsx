@@ -6,13 +6,14 @@ import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { listarFormatosManualesDeModulo } from "@/lib/modulos/formatos-manuales-servidor";
 import { PestanasModulo } from "../pestanas-modulo";
-import PatronesManualesClient from "./patrones-manuales-client";
+import FormatosPropiosClient from "./formatos-propios-client";
 
-// Pestaña «Patrones manuales» (21/Oct/2026): los mapeos de «Archivo manual» que cada cliente guardó
-// al confirmar un cargue. Son de ese cliente (no se comparten como los patrones del aplicativo) y se
-// reconocen por % de coincidencia de sus títulos. La ven quienes cargan (`modulos_datos:crear`),
-// dentro de su cartera; borrar es de quien administra los perfiles de carga.
-export default async function PatronesManualesModuloPage({ params }: { params: Promise<{ codigo: string }> }) {
+// Pestaña «Formatos propios» (21/Oct/2026; antes «Patrones manuales»): los mapeos de columnas
+// hechos a mano que cada cliente guardó al confirmar un cargue con la opción «Formato propio». Son
+// de ese cliente (no se comparten como los patrones del aplicativo) y se reconocen por % de
+// coincidencia de sus títulos. La ven quienes cargan (`modulos_datos:crear`), dentro de su cartera;
+// borrar es de quien administra los perfiles de carga.
+export default async function FormatosPropiosModuloPage({ params }: { params: Promise<{ codigo: string }> }) {
   await requirePermiso("modulos_datos:crear");
   const { codigo } = await params;
   const moduloCodigo = codigo.toUpperCase();
@@ -34,10 +35,10 @@ export default async function PatronesManualesModuloPage({ params }: { params: P
     <div>
       <PageHeader
         title={descriptor.label}
-        subtitle="Patrones manuales de cada cliente: el mapeo de columnas de sus archivos cargados con «Archivo manual». Un archivo nuevo del mismo cliente con 80 % o más de coincidencia en los títulos se lee con su patrón, sin importar el nombre de la hoja."
+        subtitle="Formatos propios de cada cliente: el mapeo de columnas que se hizo a mano al cargar sus archivos con la opción «Formato propio». Un archivo nuevo del mismo cliente con 80 % o más de coincidencia en los títulos se lee con su formato, sin importar el nombre de la hoja."
       />
-      <PestanasModulo moduloCodigo={moduloCodigo} activa="patrones_manuales" borradoresPendientes={borradoresPendientes + lecturasPendientes} puedeVerBorradores />
-      <PatronesManualesClient clientes={clientes} puedeBorrar={administrar.ok} />
+      <PestanasModulo moduloCodigo={moduloCodigo} activa="formatos_propios" borradoresPendientes={borradoresPendientes + lecturasPendientes} puedeVerBorradores />
+      <FormatosPropiosClient clientes={clientes} puedeBorrar={administrar.ok} />
     </div>
   );
 }

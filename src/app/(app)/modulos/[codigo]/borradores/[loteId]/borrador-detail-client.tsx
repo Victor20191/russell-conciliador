@@ -9,7 +9,7 @@ import { Card, Chip } from "@/components/ui";
 import { Icon, IconoEnTexto } from "@/components/icons";
 import { fmtContable } from "@/lib/format";
 import type { FormatoManualBorrador } from "@/lib/modulos/formatos-manuales";
-import { CasillaPatronManual } from "./casilla-patron-manual";
+import { CasillaFormatoPropio } from "./casilla-formato-propio";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
@@ -199,7 +199,7 @@ export default function BorradorModuloClient({
   hermanos: VersionHermanaBorradorModulo[];
   /** Notas de carga del cliente para este módulo (Administración › Perfiles de carga). */
   notasCliente?: string | null;
-  /** Sólo se ofrece para un original INV de aplicativo; Archivo manual conserva su flujo. */
+  /** Sólo se ofrece para un original INV de aplicativo; «Formato propio» conserva su flujo. */
   rolesAsistenciaInventario?: RolModulo[];
   asistenciaInventario?: { revision: number; estado: EstadoAsistenciaInventario };
   /**
@@ -207,13 +207,13 @@ export default function BorradorModuloClient({
    * patrón (`aplicativo`) o se explica por qué no (`motivo`). `null` = no aplica.
    */
   propuestaPatron?: { aplicativo: string | null; motivo: string | null } | null;
-  /** «Archivo manual»: qué pasa con el patrón manual del cliente al confirmar. `null` = no aplica. */
+  /** «Formato propio»: qué pasa con el formato propio del cliente al confirmar. `null` = no aplica. */
   formatoManual?: FormatoManualBorrador | null;
 }) {
   const router = useRouter();
   // «Guardar este formato como patrón del aplicativo», marcada por defecto.
   const [guardarComoPatron, setGuardarComoPatron] = useState(true);
-  // «Guardar este patrón manual para {cliente}», marcada por defecto (21/Oct/2026).
+  // «Guardar como formato propio de {cliente}», marcada por defecto (21/Oct/2026).
   const [guardarFormatoManual, setGuardarFormatoManual] = useState(true);
   const clasificadorEtiqueta = columnasDelCargue.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
   // Nómina, «Agrupar por»: los grupos se nombran por la dimensión elegida. Por nombre o por cuenta,
@@ -1186,7 +1186,7 @@ export default function BorradorModuloClient({
           </p>
         ) : null
       )}
-      {formatoManual && <CasillaPatronManual formato={formatoManual} marcada={guardarFormatoManual} onCambiar={setGuardarFormatoManual} />}
+      {formatoManual && <CasillaFormatoPropio formato={formatoManual} marcada={guardarFormatoManual} onCambiar={setGuardarFormatoManual} />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <button type="button" disabled={!hayCambios || guardando || (periodoCambiado && (!!errorPeriodo || periodoSinConfirmar))} onClick={guardar} title={periodoSinConfirmar ? "Confirma el período nuevo antes de guardar" : undefined} className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12.5px] font-semibold text-ok-700 hover:bg-ok-200 disabled:opacity-60">

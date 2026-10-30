@@ -41,7 +41,7 @@ describe("guardarFormatoManualConfirmado", () => {
     mocks.create.mockResolvedValue({ id: 99 });
   });
 
-  it("crea el patrón manual con sus títulos, su mapeo y quién lo guardó, bajo el candado del cliente y módulo", async () => {
+  it("crea el formato propio con sus títulos, su mapeo y quién lo guardó, bajo el candado del cliente y módulo", async () => {
     expect(await guardar(propuesta())).toEqual({ estado: "nuevo", hecho: "creó" });
     expect(mocks.candado).toHaveBeenCalledWith(tx, "formato-manual:5:INV");
     expect(mocks.create.mock.calls[0][0].data).toMatchObject({

@@ -1,7 +1,8 @@
-// «Patrones manuales» del cliente (21/Oct/2026) — puro, sin BD.
+// «Formatos propios» del cliente (21/Oct/2026; antes «patrones manuales») — puro, sin BD. En el
+// código se llaman «formatos manuales» (`perfiles_carga_modulo`); en pantalla, «formatos propios».
 //
-// Con «Archivo manual» el analista mapea las columnas a mano. Ese mapeo se recuerda por cliente y
-// módulo en `perfiles_carga_modulo` y vuelve a ofrecerse en la siguiente carga manual del mismo
+// Con «Formato propio» (antes «Archivo manual») el analista mapea las columnas a mano. Ese mapeo se
+// recuerda por cliente y módulo en `perfiles_carga_modulo` y vuelve a ofrecerse en la siguiente carga manual del mismo
 // cliente. Hasta esta fecha se reconocía solo por una huella EXACTA que incluía el nombre de la hoja
 // («kardex diciembre» no reconocía «kardex enero») y se guardaba al LEER el archivo. Ahora:
 //  - un formato es un JUEGO DE TÍTULOS por cliente y módulo: su llave son los títulos normalizados
@@ -41,7 +42,7 @@ function titulosClave(descriptor: DescriptorModulo, encabezado: readonly unknown
 }
 
 /**
- * Llave de un formato manual: sus títulos normalizados, sin la hoja (ni tildes, mayúsculas o
+ * Llave de un formato propio: sus títulos normalizados, sin la hoja (ni tildes, mayúsculas o
  * variantes de los rangos de edades). `null` con menos de dos títulos: no identificaría nada.
  */
 export function huellaFormatoManual(descriptor: DescriptorModulo, encabezado: readonly unknown[]): string | null {
@@ -50,7 +51,7 @@ export function huellaFormatoManual(descriptor: DescriptorModulo, encabezado: re
   return PREFIJO_HUELLA_FORMATO_MANUAL + createHash("sha256").update(claves.join("|")).digest("hex").slice(0, 32);
 }
 
-/** Un formato manual guardado del cliente, tal como sale de la BD. */
+/** Un formato propio guardado del cliente, tal como sale de la BD. */
 export type FormatoManualGuardado = {
   id: number;
   huella: string;
@@ -122,7 +123,7 @@ export type FormatoManualElegido = {
 };
 
 /**
- * El formato manual del cliente que corresponde a este archivo (≥ 80 % y sin columnas obligatorias
+ * El formato propio del cliente que corresponde a este archivo (≥ 80 % y sin columnas obligatorias
  * faltantes), o null. Busca en las hojas visibles sin mirar su nombre: `hojaElegida` (la que nombró
  * el usuario) restringe la búsqueda y `hojaPropuesta` solo desempata.
  */
@@ -174,10 +175,10 @@ function avisoMoneda(spec: SpecModulo, hoja: string): string[] {
   const deLaHoja = monedaPorNombreHoja(hoja);
   const delFormato = spec.monedaArchivo && spec.monedaArchivo !== "COP" ? spec.monedaArchivo : null;
   if (delFormato && deLaHoja !== delFormato) {
-    return [`El patrón manual lee los importes en ${delFormato} y la hoja «${hoja}» no lo indica: revisa la moneda antes de leer.`];
+    return [`El formato propio lee los importes en ${delFormato} y la hoja «${hoja}» no lo indica: revisa la moneda antes de leer.`];
   }
   if (!delFormato && deLaHoja) {
-    return [`La hoja «${hoja}» parece estar en ${deLaHoja} y el patrón manual lee los importes en pesos: revisa la moneda antes de leer.`];
+    return [`La hoja «${hoja}» parece estar en ${deLaHoja} y el formato propio lee los importes en pesos: revisa la moneda antes de leer.`];
   }
   return [];
 }
@@ -219,9 +220,9 @@ export function leerPropuestaFormatoManualDeLote(specJson: unknown): PropuestaFo
 
 const pareceDato = (texto: string): boolean => /^[\s$%€()+\-.,/\d]+$/.test(texto);
 
-/** Por qué este formato no se puede guardar como patrón manual, o null. */
+/** Por qué este formato no se puede guardar como formato propio, o null. */
 export function motivoNoGuardable(descriptor: DescriptorModulo, encabezado: readonly string[], spec: SpecModulo): string | null {
-  if (spec.lecturaEstructurada) return "Este formato necesita la asistencia de lectura de Inventarios: no se guarda como patrón manual.";
+  if (spec.lecturaEstructurada) return "Se lee con la asistencia de lectura de Inventarios, no con un mapeo de columnas.";
   if (!huellaFormatoManual(descriptor, encabezado)) {
     return "El encabezado tiene menos de dos títulos: no serviría para reconocer otro archivo.";
   }
@@ -317,7 +318,7 @@ export type FormatoManualAnalisis = {
   advertencias: string[];
 };
 
-/** Lo que el borrador muestra junto a la casilla «Guardar este patrón manual para {cliente}». */
+/** Lo que el borrador muestra junto a la casilla «Guardar como formato propio de {cliente}». */
 export type FormatoManualBorrador = {
   estado: EstadoFormatoManual;
   cliente: string;

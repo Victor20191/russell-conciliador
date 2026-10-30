@@ -14,7 +14,7 @@ export const PANTALLAS: Partial<Record<FichaId, PantallaAyuda>> = {
   "modulo.cargados": { href: deModulo(""), permiso: "modulos_datos:ver" },
   "modulo.borradores": { href: deModulo("/borradores"), permiso: "modulos_datos:crear" },
   "modulo.patrones": { href: deModulo("/patrones"), permiso: "modulos_datos:crear" },
-  "modulo.patrones_manuales": { href: deModulo("/patrones-manuales"), permiso: "modulos_datos:crear" },
+  "modulo.formatos_propios": { href: deModulo("/formatos-propios"), permiso: "modulos_datos:crear" },
   "catalogo.plan_russell": { href: () => "/config/mapeo", permiso: "mapeo:ver" },
   "catalogo.mapeo_cliente": { href: () => "/config/mapeo-cliente", permiso: "mapeo:ver" },
   "catalogo.conceptos_nomina": { href: () => "/config/conceptos-nomina", permiso: "modulos_datos:ver" },
