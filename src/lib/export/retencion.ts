@@ -212,16 +212,16 @@ function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: r
   const ws = wb.addWorksheet("Oportunidad");
   encabezadoLibro(ws, meta, "indicador de oportunidad");
   ws.addRow(["Vencimiento por el último dígito del NIT sin el DV; presentación del 350 original; pago del último 490 del concepto 61."]).font = { color: { argb: EXCEL.textoSecundario } };
-  estiloEncabezado(ws.addRow(["Período", "350 (original)", "Autoadhesivo 350", "Recibo de pago", "Concepto", "Autoadhesivo pago", "Vencimiento", "Presentación", "Estado presentación", "Pago", "Estado pago", "Marca"]));
+  estiloEncabezado(ws.addRow(["Período", "350 (original)", "Autoadhesivo 350", "Recibo de pago", "Concepto", "Autoadhesivo pago", "Fecha de vencimiento", "Fecha de presentación", "Fecha de pago", "Estado presentación", "Estado pago", "Marca"]));
   for (const f of filas) {
     const estado = (e: FilaOportunidad["estadoPresentacion"], dias: number | null) => `${ETIQUETA_OPORTUNIDAD[e]}${dias ? ` (${dias} día(s))` : ""}`;
     ws.addRow([
       etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.numero350 ?? "", f.autoadhesivo350 ?? "", f.numeroPago ?? "", f.conceptoPago ?? "", f.autoadhesivoPago ?? "",
-      fechaExcel(f.vencimiento), fechaExcel(f.presentacion), estado(f.estadoPresentacion, f.diasPresentacion), fechaExcel(f.pago), estado(f.estadoPago, f.diasPago),
+      fechaExcel(f.vencimiento), fechaExcel(f.presentacion), fechaExcel(f.pago), estado(f.estadoPresentacion, f.diasPresentacion), estado(f.estadoPago, f.diasPago),
       f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
     ]);
   }
-  [12, 16, 18, 16, 10, 18, 13, 13, 22, 13, 22, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [12, 16, 18, 16, 10, 18, 21, 22, 15, 22, 22, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 }
 
 /** Hoja «Pagos efectuados»: lo declarado (136, 137, 138) contra lo pagado con los 490, con el desglose por concepto. */

@@ -95,7 +95,7 @@ describe("Excel de una revisión de Retención en la fuente", () => {
     expect(wb.worksheets.map((w) => w.name).slice(-2)).toEqual(["Oportunidad", "Pagos efectuados"]);
     const filasDe = (ws: ExcelJS.Worksheet) => { const f: ExcelJS.Row[] = []; ws.eachRow((r) => f.push(r)); return f; };
     const enero = filasDe(wb.getWorksheet("Oportunidad")!).find((r) => r.getCell(1).value === "Enero")!;
-    expect([enero.getCell(7).value, enero.getCell(9).value, enero.getCell(11).value]).toEqual(["20/02/2026", "Falta el original", "Oportuno"]);
+    expect([enero.getCell(7).value, enero.getCell(9).value, enero.getCell(10).value, enero.getCell(11).value]).toEqual(["20/02/2026", "20/02/2026", "Falta el original", "Oportuno"]);
     const pagoEnero = filasDe(wb.getWorksheet("Pagos efectuados")!).find((r) => r.getCell(1).value === "Enero")!;
     expect([pagoEnero.getCell(8).value, pagoEnero.getCell(9).value, pagoEnero.getCell(10).value, pagoEnero.getCell(11).value]).toEqual([-6_786_000, "Diferencia en el pago", -8_942_000, 2_156_000]);
     expect(pagoEnero.getCell(7).value).toBe(122_704_000);
