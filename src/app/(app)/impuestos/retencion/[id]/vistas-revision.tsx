@@ -2,11 +2,18 @@
 
 import { useState } from "react";
 import { Card, Chip } from "@/components/ui";
+import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { filaConValores, type FilaPago, type FilaVista, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
 
 const miles = (n: number | null) => (n == null ? "" : Math.round(n).toLocaleString("es-CO"));
 const CELDA = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
 const PRIMERA = "sticky left-0 z-10 bg-white px-3 py-1 text-left";
+// Títulos de «Por meses»: en pantalla completa quedan fijos al desplazarse. Los bordes van con sombra porque
+// los de una celda sticky no se pintan; la primera fila tiene alto fijo para que la segunda sepa dónde pegarse.
+const LINEA_ABAJO = "shadow-[inset_0_-1px_0_var(--color-ink-150)]";
+const LINEA_IZQUIERDA_Y_ABAJO = "shadow-[inset_1px_0_0_var(--color-ink-150),inset_0_-1px_0_var(--color-ink-150)]";
+const TITULO_FIJO = "sticky top-0 z-20 bg-ink-50";
+const SUBTITULO_FIJO = "sticky top-[3.25rem] z-20 bg-ink-50";
 
 export function ConmutadorCeros({ ocultar, onCambio }: { ocultar: boolean; onCambio: (v: boolean) => void }) {
   return (
@@ -32,25 +39,29 @@ const renglones = (f: FilaVista) => (f.tipo === "concepto" ? [f.renglonPj, f.ren
 /** Vista 1 · Por meses: cada renglón por mes (persona jurídica y natural) y el bloque de pagos del 490. */
 export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbrir: (id: number) => void }) {
   const [ocultarCeros, setOcultarCeros] = useState(false);
+  const { pantallaCompleta, alternar } = usePantallaCompletaTabla();
   const filas = ocultarCeros ? vista.filas.filter(filaConValores) : vista.filas;
   const columnas = 3 + vista.meses.length * 2;
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div role="region" aria-label="Retención en la fuente por meses" {...propsRegionPantallaCompleta(pantallaCompleta, "flex flex-col gap-2")}>
+      <div className={`flex shrink-0 flex-wrap items-center justify-between gap-2 ${pantallaCompleta ? "border-b border-ink-100 px-4 py-2.5" : ""}`}>
         <p className="text-[12px] text-ink-500">Valores del 350 vigente de cada mes (la última corrección). Los totales se recalculan con los renglones del formulario.</p>
-        <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
+        <div className="flex flex-wrap items-center gap-3">
+          <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternar} />
+        </div>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="text-[12px]">
+      <div className={`${pantallaCompleta ? "" : CLASE_TARJETA} ${claseScrollTabla(pantallaCompleta, null)}`}>
+        <table className="w-full text-[12px]">
           <thead>
-            <tr className="border-b border-ink-150 bg-ink-50 text-[11px] font-semibold text-ink-600">
-              <th rowSpan={2} className={`${PRIMERA} bg-ink-50 align-bottom`}>Concepto</th>
-              <th rowSpan={2} className="px-2 py-1 text-center align-bottom">Renglón</th>
+            <tr className="bg-ink-50 text-[11px] font-semibold text-ink-600">
+              <th rowSpan={2} className={`sticky left-0 top-0 z-30 bg-ink-50 px-3 py-1 text-left align-bottom ${LINEA_ABAJO}`}>Concepto</th>
+              <th rowSpan={2} className={`${TITULO_FIJO} ${LINEA_ABAJO} px-2 py-1 text-center align-bottom`}>Renglón</th>
               {vista.meses.map((m) => (
-                <th key={m.periodo} colSpan={2} className="border-l border-ink-150 px-2 py-1 text-center">
+                <th key={m.periodo} colSpan={2} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} ${pantallaCompleta ? "h-[3.25rem]" : ""} px-2 py-1 text-center`}>
                   <div>{m.etiqueta}</div>
                   {m.formulario ? (
-                    <button type="button" onClick={() => onAbrir(m.formulario!.id)} className="tabular-nums text-[10.5px] font-semibold text-blue-700 hover:underline">
+                    <button type="button" onClick={() => onAbrir(m.formulario!.id)} className="whitespace-nowrap tabular-nums text-[10.5px] font-semibold text-blue-700 hover:underline">
                       {m.formulario.numero}{m.formulario.esCorreccion ? " · corrección" : ""}
                     </button>
                   ) : (
@@ -58,9 +69,9 @@ export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbri
                   )}
                 </th>
               ))}
-              <th rowSpan={2} className="border-l border-ink-150 px-2 py-1 text-right align-bottom">Total</th>
+              <th rowSpan={2} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} px-2 py-1 text-right align-bottom`}>Total</th>
             </tr>
-            <tr className="border-b border-ink-150 bg-ink-50 text-[10.5px] font-semibold text-ink-500">
+            <tr className="bg-ink-50 text-[10.5px] font-semibold text-ink-500">
               {vista.meses.map((m) => (
                 <SubEncabezado key={m.periodo} />
               ))}
@@ -68,7 +79,7 @@ export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbri
           </thead>
           <tbody>
             {tramos(filas).map((t) => (
-              <TramoMeses key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} columnas={columnas} />
+              <TramoMeses key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} columnas={columnas} completa={pantallaCompleta} />
             ))}
             <tr className="bg-ink-50">
               <td colSpan={columnas} className="sticky left-0 px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Pagos · formulario 490</td>
@@ -76,7 +87,7 @@ export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbri
             {vista.pagos.map((p) => <FilaPagoMeses key={p.clave} p={p} />)}
           </tbody>
         </table>
-      </Card>
+      </div>
     </div>
   );
 }
@@ -84,13 +95,13 @@ export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbri
 function SubEncabezado() {
   return (
     <>
-      <th className="border-l border-ink-150 px-2 py-1 text-right">P. jurídica</th>
-      <th className="px-2 py-1 text-right">P. natural</th>
+      <th className={`${SUBTITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} px-2 py-1 text-right`}>P. jurídica</th>
+      <th className={`${SUBTITULO_FIJO} ${LINEA_ABAJO} px-2 py-1 text-right`}>P. natural</th>
     </>
   );
 }
 
-function TramoMeses({ seccion, filas, columnas }: { seccion: string; filas: FilaVista[]; columnas: number }) {
+function TramoMeses({ seccion, filas, columnas, completa }: { seccion: string; filas: FilaVista[]; columnas: number; completa: boolean }) {
   return (
     <>
       <tr className="bg-ink-50">
@@ -98,8 +109,8 @@ function TramoMeses({ seccion, filas, columnas }: { seccion: string; filas: Fila
       </tr>
       {filas.map((f) => (
         <tr key={f.clave} className={`border-t border-ink-100 ${f.tipo === "total" ? "font-semibold" : ""}`}>
-          <td className={`${PRIMERA} ${f.tipo === "total" ? "font-semibold" : ""} max-w-[280px] truncate`} title={f.etiqueta}>{f.etiqueta}</td>
-          <td className="px-2 py-1 text-center tabular-nums text-ink-500">{renglones(f)}</td>
+          <td className={`${PRIMERA} ${f.tipo === "total" ? "font-semibold" : ""} ${completa ? "max-w-[420px]" : "max-w-[280px]"} truncate`} title={f.etiqueta}>{f.etiqueta}</td>
+          <td className="whitespace-nowrap px-2 py-1 text-center tabular-nums text-ink-500">{renglones(f)}</td>
           {f.meses.map((m, i) =>
             f.tipo === "concepto" ? (
               <FilaConcepto key={i} pj={m.pj} pn={m.pn} />

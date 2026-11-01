@@ -320,6 +320,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           acciones: [
             { nombre: "Número del formulario", queHace: "Abre el 350 del mes con sus valores y el PDF.", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Ocultar los renglones en cero", queHace: "Deja solo los conceptos con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Pantalla completa", queHace: "Abre la tabla en toda la pantalla, con los títulos y los conceptos fijos al desplazarse. Se sale con el mismo botón o con Esc.", regla: REGLAS.verRevisionImpuestos },
           ],
         },
       ],
