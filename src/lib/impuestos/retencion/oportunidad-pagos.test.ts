@@ -5,7 +5,7 @@ import { MAPEO_F350_FABRICA } from "../mapeo-dian";
 import { periodosRevision } from "./periodos-revision";
 import { cruceRetencion } from "./cruce";
 import { oportunidadRevision } from "./oportunidad";
-import { pagosRevision } from "./pagos";
+import { alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
 import { evaluarCierreRetencion } from "./cierre";
 
 describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte agosto)", () => {
@@ -63,6 +63,18 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(r.filas[7]).toMatchObject({ diferencia: 0, estado: "completo", requiereMarca: false, totalPagado: 154_801_000 });
     expect(r.pendientesMarca).toBe(7);
     expect(r.total.retenciones).toBe(1_092_190_000);
+  });
+
+  it("alerta de recibos: enero a julio falta el 490 del 62; agosto no; un período sin 350 tampoco", () => {
+    const { filas } = pagosRevision({ anio: 2026, periodos, marcas: [] });
+    expect(filas.slice(0, 7).map((f) => conceptosSinRecibo(f).map(alertaSinRecibo))).toEqual(Array(7).fill(["Falta el 490 concepto 62"]));
+    expect(conceptosSinRecibo(filas[7])).toEqual([]);
+    // Coincide con la alerta de la lista de formularios.
+    expect(filas.map((f) => conceptosSinRecibo(f).map((d) => d.concepto))).toEqual(periodos.map((p) => p.pagosFaltantes));
+    const concepto = { concepto: "63" as const, renglon: 135, diferencia: 0, pagado: 0 };
+    expect(conceptosSinRecibo({ desglose: [{ ...concepto, declarado: 0, recibos: 0 }] })).toEqual([]);
+    expect(conceptosSinRecibo({ desglose: [{ ...concepto, declarado: 500, recibos: 1 }] })).toEqual([]);
+    expect(conceptosSinRecibo({ desglose: [] })).toEqual([]);
   });
 
   it("los intereses de mora se muestran y no generan diferencia", () => {

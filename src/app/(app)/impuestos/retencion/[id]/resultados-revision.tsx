@@ -13,7 +13,7 @@ import { cerrarRevisionRetencion, desbloquearRevisionRetencion } from "@/app/act
 import type { ActionState } from "@/lib/definitions";
 import { MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
-import { ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
 import type { CierreRetencionVista } from "@/lib/impuestos/retencion/resultados-servidor";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
@@ -182,10 +182,10 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">
-        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = (136 − impuesto pagado) + (137 − sanción pagada); los intereses de mora se muestran y no generan diferencia. Se compara al peso: toda diferencia exige marca para cerrar. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63).
+        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = (136 − impuesto pagado) + (137 − sanción pagada); los intereses de mora se muestran y no generan diferencia. Se compara al peso: toda diferencia exige marca para cerrar. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
       </Card>
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[960px] text-[12.5px]">
+        <table className="w-full min-w-[1100px] text-[12.5px]">
           <thead>
             <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
               <th className="px-2 py-2">Período</th>
@@ -198,6 +198,7 @@ export function VistaPagos({
               <th className="px-3 py-2 text-right">Total pagado</th>
               <th className="px-3 py-2 text-right">Diferencia</th>
               <th className="px-2 py-2">Estado</th>
+              <th className="px-2 py-2">Alerta</th>
               <th className="px-3 py-2 text-center">Marca</th>
             </tr>
           </thead>
@@ -215,7 +216,7 @@ export function VistaPagos({
               <td className={NUM}>{fmt(resultado.total.intereses)}</td>
               <td className={NUM}>{fmt(resultado.total.totalPagado)}</td>
               <td className={NUM}>{fmt(resultado.total.diferencia)}</td>
-              <td colSpan={2} />
+              <td colSpan={3} />
             </tr>
           </tbody>
         </table>
@@ -275,6 +276,11 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
         <td className="px-2 py-1.5">
           <Chip label={f.estado === "diferencia" && f.marca?.vigente ? "Marcada" : ETIQUETA_PAGO[f.estado]} tone={f.estado === "completo" ? "ok" : f.estado === "diferencia" ? (f.marca?.vigente ? "blue" : "warn") : f.estado === "falta_350" ? "err" : "ink"} />
         </td>
+        <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700">
+          {conceptosSinRecibo(f).map((d) => (
+            <div key={d.concepto} title={`Paga el renglón ${d.renglon}: ${fmt(d.declarado)}`}>{alertaSinRecibo(d)}</div>
+          ))}
+        </td>
         <td className="px-2 py-1.5 text-center">
           <CeldaMarca
             marca={f.marca}
@@ -289,7 +295,7 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
       </tr>
       {abierta && (
         <tr className="border-b border-ink-100 bg-ink-50/40">
-          <td colSpan={11} className="px-6 py-2">
+          <td colSpan={12} className="px-6 py-2">
             <table className="text-[12px]">
               <thead>
                 <tr className="text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">

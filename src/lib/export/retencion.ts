@@ -7,7 +7,7 @@ import ExcelJS from "exceljs";
 import type { VistaRevision } from "@/lib/impuestos/retencion/vistas";
 import { alcanceSaldoInicial, etiquetaFilaCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { ETIQUETA_OPORTUNIDAD, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
-import { ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
@@ -229,18 +229,18 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
   const ws = wb.addWorksheet("Pagos efectuados");
   encabezadoLibro(ws, meta, "pagos efectuados");
   ws.addRow(["Diferencia = (136 − impuesto pagado) + (137 − sanción pagada); los intereses de mora no generan diferencia. Se compara al peso."]).font = { color: { argb: EXCEL.textoSecundario } };
-  estiloEncabezado(ws.addRow(["Período", "Retenciones (136)", "Sanciones (137)", "Total (138)", "Impuesto pagado (36)", "Sanción pagada (34)", "Intereses (35)", "Total pagado", "Diferencia", "Estado", "130 vs 61", "134 vs 62", "135 vs 63", "Marca"]));
+  estiloEncabezado(ws.addRow(["Período", "Retenciones (136)", "Sanciones (137)", "Total (138)", "Impuesto pagado (36)", "Sanción pagada (34)", "Intereses (35)", "Total pagado", "Diferencia", "Estado", "130 vs 61", "134 vs 62", "135 vs 63", "Alerta", "Marca"]));
   for (const f of pagos.filas) {
     const desglose = (c: string) => f.desglose.find((d) => d.concepto === c)?.diferencia ?? null;
     ws.addRow([
       etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.retenciones, f.sanciones, f.totalDeclarado, f.impuestoPagado, f.sancionPagada, f.intereses, f.totalPagado, f.diferencia,
-      ETIQUETA_PAGO[f.estado], desglose("61"), desglose("62"), desglose("63"),
+      ETIQUETA_PAGO[f.estado], desglose("61"), desglose("62"), desglose("63"), conceptosSinRecibo(f).map(alertaSinRecibo).join(" · "),
       f.marca ? `Marca ${f.marca.numero}${f.marca.vigente ? "" : " (desactualizada)"}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
     ]);
   }
   const t = pagos.total;
   ws.addRow(["Total", t.retenciones, t.sanciones, t.totalDeclarado, t.impuestoPagado, t.sancionPagada, t.intereses, t.totalPagado, t.diferencia]).font = { bold: true };
-  [12, 17, 15, 17, 18, 17, 14, 17, 15, 20, 14, 14, 14, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [12, 17, 15, 17, 18, 17, 14, 17, 15, 20, 14, 14, 14, 26, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   for (let c = 2; c <= 13; c++) if (c !== 10) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
 }
 

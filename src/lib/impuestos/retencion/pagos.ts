@@ -49,6 +49,14 @@ export type ResultadoPagos = {
   pendientesMarca: number;
 };
 
+/**
+ * Los conceptos que el 350 vigente obliga a pagar y no tienen recibo 490 (la alerta de la lista de
+ * formularios). Sale del desglose, así que también vale para las copias en firme ya guardadas.
+ */
+export const conceptosSinRecibo = (f: Pick<FilaPagos, "desglose">): DesglosePago[] => f.desglose.filter((d) => d.declarado > 0 && d.recibos === 0);
+
+export const alertaSinRecibo = (d: Pick<DesglosePago, "concepto">) => `Falta el 490 concepto ${d.concepto}`;
+
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
 
