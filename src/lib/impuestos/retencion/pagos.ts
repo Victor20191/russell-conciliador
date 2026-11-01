@@ -9,8 +9,9 @@ import type { PeriodoRevision } from "./periodos-revision";
  * Pagos efectuados de Retención en la fuente (puro): por período, lo que declara el 350 VIGENTE
  * (136 retenciones, 137 sanciones, 138 total) contra lo pagado con los recibos 490 de su cadena
  * (Σ renglón 36 impuesto de los conceptos 61, 62 y 63; Σ 34 sanción; Σ 35 intereses de mora).
- * Diferencia = (136 − Σ36) + (137 − Σ34): los intereses de mora se muestran y no generan
- * diferencia. Se compara al peso (sin umbral); una diferencia exige marca para cerrar. El desglose
+ * Diferencia = 138 − total pagado = (136 − Σ36) + (137 − Σ34). El total pagado no lleva los
+ * intereses de mora: van aparte y no se comparan. Se compara al peso (sin umbral); una diferencia
+ * exige marca para cerrar. El desglose
  * por concepto dice qué falta: 130 contra el 61, 134 contra el 62 y 135 contra el 63.
  */
 
@@ -92,7 +93,7 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
     return {
       periodo: p.periodo, clave, estado: requiereMarca ? "diferencia" : "completo",
       retenciones, sanciones, totalDeclarado: calcularTotal(F350, 138, valores),
-      impuestoPagado, sancionPagada, intereses, totalPagado: sumar([impuestoPagado, sancionPagada, intereses]), diferencia,
+      impuestoPagado, sancionPagada, intereses, totalPagado: sumar([impuestoPagado, sancionPagada]), diferencia,
       desglose, requiereMarca,
       marca: marcaGuardada ? { ...marcaGuardada, vigente: centavos(marcaGuardada.diferencia) === centavos(diferencia) } : null,
     };

@@ -77,12 +77,18 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(conceptosSinRecibo({ desglose: [] })).toEqual([]);
   });
 
-  it("los intereses de mora se muestran y no generan diferencia", () => {
+  it("los intereses de mora van aparte: no generan diferencia ni suman al total pagado", () => {
     const conIntereses = periodosRevision({
       periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, porConfirmar: [], causales: [],
       formularios490: F490_2026.map((f) => (f.periodo === 8 && f.concepto === "61" ? { ...f, valores: { ...f.valores, 35: 120_000 } } : f)),
     });
-    expect(pagosRevision({ anio: 2026, periodos: conIntereses, marcas: [] }).filas[7]).toMatchObject({ intereses: 120_000, diferencia: 0, estado: "completo", totalPagado: 154_921_000 });
+    expect(pagosRevision({ anio: 2026, periodos: conIntereses, marcas: [] }).filas[7]).toMatchObject({ intereses: 120_000, diferencia: 0, estado: "completo", totalPagado: 154_801_000, totalDeclarado: 154_801_000 });
+  });
+
+  it("la diferencia es siempre el total declarado menos el total pagado", () => {
+    const { filas, total } = pagosRevision({ anio: 2026, periodos, marcas: [] });
+    for (const f of filas) expect(f.totalDeclarado - f.totalPagado).toBe(f.diferencia);
+    expect(total.totalDeclarado - total.totalPagado).toBe(total.diferencia);
   });
 
   it("una marca de pago vale mientras la diferencia sea la misma", () => {

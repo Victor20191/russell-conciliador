@@ -337,9 +337,9 @@ probado, para que el F300 de IVA se agregue igual.
      Colombia, sin la hora.
 2. **Pagos efectuados** (pestaña «Resultado- Pagos efectuados»), por mes, con el 350
    vigente:
-   136 | 137 | 138 | Σ renglón 36 de los 490 (61 + 62 + 63) | Σ 34 | Σ 35 | total pagado |
+   136 | 137 | 138 | Σ renglón 36 de los 490 (61 + 62 + 63) | Σ 34 | total pagado (Σ36 + Σ34) |
    diferencia | estado.
-   - Diferencia = (136 − Σ36) + (137 − Σ34). Los intereses de mora (35) se muestran pero
+   - Diferencia = 138 − total pagado = (136 − Σ36) + (137 − Σ34). Los intereses de mora (35) van en su propia sección, no suman al total pagado y
      no generan diferencia.
    - Desglose por concepto para ver qué falta: 130 vs 61, 134 vs 62, 135 vs 63.
    - Comparación al peso. «Pago completo» o «Diferencia en el pago»; la diferencia exige

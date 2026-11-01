@@ -27,6 +27,9 @@ const NUM = "px-2 py-1.5 text-right tabular-nums whitespace-nowrap";
 // Pagos efectuados: cada sección (lo declarado, lo pagado) abre con una línea y su total va en gris.
 const INICIO_SECCION = "border-l-2 border-l-ink-300";
 const TOTAL_SECCION = "bg-ink-100 font-semibold";
+// El resultado es el fin de la pestaña: banda sólida, enmarcado en azul y con fondo suave.
+const BORDE_RESULTADO = "border-l-2 border-l-navy-700";
+const FONDO_RESULTADO = "bg-navy-50/40";
 const fecha = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 const TONO_OPORTUNIDAD: Record<EstadoOportunidad, "ok" | "warn" | "err" | "ink"> = {
   oportuno: "ok", extemporaneo: "err", sin_formulario: "ink", falta_350: "err", falta_original: "warn", sin_fecha: "warn", sin_calendario: "warn", sin_pago: "err", nada_que_pagar: "ink",
@@ -185,7 +188,7 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">
-        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = (136 − impuesto pagado) + (137 − sanción pagada); los intereses de mora se muestran y no generan diferencia. Se compara al peso: toda diferencia exige marca para cerrar. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
+        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total (138) − Total pagado; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
       </Card>
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
@@ -193,11 +196,10 @@ export function VistaPagos({
             <tr>
               <th rowSpan={2} className="px-2 py-2 align-bottom">Período</th>
               <th colSpan={3} className={`${INICIO_SECCION} bg-navy-100 px-2 py-1.5 text-center text-navy-800`}>Valor declarado · Formulario 350</th>
-              <th colSpan={4} className={`${INICIO_SECCION} bg-blue-100 px-2 py-1.5 text-center text-navy-800`}>Valor pagado · Recibos 490</th>
-              <th rowSpan={2} className={`${INICIO_SECCION} px-2 py-2 text-right align-bottom`}>Diferencia</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Estado</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Alerta</th>
-              <th rowSpan={2} className="px-3 py-2 text-center align-bottom">Marca</th>
+              <th colSpan={3} className={`${INICIO_SECCION} bg-blue-100 px-2 py-1.5 text-center text-navy-800`}>Valor pagado · Recibos 490</th>
+              <th colSpan={3} className={`${BORDE_RESULTADO} bg-navy-700 px-2 py-1.5 text-center text-white`}>Resultado · Declarado contra pagado</th>
+              <th className={`${BORDE_RESULTADO} whitespace-nowrap bg-ink-200 px-2 py-1.5 text-center text-ink-700`}>Intereses pagados</th>
+              <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
             </tr>
             <tr>
               <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>Retenciones (136)</th>
@@ -205,8 +207,11 @@ export function VistaPagos({
               <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total (138)</th>
               <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>Impuesto pagado</th>
               <th className="px-2 py-2 text-right">Sanción pagada</th>
-              <th className="px-2 py-2 text-right">Intereses</th>
               <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total pagado</th>
+              <th className={`${BORDE_RESULTADO} ${FONDO_RESULTADO} px-2 py-2 text-right text-navy-800`}>Diferencia</th>
+              <th className={`${FONDO_RESULTADO} px-2 py-2 text-navy-800`}>Estado</th>
+              <th className={`${FONDO_RESULTADO} px-2 py-2 text-navy-800`}>Alerta</th>
+              <th className={`${BORDE_RESULTADO} whitespace-nowrap px-2 py-2 text-right`}>Informativo-No se comparan</th>
             </tr>
           </thead>
           <tbody>
@@ -220,10 +225,11 @@ export function VistaPagos({
               <td className={NUM}>{fmt(resultado.total.totalDeclarado)}</td>
               <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(resultado.total.impuestoPagado)}</td>
               <td className={NUM}>{fmt(resultado.total.sancionPagada)}</td>
-              <td className={NUM}>{fmt(resultado.total.intereses)}</td>
               <td className={NUM}>{fmt(resultado.total.totalPagado)}</td>
-              <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(resultado.total.diferencia)}</td>
-              <td colSpan={3} />
+              <td className={`${NUM} ${BORDE_RESULTADO} text-[14px] font-bold`}>{fmt(resultado.total.diferencia)}</td>
+              <td colSpan={2} />
+              <td className={`${NUM} ${BORDE_RESULTADO}`}>{fmt(resultado.total.intereses)}</td>
+              <td className={INICIO_SECCION} />
             </tr>
           </tbody>
         </table>
@@ -273,28 +279,28 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
             <td className={`${NUM} ${TOTAL_SECCION}`}>{fmt(f.totalDeclarado)}</td>
             <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(f.impuestoPagado)}</td>
             <td className={NUM}>{fmt(f.sancionPagada)}</td>
-            <td className={NUM}>{fmt(f.intereses)}</td>
             <td className={`${NUM} ${TOTAL_SECCION}`}>{fmt(f.totalPagado)}</td>
-            <td className={`${NUM} ${INICIO_SECCION} font-semibold ${f.diferencia === 0 ? "text-ok-700" : "text-err-700"}`}>{fmt(f.diferencia)}</td>
+            <td className={`${NUM} ${BORDE_RESULTADO} ${FONDO_RESULTADO} text-[14px] font-bold ${f.diferencia === 0 ? "text-ok-700" : "text-err-700"}`}>{fmt(f.diferencia)}</td>
           </>
         ) : (
           <>
             <td colSpan={2} className={INICIO_SECCION} />
             <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
-            <td colSpan={3} className={INICIO_SECCION} />
+            <td colSpan={2} className={INICIO_SECCION} />
             <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
-            <td className={`${NUM} ${INICIO_SECCION} text-ink-400`}>—</td>
+            <td className={`${NUM} ${BORDE_RESULTADO} ${FONDO_RESULTADO} text-ink-400`}>—</td>
           </>
         )}
-        <td className="px-2 py-1.5">
+        <td className={`${FONDO_RESULTADO} px-2 py-1.5`}>
           <Chip label={f.estado === "diferencia" && f.marca?.vigente ? "Marcada" : ETIQUETA_PAGO[f.estado]} tone={f.estado === "completo" ? "ok" : f.estado === "diferencia" ? (f.marca?.vigente ? "blue" : "warn") : f.estado === "falta_350" ? "err" : "ink"} />
         </td>
-        <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700">
+        <td className={`${FONDO_RESULTADO} whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700`}>
           {conceptosSinRecibo(f).map((d) => (
             <div key={d.concepto} title={`Paga el renglón ${d.renglon}: ${fmt(d.declarado)}`}>{alertaSinRecibo(d)}</div>
           ))}
         </td>
-        <td className="px-2 py-1.5 text-center">
+        <td className={`${NUM} ${BORDE_RESULTADO} ${conFormulario ? "" : "text-ink-400"}`}>{conFormulario ? fmt(f.intereses) : "—"}</td>
+        <td className={`${INICIO_SECCION} px-2 py-1.5 text-center`}>
           <CeldaMarca
             marca={f.marca}
             requiereMarca={f.requiereMarca}
