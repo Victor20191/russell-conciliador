@@ -508,6 +508,10 @@ export const MarcaRetencionSchema = z.object({
   nota: z.string().trim().min(10, { error: "Explica la diferencia (al menos 10 caracteres)." }).max(2000, { error: "La explicación es muy larga." }),
   referenciaAnexo: z.string().trim().max(120, { error: "La referencia es muy larga (máximo 120 caracteres)." }).default(""),
 });
+export const RestaSaldoInicialSchema = z.object({
+  revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
+  restar: z.enum(["si", "no"], { error: "Opción inválida." }).transform((v) => v === "si"),
+});
 
 // ---- Prevalidador de homologación ----
 // Prefijo de cuenta (del plan Russell o del PUC del cliente). El contrato del

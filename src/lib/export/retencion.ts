@@ -5,7 +5,7 @@
 
 import ExcelJS from "exceljs";
 import type { VistaRevision } from "@/lib/impuestos/retencion/vistas";
-import { etiquetaFilaCruce, renglonesFilaCruce, type CruceRetencionVista, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
+import { alcanceSaldoInicial, etiquetaFilaCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { ETIQUETA_OPORTUNIDAD, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
@@ -148,6 +148,10 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
   const { resultado } = cruce;
   ws.addRow([`Contabilidad = saldo final al corte, en positivo; los terceros DIAN de las cuentas que lo indican no suman. Diferencias desde ${cruce.umbral.toLocaleString("es-CO")} exigen marca.`]).font = { color: { argb: EXCEL.textoSecundario } };
   if (!cruce.inicioEnero) ws.addRow(["El balance no empieza el 1 de enero: no se mide el saldo inicial de los terceros."]).font = { color: { argb: EXCEL.textoSecundario } };
+  if (resultado.saldoInicial?.restado) {
+    const por = cruce.restaSaldoInicial?.por;
+    ws.addRow([`Se restó el saldo inicial de ${alcanceSaldoInicial(resultado.saldoInicial)}, por ${resultado.saldoInicial.monto.toLocaleString("es-CO")}${por ? ` (${por})` : ""}: cada tercero suma solo lo del año.`]).font = { color: { argb: EXCEL.textoSecundario } };
+  }
   ws.addRow([]);
 
   estiloEncabezado(ws.addRow(["Concepto", "Cuenta Russell", "Renglones", "Declaraciones", "Contabilidad", "Diferencia", "Estado", "Marca"]));
@@ -166,9 +170,15 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
   for (const f of resultado.grupos.flatMap((g) => g.filas)) {
     for (const c of f.cuentasCliente) {
       for (const t of c.terceros) {
-        const nota = t.restado ? "DIAN · se resta" : t.esDian ? "DIAN · esta cuenta no la resta" : t.posibleDian ? "¿Es la DIAN? Sin NIT: no se resta sola" : "";
+        const nota = [
+          t.restado ? "DIAN · se resta" : t.esDian ? "DIAN · esta cuenta no la resta" : "",
+          t.saldoInicialRestado ? "Saldo inicial · se resta" : "",
+          t.posibleDian ? "¿Es la DIAN? Sin NIT: no se resta sola" : "",
+        ].filter(Boolean).join(". ");
         const fila = ws.addRow([f.cuentaRussell, c.cuenta, c.nombre, t.nit ?? "", t.nombre ?? "", t.saldoInicial, t.saldo, nota]);
-        if (t.restado) fila.font = { strike: true, color: { argb: EXCEL.textoSecundario } };
+        const tachada = { strike: true, color: { argb: EXCEL.textoSecundario } };
+        if (terceroTachado(t)) fila.font = tachada;
+        else if (t.saldoInicialRestado) fila.getCell(6).font = tachada;
       }
     }
   }

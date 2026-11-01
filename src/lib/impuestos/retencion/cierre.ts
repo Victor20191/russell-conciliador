@@ -1,4 +1,4 @@
-import { etiquetaFilaCruce, type CruceRetencionVista } from "./cruce";
+import { alcanceSaldoInicial, etiquetaFilaCruce, type CruceRetencionVista } from "./cruce";
 import type { FilaOportunidad } from "./oportunidad";
 import type { ResultadoPagos } from "./pagos";
 import type { PeriodoRevision } from "./periodos-revision";
@@ -49,6 +49,10 @@ export function evaluarCierreRetencion(e: {
     }
     if (e.cruce.resultado.grupos.some((g) => g.filas.some((f) => f.posiblesDian.length > 0))) {
       avisos.push("Cruce contable: hay terceros sin NIT con nombre de la DIAN que no se restaron.");
+    }
+    const inicial = e.cruce.resultado.saldoInicial;
+    if (inicial?.restado) {
+      avisos.push(`Cruce contable: se restó el saldo inicial de ${alcanceSaldoInicial(inicial)}, por ${pesos(inicial.monto)}.`);
     }
   }
 

@@ -12,6 +12,10 @@ import type { PeriodoRevision } from "./periodos-revision";
  * muestra tachado y no suma. Los conceptos que comparten cuenta van en una sola fila; uno sin
  * cuenta (el 129) va en su propia fila y solo afecta lo declarado. Subtotales: 130 (renta),
  * 134 (IVA), 135 (timbre) y 136 (total).
+ *
+ * Con «Restar terceros con saldo inicial» cada tercero no DIAN suma su saldo final menos su saldo
+ * inicial (lo del año). Solo aplica si el balance empieza el 1 de enero del año revisado: en otro
+ * balance el saldo inicial trae retenciones del mismo año y restarlo quitaría lo declarado.
  */
 
 export type GrupoCruce = "renta" | "iva" | "timbre";
@@ -51,6 +55,8 @@ export type TerceroCruce = {
   restado: boolean;
   /** Sin NIT pero con nombre de la DIAN: se avisa, no se resta solo. */
   posibleDian: boolean;
+  /** Saldo inicial que se le restó (0 si no se le restó). Las copias congeladas antiguas no lo traen. */
+  saldoInicialRestado?: number;
 };
 
 export type CuentaClienteCruce = { cuenta: string; nombre: string; saldo: number; terceros: TerceroCruce[] };
@@ -83,16 +89,21 @@ export type FilaCruce = {
   /** Σ saldo de los terceros DIAN tachados (lo que se restó). */
   dianRestado: number;
   cuentasCliente: CuentaClienteCruce[];
-  saldoInicial: { terceros: number; monto: number } | null;
+  saldoInicial: { terceros: number; monto: number; restado?: boolean } | null;
   posiblesDian: string[];
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
 };
 
 export type SubtotalCruce = { declarado: number; contable: number; diferencia: number };
 
+/** El saldo inicial de los terceros no DIAN en todo el cruce. Un tercero puede estar en varias cuentas. */
+export type ResumenSaldoInicial = { terceros: number; cuentas: number; monto: number; restado: boolean };
+
 export type ResultadoCruce = {
   grupos: { grupo: GrupoCruce; etiqueta: string; filas: FilaCruce[]; subtotal: SubtotalCruce }[];
   total: SubtotalCruce;
+  /** Lo que el botón ofrece y resta: null sin saldos iniciales o sin balance desde enero. Las copias antiguas no lo traen. */
+  saldoInicial?: ResumenSaldoInicial | null;
   /** Cuentas del cliente en 2365/2367 homologadas a una cuenta Russell que no está en el mapeo (p. ej. 236599, pagos). */
   fueraDelMapeo: { cuentaRussell: string; cuentas: string[]; saldo: number }[];
   /** Filas que exigen marca y no la tienen (o la tienen desactualizada). */
@@ -109,12 +120,24 @@ export type EntradaCruce = {
   filasContables: readonly FilaTerceroContable[];
   /** El balance del corte empieza el 1 de enero del año revisado (si no, no se mide el arrastre). */
   inicioEnero: boolean;
+  /** La revisión pidió restar el saldo inicial; sin `inicioEnero` no resta nada. */
+  restarSaldoInicial: boolean;
   umbral: number;
   marcas: readonly (MarcaCruceRetencion & { clave: string })[];
 };
 
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
+
+/** Lo que un tercero suma al lado contable: nada si es la DIAN restada; si no, su saldo final menos el saldo inicial restado. */
+export function aporteTercero(t: Pick<TerceroCruce, "saldo" | "restado" | "saldoInicialRestado">): number {
+  return t.restado ? 0 : sumar([t.saldo, -(t.saldoInicialRestado ?? 0)]);
+}
+
+/** Se tacha completo: la DIAN restada, o el tercero al que restarle el saldo inicial lo deja en cero (no tuvo movimiento). */
+export function terceroTachado(t: Pick<TerceroCruce, "saldo" | "restado" | "saldoInicialRestado">): boolean {
+  return t.restado || (Boolean(t.saldoInicialRestado) && aporteTercero(t) === 0);
+}
 
 /** Lo declarado por concepto: Σ de sus renglones en los 350 vigentes de los meses del corte, con signo. */
 export function declaradoPorConcepto(periodos: readonly PeriodoRevision[], fila: Pick<FilaMapeoDian, "renglonPj" | "renglonPn" | "signo">): number {
@@ -127,6 +150,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
   const cuentasMapeo = new Set(e.mapeo.filter((f) => f.enCruce && f.cuentaRussell).map((f) => f.cuentaRussell as string));
   const marcas = new Map(e.marcas.map((m) => [m.clave, m]));
   const filas = new Map<string, FilaCruce>();
+  const restarInicial = e.restarSaldoInicial && e.inicioEnero;
 
   for (const m of e.mapeo) {
     if (!m.enCruce) continue;
@@ -166,6 +190,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     cuenta.terceros.push({
       nit: t.nit, nombre: t.nombreTercero, saldo: -t.saldoFinal, saldoInicial: -t.saldoInicial,
       esDian, restado, posibleDian: !esDian && !t.nit && pareceNombreDian(t.nombreTercero),
+      saldoInicialRestado: restarInicial && !esDian && t.saldoInicial !== 0 ? -t.saldoInicial : 0,
     });
   }
 
@@ -175,7 +200,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
       const cuentas = [...(porCuentaRussell.get(fila.cuentaRussell)?.values() ?? [])].sort((a, b) => a.cuenta.localeCompare(b.cuenta));
       for (const c of cuentas) {
         c.terceros.sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo));
-        c.saldo = sumar(c.terceros.filter((t) => !t.restado).map((t) => t.saldo));
+        c.saldo = sumar(c.terceros.map(aporteTercero));
       }
       fila.cuentasCliente = cuentas;
       const terceros = cuentas.flatMap((c) => c.terceros);
@@ -184,7 +209,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
       fila.posiblesDian = terceros.filter((t) => t.posibleDian).map((t) => t.nombre ?? "");
       if (e.inicioEnero) {
         const conInicial = terceros.filter((t) => !t.esDian && t.saldoInicial !== 0);
-        if (conInicial.length) fila.saldoInicial = { terceros: conInicial.length, monto: sumar(conInicial.map((t) => t.saldoInicial)) };
+        if (conInicial.length) fila.saldoInicial = { terceros: conInicial.length, monto: sumar(conInicial.map((t) => t.saldoInicial)), restado: restarInicial };
       }
     }
     fila.diferencia = sumar([fila.declarado, -fila.contable]);
@@ -205,6 +230,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
   return {
     grupos,
     total: subtotal(todas),
+    saldoInicial: resumenSaldoInicial(todas, restarInicial),
     fueraDelMapeo: [...fuera.entries()]
       .map(([cuentaRussell, f]) => ({ cuentaRussell, cuentas: [...f.cuentas].sort(), saldo: f.saldo }))
       .sort((a, b) => a.cuentaRussell.localeCompare(b.cuentaRussell)),
@@ -216,6 +242,30 @@ function subtotal(filas: readonly FilaCruce[]): SubtotalCruce {
   const declarado = sumar(filas.map((f) => f.declarado));
   const contable = sumar(filas.map((f) => f.contable));
   return { declarado, contable, diferencia: sumar([declarado, -contable]) };
+}
+
+function resumenSaldoInicial(filas: readonly FilaCruce[], restado: boolean): ResumenSaldoInicial | null {
+  const registros = filas
+    .filter((f) => f.saldoInicial)
+    .flatMap((f) => f.cuentasCliente.flatMap((c) => c.terceros.filter((t) => !t.esDian && t.saldoInicial !== 0).map((t) => ({ cuenta: c.cuenta, tercero: t.nit ?? t.nombre ?? "", monto: t.saldoInicial }))));
+  if (registros.length === 0) return null;
+  return {
+    terceros: new Set(registros.map((r) => r.tercero)).size,
+    cuentas: new Set(registros.map((r) => r.cuenta)).size,
+    monto: sumar(registros.map((r) => r.monto)),
+    restado,
+  };
+}
+
+/** «1 tercero en 9 cuentas»: cómo se nombra el alcance del saldo inicial. */
+export function alcanceSaldoInicial(s: Pick<ResumenSaldoInicial, "terceros" | "cuentas">): string {
+  return `${s.terceros} ${s.terceros === 1 ? "tercero" : "terceros"} en ${s.cuentas} ${s.cuentas === 1 ? "cuenta" : "cuentas"}`;
+}
+
+/** Cómo queda el total del cruce al activar o quitar la resta del saldo inicial (lo que confirma el modal). */
+export function totalAlCambiarResta(total: SubtotalCruce, s: Pick<ResumenSaldoInicial, "monto" | "restado">): SubtotalCruce {
+  const contable = sumar([total.contable, s.restado ? s.monto : -s.monto]);
+  return { declarado: total.declarado, contable, diferencia: sumar([total.declarado, -contable]) };
 }
 
 /** Cuentas Russell de 2365/2367 que se leen del balance (las del mapeo y las de pagos aparte). */
@@ -241,10 +291,11 @@ export function gruposCruceConValores(grupos: ResultadoCruce["grupos"]): Resulta
  * Lo que se lee de una cuenta del cliente con sus terceros contraídos. El saldo inicial sigue el
  * criterio del aviso de la fila: el de la DIAN no cuenta. `oculto` son los que no viajaron a la pantalla.
  */
-export function resumenCuentaCruce(c: CuentaClienteCruce, oculto?: { cantidad: number; saldoInicial: number }) {
+export function resumenCuentaCruce(c: CuentaClienteCruce, oculto?: { cantidad: number; saldoInicial: number; saldoInicialRestado?: number }) {
   return {
     terceros: c.terceros.length + (oculto?.cantidad ?? 0),
     saldoInicial: sumar([...c.terceros.filter((t) => !t.esDian).map((t) => t.saldoInicial), oculto?.saldoInicial ?? 0]),
+    saldoInicialRestado: sumar([...c.terceros.map((t) => t.saldoInicialRestado ?? 0), oculto?.saldoInicialRestado ?? 0]),
     dianRestado: sumar(c.terceros.filter((t) => t.restado).map((t) => t.saldo)),
     posibleDian: c.terceros.some((t) => t.posibleDian),
   };
@@ -274,14 +325,16 @@ export type CruceRetencionVista =
       resultado: ResultadoCruce;
       /** Huella del prevalidador del balance: el cierre la vuelve a leer bajo candado y exige la misma. */
       huellaBalance?: string;
+      /** La revisión pidió restar el saldo inicial, quién y cuándo. Puede estar pedida sin aplicar: lo que resta lo dice `resultado.saldoInicial`. */
+      restaSaldoInicial?: { por: string | null; en: string | null } | null;
     };
 
 /** Terceros por cuenta del cliente que viajan a la pantalla (el Excel lleva todos). */
 export const MAX_TERCEROS_PANTALLA = 100;
 
 export type ResultadoCrucePantalla = ResultadoCruce & {
-  /** Por `clave|cuenta del cliente`: cuántos terceros no viajaron, su saldo (sin los restados) y su saldo inicial (sin la DIAN). */
-  tercerosOcultos: Record<string, { cantidad: number; saldo: number; saldoInicial: number }>;
+  /** Por `clave|cuenta del cliente`: cuántos terceros no viajaron, lo que suman, su saldo inicial (sin la DIAN) y el que se les restó. */
+  tercerosOcultos: Record<string, { cantidad: number; saldo: number; saldoInicial: number; saldoInicialRestado: number }>;
 };
 
 export type CruceRetencionPantalla =
@@ -303,8 +356,9 @@ export function cruceParaPantalla(resultado: ResultadoCruce): ResultadoCrucePant
         const resto = c.terceros.filter((t) => !enPantalla.has(t));
         ocultos[`${f.clave}|${c.cuenta}`] = {
           cantidad: resto.length,
-          saldo: sumar(resto.filter((t) => !t.restado).map((t) => t.saldo)),
+          saldo: sumar(resto.map(aporteTercero)),
           saldoInicial: sumar(resto.filter((t) => !t.esDian).map((t) => t.saldoInicial)),
+          saldoInicialRestado: sumar(resto.map((t) => t.saldoInicialRestado ?? 0)),
         };
         return { ...c, terceros: visibles };
       }),

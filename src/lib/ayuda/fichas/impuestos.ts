@@ -339,7 +339,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "cruce",
       titulo: "Cruce contable",
       proposito:
-        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Usa el balance cerrado y vigente que termina en el mes de corte, con detalle por tercero y con el prevalidador aprobado.",
+        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Si el balance empieza el 1 de enero, también se puede restar el saldo inicial de los demás terceros. Usa el balance cerrado y vigente que termina en el mes de corte, con detalle por tercero y con el prevalidador aprobado.",
       etapas: [
         {
           titulo: "Consultar",
@@ -354,6 +354,26 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
               nombre: "Ocultar los renglones en cero",
               queHace: "Deja solo las filas con valor, con marca o con aviso, y quita el grupo que se queda sin filas. El total siempre se ve.",
               regla: REGLAS.verRevisionImpuestos,
+            },
+          ],
+        },
+        {
+          titulo: "Restar el saldo inicial",
+          acciones: [
+            {
+              nombre: "Restar terceros con saldo inicial",
+              queHace:
+                "Quita de la contabilidad el saldo inicial de los terceros distintos de la DIAN, en toda la revisión, y actualiza las diferencias. El tercero sin movimiento queda tachado; el que tuvo movimiento sigue sumando solo lo del año, con su saldo inicial tachado. Antes de aplicar muestra cómo queda el total. Las marcas cuya diferencia cambie quedan desactualizadas y la fila vuelve a pedirlas.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["El balance del corte empieza el 1 de enero del año de la revisión; con otro balance no se ofrece y no resta nada.", "Algún tercero distinto de la DIAN trae saldo inicial.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cambiarRestaSaldoInicial" },
+            },
+            {
+              nombre: "Dejar de restar",
+              queHace: "Vuelve a sumar el saldo final completo de esos terceros y actualiza las diferencias.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cambiarRestaSaldoInicial" },
             },
           ],
         },

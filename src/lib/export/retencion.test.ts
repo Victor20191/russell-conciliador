@@ -18,7 +18,7 @@ const cruce: CruceRetencionVista = {
   balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "Balance agosto 2026 · v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
   resultado: cruceRetencion({
     periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(),
-    filasContables: [tercero("800111222", "PROVEEDOR A", -1_074_373_000), tercero("800197268", "DIAN", 900_000_000)], inicioEnero: true, umbral: 6_000,
+    filasContables: [tercero("800111222", "PROVEEDOR A", -1_074_373_000), tercero("800197268", "DIAN", 900_000_000)], inicioEnero: true, restarSaldoInicial: false, umbral: 6_000,
     marcas: [{ clave: "236705", numero: 1, nota: "Falta la contabilidad del reteIVA", referenciaAnexo: "PT-RET-02", diferencia: 17_817_000, marcadoPor: "Senior", marcadoEn: "2026-10-31T15:00:00.000Z" }],
   }),
 };
@@ -60,6 +60,27 @@ describe("Excel de una revisión de Retención en la fuente", () => {
     expect(dian.font?.strike).toBe(true);
     const marca = filas.find((f) => f.getCell(3).value === "Falta la contabilidad del reteIVA")!;
     expect([marca.getCell(1).value, marca.getCell(4).value]).toEqual([1, "PT-RET-02"]);
+  });
+
+  it("con la resta del saldo inicial: lo dice arriba, tacha al tercero sin movimiento y del que se movió solo su saldo inicial", () => {
+    const conInicial = (nit: string, nombre: string, saldoFinal: number, saldoInicial: number) => ({ ...tercero(nit, nombre, saldoFinal), saldoInicial });
+    const resultado = cruceRetencion({
+      periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(),
+      filasContables: [conInicial("Generico", "Genérico", -500_000, -500_000), conInicial("800111222", "PROVEEDOR A", -150_000, -100_000)], inicioEnero: true, restarSaldoInicial: true, umbral: 6_000, marcas: [],
+    });
+    const ws = libroRetencion(meta, vista, formularios, { cruce: { ...cruce, resultado, restaSaldoInicial: { por: "Senior", en: "2026-11-01T15:00:00.000Z" } } }).getWorksheet("Cruce contable")!;
+    const filas: ExcelJS.Row[] = [];
+    ws.eachRow((f) => filas.push(f));
+    expect(filas.some((f) => String(f.getCell(1).value).startsWith("Se restó el saldo inicial de 2 terceros en 1 cuenta, por 600.000 (Senior)"))).toBe(true);
+    const generico = filas.find((f) => f.getCell(4).value === "Generico")!;
+    expect(generico.getCell(8).value).toBe("Saldo inicial · se resta");
+    expect(generico.font?.strike).toBe(true);
+    const proveedor = filas.find((f) => f.getCell(4).value === "800111222")!;
+    expect(proveedor.getCell(8).value).toBe("Saldo inicial · se resta");
+    expect(proveedor.font?.strike).toBeFalsy();
+    expect(proveedor.getCell(6).font?.strike).toBe(true);
+    const total = filas.find((f) => f.getCell(1).value === "Total retenciones (136)")!;
+    expect(total.getCell(5).value).toBe(50_000);
   });
 
   it("sin balance para el cruce, la hoja lo explica", () => {

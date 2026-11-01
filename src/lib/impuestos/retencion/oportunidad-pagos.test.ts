@@ -90,13 +90,26 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     const cruceListo = {
       estado: "listo" as const, mensaje: null, umbral: 6_000, inicioEnero: true,
       balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
-      resultado: cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables: [], inicioEnero: true, umbral: 1e12, marcas: [] }),
+      resultado: cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables: [], inicioEnero: true, restarSaldoInicial: false, umbral: 1e12, marcas: [] }),
     };
     const listo = evaluarCierreRetencion({
       periodos, cruce: cruceListo, pagos: pagosRevision({ anio: 2026, periodos, marcas: marcasPago }),
       oportunidad: oportunidad({ marcas: [marcar("oportunidad:2026-01", 0)] }), etiquetaPeriodo: etq,
     });
     expect(listo.pendientes).toEqual([]);
+    expect(listo.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
+  });
+
+  it("cierre: restar el saldo inicial queda como aviso, no como pendiente, y una copia antigua sin el dato no lo menciona", () => {
+    const pagos = pagosRevision({ anio: 2026, periodos, marcas: [] });
+    const generico = { cuentaCliente: "23652501", nombreCuenta: "Servicios", cuentaRussell: "236525", nit: "Generico", nombreTercero: "Genérico", saldoInicial: -100_000, saldoFinal: -100_000 };
+    const resultado = cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables: [generico], inicioEnero: true, restarSaldoInicial: true, umbral: 1e12, marcas: [] });
+    const cruce = { estado: "listo" as const, mensaje: null, umbral: 1e12, inicioEnero: true, balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" }, resultado };
+    const ev = evaluarCierreRetencion({ periodos, cruce, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
+    expect(ev.avisos).toContain("Cruce contable: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000.");
+    expect(ev.pendientes.some((p) => p.tipo === "cruce")).toBe(false);
+    const evAntigua = evaluarCierreRetencion({ periodos, cruce: { ...cruce, resultado: { ...resultado, saldoInicial: undefined } }, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
+    expect(evAntigua.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
   });
 
   it("cierre: un período sin 350 ni causal o con formularios por confirmar lo impide", () => {

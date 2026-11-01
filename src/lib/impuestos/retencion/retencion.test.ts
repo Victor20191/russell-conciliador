@@ -4,7 +4,7 @@ import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fi
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
-import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce } from "./cruce";
+import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
 
 const DV = String(dvNit(NIT_FICTICIO));
@@ -213,7 +213,7 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
   ];
   const entrada = (umbral = 6_000, marcas: Parameters<typeof cruceRetencion>[0]["marcas"] = []) => cruceRetencion({
     periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
-    nombresRussell: new Map([["236505", "Retención en la fuente por salarios y pagos laborales"]]), filasContables, inicioEnero: true, umbral, marcas,
+    nombresRussell: new Map([["236505", "Retención en la fuente por salarios y pagos laborales"]]), filasContables, inicioEnero: true, restarSaldoInicial: false, umbral, marcas,
   });
   const fila = (r: ReturnType<typeof cruceRetencion>, clave: string) => r.grupos.flatMap((g) => g.filas).find((f) => f.clave === clave)!;
 
@@ -273,8 +273,8 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
 
   it("el resumen de una cuenta contraída cuenta sus terceros y sus avisos, sin el saldo inicial de la DIAN", () => {
     const [conDian, sinDian] = fila(entrada(), "236505").cuentasCliente;
-    expect(resumenCuentaCruce(conDian)).toEqual({ terceros: 3, saldoInicial: 50_000, dianRestado: -900_000_000, posibleDian: true });
-    expect(resumenCuentaCruce(sinDian)).toEqual({ terceros: 1, saldoInicial: 0, dianRestado: 0, posibleDian: false });
+    expect(resumenCuentaCruce(conDian)).toEqual({ terceros: 3, saldoInicial: 50_000, saldoInicialRestado: 0, dianRestado: -900_000_000, posibleDian: true });
+    expect(resumenCuentaCruce(sinDian)).toEqual({ terceros: 1, saldoInicial: 0, saldoInicialRestado: 0, dianRestado: 0, posibleDian: false });
     // Los que no viajaron a la pantalla también cuentan.
     expect(resumenCuentaCruce(conDian, { cantidad: 2, saldoInicial: 100 })).toMatchObject({ terceros: 5, saldoInicial: 50_100 });
     const dian = { nit: "800197268", nombre: "DIAN", saldo: 0, saldoInicial: 700, esDian: true, restado: true, posibleDian: false };
@@ -291,9 +291,123 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
   });
 
   it("aviso de saldo inicial solo con balance desde el 1 de enero", () => {
-    expect(fila(entrada(), "236505").saldoInicial).toEqual({ terceros: 1, monto: 50_000 });
-    const sinEnero = cruceRetencion({ ...{ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(), filasContables, umbral: 6_000, marcas: [] }, inicioEnero: false });
+    expect(fila(entrada(), "236505").saldoInicial).toEqual({ terceros: 1, monto: 50_000, restado: false });
+    const sinEnero = cruceRetencion({ ...{ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(), filasContables, umbral: 6_000, marcas: [] }, inicioEnero: false, restarSaldoInicial: false });
     expect(fila(sinEnero, "236505").saldoInicial).toBeNull();
+  });
+
+  describe("restar terceros con saldo inicial", () => {
+    const cruce = (filasContables: Parameters<typeof cruceRetencion>[0]["filasContables"], restarSaldoInicial: boolean, inicioEnero = true, marcas: Parameters<typeof cruceRetencion>[0]["marcas"] = []) => cruceRetencion({
+      periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(), filasContables, inicioEnero, restarSaldoInicial, umbral: 6_000, marcas,
+    });
+    const generico = t("23652501", "236525", "Generico", "Genérico", -100_000, -100_000);
+    const conMovimiento = t("23652501", "236525", "800111222", "PROVEEDOR A", -150_000, -100_000);
+    const sinInicial = t("23652501", "236525", "900333444", "PROVEEDOR B", -30_000);
+
+    it("sin activarla las cifras no cambian y el aviso sigue", () => {
+      const f = fila(cruce([generico, conMovimiento, sinInicial], false), "236525");
+      expect(f.contable).toBe(280_000);
+      expect(f.saldoInicial).toEqual({ terceros: 2, monto: 200_000, restado: false });
+      expect(f.cuentasCliente[0].terceros.every((x) => !x.saldoInicialRestado && !terceroTachado(x))).toBe(true);
+    });
+
+    it("un tercero sin movimiento queda en cero y tachado; uno con movimiento suma solo lo del año", () => {
+      const r = cruce([generico, conMovimiento, sinInicial], true);
+      const f = fila(r, "236525");
+      const de = (nit: string) => f.cuentasCliente[0].terceros.find((x) => x.nit === nit)!;
+      expect(aporteTercero(de("Generico"))).toBe(0);
+      expect(terceroTachado(de("Generico"))).toBe(true);
+      expect(aporteTercero(de("800111222"))).toBe(50_000);
+      expect(terceroTachado(de("800111222"))).toBe(false);
+      expect(de("900333444")).toMatchObject({ saldo: 30_000, saldoInicialRestado: 0 });
+      expect(f.contable).toBe(80_000);
+      expect(f.diferencia).toBe(f.declarado - 80_000);
+      expect(f.saldoInicial).toEqual({ terceros: 2, monto: 200_000, restado: true });
+      expect(r.saldoInicial).toEqual({ terceros: 2, cuentas: 1, monto: 200_000, restado: true });
+    });
+
+    it("con un balance que no empieza en enero no resta nada aunque la revisión lo tenga pedido", () => {
+      const pedida = cruce([generico, conMovimiento, sinInicial], true, false);
+      const sinPedir = cruce([generico, conMovimiento, sinInicial], false, false);
+      expect(pedida).toEqual(sinPedir);
+      expect(fila(pedida, "236525").contable).toBe(280_000);
+      expect(pedida.saldoInicial).toBeNull();
+    });
+
+    it("la DIAN no cambia: ni donde se resta ni en 236575, y su saldo inicial no cuenta", () => {
+      const filas = [
+        generico,
+        t("23652501", "236525", "800197268", "DIAN", 40_000, 7_000),
+        t("23657501", "236575", "800197268", "DIAN", -45_000_000, -9_000),
+      ];
+      const r = cruce(filas, true);
+      const dian = fila(r, "236525").cuentasCliente[0].terceros.find((x) => x.esDian)!;
+      expect(dian).toMatchObject({ restado: true, saldoInicialRestado: 0 });
+      expect(fila(r, "236525")).toMatchObject({ contable: 0, dianRestado: -40_000 });
+      expect(fila(r, "236575")).toMatchObject({ contable: 45_000_000, saldoInicial: null });
+      expect(r.saldoInicial).toEqual({ terceros: 1, cuentas: 1, monto: 100_000, restado: true });
+    });
+
+    it("el mismo tercero en varias cuentas cuenta una vez como tercero y una por cuenta", () => {
+      const r = cruce([generico, t("23651511", "236515", "Generico", "Genérico", -25_000, -25_000)], false);
+      expect(r.saldoInicial).toEqual({ terceros: 1, cuentas: 2, monto: 125_000, restado: false });
+    });
+
+    it("una marca escrita sobre la diferencia anterior queda desactualizada", () => {
+      const filas = [generico, sinInicial];
+      const antes = fila(cruce(filas, false), "236525").diferencia;
+      const marca = { clave: "236525", numero: 1, nota: "Diferencia por saldo inicial", referenciaAnexo: null, diferencia: antes, marcadoPor: "Senior", marcadoEn: "2026-11-01T00:00:00.000Z" };
+      expect(fila(cruce(filas, false, true, [marca]), "236525").marca?.vigente).toBe(true);
+      expect(fila(cruce(filas, true, true, [marca]), "236525").marca?.vigente).toBe(false);
+    });
+
+    it("el total que confirma el modal es el que da el cruce al cambiar la resta", () => {
+      const sin = cruce([generico, conMovimiento, sinInicial], false);
+      const con = cruce([generico, conMovimiento, sinInicial], true);
+      expect(totalAlCambiarResta(sin.total, sin.saldoInicial!)).toEqual(con.total);
+      expect(totalAlCambiarResta(con.total, con.saldoInicial!)).toEqual(sin.total);
+    });
+
+    it("los terceros que no viajan a la pantalla también restan", () => {
+      const muchos = Array.from({ length: 150 }, (_, i) => t("23652501", "236525", String(800_000_000 + i), `PROVEEDOR ${i}`, -(i + 11), -10));
+      const r = cruce(muchos, true);
+      const pantalla = cruceParaPantalla(r);
+      const f = fila(pantalla, "236525");
+      expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 50, saldo: 1_275, saldoInicial: 500, saldoInicialRestado: 500 });
+      expect(resumenCuentaCruce(f.cuentasCliente[0], pantalla.tercerosOcultos["236525|23652501"]).saldoInicialRestado).toBe(1_500);
+      expect(f.cuentasCliente[0].saldo).toBe(11_325);
+    });
+
+    it("un tercero de una copia congelada antigua, sin el campo, suma su saldo y no se tacha", () => {
+      const antiguo = { saldo: 500, restado: false };
+      expect(aporteTercero(antiguo)).toBe(500);
+      expect(terceroTachado(antiguo)).toBe(false);
+    });
+
+    it("con las cuentas que usa el Programa de Impuestos de Melonn: de $1.746.872.028 de diferencia a los $235.009 del programa", () => {
+      // [cuenta Russell, saldo inicial, saldo final] de enero a agosto; todo el saldo inicial está en el
+      // Genérico. Sin las cuentas de pagos ni las que el balance homologa además a 236505 y 236705.
+      const cuentas: [string, number, number][] = [
+        ["236505", -998_051_762, -1_564_656_174],
+        ["236515", -25_097_383, -33_934_578],
+        ["236520", -575_429, -790_656],
+        ["236525", -116_319_681, -185_535_696],
+        ["236530", -69_196_088, -120_892_455],
+        ["236540", -26_316_654, -44_240_910],
+        ["236550", -5_038_679, -8_784_523],
+        ["236575", -464_521_000, -820_889_000],
+        ["236705", -41_520_343, -59_338_036],
+      ];
+      const filas = cuentas.flatMap(([russell, inicial, final]) => [
+        t(`${russell}01`, russell, "Generico", "Genérico", inicial, inicial),
+        t(`${russell}01`, russell, "800111222", "TERCEROS DEL AÑO", final - inicial),
+      ]);
+      const sin = cruce(filas, false);
+      expect(sin.total).toEqual({ declarado: 1_092_190_000, contable: 2_839_062_028, diferencia: -1_746_872_028 });
+      const con = cruce(filas, true);
+      expect(con.total).toEqual({ declarado: 1_092_190_000, contable: 1_092_425_009, diferencia: -235_009 });
+      expect(con.saldoInicial).toEqual({ terceros: 1, cuentas: 9, monto: 1_746_637_019, restado: true });
+    });
   });
 
   it("las marcas se cruzan por clave y se desactualizan si cambia la diferencia", () => {
@@ -315,14 +429,14 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     const muchos = Array.from({ length: 150 }, (_, i) => t("23652501", "236525", String(800_000_000 + i), `PROVEEDOR ${i}`, -(i + 1)));
     const r = cruceRetencion({
       periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
-      nombresRussell: new Map(), filasContables: [...muchos, t("23652501", "236525", "800197268", "DIAN", 500)], inicioEnero: true, umbral: 6_000, marcas: [],
+      nombresRussell: new Map(), filasContables: [...muchos, t("23652501", "236525", "800197268", "DIAN", 500)], inicioEnero: true, restarSaldoInicial: false, umbral: 6_000, marcas: [],
     });
     const pantalla = cruceParaPantalla(r);
     const cuenta = fila(pantalla, "236525").cuentasCliente[0];
     expect(cuenta.terceros).toHaveLength(MAX_TERCEROS_PANTALLA);
     expect(cuenta.terceros[0]).toMatchObject({ nit: "800197268", restado: true });
     // Quedan fuera los 51 de menor saldo (1 a 51 pesos) y la cifra de la cuenta no cambia.
-    expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326, saldoInicial: 0 });
+    expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326, saldoInicial: 0, saldoInicialRestado: 0 });
     expect(cuenta.saldo).toBe(fila(r, "236525").cuentasCliente[0].saldo);
     expect(fila(r, "236525").cuentasCliente[0].terceros).toHaveLength(151);
   });

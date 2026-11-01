@@ -8,7 +8,7 @@ y una consulta de solo lectura a la base del mismo día.
 
 | Tema | Decisión |
 |---|---|
-| Base del cruce | Saldo final al corte − tercero DIAN, con aviso de saldo inicial |
+| Base del cruce | Saldo final al corte − tercero DIAN, con aviso de saldo inicial y, si el balance empieza el 1 de enero, opción de restarlo por revisión |
 | NIT de la DIAN | Lista configurable con **800197268** y **800197384** |
 | Pagos efectuados | Intereses de mora (35) aparte: 136 vs Σ36 y 137 vs Σ34 |
 | Diferencias del cruce | Umbral propio «Diferencias de impuestos» |

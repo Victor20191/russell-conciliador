@@ -48,6 +48,9 @@ export type RevisionVista = {
   periodo: string;
   periodicidad: string;
   estado: string;
+  restarSaldoInicial: boolean;
+  saldoInicialRestadoPor: string | null;
+  saldoInicialRestadoEn: string | null;
   creadoPor: string | null;
   creadoEn: string;
   formularios: FormularioVista[];
@@ -134,6 +137,9 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
     periodo: r.periodo,
     periodicidad: r.periodicidad,
     estado: r.estado,
+    restarSaldoInicial: r.restarSaldoInicial,
+    saldoInicialRestadoPor: r.saldoInicialRestadoPor,
+    saldoInicialRestadoEn: r.saldoInicialRestadoEn?.toISOString() ?? null,
     creadoPor: r.creadoPor,
     creadoEn: r.creadoEn.toISOString(),
     formularios,

@@ -2157,6 +2157,11 @@ model RevisionRetencion {
   periodo       String   @map("periodo") // «2026-09»
   periodicidad  String   @map("periodicidad") // la confirmada al crearla
   estado        String   @default("en_proceso") @map("estado") // en_proceso | en_firme
+  /// «Restar terceros con saldo inicial»: el cruce suma lo del año de los terceros no DIAN. Solo
+  /// aplica cuando el balance del corte empieza el 1 de enero; con otro balance no resta nada.
+  restarSaldoInicial     Boolean   @default(false) @map("restar_saldo_inicial")
+  saldoInicialRestadoPor String?   @map("saldo_inicial_restado_por")
+  saldoInicialRestadoEn  DateTime? @map("saldo_inicial_restado_en") @db.Timestamptz(3)
   creadoPor     String?  @map("creado_por")
   creadoPorId   Int?     @map("creado_por_id")
   creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)

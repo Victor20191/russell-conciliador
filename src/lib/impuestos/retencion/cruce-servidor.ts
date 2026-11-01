@@ -25,7 +25,9 @@ import type { RevisionVista } from "./revision-servidor";
 
 export const MODULO_RETENCION = "RET";
 
-export async function cargarCruceRetencion(revision: Pick<RevisionVista, "clienteId" | "anio" | "periodo" | "periodos">): Promise<CruceRetencionVista> {
+export async function cargarCruceRetencion(
+  revision: Pick<RevisionVista, "clienteId" | "anio" | "periodo" | "periodos" | "restarSaldoInicial" | "saldoInicialRestadoPor" | "saldoInicialRestadoEn">,
+): Promise<CruceRetencionVista> {
   const umbrales = await getUmbralesAlertas();
   const umbral = Number.isFinite(umbrales.impuestos_diferencia) ? umbrales.impuestos_diferencia : UMBRAL_IMPUESTOS_DIFERENCIA;
 
@@ -98,6 +100,7 @@ export async function cargarCruceRetencion(revision: Pick<RevisionVista, "client
     nombresRussell: new Map(mapeo.cuentas.filter((c) => c.nombre).map((c) => [c.cuenta, c.nombre as string])),
     filasContables,
     inicioEnero,
+    restarSaldoInicial: revision.restarSaldoInicial,
     umbral,
     marcas: marcas
       .filter((m) => m.cuenta4)
@@ -111,5 +114,8 @@ export async function cargarCruceRetencion(revision: Pick<RevisionVista, "client
         marcadoEn: m.marcadoEn.toISOString(),
       })),
   });
-  return { estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella };
+  return {
+    estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella,
+    restaSaldoInicial: revision.restarSaldoInicial ? { por: revision.saldoInicialRestadoPor, en: revision.saldoInicialRestadoEn } : null,
+  };
 }

@@ -6,12 +6,16 @@ import { Icon } from "@/components/icons";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
+import { RestaSaldoInicialModal } from "./resta-saldo-inicial-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import {
+  alcanceSaldoInicial,
+  aporteTercero,
   etiquetaFilaCruce,
   gruposCruceConValores,
   renglonesFilaCruce,
   resumenCuentaCruce,
+  terceroTachado,
   type CruceRetencionPantalla,
   type FilaCruce,
   type ResultadoCrucePantalla,
@@ -41,6 +45,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
   const [marcando, setMarcando] = useState<string | null>(null);
   const [ocultarCeros, setOcultarCeros] = useState(false);
+  const [cambiandoResta, setCambiandoResta] = useState(false);
 
   if (cruce.estado !== "listo") {
     return (
@@ -57,6 +62,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   }
 
   const { resultado, balance, umbral, inicioEnero } = cruce;
+  const saldoInicial = resultado.saldoInicial ?? null;
+  const resta = cruce.restaSaldoInicial ?? null;
   const filas = resultado.grupos.flatMap((g) => g.filas);
   const grupos = ocultarCeros ? gruposCruceConValores(resultado.grupos) : resultado.grupos;
   const filaMarcando = filas.find((f) => f.clave === marcando) ?? null;
@@ -80,11 +87,12 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           </div>
         </div>
         <p className="text-[11.5px] text-ink-500">
-          Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma. Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
+          Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.{saldoInicial?.restado && " Además se resta el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
         {!inicioEnero && (
           <p className="text-[11.5px] text-warn-700">El balance no empieza el 1 de enero: no se puede medir el saldo inicial que arrastran los terceros.</p>
         )}
+        <ResumenSaldoInicial saldoInicial={saldoInicial} resta={resta} inicioEnero={inicioEnero} puedeEditar={puedeEditar} onCambiar={() => setCambiandoResta(true)} />
       </Card>
 
       <Card className="overflow-x-auto p-0">
@@ -147,6 +155,37 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           onClose={() => setMarcando(null)}
         />
       )}
+
+      {cambiandoResta && (
+        <RestaSaldoInicialModal revisionId={revisionId} activa={resta !== null} saldoInicial={saldoInicial} total={resultado.total} onClose={() => setCambiandoResta(false)} />
+      )}
+    </div>
+  );
+}
+
+/** El saldo inicial de todo el cruce, con el botón que lo resta. Solo hay cifra con un balance desde el 1 de enero. */
+function ResumenSaldoInicial({ saldoInicial, resta, inicioEnero, puedeEditar, onCambiar }: {
+  saldoInicial: NonNullable<ResultadoCrucePantalla["saldoInicial"]> | null;
+  resta: { por: string | null; en: string | null } | null;
+  inicioEnero: boolean;
+  puedeEditar: boolean;
+  onCambiar: () => void;
+}) {
+  if (!saldoInicial && !resta) return null;
+  const restado = saldoInicial?.restado ?? false;
+  return (
+    <div className={`mt-1 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12px] ${restado ? "border-ink-150 bg-ink-50 text-ink-700" : "border-warn-300 bg-warn-50 text-warn-700"}`}>
+      <span>
+        {saldoInicial && !restado && `${alcanceSaldoInicial(saldoInicial)}: ${saldoInicial.terceros === 1 ? "trae" : "traen"} saldo inicial por ${fmtContable(saldoInicial.monto)}, que la contabilidad incluye.`}
+        {saldoInicial && restado && (
+          <>
+            Se restó el saldo inicial de {alcanceSaldoInicial(saldoInicial)}, por {fmtContable(saldoInicial.monto)}.
+            {resta && <span className="text-ink-500"> {resta.por ?? "—"}{resta.en ? ` · ${fmtDateTime(resta.en)}` : ""}</span>}
+          </>
+        )}
+        {!saldoInicial && (inicioEnero ? "La resta del saldo inicial está guardada, pero ningún tercero trae saldo inicial en este balance." : "La resta del saldo inicial está guardada, pero no aplica: este balance no empieza el 1 de enero y no se resta nada.")}
+      </span>
+      {puedeEditar && <button type="button" onClick={onCambiar} className={BOTON_SECUNDARIO}>{resta ? "Dejar de restar" : "Restar terceros con saldo inicial"}</button>}
     </div>
   );
 }
@@ -164,12 +203,13 @@ function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila:
                 ? `${fila.cuentaRussell}${fila.conceptos.length > 1 ? ` · ${fila.conceptos.length} conceptos` : fila.nombreCuenta ? ` · ${fila.nombreCuenta}` : ""}`
                 : "Sin cuenta Russell · solo afecta lo declarado"}
               {fila.dianRestado !== 0 && ` · DIAN restada ${fmt(fila.dianRestado)}`}
+              {fila.saldoInicial?.restado && ` · Saldo inicial restado ${fmt(fila.saldoInicial.monto)}`}
             </span>
           </span>
         </button>
         {(fila.saldoInicial || fila.posiblesDian.length > 0) && (
           <div className="ml-5 mt-1 flex flex-wrap gap-1">
-            {fila.saldoInicial && <Chip label="Saldo inicial" tone="warn" />}
+            {fila.saldoInicial && (fila.saldoInicial.restado ? <Chip label="Saldo inicial restado" tone="ink" /> : <Chip label="Saldo inicial" tone="warn" />)}
             {fila.posiblesDian.length > 0 && <Chip label="¿DIAN sin NIT?" tone="warn" />}
           </div>
         )}
@@ -228,6 +268,7 @@ const VALOR_DETALLE = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
 const BANDA_CUENTA = "sticky top-[27px] z-10 bg-navy-100 font-semibold text-navy-800";
 const FILA_TOTAL_DETALLE = "border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800";
 const RESALTE_SALDO_INICIAL = "rounded bg-warn-100 px-1 text-warn-700";
+const SALDO_INICIAL_RESTADO = "text-ink-400 line-through";
 
 function TituloDetalle({ titulo, detalle, cuentaRussell }: { titulo: string; detalle: string; cuentaRussell?: string }) {
   return (
@@ -279,7 +320,7 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
 
       {fila.cuentaRussell && (
         <section>
-          <TituloDetalle titulo="La contabilidad" detalle="saldo final al corte" cuentaRussell={fila.cuentaRussell} />
+          <TituloDetalle titulo="La contabilidad" detalle={fila.saldoInicial?.restado ? "saldo final al corte, sin el saldo inicial" : "saldo final al corte"} cuentaRussell={fila.cuentaRussell} />
           {fila.cuentasCliente.length === 0 ? (
             <p className="text-ink-500">Ninguna cuenta del cliente está homologada a {fila.cuentaRussell} en este balance.</p>
           ) : (
@@ -310,11 +351,12 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
                           </button>
                         </td>
                         <td className={`${BANDA_CUENTA} ${VALOR_DETALLE}`}>
-                          {inicioEnero && resumen.saldoInicial !== 0 && <span className={RESALTE_SALDO_INICIAL}>{fmtContable(resumen.saldoInicial)}</span>}
+                          {inicioEnero && resumen.saldoInicial !== 0 && <span className={resumen.saldoInicialRestado !== 0 ? SALDO_INICIAL_RESTADO : RESALTE_SALDO_INICIAL}>{fmtContable(resumen.saldoInicial)}</span>}
                         </td>
                         <td className={`${BANDA_CUENTA} ${VALOR_DETALLE}`}>{fmtContable(c.saldo)}</td>
                         <td className={`${BANDA_CUENTA} px-2 text-[10.5px]`}>
                           {resumen.dianRestado !== 0 && <span className="block">DIAN restada {fmtContable(resumen.dianRestado)}</span>}
+                          {resumen.saldoInicialRestado !== 0 && <span className="block">Saldo inicial restado {fmtContable(resumen.saldoInicialRestado)}</span>}
                           {resumen.posibleDian && <span className="block">¿DIAN sin NIT?</span>}
                         </td>
                       </tr>
@@ -326,20 +368,22 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
                         </tr>
                       )}
                       {abierta && c.terceros.map((t, i) => {
-                        const tachado = t.restado ? "text-ink-400 line-through" : "";
+                        const tachado = terceroTachado(t) ? "text-ink-400 line-through" : "";
+                        const aporte = aporteTercero(t);
                         return (
                           <tr key={`${t.nit ?? "sin-nit"}-${i}`} className="border-t border-ink-100 hover:bg-ink-50">
                             <td className={`py-1 pl-5 pr-2 tabular-nums ${tachado}`}>{t.nit ?? "—"}</td>
                             <td className={`px-2 py-1 ${tachado}`}>{t.nombre ?? "—"}</td>
                             <td className={`${VALOR_DETALLE} ${tachado}`}>
                               {inicioEnero && t.saldoInicial !== 0 && (
-                                t.esDian ? fmtContable(t.saldoInicial) : <span className={RESALTE_SALDO_INICIAL}>{fmtContable(t.saldoInicial)}</span>
+                                t.esDian ? fmtContable(t.saldoInicial) : <span className={t.saldoInicialRestado ? SALDO_INICIAL_RESTADO : RESALTE_SALDO_INICIAL}>{fmtContable(t.saldoInicial)}</span>
                               )}
                             </td>
                             <td className={`${VALOR_DETALLE} ${tachado}`}>{fmtContable(t.saldo)}</td>
                             <td className="px-2 py-1 text-[10.5px] font-semibold">
                               {t.restado && <span className="text-ink-500">DIAN · se resta</span>}
                               {t.esDian && !t.restado && <span className="text-ink-500">DIAN · esta cuenta no la resta</span>}
+                              {Boolean(t.saldoInicialRestado) && <span className="block text-ink-500">Saldo inicial · se resta{aporte !== 0 && `; suma ${fmtContable(aporte)}`}</span>}
                               {t.posibleDian && <span className="text-warn-700">¿Es la DIAN? Sin NIT: no se resta sola</span>}
                             </td>
                           </tr>
@@ -375,7 +419,9 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
         <div className="flex flex-col gap-1 rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-warn-700">
           {fila.saldoInicial && (
             <p>
-              {fila.saldoInicial.terceros} {fila.saldoInicial.terceros === 1 ? "tercero trae" : "terceros traen"} saldo inicial por {fmtContable(fila.saldoInicial.monto)}: el saldo final puede arrastrar retenciones de períodos anteriores. No cambia la cifra del cruce.
+              {fila.saldoInicial.restado
+                ? `${fila.saldoInicial.terceros} ${fila.saldoInicial.terceros === 1 ? "tercero traía" : "terceros traían"} saldo inicial por ${fmtContable(fila.saldoInicial.monto)}: se restó de la contabilidad.`
+                : `${fila.saldoInicial.terceros} ${fila.saldoInicial.terceros === 1 ? "tercero trae" : "terceros traen"} saldo inicial por ${fmtContable(fila.saldoInicial.monto)}: el saldo final puede arrastrar retenciones de períodos anteriores. No cambia la cifra del cruce.`}
             </p>
           )}
           {fila.posiblesDian.length > 0 && (
