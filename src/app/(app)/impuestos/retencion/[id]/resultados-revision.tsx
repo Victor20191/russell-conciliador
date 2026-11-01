@@ -39,6 +39,29 @@ function EstadoOportunidadChip({ estado, dias }: { estado: EstadoOportunidad; di
   return <Chip label={dias ? `${ETIQUETA_OPORTUNIDAD[estado]} · ${dias} ${dias === 1 ? "día" : "días"}` : ETIQUETA_OPORTUNIDAD[estado]} tone={TONO_OPORTUNIDAD[estado]} />;
 }
 
+/** Un período con algo que mirar (extemporáneo, sin original, sin pago…) se resalta entero; el oportuno queda limpio. */
+const conNovedad = (f: FilaOportunidad) => [f.estadoPresentacion, f.estadoPago].some((e) => TONO_OPORTUNIDAD[e] === "warn" || TONO_OPORTUNIDAD[e] === "err");
+
+/** La fecha medida junto a su veredicto: se lee «fecha → resultado» de un solo golpe. */
+function FechaConEstado({ fecha: iso, estado, dias }: { fecha: string | null; estado: EstadoOportunidad; dias: number | null }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="tabular-nums font-semibold text-ink-800">{fecha(iso)}</span>
+      <EstadoOportunidadChip estado={estado} dias={dias} />
+    </div>
+  );
+}
+
+/** El formulario que sustenta la fecha, en gris: número, concepto del 490 y autoadhesivo (996). El título de la columna ya dice cuál es. */
+function Soporte({ formulario, numero, concepto, autoadhesivo }: { formulario: "350" | "490"; numero: string | null; concepto?: string | null; autoadhesivo: string | null }) {
+  if (!numero) return <div className="mt-0.5 text-[11px] text-ink-400">{formulario === "350" ? "Sin el original" : "Sin recibo"}</div>;
+  return (
+    <div className="mt-0.5 text-[11px] tabular-nums text-ink-400">
+      {numero}{concepto ? ` (${concepto})` : ""}{autoadhesivo ? ` · Autoadhesivo ${autoadhesivo}` : ""}
+    </div>
+  );
+}
+
 function ObservacionesMarcas({ filas, etiqueta, puedeEditar, onEditar }: {
   filas: { clave: string; titulo: string; marca: NonNullable<FilaOportunidad["marca"]>; hoy?: number }[];
   etiqueta: string;
@@ -101,42 +124,31 @@ export function VistaOportunidad({
         )}
       </Card>
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[960px] text-[12.5px]">
+        <table className="w-full min-w-[900px] text-[12.5px]">
           <thead className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
             <tr>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Período</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">350 · autoadhesivo</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Pago · autoadhesivo</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Fecha de vencimiento</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Fecha de presentación</th>
-              <th rowSpan={2} className="px-2 py-2 align-bottom">Fecha de pago</th>
-              <th colSpan={2} className={`${BORDE_RESULTADO} bg-navy-700 px-2 py-1.5 text-center text-white`}>Resultado · Indicador de oportunidad</th>
-              <th rowSpan={2} className={`${BORDE_RESULTADO} px-3 py-2 text-center align-bottom`}>Marca</th>
-            </tr>
-            <tr>
-              <th className={`${BORDE_RESULTADO} ${FONDO_RESULTADO} px-2 py-2 text-navy-800`}>Presentación</th>
-              <th className={`${FONDO_RESULTADO} px-2 py-2 text-navy-800`}>Pago</th>
+              <th className="w-32 px-3 py-2">Período</th>
+              <th className="w-44 px-3 py-2">Fecha de vencimiento</th>
+              <th className={`${INICIO_SECCION} bg-navy-100 px-3 py-2 text-navy-800`}>Presentación · Formulario 350</th>
+              <th className={`${INICIO_SECCION} bg-blue-100 px-3 py-2 text-navy-800`}>Pago · Formulario 490</th>
+              <th className={`${INICIO_SECCION} w-24 px-3 py-2 text-center`}>Marca</th>
             </tr>
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.periodo} className="border-b border-ink-100 align-top last:border-0">
-                <td className="px-2 py-1.5 font-semibold text-navy-800">{etiquetaPeriodo(f.periodo)}</td>
-                <td className="px-2 py-1.5 text-[11px] tabular-nums leading-4 text-ink-400">
-                  <div>{f.numero350 ?? "—"}</div>
-                  <div>{f.autoadhesivo350 ?? ""}</div>
+              <tr key={f.periodo} className={`border-b border-ink-100 align-top last:border-0 ${conNovedad(f) ? "bg-warn-50/60" : ""}`}>
+                <td className="px-3 py-2 font-semibold text-navy-800">{etiquetaPeriodo(f.periodo)}</td>
+                <td className="px-3 py-2 tabular-nums">{fecha(f.vencimiento)}</td>
+                <td className={`${INICIO_SECCION} px-3 py-2`}>
+                  <FechaConEstado fecha={f.presentacion} estado={f.estadoPresentacion} dias={f.diasPresentacion} />
+                  <Soporte formulario="350" numero={f.numero350} autoadhesivo={f.autoadhesivo350} />
                 </td>
-                <td className="px-2 py-1.5 text-[11px] tabular-nums leading-4 text-ink-400">
-                  <div>{f.numeroPago ?? "—"}{f.conceptoPago ? <span className="ml-1">({f.conceptoPago})</span> : null}</div>
-                  <div>{f.autoadhesivoPago ?? ""}</div>
-                  {f.pagoSinConcepto61 && <div className="text-[11px] text-warn-700">Sin recibo del 61</div>}
+                <td className={`${INICIO_SECCION} px-3 py-2`}>
+                  <FechaConEstado fecha={f.pago} estado={f.estadoPago} dias={f.diasPago} />
+                  <Soporte formulario="490" numero={f.numeroPago} concepto={f.conceptoPago} autoadhesivo={f.autoadhesivoPago} />
+                  {f.pagoSinConcepto61 && <div className="mt-0.5 text-[11px] font-semibold text-warn-700">Sin recibo del 61</div>}
                 </td>
-                <td className="px-2 py-1.5 tabular-nums">{fecha(f.vencimiento)}</td>
-                <td className="px-2 py-1.5 tabular-nums">{fecha(f.presentacion)}</td>
-                <td className="px-2 py-1.5 tabular-nums">{fecha(f.pago)}</td>
-                <td className={`${BORDE_RESULTADO} ${FONDO_RESULTADO} px-2 py-1.5`}><EstadoOportunidadChip estado={f.estadoPresentacion} dias={f.diasPresentacion} /></td>
-                <td className={`${FONDO_RESULTADO} px-2 py-1.5`}><EstadoOportunidadChip estado={f.estadoPago} dias={f.diasPago} /></td>
-                <td className={`${BORDE_RESULTADO} px-2 py-1.5 text-center`}>
+                <td className={`${INICIO_SECCION} px-3 py-2 text-center`}>
                   <CeldaMarca marca={f.marca} requiereMarca={f.requiereMarca} admiteMarca={f.requiereMarca} puedeEditar={puedeEditar} ancla={`marca-retencion-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />
                 </td>
               </tr>
