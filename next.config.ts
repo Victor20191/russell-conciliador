@@ -62,6 +62,10 @@ const deploymentId = process.env.NEXT_DEPLOYMENT_ID?.trim() || undefined;
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   ...(deploymentId ? { deploymentId } : {}),
+  // Sin optimizador de imágenes: `/_next/image` responde 404 sin llegar a sharp/libvips,
+  // que acumulan avisos críticos de ejecución remota sin sesión. La plataforma no lo
+  // usa: `next/image` solo pinta los SVG de marca, y Next sirve los SVG tal cual.
+  images: { unoptimized: true },
   // La UI de balance usa fragmentos pequeños, pero se conserva la entrada directa
   // para pruebas/VPS y otros flujos de PDFs o fotos que usan Server Actions.
   experimental: {
