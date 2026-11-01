@@ -32,6 +32,12 @@ export type UmbralesAlertas = {
   tercero_naturaleza: number;
   /** Activos fijos · el neto cuadra pero costo o depreciación difieren: desde este monto, exige marca. */
   afi_detalle: number;
+  /**
+   * Impuestos · cruce contable de Retención en la fuente: desde este monto (inclusive) la diferencia
+   * entre lo declarado y la contabilidad exige marca. Propio de Impuestos (la DIAN redondea cada
+   * renglón a miles: hasta $500 por renglón y mes, $6.000 en un renglón de 12 meses).
+   */
+  impuestos_diferencia: number;
 };
 
 export type ClaveUmbral = keyof UmbralesAlertas;
@@ -45,6 +51,7 @@ export const UMBRAL_CEDULA_MODULOS = 2_000;
 export const UMBRAL_TERCERO_DIFERENCIA = 2_000;
 export const UMBRAL_TERCERO_NATURALEZA = 10_000;
 export const UMBRAL_AFI_DETALLE = 10_000;
+export const UMBRAL_IMPUESTOS_DIFERENCIA = 6_000;
 // Un movimiento (débito o crédito) que vino con signo CONTRARIO al dominante de su
 // columna se sube en NEGATIVO. Ese negativo es la "alerta de magnitud".
 export const UMBRAL_MAGNITUD_ALERTA = 50_000;
@@ -57,10 +64,11 @@ export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   tercero_diferencia: UMBRAL_TERCERO_DIFERENCIA,
   tercero_naturaleza: UMBRAL_TERCERO_NATURALEZA,
   afi_detalle: UMBRAL_AFI_DETALLE,
+  impuestos_diferencia: UMBRAL_IMPUESTOS_DIFERENCIA,
 };
 
 /** Dónde vive el umbral: lo usa la pantalla de parámetros para agruparlos. */
-export type SeccionUmbral = "balance" | "modulos";
+export type SeccionUmbral = "balance" | "modulos" | "impuestos";
 
 export type UmbralDef = {
   clave: ClaveUmbral;
@@ -157,6 +165,17 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
       "Cuando el costo neto de un renglón cuadra pero su costo o su depreciación no (típicamente una reclasificación entre ellas), desde este monto (inclusive) el renglón exige marca de auditoría para poder cerrar. Por debajo solo se avisa «Revisar columnas».",
     dondeAplica: "Cédula contable de Activos fijos (columnas de costo y depreciación de cada renglón).",
     defecto: UMBRAL_AFI_DETALLE,
+    minimo: 0,
+    maximo: UMBRAL_MAXIMO,
+  },
+  {
+    clave: "impuestos_diferencia",
+    seccion: "impuestos",
+    nombre: "Diferencias de impuestos",
+    descripcion:
+      "Desde este monto (inclusive), una diferencia entre lo declarado en los formularios y la contabilidad exige marca de auditoría para poder cerrar la revisión; por debajo es «Diferencia informativa». La DIAN redondea cada renglón a miles, así que casi todas las filas tienen unos cientos de pesos de diferencia.",
+    dondeAplica: "Cruce contable de Retención en la fuente.",
+    defecto: UMBRAL_IMPUESTOS_DIFERENCIA,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
   },

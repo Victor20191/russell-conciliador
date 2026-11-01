@@ -22,6 +22,8 @@ import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/r
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { FormularioModal } from "./formulario-modal";
 import { VistaAcumulada, VistaPorMeses } from "./vistas-revision";
+import { CruceRevision } from "./cruce-revision";
+import type { CruceRetencionPantalla } from "@/lib/impuestos/retencion/cruce";
 import type { TabRevisionRetencion } from "./tabs";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
@@ -37,11 +39,13 @@ type EnCola = { nombre: string; estado: "pendiente" | "leyendo" | "ok" | "error"
 
 export default function RevisionClient({
   revision,
+  cruce,
   puedeCargar,
   puedeEditar,
   puedeEliminar,
 }: {
   revision: RevisionVista;
+  cruce: CruceRetencionPantalla;
   puedeCargar: boolean;
   puedeEditar: boolean;
   puedeEliminar: boolean;
@@ -77,6 +81,7 @@ export default function RevisionClient({
         <TabBtn on={tab === "formularios"} onClick={() => setTab("formularios")} label="Formularios" />
         <TabBtn on={tab === "meses"} onClick={() => setTab("meses")} label="Por meses" />
         <TabBtn on={tab === "acumulado"} onClick={() => setTab("acumulado")} label="Acumulado" />
+        <TabBtn on={tab === "cruce"} onClick={() => setTab("cruce")} label="Cruce contable" />
         <a href={`/api/impuestos/revisiones/${revision.id}/excel`} download className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
           <Icon name="download" size={13} /> Exportar a Excel
         </a>
@@ -84,6 +89,7 @@ export default function RevisionClient({
 
       {tab === "meses" && <VistaPorMeses vista={vista} onAbrir={setAbierto} />}
       {tab === "acumulado" && <VistaAcumulada vista={vista} />}
+      {tab === "cruce" && <CruceRevision cruce={cruce} revisionId={revision.id} puedeEditar={puedeEditar} />}
 
       {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} onTerminar={() => router.refresh()} />}
 

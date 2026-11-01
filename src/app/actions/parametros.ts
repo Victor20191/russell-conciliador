@@ -20,7 +20,7 @@ const PERMISO = "parametros:administrar";
 // revalidarlas: sus loaders RSC leen `getUmbralesAlertas()` y los agregados se
 // RECALCULAN al leer, así que el cambio es retroactivo para todo lo ya cargado.
 // Los cruces de los módulos leen la tolerancia de la cédula y los del tercero.
-const RUTAS_AFECTADAS = ["/balance", "/balance/borradores", "/modulos"];
+const RUTAS_AFECTADAS = ["/balance", "/balance/borradores", "/modulos", "/impuestos"];
 
 /**
  * El umbral de saldos contrarios decide qué balances abiertos quedan «En proceso con alertas»

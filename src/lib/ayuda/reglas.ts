@@ -72,6 +72,8 @@ export const REGLAS = {
   cargarImpuestos: [via("impuestos:cargar", "escritura")],
   /** Corregir a mano un importe leído por la IA. */
   editarImpuestos: [via(["impuestos:cargar", "impuestos:editar"], "escritura")],
+  /** Poner, editar o quitar la marca de una diferencia del cruce contable de Retención. */
+  marcarImpuestos: [via("impuestos:editar", "escritura")],
   /** Descartar un formulario confirmado o eliminar una revisión sin firme. */
   eliminarImpuestos: [via("impuestos:eliminar", "escritura")],
   configurarImpuestos: [via("impuestos:configurar", "ninguno")],

@@ -12,7 +12,11 @@ import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
 import { almacenamientoDisponible, subirObjeto } from "@/lib/storage/objetos";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { ConfirmarFormularioDianSchema, PeriodoSinFormularioSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
+import { ConfirmarFormularioDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
+import { tomarCandadoTransaccion } from "@/lib/candados";
+import { siguienteNumeroMarca } from "@/lib/modulos/marcas-cruce";
+import { cargarRevision } from "@/lib/impuestos/retencion/revision-servidor";
+import { cargarCruceRetencion, MODULO_RETENCION } from "@/lib/impuestos/retencion/cruce-servidor";
 import { validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
@@ -419,5 +423,96 @@ export async function eliminarRevisionRetencion(_prev: ActionState, formData: Fo
     return { ok: true, message: "Revisión eliminada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarRevisionRetencion", e) };
+  }
+}
+
+/**
+ * Marca de auditoría de una diferencia del cruce contable (tabla de marcas de los módulos, código
+ * RET, período de la revisión). Guarda la diferencia del momento: si después cambia, la marca queda
+ * desactualizada y la fila vuelve a pedirla.
+ */
+export async function guardarMarcaRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = MarcaRetencionSchema.safeParse({
+    revisionId: formData.get("revisionId"),
+    clave: formData.get("clave"),
+    nota: formData.get("nota"),
+    referenciaAnexo: formData.get("referenciaAnexo") ?? "",
+  });
+  if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
+  const { revisionId, clave, nota, referenciaAnexo } = parsed.data;
+  const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
+  if (!acceso.ok) return { ok: false, message: acceso.message };
+  const { revision } = acceso;
+
+  try {
+    const vista = await cargarRevision(revision.id);
+    if (!vista) return { ok: false, message: "La revisión no existe." };
+    const cruce = await cargarCruceRetencion(vista);
+    if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
+    const fila = cruce.resultado.grupos.flatMap((g) => g.filas).find((f) => f.clave === clave);
+    if (!fila) return { ok: false, message: "Esa fila ya no está en el cruce." };
+    if (fila.diferencia === 0) return { ok: false, message: "La fila no tiene diferencia que marcar." };
+
+    const user = await getCurrentUser();
+    const numero = await prisma.$transaction(async (tx) => {
+      await tomarCandadoTransaccion(tx, `marca-retencion:${revision.clienteId}:${revision.periodo}`);
+      const delPeriodo = await tx.marcaCruceModulo.findMany({
+        where: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo },
+        select: { id: true, numero: true, cuenta4: true, dimension: true },
+      });
+      const existente = delPeriodo.find((m) => m.dimension === "cuenta4" && m.cuenta4 === clave);
+      const datos = { nota, referenciaAnexo: referenciaAnexo || null, diferencia: fila.diferencia, marcadoPor: user?.name ?? null, marcadoPorId: user?.id ?? null, marcadoEn: new Date() };
+      if (existente) {
+        await tx.marcaCruceModulo.update({ where: { id: existente.id }, data: datos });
+        return existente.numero;
+      }
+      const siguiente = siguienteNumeroMarca(delPeriodo.map((m) => m.numero));
+      await tx.marcaCruceModulo.create({
+        data: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, numero: siguiente, dimension: "cuenta4", cuenta4: clave, ...datos },
+      });
+      return siguiente;
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "MARCÓ DIFERENCIA DE RETENCIÓN",
+      entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
+      detail: `Marca ${numero} · ${fila.cuentaRussell ?? fila.conceptos.map((c) => c.etiqueta).join(", ")} · diferencia ${fila.diferencia} · ${nota}`,
+      clientId: revision.clienteId,
+    });
+    revalidatePath(`${RUTA}/${revision.id}`);
+    return { ok: true, message: `Marca ${numero} guardada.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarMarcaRetencion", e) };
+  }
+}
+
+/** Quita la marca de una fila del cruce (la fila vuelve a pedirla si su diferencia lo exige). */
+export async function quitarMarcaRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const revisionId = Number(formData.get("revisionId"));
+  const clave = String(formData.get("clave") ?? "");
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0 || !/^(\d{6}|sin_cuenta:[a-z0-9_]{2,60})$/.test(clave)) return { ok: false, message: "Marca inválida." };
+  const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
+  if (!acceso.ok) return { ok: false, message: acceso.message };
+  const { revision } = acceso;
+
+  try {
+    const user = await getCurrentUser();
+    const marca = await prisma.marcaCruceModulo.findFirst({
+      where: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, dimension: "cuenta4", cuenta4: clave },
+      select: { id: true, numero: true, nota: true },
+    });
+    if (!marca) return { ok: true, message: "La fila ya no tenía marca." };
+    await prisma.marcaCruceModulo.delete({ where: { id: marca.id } });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "QUITÓ MARCA DE RETENCIÓN",
+      entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
+      detail: `Marca ${marca.numero} · ${clave} · ${marca.nota}`,
+      clientId: revision.clienteId,
+    });
+    revalidatePath(`${RUTA}/${revision.id}`);
+    return { ok: true, message: "Marca quitada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarMarcaRetencion", e) };
   }
 }

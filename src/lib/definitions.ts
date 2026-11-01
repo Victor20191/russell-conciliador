@@ -499,6 +499,14 @@ export const ConfirmarFormularioDianSchema = z.object({
     .pipe(z.record(z.string().regex(/^\d{1,3}$/), z.number().int().min(0).max(1e15))),
 });
 
+// Marca de una diferencia del cruce de Retención: la fila es una cuenta Russell o un concepto sin cuenta.
+export const MarcaRetencionSchema = z.object({
+  revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
+  clave: z.string().trim().regex(/^(\d{6}|sin_cuenta:[a-z0-9_]{2,60})$/, { error: "Fila del cruce inválida." }),
+  nota: z.string().trim().min(10, { error: "Explica la diferencia (al menos 10 caracteres)." }).max(2000, { error: "La explicación es muy larga." }),
+  referenciaAnexo: z.string().trim().max(120, { error: "La referencia es muy larga (máximo 120 caracteres)." }).default(""),
+});
+
 // ---- Prevalidador de homologación ----
 // Prefijo de cuenta (del plan Russell o del PUC del cliente). El contrato del
 // prevalidador solo admite nivel 2 (grupo) o nivel 4 (cuenta). Se aceptan puntos y

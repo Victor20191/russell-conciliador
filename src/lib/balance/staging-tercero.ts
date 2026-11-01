@@ -260,6 +260,18 @@ export function esFilaPropiaDeCuenta(fila: { nitTercero: string | null; nombreTe
 }
 
 /**
+ * Fila que repite el TOTAL de la cuenta con el código de la cuenta como tercero y sin nombre:
+ * hay archivos por tercero que imprimen así el subtotal de cada cuenta y la captura lo guardó
+ * como un tercero más (p. ej. «23650501» dentro de la cuenta 23650501). No es fila propia
+ * —trae NIT—, así que `filasEfectivasTercero` la conserva y sumarla dobla la cuenta. El NIT se
+ * guarda como núcleo de 9 dígitos, por eso basta con que el código de la cuenta empiece por él.
+ */
+export function esTotalDeCuentaComoTercero(fila: { cuenta8: string; nitTercero: string | null; nombreTercero: string | null }): boolean {
+  const nit = fila.nitTercero?.replace(/\D/g, "") ?? "";
+  return nit.length >= 6 && !fila.nombreTercero?.trim() && fila.cuenta8.replace(/\D/g, "").startsWith(nit);
+}
+
+/**
  * Deduplica la fila propia al consumir el dataset por tercero: por cuenta, si hay
  * filas de TERCERO se usan solo esas (la propia repite su total y sumarla lo
  * doblaría); una cuenta SIN detalle conserva su(s) fila(s) propia(s). Los cargues

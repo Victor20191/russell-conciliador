@@ -69,6 +69,7 @@ export const FICHA_MAPEOS_DIAN: FichaAyuda = {
   relacionadas: [
     { label: "Plan Estándar Russell", href: "/config/mapeo", permiso: "mapeo:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
+    { label: "Parámetros de alertas", href: "/config/parametros", permiso: "parametros:ver" },
   ],
 };
 
@@ -162,6 +163,7 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
   relacionadas: [
     { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
+    { label: "Parámetros de alertas", href: "/config/parametros", permiso: "parametros:ver" },
   ],
 };
 
@@ -169,7 +171,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   id: "impuestos.retencion_revision",
   titulo: "Revisión de Retención en la fuente",
   proposito:
-    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan.",
+    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan; el cruce contable compara lo declarado con el balance del corte.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 350: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -181,7 +183,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       acciones: [
         {
           nombre: "Exportar a Excel",
-          queHace: "Descarga la revisión en un libro con tres hojas: por meses, acumulado y los formularios cargados.",
+          queHace: "Descarga la revisión en un libro con cuatro hojas: por meses, acumulado, los formularios cargados y el cruce contable con todos los terceros de cada cuenta y las marcas.",
           regla: REGLAS.verRevisionImpuestos,
           fuente: { archivo: "src/app/api/impuestos/revisiones/[id]/excel/route.ts", funcion: "GET" },
         },
@@ -301,6 +303,52 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         },
       ],
     },
+    {
+      id: "cruce",
+      titulo: "Cruce contable",
+      proposito:
+        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Usa el balance cerrado y vigente que termina en el mes de corte, con detalle por tercero y con el prevalidador aprobado.",
+      etapas: [
+        {
+          titulo: "Consultar",
+          acciones: [
+            {
+              nombre: "Desplegar una fila",
+              queHace:
+                "Muestra los conceptos declarados que forman la fila y las cuentas del cliente con sus terceros (NIT, nombre, saldo), con la DIAN tachada. Avisa los terceros con saldo inicial (cuando el balance empieza el 1 de enero) y los que tienen nombre de la DIAN pero no NIT, que no se restan solos.",
+              regla: REGLAS.verRevisionImpuestos,
+            },
+          ],
+        },
+        {
+          titulo: "Documentar diferencias",
+          acciones: [
+            {
+              nombre: "Marcar una diferencia",
+              queHace:
+                "Explica la diferencia de una fila con una nota y, si se quiere, la referencia del anexo. La marca toma un número del período y guarda la diferencia del momento: si la diferencia cambia, queda desactualizada y la fila vuelve a pedirla.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La fila tiene diferencia.", "La explicación tiene al menos 10 caracteres.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
+            },
+            {
+              nombre: "Editar la marca",
+              queHace: "Cambia la explicación o la referencia; la marca queda con la diferencia de hoy.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
+            },
+            {
+              nombre: "Quitar marca",
+              queHace: "Retira la marca; si la diferencia llega al umbral, la fila vuelve a pedirla.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "quitarMarcaRetencion" },
+            },
+          ],
+        },
+      ],
+    },
   ],
   estados: [
     { etiqueta: "Completo", significado: "El período tiene su 350 confirmado y los recibos 490 de lo que declaró." },
@@ -312,6 +360,16 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   ],
   preguntas: [
     {
+      pregunta: "¿Por qué casi todas las filas del cruce tienen una diferencia de unos cientos de pesos?",
+      respuesta:
+        "La DIAN redondea cada renglón del 350 a miles. Por debajo del umbral «Diferencias de impuestos» de Parámetros de alertas la diferencia es informativa; desde el umbral pide marca.",
+    },
+    {
+      pregunta: "¿Por qué el cruce dice que no hay balance o que está bloqueado?",
+      respuesta:
+        "El cruce necesita el balance cerrado y vigente que termina en el mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta.",
+    },
+    {
       pregunta: "¿Por qué un recibo dice que paga un formulario de otro período?",
       respuesta: "Su renglón 29 apunta a un 350 que no es de ese período ni de su cadena de correcciones. Revisa el recibo o el 350 del período.",
     },
@@ -320,5 +378,6 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     { label: "Retención en la fuente", href: "/impuestos/retencion", permiso: "impuestos:ver" },
     { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
+    { label: "Parámetros de alertas", href: "/config/parametros", permiso: "parametros:ver" },
   ],
 };

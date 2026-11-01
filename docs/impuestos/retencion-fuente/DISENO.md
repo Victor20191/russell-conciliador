@@ -374,3 +374,15 @@ resultado esperado de la sección 7 del prompt.
 
 **Fase 3 (31/Oct/2026) — construida, sin desplegar.** Pestañas «Formularios», «Por meses» y «Acumulado» en la
 revisión y «Exportar a Excel» (por meses, acumulado y formularios). Sin migración.
+
+**Fase 4 (31/Oct/2026) — construida, sin desplegar.** Pestaña «Cruce contable» (filas por cuenta Russell con
+sus conceptos, subtotales 130/134/135 y total 136, detalle desplegable con las cuentas del cliente y sus
+terceros, DIAN tachada, avisos de saldo inicial y de DIAN sin NIT, cuentas fuera del cruce y marcas con
+número), umbral «Diferencias de impuestos» ($6.000) en Parámetros de alertas y hoja «Cruce contable» en el
+Excel con todos los terceros. Sin migración: las marcas usan `marca_cruce_modulo` con código RET. Ajustes
+frente al diseño:
+
+- La compuerta del prevalidador del cruce es la misma de los módulos, pero sin exigir que Retención esté en el
+  catálogo del prevalidador (`validarCompuertaPrevalidador` con módulo `null`): sí exige su aprobación vigente.
+- Un tercero sin NIT con nombre de la DIAN solo se avisa; confirmarlo como DIAN queda para después.
+- Las alertas del cruce siguen pendientes de diseño; el punto de extensión es `ResultadoCruce`.

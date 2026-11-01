@@ -42,6 +42,12 @@ describe("compuerta del cruce de módulos", () => {
     }), 7, "ING")).toContain("desactualizada");
   });
 
+  it("sin módulo (Retención en la fuente) no exige el catálogo del prevalidador, sí la aprobación", () => {
+    expect(validarCompuertaPrevalidador(contexto(), 7, "RET")).toContain("no está cubierto");
+    expect(validarCompuertaPrevalidador(contexto(), 7, null)).toBeNull();
+    expect(validarCompuertaPrevalidador(contexto({ revision: { estado: "revocada", vigente: false } }), 7, null)).toContain("revocada");
+  });
+
   it("un balance YTD o trimestral de Ingresos o Nómina que termina en el mes pasa la compuerta (saldo final)", () => {
     const ytd = contexto({ balance: { ...contexto().balance, periodoInicio: new Date("2026-01-01T00:00:00.000Z") } });
     expect(validarCompuertaPrevalidador(ytd, 7, "ING")).toBeNull();

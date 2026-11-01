@@ -4,6 +4,8 @@ import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fi
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
+import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, MAX_TERCEROS_PANTALLA, renglonesFilaCruce } from "./cruce";
+import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
 
 const DV = String(dvNit(NIT_FICTICIO));
 const CTX = { nitCliente: NIT_FICTICIO, anio: 2026, mesCorte: 9 };
@@ -190,5 +192,105 @@ describe("vistas por meses y acumulado (Melonn, corte agosto)", () => {
     expect(con9.meses[8].formulario).toBeNull();
     expect(con9.filas.find((f) => f.clave === "total_renta")!.meses[8].valor).toBeNull();
     expect(con9.pagos.find((p) => p.clave === "total_pagado")!.meses[8]).toBeNull();
+  });
+});
+
+describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
+  const periodos = periodosRevision({ periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [] });
+  const t = (cuentaCliente: string, cuentaRussell: string, nit: string | null, nombre: string, saldoFinal: number, saldoInicial = 0) => ({ cuentaCliente, nombreCuenta: `Cuenta ${cuentaCliente}`, cuentaRussell, nit, nombreTercero: nombre, saldoInicial, saldoFinal });
+  const filasContables = [
+    // 236505: dos proveedores (crédito) y los pagos a la DIAN (débito, se tachan).
+    t("23650501", "236505", "800111222", "PROVEEDOR A", -1_000_000_000, -50_000),
+    t("23650502", "236505", "900333444", "PROVEEDOR B", -74_373_500),
+    t("23650501", "236505", "800197268", "U.A.E. DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES", 900_000_000),
+    t("23650501", "236505", null, "DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES", 1_000),
+    // 236705: reteIVA, $17.000 menos que lo declarado.
+    t("23670501", "236705", "800555666", "PROVEEDOR C", -17_800_000),
+    // 236575: la autorretención se causa a nombre de la DIAN y NO se tacha.
+    t("23657501", "236575", "800197268", "DIAN", -45_000_000),
+    // 236599: pagos llevados aparte, fuera del mapeo.
+    t("23659901", "236599", "800197268", "DIAN", 5_000),
+  ];
+  const entrada = (umbral = 6_000, marcas: Parameters<typeof cruceRetencion>[0]["marcas"] = []) => cruceRetencion({
+    periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
+    nombresRussell: new Map([["236505", "Retención en la fuente por salarios y pagos laborales"]]), filasContables, inicioEnero: true, umbral, marcas,
+  });
+  const fila = (r: ReturnType<typeof cruceRetencion>, clave: string) => r.grupos.flatMap((g) => g.filas).find((f) => f.clave === clave)!;
+
+  it("lo declarado sale de los 350 vigentes: 236505 suma el 130 de cada mes y 236705 el 131", () => {
+    const r = entrada();
+    expect(fila(r, "236505").declarado).toBe(1_074_373_000);
+    expect(fila(r, "236505").conceptos.map((c) => c.concepto)).toEqual(["rentas_trabajo", "rentas_pensiones"]);
+    expect(fila(r, "236705").declarado).toBe(17_817_000);
+    expect(fila(r, "236705").conceptos.find((c) => c.concepto === "menos_reteiva_exceso")?.signo).toBe("-");
+  });
+
+  it("tacha la DIAN en 236505, no en 236575, y avisa la DIAN sin NIT", () => {
+    const r = entrada();
+    const f = fila(r, "236505");
+    expect(f.dianRestado).toBe(-900_000_000);
+    expect(f.contable).toBe(1_074_372_500); // 1.000.000.000 + 74.373.500 − 1.000 (la DIAN sin NIT suma)
+    expect(f.posiblesDian).toEqual(["DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES"]);
+    expect(fila(r, "236575")).toMatchObject({ restaDian: false, contable: 45_000_000, dianRestado: 0 });
+  });
+
+  it("diferencias con el umbral propio: informativa por debajo, marca desde el umbral", () => {
+    const r = entrada();
+    expect(fila(r, "236505")).toMatchObject({ diferencia: 500, nivel: "informativa", requiereMarca: false });
+    expect(fila(r, "236705")).toMatchObject({ diferencia: 17_000, nivel: "alerta", requiereMarca: true });
+    expect(fila(r, "236575")).toMatchObject({ diferencia: -45_000_000, requiereMarca: true });
+    expect(entrada(20_000).grupos.flatMap((g) => g.filas).filter((x) => x.requiereMarca).map((x) => x.clave)).toEqual(["236575"]);
+  });
+
+  it("el 129 va en su propia fila sin cuenta y las sanciones no entran", () => {
+    const r = entrada();
+    expect(fila(r, "sin_cuenta:menos_renta_exceso")).toMatchObject({ grupo: "renta", cuentaRussell: null, contable: 0 });
+    expect(r.grupos.flatMap((g) => g.filas).some((f) => f.conceptos.some((c) => c.concepto === "sanciones"))).toBe(false);
+  });
+
+  it("subtotales 130 y 134, total 136 y cuentas fuera del mapeo", () => {
+    const r = entrada();
+    expect(r.grupos.map((g) => g.grupo)).toEqual(["renta", "iva", "timbre"]);
+    expect(r.grupos[0].subtotal.declarado).toBe(1_074_373_000);
+    expect(r.grupos[1].subtotal).toEqual({ declarado: 17_817_000, contable: 17_800_000, diferencia: 17_000 });
+    expect(r.total.declarado).toBe(1_092_190_000);
+    expect(r.fueraDelMapeo).toEqual([{ cuentaRussell: "236599", cuentas: ["23659901"], saldo: -5_000 }]);
+  });
+
+  it("aviso de saldo inicial solo con balance desde el 1 de enero", () => {
+    expect(fila(entrada(), "236505").saldoInicial).toEqual({ terceros: 1, monto: 50_000 });
+    const sinEnero = cruceRetencion({ ...{ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(), filasContables, umbral: 6_000, marcas: [] }, inicioEnero: false });
+    expect(fila(sinEnero, "236505").saldoInicial).toBeNull();
+  });
+
+  it("las marcas se cruzan por clave y se desactualizan si cambia la diferencia", () => {
+    const marca = { clave: "236705", numero: 1, nota: "Retención de diciembre 2025 pagada en enero", referenciaAnexo: null, diferencia: 17_000, marcadoPor: "Senior", marcadoEn: "2026-10-31T00:00:00.000Z" };
+    expect(fila(entrada(6_000, [marca]), "236705").marca?.vigente).toBe(true);
+    expect(entrada(6_000, [marca]).pendientesMarca).toBe(1); // queda 236575
+    expect(fila(entrada(6_000, [{ ...marca, diferencia: 10_000 }]), "236705").marca?.vigente).toBe(false);
+  });
+
+  it("nombre y renglones de cada fila: la cuenta cuando agrupa conceptos, «−» en los que restan", () => {
+    const r = entrada();
+    expect(etiquetaFilaCruce(fila(r, "236505"))).toBe("Retención en la fuente por salarios y pagos laborales");
+    expect(etiquetaFilaCruce(fila(r, "236515"))).toBe("Honorarios");
+    expect(renglonesFilaCruce(fila(r, "236705"))).toBe("131 · 132 · −133");
+    expect(renglonesFilaCruce(fila(r, "236515"))).toBe("42 · 95");
+  });
+
+  it("la pantalla lleva a lo sumo 100 terceros por cuenta, con la DIAN, y resume el resto", () => {
+    const muchos = Array.from({ length: 150 }, (_, i) => t("23652501", "236525", String(800_000_000 + i), `PROVEEDOR ${i}`, -(i + 1)));
+    const r = cruceRetencion({
+      periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
+      nombresRussell: new Map(), filasContables: [...muchos, t("23652501", "236525", "800197268", "DIAN", 500)], inicioEnero: true, umbral: 6_000, marcas: [],
+    });
+    const pantalla = cruceParaPantalla(r);
+    const cuenta = fila(pantalla, "236525").cuentasCliente[0];
+    expect(cuenta.terceros).toHaveLength(MAX_TERCEROS_PANTALLA);
+    expect(cuenta.terceros[0]).toMatchObject({ nit: "800197268", restado: true });
+    // Quedan fuera los 51 de menor saldo (1 a 51 pesos) y la cifra de la cuenta no cambia.
+    expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326 });
+    expect(cuenta.saldo).toBe(fila(r, "236525").cuentasCliente[0].saldo);
+    expect(fila(r, "236525").cuentasCliente[0].terceros).toHaveLength(151);
   });
 });

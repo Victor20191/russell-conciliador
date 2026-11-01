@@ -29,6 +29,11 @@ const SECCIONES: { seccion: SeccionUmbral; titulo: string; retroactivo: string }
     retroactivo:
       "los cruces se recalculan al abrir cada cargue, así que el cambio rige de inmediato para todas las conciliaciones abiertas. Una conciliación en firme conserva el monto con que se cerró.",
   },
+  {
+    seccion: "impuestos",
+    titulo: "Impuestos · DIAN",
+    retroactivo: "el cruce contable de cada revisión se recalcula al abrirla, así que el cambio rige de inmediato para las revisiones abiertas.",
+  },
 ];
 
 export default function ParametrosClient({

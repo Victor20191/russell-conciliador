@@ -205,6 +205,10 @@ export const FICHA_PARAMETROS_ALERTAS: FichaAyuda = {
       etiqueta: "Detalle de Activos fijos",
       significado: "Si el neto cuadra pero el costo o la depreciación difieren desde el monto, el renglón necesita marca. De fábrica, $10.000.",
     },
+    {
+      etiqueta: "Diferencias de impuestos",
+      significado: "Desde el monto, una diferencia del cruce contable de Retención en la fuente necesita marca para cerrar la revisión. De fábrica, $6.000.",
+    },
     { etiqueta: "Predeterminado · Personalizado", significado: "Si el umbral está en su valor predeterminado o fue cambiado." },
   ],
   relacionadas: [{ label: "Filtros de cuentas", href: "/config/prevalidador", permiso: "parametros:ver" }],

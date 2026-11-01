@@ -162,12 +162,14 @@ export function cuentasAgrupadorasExcluidas(
 /**
  * Compuerta compartida por el conciliador formal y el cruce dentro del módulo: el balance (ya
  * elegido entre los CERRADOS del mes, `seleccionarBalanceCruceModulo`) tiene que ser del cliente,
- * tener el prevalidador listo para el módulo y conservar una aprobación vigente.
+ * tener el prevalidador listo para el módulo y conservar una aprobación vigente. Con
+ * `moduloCodigo` null no se exige que el módulo esté en el catálogo del prevalidador: Retención en
+ * la fuente no entra a ese catálogo (cambiaría su huella y desactualizaría todas las aprobaciones).
  */
 export function validarCompuertaPrevalidador(
   contexto: ContextoCompuertaCruce,
   clientId: number,
-  moduloCodigo: string,
+  moduloCodigo: string | null,
 ): string | null {
   if (contexto.balance.clienteId !== clientId) {
     return "El balance seleccionado no pertenece al cliente de la conciliación.";
@@ -179,7 +181,7 @@ export function validarCompuertaPrevalidador(
     return `El prevalidador está bloqueado: quedan ${contexto.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar.`;
   }
   if (contexto.prevalidador.estado === "no_disponible") return contexto.prevalidador.mensaje;
-  if (!contexto.prevalidador.modulos.some((modulo) => modulo.codigo === moduloCodigo)) {
+  if (moduloCodigo != null && !contexto.prevalidador.modulos.some((modulo) => modulo.codigo === moduloCodigo)) {
     return "El módulo seleccionado no está cubierto por el catálogo vigente del prevalidador.";
   }
   if (!contexto.revision.vigente) {

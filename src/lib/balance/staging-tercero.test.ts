@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -280,5 +280,21 @@ describe("evaluarCoberturaTercero", () => {
     const muchos = Array.from({ length: 4000 }, (_, i) => f("41350505", String(900000000 + i), 1));
     expect(evaluarCoberturaTercero([f("41350505", null, 4005), ...muchos]).incompletas).toEqual([]);
     expect(evaluarCoberturaTercero([f("13050501", "900111222", 100)])).toEqual({ incompletas: [], clavesSinDetalle: [] });
+  });
+});
+
+describe("esTotalDeCuentaComoTercero — el total de la cuenta leído como tercero", () => {
+  it("el código de la cuenta como NIT y sin nombre es el total, no un tercero", () => {
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: "23650501", nombreTercero: null })).toBe(true);
+    // El NIT se guarda como núcleo de 9 dígitos: una cuenta de 10 empieza por él.
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "2365050101", nitTercero: "236505010", nombreTercero: "" })).toBe(true);
+  });
+
+  it("un tercero con nombre, otro NIT, la fila propia o el «Genérico» no lo son", () => {
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: "23650501", nombreTercero: "PERSONA" })).toBe(false);
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: "800197268", nombreTercero: null })).toBe(false);
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: null, nombreTercero: null })).toBe(false);
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: null, nombreTercero: "Genérico" })).toBe(false);
+    expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: "2365", nombreTercero: null })).toBe(false);
   });
 });
