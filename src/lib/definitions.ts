@@ -408,6 +408,97 @@ export const ActualizarUmbralSchema = z.object({
     .refine((n) => n <= 1_000_000_000, { error: "El monto no puede superar $1.000.000.000." }),
 });
 
+// ---- Impuestos · DIAN: Mapeos DIAN y calendario tributario ----
+// Cuenta Russell de un concepto del 350: 6 dígitos, o vacía para dejarlo sin cuenta.
+export const CuentaMapeoDianSchema = z.object({
+  concepto: z.string().trim().regex(/^[a-z0-9_]{2,60}$/, { error: "Concepto inválido." }),
+  cuenta: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\s/g, ""))
+    .refine((s) => s === "" || /^\d{6}$/.test(s), { error: "La cuenta Russell debe tener 6 dígitos." }),
+});
+export const RestaTerceroDianSchema = z.object({
+  cuenta: z.string().trim().regex(/^\d{6}$/, { error: "Cuenta Russell inválida." }),
+  restar: z.enum(["1", "0"], { error: "Valor inválido." }),
+});
+export const TerceroDianSchema = z.object({
+  nit: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\D/g, ""))
+    .refine((s) => s.length >= 9 && s.length <= 10, { error: "Escribe el NIT de 9 dígitos (con o sin DV)." })
+    .transform((s) => s.slice(0, 9)),
+  etiqueta: z.string().trim().min(3, { error: "Escribe a qué corresponde el NIT." }).max(120, { error: "La descripción es muy larga." }),
+});
+// Calendario: la grilla completa viaja como JSON (período × dígito → AAAA-MM-DD); la validación
+// de fondo (casillas, fechas después del período) la hace `validarCalendario`.
+export const CalendarioDianSchema = z.object({
+  anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
+  formulario: z.enum(["RETEFUENTE"], { error: "Formulario sin calendario." }),
+  filas: z
+    .string()
+    .transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: "custom", message: "La grilla del calendario no se pudo leer." });
+        return z.NEVER;
+      }
+    })
+    .pipe(
+      z
+        .array(
+          z.object({
+            periodo: z.number().int(),
+            ultimoDigito: z.number().int(),
+            fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Fecha inválida." }),
+          }),
+        )
+        .max(400, { error: "La grilla tiene demasiadas casillas." }),
+    ),
+});
+
+// ---- Impuestos · Retención en la fuente: revisiones y formularios ----
+export const RevisionRetencionSchema = z.object({
+  clienteId: z.coerce.number().int().positive({ error: "Elige el cliente." }),
+  anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
+  mesCorte: z.coerce.number().int().min(1, { error: "Elige el corte." }).max(12, { error: "Elige el corte." }),
+  periodicidad: z.string().trim().min(1, { error: "Elige la periodicidad." }),
+});
+export const PeriodoSinFormularioSchema = z.object({
+  revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
+  periodo: z.coerce.number().int().min(1, { error: "Período inválido." }).max(12, { error: "Período inválido." }),
+  causal: z.string().trim().min(10, { error: "Escribe la causal (al menos 10 caracteres)." }).max(500, { error: "La causal es muy larga." }),
+});
+const numeroFormularioOpcional = z
+  .string()
+  .trim()
+  .transform((s) => s.replace(/\D/g, ""))
+  .refine((s) => s === "" || /^\d{13}$/.test(s), { error: "El número de formulario tiene 13 dígitos." });
+// Confirmación de un formulario leído: los importes (renglón → pesos) viajan como JSON y se
+// recontrolan en el servidor con `controlesLectura`.
+export const ConfirmarFormularioDianSchema = z.object({
+  id: z.coerce.number().int().positive({ error: "Formulario inválido." }),
+  revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
+  fechaSello: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Escribe la fecha del sello (renglón 997)." }),
+  codigoCorreccion: z.enum(["", "1"], { error: "Código de corrección inválido." }).default(""),
+  numeroAnterior: numeroFormularioOpcional.default(""),
+  concepto: z.enum(["", "61", "62", "63"], { error: "Concepto de pago inválido." }).default(""),
+  numeroPagado: numeroFormularioOpcional.default(""),
+  valores: z
+    .string()
+    .transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: "custom", message: "Los valores del formulario no se pudieron leer." });
+        return z.NEVER;
+      }
+    })
+    .pipe(z.record(z.string().regex(/^\d{1,3}$/), z.number().int().min(0).max(1e15))),
+});
+
 // ---- Prevalidador de homologación ----
 // Prefijo de cuenta (del plan Russell o del PUC del cliente). El contrato del
 // prevalidador solo admite nivel 2 (grupo) o nivel 4 (cuenta). Se aceptan puntos y

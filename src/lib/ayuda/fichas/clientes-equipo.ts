@@ -33,7 +33,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
         {
           nombre: "Datos operativos",
           queHace:
-            "Sector, aplicativos por proceso (Contabilidad, Nómina, Inventarios y Activos fijos; varios por proceso), módulos del cliente y DIAN con sus formatos. Se guarda con «Guardar».",
+            "Sector, aplicativos por proceso (Contabilidad, Nómina, Inventarios y Activos fijos; varios por proceso), módulos del cliente y DIAN con sus formatos y, en Retención en la fuente e IVA, su periodicidad de presentación. Se guarda con «Guardar».",
           regla: REGLAS.editarClienteOperativo,
           fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "updateClient" },
         },

@@ -65,6 +65,8 @@ const ETIQUETAS_OPERACION: Record<string, string> = {
   mapeo_ia: "Homologación de cuentas",
   mapeo_jev: "Homologación de cuentas",
   diagnostico_ia: "Diagnóstico asistido",
+  lectura_calendario_dian: "Lectura del calendario tributario",
+  lectura_formulario_dian: "Lectura de formularios DIAN",
 };
 
 export function etiquetaOperacionIA(tipo: string): string {

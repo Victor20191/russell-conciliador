@@ -25,10 +25,11 @@ import { ImportClientesButton } from "./import-clientes-modal";
 import type { CodigoProcesoErp } from "@/lib/erp-procesos";
 import { AplicativosPorProceso } from "./aplicativos-por-proceso";
 import { confirmarDeMarca } from "@/components/controles-marca";
+import { opcionesPeriodicidad } from "@/lib/impuestos/periodicidad";
 
 export type ModuleRef = { id: number; name: string };
-/** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
-export type DianFormRef = { id: number; name: string; code: string };
+/** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…), con su periodicidad de fábrica. */
+export type DianFormRef = { id: number; key: string; name: string; code: string; periodicity: string };
 /** Catálogos maestros ERP y Sector seleccionables por cliente. */
 export type ErpRef = { id: number; name: string; active: boolean };
 export type ErpProcessRef = { code: CodigoProcesoErp; name: string };
@@ -63,6 +64,8 @@ export type ClientRow = {
   socioName: string | null;
   modules: { moduleId: number; status: string }[];
   dianFormIds: number[];
+  /** Periodicidad del cliente por formato DIAN (null = la del formulario). */
+  dianPeriodicidades: Record<number, string | null>;
   responsables: { funcion: string; userId: number; name: string }[];
   /** Qué puede editar quien ve la lista (19/Oct/2026): la ficha completa (Gerente/Socio en su
    *  cartera, administradores), solo los datos operativos (Staff/Senior asignados) o nada. */
@@ -884,9 +887,10 @@ function ClientModal({
                         los marcados llegan al FormData; no hacen falta inputs ocultos. */}
                     {dianForms.map((f) => {
                       const checked = selectedDianFormIds.includes(f.id);
+                      const periodicidades = opcionesPeriodicidad(f.key);
                       return (
+                        <div key={f.id} className="flex flex-col gap-1">
                         <label
-                          key={f.id}
                           className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-[12px] font-medium transition ${
                             checked
                               ? "border-ok-100 bg-white text-ink-800"
@@ -917,6 +921,23 @@ function ClientModal({
                             </span>
                           </span>
                         </label>
+                        {/* Periodicidad de presentación del cliente para este formato (Retención e IVA).
+                            Solo viaja si el formato está marcado. */}
+                        {checked && periodicidades.length > 0 && (
+                          <label className="ml-6 flex items-center gap-2 text-[11px] text-ink-500">
+                            Periodicidad
+                            <select
+                              name={`dianPeriodicidad_${f.id}`}
+                              defaultValue={(isEdit ? client.dianPeriodicidades[f.id] : null) ?? f.periodicity}
+                              className="h-7 rounded-md border border-ink-200 bg-white px-2 text-[12px] text-ink-800"
+                            >
+                              {periodicidades.map((p) => (
+                                <option key={p} value={p}>{p}</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        </div>
                       );
                     })}
                     {selectedDianFormIds.length === 0 && (

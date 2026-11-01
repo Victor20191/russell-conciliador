@@ -15,6 +15,7 @@ import { claveNit } from "@/lib/nit";
 import { motivoNoEliminarCliente } from "@/lib/cliente-eliminacion";
 import { motivoClienteFueraDeCartera } from "@/lib/cliente-cartera-creacion";
 import { PROCESOS_ERP, campoErpProceso, esCodigoProcesoErp, type CodigoProcesoErp } from "@/lib/erp-procesos";
+import { validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 
 const PATH = "/config/clientes";
 
@@ -54,6 +55,29 @@ async function dianFormIdsExist(dianFormIds: number[]): Promise<boolean> {
     select: { id: true },
   });
   return existing.length === dianFormIds.length;
+}
+
+/**
+ * Periodicidad de cada formato DIAN marcado (`dianPeriodicidad_<id>`), validada contra las
+ * opciones del formulario (Retención en la fuente, IVA). Vacía = la del formulario. Un formato
+ * sin opciones (ICA) no la lleva.
+ */
+async function parsePeriodicidadesDian(
+  formData: FormData,
+  dianFormIds: number[],
+): Promise<{ ok: true; periodicidades: Map<number, string | null>; resumen: string } | { ok: false; message: string }> {
+  const periodicidades = new Map<number, string | null>();
+  if (dianFormIds.length === 0) return { ok: true, periodicidades, resumen: "" };
+  const formularios = await prisma.dianForm.findMany({ where: { id: { in: dianFormIds } }, select: { id: true, key: true } });
+  const partes: string[] = [];
+  for (const f of formularios) {
+    const valor = formData.get(`dianPeriodicidad_${f.id}`);
+    const validada = validarPeriodicidad(f.key, typeof valor === "string" ? valor : null);
+    if (!validada.ok) return { ok: false, message: validada.message };
+    periodicidades.set(f.id, validada.periodicidad);
+    if (validada.periodicidad) partes.push(`${f.key} ${validada.periodicidad}`);
+  }
+  return { ok: true, periodicidades, resumen: partes.length ? ` · periodicidad: ${partes.join(", ")}` : "" };
 }
 
 /** Aplicativos elegidos para un campo de la ficha (lista vacía = pendiente). */
@@ -395,6 +419,8 @@ export async function createClient(
     if (!(await dianFormIdsExist(dianFormIds))) {
       return { ok: false, message: "Selecciona formatos DIAN válidos." };
     }
+    const periodicidadesDian = await parsePeriodicidadesDian(formData, dianFormIds);
+    if (!periodicidadesDian.ok) return { ok: false, message: periodicidadesDian.message };
 
     await prisma.$transaction(async (tx) => {
       const cliente = await tx.client.create({
@@ -410,7 +436,7 @@ export async function createClient(
               }
             : undefined,
           dianForms: dianFormIds.length
-            ? { create: dianFormIds.map((formId) => ({ formId })) }
+            ? { create: dianFormIds.map((formId) => ({ formId, periodicidad: periodicidadesDian.periodicidades.get(formId) ?? null })) }
             : undefined,
         },
       });
@@ -444,7 +470,7 @@ export async function createClient(
       user: user?.name ?? "Sistema",
       action: "CREÓ CLIENTE",
       entity: data.code,
-      detail: `${data.name} · ${data.nit} · tipo ${data.tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${data.name} · ${data.nit} · tipo ${data.tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}${periodicidadesDian.resumen}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -568,6 +594,8 @@ export async function updateClient(
     const shouldSyncModules = formData.get("syncModules") === "1";
     let moduleIds: number[] | null = null;
     let dianFormIds: number[] | null = null;
+    let periodicidadesDian: Map<number, string | null> = new Map();
+    let resumenPeriodicidad = "";
     if (shouldSyncModules) {
       const modulesResult = parseModuleIds(formData);
       if (!modulesResult.ok) {
@@ -586,6 +614,10 @@ export async function updateClient(
       if (!(await dianFormIdsExist(dianFormIds))) {
         return { ok: false, message: "Selecciona formatos DIAN válidos." };
       }
+      const periodicidades = await parsePeriodicidadesDian(formData, dianFormIds);
+      if (!periodicidades.ok) return { ok: false, message: periodicidades.message };
+      periodicidadesDian = periodicidades.periodicidades;
+      resumenPeriodicidad = periodicidades.resumen;
     }
 
     await prisma.$transaction(async (tx) => {
@@ -668,10 +700,13 @@ export async function updateClient(
           ...(dianFormIds.length > 0 ? { formId: { notIn: dianFormIds } } : {}),
         },
       });
-      if (dianFormIds.length > 0) {
-        await tx.clientDianForm.createMany({
-          data: dianFormIds.map((formId) => ({ clientId: id, formId })),
-          skipDuplicates: true,
+      // Los que siguen activos conservan su fila y actualizan su periodicidad.
+      for (const formId of dianFormIds) {
+        const periodicidad = periodicidadesDian.get(formId) ?? null;
+        await tx.clientDianForm.upsert({
+          where: { clientId_formId: { clientId: id, formId } },
+          create: { clientId: id, formId, periodicidad },
+          update: { periodicidad },
         });
       }
     });
@@ -683,7 +718,7 @@ export async function updateClient(
       entity: current.code,
       detail: `${ficha && responsablesFicha
         ? `${ficha.name} · ${ficha.nit} · tipo ${ficha.tipo} · socio ${responsablesFicha.socio} · staff ${responsablesFicha.nombres.staffs.join(", ")} / senior ${responsablesFicha.nombres.senior} / gerente ${responsablesFicha.nombres.gerente}`
-        : `${current.name} · solo datos operativos`}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+        : `${current.name} · solo datos operativos`}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}${resumenPeriodicidad}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

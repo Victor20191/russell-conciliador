@@ -149,7 +149,7 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
         icon: "doc",
       },
       { module: "conciliaciones", label: "Conciliaciones", icon: "play" },
-      { module: "dian", label: "Impuestos · DIAN", icon: "doc" },
+      { module: "impuestos", label: "Impuestos · DIAN", icon: "doc" },
       { module: "auditoria", label: "Auditoría", icon: "log" },
     ],
   },
@@ -158,7 +158,6 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
     grupo: "Catálogos contables",
     items: [
       { module: "mapeo", label: "Mapeo plan estándar", icon: "settings" },
-      { module: "mapeos_dian", label: "Mapeos DIAN", icon: "doc" },
     ],
   },
   {

@@ -6,11 +6,10 @@ export type PlatformModuleKey =
   | "mapeo"
   | "conciliaciones"
   | "modulos_datos"
-  | "dian"
+  | "impuestos"
   | "auditoria"
   | "clientes"
   | "maestros"
-  | "mapeos_dian"
   | "usuarios"
   | "modulos"
   | "roles"
@@ -104,13 +103,16 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
-    key: "dian",
+    // Reemplaza al prototipo «dian» (31/Oct/2026). Nace EN DESARROLLO: sin fila en la BD rige este
+    // valor, así que solo lo ve el Superadministrador hasta que lo publique. Oculta las tres entradas
+    // del menú: Retención en la fuente, Mapeos DIAN y Calendario tributario.
+    key: "impuestos",
     label: "Impuestos DIAN",
-    description: "Cruce de declaraciones contra contabilidad.",
+    description: "Retención en la fuente: formularios 350 y 490 contra el balance por terceros.",
     group: "Trabajo",
-    icon: "doc",
+    icon: "tax",
     order: 60,
-    enabledForNonAdmins: true,
+    enabledForNonAdmins: false,
     configurableForNonAdmins: true,
   },
   {
@@ -140,16 +142,6 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "box",
     order: 120,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
-    key: "mapeos_dian",
-    label: "Mapeos DIAN",
-    description: "Parametrización de cuentas para formularios DIAN.",
-    group: "Configuración",
-    icon: "doc",
-    order: 130,
     enabledForNonAdmins: true,
     configurableForNonAdmins: true,
   },

@@ -61,10 +61,9 @@ describe("campana personal con alcance vigente", () => {
     expect(await listarNotificacionesActuales()).toEqual([]);
     expect(mocks.permiso).toHaveBeenCalledWith("modulos_datos:crear", { clientId: 12, modo: "escritura" });
   });
-  it("DIAN conserva su permiso global; tipos desconocidos y clientes sin resolver fallan cerrados", async () => {
+  it("tipos desconocidos (también el retirado «dian») y clientes sin resolver fallan cerrados", async () => {
     mocks.rows.mockResolvedValue([aviso({ entityType: "dian", clientId: null }), aviso({ entityType: "desconocido" }), aviso({ clientId: null })]);
-    expect(await listarNotificacionesActuales()).toHaveLength(1);
-    expect(mocks.permiso).toHaveBeenCalledWith("dian:ver");
+    expect(await listarNotificacionesActuales()).toEqual([]);
   });
   it("no consulta notificaciones cuando no hay sesión o falta cambiar contraseña", async () => {
     mocks.session.mockRejectedValueOnce(new Error("sesión revocada"));

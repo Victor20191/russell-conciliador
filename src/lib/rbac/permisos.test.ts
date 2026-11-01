@@ -223,10 +223,10 @@ describe("Permisos globales (sin alcance de cliente)", () => {
   test("catálogos y parametrización (19/Oct/2026): todos consultan; editan Gerente, Socio y administradores", () => {
     const editores = ["Gerente", "Socio", "Administrador", "Superadministrador"];
     for (const r of ROLES_MATRIZ) {
-      for (const ver of ["mapeo:ver", "mapeos_dian:ver", "parametros:ver", "usuarios:ver", "estructura:ver"]) {
+      for (const ver of ["mapeo:ver", "impuestos:ver", "parametros:ver", "usuarios:ver", "estructura:ver"]) {
         expect(tienePermiso(MATRIZ, r, ver)).toBe(true);
       }
-      for (const editar of ["mapeo:administrar", "mapeos_dian:configurar", "parametros:administrar"]) {
+      for (const editar of ["mapeo:administrar", "impuestos:configurar", "parametros:administrar"]) {
         expect(tienePermiso(MATRIZ, r, editar)).toBe(editores.includes(r));
       }
       // Usuarios los sigue editando solo la administración de la plataforma.

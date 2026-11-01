@@ -37,9 +37,6 @@ async function puedeLeerNotificacion(n: AlcanceNotificacion, userId: number): Pr
     case "clientes":
       clienteId = n.entityId;
       break;
-    case "dian":
-      // DIAN es una plantilla global en el modelo actual, sin cliente asociado.
-      return (await authorizePermiso("dian:ver")).ok;
     default:
       return false;
   }

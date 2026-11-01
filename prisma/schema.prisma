@@ -18,29 +18,29 @@ datasource db {
 
 // ===== Autenticación =====
 model User {
-  id                  Int              @id @default(autoincrement()) @map("id")
-  email               String           @unique @map("correo")
-  password            String           @map("contrasena") // hash bcrypt
-  name                String           @map("nombre")
-  cedula              String?          @unique @map("cedula") // documento de identidad (único)
-  cargo               String?          @map("cargo") // título de puesto (texto libre)
-  role                String           @default("Consulta") @map("rol")
-  initials            String           @map("iniciales")
+  id                  Int                    @id @default(autoincrement()) @map("id")
+  email               String                 @unique @map("correo")
+  password            String                 @map("contrasena") // hash bcrypt
+  name                String                 @map("nombre")
+  cedula              String?                @unique @map("cedula") // documento de identidad (único)
+  cargo               String?                @map("cargo") // título de puesto (texto libre)
+  role                String                 @default("Consulta") @map("rol")
+  initials            String                 @map("iniciales")
   // Referencia (key) a la foto de perfil en el almacenamiento de objetos
   // (S3/MinIO/R2). El binario NUNCA vive en la BD: aquí solo va la clave.
-  avatarKey           String?          @map("clave_foto")
-  active              Boolean          @default(true) @map("activo")
-  sessionVersion      Int              @default(0) @map("version_sesion")
-  failedLoginAttempts Int              @default(0) @map("intentos_fallidos")
-  lastFailedLoginAt   DateTime?        @map("ultimo_intento_fallido") @db.Timestamptz(3)
-  blockedUntil        DateTime?        @map("bloqueado_hasta") @db.Timestamptz(3)
-  mustChangePassword  Boolean          @default(false) @map("debe_cambiar_contrasena")
-  lastLoginAt         DateTime?        @map("ultimo_inicio_sesion") @db.Timestamptz(3)
-  comments            Comment[]        @relation("ComentariosAutor")
-  mentions            CommentMention[] @relation("MencionesUsuario")
+  avatarKey           String?                @map("clave_foto")
+  active              Boolean                @default(true) @map("activo")
+  sessionVersion      Int                    @default(0) @map("version_sesion")
+  failedLoginAttempts Int                    @default(0) @map("intentos_fallidos")
+  lastFailedLoginAt   DateTime?              @map("ultimo_intento_fallido") @db.Timestamptz(3)
+  blockedUntil        DateTime?              @map("bloqueado_hasta") @db.Timestamptz(3)
+  mustChangePassword  Boolean                @default(false) @map("debe_cambiar_contrasena")
+  lastLoginAt         DateTime?              @map("ultimo_inicio_sesion") @db.Timestamptz(3)
+  comments            Comment[]              @relation("ComentariosAutor")
+  mentions            CommentMention[]       @relation("MencionesUsuario")
   supportPreference   SupportUserPreference?
-  createdAt           DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
-  updatedAt           DateTime         @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  createdAt           DateTime               @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt           DateTime               @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@map("usuarios")
 }
@@ -236,15 +236,15 @@ model Client {
 /// SAP…). `code` es la forma canónica en MAYÚSCULAS sin acentos; `name` la
 /// etiqueta visible. Antes era texto libre en clientes.erp.
 model Erp {
-  id              Int                @id @default(autoincrement()) @map("id")
-  code            String             @unique @map("codigo") // forma canónica: SIESA, SAP, SIIGO, OFIMATICA...
-  name            String             @map("nombre") // etiqueta visible
-  active          Boolean            @default(true) @map("activo")
-  order           Int                @default(0) @map("orden")
+  id              Int                          @id @default(autoincrement()) @map("id")
+  code            String                       @unique @map("codigo") // forma canónica: SIESA, SAP, SIIGO, OFIMATICA...
+  name            String                       @map("nombre") // etiqueta visible
+  active          Boolean                      @default(true) @map("activo")
+  order           Int                          @default(0) @map("orden")
   clients         Client[]
   clientProcesses ClientErpProcess[]
   versionesPatron VersionPatronArchivoModulo[]
-  createdAt       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
+  createdAt       DateTime                     @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("erps")
 }
@@ -347,12 +347,15 @@ model ClientModule {
 /// cliente. Se eligen en la sección "Módulos del cliente" al crear/editar el
 /// cliente: activar DIAN equivale a tener al menos un formato seleccionado.
 model ClientDianForm {
-  id        Int      @id @default(autoincrement()) @map("id")
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId  Int      @map("cliente_id")
-  form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    Int      @map("formulario_id")
-  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id           Int      @id @default(autoincrement()) @map("id")
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId     Int      @map("cliente_id")
+  form         DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId       Int      @map("formulario_id")
+  // Periodicidad de presentación del cliente para este formulario (Mensual, Bimestral…); null =
+  // la del formulario (`formularios_dian.periodicidad`). La valida `src/lib/impuestos/periodicidad.ts`.
+  periodicidad String?  @map("periodicidad")
+  createdAt    DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([clientId, formId])
   @@map("formularios_dian_cliente")
@@ -445,18 +448,18 @@ model ReconciliationComment {
 
 // ===== Notificaciones =====
 model Notification {
-  id        Int      @id @default(autoincrement()) @map("id")
+  id         Int      @id @default(autoincrement()) @map("id")
   // Las filas anteriores a la personalización se conservan sin inventar un dueño.
-  userId    Int?     @map("destinatario_id")
-  clientId  Int?     @map("cliente_id")
-  entityType String? @map("entidad_tipo")
-  entityId  Int?     @map("entidad_id")
-  kind      String   @map("tipo") // assign | comment | system
-  who       String   @map("autor")
-  text      String   @map("texto")
-  target    String   @map("destino")
-  unread    Boolean  @default(true) @map("no_leida")
-  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  userId     Int?     @map("destinatario_id")
+  clientId   Int?     @map("cliente_id")
+  entityType String?  @map("entidad_tipo")
+  entityId   Int?     @map("entidad_id")
+  kind       String   @map("tipo") // assign | comment | system
+  who        String   @map("autor")
+  text       String   @map("texto")
+  target     String   @map("destino")
+  unread     Boolean  @default(true) @map("no_leida")
+  createdAt  DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([userId, unread, createdAt], map: "notificaciones_destinatario_no_leida_creado_idx")
   @@map("notificaciones")
@@ -499,17 +502,17 @@ model Comment {
 /// cuenta) y retira la alerta de la vista. Reversible. FK suave a User; FK dura al
 /// comentario (si se borra el comentario, cae la validación).
 model ValidacionAlerta {
-  id            Int      @id @default(autoincrement()) @map("id")
-  balanceId     Int      @map("balance_id") // FK suave → balance_prueba_encabezado
-  anchor        String   @map("ancla") // código de cuenta (nodo.code)
-  tipoAlerta    String   @map("tipo_alerta") // "naturaleza" | "saldo_contrario"
-  comment       Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  commentId     Int      @map("comentario_id")
-  validadoPor   String?  @map("validado_por")
-  validadoPorId Int?     @map("validado_por_id") // FK suave → User
-  validadoEn    DateTime @default(now()) @map("validado_en") @db.Timestamptz(3)
+  id                  Int      @id @default(autoincrement()) @map("id")
+  balanceId           Int      @map("balance_id") // FK suave → balance_prueba_encabezado
+  anchor              String   @map("ancla") // código de cuenta (nodo.code)
+  tipoAlerta          String   @map("tipo_alerta") // "naturaleza" | "saldo_contrario"
+  comment             Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId           Int      @map("comentario_id")
+  validadoPor         String?  @map("validado_por")
+  validadoPorId       Int?     @map("validado_por_id") // FK suave → User
+  validadoEn          DateTime @default(now()) @map("validado_en") @db.Timestamptz(3)
   // OK que pasó de la versión anterior con el mismo saldo final (20/Oct/2026). FK suave → balance_prueba_encabezado.
-  heredadaDeBalanceId Int? @map("heredada_de_balance_id")
+  heredadaDeBalanceId Int?     @map("heredada_de_balance_id")
 
   @@unique([balanceId, anchor])
   @@index([balanceId])
@@ -1171,30 +1174,30 @@ model PerfilCargaBalance {
 // para crear esta fila desde el nacimiento del cliente. FK suave a `clientes`
 // (Int, sin @relation).
 model AjustesCargaBalance {
-  id                Int      @id @default(autoincrement()) @map("id")
-  clienteId         Int      @unique @map("cliente_id")
-  hojaPreferida     String?  @map("hoja_preferida")
-  convencionCredito String?  @map("convencion_credito") // firmado | magnitud | null=auto
-  estandar          String   @default("NIF") @map("estandar") // NIF fijo por regla de negocio
-  agregarPorTercero Boolean? @map("agregar_por_tercero") // null=auto
+  id                    Int      @id @default(autoincrement()) @map("id")
+  clienteId             Int      @unique @map("cliente_id")
+  hojaPreferida         String?  @map("hoja_preferida")
+  convencionCredito     String?  @map("convencion_credito") // firmado | magnitud | null=auto
+  estandar              String   @default("NIF") @map("estandar") // NIF fijo por regla de negocio
+  agregarPorTercero     Boolean? @map("agregar_por_tercero") // null=auto
   // Export TOTALMENTE JERÁRQUICO (cada nivel exportado con su saldo = Σ del detalle,
   // p. ej. SIESA con subcuenta + auxiliares como filas imputables): imputar SOLO las
   // hojas (el nivel más profundo) y tratar los niveles superiores como agrupadoras,
   // para evitar el doble conteo. null/false=auto/off. Opt-in por cliente porque es
   // agresivo (en un balance MIXTO borraría el saldo propio de una cuenta con detalle).
-  imputarSoloHojas  Boolean? @map("imputar_solo_hojas")
+  imputarSoloHojas      Boolean? @map("imputar_solo_hojas")
   // Notas / observaciones de carga por cliente (texto libre): particularidades del formato
   // que el analista quiere recordar (p. ej. "duplica renglones UC/CU — se omite uno").
   // Se muestran al cargar/revisar el balance de ese cliente. null/"" = sin notas.
-  observaciones     String?  @map("observaciones") @db.Text
+  observaciones         String?  @map("observaciones") @db.Text
   // Indicaciones LIBRES del cliente para la IA sobre terceros (panel «Reconocer
   // terceros»): NO se reutiliza `observaciones` porque esas notas no se
   // escribieron pensando en el modelo. Se inyectan en el prompt de extracción
   // cuando hay que releer con IA. null/"" = sin indicaciones.
-  indicacionesIaTercero String? @map("indicaciones_ia_tercero") @db.Text
-  actualizadoPor    String?  @map("actualizado_por")
-  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  indicacionesIaTercero String?  @map("indicaciones_ia_tercero") @db.Text
+  actualizadoPor        String?  @map("actualizado_por")
+  creadoEn              DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn         DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@map("ajustes_carga_balance")
 }
@@ -1473,26 +1476,26 @@ model ComentarioAlertaModulo {
 /// no es la misma. FK suaves a cliente, usuario y comentario (el rastro en el hilo de la
 /// cuenta): borrar el comentario no borra la marca. Reversible.
 model MarcaCruceModulo {
-  id              Int                    @id @default(autoincrement()) @map("id")
-  clienteId       Int                    @map("cliente_id")
-  moduloCodigo    String                 @map("modulo_codigo")
-  periodo         String                 @map("periodo") // etiqueta del período (p. ej. "2025-12")
-  numero          Int                    @map("numero") // correlativo de la marca dentro del período
+  id                        Int                          @id @default(autoincrement()) @map("id")
+  clienteId                 Int                          @map("cliente_id")
+  moduloCodigo              String                       @map("modulo_codigo")
+  periodo                   String                       @map("periodo") // etiqueta del período (p. ej. "2025-12")
+  numero                    Int                          @map("numero") // correlativo de la marca dentro del período
   /// `cuenta4` (una cuenta de la cédula contable), `tercero` (un tercero del cruce por tercero) o
   /// `control` (una cuenta del cliente del control de deducciones de Nómina, en `clave`).
-  dimension       String                 @default("cuenta4") @map("dimension")
-  cuenta4         String?                @map("cuenta_4") // cuenta Russell de 4 dígitos; null en las marcas de tercero
+  dimension                 String                       @default("cuenta4") @map("dimension")
+  cuenta4                   String?                      @map("cuenta_4") // cuenta Russell de 4 dígitos; null en las marcas de tercero
   /// Clave del tercero en las marcas de dimensión `tercero`; null en las de cuenta.
-  clave           String?                @map("clave")
-  nota            String                 @map("nota") // detalle de la marca (la observación)
-  referenciaAnexo String?                @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
-  diferencia      Decimal                @default(0) @map("diferencia") @db.Decimal(18, 2)
-  comentarioId    Int?                   @map("comentario_id")
-  marcadoPor      String?                @map("marcado_por")
-  marcadoPorId    Int?                   @map("marcado_por_id")
-  marcadoEn       DateTime               @default(now()) @map("marcado_en") @db.Timestamptz(3)
-  adjuntos        AdjuntoMarcaCruce[]
-  noModulares     CuentaNoModularCruce[]
+  clave                     String?                      @map("clave")
+  nota                      String                       @map("nota") // detalle de la marca (la observación)
+  referenciaAnexo           String?                      @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
+  diferencia                Decimal                      @default(0) @map("diferencia") @db.Decimal(18, 2)
+  comentarioId              Int?                         @map("comentario_id")
+  marcadoPor                String?                      @map("marcado_por")
+  marcadoPorId              Int?                         @map("marcado_por_id")
+  marcadoEn                 DateTime                     @default(now()) @map("marcado_en") @db.Timestamptz(3)
+  adjuntos                  AdjuntoMarcaCruce[]
+  noModulares               CuentaNoModularCruce[]
   clasificadoresNoModulares ClasificadorNoModularCruce[]
 
   @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
@@ -1578,13 +1581,13 @@ model CuentaNoModularCruce {
 /// las cuentas no modulares; va aparte porque `cuenta_no_modular_cruce.cuenta_8` se lee como
 /// cuenta del cliente del balance y un clasificador numérico excluiría la cuenta del mismo código.
 model ClasificadorNoModularCruce {
-  id           Int              @id @default(autoincrement()) @map("id")
-  marcaId      Int              @map("marca_id")
-  clasificador String           @map("clasificador")
+  id            Int              @id @default(autoincrement()) @map("id")
+  marcaId       Int              @map("marca_id")
+  clasificador  String           @map("clasificador")
   /// Constancia del total del clasificador al marcarlo; se descuenta el total ACTUAL.
-  totalAlMarcar Decimal         @default(0) @map("total_al_marcar") @db.Decimal(18, 2)
-  creadoEn     DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
-  marca        MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+  totalAlMarcar Decimal          @default(0) @map("total_al_marcar") @db.Decimal(18, 2)
+  creadoEn      DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
 
   @@unique([marcaId, clasificador], map: "clasificador_no_modular_cruce_unica")
   @@index([marcaId], map: "clasificador_no_modular_cruce_marca_id_idx")
@@ -1680,45 +1683,45 @@ model SaldoTerceroModulo {
 /// Estados: pendiente (legado local) | validada_cliente (inmutable) | aprobada | inactiva.
 /// Pendiente e inactiva se pueden borrar (con su muestra); la aprobada se desactiva primero.
 model VersionPatronArchivoModulo {
-  id                  Int       @id @default(autoincrement()) @map("id")
-  erp                 Erp       @relation(fields: [erpId], references: [id], onDelete: Restrict)
-  erpId               Int       @map("erp_id")
-  moduloCodigo        String    @map("modulo_codigo")
-  version             Int       @map("version")
-  estado              String    @default("pendiente") @map("estado")
-  hoja                String    @map("hoja")
-  filaEncabezado      Int       @map("fila_encabezado")
-  primeraFilaDatos    Int       @map("primera_fila_datos")
+  id                   Int       @id @default(autoincrement()) @map("id")
+  erp                  Erp       @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId                Int       @map("erp_id")
+  moduloCodigo         String    @map("modulo_codigo")
+  version              Int       @map("version")
+  estado               String    @default("pendiente") @map("estado")
+  hoja                 String    @map("hoja")
+  filaEncabezado       Int       @map("fila_encabezado")
+  primeraFilaDatos     Int       @map("primera_fila_datos")
   /// Rótulos CRUDOS del encabezado de la muestra, 1:1 con las columnas ("" = vacía).
-  encabezadoJson      Json      @map("encabezado_json")
+  encabezadoJson       Json      @map("encabezado_json")
   /// Mapeo reutilizable (`normalizarSpecModulo`): sin datos del cargue.
-  specJson            Json      @map("especificacion_json")
-  muestraClaveObjeto  String?   @unique(map: "versiones_patron_muestra_clave_key") @map("muestra_clave_objeto")
-  muestraNombre       String?   @map("muestra_nombre_archivo")
-  muestraTamanoBytes  Int?      @map("muestra_tamano_bytes")
-  muestraSha256       String?   @map("muestra_sha256")
+  specJson             Json      @map("especificacion_json")
+  muestraClaveObjeto   String?   @unique(map: "versiones_patron_muestra_clave_key") @map("muestra_clave_objeto")
+  muestraNombre        String?   @map("muestra_nombre_archivo")
+  muestraTamanoBytes   Int?      @map("muestra_tamano_bytes")
+  muestraSha256        String?   @map("muestra_sha256")
   /// `subida` (null en las anteriores) | `recorte_original`: recorte anónimo y verificado del original.
-  muestraOrigen       String?   @map("muestra_origen")
+  muestraOrigen        String?   @map("muestra_origen")
   /// De qué cliente salió el archivo de la muestra (21/Oct/2026). Solo de CONSULTA: no restringe el
   /// uso de la versión (eso es `clienteOrigenId`). FK suave; el nombre es foto, como el de origen.
-  muestraClienteId     Int?     @map("muestra_cliente_id")
-  muestraClienteNombre String?  @map("muestra_cliente_nombre")
+  muestraClienteId     Int?      @map("muestra_cliente_id")
+  muestraClienteNombre String?   @map("muestra_cliente_nombre")
   /// FK suave: solo las versiones migradas del perfil de un cliente.
-  clienteOrigenId     Int?      @map("cliente_origen_id")
-  clienteOrigenNombre String?   @map("cliente_origen_nombre")
+  clienteOrigenId      Int?      @map("cliente_origen_id")
+  clienteOrigenNombre  String?   @map("cliente_origen_nombre")
   /// Referencia privada al original confirmado. Nunca se publica entero: a lo sumo su recorte anónimo.
-  archivoOrigenId     Int?      @map("archivo_origen_id")
-  versionBaseId       Int?      @map("version_base_id")
-  nota                String?   @map("nota") @db.Text
-  vecesUsado          Int       @default(0) @map("veces_usado")
-  ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
-  creadoPor           String?   @map("creado_por")
-  creadoPorId         Int?      @map("creado_por_id")
-  aprobadoPor         String?   @map("aprobado_por")
-  aprobadoPorId       Int?      @map("aprobado_por_id")
-  aprobadoEn          DateTime? @map("aprobado_en") @db.Timestamptz(3)
-  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn       DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  archivoOrigenId      Int?      @map("archivo_origen_id")
+  versionBaseId        Int?      @map("version_base_id")
+  nota                 String?   @map("nota") @db.Text
+  vecesUsado           Int       @default(0) @map("veces_usado")
+  ultimoUsoEn          DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  creadoPor            String?   @map("creado_por")
+  creadoPorId          Int?      @map("creado_por_id")
+  aprobadoPor          String?   @map("aprobado_por")
+  aprobadoPorId        Int?      @map("aprobado_por_id")
+  aprobadoEn           DateTime? @map("aprobado_en") @db.Timestamptz(3)
+  creadoEn             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn        DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@unique([erpId, moduloCodigo, version], map: "versiones_patron_erp_modulo_version_key")
   @@index([erpId, moduloCodigo, estado], map: "versiones_patron_erp_modulo_estado_idx")
@@ -2032,16 +2035,16 @@ model PrevalidadorCuentaCliente {
 // identifica exactamente detalle + catálogo + overrides; `instantanea` conserva
 // el resultado que el servidor volvió a calcular dentro de la misma transacción.
 model PrevalidadorRevisionBalance {
-  id            Int                     @id @default(autoincrement()) @map("id")
-  balance       BalancePruebaEncabezado @relation(fields: [balanceId], references: [id], onDelete: Cascade)
-  balanceId     Int                     @map("balance_id")
-  estado        String                  @map("estado") // aprobada | revocada
-  justificacion String                  @map("justificacion")
-  huella        String                  @map("huella")
-  instantanea   Json?                   @map("instantanea")
-  actor         String                  @map("actor")
-  actorId       Int?                    @map("actor_id") // FK lógica a User.id
-  creadoEn      DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id                Int                           @id @default(autoincrement()) @map("id")
+  balance           BalancePruebaEncabezado       @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+  balanceId         Int                           @map("balance_id")
+  estado            String                        @map("estado") // aprobada | revocada
+  justificacion     String                        @map("justificacion")
+  huella            String                        @map("huella")
+  instantanea       Json?                         @map("instantanea")
+  actor             String                        @map("actor")
+  actorId           Int?                          @map("actor_id") // FK lógica a User.id
+  creadoEn          DateTime                      @default(now()) @map("creado_en") @db.Timestamptz(3)
   /// Catálogo con que se aprobó (solo revisiones «aprobada»). Ver `PrevalidadorCatalogoRevision`.
   catalogoCongelado PrevalidadorCatalogoRevision?
 
@@ -2067,6 +2070,177 @@ model PrevalidadorCatalogoRevision {
   creadoEn   DateTime                    @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("prevalidador_catalogos_revision")
+}
+
+// ===== Impuestos · Retención en la fuente (31/Oct/2026) =====
+// Configuración global del módulo (Fase 1). Las tablas del prototipo de más abajo
+// (periodos_dian, secciones_dian, renglones_dian, mapeos_dian, comentarios_dian) ya no las usa
+// ningún código: se borran en una migración aparte. `formularios_dian` y
+// `formularios_dian_cliente` siguen vivas: son el campo «Formatos DIAN» de la ficha del cliente.
+
+// Mapeos DIAN: concepto del formulario → renglones (persona jurídica / natural) → cuenta Russell
+// de 6 dígitos. Global para todos los clientes; sembrada con la pestaña «F350-Mapeo Russell» del
+// levantamiento (`MAPEO_F350_FABRICA`).
+model MapeoRenglonDian {
+  id             Int      @id @default(autoincrement()) @map("id")
+  formulario     String   @map("formulario") // "350"
+  concepto       String   @map("concepto") // clave estable: honorarios, rentas_trabajo…
+  etiqueta       String   @map("etiqueta")
+  seccion        String   @map("seccion")
+  renglonPj      Int?     @map("renglon_pj") // persona jurídica, o el único renglón (129 a 137)
+  renglonPn      Int?     @map("renglon_pn")
+  cuentaRussell  String?  @map("cuenta_russell") // null = sin cuenta
+  signo          String   @default("+") @map("signo") // + | -
+  enCruce        Boolean  @default(true) @map("en_cruce") // false: no entra al cruce (sanciones)
+  orden          Int      @default(0) @map("orden")
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([formulario, concepto])
+  @@map("mapeo_renglon_dian")
+}
+
+// Por cuenta Russell: ¿se resta el tercero DIAN de su saldo? Sin fila = sí. Se siembra la
+// excepción 236575 (autorretenciones: sus movimientos con la DIAN son la autorretención misma).
+model CuentaRussellDian {
+  id                Int      @id @default(autoincrement()) @map("id")
+  cuentaRussell     String   @unique @map("cuenta_russell")
+  restarTerceroDian Boolean  @default(true) @map("restar_tercero_dian")
+  actualizadoPor    String?  @map("actualizado_por")
+  actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("cuenta_russell_dian")
+}
+
+// NIT que identifican a la DIAN como tercero (núcleo de 9 dígitos, sin DV). Sembrada con
+// 800197268 (el que traen los balances) y 800197384 (el del levantamiento).
+model TerceroDian {
+  id        Int      @id @default(autoincrement()) @map("id")
+  nit       String   @unique @map("nit")
+  etiqueta  String   @map("etiqueta")
+  creadoPor String?  @map("creado_por")
+  creadoEn  DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("tercero_dian")
+}
+
+// Calendario tributario: fecha límite por año, formulario, período y último dígito del NIT.
+model VencimientoDian {
+  id             Int      @id @default(autoincrement()) @map("id")
+  anio           Int      @map("anio")
+  formulario     String   @map("formulario") // RETEFUENTE (luego IVA_BIMESTRAL, IVA_CUATRIMESTRAL…)
+  periodo        Int      @map("periodo")
+  ultimoDigito   Int      @map("ultimo_digito") // 0–9
+  fecha          DateTime @map("fecha") @db.Date
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([anio, formulario, periodo, ultimoDigito])
+  @@index([anio, formulario])
+  @@map("vencimiento_dian")
+}
+
+// Revisión de Retención en la fuente de un cliente, un año y un corte (precierre, cierre u otro
+// mes). Los formularios NO cuelgan de la revisión sino del cliente y el año: el precierre y el
+// cierre del mismo año comparten los de enero a septiembre. `periodo` («2026-09») es la llave de
+// las marcas y del cierre en firme (`marca_cruce_modulo`, `conciliacion_modulo_cierre`, código RET).
+model RevisionRetencion {
+  id            Int      @id @default(autoincrement()) @map("id")
+  clienteId     Int      @map("cliente_id") // FK suave a clientes
+  nombreCliente String   @map("nombre_cliente")
+  nitCliente    String   @map("nit_cliente")
+  anio          Int      @map("anio")
+  mesCorte      Int      @map("mes_corte") // 1–12
+  periodo       String   @map("periodo") // «2026-09»
+  periodicidad  String   @map("periodicidad") // la confirmada al crearla
+  estado        String   @default("en_proceso") @map("estado") // en_proceso | en_firme
+  creadoPor     String?  @map("creado_por")
+  creadoPorId   Int?     @map("creado_por_id")
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, anio, mesCorte])
+  @@index([clienteId, anio])
+  @@map("revision_retencion")
+}
+
+// Cada PDF de un formulario 350 o 490 leído para un cliente y un año. Se confirma antes de
+// contar: `por_confirmar` no entra en ningún cálculo. El número de formulario (renglón 4) es único
+// en la DIAN; uno descartado que se vuelve a importar reutiliza su fila.
+model FormularioDianCargado {
+  id               Int                     @id @default(autoincrement()) @map("id")
+  clienteId        Int                     @map("cliente_id") // FK suave a clientes
+  anio             Int                     @map("anio")
+  periodo          Int                     @map("periodo") // 1–12 (renglón 3)
+  formulario       String                  @map("formulario") // 350 | 490
+  numero           String                  @unique @map("numero") // renglón 4
+  estado           String                  @default("por_confirmar") @map("estado") // por_confirmar | confirmado | descartado
+  codigoCorreccion Int?                    @map("codigo_correccion") // 350, renglón 25 (1 = corrección)
+  numeroAnterior   String?                 @map("numero_anterior") // 350, renglón 26
+  concepto         String?                 @map("concepto") // 490, renglón 2 (61 | 62 | 63)
+  numeroPagado     String?                 @map("numero_pagado") // 490, renglón 29
+  cuota            Int?                    @map("cuota") // 490, renglón 27
+  deCuotas         Int?                    @map("de_cuotas") // 490, renglón 28
+  fechaLimitePago  DateTime?               @map("fecha_limite_pago") @db.Date // 490, renglón 32
+  fechaSello       DateTime?               @map("fecha_sello") @db.Date // renglón 997: presentación (350) o pago (490)
+  autoadhesivo     String?                 @map("autoadhesivo") // renglón 996
+  nitLeido         String?                 @map("nit_leido")
+  dvLeido          String?                 @map("dv_leido")
+  razonSocial      String?                 @map("razon_social")
+  anexoExterior    Json?                   @map("anexo_exterior") // hoja 2 del 350 (141, 143, 147 por línea), informativo
+  nombreArchivo    String                  @map("nombre_archivo")
+  claveObjeto      String?                 @map("clave_objeto") // null si el almacén no estaba disponible
+  huellaSha256     String                  @map("huella_sha256")
+  tamanoBytes      Int                     @map("tamano_bytes")
+  lecturaJson      Json                    @map("lectura_json") // lo que devolvió la IA, tal cual
+  modeloLectura    String                  @map("modelo_lectura")
+  controlesJson    Json                    @map("controles_json") // controles de la última lectura o confirmación
+  corregidoAMano   Json?                   @map("corregido_a_mano") // renglones que el usuario cambió frente a la IA
+  cargadoPor       String?                 @map("cargado_por")
+  cargadoPorId     Int?                    @map("cargado_por_id")
+  confirmadoPor    String?                 @map("confirmado_por")
+  confirmadoPorId  Int?                    @map("confirmado_por_id")
+  confirmadoEn     DateTime?               @map("confirmado_en") @db.Timestamptz(3)
+  descartadoPor    String?                 @map("descartado_por")
+  descartadoEn     DateTime?               @map("descartado_en") @db.Timestamptz(3)
+  creadoEn         DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime                @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  renglones        RenglonFormularioDian[]
+
+  @@index([clienteId, anio, formulario, estado])
+  @@index([clienteId, huellaSha256])
+  @@map("formulario_dian_cargado")
+}
+
+// Importes guardados de un formulario cargado (solo los renglones que se guardan).
+model RenglonFormularioDian {
+  id           Int                   @id @default(autoincrement()) @map("id")
+  formularioId Int                   @map("formulario_id")
+  formulario   FormularioDianCargado @relation(fields: [formularioId], references: [id], onDelete: Cascade)
+  renglon      Int                   @map("renglon")
+  valor        Decimal               @map("valor") @db.Decimal(18, 2)
+
+  @@unique([formularioId, renglon])
+  @@map("renglon_formulario_dian")
+}
+
+// Período sin formulario: el usuario confirma que ese mes no hubo 350 y escribe la causal.
+model PeriodoSinFormulario {
+  id              Int      @id @default(autoincrement()) @map("id")
+  clienteId       Int      @map("cliente_id")
+  anio            Int      @map("anio")
+  periodo         Int      @map("periodo")
+  formulario      String   @map("formulario") // 350
+  causal          String   @map("causal")
+  registradoPor   String?  @map("registrado_por")
+  registradoPorId Int?     @map("registrado_por_id")
+  registradoEn    DateTime @default(now()) @map("registrado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, anio, periodo, formulario])
+  @@map("periodo_sin_formulario")
 }
 
 // ===== Impuestos · DIAN =====
@@ -2727,10 +2901,10 @@ model EjecucionConexion {
 
 /// Cuota compartida entre instancias; las identidades son HMAC, nunca IP en claro.
 model RequestQuota {
-  key          String   @id @map("clave")
-  requests     Int      @map("solicitudes")
-  expiresAt    DateTime @map("vence_en") @db.Timestamptz(3)
-  updatedAt    DateTime @map("actualizado_en") @db.Timestamptz(3)
+  key       String   @id @map("clave")
+  requests  Int      @map("solicitudes")
+  expiresAt DateTime @map("vence_en") @db.Timestamptz(3)
+  updatedAt DateTime @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([expiresAt], map: "limites_solicitud_vencimiento_idx")
   @@map("limites_solicitud")

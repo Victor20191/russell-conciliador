@@ -18,7 +18,6 @@ export type EntidadComentable = {
 export const ENTIDADES_COMENTABLES: Record<string, EntidadComentable> = {
   balance: { tipo: "balance", label: "Balance" },
   conciliaciones: { tipo: "conciliaciones", label: "Conciliación" },
-  dian: { tipo: "dian", label: "Impuestos · DIAN" },
   clientes: { tipo: "clientes", label: "Cliente" },
   modulos_datos: { tipo: "modulos_datos", label: "Módulo de conciliación" },
   modulos_borrador: { tipo: "modulos_borrador", label: "Borrador de módulo" },

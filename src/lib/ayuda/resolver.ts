@@ -18,12 +18,16 @@ export type FichaId =
   | "catalogo.plan_russell"
   | "catalogo.mapeo_cliente"
   | "catalogo.conceptos_nomina"
+  | "catalogo.mapeos_dian"
+  | "impuestos.retencion"
+  | "impuestos.retencion_revision"
   | "equipo.clientes"
   | "equipo.usuarios"
   | "equipo.estructura"
   | "equipo.perfil"
   | "parametros.filtros_cuentas"
   | "parametros.alertas"
+  | "parametros.calendario_tributario"
   | "soporte.mesa_ayuda";
 
 /** La ficha de la ruta y, en las fichas por módulo, el código del módulo en mayúsculas («NOM»). */
@@ -36,11 +40,13 @@ const RUTAS_FIJAS: Readonly<Record<string, FichaId>> = {
   "config/mapeo": "catalogo.plan_russell",
   "config/mapeo-cliente": "catalogo.mapeo_cliente",
   "config/conceptos-nomina": "catalogo.conceptos_nomina",
+  "config/mapeos-dian": "catalogo.mapeos_dian",
   "config/clientes": "equipo.clientes",
   "config/usuarios": "equipo.usuarios",
   estructura: "equipo.estructura",
   perfil: "equipo.perfil",
   "config/parametros": "parametros.alertas",
+  "config/calendario-tributario": "parametros.calendario_tributario",
   reportes: "soporte.mesa_ayuda",
 };
 
@@ -60,6 +66,11 @@ export function resolverAyuda(pathname: string): AyudaResuelta | null {
   if (s[0] === "config" && s[1] === "prevalidador" && s.length <= 3) {
     const modulo = s[2] ? descriptorModulo(s[2].toUpperCase())?.codigo : "ING";
     return modulo ? { fichaId: "parametros.filtros_cuentas", modulo } : null;
+  }
+  // Impuestos · Retención en la fuente: la lista de revisiones y una revisión.
+  if (s[0] === "impuestos" && s[1] === "retencion") {
+    if (s.length === 2) return { fichaId: "impuestos.retencion" };
+    if (s.length === 3 && ENTERO.test(s[2]!)) return { fichaId: "impuestos.retencion_revision" };
   }
   // El detalle de una novedad es la misma Mesa de ayuda.
   if (s[0] === "reportes" && s.length === 2 && ENTERO.test(s[1]!)) return { fichaId: "soporte.mesa_ayuda" };

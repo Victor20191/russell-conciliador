@@ -51,7 +51,7 @@ describe("catálogo de ruta y menú de una novedad", () => {
     expect(catalogo.some((ruta) => ruta.etiqueta === "Conciliaciones")).toBe(false);
     expect(catalogo.some((ruta) => ruta.etiqueta === "Módulos de conciliación")).toBe(false);
     expect(catalogo.some((ruta) => ruta.etiqueta === "Inicio")).toBe(true);
-    expect(catalogo.some((ruta) => ruta.etiqueta === "Impuestos · DIAN")).toBe(true);
+    expect(catalogo.some((ruta) => ruta.etiqueta === "Auditoría")).toBe(true);
   });
 
   test("oculta menús de configuración cuyos módulos están en desarrollo", () => {
@@ -71,12 +71,12 @@ describe("catálogo de ruta y menú de una novedad", () => {
     const catalogo = catalogoUbicacionesNovedad({
       modulos: [
         { key: "balance", enabledForNonAdmins: false, configurableForNonAdmins: true },
-        { key: "dian", enabledForNonAdmins: true, configurableForNonAdmins: true },
+        { key: "auditoria", enabledForNonAdmins: true, configurableForNonAdmins: true },
         { key: "dashboard", enabledForNonAdmins: true, configurableForNonAdmins: false },
       ],
     });
     expect(catalogo.some((ruta) => ruta.etiqueta === "Balance de comprobación")).toBe(false);
-    expect(catalogo.some((ruta) => ruta.etiqueta === "Impuestos · DIAN")).toBe(true);
+    expect(catalogo.some((ruta) => ruta.etiqueta === "Auditoría")).toBe(true);
     expect(catalogo.some((ruta) => ruta.etiqueta === "Inicio")).toBe(true);
   });
 

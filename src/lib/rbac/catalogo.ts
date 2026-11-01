@@ -11,7 +11,7 @@
 //   - "RB_GCT Roles y Responsabilidades – Área de Revisoría Fiscal"
 //     (Russell Bedford, 04-jun-2026): los 5 roles y su segregación.
 //   - La navegación real de la plataforma (src/lib/nav.ts): de ahí
-//     salen los módulos protegibles (balance, conciliaciones, dian,
+//     salen los módulos protegibles (balance, conciliaciones, impuestos,
 //     auditoría, clientes, usuarios…).
 //
 // Convención de `code` de rol: respeta los valores ya usados en
@@ -91,7 +91,7 @@ export type Permiso = {
 // DECISIÓN EXPLÍCITA · Superadministrador: administra la PLATAFORMA
 // (usuarios, roles, módulos, publicación, configuración) pero NO opera
 // datos de auditoría: ningún permiso operativo (crear/editar/ejecutar de
-// balance, mapeo, conciliaciones, dian) ni de revisión/supervisión. La
+// balance, mapeo, conciliaciones, impuestos) ni de revisión/supervisión. La
 // segregación del PDF ("Staff: único rol operativo") aplica también a él.
 // Si el negocio decide lo contrario, agregarlo al grupo correspondiente
 // y correr `npm run db:sync:rbac -- --aplicar`.
@@ -133,7 +133,6 @@ export const PERMISOS: Permiso[] = [
   { code: "balance:ver", module: "balance", action: "ver", label: "Ver balance de comprobación", roles: TODOS },
   { code: "mapeo:ver", module: "mapeo", action: "ver", label: "Ver mapeo del plan estándar", roles: TODOS },
   { code: "conciliaciones:ver", module: "conciliaciones", action: "ver", label: "Ver conciliaciones", roles: TODOS },
-  { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
   // Registro de auditoría (22-oct-2026, decisión del usuario): solo los administradores. Abre la
   // pantalla Auditoría, la pestaña «Audit log» de /balance y «Actividad del equipo» de Inicio.
@@ -154,7 +153,6 @@ export const PERMISOS: Permiso[] = [
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: TODOS },
   { code: "maestros:ver", module: "maestros", action: "ver", label: "Ver maestros", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
-  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: TODOS },
   // Filtros de cuentas y Parámetros de alertas: todos los consultan (19-oct-2026); los edita
   // `parametros:administrar`.
   { code: "parametros:ver", module: "parametros", action: "ver", label: "Ver filtros de cuentas y parámetros de alertas", roles: TODOS },
@@ -165,7 +163,6 @@ export const PERMISOS: Permiso[] = [
   // Para datos de cliente exige, además, ALCANCE de lectura (cartera). =====
   { code: "balance:comentar", module: "balance", action: "comentar", label: "Comentar en balance", roles: TODOS },
   { code: "conciliaciones:comentar", module: "conciliaciones", action: "comentar", label: "Comentar en conciliaciones", roles: TODOS },
-  { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
   { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
   { code: "modulos_datos:comentar", module: "modulos_datos", action: "comentar", label: "Comentar en módulos de conciliación", roles: TODOS },
   // Comentarios a nivel de RENGLÓN del BORRADOR (staging). Se migran al definitivo al confirmar.
@@ -181,7 +178,6 @@ export const PERMISOS: Permiso[] = [
   { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: STAFF_Y_SENIOR },
   { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: STAFF_Y_SENIOR },
   { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: STAFF_Y_SENIOR },
-  { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: STAFF_Y_SENIOR },
 
   // ===== Revisión — Senior (revisa el trabajo del Staff; el Staff no revisa) =====
   // `balance:revisar` cubre lo que hace el Senior ASIGNADO sobre un balance cargado:
@@ -210,6 +206,18 @@ export const PERMISOS: Permiso[] = [
   // siendo de los administradores (lo decide `perfiles_carga:administrar`, ver alcance-eliminacion.ts).
   { code: "modulos_datos:eliminar", module: "modulos_datos", action: "eliminar", label: "Eliminar datos de módulos", roles: SENIOR_Y_ADMIN },
 
+  // ===== Impuestos · DIAN (31-oct-2026): Retención en la fuente (formularios 350 y 490) =====
+  // Reemplaza al prototipo «Impuestos · DIAN» (permisos `dian:*` y `mapeos_dian:*`, retirados). Todos
+  // consultan; cargan y documentan diferencias Staff y Senior en sus clientes (alcance de escritura);
+  // descartan el Senior y los administradores; Mapeos DIAN y el calendario tributario, globales, los
+  // editan Gerente, Socio y administradores. Cerrar en firme sigue con `conciliaciones:cerrar`.
+  { code: "impuestos:ver", module: "impuestos", action: "ver", label: "Ver Impuestos · DIAN (revisiones, Mapeos DIAN y calendario)", roles: TODOS },
+  { code: "impuestos:cargar", module: "impuestos", action: "cargar", label: "Cargar formularios DIAN y crear revisiones", roles: OPERATIVO_Y_ADMIN },
+  { code: "impuestos:editar", module: "impuestos", action: "editar", label: "Documentar diferencias y corregir lecturas de formularios DIAN", roles: OPERATIVO_Y_ADMIN },
+  { code: "impuestos:eliminar", module: "impuestos", action: "eliminar", label: "Descartar formularios y revisiones de Impuestos", roles: SENIOR_Y_ADMIN },
+  { code: "impuestos:comentar", module: "impuestos", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
+  { code: "impuestos:configurar", module: "impuestos", action: "configurar", label: "Configurar Mapeos DIAN y el calendario tributario", roles: SUPERVISORES_Y_ADMIN },
+
   // ===== Supervisión — Gerente y Socio =====
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },
 
@@ -225,8 +233,6 @@ export const PERMISOS: Permiso[] = [
   { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar datos operativos del cliente", roles: TODOS },
   { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Editar la ficha completa del cliente (responsables incluidos)", roles: SUPERVISORES_Y_ADMIN },
   { code: "clientes:eliminar", module: "clientes", action: "eliminar", label: "Eliminar cliente", roles: SOLO_ADMIN },
-  // Mapeos DIAN: plantilla global (sin cliente) que todos consultan y editan Gerente, Socio y administradores.
-  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: SUPERVISORES_Y_ADMIN },
 
   // ===== Administración de la herramienta — SOLO Administrador =====
   // Parametrización del PLAN ESTÁNDAR Russell (catálogo global de cuentas
@@ -241,7 +247,6 @@ export const PERMISOS: Permiso[] = [
   { code: "roles:ver", module: "roles", action: "ver", label: "Ver matriz de roles y permisos", roles: SOLO_ADMIN },
   { code: "roles:configurar", module: "roles", action: "configurar", label: "Editar permisos por rol", roles: SOLO_ADMIN },
   { code: "modulos:configurar", module: "modulos", action: "configurar", label: "Configurar módulos y campos", roles: SOLO_ADMIN },
-  { code: "dian:configurar", module: "dian", action: "configurar", label: "Configurar formularios DIAN", roles: SOLO_ADMIN },
   { code: "publicacion_modulos:ver", module: "publicacion_modulos", action: "ver", label: "Ver publicación de módulos", roles: SOLO_SUPERADMIN },
   { code: "publicacion_modulos:configurar", module: "publicacion_modulos", action: "configurar", label: "Configurar publicación de módulos", roles: SOLO_SUPERADMIN },
 

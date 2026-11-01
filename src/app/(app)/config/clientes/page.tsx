@@ -51,7 +51,7 @@ export default async function ClientesPage() {
     prisma.module.findMany({ orderBy: { name: "asc" } }),
     prisma.dianForm.findMany({
       orderBy: { code: "asc" },
-      select: { id: true, name: true, code: true },
+      select: { id: true, key: true, name: true, code: true, periodicity: true },
     }),
     prisma.erp.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.erpProcess.findMany({
@@ -137,6 +137,7 @@ export default async function ClientesPage() {
       socioName: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
       modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
       dianFormIds: c.dianForms.map((f) => f.formId),
+      dianPeriodicidades: Object.fromEntries(c.dianForms.map((f) => [f.formId, f.periodicidad])),
       responsables: responsablesPorCliente.get(c.id) ?? [],
       edicion: edicionDe(c.id),
     };
@@ -144,8 +145,10 @@ export default async function ClientesPage() {
   const mods: ModuleRef[] = modules.map((m) => ({ id: m.id, name: m.name }));
   const dianForms: DianFormRef[] = dianFormsBD.map((f) => ({
     id: f.id,
+    key: f.key,
     name: f.name,
     code: f.code,
+    periodicity: f.periodicity,
   }));
   const erps = erpsBD.map((e) => ({ id: e.id, name: e.name, active: e.active }));
   const erpProcesses = procesosErpBD.flatMap((proceso) =>

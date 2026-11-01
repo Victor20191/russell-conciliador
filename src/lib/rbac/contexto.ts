@@ -31,7 +31,7 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 // `auditoria:ver` solo para Administrador/Superadministrador, 22/Oct/2026; v15:
 // retirar el catálogo de respaldo en runtime, incluso con matriz vacía): una clave nueva
 // evita que el despliegue siga sirviendo la matriz anterior desde el Data Cache.
-export const RBAC_CACHE_TAG = "rbac-matriz-v15";
+export const RBAC_CACHE_TAG = "rbac-matriz-v16";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {

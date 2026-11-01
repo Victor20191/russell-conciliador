@@ -44,7 +44,7 @@ async function alcanceDeEntidad(
       return { scoped: true, clientId: await clienteDeLoteModulo(entityId) };
     case "clientes":
       return { scoped: true, clientId: entityId };
-    default: // "dian" y cualquier otra entidad global
+    default: // cualquier otra entidad global
       return { scoped: false };
   }
 }
@@ -404,7 +404,7 @@ export async function editarComentario(input: { id: number; body: string; mencio
         await prisma.notification.createMany({
           data: nuevas.map((userId) => ({
             userId,
-            clientId: tipo === "dian" ? null : clientId,
+            clientId,
             entityType: tipo,
             entityId: comentario.entityId,
             kind: "comment",
@@ -416,7 +416,7 @@ export async function editarComentario(input: { id: number; body: string; mencio
       } catch (error) { registrarError("notificarMenciones", error); }
       programarAvisoCorreo({
         titulo: "Te mencionaron en Russell", texto: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}. Ingresa para leer el comentario.`,
-        usuarioIds: nuevas, actorId: userId, clienteId: tipo === "dian" ? undefined : clientId,
+        usuarioIds: nuevas, actorId: userId, clienteId: clientId,
         permiso: `${tipo}:ver`, entidad: { tipo, id: comentario.entityId }, referencia: `Comentario #${comentario.id} editado`,
       });
     }

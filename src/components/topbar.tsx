@@ -29,7 +29,10 @@ const CRUMB_LABELS: Record<string, string> = {
   nueva: "Nueva",
   "en-proceso": "En proceso",
   resultados: "Resultados",
-  dian: "Impuestos · DIAN",
+  impuestos: "Impuestos · DIAN",
+  retencion: "Retención en la fuente",
+  "mapeos-dian": "Mapeos DIAN",
+  "calendario-tributario": "Calendario tributario",
   auditoria: "Auditoría",
   config: "Configuración",
   modulos: "Módulos y campos",
@@ -54,10 +57,9 @@ const CRUMB_LABELS: Record<string, string> = {
 };
 
 // Rutas cuyo segmento se repite con otro nombre (`/modulos/inv` son los módulos de conciliación,
-// `/config/modulos` es «Módulos y campos»; `/dian` es Impuestos y `/config/dian` sus mapeos).
+// `/config/modulos` es «Módulos y campos»).
 const CRUMB_POR_RUTA: Record<string, string> = {
   "/modulos": "Módulos de conciliación",
-  "/config/dian": "Mapeos DIAN",
 };
 
 // Sub-rutas por módulo de conciliación (`/config/prevalidador/cxp`, `/config/perfiles-carga/inv`,

@@ -45,9 +45,9 @@ describe("Publicación de módulos por rol", () => {
   });
 
   test("roles no superadministradores respetan el interruptor de publicación", () => {
-    const estados: EstadoModulo[] = [{ key: "dian", enabledForNonAdmins: false, configurableForNonAdmins: true }];
-    expect(moduloPublicadoParaRol("Staff", "dian", estados)).toBe(false);
-    expect(moduloPublicadoParaRol("Senior", "dian", estados)).toBe(false);
+    const estados: EstadoModulo[] = [{ key: "impuestos", enabledForNonAdmins: false, configurableForNonAdmins: true }];
+    expect(moduloPublicadoParaRol("Staff", "impuestos", estados)).toBe(false);
+    expect(moduloPublicadoParaRol("Senior", "impuestos", estados)).toBe(false);
   });
 
   test("módulos no bloqueables y módulos desconocidos quedan visibles", () => {

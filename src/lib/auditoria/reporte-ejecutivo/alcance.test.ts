@@ -13,7 +13,7 @@ const PUBLICADOS = new Set([
   "balance",
   "modulos_datos",
   "conciliaciones",
-  "dian",
+  "impuestos",
   "clientes",
   "mapeo",
   "usuarios",

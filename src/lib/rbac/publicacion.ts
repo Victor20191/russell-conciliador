@@ -17,7 +17,7 @@ import {
 // v6: `conexiones` pasa a ser publicable (el Superadministrador puede dejarlo
 // «En desarrollo» para ocultárselo a los Administradores).
 // v7: `dashboard` (Inicio) pasa a ser publicable (20/Oct/2026).
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v7";
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v8";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({

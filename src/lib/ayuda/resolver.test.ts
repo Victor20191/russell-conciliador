@@ -76,7 +76,6 @@ describe("resolverAyuda", () => {
     const hrefs = configSecciones
       .filter((s) => secciones.includes(s.titulo))
       .flatMap((s) => s.items)
-      .filter((i) => i.href !== "/config/dian") // Mapeos DIAN: en desarrollo
       .flatMap((i) => [i.href, ...(i.children ?? []).map((c) => c.href)]);
     expect(hrefs.length).toBeGreaterThan(10);
     for (const href of [...hrefs, "/reportes", "/perfil"]) expect(resolverAyuda(href), href).not.toBeNull();

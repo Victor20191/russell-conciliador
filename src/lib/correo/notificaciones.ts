@@ -100,7 +100,7 @@ export async function enviarAvisoCorreo(aviso: AvisoCorreo): Promise<void> {
         if (!registro) return;
         aviso = { ...aviso, ruta: `/modulos/${encodeURIComponent(registro.moduloCodigo)}/${id}` };
       } else {
-        const rutas: Record<string, string> = { balance: `/balance/${id}`, conciliaciones: `/conciliacion/resultados/${id}`, dian: `/dian/${id}`, clientes: "/config/clientes" };
+        const rutas: Record<string, string> = { balance: `/balance/${id}`, conciliaciones: `/conciliacion/resultados/${id}`, clientes: "/config/clientes" };
         aviso = { ...aviso, ruta: rutas[tipo] ?? "/dashboard" };
       }
     }

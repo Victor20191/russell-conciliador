@@ -22,6 +22,7 @@ import { FICHA_CONCEPTOS_NOMINA, FICHA_MAPEO_CLIENTE, FICHA_PLAN_RUSSELL } from 
 import { FICHA_CLIENTES, FICHA_ESTRUCTURA, FICHA_PERFIL, FICHA_USUARIOS } from "./clientes-equipo";
 import { FICHA_PARAMETROS_ALERTAS, fichaFiltrosCuentas } from "./parametrizacion";
 import { FICHA_MESA_AYUDA } from "./mesa-ayuda";
+import { FICHA_CALENDARIO_TRIBUTARIO, FICHA_MAPEOS_DIAN, FICHA_RETENCION_LISTADO, FICHA_RETENCION_REVISION } from "./impuestos";
 
 /** Permiso del enlace «Reportar a Mesa de ayuda» del pie del panel. */
 export const PERMISO_MESA_AYUDA = "soporte:ver";
@@ -37,11 +38,15 @@ const FICHAS_FIJAS: Partial<Record<FichaId, FichaAyuda>> = {
   "catalogo.plan_russell": FICHA_PLAN_RUSSELL,
   "catalogo.mapeo_cliente": FICHA_MAPEO_CLIENTE,
   "catalogo.conceptos_nomina": FICHA_CONCEPTOS_NOMINA,
+  "catalogo.mapeos_dian": FICHA_MAPEOS_DIAN,
+  "impuestos.retencion": FICHA_RETENCION_LISTADO,
+  "impuestos.retencion_revision": FICHA_RETENCION_REVISION,
   "equipo.clientes": FICHA_CLIENTES,
   "equipo.usuarios": FICHA_USUARIOS,
   "equipo.estructura": FICHA_ESTRUCTURA,
   "equipo.perfil": FICHA_PERFIL,
   "parametros.alertas": FICHA_PARAMETROS_ALERTAS,
+  "parametros.calendario_tributario": FICHA_CALENDARIO_TRIBUTARIO,
   "soporte.mesa_ayuda": FICHA_MESA_AYUDA,
 };
 

@@ -28,7 +28,7 @@ export const MODULO_POR_FAMILIA: Record<FamiliaProceso, string | null> = {
   balance: "balance",
   inventarios: "modulos_datos",
   conciliaciones: "conciliaciones",
-  dian: "dian",
+  dian: "impuestos",
   clientes: "clientes",
   mapeo: "mapeo",
   usuarios: "usuarios",
@@ -54,7 +54,9 @@ const MODULO_POR_RUTA: Array<[string, string]> = [
   ["/config/maestros", "maestros"],
   ["/config/mapeo-cliente", "mapeo"],
   ["/config/mapeo", "mapeo"],
-  ["/config/dian", "mapeos_dian"],
+  ["/config/calendario-tributario", "impuestos"],
+  ["/config/mapeos-dian", "impuestos"],
+  ["/config/dian", "impuestos"],
   ["/config/usuarios", "usuarios"],
   ["/config/conexiones", "conexiones"],
   ["/config/soporte", "soporte"],
@@ -67,7 +69,8 @@ const MODULO_POR_RUTA: Array<[string, string]> = [
   ["/reportes", "soporte"],
   ["/soporte", "soporte"],
   ["/dashboard", "dashboard"],
-  ["/dian", "dian"],
+  ["/impuestos", "impuestos"],
+  ["/dian", "impuestos"],
 ];
 
 function normalizarRuta(ruta: string): string {
@@ -123,7 +126,7 @@ const ALIAS_MODULO: Array<[RegExp, string]> = [
   [/auditor[ií]a|bit[aá]cora/i, "auditoria"],
   [/balance/i, "balance"],
   [/concili/i, "conciliaciones"],
-  [/dian|impuesto/i, "dian"],
+  [/dian|impuesto/i, "impuestos"],
   [/mapeo|cuenta/i, "mapeo"],
   [/cliente/i, "clientes"],
   [/maestro/i, "maestros"],

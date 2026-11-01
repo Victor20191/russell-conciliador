@@ -64,6 +64,18 @@ export const REGLAS = {
   verParametros: [via("parametros:ver", "ninguno"), via("parametros:administrar", "ninguno")],
   administrarParametros: [via("parametros:administrar", "ninguno")],
 
+  // ----- Impuestos · DIAN (Mapeos DIAN y calendario tributario: globales) -----
+  verImpuestos: [via("impuestos:ver", "ninguno")],
+  /** Revisiones de Retención en la fuente: las de la cartera. */
+  verRevisionImpuestos: [via("impuestos:ver", "lectura")],
+  /** Crear revisiones, importar y confirmar formularios, causales de meses sin formulario. */
+  cargarImpuestos: [via("impuestos:cargar", "escritura")],
+  /** Corregir a mano un importe leído por la IA. */
+  editarImpuestos: [via(["impuestos:cargar", "impuestos:editar"], "escritura")],
+  /** Descartar un formulario confirmado o eliminar una revisión sin firme. */
+  eliminarImpuestos: [via("impuestos:eliminar", "escritura")],
+  configurarImpuestos: [via("impuestos:configurar", "ninguno")],
+
   // ----- Mesa de ayuda -----
   verMesaAyuda: [via("soporte:ver", "ninguno")],
   crearNovedad: [via("soporte:crear", "ninguno")],
