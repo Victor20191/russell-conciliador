@@ -4,7 +4,7 @@ import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fi
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
-import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce } from "./cruce";
+import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
 
 const DV = String(dvNit(NIT_FICTICIO));
@@ -271,6 +271,16 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     expect(filaCruceConValores({ ...cero, marca: { numero: 1, nota: "Revisada", referenciaAnexo: null, diferencia: 5, marcadoPor: null, marcadoEn: "2026-11-01", vigente: false } })).toBe(true);
   });
 
+  it("el resumen de una cuenta contraída cuenta sus terceros y sus avisos, sin el saldo inicial de la DIAN", () => {
+    const [conDian, sinDian] = fila(entrada(), "236505").cuentasCliente;
+    expect(resumenCuentaCruce(conDian)).toEqual({ terceros: 3, saldoInicial: 50_000, dianRestado: -900_000_000, posibleDian: true });
+    expect(resumenCuentaCruce(sinDian)).toEqual({ terceros: 1, saldoInicial: 0, dianRestado: 0, posibleDian: false });
+    // Los que no viajaron a la pantalla también cuentan.
+    expect(resumenCuentaCruce(conDian, { cantidad: 2, saldoInicial: 100 })).toMatchObject({ terceros: 5, saldoInicial: 50_100 });
+    const dian = { nit: "800197268", nombre: "DIAN", saldo: 0, saldoInicial: 700, esDian: true, restado: true, posibleDian: false };
+    expect(resumenCuentaCruce({ cuenta: "23659701", nombre: "Pagos", saldo: 0, terceros: [dian] }).saldoInicial).toBe(0);
+  });
+
   it("subtotales 130 y 134, total 136 y cuentas fuera del mapeo", () => {
     const r = entrada();
     expect(r.grupos.map((g) => g.grupo)).toEqual(["renta", "iva", "timbre"]);
@@ -312,7 +322,7 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     expect(cuenta.terceros).toHaveLength(MAX_TERCEROS_PANTALLA);
     expect(cuenta.terceros[0]).toMatchObject({ nit: "800197268", restado: true });
     // Quedan fuera los 51 de menor saldo (1 a 51 pesos) y la cifra de la cuenta no cambia.
-    expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326 });
+    expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326, saldoInicial: 0 });
     expect(cuenta.saldo).toBe(fila(r, "236525").cuentasCliente[0].saldo);
     expect(fila(r, "236525").cuentasCliente[0].terceros).toHaveLength(151);
   });

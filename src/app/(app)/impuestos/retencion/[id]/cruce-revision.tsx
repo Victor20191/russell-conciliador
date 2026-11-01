@@ -11,6 +11,7 @@ import {
   etiquetaFilaCruce,
   gruposCruceConValores,
   renglonesFilaCruce,
+  resumenCuentaCruce,
   type CruceRetencionPantalla,
   type FilaCruce,
   type ResultadoCrucePantalla,
@@ -23,6 +24,13 @@ import {
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
 const NUM = "px-3 py-1.5 text-right tabular-nums whitespace-nowrap";
 const COLUMNAS = 7;
+
+const alternarEnConjunto = (conjunto: ReadonlySet<string>, clave: string) => {
+  const sig = new Set(conjunto);
+  if (sig.has(clave)) sig.delete(clave);
+  else sig.add(clave);
+  return sig;
+};
 
 const fecha = (iso: string) => {
   const [a, m, d] = iso.split("-");
@@ -53,13 +61,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   const grupos = ocultarCeros ? gruposCruceConValores(resultado.grupos) : resultado.grupos;
   const filaMarcando = filas.find((f) => f.clave === marcando) ?? null;
   const conMarca = filas.filter((f) => f.marca).sort((a, b) => a.marca!.numero - b.marca!.numero);
-  const alternar = (clave: string) =>
-    setAbiertas((prev) => {
-      const sig = new Set(prev);
-      if (sig.has(clave)) sig.delete(clave);
-      else sig.add(clave);
-      return sig;
-    });
+  const alternar = (clave: string) => setAbiertas((prev) => alternarEnConjunto(prev, clave));
 
   return (
     <div className="flex flex-col gap-3">
@@ -109,7 +111,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
                     <FilaTabla fila={f} abierta={abiertas.has(f.clave)} onAlternar={() => alternar(f.clave)} puedeEditar={puedeEditar} onMarcar={() => setMarcando(f.clave)} />
                     {abiertas.has(f.clave) && (
                       <tr className="border-b border-ink-100 bg-ink-50/40">
-                        <td colSpan={COLUMNAS} className="px-4 py-3">
+                        <td colSpan={COLUMNAS} className="border-l-2 border-navy-700 px-4 py-3">
                           <DetalleFila fila={f} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} />
                         </td>
                       </tr>
@@ -151,7 +153,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
 
 function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila: FilaCruce; abierta: boolean; onAlternar: () => void; puedeEditar: boolean; onMarcar: () => void }) {
   return (
-    <tr className="border-b border-ink-100 align-top">
+    <tr className={`border-b border-ink-100 align-top ${abierta ? "bg-navy-50/40" : ""}`}>
       <td className="px-3 py-1.5">
         <button type="button" onClick={onAlternar} aria-expanded={abierta} className="flex items-start gap-1.5 text-left">
           <Icon name={chevronDivulgacion(abierta)} size={13} className="mt-0.5 shrink-0 text-ink-400" />
@@ -211,87 +213,178 @@ function FilaSubtotal({ etiqueta, subtotal, total = false }: { etiqueta: string;
   );
 }
 
-function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"] }) {
+// Las dos tablas del detalle comparten columnas: lo declarado y los saldos de todas las cuentas quedan alineados.
+const COLUMNAS_DETALLE = (
+  <colgroup>
+    <col className="w-28" />
+    <col />
+    <col className="w-40" />
+    <col className="w-40" />
+    <col className="w-52" />
+  </colgroup>
+);
+const ENCABEZADO_DETALLE = "sticky top-0 z-20 bg-ink-50 px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-500 shadow-[inset_0_-1px_0_var(--color-ink-150)]";
+const VALOR_DETALLE = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
+const BANDA_CUENTA = "sticky top-[27px] z-10 bg-navy-100 font-semibold text-navy-800";
+const FILA_TOTAL_DETALLE = "border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800";
+const RESALTE_SALDO_INICIAL = "rounded bg-warn-100 px-1 text-warn-700";
+
+function TituloDetalle({ titulo, detalle, cuentaRussell }: { titulo: string; detalle: string; cuentaRussell?: string }) {
   return (
-    <div className="flex flex-col gap-3 text-[12px]">
-      <div>
-        <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Lo declarado (350 vigentes hasta el corte)</h4>
-        <table className="text-[12px]">
-          <tbody>
-            {fila.conceptos.map((c) => (
-              <tr key={c.concepto}>
-                <td className="py-0.5 pr-4 text-ink-700">{c.etiqueta}</td>
-                <td className="py-0.5 pr-4 tabular-nums text-ink-400">{c.renglones.join(" · ")}</td>
-                <td className="py-0.5 text-right tabular-nums">{fmtContable(c.declarado)}</td>
+    <h4 className="mb-1.5 border-b-2 border-navy-700 pb-1 text-[12px] font-bold text-navy-800">
+      {titulo} <span className="font-normal text-ink-500">· {detalle}</span>
+      {cuentaRussell && <span className="ml-2 rounded bg-navy-100 px-1.5 py-0.5 tabular-nums">Cuenta Russell {cuentaRussell}</span>}
+    </h4>
+  );
+}
+
+function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"] }) {
+  const [cuentasAbiertas, setCuentasAbiertas] = useState<ReadonlySet<string>>(new Set());
+  const hayAvisos = fila.saldoInicial || fila.posiblesDian.length > 0 || (fila.marca && !fila.marca.vigente);
+  return (
+    <div className="flex flex-col gap-4 text-[12px]">
+      <section>
+        <TituloDetalle titulo="Lo declarado" detalle="350 vigentes hasta el corte" />
+        <div className="rounded border border-ink-150 bg-white">
+          <table className="w-full table-fixed">
+            {COLUMNAS_DETALLE}
+            <thead>
+              <tr>
+                <th colSpan={2} className={ENCABEZADO_DETALLE}>Concepto</th>
+                <th className={`${ENCABEZADO_DETALLE} text-right`}>Renglones</th>
+                <th className={`${ENCABEZADO_DETALLE} text-right`}>Declarado</th>
+                <th className={ENCABEZADO_DETALLE} />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {fila.conceptos.map((c) => (
+                <tr key={c.concepto} className="border-t border-ink-100">
+                  <td colSpan={2} className="px-2 py-1 text-ink-800">{c.etiqueta}</td>
+                  <td className={`${VALOR_DETALLE} text-ink-400`}>{c.renglones.join(" · ")}</td>
+                  <td className={VALOR_DETALLE}>{fmtContable(c.declarado)}</td>
+                  <td />
+                </tr>
+              ))}
+              {fila.conceptos.length > 1 && (
+                <tr className={FILA_TOTAL_DETALLE}>
+                  <td colSpan={3} className="px-2 py-1">Total declarado</td>
+                  <td className={VALOR_DETALLE}>{fmtContable(fila.declarado)}</td>
+                  <td />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {fila.cuentaRussell && (
-        <div>
-          <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">La contabilidad (saldo final al corte)</h4>
+        <section>
+          <TituloDetalle titulo="La contabilidad" detalle="saldo final al corte" cuentaRussell={fila.cuentaRussell} />
           {fila.cuentasCliente.length === 0 ? (
             <p className="text-ink-500">Ninguna cuenta del cliente está homologada a {fila.cuentaRussell} en este balance.</p>
           ) : (
-            <div className="flex flex-col gap-2">
-              {fila.cuentasCliente.map((c) => {
-                const oculto = ocultos[`${fila.clave}|${c.cuenta}`];
-                return (
-                  <div key={c.cuenta}>
-                    <div className="flex flex-wrap items-baseline gap-x-2 font-medium text-ink-800">
-                      <span className="tabular-nums">{c.cuenta}</span>
-                      <span>{c.nombre}</span>
-                      <span className="ml-auto tabular-nums">{fmtContable(c.saldo)}</span>
-                    </div>
-                    <div className="max-h-72 overflow-y-auto rounded border border-ink-100 bg-white">
-                      <table className="w-full text-[11.5px]">
-                        <thead>
-                          <tr className="text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
-                            <th className="px-2 py-1">NIT</th>
-                            <th className="px-2 py-1">Tercero</th>
-                            {inicioEnero && <th className="px-2 py-1 text-right">Saldo inicial</th>}
-                            <th className="px-2 py-1 text-right">Saldo final</th>
-                            <th className="px-2 py-1" />
+            <div className="max-h-[30rem] overflow-y-auto rounded border border-ink-150 bg-white">
+              <table className="w-full table-fixed">
+                {COLUMNAS_DETALLE}
+                <thead>
+                  <tr>
+                    <th colSpan={2} className={ENCABEZADO_DETALLE}>Cuenta del cliente</th>
+                    <th className={`${ENCABEZADO_DETALLE} text-right`}>{inicioEnero ? "Saldo inicial" : ""}</th>
+                    <th className={`${ENCABEZADO_DETALLE} text-right`}>Saldo final</th>
+                    <th className={ENCABEZADO_DETALLE} />
+                  </tr>
+                </thead>
+                {fila.cuentasCliente.map((c) => {
+                  const oculto = ocultos[`${fila.clave}|${c.cuenta}`];
+                  const abierta = cuentasAbiertas.has(c.cuenta);
+                  const resumen = resumenCuentaCruce(c, oculto);
+                  return (
+                    <tbody key={c.cuenta}>
+                      <tr>
+                        <td colSpan={2} className={`${BANDA_CUENTA} px-2 py-1.5`}>
+                          <button type="button" onClick={() => setCuentasAbiertas((prev) => alternarEnConjunto(prev, c.cuenta))} aria-expanded={abierta} className="flex w-full items-center gap-1.5 text-left">
+                            <Icon name={chevronDivulgacion(abierta)} size={13} className="shrink-0" />
+                            <span className="tabular-nums">{c.cuenta}</span>
+                            <span className="ml-1">{c.nombre}</span>
+                            <span className="ml-1 font-normal text-ink-600">· {resumen.terceros} {resumen.terceros === 1 ? "tercero" : "terceros"}</span>
+                          </button>
+                        </td>
+                        <td className={`${BANDA_CUENTA} ${VALOR_DETALLE}`}>
+                          {inicioEnero && resumen.saldoInicial !== 0 && <span className={RESALTE_SALDO_INICIAL}>{fmtContable(resumen.saldoInicial)}</span>}
+                        </td>
+                        <td className={`${BANDA_CUENTA} ${VALOR_DETALLE}`}>{fmtContable(c.saldo)}</td>
+                        <td className={`${BANDA_CUENTA} px-2 text-[10.5px]`}>
+                          {resumen.dianRestado !== 0 && <span className="block">DIAN restada {fmtContable(resumen.dianRestado)}</span>}
+                          {resumen.posibleDian && <span className="block">¿DIAN sin NIT?</span>}
+                        </td>
+                      </tr>
+                      {abierta && (
+                        <tr className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
+                          <td className="pb-0.5 pl-5 pr-2 pt-1.5">NIT</td>
+                          <td className="px-2 pb-0.5 pt-1.5">Tercero</td>
+                          <td colSpan={3} />
+                        </tr>
+                      )}
+                      {abierta && c.terceros.map((t, i) => {
+                        const tachado = t.restado ? "text-ink-400 line-through" : "";
+                        return (
+                          <tr key={`${t.nit ?? "sin-nit"}-${i}`} className="border-t border-ink-100 hover:bg-ink-50">
+                            <td className={`py-1 pl-5 pr-2 tabular-nums ${tachado}`}>{t.nit ?? "—"}</td>
+                            <td className={`px-2 py-1 ${tachado}`}>{t.nombre ?? "—"}</td>
+                            <td className={`${VALOR_DETALLE} ${tachado}`}>
+                              {inicioEnero && t.saldoInicial !== 0 && (
+                                t.esDian ? fmtContable(t.saldoInicial) : <span className={RESALTE_SALDO_INICIAL}>{fmtContable(t.saldoInicial)}</span>
+                              )}
+                            </td>
+                            <td className={`${VALOR_DETALLE} ${tachado}`}>{fmtContable(t.saldo)}</td>
+                            <td className="px-2 py-1 text-[10.5px] font-semibold">
+                              {t.restado && <span className="text-ink-500">DIAN · se resta</span>}
+                              {t.esDian && !t.restado && <span className="text-ink-500">DIAN · esta cuenta no la resta</span>}
+                              {t.posibleDian && <span className="text-warn-700">¿Es la DIAN? Sin NIT: no se resta sola</span>}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {c.terceros.map((t, i) => (
-                            <tr key={`${t.nit ?? "sin-nit"}-${i}`} className="border-t border-ink-100">
-                              <td className={`px-2 py-0.5 tabular-nums ${t.restado ? "text-ink-400 line-through" : ""}`}>{t.nit ?? "—"}</td>
-                              <td className={`px-2 py-0.5 ${t.restado ? "text-ink-400 line-through" : ""}`}>{t.nombre ?? "—"}</td>
-                              {inicioEnero && <td className="px-2 py-0.5 text-right tabular-nums">{t.saldoInicial !== 0 ? fmtContable(t.saldoInicial) : ""}</td>}
-                              <td className={`px-2 py-0.5 text-right tabular-nums ${t.restado ? "text-ink-400 line-through" : ""}`}>{fmtContable(t.saldo)}</td>
-                              <td className="px-2 py-0.5">
-                                {t.restado && <span className="text-[10.5px] font-semibold text-ink-500">DIAN · se resta</span>}
-                                {t.esDian && !t.restado && <span className="text-[10.5px] font-semibold text-ink-500">DIAN · esta cuenta no la resta</span>}
-                                {t.posibleDian && <span className="text-[10.5px] font-semibold text-warn-700">¿Es la DIAN? Sin NIT: no se resta sola</span>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {oculto && <p className="mt-0.5 text-[11px] text-ink-400">Y {oculto.cantidad} terceros más por {fmtContable(oculto.saldo)}. En el Excel van todos.</p>}
-                  </div>
-                );
-              })}
+                        );
+                      })}
+                      {abierta && oculto && (
+                        <tr className="border-t border-ink-100 text-[11px] text-ink-500">
+                          <td colSpan={3} className="py-1 pl-5 pr-2">Y {oculto.cantidad} terceros más</td>
+                          <td className={VALOR_DETALLE}>{fmtContable(oculto.saldo)}</td>
+                          <td className="px-2 py-1">En el Excel van todos.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  );
+                })}
+                {fila.cuentasCliente.length > 1 && (
+                  <tfoot>
+                    <tr className={FILA_TOTAL_DETALLE}>
+                      <td colSpan={2} className="px-2 py-1.5">Total contabilidad</td>
+                      <td className={VALOR_DETALLE}>{fila.saldoInicial && fmtContable(fila.saldoInicial.monto)}</td>
+                      <td className={VALOR_DETALLE}>{fmtContable(fila.contable)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
           )}
-        </div>
+        </section>
       )}
 
-      {fila.saldoInicial && (
-        <p className="text-warn-700">
-          {fila.saldoInicial.terceros} {fila.saldoInicial.terceros === 1 ? "tercero trae" : "terceros traen"} saldo inicial por {fmtContable(fila.saldoInicial.monto)}: el saldo final puede arrastrar retenciones de períodos anteriores. No cambia la cifra del cruce.
-        </p>
-      )}
-      {fila.posiblesDian.length > 0 && (
-        <p className="text-warn-700">Sin NIT pero con nombre de la DIAN: {fila.posiblesDian.join(", ")}. No se resta sola; si es un pago, revisa el tercero en el balance.</p>
-      )}
-      {fila.marca && !fila.marca.vigente && (
-        <p className="text-warn-700">La marca {fila.marca.numero} se escribió con una diferencia de {fmtContable(fila.marca.diferencia)} y hoy es {fmtContable(fila.diferencia)}: revísala.</p>
+      {hayAvisos && (
+        <div className="flex flex-col gap-1 rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-warn-700">
+          {fila.saldoInicial && (
+            <p>
+              {fila.saldoInicial.terceros} {fila.saldoInicial.terceros === 1 ? "tercero trae" : "terceros traen"} saldo inicial por {fmtContable(fila.saldoInicial.monto)}: el saldo final puede arrastrar retenciones de períodos anteriores. No cambia la cifra del cruce.
+            </p>
+          )}
+          {fila.posiblesDian.length > 0 && (
+            <p>Sin NIT pero con nombre de la DIAN: {fila.posiblesDian.join(", ")}. No se resta sola; si es un pago, revisa el tercero en el balance.</p>
+          )}
+          {fila.marca && !fila.marca.vigente && (
+            <p>La marca {fila.marca.numero} se escribió con una diferencia de {fmtContable(fila.marca.diferencia)} y hoy es {fmtContable(fila.diferencia)}: revísala.</p>
+          )}
+        </div>
       )}
     </div>
   );

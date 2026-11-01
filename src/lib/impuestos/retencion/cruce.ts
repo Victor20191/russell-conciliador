@@ -237,6 +237,19 @@ export function gruposCruceConValores(grupos: ResultadoCruce["grupos"]): Resulta
   return grupos.map((g) => ({ ...g, filas: g.filas.filter(filaCruceConValores) })).filter((g) => g.filas.length > 0);
 }
 
+/**
+ * Lo que se lee de una cuenta del cliente con sus terceros contraídos. El saldo inicial sigue el
+ * criterio del aviso de la fila: el de la DIAN no cuenta. `oculto` son los que no viajaron a la pantalla.
+ */
+export function resumenCuentaCruce(c: CuentaClienteCruce, oculto?: { cantidad: number; saldoInicial: number }) {
+  return {
+    terceros: c.terceros.length + (oculto?.cantidad ?? 0),
+    saldoInicial: sumar([...c.terceros.filter((t) => !t.esDian).map((t) => t.saldoInicial), oculto?.saldoInicial ?? 0]),
+    dianRestado: sumar(c.terceros.filter((t) => t.restado).map((t) => t.saldo)),
+    posibleDian: c.terceros.some((t) => t.posibleDian),
+  };
+}
+
 export function etiquetaFilaCruce(f: Pick<FilaCruce, "nombreCuenta" | "conceptos">): string {
   if (f.conceptos.length === 1) return f.conceptos[0].etiqueta;
   return f.nombreCuenta ?? f.conceptos.map((c) => c.etiqueta).join(" + ");
@@ -267,8 +280,8 @@ export type CruceRetencionVista =
 export const MAX_TERCEROS_PANTALLA = 100;
 
 export type ResultadoCrucePantalla = ResultadoCruce & {
-  /** Por `clave|cuenta del cliente`: cuántos terceros no viajaron y cuánto suman (sin los restados). */
-  tercerosOcultos: Record<string, { cantidad: number; saldo: number }>;
+  /** Por `clave|cuenta del cliente`: cuántos terceros no viajaron, su saldo (sin los restados) y su saldo inicial (sin la DIAN). */
+  tercerosOcultos: Record<string, { cantidad: number; saldo: number; saldoInicial: number }>;
 };
 
 export type CruceRetencionPantalla =
@@ -277,7 +290,7 @@ export type CruceRetencionPantalla =
 
 /** Recorta los terceros de cada cuenta para la pantalla, dejando el resumen de los que no viajan. */
 export function cruceParaPantalla(resultado: ResultadoCruce): ResultadoCrucePantalla {
-  const ocultos: Record<string, { cantidad: number; saldo: number }> = {};
+  const ocultos: ResultadoCrucePantalla["tercerosOcultos"] = {};
   const grupos = resultado.grupos.map((g) => ({
     ...g,
     filas: g.filas.map((f) => ({
@@ -288,7 +301,11 @@ export function cruceParaPantalla(resultado: ResultadoCruce): ResultadoCrucePant
         const visibles = [...c.terceros.filter((t) => t.esDian || t.posibleDian), ...c.terceros.filter((t) => !t.esDian && !t.posibleDian)].slice(0, MAX_TERCEROS_PANTALLA);
         const enPantalla = new Set(visibles);
         const resto = c.terceros.filter((t) => !enPantalla.has(t));
-        ocultos[`${f.clave}|${c.cuenta}`] = { cantidad: resto.length, saldo: sumar(resto.filter((t) => !t.restado).map((t) => t.saldo)) };
+        ocultos[`${f.clave}|${c.cuenta}`] = {
+          cantidad: resto.length,
+          saldo: sumar(resto.filter((t) => !t.restado).map((t) => t.saldo)),
+          saldoInicial: sumar(resto.filter((t) => !t.esDian).map((t) => t.saldoInicial)),
+        };
         return { ...c, terceros: visibles };
       }),
     })),

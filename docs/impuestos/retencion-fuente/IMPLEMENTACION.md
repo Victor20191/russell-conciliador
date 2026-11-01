@@ -19,3 +19,5 @@ Especificación y decisiones del usuario en `docs/impuestos/retencion-fuente/` (
 - **Lista de revisiones**: buscador por cliente, NIT o año y filtro por estado (`retencion/listado.ts`), con las piezas de los módulos (`BuscadorListado` y `FiltroEstadoListado`, en `modulos/[codigo]/listado-compartido.tsx`). Sin migración.
 
 - **Cruce · «Ocultar los renglones en cero»**: en la pantalla (`gruposCruceConValores`), no en el Excel ni en la copia congelada. Una fila en cero con marca o con aviso no se oculta; el grupo que se queda sin filas sale entero y el total siempre se ve.
+
+- **Cruce · detalle desplegado**: una sola tabla con columnas fijas; los terceros de cada cuenta del cliente vienen contraídos y la banda de la cuenta resume su saldo inicial y la DIAN restada (`resumenCuentaCruce`).

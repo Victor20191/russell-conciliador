@@ -347,7 +347,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             {
               nombre: "Desplegar una fila",
               queHace:
-                "Muestra los conceptos declarados que forman la fila y las cuentas del cliente con sus terceros (NIT, nombre, saldo), con la DIAN tachada. Avisa los terceros con saldo inicial (cuando el balance empieza el 1 de enero) y los que tienen nombre de la DIAN pero no NIT, que no se restan solos.",
+                "Muestra los conceptos declarados que forman la fila y las cuentas del cliente con su saldo; al desplegar una cuenta se ven sus terceros (NIT, nombre, saldo), con la DIAN tachada. Avisa los terceros con saldo inicial (cuando el balance empieza el 1 de enero) y los que tienen nombre de la DIAN pero no NIT, que no se restan solos.",
               regla: REGLAS.verRevisionImpuestos,
             },
             {
