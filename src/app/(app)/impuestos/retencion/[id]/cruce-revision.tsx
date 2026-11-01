@@ -6,8 +6,10 @@ import { Icon } from "@/components/icons";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
+import { ConmutadorCeros } from "./vistas-revision";
 import {
   etiquetaFilaCruce,
+  gruposCruceConValores,
   renglonesFilaCruce,
   type CruceRetencionPantalla,
   type FilaCruce,
@@ -30,6 +32,7 @@ const fecha = (iso: string) => {
 export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: CruceRetencionPantalla; revisionId: number; puedeEditar: boolean }) {
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
   const [marcando, setMarcando] = useState<string | null>(null);
+  const [ocultarCeros, setOcultarCeros] = useState(false);
 
   if (cruce.estado !== "listo") {
     return (
@@ -47,6 +50,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
 
   const { resultado, balance, umbral, inicioEnero } = cruce;
   const filas = resultado.grupos.flatMap((g) => g.filas);
+  const grupos = ocultarCeros ? gruposCruceConValores(resultado.grupos) : resultado.grupos;
   const filaMarcando = filas.find((f) => f.clave === marcando) ?? null;
   const conMarca = filas.filter((f) => f.marca).sort((a, b) => a.marca!.numero - b.marca!.numero);
   const alternar = (clave: string) =>
@@ -60,15 +64,18 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   return (
     <div className="flex flex-col gap-3">
       <Card className="flex flex-col gap-1.5 p-4 text-[12.5px]">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <span className="text-ink-700">
             Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
           </span>
-          {resultado.pendientesMarca > 0 ? (
-            <Chip label={`${resultado.pendientesMarca} ${resultado.pendientesMarca === 1 ? "diferencia exige" : "diferencias exigen"} marca`} tone="warn" />
-          ) : (
-            <Chip label="Sin diferencias pendientes de marca" tone="ok" />
-          )}
+          <div className="flex flex-col items-end gap-1">
+            <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
+            {resultado.pendientesMarca > 0 ? (
+              <Chip label={`${resultado.pendientesMarca} ${resultado.pendientesMarca === 1 ? "diferencia exige" : "diferencias exigen"} marca`} tone="warn" />
+            ) : (
+              <Chip label="Sin diferencias pendientes de marca" tone="ok" />
+            )}
+          </div>
         </div>
         <p className="text-[11.5px] text-ink-500">
           Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma. Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
@@ -92,7 +99,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
             </tr>
           </thead>
           <tbody>
-            {resultado.grupos.map((g) => (
+            {grupos.map((g) => (
               <Fragment key={g.grupo}>
                 <tr className="bg-ink-50/60">
                   <td colSpan={COLUMNAS} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{g.etiqueta}</td>

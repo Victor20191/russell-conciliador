@@ -224,6 +224,19 @@ export function prefijosRetencion(): string[] {
 }
 
 /** Cómo se nombra una fila del cruce: su concepto, o la cuenta Russell cuando agrupa varios. */
+/**
+ * ¿La fila tiene algo que mostrar? (para «Ocultar los renglones en cero»). Una fila en cero con
+ * marca o con aviso se queda: hay algo que leer en ella.
+ */
+export function filaCruceConValores(f: Pick<FilaCruce, "declarado" | "contable" | "dianRestado" | "marca" | "saldoInicial" | "posiblesDian">): boolean {
+  return f.declarado !== 0 || f.contable !== 0 || f.dianRestado !== 0 || f.marca !== null || f.saldoInicial !== null || f.posiblesDian.length > 0;
+}
+
+/** Los grupos sin sus filas en cero; el que se queda sin filas sale entero (su subtotal es cero). */
+export function gruposCruceConValores(grupos: ResultadoCruce["grupos"]): ResultadoCruce["grupos"] {
+  return grupos.map((g) => ({ ...g, filas: g.filas.filter(filaCruceConValores) })).filter((g) => g.filas.length > 0);
+}
+
 export function etiquetaFilaCruce(f: Pick<FilaCruce, "nombreCuenta" | "conceptos">): string {
   if (f.conceptos.length === 1) return f.conceptos[0].etiqueta;
   return f.nombreCuenta ?? f.conceptos.map((c) => c.etiqueta).join(" + ");

@@ -350,6 +350,11 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
                 "Muestra los conceptos declarados que forman la fila y las cuentas del cliente con sus terceros (NIT, nombre, saldo), con la DIAN tachada. Avisa los terceros con saldo inicial (cuando el balance empieza el 1 de enero) y los que tienen nombre de la DIAN pero no NIT, que no se restan solos.",
               regla: REGLAS.verRevisionImpuestos,
             },
+            {
+              nombre: "Ocultar los renglones en cero",
+              queHace: "Deja solo las filas con valor, con marca o con aviso, y quita el grupo que se queda sin filas. El total siempre se ve.",
+              regla: REGLAS.verRevisionImpuestos,
+            },
           ],
         },
         {

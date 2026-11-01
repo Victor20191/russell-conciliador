@@ -8,7 +8,7 @@ const miles = (n: number | null) => (n == null ? "" : Math.round(n).toLocaleStri
 const CELDA = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
 const PRIMERA = "sticky left-0 z-10 bg-white px-3 py-1 text-left";
 
-function ConmutadorCeros({ ocultar, onCambio }: { ocultar: boolean; onCambio: (v: boolean) => void }) {
+export function ConmutadorCeros({ ocultar, onCambio }: { ocultar: boolean; onCambio: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-1.5 text-[11.5px] text-ink-500">
       <input type="checkbox" checked={ocultar} onChange={(e) => onCambio(e.target.checked)} />

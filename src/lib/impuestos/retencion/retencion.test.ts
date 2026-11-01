@@ -4,7 +4,7 @@ import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fi
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
-import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, MAX_TERCEROS_PANTALLA, renglonesFilaCruce } from "./cruce";
+import { cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
 
 const DV = String(dvNit(NIT_FICTICIO));
@@ -246,6 +246,29 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     const r = entrada();
     expect(fila(r, "sin_cuenta:menos_renta_exceso")).toMatchObject({ grupo: "renta", cuentaRussell: null, contable: 0 });
     expect(r.grupos.flatMap((g) => g.filas).some((f) => f.conceptos.some((c) => c.concepto === "sanciones"))).toBe(false);
+  });
+
+  it("ocultar los renglones en cero: deja las filas con valor y quita el grupo que queda vacío", () => {
+    const r = entrada();
+    const visibles = gruposCruceConValores(r.grupos);
+    // Honorarios no tiene nada en este caso; timbre (135) se queda sin filas y sale entero.
+    expect(r.grupos.flatMap((g) => g.filas).some((f) => f.clave === "236515")).toBe(true);
+    expect(visibles.flatMap((g) => g.filas).map((f) => f.clave)).toEqual(expect.arrayContaining(["236505", "236575", "236705"]));
+    expect(visibles.flatMap((g) => g.filas).every((f) => f.declarado !== 0 || f.contable !== 0)).toBe(true);
+    expect(visibles.map((g) => g.grupo)).toEqual(["renta", "iva"]);
+    // Lo que queda sigue sumando lo mismo: solo se quitaron ceros.
+    expect(visibles.find((g) => g.grupo === "renta")?.subtotal).toEqual(r.grupos[0].subtotal);
+  });
+
+  it("una fila en cero con marca o con aviso no se oculta", () => {
+    const cero = { declarado: 0, contable: 0, dianRestado: 0, marca: null, saldoInicial: null, posiblesDian: [] };
+    expect(filaCruceConValores(cero)).toBe(false);
+    expect(filaCruceConValores({ ...cero, declarado: 1 })).toBe(true);
+    expect(filaCruceConValores({ ...cero, contable: -1 })).toBe(true);
+    expect(filaCruceConValores({ ...cero, dianRestado: -5 })).toBe(true);
+    expect(filaCruceConValores({ ...cero, saldoInicial: { terceros: 1, monto: 10 } })).toBe(true);
+    expect(filaCruceConValores({ ...cero, posiblesDian: ["DIAN"] })).toBe(true);
+    expect(filaCruceConValores({ ...cero, marca: { numero: 1, nota: "Revisada", referenciaAnexo: null, diferencia: 5, marcadoPor: null, marcadoEn: "2026-11-01", vigente: false } })).toBe(true);
   });
 
   it("subtotales 130 y 134, total 136 y cuentas fuera del mapeo", () => {
