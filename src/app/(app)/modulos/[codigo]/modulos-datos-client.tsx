@@ -314,7 +314,7 @@ function CargadosPorCliente({
           {grupos.length === 1 ? "1 cliente" : `${grupos.length} clientes`}
         </span>
         <div className="ml-auto">
-          <FiltroEstadoListado estado={estado} setEstado={setEstado} conteo={conteoEstados} />
+          <FiltroEstadoListado estado={estado} setEstado={setEstado} conteo={conteoEstados} opciones={ESTADOS_PERIODO_MODULO} />
         </div>
       </div>
 

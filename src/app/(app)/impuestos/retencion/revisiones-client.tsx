@@ -10,8 +10,17 @@ import { SelectBuscable } from "@/components/select-buscable";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import { crearRevisionRetencion } from "@/app/actions/impuestos-retencion";
+import { BuscadorListado, FiltroEstadoListado } from "@/app/(app)/modulos/[codigo]/listado-compartido";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { opcionesPeriodicidad } from "@/lib/impuestos/periodicidad";
+import {
+  contarRevisionesPorEstado,
+  ESTADOS_REVISION,
+  estadoRevision,
+  etiquetaEstadoRevision,
+  filtrarRevisiones,
+  type EstadoRevision,
+} from "@/lib/impuestos/retencion/listado";
 import type { ClienteRevision, RevisionResumen } from "@/lib/impuestos/retencion/revision-servidor";
 import type { ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
 
@@ -31,17 +40,40 @@ export default function RevisionesClient({
   anioActual: number;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<EstadoRevision | null>(null);
+  const conteo = useMemo(() => contarRevisionesPorEstado(revisiones), [revisiones]);
+  const visibles = useMemo(() => filtrarRevisiones(revisiones, busqueda, estado), [revisiones, busqueda, estado]);
+  const clientesVisibles = new Set(visibles.map((r) => r.clienteId)).size;
+  const hayRevisiones = revisiones.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
-      {puedeCrear && (
-        <div className="flex justify-end">
-          <button type="button" onClick={() => setAbierto(true)} className={BOTON_PRIMARIO}>Nueva revisión</button>
+      {(hayRevisiones || puedeCrear) && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {hayRevisiones && <BuscadorListado busqueda={busqueda} setBusqueda={setBusqueda} etiqueta="Buscar por cliente, NIT o año" />}
+          {puedeCrear && <button type="button" onClick={() => setAbierto(true)} className={`ml-auto ${BOTON_PRIMARIO}`}>Nueva revisión</button>}
+        </div>
+      )}
+      {hayRevisiones && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Revisiones</span>
+          <span className="rounded-full bg-ink-100 px-1.5 text-[10px] font-semibold text-ink-500">{visibles.length}</span>
+          <span className="text-[11px] text-ink-400">{clientesVisibles === 1 ? "1 cliente" : `${clientesVisibles} clientes`}</span>
+          <div className="ml-auto">
+            <FiltroEstadoListado estado={estado} setEstado={setEstado} conteo={conteo} opciones={ESTADOS_REVISION} />
+          </div>
         </div>
       )}
       <Card className="overflow-x-auto p-0">
-        {revisiones.length === 0 ? (
+        {!hayRevisiones ? (
           <p className="px-4 py-6 text-[12.5px] text-ink-500">Todavía no hay revisiones de Retención en la fuente{puedeCrear ? ". Crea la primera con «Nueva revisión»." : "."}</p>
+        ) : visibles.length === 0 ? (
+          <p className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+            {estado
+              ? `No se encontraron revisiones en estado «${etiquetaEstadoRevision(estado)}»${busqueda.trim() ? " con esa búsqueda" : ""}.`
+              : "No se encontraron revisiones con ese cliente, NIT o año."}
+          </p>
         ) : (
           <table className="w-full min-w-[720px] text-[12.5px]">
             <thead>
@@ -55,7 +87,7 @@ export default function RevisionesClient({
               </tr>
             </thead>
             <tbody>
-              {revisiones.map((r) => (
+              {visibles.map((r) => (
                 <tr key={r.id} className="border-b border-ink-100 last:border-0 hover:bg-ink-50/60">
                   <td className="px-3 py-2">
                     <Link href={`/impuestos/retencion/${r.id}`} className="font-semibold text-navy-800 hover:underline">{r.nombreCliente}</Link>
@@ -66,7 +98,7 @@ export default function RevisionesClient({
                   <td className="px-3 py-2 text-right tabular-nums">
                     {r.confirmados} confirmados{r.porConfirmar > 0 && <span className="ml-1 text-warn-700">· {r.porConfirmar} por confirmar</span>}
                   </td>
-                  <td className="px-3 py-2"><Chip label={r.estado === "en_firme" ? "En firme" : "En proceso"} tone={r.estado === "en_firme" ? "ok" : "blue"} /></td>
+                  <td className="px-3 py-2"><Chip label={etiquetaEstadoRevision(estadoRevision(r))} tone={estadoRevision(r) === "en_firme" ? "ok" : "blue"} /></td>
                   <td className="px-3 py-2 text-[11.5px] text-ink-500">{fmtDateTime(r.creadoEn)}{r.creadoPor ? ` · ${r.creadoPor}` : ""}</td>
                 </tr>
               ))}

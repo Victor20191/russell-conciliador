@@ -18,18 +18,24 @@ import { Chip } from "@/components/ui";
 import {
   coincideBusquedaModulo,
   direccionInicialColumnaModulo,
-  ESTADOS_PERIODO_MODULO,
   ordenarFilasModulo,
   type ColumnaOrdenModulo,
   type DireccionOrden,
-  type EstadoPeriodoModulo,
   type FilaListadoModulo,
 } from "@/lib/modulos/listado";
 
 export type OnConversar = (c: { tipo: string; entityId: number; titulo: string }) => void;
 
-/** Buscador de los listados del módulo (archivo, NIT, razón social o período). */
-export function BuscadorListado({ busqueda, setBusqueda }: { busqueda: string; setBusqueda: (v: string) => void }) {
+/** Buscador de los listados: por defecto el de los módulos (archivo, NIT, razón social o período). */
+export function BuscadorListado({
+  busqueda,
+  setBusqueda,
+  etiqueta = "Buscar por archivo, NIT, razón social o período",
+}: {
+  busqueda: string;
+  setBusqueda: (v: string) => void;
+  etiqueta?: string;
+}) {
   return (
     <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
       <Icon name="search" size={15} />
@@ -37,8 +43,8 @@ export function BuscadorListado({ busqueda, setBusqueda }: { busqueda: string; s
         type="text"
         value={busqueda}
         onChange={(event) => setBusqueda(event.target.value)}
-        placeholder="Buscar por archivo, NIT, razón social o período…"
-        aria-label="Buscar por archivo, NIT, razón social o período"
+        placeholder={`${etiqueta}…`}
+        aria-label={etiqueta}
         className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
       />
       {busqueda.length > 0 && (
@@ -56,30 +62,32 @@ export function BuscadorListado({ busqueda, setBusqueda }: { busqueda: string; s
   );
 }
 
-/** Filtro por estado del período (Vigente, Cerrado), con cuántos hay de cada uno. */
-export function FiltroEstadoListado({
+/** Filtro por estado de un listado (en los módulos, Vigente y Cerrado), con cuántos hay de cada uno. */
+export function FiltroEstadoListado<E extends string>({
   estado,
   setEstado,
   conteo,
+  opciones,
 }: {
-  estado: EstadoPeriodoModulo | null;
-  setEstado: (v: EstadoPeriodoModulo | null) => void;
-  conteo: Record<EstadoPeriodoModulo, number>;
+  estado: E | null;
+  setEstado: (v: E | null) => void;
+  conteo: Record<E, number>;
+  opciones: readonly { valor: E; etiqueta: string }[];
 }) {
-  const total = ESTADOS_PERIODO_MODULO.reduce((suma, e) => suma + conteo[e.valor], 0);
+  const total = opciones.reduce((suma, e) => suma + conteo[e.valor], 0);
   return (
     <label className="flex shrink-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
       Estado
       <select
         value={estado ?? ""}
-        onChange={(event) => setEstado((event.target.value || null) as EstadoPeriodoModulo | null)}
+        onChange={(event) => setEstado((event.target.value || null) as E | null)}
         aria-label="Filtrar por estado"
         className={`h-8 rounded-md border bg-white px-2 text-[12px] font-normal normal-case tracking-normal text-ink-700 shadow-sm outline-none transition focus:border-blue-400 ${
           estado ? "border-blue-300 bg-blue-100" : "border-ink-200"
         }`}
       >
         <option value="">Todos ({total})</option>
-        {ESTADOS_PERIODO_MODULO.map((e) => (
+        {opciones.map((e) => (
           <option key={e.valor} value={e.valor}>
             {e.etiqueta} ({conteo[e.valor]})
           </option>

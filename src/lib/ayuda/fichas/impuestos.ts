@@ -155,6 +155,13 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
         },
       ],
     },
+    {
+      titulo: "Consultar",
+      acciones: [
+        { nombre: "Buscar por cliente, NIT o año", queHace: "Deja en la lista las revisiones que coinciden. El NIT se encuentra con o sin dígito de verificación.", regla: REGLAS.verImpuestos },
+        { nombre: "Estado: Todos · En proceso · En firme", queHace: "Filtra las revisiones por su estado y muestra cuántas hay de cada uno.", regla: REGLAS.verImpuestos },
+      ],
+    },
   ],
   estados: [
     { etiqueta: "En proceso", significado: "La revisión se puede trabajar: importar, confirmar y registrar meses sin formulario." },
