@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -230,6 +230,34 @@ describe("filasEfectivasTercero — dedup de la fila propia", () => {
     const filas = [fp("13050501", "800011002", "ACME", 10), fp("13050501", null, "Genérico", 5)];
     expect(filasEfectivasTercero(filas)).toEqual(filas);
   });
+
+  it("no suma el «tercero» que solo repite el total de su cuenta (Melonn 13050501)", () => {
+    const filas = [
+      fp("13050501", null, null, 300),        // propia
+      fp("13050501", "13050501", null, 300),  // el total con el código de la cuenta como NIT
+      fp("13050501", "901138039", "4 FOOTED SAS", 100),
+      fp("13050501", "901218826", "7 TRILOGI SAS", 200),
+    ];
+    expect(filasEfectivasTercero(filas).map((f) => f.nitTercero)).toEqual(["901138039", "901218826"]);
+    // Con los importes en Decimal, como llegan de Prisma.
+    const decimal = (v: number) => ({ toString: () => String(v) });
+    const conDecimal = filas.map((f) => ({ ...f, saldoFinal: decimal(f.saldoFinal) }));
+    expect(filasEfectivasTercero(conDecimal)).toHaveLength(2);
+  });
+
+  it("si el total repetido era el único «tercero», la cuenta queda con su fila propia", () => {
+    const filas = [fp("13659515", null, null, 2), fp("13659515", "13659515", null, 2)];
+    expect(filasEfectivasTercero(filas)).toEqual([filas[0]]);
+  });
+
+  it("un saldo real con el código de la cuenta como tercero sí suma (Soluciones 21051129)", () => {
+    const filas = [
+      fp("21051129", null, null, 0),
+      fp("21051129", "21051129", null, -244662190.21),
+      fp("21051129", "860002964", "BANCO DE BOGOTA S.A", 244662190.21),
+    ];
+    expect(filasEfectivasTercero(filas)).toEqual(filas.slice(1));
+  });
 });
 
 describe("claveTerceroDeCaptura", () => {
@@ -296,5 +324,52 @@ describe("esTotalDeCuentaComoTercero — el total de la cuenta leído como terce
     expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: null, nombreTercero: null })).toBe(false);
     expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: null, nombreTercero: "Genérico" })).toBe(false);
     expect(esTotalDeCuentaComoTercero({ cuenta8: "23650501", nitTercero: "2365", nombreTercero: null })).toBe(false);
+  });
+});
+
+describe("repiteTotalDeCuenta — el total de la cuenta repetido como tercero", () => {
+  const propia = { saldoInicial: 6283358725.54, debitos: 37325513243.74, creditos: 39230514924.99, saldoFinal: 4378357044.29 };
+  const fila = (over: Partial<Parameters<typeof repiteTotalDeCuenta>[0]> = {}) => ({ cuenta8: "13050501", nitTercero: "13050501", nombreTercero: null, ...propia, ...over });
+
+  it("el código de la cuenta como NIT, sin nombre y con los importes de la fila propia (Melonn)", () => {
+    expect(repiteTotalDeCuenta(fila(), propia)).toBe(true);
+    // Compara solo los importes que traen las dos filas (el cruce por tercero no lee el saldo inicial).
+    expect(repiteTotalDeCuenta(fila({ saldoInicial: undefined }), { ...propia, saldoInicial: 0 })).toBe(true);
+  });
+
+  it("un saldo real con el código de la cuenta como tercero no se toca (Soluciones 21051129)", () => {
+    expect(repiteTotalDeCuenta(fila({ cuenta8: "21051129", nitTercero: "21051129", saldoInicial: -244662190.21, debitos: 0, creditos: 0, saldoFinal: -244662190.21 }),
+      { saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 })).toBe(false);
+    expect(repiteTotalDeCuenta(fila({ nombreTercero: "PERSONA" }), propia)).toBe(false);
+    expect(repiteTotalDeCuenta(fila({ nitTercero: "800197268" }), propia)).toBe(false);
+  });
+
+  it("sin importes que comparar no afirma nada", () => {
+    expect(repiteTotalDeCuenta({ cuenta8: "13050501", nitTercero: "13050501", nombreTercero: null }, propia)).toBe(false);
+  });
+});
+
+describe("prepararCapturaTercero — el total de la cuenta leído como tercero no se guarda", () => {
+  it("descarta la fila que repite el total y conserva los terceros reales", () => {
+    const stg: FilaTerceroCruda[] = [
+      { filaNum: 2, codigo: "22050501", codigoCrudo: "22050501", nombreCuenta: "PROVEEDORES", nitTercero: "22050501", nombreTercero: null, saldoInicial: 50, debitos: 30, creditos: 10, saldoFinal: 300 },
+      { filaNum: 3, codigo: "22050501", codigoCrudo: null, nombreCuenta: "PROVEEDORES", nitTercero: "890903938", nombreTercero: null, saldoInicial: 20, debitos: 10, creditos: 0, saldoFinal: 100 },
+      { filaNum: 4, codigo: "22050501", codigoCrudo: null, nombreCuenta: "PROVEEDORES", nitTercero: "901427659", nombreTercero: "MELONN", saldoInicial: 30, debitos: 20, creditos: 10, saldoFinal: 200 },
+    ];
+    // Archivo en magnitud: la cuenta quedó firmada (−) y el total repetido se compara ya firmado.
+    const dets = [detalle({ cuenta8: "22050501", saldoInicial: -50, debitos: 30, creditos: 10, saldoFinal: -300 })];
+    const r = prepararCapturaTercero(stg, dets, new Set(), new Map([["22050501", -1]]));
+    expect(r.filas.map((f) => [f.nitTercero, f.saldoFinal])).toEqual([[null, -300], ["890903938", -100], ["901427659", -200]]);
+    expect(evaluarCoberturaTercero(r.filas).incompletas).toEqual([]);
+  });
+
+  it("si era el único «tercero», la cuenta queda con su fila propia y sin detalle", () => {
+    const stg: FilaTerceroCruda[] = [
+      { filaNum: 2, codigo: "13659515", codigoCrudo: "13659515", nombreCuenta: "OTROS", nitTercero: "13659515", nombreTercero: null, saldoInicial: 0, debitos: 2, creditos: 0, saldoFinal: 2 },
+    ];
+    const r = prepararCapturaTercero(stg, [detalle({ cuenta8: "13659515", debitos: 2, saldoFinal: 2 })], new Set());
+    expect(r.filas).toHaveLength(1);
+    expect(r.filas[0]).toMatchObject({ nitTercero: null, saldoFinal: 2 });
+    expect(r.cuentasConDetalle).toBe(0);
   });
 });

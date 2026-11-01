@@ -221,10 +221,16 @@ export function prepararCapturaTercero(
     });
     // Solo las cuentas de `PREFIJOS_TERCERO_CONSERVADOS` guardan sus terceros; el
     // resto queda con su fila propia (el saldo oficial), así los totales no cambian.
-    const terceros = conservaDetalleTercero(det.cuenta8) ? tercerosPorCuenta.get(det.cuenta8) : undefined;
-    if (!terceros) continue;
-    cuentasConDetalle++;
     const factor = signoPorCuenta?.get(det.cuenta8) ?? 1;
+    // Un tercero que solo repite el total de la cuenta (su código como NIT y sus mismos importes)
+    // no se guarda: sumado a los terceros reales doblaría la cuenta.
+    const terceros = (conservaDetalleTercero(det.cuenta8) ? tercerosPorCuenta.get(det.cuenta8) : undefined)
+      ?.filter((t) => !repiteTotalDeCuenta(
+        { cuenta8: det.cuenta8, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero, saldoInicial: firmarSaldoTercero(t.saldoInicial, factor), debitos: t.debitos, creditos: t.creditos, saldoFinal: firmarSaldoTercero(t.saldoFinal, factor) },
+        det,
+      ));
+    if (!terceros?.length) continue;
+    cuentasConDetalle++;
     for (const t of terceros) {
       if (t.nitTercero) nits.add(t.nitTercero);
       filas.push({
@@ -263,26 +269,55 @@ export function esFilaPropiaDeCuenta(fila: { nitTercero: string | null; nombreTe
  * Fila que repite el TOTAL de la cuenta con el código de la cuenta como tercero y sin nombre:
  * hay archivos por tercero que imprimen así el subtotal de cada cuenta y la captura lo guardó
  * como un tercero más (p. ej. «23650501» dentro de la cuenta 23650501). No es fila propia
- * —trae NIT—, así que `filasEfectivasTercero` la conserva y sumarla dobla la cuenta. El NIT se
- * guarda como núcleo de 9 dígitos, por eso basta con que el código de la cuenta empiece por él.
+ * —trae NIT— y sumarla dobla la cuenta. Es solo la FORMA: para descartarla hacen falta además
+ * los importes de la fila propia (`repiteTotalDeCuenta`). El NIT se guarda como núcleo de 9
+ * dígitos, por eso basta con que el código de la cuenta empiece por él.
  */
 export function esTotalDeCuentaComoTercero(fila: { cuenta8: string; nitTercero: string | null; nombreTercero: string | null }): boolean {
   const nit = fila.nitTercero?.replace(/\D/g, "") ?? "";
   return nit.length >= 6 && !fila.nombreTercero?.trim() && fila.cuenta8.replace(/\D/g, "").startsWith(nit);
 }
 
+type ImporteTercero = number | { toString(): string } | null | undefined;
+type ImportesTercero = { saldoInicial?: ImporteTercero; debitos?: ImporteTercero; creditos?: ImporteTercero; saldoFinal?: ImporteTercero };
+const IMPORTES_TERCERO = ["saldoInicial", "debitos", "creditos", "saldoFinal"] as const;
+
+/**
+ * ¿La fila REPITE el total de su cuenta? Además de la forma (`esTotalDeCuentaComoTercero`) exige
+ * los mismos importes de la fila propia, en los que traigan las dos (al menos uno): hay archivos que
+ * registran un saldo REAL con el código de la cuenta como tercero —Soluciones para la Construcción,
+ * 21051129: −244 M con ese código y +244 M del banco, la cuenta en 0— y quitarlo descuadraría la cuenta.
+ */
+export function repiteTotalDeCuenta(
+  fila: { cuenta8: string; nitTercero: string | null; nombreTercero: string | null } & ImportesTercero,
+  propia: ImportesTercero,
+): boolean {
+  if (!esTotalDeCuentaComoTercero(fila)) return false;
+  const comparables = IMPORTES_TERCERO.filter((c) => fila[c] != null && propia[c] != null);
+  return comparables.length > 0 && comparables.every((c) => Math.abs(Number(fila[c]) - Number(propia[c])) < 0.005);
+}
+
 /**
  * Deduplica la fila propia al consumir el dataset por tercero: por cuenta, si hay
  * filas de TERCERO se usan solo esas (la propia repite su total y sumarla lo
- * doblaría); una cuenta SIN detalle conserva su(s) fila(s) propia(s). Los cargues
- * legados sin filas propias pasan intactos. Preserva el orden original.
+ * doblaría); una cuenta SIN detalle conserva su(s) fila(s) propia(s). Tampoco cuenta
+ * el «tercero» que solo repite el total de su cuenta (`repiteTotalDeCuenta`; lo guardaron
+ * capturas anteriores a que la lectura lo evitara, Melonn ene–ago 2026): si era el único,
+ * la cuenta queda con su fila propia. Los cargues legados sin filas propias pasan intactos.
+ * Preserva el orden original.
  */
-export function filasEfectivasTercero<T extends { cuenta8: string; nitTercero: string | null; nombreTercero: string | null }>(
+export function filasEfectivasTercero<T extends { cuenta8: string; nitTercero: string | null; nombreTercero: string | null } & ImportesTercero>(
   filas: readonly T[],
 ): T[] {
+  const propias = new Map<string, T>();
+  for (const f of filas) if (esFilaPropiaDeCuenta(f) && !propias.has(f.cuenta8)) propias.set(f.cuenta8, f);
+  const sinTotalRepetido = filas.filter((f) => {
+    const propia = propias.get(f.cuenta8);
+    return !propia || esFilaPropiaDeCuenta(f) || !repiteTotalDeCuenta(f, propia);
+  });
   const cuentasConDetalle = new Set<string>();
-  for (const f of filas) if (!esFilaPropiaDeCuenta(f)) cuentasConDetalle.add(f.cuenta8);
-  return filas.filter((f) => !esFilaPropiaDeCuenta(f) || !cuentasConDetalle.has(f.cuenta8));
+  for (const f of sinTotalRepetido) if (!esFilaPropiaDeCuenta(f)) cuentasConDetalle.add(f.cuenta8);
+  return sinTotalRepetido.filter((f) => !esFilaPropiaDeCuenta(f) || !cuentasConDetalle.has(f.cuenta8));
 }
 
 /**

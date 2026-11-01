@@ -270,3 +270,36 @@ describe("documento del tercero en SAP Business One (IGB)", () => {
     expect(t.reduce((a, f) => a + f.saldoFinal, 0)).toBe(1000);
   });
 });
+
+describe("tercero mapeado en la misma columna del código (Melonn ene–ago 2026)", () => {
+  // Cuentas en negrita con su total y, debajo, una fila por tercero con el NIT en la columna
+  // del código; la lectura dejó «tercero» en esa misma columna.
+  const hojaMelonn = () => {
+    const filas: GridHoja["filas"] = [["Cuenta", "Descripción", "SI", "D", "C", "SF"]];
+    const negrita: boolean[][] = [Array(6).fill(true)];
+    const add = (fila: GridHoja["filas"][number], bold: boolean) => { filas.push(fila); negrita.push(Array(6).fill(bold)); };
+    for (let i = 0; i < 22; i++) {
+      add([String(13050501 + i), "NACIONALES", 0, 300, 0, 300], true);
+      add(["900111111", "CLIENTE UNO SAS", 0, 100, 0, 100], false);
+      add(["900222222", "CLIENTE DOS SAS", 0, 200, 0, 200], false);
+    }
+    return { nombre: "Balance", filas, negrita };
+  };
+  const s = spec({ columnas: { ...spec().columnas, codigo: 1, nombre: 2, tercero: 1, nombreTercero: 0, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6 } });
+
+  it("la fila de la cuenta no se captura como su propio tercero", () => {
+    const r = transformarTabular(s, [hojaMelonn()], params);
+    const detalle = (r.filasTercero ?? []).filter(t => t.codigo === "13050501");
+    expect(detalle.map(t => [t.nitTercero, t.nombreTercero, t.saldoFinal])).toEqual([["900111111", "CLIENTE UNO SAS", 100], ["900222222", "CLIENTE DOS SAS", 200]]);
+    expect((r.filasTercero ?? []).some(t => t.nitTercero === t.codigo)).toBe(false);
+    expect(r.importReady.find(c => c.code === "13050501")).toMatchObject({ balance: 300 });
+  });
+
+  it("con la columna del tercero aparte, el código de la cuenta como tercero sí es un tercero del archivo", () => {
+    const r = transformar([encabezado,
+      ["21051129", "GIRO FINANCIADO", "21051129", "", "", -244, 0, 0, -244],
+      ["21051129", "GIRO FINANCIADO", "860002964", "BANCO DE BOGOTA S.A", "", 244, 0, 0, 244],
+    ]);
+    expect((r.filasTercero ?? []).map(t => [t.nitTercero, t.saldoFinal])).toEqual([["21051129", -244], ["860002964", 244]]);
+  });
+});

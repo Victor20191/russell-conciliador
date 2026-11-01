@@ -431,6 +431,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
 
   const cols = resolverColumnaNombreTercero(spec, hoja);
   const tieneColumnaTercero = cols.tercero > 0 || (cols.nombreTercero ?? 0) > 0;
+  // La estructura puede dejar el tercero en la MISMA columna del código (Melonn ene–ago 2026):
+  // ahí la celda del tercero de la fila de la cuenta es su propio código y capturarla la volvía
+  // tercero de sí misma, con su total, en cada cuenta (todo lo que suma por tercero la doblaba).
+  const terceroEnColumnaCodigo = cols.tercero > 0
+    && (cols.tercero === cols.codigo || (cols.codigoFragmentos ?? []).includes(cols.tercero));
+  let filasCuentaNoCapturadasComoTercero = 0;
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
@@ -964,7 +970,11 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // sobrevive aquí — se captura para el staging paralelo.
     if (tieneColumnaTercero) {
       const terceroCelda = texto(cell(fila, cols.tercero));
-      if (identidadPresente) capturarTercero(code, name, terceroCelda, { si, db: mov.db, cr: mov.cr, saldo });
+      // Con el tercero en la columna del código y sin nombre de tercero aparte, la «identidad» de
+      // la fila es el código de la cuenta: es la cuenta, no un tercero.
+      const esLaCuenta = terceroEnColumnaCodigo && !texto(cell(fila, cols.nombreTercero ?? 0));
+      if (identidadPresente && esLaCuenta) filasCuentaNoCapturadasComoTercero++;
+      else if (identidadPresente) capturarTercero(code, name, terceroCelda, { si, db: mov.db, cr: mov.cr, saldo });
     }
     (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
     parciales.push({
@@ -1092,6 +1102,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       valor: null,
       regla: "Letras pegadas al documento del tercero retiradas",
       accion: "La columna del tercero trae letras pegadas al número (p. ej. «C1065880120»); se retiraron para reconocer el documento. El valor original se conserva en la identidad del tercero.",
+    });
+  }
+  if (filasCuentaNoCapturadasComoTercero > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasCuentaNoCapturadasComoTercero} fila(s)`,
+      regla: "Columna del tercero igual a la del código",
+      accion: "La estructura toma el tercero de la columna del código: las filas de cuenta no se guardaron como tercero de sí mismas (repetían el total de la cuenta). Revisa la columna del tercero en el editor de estructura.",
     });
   }
   if (filasTerceroGuionCapturadas > 0) {

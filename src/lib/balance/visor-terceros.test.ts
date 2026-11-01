@@ -83,6 +83,18 @@ describe("construirComparacionCuentasTerceros", () => {
     expect(fila.terceros).toHaveLength(3); // el detalle crudo se conserva completo para pintar
   });
 
+  it("el total de la cuenta guardado como tercero no se suma (Melonn ene–ago 2026)", () => {
+    const filas = [
+      filaPropia({ debitos: 1500, saldoFinal: 1500 }),
+      filaTercero({ nitTercero: "13050501", nombreTercero: null, debitos: 1500, saldoFinal: 1500 }),
+      filaTercero({ debitos: 900, saldoFinal: 900 }),
+      filaTercero({ nitTercero: "800999888", nombreTercero: "Cliente B", debitos: 600, saldoFinal: 600 }),
+    ];
+    const [fila] = construirComparacionCuentasTerceros([cuentaBalance({ debitos: 1500, saldoFinal: 1500 })], filas);
+    expect(fila.saldoConsolidadoTercero).toBe(1500);
+    expect(fila.tieneDiferencia).toBe(false);
+  });
+
   it("una cuenta sin terceros reales conserva su fila propia como consolidado", () => {
     const [fila] = construirComparacionCuentasTerceros([cuentaBalance({ cuenta8: "14350501", saldoFinal: 300 })], [
       filaPropia({ cuenta8: "14350501", saldoFinal: 300 }),
