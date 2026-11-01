@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Icon } from "@/components/icons";
+import { referenciaCierre } from "@/lib/conciliacion/referencia-cierre";
 
 /** Cierre en firme de un módulo sobre el período de este balance. */
 export type CierreFirmeVm = {
@@ -37,15 +38,15 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
       <ul className="flex flex-col gap-0.5">
         {cierres.map((c) => (
           <li key={c.id} className="flex flex-wrap items-center gap-x-2">
-            <span className="tabular-nums font-semibold">{c.moduloCodigo}</span>
+            <span className="tabular-nums font-semibold">{referenciaCierre(c).modulo}</span>
             <span>{c.periodo}</span>
             <span className="text-ink-500">·</span>
             <span>cerró <b>{c.cerradoPor}</b> · {c.cerradoEn}</span>
             <span className="text-ink-500">·</span>
             <span>{c.cuentas} cuenta(s) bloqueada(s)</span>
             <span className="text-ink-500">·</span>
-            <Link href={`/modulos/${c.moduloCodigo.toLowerCase()}/${c.moduloDatoEncabezadoId}`} className="font-semibold text-blue-600 hover:underline">
-              cargue #{c.moduloDatoEncabezadoId} →
+            <Link href={referenciaCierre(c).ruta} className="font-semibold text-blue-600 hover:underline">
+              {referenciaCierre(c).etiqueta} →
             </Link>
             {c.balanceEncabezadoId !== balanceId && (
               <span className="text-warn-700">
@@ -56,7 +57,7 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
         ))}
       </ul>
       <p className="mt-1 text-[11.5px] text-ink-500">
-        Mientras esté en firme no se puede cargar ni cerrar un balance con la misma fecha fin que cambie el saldo final de esas cuentas, aunque sea de otro período, ni cambiar su homologación; el saldo inicial y los movimientos no se bloquean. Desbloquea desde la pestaña Cruce contable del módulo (senior o gerente asignado).
+        Mientras esté en firme no se puede cargar ni cerrar un balance con la misma fecha fin que cambie el saldo final de esas cuentas, aunque sea de otro período, ni cambiar su homologación; el saldo inicial y los movimientos no se bloquean. Desbloquea desde la pestaña Cruce contable del módulo o desde la revisión de Retención en la fuente que la cerró (senior o gerente asignado).
       </p>
     </div>
   );
@@ -68,7 +69,8 @@ export function ConciliacionEnFirmeBanner({ cierres, balanceId, periodo }: { cie
  * título.
  */
 export function DistintivoCuentaEnFirme({ bloqueo, compacto = false }: { bloqueo: BloqueoCuentaVm; compacto?: boolean }) {
-  const titulo = `Saldo final y homologación en firme por ${bloqueo.moduloCodigo} · cargue #${bloqueo.moduloDatoEncabezadoId} · cerró ${bloqueo.cerradoPor} · ${bloqueo.cerradoEn}`;
+  const ref = referenciaCierre(bloqueo);
+  const titulo = `Saldo final y homologación en firme por ${ref.modulo} · ${ref.etiqueta} · cerró ${bloqueo.cerradoPor} · ${bloqueo.cerradoEn}`;
   return (
     <span
       title={titulo}

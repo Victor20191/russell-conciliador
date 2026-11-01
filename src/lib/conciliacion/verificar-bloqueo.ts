@@ -1,4 +1,5 @@
 import "server-only";
+import { referenciaCierre } from "./referencia-cierre";
 
 /**
  * GUARD server-only de la conciliación en firme (fail-closed).
@@ -492,7 +493,7 @@ export async function registrarIntentoBloqueado(p: {
     user,
     action: "CONCILIACIÓN EN FIRME · INTENTO BLOQUEADO",
     entity: p.entidad,
-    detail: `${p.operacion} · ${p.cierres.map((c) => `${c.moduloCodigo} ${c.periodo} (cargue #${c.moduloDatoEncabezadoId})`).join(", ")}${p.detalle ? ` · ${p.detalle}` : ""}`,
+    detail: `${p.operacion} · ${p.cierres.map((c) => `${referenciaCierre(c).modulo} ${c.periodo} (${referenciaCierre(c).etiqueta})`).join(", ")}${p.detalle ? ` · ${p.detalle}` : ""}`,
     clientId: p.clienteId,
   });
 }

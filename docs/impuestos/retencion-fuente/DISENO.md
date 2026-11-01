@@ -386,3 +386,17 @@ frente al diseño:
   catálogo del prevalidador (`validarCompuertaPrevalidador` con módulo `null`): sí exige su aprobación vigente.
 - Un tercero sin NIT con nombre de la DIAN solo se avisa; confirmarlo como DIAN queda para después.
 - Las alertas del cruce siguen pendientes de diseño; el punto de extensión es `ResultadoCruce`.
+
+**Fase 5 (31/Oct/2026) — construida, sin desplegar.** Pestañas «Oportunidad», «Pagos efectuados» y «Novedades»,
+marcas de los meses de pagos y de oportunidad, «Cerrar en firme» y «Desbloquear» con copia congelada, hojas
+«Oportunidad» y «Pagos efectuados» en el Excel. Con Melonn (corte agosto) da lo esperado en la sección 7 del
+prompt: enero «Falta el original» con pago oportuno el día del vencimiento, febrero a agosto oportunos, pagos de
+enero −6.786.000 (130 vs 61 = −8.942.000; 134 vs 62 = +2.156.000), febrero a julio sin el reteIVA y agosto
+«Pago completo». Sin migración. Ajustes frente al diseño:
+
+- La marca de oportunidad (corrección sin original) no guarda cifra: vale mientras el mes siga sin original.
+- La copia congelada guarda también los períodos: en firme, «Por meses», «Acumulado» y la tabla de
+  formularios por período salen de ella.
+- Un cierre puede quedar sin cuentas bloqueadas si ninguna cuenta del cliente está homologada a las del cruce;
+  los módulos lo rechazan, aquí se permite porque el cruce ya exigió marcar esas diferencias.
+- Novedades lista lo que falta para cerrar y los avisos; las alertas de la carga y del cruce siguen pendientes.

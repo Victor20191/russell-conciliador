@@ -1,4 +1,5 @@
 import { periodosEsperados } from "../periodicidad";
+import { NOMBRES_MES } from "../calendario";
 import { RENGLON_PAGADO_POR_CONCEPTO_490 } from "../formularios/f350";
 import { CONCEPTOS_PAGO_RETENCION, type ConceptoPagoRetencion } from "../formularios/f490";
 
@@ -17,6 +18,8 @@ export type Formulario350 = {
   codigoCorreccion: number | null;
   numeroAnterior: string | null;
   fechaPresentacion: string | null;
+  /** Renglón 996 (número del autoadhesivo). */
+  autoadhesivo?: string | null;
   valores: Record<number, number>;
 };
 
@@ -26,6 +29,8 @@ export type Formulario490 = {
   concepto: string | null;
   numeroPagado: string | null;
   fechaPago: string | null;
+  /** Renglón 996 (número del autoadhesivo). */
+  autoadhesivo?: string | null;
   valores: Record<number, number>;
 };
 
@@ -163,6 +168,11 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
           : "falta_350";
     return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, pagos, pagosFaltantes, avisos };
   });
+}
+
+/** Nombre de un período en pantalla: el mes con periodicidad mensual; si no, «Período n». */
+export function etiquetaPeriodoRevision(periodicidad: string, periodo: number): string {
+  return periodicidad === "Mensual" ? (NOMBRES_MES[periodo - 1] ?? `Período ${periodo}`) : `Período ${periodo}`;
 }
 
 export const ETIQUETA_ESTADO_PERIODO: Readonly<Record<EstadoPeriodo, string>> = {

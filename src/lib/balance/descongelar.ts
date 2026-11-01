@@ -11,7 +11,8 @@
 // (`estaCongelado`, `descongelado_*`) no cambió.
 
 /** Una conciliación de módulo en firme del mismo corte, ya rotulada para mostrar. */
-export type CierreAvisoDescongelar = { modulo: string; cargue: number; cerradoPor: string };
+/** `referencia` nombra el origen («cargue #12», «revisión #3»); sin ella se dice «cargue #<cargue>». */
+export type CierreAvisoDescongelar = { modulo: string; cargue: number; cerradoPor: string; referencia?: string };
 
 /** Lo que el modal le advierte al usuario antes de abrir el balance, en orden. */
 export function avisosDescongelar(input: { cierres: readonly CierreAvisoDescongelar[] }): string[] {
@@ -21,7 +22,7 @@ export function avisosDescongelar(input: { cierres: readonly CierreAvisoDesconge
     "Cuando termines, vuelve a cerrarlo. Si cambias cuentas, el prevalidador tendrá que aprobarse otra vez antes de cerrarlo.",
   ];
   if (input.cierres.length > 0) {
-    const lista = input.cierres.map((c) => `${c.modulo} (cargue #${c.cargue}, cerró ${c.cerradoPor})`).join(", ");
+    const lista = input.cierres.map((c) => `${c.modulo} (${c.referencia ?? `cargue #${c.cargue}`}, cerró ${c.cerradoPor})`).join(", ");
     avisos.push(`Hay ${input.cierres.length === 1 ? "una conciliación" : "conciliaciones"} en firme en este corte: ${lista}. Sus cuentas siguen bloqueadas aunque el balance quede abierto.`);
   }
   return avisos;

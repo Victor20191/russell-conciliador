@@ -18,6 +18,8 @@ import type { ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
 import type { CedulaModulo } from "@/lib/modulos/cuentas-modulo";
 
+import { referenciaCierre } from "./referencia-cierre";
+
 export const ESTADO_CIERRE_FIRME = "firme";
 export const ESTADO_CIERRE_DESBLOQUEADO = "desbloqueado";
 
@@ -454,7 +456,8 @@ export function mensajePeriodoEnFirme(
   cierre: { moduloCodigo: string; periodo: string; cerradoPor: string; moduloDatoEncabezadoId: number },
   operacion: string,
 ): string {
-  return `La conciliación de ${cierre.moduloCodigo} · ${cierre.periodo} está en firme (cargue #${cierre.moduloDatoEncabezadoId}, cerró ${cierre.cerradoPor}): no se puede ${operacion}. Pide al senior o gerente del cliente que la desbloquee para continuar.`;
+  const ref = referenciaCierre(cierre);
+  return `La conciliación de ${ref.modulo} · ${cierre.periodo} está en firme (${ref.etiqueta}, cerró ${cierre.cerradoPor}): no se puede ${operacion}. Pide al senior o gerente del cliente que la desbloquee para continuar.`;
 }
 
 /**
@@ -513,7 +516,10 @@ export function mensajeConciliacionEnFirme(
   violaciones?: readonly ViolacionBloqueo[],
 ): string {
   const lista = cierres
-    .map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId}, cerró ${c.cerradoPor})`)
+    .map((c) => {
+      const ref = referenciaCierre(c);
+      return `${ref.modulo} · ${c.periodo} (${ref.etiqueta}, cerró ${c.cerradoPor})`;
+    })
     .join("; ");
   const base = `El balance está en firme por la conciliación cerrada de ${lista}.`;
   if (!violaciones || violaciones.length === 0) {

@@ -5,6 +5,9 @@ import { periodosRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { cruceRetencion, type CruceRetencionVista } from "@/lib/impuestos/retencion/cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "@/lib/impuestos/mapeo-dian";
+import { CALENDARIO_RETEFUENTE_2026 } from "@/lib/impuestos/__fixtures__/calendario-retefuente-2026";
+import { oportunidadRevision } from "@/lib/impuestos/retencion/oportunidad";
+import { pagosRevision } from "@/lib/impuestos/retencion/pagos";
 import { excelRetencion, libroRetencion } from "./retencion";
 
 const periodos = periodosRevision({ periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [] });
@@ -12,7 +15,7 @@ const vista = vistasRevision(periodos);
 const tercero = (nit: string | null, nombre: string, saldoFinal: number) => ({ cuentaCliente: "23650501", nombreCuenta: "Retención salarios", cuentaRussell: "236505", nit, nombreTercero: nombre, saldoInicial: 0, saldoFinal });
 const cruce: CruceRetencionVista = {
   estado: "listo", mensaje: null, umbral: 6_000, inicioEnero: true,
-  balance: { id: 1, descripcion: "Balance agosto 2026 · v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
+  balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "Balance agosto 2026 · v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
   resultado: cruceRetencion({
     periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(),
     filasContables: [tercero("800111222", "PROVEEDOR A", -1_074_373_000), tercero("800197268", "DIAN", 900_000_000)], inicioEnero: true, umbral: 6_000,
@@ -45,7 +48,7 @@ describe("Excel de una revisión de Retención en la fuente", () => {
   });
 
   it("con el cruce: hoja «Cruce contable» con el total 136, todos los terceros (la DIAN tachada) y las marcas", () => {
-    const wb = libroRetencion(meta, vista, formularios, cruce);
+    const wb = libroRetencion(meta, vista, formularios, { cruce });
     expect(wb.worksheets.map((w) => w.name)).toEqual(["Por meses", "Acumulado", "Formularios", "Cruce contable"]);
     const ws = wb.getWorksheet("Cruce contable")!;
     const filas: ExcelJS.Row[] = [];
@@ -60,8 +63,20 @@ describe("Excel de una revisión de Retención en la fuente", () => {
   });
 
   it("sin balance para el cruce, la hoja lo explica", () => {
-    const ws = libroRetencion(meta, vista, formularios, { estado: "sin_balance", mensaje: "No hay un balance cerrado con corte en 2026-08.", balance: null, umbral: 6_000 }).getWorksheet("Cruce contable")!;
+    const ws = libroRetencion(meta, vista, formularios, { cruce: { estado: "sin_balance", mensaje: "No hay un balance cerrado con corte en 2026-08.", balance: null, umbral: 6_000 } }).getWorksheet("Cruce contable")!;
     expect(ws.getRow(4).getCell(1).value).toBe("No hay un balance cerrado con corte en 2026-08.");
+  });
+
+  it("con oportunidad y pagos: sus dos hojas con los estados y la diferencia de enero", () => {
+    const oportunidad = oportunidadRevision({ anio: 2026, nit: "900123459", periodos, calendario: CALENDARIO_RETEFUENTE_2026, calendarioAplica: true, marcas: [] });
+    const pagos = pagosRevision({ anio: 2026, periodos, marcas: [] });
+    const wb = libroRetencion(meta, vista, formularios, { cruce, oportunidad, pagos });
+    expect(wb.worksheets.map((w) => w.name).slice(-2)).toEqual(["Oportunidad", "Pagos efectuados"]);
+    const filasDe = (ws: ExcelJS.Worksheet) => { const f: ExcelJS.Row[] = []; ws.eachRow((r) => f.push(r)); return f; };
+    const enero = filasDe(wb.getWorksheet("Oportunidad")!).find((r) => r.getCell(1).value === "Enero")!;
+    expect([enero.getCell(7).value, enero.getCell(9).value, enero.getCell(11).value]).toEqual(["20/02/2026", "Falta el original", "Oportuno"]);
+    const pagoEnero = filasDe(wb.getWorksheet("Pagos efectuados")!).find((r) => r.getCell(1).value === "Enero")!;
+    expect([pagoEnero.getCell(9).value, pagoEnero.getCell(10).value, pagoEnero.getCell(11).value, pagoEnero.getCell(12).value]).toEqual([-6_786_000, "Diferencia en el pago", -8_942_000, 2_156_000]);
   });
 
   it("se escribe con la marca y se vuelve a leer", async () => {

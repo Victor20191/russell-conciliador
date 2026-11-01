@@ -1,6 +1,7 @@
 "use client";
 
 import { EstadoProcesando } from "@/components/estado-procesando";
+import { referenciaCierre } from "@/lib/conciliacion/referencia-cierre";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
@@ -629,7 +630,7 @@ function celdaMapeo(nodo: NodoBalance, puedeHomologar: boolean, onAsignar: (n: N
   // Homologación en firme: se ve, pero no se ofrece cambiarla (la acción también lo rechaza).
   if (bloqueo) {
     return (
-      <span className="inline-flex items-center gap-1" title={`Homologación en firme por la conciliación de ${bloqueo.moduloCodigo} (cargue #${bloqueo.moduloDatoEncabezadoId}). Para cambiarla, el senior o gerente debe desbloquearla.`}>
+      <span className="inline-flex items-center gap-1" title={`Homologación en firme por la conciliación de ${referenciaCierre(bloqueo).modulo} (${referenciaCierre(bloqueo).etiqueta}). Para cambiarla, el senior o gerente debe desbloquearla.`}>
         {contenido}
         <Icon name="shield" size={11} className="text-navy-700" />
       </span>

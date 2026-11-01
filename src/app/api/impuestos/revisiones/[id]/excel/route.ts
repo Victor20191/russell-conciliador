@@ -6,8 +6,8 @@ import { contentDispositionSeguro, cuerpoBinario } from "@/lib/modulos/respuesta
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { cargarRevision } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
-import { cargarCruceRetencion } from "@/lib/impuestos/retencion/cruce-servidor";
-import type { CruceRetencionVista } from "@/lib/impuestos/retencion/cruce";
+import { cargarResultadosRevision } from "@/lib/impuestos/retencion/resultados-servidor";
+import type { ResultadosExcel } from "@/lib/export/retencion";
 import { excelRetencion } from "@/lib/export/retencion";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const RUTA_LOG = "GET /api/impuestos/revisiones/[id]/excel";
 
-/** Excel de una revisión de Retención en la fuente: por meses, acumulado, formularios y cruce contable. */
+/** Excel de una revisión de Retención en la fuente: por meses, acumulado, formularios, cruce contable, oportunidad y pagos (en firme, de la copia congelada). */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getCurrentUser();
   if (!actor) return new Response("No autorizado", { status: 401 });
@@ -33,15 +33,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     if (!alcance.ok) return new Response("No encontrado", { status: 404 });
 
     const mes = (p: number) => NOMBRES_MES[p - 1] ?? `Período ${p}`;
-    // Un fallo del cruce no impide descargar las vistas: la hoja lo explica.
-    const cruce: CruceRetencionVista = await cargarCruceRetencion(revision).catch((e: unknown): CruceRetencionVista => {
-      registrarError(`${RUTA_LOG} (cruce)`, e);
-      return { estado: "bloqueado", mensaje: "No fue posible calcular el cruce contable.", balance: null, umbral: 0 };
+    // Un fallo de los resultados no impide descargar las vistas: la hoja del cruce lo explica.
+    const calculados = await cargarResultadosRevision(revision).catch((e: unknown) => {
+      registrarError(`${RUTA_LOG} (resultados)`, e);
+      return null;
     });
+    const resultados: ResultadosExcel = calculados
+      ? { cruce: calculados.cruce, oportunidad: calculados.oportunidad, pagos: calculados.pagos }
+      : { cruce: { estado: "bloqueado", mensaje: "No fue posible calcular el cruce contable.", balance: null, umbral: 0 } };
+    const periodos = calculados?.periodos ?? revision.periodos;
     const corte = `${mes(revision.mesCorte).toLowerCase()}${revision.mesCorte === 9 ? " (precierre)" : revision.mesCorte === 12 ? " (cierre)" : ""}`;
     const buffer = await excelRetencion(
       { cliente: revision.nombreCliente, nit: revision.nitCliente, anio: revision.anio, corte, periodicidad: revision.periodicidad },
-      vistasRevision(revision.periodos),
+      vistasRevision(periodos),
       revision.formularios.map((f) => ({
         periodo: mes(f.periodo),
         formulario: f.formulario,
@@ -54,7 +58,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         autoadhesivo: f.autoadhesivo,
         corregidoAMano: f.corregidoAMano.join(", "),
       })),
-      cruce,
+      resultados,
     );
     const nombre = `Retencion ${revision.nombreCliente} ${revision.anio}-${String(revision.mesCorte).padStart(2, "0")}.xlsx`;
     return new Response(cuerpoBinario(buffer), {

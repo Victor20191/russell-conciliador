@@ -49,6 +49,7 @@ export async function cargarCruceRetencion(revision: Pick<RevisionVista, "client
   }
   const balance: BalanceCruceRetencion = {
     id: elegido.id,
+    periodo: elegido.periodo,
     descripcion: describirBalanceCruce(elegido),
     periodoInicio: elegido.periodoInicio.toISOString().slice(0, 10),
     periodoFin: elegido.periodoFin.toISOString().slice(0, 10),
@@ -110,5 +111,5 @@ export async function cargarCruceRetencion(revision: Pick<RevisionVista, "client
         marcadoEn: m.marcadoEn.toISOString(),
       })),
   });
-  return { estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado };
+  return { estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella };
 }

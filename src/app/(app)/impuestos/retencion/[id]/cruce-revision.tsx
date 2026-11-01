@@ -1,15 +1,11 @@
 "use client";
 
-import { Fragment, useActionState, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { Modal } from "@/components/modal";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
-import { EstadoProcesando } from "@/components/estado-procesando";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
-import { notifyActionState } from "@/lib/client-notifications";
-import { guardarMarcaRetencion, quitarMarcaRetencion } from "@/app/actions/impuestos-retencion";
-import type { ActionState } from "@/lib/definitions";
+import { CeldaMarca, MarcaModal } from "./marca-modal";
 import {
   etiquetaFilaCruce,
   renglonesFilaCruce,
@@ -22,12 +18,9 @@ import {
 // Cruce contable de la revisión: lo declarado en los 350 hasta el corte contra el saldo final de
 // las cuentas del cliente homologadas a 2365/2367, con los terceros que lo sustentan al desplegar.
 
-const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
 const NUM = "px-3 py-1.5 text-right tabular-nums whitespace-nowrap";
 const COLUMNAS = 7;
-const MAX_NOTA = 2000;
-const MAX_REFERENCIA = 120;
 
 const fecha = (iso: string) => {
   const [a, m, d] = iso.split("-");
@@ -128,7 +121,23 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
 
       <Observaciones filas={conMarca} puedeEditar={puedeEditar} onEditar={setMarcando} />
 
-      {filaMarcando && <MarcaModal key={filaMarcando.clave} fila={filaMarcando} revisionId={revisionId} onClose={() => setMarcando(null)} />}
+      {filaMarcando && (
+        <MarcaModal
+          key={filaMarcando.clave}
+          revisionId={revisionId}
+          clave={filaMarcando.clave}
+          titulo={etiquetaFilaCruce(filaMarcando)}
+          marca={filaMarcando.marca}
+          diferencia={filaMarcando.diferencia}
+          placeholder="Ej.: redondeo de la DIAN a miles en cada renglón de los meses del corte."
+          resumen={
+            <>
+              Diferencia de hoy: <span className="font-semibold tabular-nums text-ink-800">{fmtContable(filaMarcando.diferencia)}</span> (declaraciones {fmtContable(filaMarcando.declarado)} − contabilidad {fmtContable(filaMarcando.contable)}).
+            </>
+          }
+          onClose={() => setMarcando(null)}
+        />
+      )}
     </div>
   );
 }
@@ -161,7 +170,17 @@ function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila:
       <td className={NUM}>{fila.cuentaRussell ? fmtContable(fila.contable) : "—"}</td>
       <td className={`${NUM} font-semibold ${fila.nivel === "alerta" ? "text-err-700" : fila.nivel === "informativa" ? "text-ink-600" : "text-ok-700"}`}>{fmtContable(fila.diferencia)}</td>
       <td className="px-3 py-1.5"><EstadoFila fila={fila} /></td>
-      <td className="px-3 py-1.5 text-center"><CeldaMarca fila={fila} puedeEditar={puedeEditar} onMarcar={onMarcar} /></td>
+      <td className="px-3 py-1.5 text-center">
+        <CeldaMarca
+          marca={fila.marca}
+          requiereMarca={fila.requiereMarca}
+          admiteMarca={fila.diferencia !== 0}
+          puedeEditar={puedeEditar}
+          ancla={`marca-retencion-${fila.marca?.numero ?? ""}`}
+          tituloDesactualizada={fila.marca ? `Marca ${fila.marca.numero} · la diferencia era ${fmtContable(fila.marca.diferencia)} cuando se escribió y hoy es ${fmtContable(fila.diferencia)}` : undefined}
+          onMarcar={onMarcar}
+        />
+      </td>
     </tr>
   );
 }
@@ -171,41 +190,6 @@ function EstadoFila({ fila }: { fila: FilaCruce }) {
   if (fila.nivel === "informativa") return <Chip label="Informativa" tone="ink" />;
   if (fila.marca?.vigente) return <Chip label="Marcada" tone="blue" />;
   return <Chip label={fila.marca ? "Marca desactualizada" : "Exige marca"} tone="warn" />;
-}
-
-function CeldaMarca({ fila, puedeEditar, onMarcar }: { fila: FilaCruce; puedeEditar: boolean; onMarcar: () => void }) {
-  if (fila.marca) {
-    const titulo = fila.marca.vigente
-      ? `Marca ${fila.marca.numero} · ver la observación al pie`
-      : `Marca ${fila.marca.numero} · la diferencia era ${fmtContable(fila.marca.diferencia)} cuando se escribió y hoy es ${fmtContable(fila.diferencia)}`;
-    return (
-      <a
-        href={`#marca-retencion-${fila.marca.numero}`}
-        title={titulo}
-        className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border px-1 text-[11.5px] font-bold tabular-nums ${fila.marca.vigente ? "border-navy-700 bg-white text-navy-700" : "border-warn-500 bg-warn-100 text-warn-700"}`}
-      >
-        {fila.marca.numero}
-      </a>
-    );
-  }
-  if (fila.diferencia === 0) return null;
-  if (!puedeEditar) {
-    return (
-      <span className={`text-[11.5px] font-semibold ${fila.requiereMarca ? "text-warn-700" : "text-ink-400"}`} title={fila.requiereMarca ? "Diferencia sin marca" : "Diferencia bajo el umbral"}>
-        —
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      onClick={onMarcar}
-      title={fila.requiereMarca ? "Poner una marca a esta diferencia" : "Diferencia bajo el umbral: la marca es opcional"}
-      className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed px-1 transition hover:border-navy-700 hover:text-navy-700 ${fila.requiereMarca ? "border-warn-500 text-warn-700" : "border-ink-300 text-ink-400"}`}
-    >
-      <Icon name="plus" size={12} />
-    </button>
-  );
 }
 
 function FilaSubtotal({ etiqueta, subtotal, total = false }: { etiqueta: string; subtotal: SubtotalCruce; total?: boolean }) {
@@ -360,81 +344,5 @@ function Observaciones({ filas, puedeEditar, onEditar }: { filas: FilaCruce[]; p
         </ul>
       )}
     </Card>
-  );
-}
-
-function MarcaModal({ fila, revisionId, onClose }: { fila: FilaCruce; revisionId: number; onClose: () => void }) {
-  const [state, action, guardando] = useActionState<ActionState, FormData>(guardarMarcaRetencion, {});
-  const [stateQuitar, actionQuitar, quitando] = useActionState<ActionState, FormData>(quitarMarcaRetencion, {});
-  const [nota, setNota] = useState(fila.marca?.nota ?? "");
-  const [referencia, setReferencia] = useState(fila.marca?.referenciaAnexo ?? "");
-  // Cerrar cambia el estado de la pantalla que abrió el panel: en un efecto, no al dibujar.
-  useEffect(() => {
-    if (state.ok || stateQuitar.ok) onClose();
-  }, [state, stateQuitar, onClose]);
-  useEffect(() => {
-    notifyActionState(state, { success: state.message ?? "Marca guardada.", error: "No se pudo guardar la marca." });
-  }, [state]);
-  useEffect(() => {
-    notifyActionState(stateQuitar, { success: "Marca quitada.", error: "No se pudo quitar la marca." });
-  }, [stateQuitar]);
-  const ocupado = guardando || quitando;
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={fila.marca ? `Marca ${fila.marca.numero} · ${etiquetaFilaCruce(fila)}` : `Marcar · ${etiquetaFilaCruce(fila)}`}
-      size="lg"
-      footer={
-        <div className="flex w-full items-center gap-2">
-          {fila.marca && (
-            <button type="submit" form="quitar-marca-retencion" disabled={ocupado} className="rounded-md border border-err-100 px-2.5 py-1 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:opacity-60">
-              {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Quitar marca"}
-            </button>
-          )}
-          <button type="submit" form="marca-retencion" disabled={ocupado || nota.trim().length < 10} className={`ml-auto ${BOTON_PRIMARIO}`}>
-            {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar marca"}
-          </button>
-        </div>
-      }
-    >
-      <form id="marca-retencion" action={action} className="flex flex-col gap-2 text-[12.5px]">
-        <input type="hidden" name="revisionId" value={revisionId} />
-        <input type="hidden" name="clave" value={fila.clave} />
-        <p className="text-ink-600">
-          Diferencia de hoy: <span className="font-semibold tabular-nums text-ink-800">{fmtContable(fila.diferencia)}</span> (declaraciones {fmtContable(fila.declarado)} − contabilidad {fmtContable(fila.contable)}). La marca guarda esta cifra: si la diferencia cambia, queda desactualizada.
-        </p>
-        {fila.marca && !fila.marca.vigente && <p className="text-warn-700">Se escribió con una diferencia de {fmtContable(fila.marca.diferencia)}. Al guardar queda con la de hoy.</p>}
-        <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-ink-500">Explicación de la diferencia</span>
-          <textarea
-            name="nota"
-            value={nota}
-            onChange={(e) => setNota(e.target.value)}
-            rows={4}
-            maxLength={MAX_NOTA}
-            placeholder="Ej.: redondeo de la DIAN a miles en cada renglón de los meses del corte."
-            className="rounded-md border border-ink-200 bg-white px-2 py-1.5"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-ink-500">Referencia del anexo (opcional)</span>
-          <input
-            name="referenciaAnexo"
-            value={referencia}
-            onChange={(e) => setReferencia(e.target.value)}
-            maxLength={MAX_REFERENCIA}
-            placeholder="Ej.: PT-RET-02"
-            className="rounded-md border border-ink-200 bg-white px-2 py-1.5"
-          />
-        </label>
-      </form>
-      {fila.marca && (
-        <form id="quitar-marca-retencion" action={actionQuitar} className="hidden">
-          <input type="hidden" name="revisionId" value={revisionId} />
-          <input type="hidden" name="clave" value={fila.clave} />
-        </form>
-      )}
-    </Modal>
   );
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { procedenciaBalance } from "@/lib/balance/procedencia-mapeo";
+import { referenciaCierre } from "@/lib/conciliacion/referencia-cierre";
 import { auditarInconsistenciasCorte, recalcularComparacionesDelCorteSeguro } from "@/lib/balance/comparacion-corte-servidor";
 import { ErrorVersionSobreCerrada, etiquetaCorte, lineasDelCorte, motivoVersionSobreCerrada, nombreLinea, vigenteCerradaDeLaLinea } from "@/lib/balance/corte";
 import { encabezadosDelCorte, insumosCierreBalanceEn, recalcularComparacionesDelCorteEn, saldosFinalesDe, SELECT_ENCABEZADO_CORTE } from "@/lib/balance/comparacion-corte-datos";
@@ -1402,7 +1403,7 @@ export async function descongelarBalance(input: { id: number; justificacion: str
     const { balance } = resultado;
     const cierres = "cierres" in resultado ? resultado.cierres ?? [] : [];
     const enFirme = cierres.length > 0
-      ? ` · conciliaciones en firme del corte (sus cuentas siguen bloqueadas): ${cierres.map((c) => `${c.moduloCodigo} cargue #${c.moduloDatoEncabezadoId}`).join(", ")}`
+      ? ` · conciliaciones en firme del corte (sus cuentas siguen bloqueadas): ${cierres.map((c) => `${referenciaCierre(c).modulo} ${referenciaCierre(c).etiqueta}`).join(", ")}`
       : "";
     await logAudit({
       user: user?.name ?? "Sistema",

@@ -53,7 +53,7 @@ export type ReemplazoVm = {
   viejo: { id: number; nombre: string; version: string };
   /** Esta versión, la que queda. */
   nuevo: { id: number; version: string };
-  cierres: { modulo: string; periodo: string; cargue: number }[];
+  cierres: { modulo: string; periodo: string; cargue: number; referencia?: string }[];
   cuentasEnFirme: number;
   /** Por qué no se puede (null = se puede intentar; la acción decide). */
   motivo: string | null;
@@ -68,7 +68,7 @@ export function ContenidoReemplazo({ reemplazo }: { reemplazo: ReemplazoVm }) {
       <ol className="flex list-decimal flex-col gap-1.5 pl-5">
         <li>
           La conciliación en firme de{" "}
-          <b>{cierres.map((c) => `${c.modulo} · ${c.periodo} (cargue #${c.cargue})`).join(", ")}</b> pasa a esta versión ({nuevo.version}). Sus {cuentasEnFirme} cuenta(s) en firme son idénticas en saldo final y homologación: la conciliación no cambia.
+          <b>{cierres.map((c) => `${c.modulo} · ${c.periodo} (${c.referencia ?? `cargue #${c.cargue}`})`).join(", ")}</b> pasa a esta versión ({nuevo.version}). Sus {cuentasEnFirme} cuenta(s) en firme son idénticas en saldo final y homologación: la conciliación no cambia.
         </li>
         <li>Se elimina {viejo.nombre} {viejo.version} (#{viejo.id}).</li>
         <li>Esta versión ({nuevo.version}) queda cerrada.</li>

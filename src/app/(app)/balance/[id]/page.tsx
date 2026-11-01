@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { referenciaCierre } from "@/lib/conciliacion/referencia-cierre";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip } from "@/components/ui";
@@ -299,7 +300,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // Botones del panel del corte para resolver una diferencia: abrir el otro (si está cerrado),
   // eliminarlo (abierto y sin conciliación en firme) o reemplazarlo (con conciliación en firme, solo
   // desde la versión vigente que queda). Cada acción vuelve a comprobarlo todo en el servidor.
-  const cierresAvisoCorte = cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor }));
+  const cierresAvisoCorte = cierresPeriodo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? referenciaCierre(c).modulo, cargue: c.moduloDatoEncabezadoId, referencia: referenciaCierre(c).etiqueta, cerradoPor: c.cerradoPor }));
   const reemplazoDe = (viejo: { id: number; nombre: string; version: string }): ReemplazoVm => {
     const cierresViejo = cierresPeriodo.filter((c) => c.balanceEncabezadoId === viejo.id);
     const idsCierres = new Set(cierresViejo.map((c) => c.id));
@@ -316,7 +317,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     return {
       viejo,
       nuevo: { id, version: balance.version },
-      cierres: cierresViejo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? c.moduloCodigo, periodo: c.periodo, cargue: c.moduloDatoEncabezadoId })),
+      cierres: cierresViejo.map((c) => ({ modulo: descriptorModulo(c.moduloCodigo)?.label ?? referenciaCierre(c).modulo, periodo: c.periodo, cargue: c.moduloDatoEncabezadoId, referencia: referenciaCierre(c).etiqueta })),
       cuentasEnFirme: evaluacion.ok ? evaluacion.cuentasEnFirme : new Set(bloqueadasPeriodo.filter((b) => idsCierres.has(b.cierre.id)).map((b) => b.cuenta8)).size,
       motivo: evaluacion.ok ? null : evaluacion.mensaje,
     };

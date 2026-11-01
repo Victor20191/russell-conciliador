@@ -23,7 +23,9 @@ import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { FormularioModal } from "./formulario-modal";
 import { VistaAcumulada, VistaPorMeses } from "./vistas-revision";
 import { CruceRevision } from "./cruce-revision";
-import type { CruceRetencionPantalla } from "@/lib/impuestos/retencion/cruce";
+import { BarraCierre, VistaNovedades, VistaOportunidad, VistaPagos } from "./resultados-revision";
+import type { ResultadosPantalla } from "@/lib/impuestos/retencion/resultados-servidor";
+import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { TabRevisionRetencion } from "./tabs";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
@@ -39,16 +41,20 @@ type EnCola = { nombre: string; estado: "pendiente" | "leyendo" | "ok" | "error"
 
 export default function RevisionClient({
   revision,
-  cruce,
+  resultados,
   puedeCargar,
   puedeEditar,
   puedeEliminar,
+  puedeCerrar,
+  puedeDesbloquear,
 }: {
   revision: RevisionVista;
-  cruce: CruceRetencionPantalla;
+  resultados: ResultadosPantalla;
   puedeCargar: boolean;
   puedeEditar: boolean;
   puedeEliminar: boolean;
+  puedeCerrar: boolean;
+  puedeDesbloquear: boolean;
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<number | null>(null);
@@ -59,7 +65,11 @@ export default function RevisionClient({
   const porId = new Map(revision.formularios.map((f) => [f.id, f]));
   const [tab, setTab] = useState<TabRevisionRetencion>("formularios");
   useAnunciarPestanaAyuda(tab);
-  const vista = useMemo(() => vistasRevision(revision.periodos), [revision.periodos]);
+  // En firme, los períodos salen de la copia congelada del cierre.
+  const periodos = resultados.periodos;
+  const vista = useMemo(() => vistasRevision(periodos), [periodos]);
+  const enFirme = revision.estado === "en_firme";
+  const etiquetaPeriodo = (p: number) => etiquetaPeriodoRevision(revision.periodicidad, p);
 
   return (
     <div className="flex flex-col gap-4">
@@ -74,6 +84,20 @@ export default function RevisionClient({
           </div>
           {puedeEliminar && <EliminarRevision id={revision.id} />}
         </div>
+        <div className="mt-3">
+          <BarraCierre
+            revisionId={revision.id}
+            enFirme={enFirme}
+            cierre={resultados.cierre}
+            pendientes={resultados.evaluacion.pendientes.length}
+            puedeCerrar={puedeCerrar}
+            puedeDesbloquear={puedeDesbloquear}
+            onVerNovedades={() => setTab("novedades")}
+          />
+        </div>
+        {enFirme && resultados.desdeCopia && (
+          <p className="mt-2 text-[11.5px] text-ink-500">Las vistas y los resultados son los de la copia congelada del cierre: una corrección importada después no los cambia.</p>
+        )}
         <p className="mt-2 text-[11.5px] text-ink-400">Creada {fmtDateTime(revision.creadoEn)}{revision.creadoPor ? ` · ${revision.creadoPor}` : ""}. Los formularios son del cliente y el año: los comparten el precierre y el cierre.</p>
       </Card>
 
@@ -82,6 +106,9 @@ export default function RevisionClient({
         <TabBtn on={tab === "meses"} onClick={() => setTab("meses")} label="Por meses" />
         <TabBtn on={tab === "acumulado"} onClick={() => setTab("acumulado")} label="Acumulado" />
         <TabBtn on={tab === "cruce"} onClick={() => setTab("cruce")} label="Cruce contable" />
+        <TabBtn on={tab === "oportunidad"} onClick={() => setTab("oportunidad")} label="Oportunidad" />
+        <TabBtn on={tab === "pagos"} onClick={() => setTab("pagos")} label="Pagos efectuados" />
+        <TabBtn on={tab === "novedades"} onClick={() => setTab("novedades")} label={`Novedades${!enFirme && resultados.evaluacion.pendientes.length > 0 ? ` (${resultados.evaluacion.pendientes.length})` : ""}`} />
         <a href={`/api/impuestos/revisiones/${revision.id}/excel`} download className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
           <Icon name="download" size={13} /> Exportar a Excel
         </a>
@@ -89,7 +116,12 @@ export default function RevisionClient({
 
       {tab === "meses" && <VistaPorMeses vista={vista} onAbrir={setAbierto} />}
       {tab === "acumulado" && <VistaAcumulada vista={vista} />}
-      {tab === "cruce" && <CruceRevision cruce={cruce} revisionId={revision.id} puedeEditar={puedeEditar} />}
+      {tab === "cruce" && <CruceRevision cruce={resultados.cruce} revisionId={revision.id} puedeEditar={puedeEditar} />}
+      {tab === "oportunidad" && (
+        <VistaOportunidad filas={resultados.oportunidad} calendario={resultados.calendario} anio={revision.anio} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />
+      )}
+      {tab === "pagos" && <VistaPagos resultado={resultados.pagos} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />}
+      {tab === "novedades" && <VistaNovedades evaluacion={resultados.evaluacion} enFirme={enFirme} onIr={setTab} />}
 
       {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} onTerminar={() => router.refresh()} />}
 
@@ -129,7 +161,7 @@ export default function RevisionClient({
               </tr>
             </thead>
             <tbody>
-              {revision.periodos.map((p) => (
+              {periodos.map((p) => (
                 <FilaPeriodo key={p.periodo} p={p} porId={porId} puedeCargar={puedeCargar} revisionId={revision.id} onAbrir={setAbierto} onCausal={setCausalDe} />
               ))}
             </tbody>

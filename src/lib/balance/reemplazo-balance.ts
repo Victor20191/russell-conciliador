@@ -20,6 +20,7 @@ import {
   type ViolacionBloqueo,
 } from "@/lib/conciliacion/cuentas-bloqueo";
 import { fechaCorteISO } from "./corte";
+import { referenciaCierre } from "@/lib/conciliacion/referencia-cierre";
 
 export type CierreParaReemplazo = {
   id: number;
@@ -96,6 +97,6 @@ export function descripcionReemplazo(p: {
   cierres: readonly Pick<CierreParaReemplazo, "moduloCodigo" | "periodo" | "moduloDatoEncabezadoId">[];
   cuentasEnFirme: number;
 }): string {
-  const cierres = p.cierres.map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId})`).join("; ");
+  const cierres = p.cierres.map((c) => `${referenciaCierre(c).modulo} · ${c.periodo} (${referenciaCierre(c).etiqueta})`).join("; ");
   return `${p.viejo.nombre} ${p.viejo.version} (#${p.viejo.id}) → ${p.nuevo.nombre} ${p.nuevo.version} (#${p.nuevo.id}) · conciliación de ${cierres} · ${p.cuentasEnFirme} cuenta(s) en firme idéntica(s)`;
 }

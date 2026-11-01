@@ -12,10 +12,18 @@ import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
 import { almacenamientoDisponible, subirObjeto } from "@/lib/storage/objetos";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { ConfirmarFormularioDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
+import { CLAVE_MARCA_RETENCION, ConfirmarFormularioDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { siguienteNumeroMarca } from "@/lib/modulos/marcas-cruce";
-import { cargarRevision } from "@/lib/impuestos/retencion/revision-servidor";
+import { cargarRevision, type RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
+import { resultadosEnVivo } from "@/lib/impuestos/retencion/resultados-servidor";
+import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import { construirCopiaRetencion } from "@/lib/impuestos/retencion/copia-cierre";
+import { prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
+import { cuentasBloqueoDelModulo, ESTADO_CIERRE_DESBLOQUEADO, ESTADO_CIERRE_FIRME, validarJustificacionDesbloqueo } from "@/lib/conciliacion/cuentas-bloqueo";
+import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { transaccionSerializable } from "@/lib/concurrency";
 import { cargarCruceRetencion, MODULO_RETENCION } from "@/lib/impuestos/retencion/cruce-servidor";
 import { validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
@@ -28,6 +36,7 @@ import { claveObjetoFormulario, MAX_BYTES_FORMULARIO, type ResultadoImportacion,
 // corregir importes leídos: además `impuestos:editar`; descartar un formulario ya confirmado o una
 // revisión: `impuestos:eliminar`. Nada de esto se permite con la revisión en firme.
 const RUTA = "/impuestos/retencion";
+const PREFIJOS_RETENCION = prefijosRetencion();
 
 const primerError = (issues: { message: string }[]) => issues[0]?.message ?? "Datos inválidos.";
 const etiquetaPeriodo = (p: number) => NOMBRES_MES[p - 1] ?? `Período ${p}`;
@@ -427,9 +436,11 @@ export async function eliminarRevisionRetencion(_prev: ActionState, formData: Fo
 }
 
 /**
- * Marca de auditoría de una diferencia del cruce contable (tabla de marcas de los módulos, código
- * RET, período de la revisión). Guarda la diferencia del momento: si después cambia, la marca queda
- * desactualizada y la fila vuelve a pedirla.
+ * Marca de auditoría (tabla de marcas de los módulos, código RET, período de la revisión) de una
+ * fila del cruce contable (dimensión `cuenta4`, la clave es la cuenta Russell o `sin_cuenta:…`), de
+ * un mes con diferencia en el pago (`pago:2026-02`) o de un mes cuya corrección llegó sin el
+ * original (`oportunidad:2026-01`), estas dos en la dimensión `control`. Guarda la diferencia del
+ * momento: si después cambia, la marca queda desactualizada y la fila vuelve a pedirla.
  */
 export async function guardarMarcaRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = MarcaRetencionSchema.safeParse({
@@ -447,28 +458,30 @@ export async function guardarMarcaRetencion(_prev: ActionState, formData: FormDa
   try {
     const vista = await cargarRevision(revision.id);
     if (!vista) return { ok: false, message: "La revisión no existe." };
-    const cruce = await cargarCruceRetencion(vista);
-    if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
-    const fila = cruce.resultado.grupos.flatMap((g) => g.filas).find((f) => f.clave === clave);
-    if (!fila) return { ok: false, message: "Esa fila ya no está en el cruce." };
-    if (fila.diferencia === 0) return { ok: false, message: "La fila no tiene diferencia que marcar." };
+    const objetivo = await objetivoDeMarca(vista, clave);
+    if (!objetivo.ok) return { ok: false, message: objetivo.message };
+    const { dimension, diferencia, etiqueta } = objetivo;
 
     const user = await getCurrentUser();
     const numero = await prisma.$transaction(async (tx) => {
       await tomarCandadoTransaccion(tx, `marca-retencion:${revision.clienteId}:${revision.periodo}`);
       const delPeriodo = await tx.marcaCruceModulo.findMany({
         where: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo },
-        select: { id: true, numero: true, cuenta4: true, dimension: true },
+        select: { id: true, numero: true, cuenta4: true, clave: true, dimension: true },
       });
-      const existente = delPeriodo.find((m) => m.dimension === "cuenta4" && m.cuenta4 === clave);
-      const datos = { nota, referenciaAnexo: referenciaAnexo || null, diferencia: fila.diferencia, marcadoPor: user?.name ?? null, marcadoPorId: user?.id ?? null, marcadoEn: new Date() };
+      const existente = delPeriodo.find((m) => m.dimension === dimension && (dimension === "cuenta4" ? m.cuenta4 : m.clave) === clave);
+      const datos = { nota, referenciaAnexo: referenciaAnexo || null, diferencia, marcadoPor: user?.name ?? null, marcadoPorId: user?.id ?? null, marcadoEn: new Date() };
       if (existente) {
         await tx.marcaCruceModulo.update({ where: { id: existente.id }, data: datos });
         return existente.numero;
       }
       const siguiente = siguienteNumeroMarca(delPeriodo.map((m) => m.numero));
       await tx.marcaCruceModulo.create({
-        data: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, numero: siguiente, dimension: "cuenta4", cuenta4: clave, ...datos },
+        data: {
+          clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, numero: siguiente, dimension,
+          ...(dimension === "cuenta4" ? { cuenta4: clave } : { clave }),
+          ...datos,
+        },
       });
       return siguiente;
     });
@@ -476,7 +489,7 @@ export async function guardarMarcaRetencion(_prev: ActionState, formData: FormDa
       user: user?.name ?? "Sistema",
       action: "MARCÓ DIFERENCIA DE RETENCIÓN",
       entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
-      detail: `Marca ${numero} · ${fila.cuentaRussell ?? fila.conceptos.map((c) => c.etiqueta).join(", ")} · diferencia ${fila.diferencia} · ${nota}`,
+      detail: `Marca ${numero} · ${etiqueta} · diferencia ${diferencia} · ${nota}`,
       clientId: revision.clienteId,
     });
     revalidatePath(`${RUTA}/${revision.id}`);
@@ -486,19 +499,48 @@ export async function guardarMarcaRetencion(_prev: ActionState, formData: FormDa
   }
 }
 
-/** Quita la marca de una fila del cruce (la fila vuelve a pedirla si su diferencia lo exige). */
+type ObjetivoMarca = { ok: true; dimension: "cuenta4" | "control"; diferencia: number; etiqueta: string } | { ok: false; message: string };
+
+/** Qué se marca con la clave: la fila del cruce, el mes de pagos o el mes de oportunidad, con su diferencia de hoy. */
+async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<ObjetivoMarca> {
+  if (clave.startsWith("pago:") || clave.startsWith("oportunidad:")) {
+    const resultados = await resultadosEnVivo(vista);
+    if (clave.startsWith("pago:")) {
+      const fila = resultados.pagos.filas.find((f) => f.clave === clave);
+      if (!fila) return { ok: false, message: "Ese período ya no está en la revisión." };
+      if (!fila.requiereMarca) return { ok: false, message: "Ese período no tiene diferencia en el pago." };
+      return { ok: true, dimension: "control", diferencia: fila.diferencia, etiqueta: `Pagos · ${etiquetaPeriodoRevision(vista.periodicidad, fila.periodo)}` };
+    }
+    const fila = resultados.oportunidad.find((f) => f.clave === clave);
+    if (!fila) return { ok: false, message: "Ese período ya no está en la revisión." };
+    if (!fila.requiereMarca) return { ok: false, message: "Ese período ya tiene su 350 original: no hace falta la marca." };
+    return { ok: true, dimension: "control", diferencia: 0, etiqueta: `Oportunidad · ${etiquetaPeriodoRevision(vista.periodicidad, fila.periodo)}` };
+  }
+  const cruce = await cargarCruceRetencion(vista);
+  if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
+  const fila = cruce.resultado.grupos.flatMap((g) => g.filas).find((f) => f.clave === clave);
+  if (!fila) return { ok: false, message: "Esa fila ya no está en el cruce." };
+  if (fila.diferencia === 0) return { ok: false, message: "La fila no tiene diferencia que marcar." };
+  return { ok: true, dimension: "cuenta4", diferencia: fila.diferencia, etiqueta: `Cruce · ${fila.cuentaRussell ?? fila.conceptos.map((c) => c.etiqueta).join(", ")}` };
+}
+
+/** Quita la marca de una fila del cruce o de un mes (la fila vuelve a pedirla si su diferencia lo exige). */
 export async function quitarMarcaRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const revisionId = Number(formData.get("revisionId"));
   const clave = String(formData.get("clave") ?? "");
-  if (!Number.isSafeInteger(revisionId) || revisionId <= 0 || !/^(\d{6}|sin_cuenta:[a-z0-9_]{2,60})$/.test(clave)) return { ok: false, message: "Marca inválida." };
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0 || !CLAVE_MARCA_RETENCION.test(clave)) return { ok: false, message: "Marca inválida." };
   const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
   if (!acceso.ok) return { ok: false, message: acceso.message };
   const { revision } = acceso;
+  const control = clave.startsWith("pago:") || clave.startsWith("oportunidad:");
 
   try {
     const user = await getCurrentUser();
     const marca = await prisma.marcaCruceModulo.findFirst({
-      where: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, dimension: "cuenta4", cuenta4: clave },
+      where: {
+        clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo,
+        ...(control ? { dimension: "control", clave } : { dimension: "cuenta4", cuenta4: clave }),
+      },
       select: { id: true, numero: true, nota: true },
     });
     if (!marca) return { ok: true, message: "La fila ya no tenía marca." };
@@ -514,5 +556,214 @@ export async function quitarMarcaRetencion(_prev: ActionState, formData: FormDat
     return { ok: true, message: "Marca quitada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("quitarMarcaRetencion", e) };
+  }
+}
+
+/** Huella de lo que el cierre evaluó: formularios del año, causales y marcas de la revisión. */
+async function firmaParaCierre(db: Pick<typeof prisma, "formularioDianCargado" | "periodoSinFormulario" | "marcaCruceModulo">, r: { clienteId: number; anio: number; periodo: string }): Promise<string> {
+  const [formularios, causales, marcas] = await Promise.all([
+    db.formularioDianCargado.findMany({ where: { clienteId: r.clienteId, anio: r.anio }, select: { id: true, estado: true, actualizadoEn: true }, orderBy: { id: "asc" } }),
+    db.periodoSinFormulario.findMany({ where: { clienteId: r.clienteId, anio: r.anio }, select: { periodo: true, causal: true }, orderBy: { periodo: "asc" } }),
+    db.marcaCruceModulo.findMany({ where: { clienteId: r.clienteId, moduloCodigo: MODULO_RETENCION, periodo: r.periodo }, select: { id: true, diferencia: true, marcadoEn: true }, orderBy: { id: "asc" } }),
+  ]);
+  return createHash("sha256")
+    .update(JSON.stringify([
+      formularios.map((f) => [f.id, f.estado, f.actualizadoEn.getTime()]),
+      causales.map((c) => [c.periodo, c.causal]),
+      marcas.map((m) => [m.id, m.diferencia.toString(), m.marcadoEn.getTime()]),
+    ]))
+    .digest("hex");
+}
+
+/**
+ * «Cerrar en firme» (senior o gerente asignado, `conciliaciones:cerrar`): exige lo que dice
+ * `evaluarCierreRetencion` (cada período resuelto, nada por confirmar, el cruce disponible y marcas
+ * en las diferencias que las piden). Bloquea el saldo final y la homologación de las cuentas del
+ * cliente homologadas a las cuentas Russell del cruce, en el balance del corte; deja la revisión de
+ * solo lectura y guarda la copia congelada. Usa `conciliacion_modulo_cierre` con el código RET y el
+ * id de la revisión en `modulo_dato_encabezado_id`.
+ */
+export async function cerrarRevisionRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const revisionId = Number(formData.get("revisionId"));
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0) return { ok: false, message: "Revisión inválida." };
+
+  try {
+    const vista = await cargarRevision(revisionId);
+    if (!vista) return { ok: false, message: "La revisión no existe." };
+    const authz = await autorizarCierreConciliacion("conciliaciones:cerrar", vista.clienteId);
+    if (!authz.ok) return { ok: false, message: authz.message };
+    if (vista.estado === "en_firme") return { ok: true, message: "La revisión ya estaba en firme." };
+
+    const firma = await firmaParaCierre(prisma, vista);
+    const resultados = await resultadosEnVivo(vista);
+    const { pendientes } = resultados.evaluacion;
+    if (pendientes.length > 0) {
+      return { ok: false, message: `No se puede cerrar: ${pendientes[0].texto}${pendientes.length > 1 ? ` (y ${pendientes.length - 1} pendiente(s) más; míralos en Novedades)` : ""}` };
+    }
+    const { cruce } = resultados;
+    if (cruce.estado !== "listo") return { ok: false, message: `No se puede cerrar: ${cruce.mensaje}` };
+    const balance = cruce.balance;
+    const cuentasRussell6 = [...new Set(cruce.resultado.grupos.flatMap((g) => g.filas).map((f) => f.cuentaRussell).filter((c): c is string => c != null))].sort();
+    const copia = construirCopiaRetencion({ tomadaEn: new Date(), periodos: vista.periodos, cruce, oportunidad: resultados.oportunidad, pagos: resultados.pagos });
+    const user = await getCurrentUser();
+    const actor = user?.name ?? "Sistema";
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Los mismos candados que cerrar los módulos: el balance del corte no cambia mientras se congela.
+      await tomarCandadoTransaccion(tx, `balance-oficial:${vista.clienteId}:${balance.periodo}`);
+      await tomarCandadoTransaccion(tx, `conciliacion-cierre:${vista.clienteId}:${MODULO_RETENCION}:${vista.periodo}`);
+      const actual = await tx.revisionRetencion.findUnique({ where: { id: vista.id }, select: { estado: true } });
+      if (!actual) return { ok: false as const, message: "La revisión ya no existe." };
+      if (actual.estado === "en_firme") return { ok: true as const, idempotente: true, cuentas: 0 };
+
+      const encabezado = await tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true, estaCongelado: true } });
+      if (!encabezado?.estaCongelado) {
+        return { ok: false as const, message: "El balance del corte se abrió o ya no existe: ciérralo de nuevo en /balance y vuelve a revisar el cruce." };
+      }
+      const contexto = await cargarContextoPrevalidadorBalance(balance.id, tx);
+      if (!cruce.huellaBalance || contexto.huella !== cruce.huellaBalance || !contexto.revision.vigente) {
+        return { ok: false as const, message: "El balance del corte cambió mientras se cerraba. Vuelve a abrir el cruce." };
+      }
+      if ((await firmaParaCierre(tx, vista)) !== firma) {
+        return { ok: false as const, message: "Los formularios, las causales o las marcas cambiaron mientras se cerraba. Vuelve a revisar la revisión." };
+      }
+
+      const [detalle, filasTercero] = await Promise.all([
+        tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: balance.id },
+          select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        }),
+        encabezado.loteId
+          ? tx.balanceTerceroDetalle.findMany({
+              where: { encabezado: { loteId: encabezado.loteId } },
+              select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const aFila = (f: (typeof detalle)[number]) => ({
+        cuenta8: f.cuenta8, cuenta6Russell: f.cuenta6Russell,
+        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+      });
+      // El detalle principal manda (importes oficiales); el de tercero solo aporta cuentas que falten.
+      const bloqueadas = cuentasBloqueoDelModulo([...detalle.map(aFila), ...filasTercero.map(aFila)], PREFIJOS_RETENCION, cuentasRussell6);
+
+      const datosCierre = {
+        balancePeriodo: balance.periodo,
+        moduloDatoEncabezadoId: vista.id,
+        balanceEncabezadoId: balance.id,
+        cuentasRussell: PREFIJOS_RETENCION,
+        cuentasRussell6,
+        resumenCruceTercero: Prisma.DbNull,
+        cuentasConciliacion: Prisma.DbNull,
+        subgruposConciliacion: Prisma.DbNull,
+        paresDepreciacion: Prisma.DbNull,
+        copiaCongelada: copia as unknown as Prisma.InputJsonValue,
+        estado: ESTADO_CIERRE_FIRME,
+        cerradoPorId: authz.userId,
+        cerradoPor: actor,
+        cerradoEn: new Date(),
+        desbloqueadoPorId: null,
+        desbloqueadoPor: null,
+        desbloqueadoEn: null,
+        justificacionDesbloqueo: null,
+      };
+      const existente = await tx.conciliacionModuloCierre.findUnique({
+        where: { clienteId_moduloCodigo_periodo: { clienteId: vista.clienteId, moduloCodigo: MODULO_RETENCION, periodo: vista.periodo } },
+        select: { id: true },
+      });
+      const cierre = existente
+        ? await tx.conciliacionModuloCierre.update({ where: { id: existente.id }, data: datosCierre, select: { id: true } })
+        : await tx.conciliacionModuloCierre.create({ data: { clienteId: vista.clienteId, moduloCodigo: MODULO_RETENCION, periodo: vista.periodo, ...datosCierre }, select: { id: true } });
+      await tx.cuentaBloqueadaConciliacion.deleteMany({ where: { cierreId: cierre.id } });
+      if (bloqueadas.length > 0) {
+        await tx.cuentaBloqueadaConciliacion.createMany({
+          data: bloqueadas.map((b) => ({
+            cierreId: cierre.id,
+            clienteId: vista.clienteId,
+            periodo: balance.periodo,
+            cuenta: b.cuenta8,
+            cuenta6Russell: b.cuenta6Russell,
+            saldoInicial: new Prisma.Decimal(b.saldoInicial.toFixed(2)),
+            debitos: new Prisma.Decimal(b.debitos.toFixed(2)),
+            creditos: new Prisma.Decimal(b.creditos.toFixed(2)),
+            saldoFinal: new Prisma.Decimal(b.saldoFinal.toFixed(2)),
+            moduloCodigo: MODULO_RETENCION,
+            moduloDatoEncabezadoId: vista.id,
+          })),
+        });
+      }
+      await tx.revisionRetencion.update({ where: { id: vista.id }, data: { estado: "en_firme" } });
+      return { ok: true as const, idempotente: false, cuentas: bloqueadas.length };
+    });
+    if (!resultado.ok) return resultado;
+    if (resultado.idempotente) return { ok: true, message: "La revisión ya estaba en firme." };
+
+    await logAudit({
+      user: actor,
+      action: "CERRÓ RETENCIÓN EN LA FUENTE (EN FIRME)",
+      entity: `Retención en la fuente · ${vista.nombreCliente} · ${vista.anio} corte ${etiquetaPeriodo(vista.mesCorte)}`,
+      detail: `Revisión #${vista.id} · balance #${balance.id} ${balance.descripcion} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${cuentasRussell6.join(", ")} · copia congelada ${copia.huella.slice(0, 12)}`,
+      clientId: vista.clienteId,
+    });
+    revalidatePath(`${RUTA}/${vista.id}`);
+    revalidatePath(RUTA);
+    revalidatePath(`/balance/${balance.id}`);
+    revalidatePath("/balance");
+    return { ok: true, message: `Revisión en firme: quedó bloqueado el saldo final de ${resultado.cuentas} cuenta(s) del balance ${balance.periodo}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cerrarRevisionRetencion", e) };
+  }
+}
+
+/** «Desbloquear» (senior o gerente asignado, `conciliaciones:desbloquear`), con justificación obligatoria. */
+export async function desbloquearRevisionRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const revisionId = Number(formData.get("revisionId"));
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0) return { ok: false, message: "Revisión inválida." };
+  const validacion = validarJustificacionDesbloqueo(String(formData.get("justificacion") ?? ""));
+  if (!validacion.ok) return { ok: false, message: validacion.message };
+
+  try {
+    const revision = await prisma.revisionRetencion.findUnique({ where: { id: revisionId } });
+    if (!revision) return { ok: false, message: "La revisión no existe." };
+    const authz = await autorizarCierreConciliacion("conciliaciones:desbloquear", revision.clienteId);
+    if (!authz.ok) return { ok: false, message: authz.message };
+    const user = await getCurrentUser();
+    const actor = user?.name ?? "Sistema";
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `conciliacion-cierre:${revision.clienteId}:${MODULO_RETENCION}:${revision.periodo}`);
+      const cierre = await tx.conciliacionModuloCierre.findUnique({
+        where: { clienteId_moduloCodigo_periodo: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo } },
+        select: { id: true, estado: true, balanceEncabezadoId: true, balancePeriodo: true, cerradoPor: true },
+      });
+      const actual = await tx.revisionRetencion.findUnique({ where: { id: revisionId }, select: { estado: true } });
+      if (!actual || actual.estado !== "en_firme") return { ok: false as const, message: "La revisión no está en firme." };
+      let cuentas = 0;
+      if (cierre && cierre.estado === ESTADO_CIERRE_FIRME) {
+        cuentas = (await tx.cuentaBloqueadaConciliacion.deleteMany({ where: { cierreId: cierre.id } })).count;
+        await tx.conciliacionModuloCierre.update({
+          where: { id: cierre.id },
+          data: { estado: ESTADO_CIERRE_DESBLOQUEADO, desbloqueadoPorId: authz.userId, desbloqueadoPor: actor, desbloqueadoEn: new Date(), justificacionDesbloqueo: validacion.justificacion },
+        });
+      }
+      await tx.revisionRetencion.update({ where: { id: revisionId }, data: { estado: "en_proceso" } });
+      return { ok: true as const, cuentas, cierre };
+    });
+    if (!resultado.ok) return resultado;
+
+    await logAudit({
+      user: actor,
+      action: "DESBLOQUEÓ RETENCIÓN EN LA FUENTE",
+      entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
+      detail: `Revisión #${revision.id}${resultado.cierre ? ` · balance #${resultado.cierre.balanceEncabezadoId} (${resultado.cierre.balancePeriodo}) · cerró ${resultado.cierre.cerradoPor}` : ""} · ${resultado.cuentas} cuenta(s) liberada(s) · Justificación: ${validacion.justificacion}`,
+      clientId: revision.clienteId,
+    });
+    revalidatePath(`${RUTA}/${revision.id}`);
+    revalidatePath(RUTA);
+    if (resultado.cierre) revalidatePath(`/balance/${resultado.cierre.balanceEncabezadoId}`);
+    revalidatePath("/balance");
+    return { ok: true, message: `Revisión desbloqueada: ${resultado.cuentas} cuenta(s) liberada(s). La justificación quedó en la bitácora.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("desbloquearRevisionRetencion", e) };
   }
 }

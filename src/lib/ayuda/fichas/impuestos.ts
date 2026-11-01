@@ -171,7 +171,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   id: "impuestos.retencion_revision",
   titulo: "Revisión de Retención en la fuente",
   proposito:
-    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan; el cruce contable compara lo declarado con el balance del corte.",
+    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 350: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -183,9 +183,34 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       acciones: [
         {
           nombre: "Exportar a Excel",
-          queHace: "Descarga la revisión en un libro con cuatro hojas: por meses, acumulado, los formularios cargados y el cruce contable con todos los terceros de cada cuenta y las marcas.",
+          queHace: "Descarga la revisión en un libro con seis hojas: por meses, acumulado, los formularios cargados, el cruce contable con todos los terceros de cada cuenta y las marcas, la oportunidad y los pagos efectuados. En firme, los resultados son los de la copia congelada.",
           regla: REGLAS.verRevisionImpuestos,
           fuente: { archivo: "src/app/api/impuestos/revisiones/[id]/excel/route.ts", funcion: "GET" },
+        },
+      ],
+    },
+    {
+      titulo: "Cerrar en firme",
+      acciones: [
+        {
+          nombre: "Cerrar en firme",
+          queHace:
+            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea el saldo final y la homologación de las cuentas del cliente que entraron al cruce, en el balance del corte.",
+          regla: REGLAS.cerrarConciliacion,
+          condiciones: [
+            "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
+            "Ningún formulario de esos períodos está por confirmar.",
+            "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
+            "Cada mes con diferencia en el pago y cada mes cuya corrección llegó sin el original tiene marca.",
+          ],
+          fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cerrarRevisionRetencion" },
+        },
+        {
+          nombre: "Desbloquear",
+          queHace: "Vuelve a dejar la revisión en proceso y libera las cuentas bloqueadas. La justificación queda en la bitácora.",
+          regla: REGLAS.desbloquearConciliacion,
+          condiciones: ["La revisión está en firme.", "Justificación de al menos 10 caracteres."],
+          fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "desbloquearRevisionRetencion" },
         },
       ],
     },
@@ -349,6 +374,65 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         },
       ],
     },
+    {
+      id: "oportunidad",
+      titulo: "Oportunidad",
+      proposito:
+        "Por período, la fecha límite del calendario tributario (año, período y último dígito del NIT sin el dígito de verificación) contra la presentación del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección) y el pago (997 del último recibo 490 del concepto 61; sin 61, el primer recibo que haya). Igual o antes del vencimiento es «Oportuno»; después, «Extemporáneo» con los días de atraso. Un mes sin formulario, sin calendario o sin original lo dice así.",
+      etapas: [
+        {
+          titulo: "Documentar",
+          acciones: [
+            {
+              nombre: "Marcar un mes sin original",
+              queHace: "Explica por qué falta el 350 original de un mes cuya corrección sí se cargó (sin él no se mide la presentación). La marca es obligatoria para cerrar.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La corrección del mes llegó sin su original.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "pagos",
+      titulo: "Pagos efectuados",
+      proposito:
+        "Por período, el 350 vigente (136 retenciones, 137 sanciones, 138 total) contra los recibos 490 de su cadena (impuesto, sanción e intereses de mora). Diferencia = (136 − impuesto pagado) + (137 − sanción pagada); los intereses se muestran y no generan diferencia. Se compara al peso. Al desplegar un período se ve qué falta por concepto: 130 contra el 61, 134 contra el 62 y 135 contra el 63.",
+      etapas: [
+        {
+          titulo: "Documentar",
+          acciones: [
+            {
+              nombre: "Marcar una diferencia en el pago",
+              queHace: "Explica la diferencia del mes. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["El mes tiene diferencia en el pago.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
+            },
+            {
+              nombre: "Quitar marca",
+              queHace: "Retira la marca del mes; si sigue la diferencia, vuelve a pedirla.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "quitarMarcaRetencion" },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "novedades",
+      titulo: "Novedades",
+      proposito:
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y oportunidad) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones o un mes sin recibo del concepto 61).",
+      etapas: [
+        {
+          titulo: "Consultar",
+          acciones: [{ nombre: "Ir", queHace: "Abre la pestaña donde se resuelve el pendiente.", regla: REGLAS.verRevisionImpuestos }],
+        },
+      ],
+    },
   ],
   estados: [
     { etiqueta: "Completo", significado: "El período tiene su 350 confirmado y los recibos 490 de lo que declaró." },
@@ -357,6 +441,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     { etiqueta: "Sin formulario", significado: "Se registró que en el período no hubo 350, con su causal." },
     { etiqueta: "Falta el original", significado: "Llegó una corrección sin el formulario que corrige: sin el original no se mide la oportunidad de presentación." },
     { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y falta su recibo 490." },
+    { etiqueta: "En firme", significado: "La revisión se cerró: es de solo lectura, sus resultados salen de la copia congelada y las cuentas del cruce quedan bloqueadas en el balance del corte." },
   ],
   preguntas: [
     {
@@ -368,6 +453,14 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       pregunta: "¿Por qué el cruce dice que no hay balance o que está bloqueado?",
       respuesta:
         "El cruce necesita el balance cerrado y vigente que termina en el mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta.",
+    },
+    {
+      pregunta: "¿Por qué la oportunidad dice «Sin calendario»?",
+      respuesta: "Falta el calendario tributario del año en Parametrización › Calendario tributario, o la periodicidad del cliente no es mensual (el calendario tiene una fecha por mes).",
+    },
+    {
+      pregunta: "¿Una corrección importada después cambia una revisión en firme?",
+      respuesta: "No. La revisión en firme muestra la copia congelada del cierre. Para que tome la corrección, el senior o el gerente la desbloquea y se vuelve a cerrar.",
     },
     {
       pregunta: "¿Por qué un recibo dice que paga un formulario de otro período?",

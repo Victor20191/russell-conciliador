@@ -234,11 +234,21 @@ export function renglonesFilaCruce(f: Pick<FilaCruce, "conceptos">): string {
   return f.conceptos.flatMap((c) => c.renglones.map((r) => `${c.signo === "-" ? "−" : ""}${r}`)).join(" · ");
 }
 
-export type BalanceCruceRetencion = { id: number; descripcion: string; periodoInicio: string; periodoFin: string };
+/** El balance del corte: `periodo` es su etiqueta («Enero 2026 – Agosto 2026»), la del bloqueo de cuentas. */
+export type BalanceCruceRetencion = { id: number; periodo: string; descripcion: string; periodoInicio: string; periodoFin: string };
 
 export type CruceRetencionVista =
   | { estado: "sin_balance" | "bloqueado"; mensaje: string; balance: BalanceCruceRetencion | null; umbral: number }
-  | { estado: "listo"; mensaje: null; balance: BalanceCruceRetencion; umbral: number; inicioEnero: boolean; resultado: ResultadoCruce };
+  | {
+      estado: "listo";
+      mensaje: null;
+      balance: BalanceCruceRetencion;
+      umbral: number;
+      inicioEnero: boolean;
+      resultado: ResultadoCruce;
+      /** Huella del prevalidador del balance: el cierre la vuelve a leer bajo candado y exige la misma. */
+      huellaBalance?: string;
+    };
 
 /** Terceros por cuenta del cliente que viajan a la pantalla (el Excel lleva todos). */
 export const MAX_TERCEROS_PANTALLA = 100;
