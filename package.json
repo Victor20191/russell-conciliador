@@ -29,6 +29,7 @@
     "db:seed:prompts": "tsx prisma/seed-prompts.ts",
     "novedades:commits": "tsx scripts/novedades-desde-commits.ts",
     "version:release": "tsx scripts/release-version.ts",
+    "manual:ayuda": "tsx scripts/generar-manual-ayuda.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:purgar:accesos": "tsx prisma/purgar-accesos.ts",
     "db:purgar:cuentas-sin-codigo": "tsx scripts/purgar-cuentas-cliente-sin-codigo.ts",

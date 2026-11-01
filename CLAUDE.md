@@ -20,6 +20,7 @@ npx vitest run ruta/archivo.test.ts # un archivo
 npx vitest run -t "nombre"          # por nombre
 npm run db:migrate                  # prisma migrate deploy
 npm run db:status                   # estado de migraciones (solo lectura)
+npm run manual:ayuda                # manual de usuario en PDF desde las fichas de la ayuda (lee la matriz de la BD; output/manual/)
 ```
 
 - **`.env` apunta a la BD de PRODUCCIÓN.** Antes de correr cualquier script de escritura, verifica destino y efecto. `db:migrate:dev` solo en bases de desarrollo (puede proponer reset). Los scripts de mantenimiento (`db:*`) simulan por defecto y escriben con `--aplicar`; no se ejecutan como pasos automáticos de despliegue.

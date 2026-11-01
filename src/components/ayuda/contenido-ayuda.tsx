@@ -121,7 +121,8 @@ export default function ContenidoAyuda(props: ContenidoAyudaProps) {
       <div>
         <p className="text-[12.5px] leading-snug text-ink-600">Aún no hay ayuda para esta pantalla.</p>
         <p className="mt-2 text-[12px] leading-snug text-ink-500">
-          Por ahora la ayuda cubre el Balance de comprobación, el Borrador de balance y los Módulos de conciliación.
+          La ayuda cubre las pantallas de la operación: Balance de comprobación, Módulos de conciliación, Catálogos contables,
+          Clientes y equipo, Parametrización y Mesa de ayuda.
         </p>
         {mesaAyuda}
       </div>
