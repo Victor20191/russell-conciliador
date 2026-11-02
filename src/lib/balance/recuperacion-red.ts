@@ -12,7 +12,7 @@ export function esFalloTransporteCarga(error: unknown): boolean {
         ? error
         : "";
 
-  return /failed to fetch|fetch failed|networkerror|network request failed|load failed|connection.*lost/i.test(
+  return /failed to fetch|fetch failed|network ?error|network request failed|load failed|connection.*lost/i.test(
     mensaje,
   );
 }

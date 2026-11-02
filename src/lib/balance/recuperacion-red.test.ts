@@ -9,6 +9,7 @@ describe("esFalloTransporteCarga", () => {
     new TypeError("Failed to fetch"),
     new Error("fetch failed"),
     new Error("NetworkError when attempting to fetch resource."),
+    new TypeError("network error"),
     new Error("Load failed"),
     "Network request failed",
   ])("reconoce errores recuperables de transporte", (error) => {
