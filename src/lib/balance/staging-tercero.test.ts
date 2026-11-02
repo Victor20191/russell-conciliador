@@ -195,18 +195,18 @@ describe("prepararCapturaTercero — herencia de ajustes y fila propia", () => {
     expect(r.filas[1].nitTercero).toBe("890903938");
   });
 
-  it("solo conserva los terceros de 13, 21, 22, 23, 28 y 41; el resto queda con su fila propia", () => {
-    const cuentas = ["11050501", "13050501", "14350101", "21050501", "23350501", "28050501", "41350501", "51050601"];
+  it("solo conserva los terceros de 13, 21, 22, 23, 24, 28 y 41 a 45; el resto queda con su fila propia", () => {
+    const cuentas = ["11050501", "13050501", "14350101", "21050501", "23350501", "24360502", "28050501", "41350501", "42100501", "43120501", "44280501", "45300501", "46000501", "51050601"];
     const stg: FilaTerceroCruda[] = cuentas.map((codigo, i) => (
       { filaNum: i + 1, codigo, codigoCrudo: null, nombreCuenta: null, nitTercero: `90000000${i}`, nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 10 }
     ));
     const r = prepararCapturaTercero(stg, cuentas.map((cuenta8) => detalle({ cuenta8, saldoFinal: 10 })), new Set());
     const conTerceros = [...new Set(r.filas.filter((f) => f.nitTercero !== null).map((f) => f.cuenta8))];
-    expect(conTerceros).toEqual(["13050501", "21050501", "23350501", "28050501", "41350501"]);
+    expect(conTerceros).toEqual(["13050501", "21050501", "23350501", "24360502", "28050501", "41350501", "42100501", "43120501", "44280501", "45300501"]);
     // Toda cuenta conserva su fila propia con el saldo oficial.
     expect(r.filas.filter((f) => f.nitTercero === null).map((f) => f.cuenta8)).toEqual(cuentas);
-    expect(r.cuentasConDetalle).toBe(5);
-    expect(r.terceros).toBe(5);
+    expect(r.cuentasConDetalle).toBe(10);
+    expect(r.terceros).toBe(10);
   });
 });
 

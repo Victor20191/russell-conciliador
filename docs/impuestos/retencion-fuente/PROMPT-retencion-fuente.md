@@ -71,7 +71,7 @@ Reutiliza (verifica cada pieza antes de usarla):
 
 - **Balance por terceros**: `balance_tercero_encabezado` / `balance_tercero_detalle`
   (saldo inicial, débitos, créditos y saldo final por tercero; `nit_tercero` núcleo de 9
-  dígitos, `identidad_tercero` con nombre y DV). Las cuentas que empiezan por 23 conservan
+  dígitos, `identidad_tercero` con nombre y DV). Las cuentas que empiezan por 23 y 24 conservan
   sus terceros (`PREFIJOS_TERCERO_CONSERVADOS`, `src/lib/balance/staging-tercero.ts`), pero
   el detalle solo existe si el balance se cargó con apertura por tercero. Lee siempre con
   `filasEfectivasTercero`. Ayudas de NIT/DV en `src/lib/nit.ts`.

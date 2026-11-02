@@ -1,6 +1,6 @@
 /**
  * Poda el detalle por tercero ya capturado de un balance: deja los terceros solo en las
- * cuentas de `PREFIJOS_TERCERO_CONSERVADOS` (13, 21, 22, 23, 28 y 41) y borra los de las
+ * cuentas de `PREFIJOS_TERCERO_CONSERVADOS` (13, 21, 22, 23, 24, 28 y 41 a 45) y borra los de las
  * demás. Desde el 22/Sep/2026 la captura ya no los guarda; esto alcanza a lo cargado antes.
  *
  * Qué NO toca: la fila propia de cada cuenta (sin NIT ni nombre, el saldo oficial), el

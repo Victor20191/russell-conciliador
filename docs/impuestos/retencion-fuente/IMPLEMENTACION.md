@@ -33,3 +33,5 @@ Especificación y decisiones del usuario en `docs/impuestos/retencion-fuente/` (
 - **Formularios por período · por confirmar**: lo pendiente se separa por formulario y concepto, así cada columna muestra lo suyo y un 490 cargado sin confirmar no sale como «falta el recibo». Sigue sin contar para el cruce, los pagos ni el cierre hasta confirmarlo.
 
 - **Confirmar seleccionados** (`confirmarFormulariosDian`, `impuestos:cargar` + alcance de escritura): marca varios formularios y los confirma tal como los leyó la IA. Solo se pueden marcar los que pasan los controles que bloquean; comparte `confirmarFila` con «Revisar», así que las reglas son las mismas. Cada uno se guarda y se audita aparte: si uno falla, los demás quedan confirmados.
+
+- **Terceros de los grupos 24 y 41 a 45**: `PREFIJOS_TERCERO_CONSERVADOS` los incluye porque las entidades públicas llevan las retenciones en la 2436 (sin terceros el cruce no puede restar a la DIAN) y porque IVA los necesitará. Aplica a los balances que se carguen desde ahora: los ya cargados no tienen esos terceros y hay que volver a cargarlos. No son de detalle obligatorio, así que una cuenta sin terceros no genera aviso.

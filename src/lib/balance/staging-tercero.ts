@@ -346,11 +346,14 @@ export function exigeDetalleTercero(cuenta: string): boolean {
 
 /**
  * Cuentas del cliente cuyo detalle por tercero se GUARDA al promover (22/Sep/2026): las de
- * detalle obligatorio más los ingresos (41), que usa el cruce por tercero de Ingresos. El
- * resto del balance no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil
- * filas); queda con su fila propia. No afecta la homologación ni el balance oficial.
+ * detalle obligatorio, los ingresos (41), que usa el cruce por tercero de Ingresos, y las que
+ * necesita Impuestos: 24, donde el plan de las entidades públicas lleva las retenciones (2436)
+ * y sin terceros el cruce no puede restar a la DIAN, y 41 a 45 para IVA. El resto del balance
+ * no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil filas); queda con su
+ * fila propia. No afecta la homologación ni el balance oficial. 24 y 42 a 45 no son de detalle
+ * obligatorio: si una cuenta llega sin terceros, no se avisa.
  */
-export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "41"] as const;
+export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "24", "41", "42", "43", "44", "45"] as const;
 
 export function conservaDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
