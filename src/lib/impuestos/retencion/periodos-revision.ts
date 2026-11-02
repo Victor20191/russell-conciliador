@@ -91,6 +91,8 @@ export type PagoConcepto = {
   impuesto: number;
   sancion: number;
   intereses: number;
+  /** 490 del concepto cargados y sin confirmar: no suman hasta confirmarlos. */
+  porConfirmar: number;
 };
 
 export type EstadoPeriodo =
@@ -108,8 +110,12 @@ export type PeriodoRevision = {
   cadena: CadenaPeriodo;
   causal: string | null;
   porConfirmar: number;
+  /** De los anteriores, los que no son 490 (incluye el que no se reconoció como 350 ni 490). */
+  porConfirmar350: number;
+  /** 490 por confirmar sin un concepto 61, 62 o 63: no se sabe qué renglón pagan. */
+  recibosSinConcepto: number;
   pagos: PagoConcepto[];
-  /** Conceptos que el 350 vigente obliga a pagar y no tienen 490. */
+  /** Conceptos que el 350 vigente obliga a pagar y no tienen 490, ni confirmado ni por confirmar. */
   pagosFaltantes: ConceptoPagoRetencion[];
   avisos: string[];
 };
@@ -119,7 +125,7 @@ export type EntradaPeriodos = {
   mesCorte: number;
   formularios350: (Formulario350 & { periodo: number })[];
   formularios490: (Formulario490 & { periodo: number })[];
-  porConfirmar: { periodo: number | null }[];
+  porConfirmar: { periodo: number | null; formulario: string | null; concepto: string | null }[];
   causales: { periodo: number; causal: string }[];
 };
 
@@ -128,7 +134,11 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
   return periodosEsperados(e.periodicidad, e.mesCorte).map(({ periodo, mesFin }) => {
     const cadena = cadenaCorrecciones(e.formularios350.filter((f) => f.periodo === periodo));
     const causal = e.causales.find((c) => c.periodo === periodo)?.causal ?? null;
-    const porConfirmar = e.porConfirmar.filter((f) => f.periodo === periodo).length;
+    const pendientes = e.porConfirmar.filter((f) => f.periodo === periodo);
+    const porConfirmar = pendientes.length;
+    const recibosPendientes = pendientes.filter((f) => f.formulario === "490");
+    const porConfirmar350 = porConfirmar - recibosPendientes.length;
+    const recibosSinConcepto = recibosPendientes.filter((f) => !(CONCEPTOS_PAGO_RETENCION as readonly (string | null)[]).includes(f.concepto)).length;
     // Un 490 puede pagar cualquier 350 de la cadena, también el original que la corrección cita
     // aunque no esté cargado (el pago se hizo antes de corregir).
     const numerosCadena = new Set([...cadena.cadena.map((f) => f.numero), ...cadena.cadena.map((f) => f.numeroAnterior).filter((n): n is string => n != null)]);
@@ -140,7 +150,7 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
       const declarado = cadena.vigente?.valores[renglon] ?? 0;
       const formularios = del490.filter((f) => f.concepto === concepto);
       const suma = (r: number) => formularios.reduce((s, f) => s + (f.valores[r] ?? 0), 0);
-      return { concepto, renglon, declarado, esperado: declarado > 0, formularios, impuesto: suma(36), sancion: suma(34), intereses: suma(35) };
+      return { concepto, renglon, declarado, esperado: declarado > 0, formularios, impuesto: suma(36), sancion: suma(34), intereses: suma(35), porConfirmar: recibosPendientes.filter((f) => f.concepto === concepto).length };
     });
     for (const f of del490) {
       if (f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado)) {
@@ -151,7 +161,7 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
       avisos.push(`El formulario ${f.numero} no hace parte de la cadena de correcciones del período.`);
     }
     if (cadena.faltaOriginal) avisos.push(`Falta el formulario original ${cadena.faltaOriginal}: sin él no se mide la oportunidad de presentación.`);
-    const pagosFaltantes = pagos.filter((p) => p.esperado && p.formularios.length === 0).map((p) => p.concepto);
+    const pagosFaltantes = pagos.filter((p) => p.esperado && p.formularios.length === 0 && p.porConfirmar === 0).map((p) => p.concepto);
 
     const estado: EstadoPeriodo = cadena.vigente
       ? cadena.faltaOriginal
@@ -163,10 +173,10 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
             : "completo"
       : causal
         ? "sin_formulario"
-        : porConfirmar > 0
+        : porConfirmar350 > 0
           ? "por_confirmar"
           : "falta_350";
-    return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, pagos, pagosFaltantes, avisos };
+    return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, porConfirmar350, recibosSinConcepto, pagos, pagosFaltantes, avisos };
   });
 }
 

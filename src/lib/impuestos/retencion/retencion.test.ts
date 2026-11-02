@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dvNit } from "@/lib/nit";
 import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fixtures__/retencion-2026";
-import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv } from "./lectura";
+import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv, resumenConfirmacion } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
 import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta } from "./cruce";
@@ -148,8 +148,42 @@ describe("períodos de la revisión (casos de prueba del levantamiento)", () => 
   });
 
   it("un formulario por confirmar del período lo deja pendiente", () => {
-    const p = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [{ periodo: 9 }], causales: [] });
-    expect(p[8].estado).toBe("por_confirmar");
+    const p = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [{ periodo: 9, formulario: "350", concepto: null }], causales: [] });
+    expect(p[8]).toMatchObject({ estado: "por_confirmar", porConfirmar: 1, porConfirmar350: 1 });
+  });
+
+  describe("lo que está por confirmar se ve en la columna de su formulario", () => {
+    const conPendientes = (porConfirmar: Parameters<typeof periodosRevision>[0]["porConfirmar"], formularios490 = F490_2026) =>
+      periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490, porConfirmar, causales: [] });
+    const reteIva = { formulario: "490", concepto: "62" };
+
+    it("un recibo cargado sin confirmar deja de ser «falta el recibo», pero no suma como pagado", () => {
+      const febrero = conPendientes([{ periodo: 2, ...reteIva }])[1];
+      expect(febrero).toMatchObject({ estado: "por_confirmar", pagosFaltantes: [], porConfirmar350: 0, recibosSinConcepto: 0 });
+      expect(febrero.pagos.find((x) => x.concepto === "62")).toMatchObject({ porConfirmar: 1, formularios: [], impuesto: 0 });
+    });
+
+    it("si falta otro concepto, el período sigue en «Faltan pagos» y solo ese concepto falta", () => {
+      const sinPagos = F490_2026.filter((f) => f.periodo !== 2);
+      const febrero = conPendientes([{ periodo: 2, ...reteIva }], sinPagos)[1];
+      expect(febrero).toMatchObject({ estado: "faltan_pagos", pagosFaltantes: ["61"] });
+    });
+
+    it("solo un recibo por confirmar, sin 350: falta el 350 y la columna del 350 no lo cuenta", () => {
+      const septiembre = conPendientes([{ periodo: 9, formulario: "490", concepto: "61" }])[8];
+      expect(septiembre).toMatchObject({ estado: "falta_350", porConfirmar: 1, porConfirmar350: 0 });
+      expect(septiembre.pagos.find((x) => x.concepto === "61")?.porConfirmar).toBe(1);
+    });
+
+    it("un recibo sin concepto se cuenta aparte; el que no se reconoció se queda del lado del 350", () => {
+      const septiembre = conPendientes([{ periodo: 9, formulario: "490", concepto: null }, { periodo: 9, formulario: null, concepto: null }])[8];
+      expect(septiembre).toMatchObject({ estado: "por_confirmar", porConfirmar: 2, porConfirmar350: 1, recibosSinConcepto: 1 });
+      expect(septiembre.pagos.every((x) => x.porConfirmar === 0)).toBe(true);
+    });
+
+    it("un pendiente sin período no se cuenta en ningún mes", () => {
+      expect(conPendientes([{ periodo: null, formulario: "490", concepto: "61" }]).every((p) => p.porConfirmar === 0)).toBe(true);
+    });
   });
 });
 
@@ -439,5 +473,26 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326, saldoInicial: 0, saldoInicialRestado: 0 });
     expect(cuenta.saldo).toBe(fila(r, "236525").cuentasCliente[0].saldo);
     expect(fila(r, "236525").cuentasCliente[0].terceros).toHaveLength(151);
+  });
+});
+
+describe("resumen de confirmar varios formularios", () => {
+  it("es éxito solo si quedaron confirmados todos los pedidos", () => {
+    expect(resumenConfirmacion({ pedidos: 14, confirmados: 14, fallos: [] })).toEqual({ ok: true, message: "14 formularios confirmados." });
+    expect(resumenConfirmacion({ pedidos: 1, confirmados: 1, fallos: [] })).toEqual({ ok: true, message: "1 formulario confirmado." });
+  });
+
+  it("dice cuántos quedaron y por qué faltaron los demás", () => {
+    expect(resumenConfirmacion({ pedidos: 3, confirmados: 2, fallos: ["F350 Enero: Falta el período (renglón 3)."] })).toEqual({
+      ok: false,
+      message: "Se confirmaron 2 de 3. F350 Enero: Falta el período (renglón 3).",
+    });
+    const muchos = resumenConfirmacion({ pedidos: 5, confirmados: 0, fallos: ["a", "b", "c", "d", "e"] });
+    expect(muchos.message).toBe("No se confirmó ninguno. a · b · c · y 2 más");
+  });
+
+  it("un formulario que otro ya confirmó o descartó no se cuenta como fallo", () => {
+    expect(resumenConfirmacion({ pedidos: 2, confirmados: 1, fallos: [] }).message).toBe("Se confirmaron 1 de 2. 1 ya no estaba por confirmar");
+    expect(resumenConfirmacion({ pedidos: 2, confirmados: 0, fallos: [] })).toEqual({ ok: false, message: "No se confirmó ninguno. 2 ya no estaban por confirmar" });
   });
 });

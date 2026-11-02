@@ -178,7 +178,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   id: "impuestos.retencion_revision",
   titulo: "Revisión de Retención en la fuente",
   proposito:
-    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
+    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan o están por confirmar; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 350: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -267,6 +267,14 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           regla: REGLAS.cargarImpuestos,
           condiciones: ["Todos los controles en rojo están corregidos: los totales cuadran y el NIT, el año y el período son los de la revisión."],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "confirmarFormularioDian" },
+        },
+        {
+          nombre: "Confirmar seleccionados",
+          queHace:
+            "Confirma de una vez los formularios marcados, tal como los leyó la IA, sin abrirlos uno por uno. «Seleccionar todos» marca los que se pueden confirmar y puedes desmarcar los que no quieras. Cada uno queda en la auditoría.",
+          regla: REGLAS.cargarImpuestos,
+          condiciones: ["Solo se pueden marcar los que dicen «Todo cuadra»; los que dicen «por corregir» se corrigen en «Revisar»."],
+          fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "confirmarFormulariosDian" },
         },
         {
           nombre: "Corregir un valor",
@@ -478,7 +486,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     { etiqueta: "Falta el 350", significado: "No hay un 350 confirmado ni una causal de mes sin formulario." },
     { etiqueta: "Sin formulario", significado: "Se registró que en el período no hubo 350, con su causal." },
     { etiqueta: "Falta el original", significado: "Llegó una corrección sin el formulario que corrige: sin el original no se mide la oportunidad de presentación." },
-    { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y falta su recibo 490." },
+    { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y su recibo 490 no está cargado." },
     { etiqueta: "En firme", significado: "La revisión se cerró: es de solo lectura, sus resultados salen de la copia congelada y las cuentas del cruce quedan bloqueadas en el balance del corte." },
   ],
   preguntas: [

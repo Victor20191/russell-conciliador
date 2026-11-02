@@ -10,6 +10,7 @@ import { Modal } from "@/components/modal";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import {
+  confirmarFormulariosDian,
   eliminarRevisionRetencion,
   importarFormularioDian,
   quitarPeriodoSinFormulario,
@@ -17,6 +18,7 @@ import {
 } from "@/app/actions/impuestos-retencion";
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
+import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
 import { ETIQUETA_ESTADO_PERIODO, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
@@ -126,25 +128,7 @@ export default function RevisionClient({
       {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} onTerminar={() => router.refresh()} />}
 
       {tab === "formularios" && porConfirmar.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Por confirmar ({porConfirmar.length})</h2>
-          <Card className="divide-y divide-ink-100 p-0">
-            {porConfirmar.map((f) => {
-              const pendientes = f.controles.filter((c) => c.bloquea && !c.ok).length;
-              return (
-                <div key={f.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[12.5px]">
-                  <span className="font-semibold text-navy-800">F{f.formulario} · {mes(f.periodo)}</span>
-                  <span className="tabular-nums text-ink-600">{f.numero}</span>
-                  {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
-                  {f.codigoCorreccion === 1 && <Chip label="Corrección" tone="warn" />}
-                  <span className={pendientes ? "text-err-700" : "text-ok-700"}>{pendientes ? `${pendientes} por corregir` : "Todo cuadra"}</span>
-                  <span className="text-[11.5px] text-ink-400">{f.nombreArchivo}</span>
-                  <button type="button" onClick={() => setAbierto(f.id)} className={`ml-auto ${BOTON_SECUNDARIO}`}>Revisar</button>
-                </div>
-              );
-            })}
-          </Card>
-        </section>
+        <ListaPorConfirmar revisionId={revision.id} formularios={porConfirmar} puedeConfirmar={puedeCargar && !enFirme} onAbrir={setAbierto} />
       )}
 
       {tab === "formularios" && <section className="flex flex-col gap-2">
@@ -238,19 +222,22 @@ function FilaPeriodo({
             )}
             {faltaOriginal && <span className="text-[11.5px] text-warn-700">Corrección del {faltaOriginal}, que no está cargado</span>}
             <span className="text-[11.5px] text-ink-500">Total retenciones (136): {fmt(vigente.valores[136] ?? 0)}</span>
+            {p.porConfirmar350 > 0 && <span className="text-[11.5px] text-warn-700">Hay otro 350 por confirmar</span>}
           </div>
         ) : p.causal ? (
           <span className="text-[12px] text-ink-600">Sin formulario: {p.causal}</span>
         ) : (
-          <span className="text-[12px] text-ink-400">{p.porConfirmar ? "Hay un formulario por confirmar" : "Sin cargar"}</span>
+          <span className="text-[12px] text-ink-400">{p.porConfirmar350 ? "Hay un formulario por confirmar" : "Sin cargar"}</span>
         )}
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col gap-0.5">
-          {p.pagos.filter((x) => x.esperado || x.formularios.length > 0).map((x) => (
+          {p.pagos.filter((x) => x.esperado || x.formularios.length > 0 || x.porConfirmar > 0).map((x) => (
             <span key={x.concepto} className="text-[12px]">
               <span className="font-semibold text-ink-700">{x.concepto}</span>
-              {x.formularios.length === 0 ? (
+              {x.formularios.length === 0 && x.porConfirmar > 0 ? (
+                <span className="ml-1.5 text-warn-700">por confirmar{x.esperado ? ` (paga el ${x.renglon}: ${fmt(x.declarado)})` : ""}</span>
+              ) : x.formularios.length === 0 ? (
                 <span className="ml-1.5 text-err-700">falta el recibo (paga el {x.renglon}: {fmt(x.declarado)})</span>
               ) : (
                 <span className="ml-1.5 text-ink-600">
@@ -258,11 +245,13 @@ function FilaPeriodo({
                     <span key={f.id}>{i > 0 && ", "}<button type="button" onClick={() => onAbrir(f.id)} className={ENLACE}>{f.numero}</button> {f.fechaPago ?? ""}</span>
                   ))}
                   <span className="ml-1 text-ink-500">· pagó {fmt(x.impuesto)}</span>
+                  {x.porConfirmar > 0 && <span className="ml-1 text-warn-700">· {x.porConfirmar} más por confirmar</span>}
                 </span>
               )}
             </span>
           ))}
-          {!vigente && p.pagos.every((x) => x.formularios.length === 0) && <span className="text-[12px] text-ink-400">—</span>}
+          {p.recibosSinConcepto > 0 && <span className="text-[12px] text-warn-700">{p.recibosSinConcepto} {p.recibosSinConcepto === 1 ? "recibo" : "recibos"} por confirmar, sin concepto</span>}
+          {!vigente && !p.recibosSinConcepto && p.pagos.every((x) => x.formularios.length === 0 && !x.porConfirmar) && <span className="text-[12px] text-ink-400">—</span>}
         </div>
         {p.avisos.length > 0 && <ul className="mt-1 list-disc pl-4 text-[11.5px] text-warn-700">{p.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       </td>
@@ -272,6 +261,120 @@ function FilaPeriodo({
         ))}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Formularios leídos sin confirmar. Los que pasan todos los controles se pueden confirmar de a varios;
+ * los que tienen algo por corregir se abren con «Revisar».
+ */
+function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }: {
+  revisionId: number;
+  formularios: FormularioVista[];
+  puedeConfirmar: boolean;
+  onAbrir: (id: number) => void;
+}) {
+  const [state, action, confirmando] = useActionState<ActionState, FormData>(confirmarFormulariosDian, {});
+  const [marcados, setMarcados] = useState<ReadonlySet<number>>(new Set());
+  const [preguntando, setPreguntando] = useState(false);
+  const elegibles = formularios.filter((f) => !lecturaConErrores(f.controles));
+  // Derivados: un formulario que se confirmó o se descartó deja de contar aunque siga marcado.
+  const seleccionados = elegibles.filter((f) => marcados.has(f.id));
+  const todos = elegibles.length > 0 && seleccionados.length === elegibles.length;
+  const cuantos = seleccionados.length === 1 ? "1 formulario" : `${seleccionados.length} formularios`;
+
+  const [ultimo, setUltimo] = useState(state);
+  if (state !== ultimo) {
+    setUltimo(state);
+    setPreguntando(false);
+    setMarcados(new Set());
+  }
+  useEffect(() => {
+    notifyActionState(state, { success: state.message ?? "Formularios confirmados.", error: "No se pudieron confirmar los formularios." });
+  }, [state]);
+
+  const alternar = (id: number) => setMarcados((prev) => {
+    const sig = new Set(prev);
+    if (sig.has(id)) sig.delete(id);
+    else sig.add(id);
+    return sig;
+  });
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Por confirmar ({formularios.length})</h2>
+      <Card className="divide-y divide-ink-100 p-0">
+        {puedeConfirmar && elegibles.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-ink-50 px-4 py-2 text-[12.5px]">
+            <label className="flex items-center gap-2 font-semibold text-ink-700">
+              <input
+                type="checkbox"
+                checked={todos}
+                ref={(el) => { if (el) el.indeterminate = seleccionados.length > 0 && !todos; }}
+                onChange={() => setMarcados(todos ? new Set() : new Set(elegibles.map((f) => f.id)))}
+              />
+              Seleccionar todos ({elegibles.length})
+            </label>
+            <button type="button" disabled={seleccionados.length === 0} onClick={() => setPreguntando(true)} className={BOTON_PRIMARIO}>
+              Confirmar seleccionados ({seleccionados.length})
+            </button>
+          </div>
+        )}
+        {formularios.map((f) => {
+          const pendientes = f.controles.filter((c) => c.bloquea && !c.ok).length;
+          return (
+            <div key={f.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[12.5px]">
+              {puedeConfirmar && (
+                <input
+                  type="checkbox"
+                  aria-label={`Seleccionar F${f.formulario} ${mes(f.periodo)} ${f.numero}`}
+                  title={pendientes ? "Tiene controles por corregir: ábrelo con «Revisar»." : undefined}
+                  disabled={pendientes > 0}
+                  checked={pendientes === 0 && marcados.has(f.id)}
+                  onChange={() => alternar(f.id)}
+                />
+              )}
+              <span className="font-semibold text-navy-800">F{f.formulario} · {mes(f.periodo)}</span>
+              <span className="tabular-nums text-ink-600">{f.numero}</span>
+              {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
+              {f.codigoCorreccion === 1 && <Chip label="Corrección" tone="warn" />}
+              <span className={pendientes ? "text-err-700" : "text-ok-700"}>{pendientes ? `${pendientes} por corregir` : "Todo cuadra"}</span>
+              <span className="text-[11.5px] text-ink-400">{f.nombreArchivo}</span>
+              <button type="button" onClick={() => onAbrir(f.id)} className={`ml-auto ${BOTON_SECUNDARIO}`}>Revisar</button>
+            </div>
+          );
+        })}
+      </Card>
+      {preguntando && (
+        <Modal
+          open
+          onClose={() => setPreguntando(false)}
+          title={`Confirmar ${cuantos}`}
+          size="md"
+          footer={
+            <form action={action} className="flex justify-end">
+              <input type="hidden" name="revisionId" value={revisionId} />
+              {seleccionados.map((f) => <input key={f.id} type="hidden" name="id" value={f.id} />)}
+              <button type="submit" disabled={confirmando || seleccionados.length === 0} className={BOTON_PRIMARIO}>
+                {confirmando ? <EstadoProcesando>Confirmando</EstadoProcesando> : `Confirmar ${cuantos}`}
+              </button>
+            </form>
+          }
+        >
+          <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
+            <p>Quedan confirmados tal como los leyó la IA, sin revisarlos uno por uno, y empiezan a contar en el cruce, la oportunidad y los pagos.</p>
+            <ul className="max-h-64 divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-150">
+              {seleccionados.map((f) => (
+                <li key={f.id} className="px-2.5 py-1.5">
+                  <span className="font-semibold text-navy-800">F{f.formulario} · {mes(f.periodo)}</span> <span className="tabular-nums text-ink-600">{f.numero}</span>
+                  {f.controles.filter((c) => !c.bloquea && !c.ok).map((c) => <div key={c.clave} className="text-[11.5px] text-warn-700">{c.mensaje}</div>)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Modal>
+      )}
+    </section>
   );
 }
 

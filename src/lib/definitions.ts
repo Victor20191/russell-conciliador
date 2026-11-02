@@ -478,6 +478,14 @@ const numeroFormularioOpcional = z
   .refine((s) => s === "" || /^\d{13}$/.test(s), { error: "El número de formulario tiene 13 dígitos." });
 // Confirmación de un formulario leído: los importes (renglón → pesos) viajan como JSON y se
 // recontrolan en el servidor con `controlesLectura`.
+export const ConfirmarFormulariosDianSchema = z.object({
+  revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
+  ids: z
+    .array(z.coerce.number().int().positive({ error: "Formulario inválido." }))
+    .min(1, { error: "Selecciona al menos un formulario." })
+    .max(100, { error: "Selecciona máximo 100 formularios a la vez." }),
+});
+
 export const ConfirmarFormularioDianSchema = z.object({
   id: z.coerce.number().int().positive({ error: "Formulario inválido." }),
   revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),

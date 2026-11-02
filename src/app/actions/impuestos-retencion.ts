@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma, type FormularioDianCargado } from "@/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -11,8 +11,8 @@ import { mensajeErrorBD } from "@/lib/errores";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
 import { almacenamientoDisponible, subirObjeto } from "@/lib/storage/objetos";
-import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { CLAVE_MARCA_RETENCION, ConfirmarFormularioDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RestaSaldoInicialSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
+import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
+import { CLAVE_MARCA_RETENCION, ConfirmarFormularioDianSchema, ConfirmarFormulariosDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RestaSaldoInicialSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { siguienteNumeroMarca } from "@/lib/modulos/marcas-cruce";
 import { cargarRevision, type RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
@@ -27,7 +27,7 @@ import { transaccionSerializable } from "@/lib/concurrency";
 import { cargarCruceRetencion, MODULO_RETENCION } from "@/lib/impuestos/retencion/cruce-servidor";
 import { validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
-import { controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
+import { controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import { leerFormularioDianConIA } from "@/lib/impuestos/retencion/lectura-servidor";
 import { claveObjetoFormulario, MAX_BYTES_FORMULARIO, type ResultadoImportacion, type ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
 
@@ -233,6 +233,69 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
   }
 }
 
+type RevisionEscritura = Extract<Awaited<ReturnType<typeof revisionConAlcance>>, { ok: true }>["revision"];
+type DatosConfirmacion = Pick<LecturaFormulario, "fechaSello" | "codigoCorreccion" | "numeroAnterior" | "concepto" | "numeroPagado" | "valores">;
+
+/**
+ * Confirma un formulario con estos datos: lo del modal «Revisar» o, en bloque, lo ya leído. Las dos
+ * vías pasan por los mismos controles. Devuelve el motivo si no se puede; null si quedó confirmado.
+ */
+async function confirmarFila(revision: RevisionEscritura, fila: FormularioDianCargado, datos: DatosConfirmacion, enBloque = false): Promise<string | null> {
+  const leido = normalizarLectura(fila.lecturaJson as unknown as LecturaCruda);
+  const corregidos = renglonesCorregidos(leido.valores, datos.valores);
+  if (corregidos.length > 0) {
+    const editar = await authorizePermiso("impuestos:editar", { clientId: revision.clienteId, modo: "escritura" });
+    if (!editar.ok) return editar.message;
+  }
+  const esCorreccion = fila.formulario === "350" && datos.codigoCorreccion === 1;
+  const final: LecturaFormulario = {
+    ...leido,
+    formulario: fila.formulario === "490" ? "490" : "350",
+    anio: fila.anio,
+    periodo: fila.periodo,
+    numero: fila.numero,
+    fechaSello: datos.fechaSello,
+    codigoCorreccion: esCorreccion ? 1 : null,
+    numeroAnterior: esCorreccion ? datos.numeroAnterior : null,
+    concepto: fila.formulario === "490" ? datos.concepto : null,
+    numeroPagado: fila.formulario === "490" ? datos.numeroPagado : null,
+    valores: datos.valores,
+  };
+  const controles = controlesLectura(final, { nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte });
+  if (lecturaConErrores(controles)) {
+    return controles.filter((c) => c.bloquea && !c.ok).map((c) => c.mensaje).join(" ");
+  }
+  const user = await getCurrentUser();
+  await prisma.$transaction(async (tx) => {
+    await tx.renglonFormularioDian.deleteMany({ where: { formularioId: fila.id } });
+    await tx.formularioDianCargado.update({
+      where: { id: fila.id },
+      data: {
+        estado: "confirmado",
+        fechaSello: fechaCalendarioPrisma(final.fechaSello as string),
+        codigoCorreccion: final.codigoCorreccion,
+        numeroAnterior: final.numeroAnterior,
+        concepto: final.concepto,
+        numeroPagado: final.numeroPagado,
+        controlesJson: controles as unknown as Prisma.InputJsonValue,
+        corregidoAMano: corregidos.length ? (corregidos as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+        confirmadoPor: user?.name ?? null,
+        confirmadoPorId: user?.id ?? null,
+        confirmadoEn: new Date(),
+        renglones: { create: filasRenglones(datos.valores) },
+      },
+    });
+  });
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: "CONFIRMÓ FORMULARIO DIAN",
+    entity: `Retención en la fuente · ${revision.nombreCliente} · F${fila.formulario} ${fila.numero}`,
+    detail: `${etiquetaPeriodo(fila.periodo)} ${fila.anio}${final.codigoCorreccion === 1 ? ` · corrige al ${final.numeroAnterior}` : ""}${final.concepto ? ` · concepto ${final.concepto}` : ""}${corregidos.length ? ` · corregidos a mano: ${corregidos.join(", ")}` : ""}${enBloque ? " · confirmado en bloque" : ""}`,
+    clientId: revision.clienteId,
+  });
+  return null;
+}
+
 /** Confirma un formulario leído, con lo que el usuario haya corregido. Solo si todos los controles que bloquean pasan. */
 export async function confirmarFormularioDian(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = ConfirmarFormularioDianSchema.safeParse({
@@ -256,62 +319,64 @@ export async function confirmarFormularioDian(_prev: ActionState, formData: Form
     if (!fila || fila.clienteId !== revision.clienteId || fila.anio !== revision.anio) return { ok: false, message: "El formulario no es de esta revisión." };
     if (fila.estado === "descartado") return { ok: false, message: "El formulario fue descartado." };
 
-    const leido = normalizarLectura(fila.lecturaJson as unknown as LecturaCruda);
     const valores = Object.fromEntries(Object.entries(p.valores).map(([r, v]) => [Number(r), v]));
-    const corregidos = renglonesCorregidos(leido.valores, valores);
-    if (corregidos.length > 0) {
-      const editar = await authorizePermiso("impuestos:editar", { clientId: revision.clienteId, modo: "escritura" });
-      if (!editar.ok) return { ok: false, message: editar.message };
-    }
-    const final: LecturaFormulario = {
-      ...leido,
-      formulario: fila.formulario === "490" ? "490" : "350",
-      anio: fila.anio,
-      periodo: fila.periodo,
-      numero: fila.numero,
+    const motivo = await confirmarFila(revision, fila, {
       fechaSello: p.fechaSello,
-      codigoCorreccion: fila.formulario === "350" ? (p.codigoCorreccion === "1" ? 1 : null) : null,
-      numeroAnterior: fila.formulario === "350" && p.codigoCorreccion === "1" ? p.numeroAnterior || null : null,
-      concepto: fila.formulario === "490" ? p.concepto || null : null,
-      numeroPagado: fila.formulario === "490" ? p.numeroPagado || null : null,
+      codigoCorreccion: p.codigoCorreccion === "1" ? 1 : null,
+      numeroAnterior: p.numeroAnterior || null,
+      concepto: p.concepto || null,
+      numeroPagado: p.numeroPagado || null,
       valores,
-    };
-    const controles = controlesLectura(final, { nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte });
-    if (lecturaConErrores(controles)) {
-      return { ok: false, message: controles.filter((c) => c.bloquea && !c.ok).map((c) => c.mensaje).join(" ") };
-    }
-    const user = await getCurrentUser();
-    await prisma.$transaction(async (tx) => {
-      await tx.renglonFormularioDian.deleteMany({ where: { formularioId: fila.id } });
-      await tx.formularioDianCargado.update({
-        where: { id: fila.id },
-        data: {
-          estado: "confirmado",
-          fechaSello: fechaCalendarioPrisma(p.fechaSello),
-          codigoCorreccion: final.codigoCorreccion,
-          numeroAnterior: final.numeroAnterior,
-          concepto: final.concepto,
-          numeroPagado: final.numeroPagado,
-          controlesJson: controles as unknown as Prisma.InputJsonValue,
-          corregidoAMano: corregidos.length ? (corregidos as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
-          confirmadoPor: user?.name ?? null,
-          confirmadoPorId: user?.id ?? null,
-          confirmadoEn: new Date(),
-          renglones: { create: filasRenglones(valores) },
-        },
-      });
     });
-    await logAudit({
-      user: user?.name ?? "Sistema",
-      action: "CONFIRMÓ FORMULARIO DIAN",
-      entity: `Retención en la fuente · ${revision.nombreCliente} · F${fila.formulario} ${fila.numero}`,
-      detail: `${etiquetaPeriodo(fila.periodo)} ${fila.anio}${final.codigoCorreccion === 1 ? ` · corrige al ${final.numeroAnterior}` : ""}${final.concepto ? ` · concepto ${final.concepto}` : ""}${corregidos.length ? ` · corregidos a mano: ${corregidos.join(", ")}` : ""}`,
-      clientId: revision.clienteId,
-    });
+    if (motivo) return { ok: false, message: motivo };
     revalidatePath(`${RUTA}/${revision.id}`);
     return { ok: true, message: "Formulario confirmado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("confirmarFormularioDian", e) };
+  }
+}
+
+/**
+ * Confirma de una vez los formularios seleccionados, tal como los leyó la IA. Cada uno pasa por los
+ * mismos controles que en «Revisar» y se guarda aparte: si uno falla, los demás quedan confirmados.
+ */
+export async function confirmarFormulariosDian(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = ConfirmarFormulariosDianSchema.safeParse({ revisionId: formData.get("revisionId"), ids: formData.getAll("id") });
+  if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
+  const { revisionId, ids } = parsed.data;
+  const acceso = await revisionConAlcance(revisionId, "impuestos:cargar");
+  if (!acceso.ok) return { ok: false, message: acceso.message };
+  const { revision } = acceso;
+
+  try {
+    const filas = await prisma.formularioDianCargado.findMany({
+      where: { id: { in: ids }, clienteId: revision.clienteId, anio: revision.anio, estado: "por_confirmar" },
+      include: { renglones: { select: { renglon: true, valor: true } } },
+      orderBy: [{ periodo: "asc" }, { formulario: "asc" }, { id: "asc" }],
+    });
+    const fallos: string[] = [];
+    let confirmados = 0;
+    for (const fila of filas) {
+      const titulo = `F${fila.formulario} ${etiquetaPeriodo(fila.periodo)}`;
+      try {
+        const motivo = await confirmarFila(revision, fila, {
+          fechaSello: fila.fechaSello ? fechaCalendarioISO(fila.fechaSello) : null,
+          codigoCorreccion: fila.codigoCorreccion,
+          numeroAnterior: fila.numeroAnterior,
+          concepto: fila.concepto,
+          numeroPagado: fila.numeroPagado,
+          valores: Object.fromEntries(fila.renglones.map((r) => [r.renglon, Number(r.valor)])),
+        }, true);
+        if (motivo) fallos.push(`${titulo}: ${motivo}`);
+        else confirmados += 1;
+      } catch (e) {
+        fallos.push(`${titulo}: ${mensajeErrorBD("confirmarFormulariosDian", e)}`);
+      }
+    }
+    if (confirmados > 0) revalidatePath(`${RUTA}/${revision.id}`);
+    return resumenConfirmacion({ pedidos: ids.length, confirmados, fallos });
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("confirmarFormulariosDian", e) };
   }
 }
 

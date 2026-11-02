@@ -131,7 +131,7 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
   });
 
   it("cierre: un período sin 350 ni causal o con formularios por confirmar lo impide", () => {
-    const corteSep = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [{ periodo: 3 }], causales: [] });
+    const corteSep = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [{ periodo: 3, formulario: "350", concepto: null }], causales: [] });
     const ev = evaluarCierreRetencion({
       periodos: corteSep, cruce: { estado: "bloqueado", mensaje: "x", balance: null, umbral: 0 },
       pagos: pagosRevision({ anio: 2026, periodos: corteSep, marcas: [] }), oportunidad: [], etiquetaPeriodo: etq,

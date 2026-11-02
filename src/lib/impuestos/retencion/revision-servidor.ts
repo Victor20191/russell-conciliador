@@ -124,7 +124,7 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
     formularios490: confirmados.filter((f) => f.formulario === "490").map((f) => ({
       id: f.id, periodo: f.periodo, numero: f.numero, concepto: f.concepto, numeroPagado: f.numeroPagado, fechaPago: f.fechaSello, autoadhesivo: f.autoadhesivo, valores: f.valores,
     })),
-    porConfirmar: formularios.filter((f) => f.estado === "por_confirmar").map((f) => ({ periodo: f.periodo })),
+    porConfirmar: formularios.filter((f) => f.estado === "por_confirmar").map((f) => ({ periodo: f.periodo, formulario: f.formulario, concepto: f.concepto })),
     causales: causales.map((c) => ({ periodo: c.periodo, causal: c.causal })),
   });
   return {

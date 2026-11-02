@@ -226,6 +226,20 @@ export function lecturaConErrores(controles: readonly ControlLectura[]): boolean
   return controles.some((c) => c.bloquea && !c.ok);
 }
 
+const MAX_MOTIVOS_RESUMEN = 3;
+
+/** Resultado de confirmar varios formularios: es éxito solo si quedaron confirmados todos los pedidos. */
+export function resumenConfirmacion({ pedidos, confirmados, fallos }: { pedidos: number; confirmados: number; fallos: readonly string[] }): { ok: boolean; message: string } {
+  if (pedidos > 0 && confirmados === pedidos) return { ok: true, message: confirmados === 1 ? "1 formulario confirmado." : `${confirmados} formularios confirmados.` };
+  const yaNo = pedidos - confirmados - fallos.length;
+  const motivos = [
+    ...fallos.slice(0, MAX_MOTIVOS_RESUMEN),
+    ...(fallos.length > MAX_MOTIVOS_RESUMEN ? [`y ${fallos.length - MAX_MOTIVOS_RESUMEN} más`] : []),
+    ...(yaNo > 0 ? [`${yaNo} ya no ${yaNo === 1 ? "estaba" : "estaban"} por confirmar`] : []),
+  ].join(" · ");
+  return { ok: false, message: `${confirmados === 0 ? "No se confirmó ninguno" : `Se confirmaron ${confirmados} de ${pedidos}`}. ${motivos}` };
+}
+
 export function mapaValores(valores: Record<number, number>): Map<number, number> {
   return new Map(Object.entries(valores).map(([r, v]) => [Number(r), v]));
 }

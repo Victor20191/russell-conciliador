@@ -29,3 +29,7 @@ Especificación y decisiones del usuario en `docs/impuestos/retencion-fuente/` (
 - **Pagos efectuados · intereses aparte**: «Total pagado» es impuesto + sanción, así que Total (138) − Total pagado = Diferencia; los intereses de mora van en su propia sección y no se comparan. En «Por meses» y «Acumulado», «Total pagado» sigue siendo lo que dicen los recibos (34 + 35 + 36).
 
 - **Calendario · importar el PDF**: la propuesta solo vive en la pantalla, así que salir o recargar mientras la IA lee la pierde y la lectura igual se cobra. `useAvisoSalidaSinGuardar` lo avisa mientras lee, y un fallo de la IA se explica con `mensajeErrorIA`.
+
+- **Formularios por período · por confirmar**: lo pendiente se separa por formulario y concepto, así cada columna muestra lo suyo y un 490 cargado sin confirmar no sale como «falta el recibo». Sigue sin contar para el cruce, los pagos ni el cierre hasta confirmarlo.
+
+- **Confirmar seleccionados** (`confirmarFormulariosDian`, `impuestos:cargar` + alcance de escritura): marca varios formularios y los confirma tal como los leyó la IA. Solo se pueden marcar los que pasan los controles que bloquean; comparte `confirmarFila` con «Revisar», así que las reglas son las mismas. Cada uno se guarda y se audita aparte: si uno falla, los demás quedan confirmados.
