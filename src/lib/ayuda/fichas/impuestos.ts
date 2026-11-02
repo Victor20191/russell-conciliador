@@ -269,6 +269,11 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "confirmarFormularioDian" },
         },
         {
+          nombre: "¿Qué revisa el sistema?",
+          queHace: "Recuerda qué revisa el sistema en cada formulario para decir «Todo cuadra» o «N por corregir».",
+          regla: REGLAS.verRevisionImpuestos,
+        },
+        {
           nombre: "Confirmar seleccionados",
           queHace:
             "Confirma de una vez los formularios marcados, tal como los leyó la IA, sin abrirlos uno por uno. «Seleccionar todos» marca los que se pueden confirmar y puedes desmarcar los que no quieras. Cada uno queda en la auditoría.",

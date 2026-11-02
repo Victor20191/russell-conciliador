@@ -22,6 +22,7 @@ import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
 import { ETIQUETA_ESTADO_PERIODO, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
+import { ControlesModal } from "./controles-modal";
 import { FormularioModal } from "./formulario-modal";
 import { VistaAcumulada, VistaPorMeses } from "./vistas-revision";
 import { CruceRevision } from "./cruce-revision";
@@ -277,7 +278,9 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
   const [state, action, confirmando] = useActionState<ActionState, FormData>(confirmarFormulariosDian, {});
   const [marcados, setMarcados] = useState<ReadonlySet<number>>(new Set());
   const [preguntando, setPreguntando] = useState(false);
+  const [viendoControles, setViendoControles] = useState(false);
   const elegibles = formularios.filter((f) => !lecturaConErrores(f.controles));
+  const seleccionable = puedeConfirmar && elegibles.length > 0;
   // Derivados: un formulario que se confirmó o se descartó deja de contar aunque siga marcado.
   const seleccionados = elegibles.filter((f) => marcados.has(f.id));
   const todos = elegibles.length > 0 && seleccionados.length === elegibles.length;
@@ -304,8 +307,8 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
     <section className="flex flex-col gap-2">
       <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Por confirmar ({formularios.length})</h2>
       <Card className="divide-y divide-ink-100 p-0">
-        {puedeConfirmar && elegibles.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-ink-50 px-4 py-2 text-[12.5px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-ink-50 px-4 py-2 text-[12.5px]">
+          {seleccionable && (
             <label className="flex items-center gap-2 font-semibold text-ink-700">
               <input
                 type="checkbox"
@@ -315,11 +318,19 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
               />
               Seleccionar todos ({elegibles.length})
             </label>
-            <button type="button" disabled={seleccionados.length === 0} onClick={() => setPreguntando(true)} className={BOTON_PRIMARIO}>
-              Confirmar seleccionados ({seleccionados.length})
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setViendoControles(true)} className={`inline-flex items-center gap-1.5 bg-white ${BOTON_SECUNDARIO}`}>
+              <Icon name="help-circle" size={13} />
+              ¿Qué revisa el sistema?
             </button>
+            {seleccionable && (
+              <button type="button" disabled={seleccionados.length === 0} onClick={() => setPreguntando(true)} className={BOTON_PRIMARIO}>
+                Confirmar seleccionados ({seleccionados.length})
+              </button>
+            )}
           </div>
-        )}
+        </div>
         {formularios.map((f) => {
           const pendientes = f.controles.filter((c) => c.bloquea && !c.ok).length;
           return (
@@ -345,6 +356,7 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
           );
         })}
       </Card>
+      {viendoControles && <ControlesModal onClose={() => setViendoControles(false)} />}
       {preguntando && (
         <Modal
           open
