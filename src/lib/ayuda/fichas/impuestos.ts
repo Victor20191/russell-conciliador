@@ -89,7 +89,7 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
         {
           nombre: "Importar desde el PDF de la DIAN",
           queHace:
-            "La IA lee la sección de Retención en la fuente del calendario de la DIAN y propone la grilla del año. No se guarda nada hasta revisarla y guardarla.",
+            "La IA lee la sección de Retención en la fuente del calendario de la DIAN y propone la grilla del año. No se guarda nada hasta revisarla y guardarla. Mientras lee, la pantalla avisa si intentas salir o recargar, porque se perdería la lectura.",
           regla: REGLAS.configurarImpuestos,
           condiciones: ["Un PDF de hasta 15 MB.", "La lectura con IA tiene que estar disponible."],
           fuente: { archivo: `${ACCIONES}/impuestos-configuracion.ts`, funcion: "leerCalendarioPdf" },

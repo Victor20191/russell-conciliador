@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
-import { mensajeErrorBD } from "@/lib/errores";
+import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { CalendarioDianSchema, CuentaMapeoDianSchema, RestaTerceroDianSchema, TerceroDianSchema, type ActionState } from "@/lib/definitions";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
@@ -161,7 +161,7 @@ export async function leerCalendarioPdf(_prev: ResultadoLecturaCalendario, formD
       propuesta: { anio, formulario, filas, errores, avisos },
     };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("leerCalendarioPdf", e) };
+    return { ok: false, message: mensajeErrorIA("leerCalendarioPdf", e) };
   }
 }
 

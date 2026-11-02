@@ -6,6 +6,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { Card, Chip } from "@/components/ui";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
+import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import { guardarCalendarioDian, leerCalendarioPdf } from "@/app/actions/impuestos-configuracion";
 import type { ActionState } from "@/lib/definitions";
 import {
@@ -46,6 +47,8 @@ export default function CalendarioTributarioClient({
   const [borrador, setBorrador] = useState<Borrador | null>(null);
   const [lecturaState, lecturaAction, leyendo] = useActionState<ResultadoLecturaCalendario, FormData>(leerCalendarioPdf, {});
   const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(guardarCalendarioDian, {});
+  // La propuesta solo vive en esta pantalla: si se sale mientras la IA lee, la lectura se cobra y se pierde sin aviso.
+  useAvisoSalidaSinGuardar(leyendo, "La IA está leyendo el calendario: espera a que termine. Si sales, se pierde la lectura.");
 
   // Respuestas del servidor (ajuste en render): la propuesta del PDF abre el borrador; guardar lo cierra.
   const [ultimaLectura, setUltimaLectura] = useState(lecturaState);
