@@ -356,6 +356,11 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
               queHace: "Deja solo las filas con valor, con marca o con aviso, y quita el grupo que se queda sin filas. El total siempre se ve.",
               regla: REGLAS.verRevisionImpuestos,
             },
+            {
+              nombre: "Pantalla completa",
+              queHace: "Abre el cruce en toda la pantalla, con los títulos fijos al desplazarse. Se sale con el mismo botón o con Esc.",
+              regla: REGLAS.verRevisionImpuestos,
+            },
           ],
         },
         {

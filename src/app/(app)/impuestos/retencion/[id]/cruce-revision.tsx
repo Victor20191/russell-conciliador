@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
@@ -27,7 +28,33 @@ import {
 
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
 const NUM = "px-3 py-1.5 text-right tabular-nums whitespace-nowrap";
-const COLUMNAS = 7;
+const COLUMNAS = 8;
+// La tabla del cruce va por bloques, con el aspecto de las tablas de los módulos: lo declarado (renglones y
+// cifra), el balance del corte (cuenta Russell y cifra) y el resultado, cada uno con su título de grupo y una
+// línea fina entre ellos; los bloques tienen ancho fijo y el concepto toma el resto.
+const INICIO_SECCION = "border-l border-ink-200";
+const BORDE_RESULTADO = "border-l border-ink-200";
+const FONDO_RESULTADO = "";
+const ENCABEZADO_GRUPO = "bg-ink-50 px-3 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-600";
+const NOTA_CIFRA = "mt-0.5 whitespace-normal text-[11px] font-normal text-ink-400";
+// Títulos fijos en pantalla completa: la primera fila (bandas) tiene alto fijo y la segunda se pega debajo.
+// Los fondos van en cada celda porque una celda sticky no arrastra el fondo del thead.
+const TITULO_FIJO = "sticky top-0 z-20";
+const SUBTITULO_FIJO = "sticky top-8 z-20 bg-ink-50 shadow-[inset_0_-1px_0_var(--color-ink-150)]";
+const COLUMNAS_CRUCE = (
+  <colgroup>
+    <col />
+    <col className="w-44" />
+    <col className="w-44" />
+    <col className="w-64" />
+    <col className="w-56" />
+    <col className="w-40" />
+    <col className="w-40" />
+    <col className="w-16" />
+  </colgroup>
+);
+// Los renglones de una fila agrupada son muchos («47 · 100 · 50 · 103…»): se parten en líneas en vez de montarse sobre la cifra.
+const RENGLONES = "px-3 py-1.5 text-right text-[11.5px] leading-4 tabular-nums text-ink-500 whitespace-normal break-words";
 
 const alternarEnConjunto = (conjunto: ReadonlySet<string>, clave: string) => {
   const sig = new Set(conjunto);
@@ -46,6 +73,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   const [marcando, setMarcando] = useState<string | null>(null);
   const [ocultarCeros, setOcultarCeros] = useState(false);
   const [cambiandoResta, setCambiandoResta] = useState(false);
+  const { pantallaCompleta, alternar: alternarPantalla } = usePantallaCompletaTabla();
 
   if (cruce.estado !== "listo") {
     return (
@@ -73,19 +101,9 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   return (
     <div className="flex flex-col gap-3">
       <Card className="flex flex-col gap-1.5 p-4 text-[12.5px]">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <span className="text-ink-700">
-            Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
-          </span>
-          <div className="flex flex-col items-end gap-1">
-            <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
-            {resultado.pendientesMarca > 0 ? (
-              <Chip label={`${resultado.pendientesMarca} ${resultado.pendientesMarca === 1 ? "diferencia exige" : "diferencias exigen"} marca`} tone="warn" />
-            ) : (
-              <Chip label="Sin diferencias pendientes de marca" tone="ok" />
-            )}
-          </div>
-        </div>
+        <span className="text-ink-700">
+          Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
+        </span>
         <p className="text-[11.5px] text-ink-500">
           Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.{saldoInicial?.restado && " Además se resta el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
@@ -95,23 +113,43 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
         <ResumenSaldoInicial saldoInicial={saldoInicial} resta={resta} inicioEnero={inicioEnero} puedeEditar={puedeEditar} onCambiar={() => setCambiandoResta(true)} />
       </Card>
 
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[900px] text-[12.5px]">
-          <thead>
-            <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-              <th className="px-3 py-2">Concepto</th>
-              <th className="px-3 py-2">Renglones</th>
-              <th className="px-3 py-2 text-right">Declaraciones</th>
-              <th className="px-3 py-2 text-right">Contabilidad</th>
-              <th className="px-3 py-2 text-right">Diferencia</th>
-              <th className="px-3 py-2">Estado</th>
-              <th className="px-3 py-2 text-center">Marca</th>
+      {/* Región propia (no `<Card>`): en pantalla completa ocupa el viewport y solo la tabla scrollea. */}
+      <div role="region" aria-label="Cruce contable de retención en la fuente" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-white px-4 py-2.5">
+          <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
+          <div className="flex flex-wrap items-center gap-2">
+            {resultado.pendientesMarca > 0 ? (
+              <Chip label={`${resultado.pendientesMarca} ${resultado.pendientesMarca === 1 ? "diferencia exige" : "diferencias exigen"} marca`} tone="warn" />
+            ) : (
+              <Chip label="Sin diferencias pendientes de marca" tone="ok" />
+            )}
+            <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantalla} />
+          </div>
+        </div>
+        <div className={claseScrollTabla(pantallaCompleta, null)}>
+        <table className="w-full min-w-[1100px] table-fixed text-[12.5px]">
+          {COLUMNAS_CRUCE}
+          <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
+            <tr>
+              <th rowSpan={2} className={`${TITULO_FIJO} bg-ink-50 px-3 py-2 align-bottom shadow-[inset_0_-1px_0_var(--color-ink-150)]`}>Concepto</th>
+              <th colSpan={2} className={`${TITULO_FIJO} ${INICIO_SECCION} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Declarado · Formulario 350</th>
+              <th colSpan={2} className={`${TITULO_FIJO} ${INICIO_SECCION} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Balance del corte</th>
+              <th colSpan={2} className={`${TITULO_FIJO} ${BORDE_RESULTADO} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Resultado</th>
+              <th rowSpan={2} className={`${TITULO_FIJO} ${BORDE_RESULTADO} bg-ink-50 px-3 py-2 text-center align-bottom shadow-[inset_0_-1px_0_var(--color-ink-150)]`}>Marca</th>
+            </tr>
+            <tr>
+              <th className={`${SUBTITULO_FIJO} ${INICIO_SECCION} px-3 py-2 text-right`}>Renglones</th>
+              <th className={`${SUBTITULO_FIJO} px-3 py-2 text-right`}>Declaraciones</th>
+              <th className={`${SUBTITULO_FIJO} ${INICIO_SECCION} px-3 py-2`}>Cuenta Russell</th>
+              <th className={`${SUBTITULO_FIJO} px-3 py-2 text-right`}>Contabilidad</th>
+              <th className={`${SUBTITULO_FIJO} ${BORDE_RESULTADO} px-3 py-2 text-right`}>Diferencia</th>
+              <th className={`${SUBTITULO_FIJO} px-3 py-2`}>Estado</th>
             </tr>
           </thead>
           <tbody>
             {grupos.map((g) => (
               <Fragment key={g.grupo}>
-                <tr className="bg-ink-50/60">
+                <tr className="bg-ink-50">
                   <td colSpan={COLUMNAS} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{g.etiqueta}</td>
                 </tr>
                 {g.filas.map((f) => (
@@ -119,7 +157,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
                     <FilaTabla fila={f} abierta={abiertas.has(f.clave)} onAlternar={() => alternar(f.clave)} puedeEditar={puedeEditar} onMarcar={() => setMarcando(f.clave)} />
                     {abiertas.has(f.clave) && (
                       <tr className="border-b border-ink-100 bg-ink-50/40">
-                        <td colSpan={COLUMNAS} className="border-l-2 border-navy-700 px-4 py-3">
+                        <td colSpan={COLUMNAS} className="border-l-2 border-ink-300 px-4 py-3">
                           <DetalleFila fila={f} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} />
                         </td>
                       </tr>
@@ -132,7 +170,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
             <FilaSubtotal etiqueta="Total retenciones (136)" subtotal={resultado.total} total />
           </tbody>
         </table>
-      </Card>
+        </div>
+      </div>
 
       {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} />}
 
@@ -192,34 +231,42 @@ function ResumenSaldoInicial({ saldoInicial, resta, inicioEnero, puedeEditar, on
 
 function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila: FilaCruce; abierta: boolean; onAlternar: () => void; puedeEditar: boolean; onMarcar: () => void }) {
   return (
-    <tr className={`border-b border-ink-100 align-top ${abierta ? "bg-navy-50/40" : ""}`}>
+    <tr className={`border-b border-ink-100 align-top ${abierta ? "bg-ink-50/60" : ""}`}>
       <td className="px-3 py-1.5">
         <button type="button" onClick={onAlternar} aria-expanded={abierta} className="flex items-start gap-1.5 text-left">
           <Icon name={chevronDivulgacion(abierta)} size={13} className="mt-0.5 shrink-0 text-ink-400" />
           <span className="flex flex-col">
             <span className="font-medium text-ink-800">{etiquetaFilaCruce(fila)}</span>
-            <span className="text-[11px] text-ink-400">
-              {fila.cuentaRussell
-                ? `${fila.cuentaRussell}${fila.conceptos.length > 1 ? ` · ${fila.conceptos.length} conceptos` : fila.nombreCuenta ? ` · ${fila.nombreCuenta}` : ""}`
-                : "Sin cuenta Russell · solo afecta lo declarado"}
-              {fila.dianRestado !== 0 && ` · DIAN restada ${fmt(fila.dianRestado)}`}
-              {fila.saldoInicial?.restado && ` · Saldo inicial restado ${fmt(fila.saldoInicial.monto)}`}
-            </span>
+            {fila.conceptos.length > 1 && <span className="text-[11px] text-ink-400">{fila.conceptos.length} conceptos</span>}
           </span>
         </button>
-        {(fila.saldoInicial || fila.posiblesDian.length > 0) && (
-          <div className="ml-5 mt-1 flex flex-wrap gap-1">
-            {fila.saldoInicial && (fila.saldoInicial.restado ? <Chip label="Saldo inicial restado" tone="ink" /> : <Chip label="Saldo inicial" tone="warn" />)}
+      </td>
+      <td className={`${RENGLONES} ${INICIO_SECCION}`}>{renglonesFilaCruce(fila)}</td>
+      <td className={NUM}>{fmtContable(fila.declarado)}</td>
+      <td className={`${INICIO_SECCION} px-3 py-1.5`}>
+        {fila.cuentaRussell ? (
+          <div className="flex flex-col">
+            <span className="tabular-nums text-ink-800">{fila.cuentaRussell}</span>
+            {fila.nombreCuenta && <span className="truncate text-[11px] text-ink-400" title={fila.nombreCuenta}>{fila.nombreCuenta}</span>}
+          </div>
+        ) : (
+          <span className="text-[11px] text-ink-400">Sin cuenta · solo afecta lo declarado</span>
+        )}
+      </td>
+      <td className={NUM}>
+        {fila.cuentaRussell ? fmtContable(fila.contable) : "—"}
+        {fila.dianRestado !== 0 && <div className={NOTA_CIFRA}>DIAN restada {fmt(fila.dianRestado)}</div>}
+        {fila.saldoInicial?.restado && <div className={NOTA_CIFRA}>Saldo inicial restado {fmt(fila.saldoInicial.monto)}</div>}
+        {((fila.saldoInicial && !fila.saldoInicial.restado) || fila.posiblesDian.length > 0) && (
+          <div className="mt-1 flex flex-wrap justify-end gap-1">
+            {fila.saldoInicial && !fila.saldoInicial.restado && <Chip label="Saldo inicial" tone="warn" />}
             {fila.posiblesDian.length > 0 && <Chip label="¿DIAN sin NIT?" tone="warn" />}
           </div>
         )}
       </td>
-      <td className="px-3 py-1.5 tabular-nums text-ink-500">{renglonesFilaCruce(fila)}</td>
-      <td className={NUM}>{fmtContable(fila.declarado)}</td>
-      <td className={NUM}>{fila.cuentaRussell ? fmtContable(fila.contable) : "—"}</td>
-      <td className={`${NUM} font-semibold ${fila.nivel === "alerta" ? "text-err-700" : fila.nivel === "informativa" ? "text-ink-600" : "text-ok-700"}`}>{fmtContable(fila.diferencia)}</td>
-      <td className="px-3 py-1.5"><EstadoFila fila={fila} /></td>
-      <td className="px-3 py-1.5 text-center">
+      <td className={`${NUM} ${BORDE_RESULTADO} ${FONDO_RESULTADO} font-semibold ${fila.nivel === "alerta" ? "text-err-700" : fila.nivel === "informativa" ? "text-ink-600" : "text-ok-700"}`}>{fmtContable(fila.diferencia)}</td>
+      <td className={`${FONDO_RESULTADO} px-3 py-1.5`}><EstadoFila fila={fila} /></td>
+      <td className={`${BORDE_RESULTADO} px-3 py-1.5 text-center`}>
         <CeldaMarca
           marca={fila.marca}
           requiereMarca={fila.requiereMarca}
@@ -243,12 +290,15 @@ function EstadoFila({ fila }: { fila: FilaCruce }) {
 
 function FilaSubtotal({ etiqueta, subtotal, total = false }: { etiqueta: string; subtotal: SubtotalCruce; total?: boolean }) {
   return (
-    <tr className={`border-b border-ink-150 font-semibold ${total ? "bg-navy-50 text-navy-800" : "text-ink-800"}`}>
-      <td colSpan={2} className="px-3 py-1.5">{etiqueta}</td>
+    <tr className={`border-t-2 border-ink-200 font-semibold text-ink-800 ${total ? "bg-ink-100" : "bg-ink-50"}`}>
+      <td className="px-3 py-2">{etiqueta}</td>
+      <td className={INICIO_SECCION} />
       <td className={NUM}>{fmtContable(subtotal.declarado)}</td>
+      <td className={INICIO_SECCION} />
       <td className={NUM}>{fmtContable(subtotal.contable)}</td>
-      <td className={NUM}>{fmtContable(subtotal.diferencia)}</td>
-      <td colSpan={2} />
+      <td className={`${NUM} ${BORDE_RESULTADO}`}>{fmtContable(subtotal.diferencia)}</td>
+      <td />
+      <td className={BORDE_RESULTADO} />
     </tr>
   );
 }
@@ -265,16 +315,16 @@ const COLUMNAS_DETALLE = (
 );
 const ENCABEZADO_DETALLE = "sticky top-0 z-20 bg-ink-50 px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-500 shadow-[inset_0_-1px_0_var(--color-ink-150)]";
 const VALOR_DETALLE = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
-const BANDA_CUENTA = "sticky top-[27px] z-10 bg-navy-100 font-semibold text-navy-800";
+const BANDA_CUENTA = "sticky top-[27px] z-10 bg-ink-100 font-semibold text-navy-800";
 const FILA_TOTAL_DETALLE = "border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800";
 const RESALTE_SALDO_INICIAL = "rounded bg-warn-100 px-1 text-warn-700";
 const SALDO_INICIAL_RESTADO = "text-ink-400 line-through";
 
 function TituloDetalle({ titulo, detalle, cuentaRussell }: { titulo: string; detalle: string; cuentaRussell?: string }) {
   return (
-    <h4 className="mb-1.5 border-b-2 border-navy-700 pb-1 text-[12px] font-bold text-navy-800">
+    <h4 className="mb-1.5 border-b border-ink-200 pb-1 text-[12px] font-bold text-navy-800">
       {titulo} <span className="font-normal text-ink-500">· {detalle}</span>
-      {cuentaRussell && <span className="ml-2 rounded bg-navy-100 px-1.5 py-0.5 tabular-nums">Cuenta Russell {cuentaRussell}</span>}
+      {cuentaRussell && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 tabular-nums">Cuenta Russell {cuentaRussell}</span>}
     </h4>
   );
 }
