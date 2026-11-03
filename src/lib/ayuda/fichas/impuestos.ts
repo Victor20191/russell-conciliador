@@ -208,7 +208,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
             "Ningún formulario de esos períodos está por confirmar.",
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
-            "Cada mes con diferencia en el pago y cada mes cuya corrección llegó sin el original tiene marca.",
+            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con una corrección que llegó sin el original tiene marca.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cerrarRevisionRetencion" },
         },
