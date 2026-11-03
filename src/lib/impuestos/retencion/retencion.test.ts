@@ -4,7 +4,7 @@ import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fi
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv, resumenConfirmacion } from "./lectura";
 import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
-import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta } from "./cruce";
+import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta, cuentasFueraDeRetencion } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
 
 const DV = String(dvNit(NIT_FICTICIO));
@@ -313,6 +313,41 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     expect(resumenCuentaCruce(conDian, { cantidad: 2, saldoInicial: 100 })).toMatchObject({ terceros: 5, saldoInicial: 50_100 });
     const dian = { nit: "800197268", nombre: "DIAN", saldo: 0, saldoInicial: 700, esDian: true, restado: true, posibleDian: false };
     expect(resumenCuentaCruce({ cuenta: "23659701", nombre: "Pagos", saldo: 0, terceros: [dian] }).saldoInicial).toBe(0);
+  });
+
+  describe("cuentas del cliente en 2365 o 2367 homologadas fuera de retención", () => {
+    const f = (cuentaCliente: string, cuentaRussell: string | null, saldoFinal: number) => ({ cuentaCliente, nombreCuenta: `Cuenta ${cuentaCliente}`, cuentaRussell, saldoFinal });
+
+    it("avisa solo las del cliente en 2365 o 2367 que quedaron en otro grupo o sin homologar", () => {
+      const r = cuentasFueraDeRetencion([
+        f("23670106", "240805", -64_000_000),
+        f("23659901", null, -1_000),
+        f("23650501", "236505", -5_000), // homologada a retención: entra al cruce
+        f("23659902", "236599", 5_000), // la cubre la alerta de cuentas fuera del mapeo
+        f("24360502", "236525", -9_000), // no es 2365 ni 2367 del cliente
+        f("24080501", "240805", -7_000),
+      ], new Map([["240805", "IVA por pagar"]]));
+      expect(r).toEqual([
+        { cuenta: "23659901", nombre: "Cuenta 23659901", cuentaRussell: null, nombreRussell: null, saldo: 1_000 },
+        { cuenta: "23670106", nombre: "Cuenta 23670106", cuentaRussell: "240805", nombreRussell: "IVA por pagar", saldo: 64_000_000 },
+      ]);
+    });
+
+    it("suma los terceros de la cuenta y no avisa la que queda en cero", () => {
+      expect(cuentasFueraDeRetencion([f("23670106", "240805", -100), f("23670106", "240805", -50), f("23658005", "249505", -30), f("23658005", "249505", 30)])).toEqual([
+        { cuenta: "23670106", nombre: "Cuenta 23670106", cuentaRussell: "240805", nombreRussell: null, saldo: 150 },
+      ]);
+    });
+
+    it("viaja en el resultado del cruce, no cambia las cifras y no impide cerrar", () => {
+      const base = { periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map<string, string>(), filasContables, inicioEnero: true, restarSaldoInicial: false, umbral: 6_000, marcas: [] };
+      const sin = cruceRetencion(base);
+      const con = cruceRetencion({ ...base, filasFueraDeRetencion: [f("23670106", "240805", -64_000_000)] });
+      expect(sin.fueraDeRetencion).toEqual([]);
+      expect(con.fueraDeRetencion).toHaveLength(1);
+      expect(con.total).toEqual(sin.total);
+      expect(con.pendientesMarca).toBe(sin.pendientesMarca);
+    });
   });
 
   it("subtotales 130 y 134, total 136 y cuentas fuera del mapeo", () => {

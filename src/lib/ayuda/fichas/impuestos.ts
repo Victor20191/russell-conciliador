@@ -353,7 +353,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "cruce",
       titulo: "Cruce contable",
       proposito:
-        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Si el balance empieza el 1 de enero, también se puede restar el saldo inicial de los demás terceros. Usa el balance cerrado y vigente que termina en el mes de corte, con detalle por tercero y con el prevalidador aprobado.",
+        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Si el balance empieza el 1 de enero, también se puede restar el saldo inicial de los demás terceros. Abajo se informan, sin impedir el cierre, las cuentas homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo y las cuentas del cliente en 2365 o 2367 homologadas fuera de retención, cuyo saldo no llega al cruce. Usa el balance cerrado y vigente que termina en el mes de corte, con detalle por tercero y con el prevalidador aprobado.",
       etapas: [
         {
           titulo: "Consultar",

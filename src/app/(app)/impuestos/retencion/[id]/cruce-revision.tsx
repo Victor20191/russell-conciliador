@@ -18,6 +18,7 @@ import {
   resumenCuentaCruce,
   terceroTachado,
   type CruceRetencionPantalla,
+  type CuentaFueraDeRetencion,
   type FilaCruce,
   type ResultadoCrucePantalla,
   type SubtotalCruce,
@@ -174,6 +175,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
       </div>
 
       {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} />}
+
+      {(resultado.fueraDeRetencion?.length ?? 0) > 0 && <FueraDeRetencion filas={resultado.fueraDeRetencion ?? []} />}
 
       <Observaciones filas={conMarca} puedeEditar={puedeEditar} onEditar={setMarcando} />
 
@@ -491,7 +494,7 @@ function FueraDelMapeo({ filas }: { filas: ResultadoCrucePantalla["fueraDelMapeo
     <Card className="p-4 text-[12.5px]">
       <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas de retención fuera del cruce</h3>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
-        Cuentas del cliente en 2365 o 2367 homologadas a una cuenta Russell que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce.
+        Cuentas del cliente homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce.
       </p>
       <table className="mt-2 text-[12px]">
         <tbody>
@@ -504,6 +507,49 @@ function FueraDelMapeo({ filas }: { filas: ResultadoCrucePantalla["fueraDelMapeo
           ))}
         </tbody>
       </table>
+    </Card>
+  );
+}
+
+function FueraDeRetencion({ filas }: { filas: CuentaFueraDeRetencion[] }) {
+  return (
+    <Card className="p-4 text-[12.5px]">
+      <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas del cliente en 2365 o 2367 homologadas fuera de retención</h3>
+      <p className="mt-0.5 text-[11.5px] text-ink-500">
+        Están en 2365 o 2367 del cliente, pero homologadas a una cuenta Russell de otro grupo o sin homologar, así que su saldo no llega al cruce. Revisa si la homologación es correcta. Es informativo: no impide cerrar.
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[480px] text-[12px]">
+          <thead className="text-left font-semibold text-ink-500">
+            <tr>
+              <th className="py-1 pr-4">Cuenta del cliente</th>
+              <th className="py-1 pr-4">Homologada a</th>
+              <th className="py-1 text-right">Saldo final</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.cuenta} className="border-t border-ink-100 align-top">
+                <td className="py-1 pr-4">
+                  <span className="font-semibold tabular-nums text-ink-700">{f.cuenta}</span>
+                  {f.nombre && <span className="ml-2 text-ink-500">{f.nombre}</span>}
+                </td>
+                <td className="py-1 pr-4">
+                  {f.cuentaRussell ? (
+                    <>
+                      <span className="font-semibold tabular-nums text-ink-700">{f.cuentaRussell}</span>
+                      {f.nombreRussell && <span className="ml-2 text-ink-500">{f.nombreRussell}</span>}
+                    </>
+                  ) : (
+                    <span className="text-ink-500">Sin homologar</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap py-1 text-right tabular-nums">{fmtContable(f.saldo)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

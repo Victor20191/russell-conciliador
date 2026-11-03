@@ -13,7 +13,7 @@ import {
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
 import { cargarMapeoDian } from "../configuracion-servidor";
-import { cruceRetencion, prefijosRetencion, type BalanceCruceRetencion, type CruceRetencionVista } from "./cruce";
+import { cruceRetencion, prefijosRetencion, type BalanceCruceRetencion, type CruceRetencionVista, type FilaFueraDeRetencion } from "./cruce";
 import type { RevisionVista } from "./revision-servidor";
 
 /**
@@ -68,10 +68,19 @@ export async function cargarCruceRetencion(
 
   const agrupadoras = cuentasAgrupadorasExcluidas(contexto.prevalidador);
   const capturaId = capturaPorLote.get(elegido.loteId as string) as number;
-  const [crudas, mapeo, marcas] = await Promise.all([
+  const [crudas, crudasFuera, mapeo, marcas] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: { encabezadoId: capturaId, OR: prefijosRetencion().map((p) => ({ cuenta6Russell: { startsWith: p } })) },
       select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, nitTercero: true, nombreTercero: true, saldoInicial: true, saldoFinal: true },
+    }),
+    // Cuentas del cliente en 2365/2367 que no llegan al cruce porque están homologadas a otro grupo o sin homologar.
+    prisma.balanceTerceroDetalle.findMany({
+      where: {
+        encabezadoId: capturaId,
+        OR: prefijosRetencion().map((p) => ({ cuenta8: { startsWith: p } })),
+        AND: [{ OR: [{ cuenta6Russell: null }, { NOT: { OR: prefijosRetencion().map((p) => ({ cuenta6Russell: { startsWith: p } })) } }] }],
+      },
+      select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, nitTercero: true, nombreTercero: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
     }),
     cargarMapeoDian("350"),
     prisma.marcaCruceModulo.findMany({
@@ -91,6 +100,17 @@ export async function cargarCruceRetencion(
       saldoInicial: Number(d.saldoInicial),
       saldoFinal: Number(d.saldoFinal),
     }));
+  const filasFueraDeRetencion: FilaFueraDeRetencion[] = filasEfectivasTercero(crudasFuera.filter((d) => !agrupadoras.has(d.cuenta8.replace(/\D/g, "")) && !esTotalDeCuentaComoTercero(d)))
+    .map((d) => ({
+      cuentaCliente: d.cuenta8,
+      nombreCuenta: d.nombreCuenta,
+      cuentaRussell: d.cuenta6Russell ? d.cuenta6Russell.replace(/\D/g, "").slice(0, 6) : null,
+      saldoFinal: Number(d.saldoFinal),
+    }));
+  const cuentasDestino = [...new Set(filasFueraDeRetencion.flatMap((f) => (f.cuentaRussell ? [f.cuentaRussell] : [])))];
+  const planDestino = cuentasDestino.length
+    ? await prisma.standardAccount.findMany({ where: { code: { in: cuentasDestino } }, select: { code: true, name: true } })
+    : [];
   const inicioEnero = balance.periodoInicio === `${revision.anio}-01-01`;
   const resultado = cruceRetencion({
     periodos: revision.periodos,
@@ -99,6 +119,8 @@ export async function cargarCruceRetencion(
     tercerosDian: mapeo.terceros,
     nombresRussell: new Map(mapeo.cuentas.filter((c) => c.nombre).map((c) => [c.cuenta, c.nombre as string])),
     filasContables,
+    filasFueraDeRetencion,
+    nombresFueraDeRetencion: new Map(planDestino.map((c) => [c.code, c.name])),
     inicioEnero,
     restarSaldoInicial: revision.restarSaldoInicial,
     umbral,

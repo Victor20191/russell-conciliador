@@ -104,11 +104,19 @@ export type ResultadoCruce = {
   total: SubtotalCruce;
   /** Lo que el botón ofrece y resta: null sin saldos iniciales o sin balance desde enero. Las copias antiguas no lo traen. */
   saldoInicial?: ResumenSaldoInicial | null;
-  /** Cuentas del cliente en 2365/2367 homologadas a una cuenta Russell que no está en el mapeo (p. ej. 236599, pagos). */
+  /** Cuentas del cliente homologadas a una cuenta Russell de 2365/2367 que no está en el mapeo (p. ej. 236599, pagos). */
   fueraDelMapeo: { cuentaRussell: string; cuentas: string[]; saldo: number }[];
+  /** Cuentas del cliente en 2365/2367 homologadas fuera de esos grupos: el cruce no las lee. Las copias antiguas no lo traen. */
+  fueraDeRetencion?: CuentaFueraDeRetencion[];
   /** Filas que exigen marca y no la tienen (o la tienen desactualizada). */
   pendientesMarca: number;
 };
+
+/** Una cuenta del cliente en 2365/2367 que quedó fuera de retención, con el saldo en positivo como el resto del cruce. */
+export type CuentaFueraDeRetencion = { cuenta: string; nombre: string | null; cuentaRussell: string | null; nombreRussell: string | null; saldo: number };
+
+/** Fila del balance de una cuenta del cliente en 2365/2367; `cuentaRussell` en null si no está homologada. */
+export type FilaFueraDeRetencion = { cuentaCliente: string; nombreCuenta: string | null; cuentaRussell: string | null; saldoFinal: number };
 
 export type EntradaCruce = {
   periodos: readonly PeriodoRevision[];
@@ -118,6 +126,10 @@ export type EntradaCruce = {
   tercerosDian: readonly Pick<TerceroDian, "nit">[];
   nombresRussell: ReadonlyMap<string, string>;
   filasContables: readonly FilaTerceroContable[];
+  /** Filas de las cuentas del cliente en 2365/2367, para avisar las homologadas fuera de retención. */
+  filasFueraDeRetencion?: readonly FilaFueraDeRetencion[];
+  /** Nombre de las cuentas Russell donde quedaron homologadas. */
+  nombresFueraDeRetencion?: ReadonlyMap<string, string>;
   /** El balance del corte empieza el 1 de enero del año revisado (si no, no se mide el arrastre). */
   inicioEnero: boolean;
   /** La revisión pidió restar el saldo inicial; sin `inicioEnero` no resta nada. */
@@ -128,6 +140,32 @@ export type EntradaCruce = {
 
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
+
+/**
+ * Las cuentas del cliente en 2365/2367 homologadas a una cuenta Russell de otro grupo, o sin homologar:
+ * el cruce lee por cuenta Russell, así que su saldo no llega a él. Una cuenta en cero no se avisa, porque
+ * no le falta nada al cruce. Es informativo: no impide cerrar.
+ */
+export function cuentasFueraDeRetencion(filas: readonly FilaFueraDeRetencion[], nombres: ReadonlyMap<string, string> = new Map()): CuentaFueraDeRetencion[] {
+  const esRetencion = (c: string) => prefijosRetencion().some((p) => c.startsWith(p));
+  const porCuenta = new Map<string, { nombre: string | null; cuentaRussell: string | null; saldos: number[] }>();
+  for (const f of filas) {
+    if (!esRetencion(f.cuentaCliente) || (f.cuentaRussell && esRetencion(f.cuentaRussell))) continue;
+    const c = porCuenta.get(f.cuentaCliente) ?? { nombre: f.nombreCuenta, cuentaRussell: f.cuentaRussell, saldos: [] };
+    c.saldos.push(-f.saldoFinal);
+    porCuenta.set(f.cuentaCliente, c);
+  }
+  return [...porCuenta.entries()]
+    .map(([cuenta, c]) => ({
+      cuenta,
+      nombre: c.nombre,
+      cuentaRussell: c.cuentaRussell,
+      nombreRussell: c.cuentaRussell ? (nombres.get(c.cuentaRussell) ?? null) : null,
+      saldo: sumar(c.saldos),
+    }))
+    .filter((c) => c.saldo !== 0)
+    .sort((a, b) => a.cuenta.localeCompare(b.cuenta));
+}
 
 /** Lo que un tercero suma al lado contable: nada si es la DIAN restada; si no, su saldo final menos el saldo inicial restado. */
 export function aporteTercero(t: Pick<TerceroCruce, "saldo" | "restado" | "saldoInicialRestado">): number {
@@ -234,6 +272,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     fueraDelMapeo: [...fuera.entries()]
       .map(([cuentaRussell, f]) => ({ cuentaRussell, cuentas: [...f.cuentas].sort(), saldo: f.saldo }))
       .sort((a, b) => a.cuentaRussell.localeCompare(b.cuentaRussell)),
+    fueraDeRetencion: cuentasFueraDeRetencion(e.filasFueraDeRetencion ?? [], e.nombresFueraDeRetencion),
     pendientesMarca: todas.filter((f) => f.requiereMarca && !f.marca?.vigente).length,
   };
 }

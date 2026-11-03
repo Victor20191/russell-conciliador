@@ -190,6 +190,14 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
     for (const f of resultado.fueraDelMapeo) ws.addRow([f.cuentaRussell, f.cuentas.join(", "), "", "", "", "", f.saldo]);
   }
 
+  const fueraDeRetencion = resultado.fueraDeRetencion ?? [];
+  if (fueraDeRetencion.length > 0) {
+    ws.addRow([]);
+    filaSeccion(ws, "Cuentas del cliente en 2365 o 2367 homologadas fuera de retención (no llegan al cruce)", 8);
+    estiloEncabezado(ws.addRow(["Cuenta del cliente", "Nombre", "Homologada a", "Nombre de la cuenta Russell", "", "", "Saldo final"]));
+    for (const f of fueraDeRetencion) ws.addRow([f.cuenta, f.nombre ?? "", f.cuentaRussell ?? "Sin homologar", f.nombreRussell ?? "", "", "", f.saldo]);
+  }
+
   const marcas = resultado.grupos.flatMap((g) => g.filas).filter((f) => f.marca);
   if (marcas.length > 0) {
     ws.addRow([]);
