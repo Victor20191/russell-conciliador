@@ -57,7 +57,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
             "Exige una anotación con el visto bueno (mínimo 10 caracteres); queda en el cliente y en la auditoría.",
             "Es una excepción especial: solo Gerente o Socio del cliente y los administradores pueden cambiarla.",
             "Con la excepción, Novedades indica que la revisión de saldos contrarios por tercero no aplica.",
-            "El cliente con la excepción lleva la marca «Excepción · Sin terceros» en la lista y un aviso destacado en su ficha.",
+            "El cliente con la excepción lleva la marca «Excepción · Sin terceros» en la lista y un aviso destacado en su ficha y en sus cargues de Cartera y Cuentas por pagar.",
           ],
           fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "cambiarBalancePorTerceros" },
         },

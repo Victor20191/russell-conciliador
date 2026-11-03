@@ -14,6 +14,7 @@ import {
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres, detectarAlertasCosto } from "@/lib/modulos/validaciones";
+import { Icon } from "@/components/icons";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { fmtDateTime } from "@/lib/format";
 import type { MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
@@ -618,6 +619,17 @@ export default async function DatoModuloPage({
         title={`${descriptor.label} · ${encabezado.nombreCliente}`}
         subtitle={`Período ${encabezado.periodo} · v${encabezado.version}${encabezado.esOficial ? " vigente" : " histórica"} · ${encabezado.filas} filas`}
       />
+      {descriptor.crucePorTercero.detalleTercero && !descriptor.crucePorTercero.habilitado && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-md border border-warn-300 border-l-4 border-l-warn-500 bg-warn-50 p-3">
+          <Icon name="warn" size={18} className="mt-0.5 shrink-0 text-warn-600" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-[13.5px] font-bold text-warn-700">Excepción activa: Cliente no maneja balance por terceros</span>
+            <span className="text-[12px] text-ink-700">
+              {descriptor.label} se concilia contra el balance por cuenta, sin detalle de terceros.
+            </span>
+          </div>
+        </div>
+      )}
       {!encabezado.esOficial && vigente && vigente.id !== encabezado.id && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <span>Estás consultando una versión histórica. La versión vigente es v{vigente.version}.</span>
