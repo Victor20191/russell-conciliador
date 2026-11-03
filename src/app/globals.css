@@ -562,3 +562,8 @@ button.sidebar-logout:disabled {
     var(--color-earth-orange) 75% 100%
   );
 }
+
+/* La lista de sugerencias es la de la marca (SugerenciasDeMarca): sin la flecha del navegador. */
+input[list]::-webkit-calendar-picker-indicator {
+  display: none !important;
+}

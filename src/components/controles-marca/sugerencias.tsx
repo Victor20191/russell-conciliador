@@ -10,6 +10,10 @@ import { ATRIBUTO_EMERGENTE, CLASE_EMERGENTE, fijarValor, seguirAlControl, ubica
  * en una lista suya (fuente y colores del sistema): aquí el campo deja de apuntar
  * a su `datalist` (el id queda en `data-rb-lista`) y la plataforma muestra las
  * mismas opciones, filtradas por lo escrito.
+ *
+ * Se desliga al recibir el foco, no al cargar: este componente vive en el layout e
+ * hidrata antes que la página, y cambiar el HTML de un campo aún sin hidratar hace
+ * que React avise de un desajuste. La flecha del navegador se oculta en globals.css.
  */
 
 const LISTA = "data-rb-lista";
@@ -39,19 +43,6 @@ export function SugerenciasDeMarca() {
   }, [abiertas]);
 
   useEffect(() => {
-    document.querySelectorAll("input[list]").forEach(desligar);
-    const observador = new MutationObserver((cambios) => {
-      for (const cambio of cambios) {
-        if (cambio.type === "attributes") desligar(cambio.target as Element);
-        cambio.addedNodes.forEach((nodo) => {
-          if (!(nodo instanceof Element)) return;
-          if (nodo.matches("input[list]")) desligar(nodo);
-          nodo.querySelectorAll("input[list]").forEach(desligar);
-        });
-      }
-    });
-    observador.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["list"] });
-
     const mostrar = (campo: HTMLInputElement) => {
       const opciones = filtrarSugerencias(opcionesDe(campo), campo.value);
       if (opciones.length === 0) return setAbiertas(null);
@@ -59,7 +50,9 @@ export function SugerenciasDeMarca() {
     };
     const alEnfocarOEscribir = (evento: Event) => {
       const campo = evento.target;
-      if (campo instanceof HTMLInputElement && campo.hasAttribute(LISTA) && !campo.disabled && !campo.readOnly) mostrar(campo);
+      if (!(campo instanceof HTMLInputElement)) return;
+      desligar(campo);
+      if (campo.hasAttribute(LISTA) && !campo.disabled && !campo.readOnly) mostrar(campo);
     };
     const alSalir = (evento: FocusEvent) => {
       const a = actual.current;
@@ -99,7 +92,6 @@ export function SugerenciasDeMarca() {
     window.addEventListener("scroll", cerrar, true);
     window.addEventListener("resize", cerrar);
     return () => {
-      observador.disconnect();
       document.removeEventListener("focusin", alEnfocarOEscribir, true);
       document.removeEventListener("input", alEnfocarOEscribir, true);
       document.removeEventListener("focusout", alSalir, true);
