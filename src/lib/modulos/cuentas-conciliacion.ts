@@ -289,3 +289,15 @@ export function leerParesDepreciacionGuardados(valor: unknown): ParDepreciacion[
   }
   return listaPares(salida);
 }
+
+/**
+ * El descriptor de un cliente que no maneja balance por terceros: sin cruce por tercero, sin exigir
+ * un balance con detalle y sin exigirlo para el cierre. `detalleTercero` se conserva: el auxiliar
+ * se sigue leyendo y validando por tercero, solo que no se contrasta con el balance.
+ */
+export function sinCruceDeTerceros(descriptor: DescriptorModulo): DescriptorModulo {
+  return {
+    ...descriptor,
+    crucePorTercero: { ...descriptor.crucePorTercero, habilitado: false, exigirBalanceConTerceros: false, exigidoParaCierre: false },
+  };
+}

@@ -139,6 +139,10 @@ export default async function ClientesPage() {
       dianFormIds: c.dianForms.map((f) => f.formId),
       dianPeriodicidades: Object.fromEntries(c.dianForms.map((f) => [f.formId, f.periodicidad])),
       responsables: responsablesPorCliente.get(c.id) ?? [],
+      balancePorTerceros: c.balancePorTerceros,
+      balanceTercerosNota: c.balanceTercerosNota,
+      balanceTercerosPor: c.balanceTercerosPor != null ? (nombrePorId.get(c.balanceTercerosPor) ?? null) : null,
+      balanceTercerosEn: c.balanceTercerosEn?.toISOString() ?? null,
       edicion: edicionDe(c.id),
     };
   });

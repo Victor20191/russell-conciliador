@@ -48,6 +48,19 @@ export const FICHA_CLIENTES: FichaAyuda = {
           ],
           fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "updateClient" },
         },
+        {
+          nombre: "Balance por terceros",
+          queHace:
+            "Dice si el cliente maneja balance por terceros (por defecto, sí). Si no lo maneja, Cartera y Cuentas por pagar se concilian contra el balance por cuenta, sin detalle de terceros ni cruce por tercero. Se cambia con «Marcar como excepción…» o «Volver a por terceros…».",
+          regla: REGLAS.configurarCliente,
+          condiciones: [
+            "Exige una anotación con el visto bueno (mínimo 10 caracteres); queda en el cliente y en la auditoría.",
+            "Es una excepción especial: solo Gerente o Socio del cliente y los administradores pueden cambiarla.",
+            "Con la excepción, Novedades indica que la revisión de saldos contrarios por tercero no aplica.",
+            "El cliente con la excepción lleva la marca «Excepción · Sin terceros» en la lista y un aviso destacado en su ficha.",
+          ],
+          fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "cambiarBalancePorTerceros" },
+        },
       ],
     },
     {

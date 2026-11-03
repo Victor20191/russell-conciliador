@@ -10,6 +10,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { descriptorModulo, MODULOS_IMPORT, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import { sinCruceDeTerceros } from "@/lib/modulos/cuentas-conciliacion";
 import {
   aplicarCuentasConciliacion,
   aplicarParesDepreciacion,
@@ -170,9 +171,15 @@ export async function resolverDescriptorVigente(
     ? aplicarSubgruposConciliacion(descriptor, await subgruposConciliacionModulo(descriptor, contexto))
     : aplicarCuentasConciliacion(descriptor, await cuentasConciliacionModulo(descriptor, contexto));
   // Activos fijos: además, con qué 1592## se junta cada activo en la cédula.
-  return moduloConParesDepreciacion(base)
+  const conPares = moduloConParesDepreciacion(base)
     ? aplicarParesDepreciacion(base, await paresDepreciacionModulo(base, contexto))
     : base;
+  // Cliente sin balance por terceros (excepción especial): Cartera y CxP concilian por cuenta.
+  if (contexto && conPares.crucePorTercero.exigirBalanceConTerceros) {
+    const cliente = await prisma.client.findUnique({ where: { id: contexto.clienteId }, select: { balancePorTerceros: true } });
+    if (cliente && !cliente.balancePorTerceros) return sinCruceDeTerceros(conPares);
+  }
+  return conPares;
 }
 
 /** Atajo por código de módulo; `null` si el módulo no está registrado. */

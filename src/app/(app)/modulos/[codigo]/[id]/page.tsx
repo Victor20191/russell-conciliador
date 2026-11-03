@@ -580,6 +580,7 @@ export default async function DatoModuloPage({
     ? {
         ...novedadesBase,
         tercero: validacionesTercero,
+        sinBalanceTerceros: !descriptor.crucePorTercero.habilitado,
       }
     : novedadesBase;
 

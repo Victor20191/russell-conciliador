@@ -14,7 +14,11 @@ function Mas({ cantidad, mostradas }: { cantidad: number; mostradas: number }) {
 }
 
 /** Novedades de Cartera y CxP: lo que el auxiliar por tercero muestra que hay que revisar. */
-export function ValidacionesTerceroPanel({ validaciones }: { validaciones: ValidacionesTercero }) {
+export function ValidacionesTerceroPanel({ validaciones, sinBalanceTerceros = false }: {
+  validaciones: ValidacionesTercero;
+  /** Cliente con la excepción: su balance no tiene terceros, así que los saldos contrarios no se revisan. */
+  sinBalanceTerceros?: boolean;
+}) {
   const { formato, documentosRepetidos, posiblesColisiones, saldosContrarios, corte, diasVsCorte, edadVsCorte, vencimientosAtipicos } = validaciones;
   // Las diferencias del formato (edades y documentos contra el total) se ven en su bloque.
   const otras = validaciones.total - validaciones.edadesVsTotal.cantidad - (formato.documentosVsCliente?.diferencias.cantidad ?? 0);
@@ -24,9 +28,17 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
       <div className="mb-4">
         <ControlesFormato controles={formato} detalle />
       </div>
+      {sinBalanceTerceros && (
+        <div className="mb-2 rounded-md border border-warn-300 bg-warn-50 px-3 py-1.5 text-[12px] text-warn-700">
+          Saldos contrarios a la naturaleza por tercero: no aplica, porque el cliente no maneja balance por terceros.
+        </div>
+      )}
       {otras === 0 ? (
         <div className="rounded-md border border-ok-500 bg-ok-100 px-3 py-1.5 text-[12px] text-ok-700">
-          <IconoEnTexto name="check" />Las edades cuadran con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral.
+          <IconoEnTexto name="check" />
+          {sinBalanceTerceros
+            ? "Las edades cuadran con la fecha de corte y no hay documentos repetidos entre terceros ni claves que colisionen."
+            : "Las edades cuadran con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral."}
         </div>
       ) : (
         <div className="flex flex-col gap-4">

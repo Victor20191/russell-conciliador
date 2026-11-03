@@ -18,6 +18,7 @@ import {
   createClient,
   updateClient,
   deleteClient,
+  cambiarBalancePorTerceros,
 } from "@/app/actions/clients";
 import type { ActionState } from "@/lib/definitions";
 import { notifyActionState } from "@/lib/client-notifications";
@@ -25,6 +26,8 @@ import { ImportClientesButton } from "./import-clientes-modal";
 import type { CodigoProcesoErp } from "@/lib/erp-procesos";
 import { AplicativosPorProceso } from "./aplicativos-por-proceso";
 import { confirmarDeMarca } from "@/components/controles-marca";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
 import { opcionesPeriodicidad } from "@/lib/impuestos/periodicidad";
 
 export type ModuleRef = { id: number; name: string };
@@ -67,6 +70,11 @@ export type ClientRow = {
   /** Periodicidad del cliente por formato DIAN (null = la del formulario). */
   dianPeriodicidades: Record<number, string | null>;
   responsables: { funcion: string; userId: number; name: string }[];
+  /** false = excepción: concilia Cartera y CxP por cuenta, sin detalle de terceros. */
+  balancePorTerceros: boolean;
+  balanceTercerosNota: string | null;
+  balanceTercerosPor: string | null;
+  balanceTercerosEn: string | null;
   /** Qué puede editar quien ve la lista (19/Oct/2026): la ficha completa (Gerente/Socio en su
    *  cartera, administradores), solo los datos operativos (Staff/Senior asignados) o nada. */
   edicion: NivelEdicionCliente;
@@ -232,6 +240,15 @@ export default function ClientesClient({
                     className="block w-full px-4 py-2.5 text-left font-medium text-ink-800 transition hover:text-navy-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                   >
                     {c.name}
+                    {!c.balancePorTerceros && (
+                      <span
+                        title="Excepción: no maneja balance por terceros"
+                        className="mt-1 flex w-fit items-center gap-1 whitespace-nowrap rounded-full bg-warn-100 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700"
+                      >
+                        <Icon name="warn" size={11} className="text-warn-600" />
+                        Excepción · Sin terceros
+                      </span>
+                    )}
                   </button>
                 </td>
                 <td className="p-0">
@@ -345,6 +362,112 @@ export default function ClientesClient({
 }
 
 /** Clasificación del cliente: A (azul), B (ámbar), C (gris). */
+/** Excepción «balance por terceros»: el cambio va aparte del formulario y exige una anotación. */
+function BalanceTercerosControl({ client, puedeCambiar }: { client: ClientRow; puedeCambiar: boolean }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [nota, setNota] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const maneja = client.balancePorTerceros;
+
+  async function confirmar() {
+    setGuardando(true);
+    const r = await cambiarBalancePorTerceros({ clienteId: client.id, manejaTerceros: !maneja, nota });
+    setGuardando(false);
+    if (!r.ok) {
+      notifyError(r.message ?? "No se pudo guardar.");
+      return;
+    }
+    notifySuccess(r.message ?? "Guardado.");
+    setAbierto(false);
+    setNota("");
+    router.refresh();
+  }
+
+  return (
+    <div
+      className={
+        maneja
+          ? "min-w-0 rounded-md border border-ink-150 bg-ink-50/60 px-3 py-2"
+          : "min-w-0 rounded-md border border-warn-300 border-l-4 border-l-warn-500 bg-warn-50 p-3"
+      }
+    >
+      <div className={`flex justify-between gap-3 ${maneja ? "items-center" : "items-start"}`}>
+        {maneja ? (
+          <span className="text-[12px] text-ink-600">
+            <span className="font-medium">Balance por terceros:</span> Cliente maneja balance por terceros.
+          </span>
+        ) : (
+          <div className="flex min-w-0 items-start gap-2.5">
+            <Icon name="warn" size={18} className="mt-0.5 shrink-0 text-warn-600" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="text-[13.5px] font-bold text-warn-700">
+                Excepción activa: Cliente no maneja balance por terceros
+              </span>
+              <span className="text-[12px] text-ink-700">
+                Cartera y Cuentas por pagar se concilian contra el balance por cuenta, sin detalle de terceros.
+              </span>
+              {client.balanceTercerosNota && (
+                <span className="text-[12px] text-ink-700">
+                  <span className="font-semibold">
+                    Visto bueno{client.balanceTercerosPor ? ` de ${client.balanceTercerosPor}` : ""}
+                    {client.balanceTercerosEn ? ` (${fechaColombiaISO(client.balanceTercerosEn)})` : ""}:
+                  </span>{" "}
+                  {client.balanceTercerosNota}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        {puedeCambiar && (
+          <button
+            type="button"
+            onClick={() => setAbierto(true)}
+            className="shrink-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 transition hover:bg-ink-100"
+          >
+            {maneja ? "Marcar como excepción…" : "Volver a por terceros…"}
+          </button>
+        )}
+      </div>
+      <Modal
+        open={abierto}
+        onClose={() => setAbierto(false)}
+        title={maneja ? "El cliente no maneja balance por terceros" : "El cliente vuelve a manejar balance por terceros"}
+        size="md"
+        footer={
+          <button
+            type="button"
+            disabled={guardando || nota.trim().length < 10}
+            onClick={confirmar}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-[12.5px] font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {guardando ? "Guardando…" : "Dar visto bueno y guardar"}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
+          <p>
+            {maneja
+              ? "Es una excepción especial: Cartera y Cuentas por pagar de este cliente se concilian contra el balance por cuenta y ya no exigen un balance con detalle de terceros."
+              : "Cartera y Cuentas por pagar vuelven a exigir un balance con detalle de terceros y el cruce por tercero."}
+          </p>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11.5px] font-medium text-ink-600">Anotación con tu visto bueno</span>
+            <textarea
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+              rows={4}
+              maxLength={1000}
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+              placeholder="Por qué aplica la excepción y quién la aprueba…"
+            />
+          </label>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 function TipoBadge({ tipo }: { tipo: string }) {
   const estilo: Record<string, string> =
     {
@@ -603,6 +726,8 @@ function ClientModal({
         )}
         {isEdit && <input type="hidden" name="id" value={client.id} />}
         <input type="hidden" name="syncErpsPorProceso" value="1" />
+        {isEdit && <BalanceTercerosControl client={client} puedeCambiar={ficha} />}
+
         {/* Dos columnas (en ≥sm): Datos del cliente | Responsables. Aprovecha el
             ancho del modal y reduce el alto para que todo quepa sin scroll. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -220,6 +220,13 @@ model Client {
   sector          Sector?            @relation(fields: [sectorId], references: [id], onDelete: Restrict)
   sectorId        Int?               @map("sector_id") // FK al catálogo sectores (opcional: hay clientes sin sector)
   socioId         Int?               @map("socio_id") // socio responsable (FK lógica a User.id, informativo)
+  /// Excepción especial: false = el cliente NO maneja balance por terceros y Cartera y CxP concilian
+  /// contra el balance por cuenta, sin el cruce por tercero. Por defecto todos lo manejan; solo lo
+  /// cambia quien tiene `clientes:configurar` sobre el cliente, con una anotación de visto bueno.
+  balancePorTerceros  Boolean        @default(true) @map("balance_por_terceros")
+  balanceTercerosNota String?        @map("balance_terceros_nota") // visto bueno del último cambio
+  balanceTercerosPor  Int?           @map("balance_terceros_por") // FK lógica a User.id de quien lo cambió
+  balanceTercerosEn   DateTime?      @map("balance_terceros_en") @db.Timestamptz(3)
   modules         ClientModule[]
   dianForms       ClientDianForm[]
   reconciliations Reconciliation[]

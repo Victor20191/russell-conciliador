@@ -811,3 +811,64 @@ export async function setClientModuleStatus(formData: FormData): Promise<ActionS
     return { ok: false, message: mensajeErrorBD("setClientModuleStatus", e) };
   }
 }
+
+const BalanceTercerosSchema = z.object({
+  clienteId: z.number().int().positive(),
+  manejaTerceros: z.boolean(),
+  nota: z.string().trim().min(10, "Escribe la anotación con el visto bueno (mínimo 10 caracteres).").max(1000, "La anotación es demasiado larga."),
+});
+
+/**
+ * Excepción especial «el cliente NO maneja balance por terceros»: Cartera y CxP concilian contra el
+ * balance por cuenta, sin cruce por tercero. Todos los clientes arrancan manejándolo; solo lo cambia
+ * quien tiene `clientes:configurar` sobre el cliente (Gerente/Socio de su cartera y administradores),
+ * siempre con una anotación de visto bueno que queda en el cliente y en la auditoría.
+ */
+export async function cambiarBalancePorTerceros(input: {
+  clienteId: number;
+  manejaTerceros: boolean;
+  nota: string;
+}): Promise<ActionState> {
+  const parsed = BalanceTercerosSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { clienteId, manejaTerceros, nota } = parsed.data;
+  const authz = await authorizePermiso("clientes:configurar", { clientId: clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const actual = await prisma.client.findUnique({
+      where: { id: clienteId },
+      select: { name: true, balancePorTerceros: true },
+    });
+    if (!actual) return { ok: false, message: "Cliente inexistente." };
+    if (actual.balancePorTerceros === manejaTerceros) {
+      return { ok: false, message: "El cliente ya tiene ese valor." };
+    }
+    const user = await getCurrentUser();
+    await prisma.client.update({
+      where: { id: clienteId },
+      data: {
+        balancePorTerceros: manejaTerceros,
+        balanceTercerosNota: nota,
+        balanceTercerosPor: user?.id ?? null,
+        balanceTercerosEn: new Date(),
+      },
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "Cambiar balance por terceros",
+      entity: `Cliente ${actual.name}`,
+      detail: `${manejaTerceros ? "Maneja" : "No maneja"} balance por terceros. Visto bueno: ${nota}`,
+      clientId: clienteId,
+    });
+    revalidatePath("/config/clientes");
+    revalidatePath("/modulos");
+    return {
+      ok: true,
+      message: manejaTerceros
+        ? "El cliente vuelve a conciliar Cartera y CxP por tercero."
+        : "El cliente concilia Cartera y CxP por cuenta, sin detalle de terceros.",
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cambiarBalancePorTerceros", e) };
+  }
+}

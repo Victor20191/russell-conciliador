@@ -383,6 +383,8 @@ export type NovedadesVm = {
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
   /** Cartera y CxP: validaciones del auxiliar por tercero (reemplazan las de existencias). */
   tercero?: ValidacionesTercero | null;
+  /** Cliente que no maneja balance por terceros (excepción). */
+  sinBalanceTerceros?: boolean;
   /** Nómina: netos, conceptos sin cuenta / con varias cuentas, control, cédulas y meses. */
   nomina?: ValidacionesNomina | null;
   /** Total declarado por el archivo vs. Σ cargada, congelado al promover. `null` en los
@@ -4486,7 +4488,7 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
       {novedades.nomina ? (
         <NovedadesNominaPanel v={novedades.nomina} />
       ) : novedades.tercero ? (
-        <ValidacionesTerceroPanel validaciones={novedades.tercero} />
+        <ValidacionesTerceroPanel validaciones={novedades.tercero} sinBalanceTerceros={novedades.sinBalanceTerceros} />
       ) : (
         <>
       <Card className="p-4">
