@@ -103,6 +103,11 @@ export type EstadoPeriodo =
   | "falta_original"
   | "faltan_pagos";
 
+/** Recibo cuyo renglón 29 cita un 350 que no es de la cadena del período. */
+export type ReciboDeOtro350 = { numero: string; numeroPagado: string };
+
+export const avisoReciboDeOtro350 = (r: ReciboDeOtro350) => `El recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período.`;
+
 export type PeriodoRevision = {
   periodo: number;
   mesFin: number;
@@ -117,6 +122,8 @@ export type PeriodoRevision = {
   pagos: PagoConcepto[];
   /** Conceptos que el 350 vigente obliga a pagar y no tienen 490, ni confirmado ni por confirmar. */
   pagosFaltantes: ConceptoPagoRetencion[];
+  /** Siguen contando como pago del período por su renglón 3, pero exigen marca en Pagos efectuados. Las copias antiguas no lo traen. */
+  recibosDeOtro350?: ReciboDeOtro350[];
   avisos: string[];
 };
 
@@ -152,11 +159,9 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
       const suma = (r: number) => formularios.reduce((s, f) => s + (f.valores[r] ?? 0), 0);
       return { concepto, renglon, declarado, esperado: declarado > 0, formularios, impuesto: suma(36), sancion: suma(34), intereses: suma(35), porConfirmar: recibosPendientes.filter((f) => f.concepto === concepto).length };
     });
-    for (const f of del490) {
-      if (f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado)) {
-        avisos.push(`El recibo ${f.numero} paga el formulario ${f.numeroPagado}, que no es un 350 de este período.`);
-      }
-    }
+    const recibosDeOtro350: ReciboDeOtro350[] = del490.flatMap((f) =>
+      f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado) ? [{ numero: f.numero, numeroPagado: f.numeroPagado }] : [],
+    );
     for (const f of cadena.fueraDeCadena) {
       avisos.push(`El formulario ${f.numero} no hace parte de la cadena de correcciones del período.`);
     }
@@ -176,7 +181,7 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
         : porConfirmar350 > 0
           ? "por_confirmar"
           : "falta_350";
-    return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, porConfirmar350, recibosSinConcepto, pagos, pagosFaltantes, avisos };
+    return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, porConfirmar350, recibosSinConcepto, pagos, pagosFaltantes, recibosDeOtro350, avisos };
   });
 }
 

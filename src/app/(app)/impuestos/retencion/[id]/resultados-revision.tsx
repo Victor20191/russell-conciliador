@@ -13,7 +13,8 @@ import { cerrarRevisionRetencion, desbloquearRevisionRetencion } from "@/app/act
 import type { ActionState } from "@/lib/definitions";
 import { MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
-import { alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { avisoReciboDeOtro350 } from "@/lib/impuestos/retencion/periodos-revision";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
 import type { CierreRetencionVista } from "@/lib/impuestos/retencion/resultados-servidor";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
@@ -202,7 +203,7 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">
-        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total (138) − Total pagado; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
+        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total (138) − Total pagado; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
       </Card>
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
@@ -263,7 +264,12 @@ export function VistaPagos({
           marca={fila.marca}
           diferencia={fila.diferencia}
           placeholder="Ej.: el recibo del reteIVA (concepto 62) se pagó en el mes siguiente; ver anexo."
-          resumen={<>Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (declarado {fmt(fila.retenciones + fila.sanciones)} − pagado {fmt(fila.impuestoPagado + fila.sancionPagada)}).</>}
+          resumen={
+            <>
+              {fila.diferencia !== 0 && <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (declarado {fmt(fila.retenciones + fila.sanciones)} − pagado {fmt(fila.impuestoPagado + fila.sancionPagada)}).</span>}
+              {(fila.recibosDeOtro350 ?? []).map((r) => <span key={r.numero} className="block">{avisoReciboDeOtro350(r)}</span>)}
+            </>
+          }
           onClose={() => setMarcando(null)}
         />
       )}
@@ -311,6 +317,9 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
         <td className={`${FONDO_RESULTADO} whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700`}>
           {conceptosSinRecibo(f).map((d) => (
             <div key={d.concepto} title={`Paga el renglón ${d.renglon}: ${fmt(d.declarado)}`}>{alertaSinRecibo(d)}</div>
+          ))}
+          {(f.recibosDeOtro350 ?? []).map((r) => (
+            <div key={r.numero} title={avisoReciboDeOtro350(r)}>{alertaReciboDeOtro350(r)}</div>
           ))}
         </td>
         <td className={`${NUM} ${BORDE_RESULTADO} ${conFormulario ? "" : "text-ink-400"}`}>{conFormulario ? fmt(f.intereses) : "—"}</td>

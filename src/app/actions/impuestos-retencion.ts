@@ -573,7 +573,7 @@ async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<Obj
     if (clave.startsWith("pago:")) {
       const fila = resultados.pagos.filas.find((f) => f.clave === clave);
       if (!fila) return { ok: false, message: "Ese período ya no está en la revisión." };
-      if (!fila.requiereMarca) return { ok: false, message: "Ese período no tiene diferencia en el pago." };
+      if (!fila.requiereMarca) return { ok: false, message: "Ese período no tiene nada que marcar en el pago." };
       return { ok: true, dimension: "control", diferencia: fila.diferencia, etiqueta: `Pagos · ${etiquetaPeriodoRevision(vista.periodicidad, fila.periodo)}` };
     }
     const fila = resultados.oportunidad.find((f) => f.clave === clave);

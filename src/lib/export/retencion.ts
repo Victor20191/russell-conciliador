@@ -7,7 +7,7 @@ import ExcelJS from "exceljs";
 import type { VistaRevision } from "@/lib/impuestos/retencion/vistas";
 import { alcanceSaldoInicial, etiquetaFilaCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { ETIQUETA_OPORTUNIDAD, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
-import { alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
@@ -242,7 +242,7 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
     const desglose = (c: string) => f.desglose.find((d) => d.concepto === c)?.diferencia ?? null;
     ws.addRow([
       etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.retenciones, f.sanciones, f.totalDeclarado, f.impuestoPagado, f.sancionPagada, f.totalPagado, f.diferencia,
-      ETIQUETA_PAGO[f.estado], desglose("61"), desglose("62"), desglose("63"), conceptosSinRecibo(f).map(alertaSinRecibo).join(" · "), f.intereses,
+      ETIQUETA_PAGO[f.estado], desglose("61"), desglose("62"), desglose("63"), [...conceptosSinRecibo(f).map(alertaSinRecibo), ...(f.recibosDeOtro350 ?? []).map(alertaReciboDeOtro350)].join(" · "), f.intereses,
       f.marca ? `Marca ${f.marca.numero}${f.marca.vigente ? "" : " (desactualizada)"}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
     ]);
   }

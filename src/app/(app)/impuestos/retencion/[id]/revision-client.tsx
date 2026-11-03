@@ -19,7 +19,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
-import { ETIQUETA_ESTADO_PERIODO, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import { avisoReciboDeOtro350, ETIQUETA_ESTADO_PERIODO, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { ControlesModal } from "./controles-modal";
@@ -254,6 +254,11 @@ function FilaPeriodo({
           {p.recibosSinConcepto > 0 && <span className="text-[12px] text-warn-700">{p.recibosSinConcepto} {p.recibosSinConcepto === 1 ? "recibo" : "recibos"} por confirmar, sin concepto</span>}
           {!vigente && !p.recibosSinConcepto && p.pagos.every((x) => x.formularios.length === 0 && !x.porConfirmar) && <span className="text-[12px] text-ink-400">—</span>}
         </div>
+        {(p.recibosDeOtro350?.length ?? 0) > 0 && (
+          <ul className="mt-1 list-disc pl-4 text-[11.5px] font-semibold text-warn-700">
+            {(p.recibosDeOtro350 ?? []).map((r) => <li key={r.numero}>{avisoReciboDeOtro350(r)} Exige marca en Pagos efectuados.</li>)}
+          </ul>
+        )}
         {p.avisos.length > 0 && <ul className="mt-1 list-disc pl-4 text-[11.5px] text-warn-700">{p.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       </td>
       <td className="px-3 py-2 text-right">

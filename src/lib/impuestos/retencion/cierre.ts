@@ -7,7 +7,8 @@ import type { PeriodoRevision } from "./periodos-revision";
  * Qué falta para cerrar en firme una revisión de Retención en la fuente (puro). Exige: cada período
  * del corte con su 350 confirmado o su causal, ningún formulario por confirmar en esos períodos, el
  * cruce contable disponible y marca en cada fila desde el umbral, marca en cada mes con «Diferencia
- * en el pago» y en cada mes cuya corrección llegó sin el original. Los avisos no impiden cerrar.
+ * en el pago» o con un recibo que paga un 350 de otro período, y en cada mes cuya corrección llegó sin
+ * el original. Los avisos no impiden cerrar.
  */
 
 export type TipoPendiente = "formularios" | "cruce" | "pagos" | "oportunidad";
@@ -58,9 +59,13 @@ export function evaluarCierreRetencion(e: {
 
   for (const f of e.pagos.filas) {
     if (!f.requiereMarca || f.marca?.vigente) continue;
+    const motivos = [
+      ...(f.diferencia !== 0 ? [`diferencia en el pago de ${pesos(f.diferencia)}`] : []),
+      ...(f.recibosDeOtro350 ?? []).map((r) => `el recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período`),
+    ];
     pendientes.push({
       tipo: "pagos",
-      texto: `${etq(f.periodo)}: diferencia en el pago de ${pesos(f.diferencia)} ${f.marca ? "con la marca desactualizada" : "sin marca"}.`,
+      texto: `${etq(f.periodo)}: ${motivos.join("; ")} ${f.marca ? "con la marca desactualizada" : "sin marca"}.`,
     });
   }
 

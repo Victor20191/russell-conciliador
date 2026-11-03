@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dvNit } from "@/lib/nit";
 import { F350_2026, F490_2026, NIT_FICTICIO, lecturaCrudaFebrero } from "../__fixtures__/retencion-2026";
 import { aPesos, controlesLectura, lecturaConErrores, normalizarFecha, normalizarLectura, renglonesCorregidos, separarNitDv, resumenConfirmacion } from "./lectura";
-import { cadenaCorrecciones, periodosRevision } from "./periodos-revision";
+import { cadenaCorrecciones, periodosRevision, avisoReciboDeOtro350 } from "./periodos-revision";
 import { vistasRevision } from "./vistas";
 import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta, cuentasFueraDeRetencion } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
@@ -133,12 +133,14 @@ describe("períodos de la revisión (casos de prueba del levantamiento)", () => 
 
   it("el 490 de enero paga el original que la corrección cita: no es un pago de otro período", () => {
     const enero = entrada(8)[0];
-    expect(enero.avisos.some((a) => a.includes("no es un 350 de este período"))).toBe(false);
+    expect(enero.recibosDeOtro350).toEqual([]);
     const ajeno = periodosRevision({
       periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, porConfirmar: [], causales: [],
       formularios490: [{ ...F490_2026[1], numeroPagado: "3510676289861" }], // febrero pagando el 350 de marzo
     })[1];
-    expect(ajeno.avisos).toContain("El recibo 4911096214419 paga el formulario 3510676289861, que no es un 350 de este período.");
+    expect(ajeno.recibosDeOtro350).toEqual([{ numero: "4911096214419", numeroPagado: "3510676289861" }]);
+    expect(avisoReciboDeOtro350(ajeno.recibosDeOtro350![0])).toBe("El recibo 4911096214419 paga el formulario 3510676289861, que no es un 350 de este período.");
+    expect(ajeno.avisos.some((a) => a.includes("no es un 350 de este período"))).toBe(false);
   });
 
   it("corte septiembre: septiembre falta, salvo que tenga causal", () => {

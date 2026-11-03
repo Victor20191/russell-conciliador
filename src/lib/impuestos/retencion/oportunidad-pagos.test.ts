@@ -5,7 +5,7 @@ import { MAPEO_F350_FABRICA } from "../mapeo-dian";
 import { periodosRevision } from "./periodos-revision";
 import { cruceRetencion } from "./cruce";
 import { oportunidadRevision } from "./oportunidad";
-import { alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
+import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
 import { evaluarCierreRetencion } from "./cierre";
 
 describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte agosto)", () => {
@@ -89,6 +89,37 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     const { filas, total } = pagosRevision({ anio: 2026, periodos, marcas: [] });
     for (const f of filas) expect(f.totalDeclarado - f.totalPagado).toBe(f.diferencia);
     expect(total.totalDeclarado - total.totalPagado).toBe(total.diferencia);
+  });
+
+  describe("un recibo que paga un 350 de otro período", () => {
+    // Agosto: «Pago completo», con el recibo del 61 citando el 350 de julio.
+    const conAjeno = periodosRevision({
+      periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, porConfirmar: [], causales: [],
+      formularios490: F490_2026.map((f) => (f.periodo === 8 && f.concepto === "61" ? { ...f, numeroPagado: "3510692214725" } : f)),
+    });
+    const numeroRecibo = F490_2026.find((f) => f.periodo === 8 && f.concepto === "61")!.numero;
+    const sinBalance = { estado: "sin_balance" as const, mensaje: "Sin balance.", balance: null, umbral: 6_000 };
+    const pendientesDeAgosto = (marcas: Parameters<typeof pagosRevision>[0]["marcas"]) =>
+      evaluarCierreRetencion({ periodos: conAjeno, cruce: sinBalance, pagos: pagosRevision({ anio: 2026, periodos: conAjeno, marcas }), oportunidad: [], etiquetaPeriodo: etq })
+        .pendientes.filter((p) => p.tipo === "pagos" && p.texto.startsWith("Período 8"));
+
+    it("sigue contando como pago, pero exige marca aunque no haya diferencia", () => {
+      const agosto = pagosRevision({ anio: 2026, periodos: conAjeno, marcas: [] }).filas[7];
+      expect(agosto).toMatchObject({ estado: "completo", diferencia: 0, requiereMarca: true, totalPagado: 154_801_000 });
+      expect(agosto.recibosDeOtro350).toEqual([{ numero: numeroRecibo, numeroPagado: "3510692214725" }]);
+      expect(alertaReciboDeOtro350(agosto.recibosDeOtro350![0])).toBe("Recibo de otro 350 (3510692214725)");
+    });
+
+    it("impide cerrar hasta marcarlo y no queda repetido como aviso", () => {
+      expect(pendientesDeAgosto([]).map((p) => p.texto)).toEqual([`Período 8: el recibo ${numeroRecibo} paga el formulario 3510692214725, que no es un 350 de este período sin marca.`]);
+      expect(pendientesDeAgosto([marcar("pago:2026-08", 0)])).toEqual([]);
+      const { avisos } = evaluarCierreRetencion({ periodos: conAjeno, cruce: sinBalance, pagos: pagosRevision({ anio: 2026, periodos: conAjeno, marcas: [] }), oportunidad: [], etiquetaPeriodo: etq });
+      expect(avisos.some((a) => a.includes("no es un 350 de este período"))).toBe(false);
+    });
+
+    it("sin un recibo así, el mes completo no pide marca", () => {
+      expect(pagosRevision({ anio: 2026, periodos, marcas: [] }).filas[7].requiereMarca).toBe(false);
+    });
   });
 
   it("una marca de pago vale mientras la diferencia sea la misma", () => {

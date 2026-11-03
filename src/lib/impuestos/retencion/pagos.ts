@@ -3,7 +3,7 @@ import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "../formularios/f350";
 import { CONCEPTOS_PAGO_RETENCION, type ConceptoPagoRetencion } from "../formularios/f490";
 import type { MarcaCruceRetencion } from "./cruce";
 import { claveMarcaPeriodo } from "./oportunidad";
-import type { PeriodoRevision } from "./periodos-revision";
+import type { PeriodoRevision, ReciboDeOtro350 } from "./periodos-revision";
 
 /**
  * Pagos efectuados de Retención en la fuente (puro): por período, lo que declara el 350 VIGENTE
@@ -11,7 +11,7 @@ import type { PeriodoRevision } from "./periodos-revision";
  * (Σ renglón 36 impuesto de los conceptos 61, 62 y 63; Σ 34 sanción; Σ 35 intereses de mora).
  * Diferencia = 138 − total pagado = (136 − Σ36) + (137 − Σ34). El total pagado no lleva los
  * intereses de mora: van aparte y no se comparan. Se compara al peso (sin umbral); una diferencia
- * exige marca para cerrar. El desglose
+ * exige marca para cerrar, y también un recibo que paga un 350 de otro período. El desglose
  * por concepto dice qué falta: 130 contra el 61, 134 contra el 62 y 135 contra el 63.
  */
 
@@ -40,6 +40,8 @@ export type FilaPagos = {
   totalPagado: number;
   diferencia: number;
   desglose: DesglosePago[];
+  /** Recibos que cuentan en este mes pero citan un 350 de otro. Las copias antiguas no lo traen. */
+  recibosDeOtro350?: ReciboDeOtro350[];
   requiereMarca: boolean;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
 };
@@ -57,6 +59,8 @@ export type ResultadoPagos = {
 export const conceptosSinRecibo = (f: Pick<FilaPagos, "desglose">): DesglosePago[] => f.desglose.filter((d) => d.declarado > 0 && d.recibos === 0);
 
 export const alertaSinRecibo = (d: Pick<DesglosePago, "concepto">) => `Falta el 490 concepto ${d.concepto}`;
+
+export const alertaReciboDeOtro350 = (r: ReciboDeOtro350) => `Recibo de otro 350 (${r.numeroPagado})`;
 
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
@@ -89,12 +93,14 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
     const sancionPagada = sumar(p.pagos.map((x) => x.sancion));
     const intereses = sumar(p.pagos.map((x) => x.intereses));
     const diferencia = sumar([retenciones, -impuestoPagado, sanciones, -sancionPagada]);
-    const requiereMarca = centavos(diferencia) !== 0;
+    const hayDiferencia = centavos(diferencia) !== 0;
+    const recibosDeOtro350 = p.recibosDeOtro350 ?? [];
+    const requiereMarca = hayDiferencia || recibosDeOtro350.length > 0;
     return {
-      periodo: p.periodo, clave, estado: requiereMarca ? "diferencia" : "completo",
+      periodo: p.periodo, clave, estado: hayDiferencia ? "diferencia" : "completo",
       retenciones, sanciones, totalDeclarado: calcularTotal(F350, 138, valores),
       impuestoPagado, sancionPagada, intereses, totalPagado: sumar([impuestoPagado, sancionPagada]), diferencia,
-      desglose, requiereMarca,
+      desglose, recibosDeOtro350, requiereMarca,
       marca: marcaGuardada ? { ...marcaGuardada, vigente: centavos(marcaGuardada.diferencia) === centavos(diferencia) } : null,
     };
   });

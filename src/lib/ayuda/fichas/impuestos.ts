@@ -456,9 +456,9 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           acciones: [
             {
               nombre: "Marcar una diferencia en el pago",
-              queHace: "Explica la diferencia del mes. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
+              queHace: "Explica la diferencia del mes o por qué un recibo paga un 350 de otro período. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
-              condiciones: ["El mes tiene diferencia en el pago.", "La revisión no está en firme."],
+              condiciones: ["El mes tiene diferencia en el pago o un recibo que paga un 350 de otro período.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
             },
             {
