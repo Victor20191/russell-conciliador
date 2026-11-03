@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, exigeDetalleTercero, filasEfectivasTercero, PREFIJOS_TERCERO_CONSERVADOS, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -297,6 +297,29 @@ describe("evaluarCoberturaTercero", () => {
     ]);
     expect(r.incompletas).toEqual([{ cuenta8: "23359501", nombreCuenta: "Cuenta", terceros: 2, diferenciaSaldoFinal: -500 }]);
     expect(r.clavesSinDetalle.map((c) => c.cuenta8)).toEqual(["22050501"]);
+  });
+
+  it("el grupo 24 avisa si llega sin terceros; 41 a 45 se guardan pero no avisan", () => {
+    const r = evaluarCoberturaTercero([
+      f("24360501", null, 900),
+      f("41350505", null, 900),
+      f("42100501", null, 900),
+      f("45050501", null, 900),
+    ]);
+    expect(r.clavesSinDetalle.map((c) => c.cuenta8)).toEqual(["24360501"]);
+  });
+
+  it("no exige el grupo 24 en capturas de cuando se descartaban sus terceros", () => {
+    expect(exigeDetalleTercero("24360501")).toBe(true);
+    expect(exigeDetalleTercero("24360501", new Date("2026-11-01T23:59:59.000Z"))).toBe(false);
+    expect(exigeDetalleTercero("24360501", new Date("2026-11-02T00:00:00.000Z"))).toBe(true);
+    // Los demás grupos obligatorios no dependen de la fecha.
+    expect(exigeDetalleTercero("13050501", new Date("2026-09-01T00:00:00.000Z"))).toBe(true);
+    expect(exigeDetalleTercero("41350505")).toBe(false);
+  });
+
+  it("guarda los terceros de los grupos obligatorios y de 41 a 45, sin repetir ninguno", () => {
+    expect(PREFIJOS_TERCERO_CONSERVADOS).toEqual(["13", "21", "22", "23", "24", "28", "41", "42", "43", "44", "45"]);
   });
 
   it("mira los cuatro importes: el saldo puede cuadrar con débitos duplicados", () => {

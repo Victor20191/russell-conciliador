@@ -297,4 +297,12 @@ describe("redondeo acumulado y cuentas de detalle obligatorio", () => {
     ]);
     expect(resumirComparacionTerceros(filas).sinDetalleObligatorio).toBe(1);
   });
+
+  it("una cuenta 24 sin terceros se marca en capturas nuevas, no en las anteriores al 2 de noviembre", () => {
+    const balance = [cuentaBalance({ cuenta8: "24360501", nombreCuenta: "Retención" })];
+    const tercero = [filaPropia({ cuenta8: "24360501" })];
+    const marca = (capturadaEn?: Date) => construirComparacionCuentasTerceros(balance, tercero, capturadaEn)[0].faltaDetalleTercero;
+    expect(marca(new Date("2026-11-02T15:00:00.000Z"))).toBe(true);
+    expect(marca(new Date("2026-10-13T15:00:00.000Z"))).toBe(false);
+  });
 });

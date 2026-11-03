@@ -89,7 +89,7 @@ export type ComparacionCuentaTerceros = {
   tieneDiferenciaImportes: boolean;
   /** Hay diferencia, pero cabe en el redondeo a centavos de cada tercero (cuentas con miles de terceros): se muestra, no alerta. */
   diferenciaPorRedondeo: boolean;
-  /** Cuenta de detalle OBLIGATORIO (13/21/22/23/28) con saldo o movimiento y SIN ningún tercero capturado. */
+  /** Cuenta de detalle OBLIGATORIO (13/21/22/23/24/28) con saldo o movimiento y SIN ningún tercero capturado. */
   faltaDetalleTercero: boolean;
   /** Falta un lado completo: la cuenta no aparece en el balance o no aparece en el detalle por tercero. */
   incompleto: boolean;
@@ -104,10 +104,12 @@ function claveHomologacion(cuenta6Russell: string | null): string {
 /**
  * Compara el detalle del balance contra el detalle por tercero ligado, cuenta a cuenta.
  * Determinista: el orden de entrada no afecta el resultado (se reordena por `cuenta8`).
+ * `capturadaEn`: cuándo se guardó la captura (ver `exigeDetalleTercero`).
  */
 export function construirComparacionCuentasTerceros(
   filasBalance: readonly FilaCuentaBalanceVisor[],
   filasTercero: readonly FilaDetalleTerceroVisor[],
+  capturadaEn?: Date,
 ): ComparacionCuentaTerceros[] {
   const balancePorCuenta = new Map<string, FilaCuentaBalanceVisor>();
   const homologacionesBalance = new Map<string, Set<string>>();
@@ -165,7 +167,7 @@ export function construirComparacionCuentasTerceros(
     const hayDiferencia = enBalance && enTercero && !montosCuadran(diferencias);
     const tieneDiferenciaImportes = hayDiferencia && CAMPOS_MONTOS.some((campo) => Math.abs(diferencias[campo]) > tolerancia);
     const diferenciaPorRedondeo = hayDiferencia && !tieneDiferenciaImportes;
-    const faltaDetalleTercero = enBalance && enTercero && tercerosReales === 0 && exigeDetalleTercero(cuenta8)
+    const faltaDetalleTercero = enBalance && enTercero && tercerosReales === 0 && exigeDetalleTercero(cuenta8, capturadaEn)
       && CAMPOS_MONTOS.some((campo) => Math.abs(montosBalance[campo]) > 0.005);
 
     const diferenciaHomologacion =
@@ -219,7 +221,7 @@ export type ResumenComparacionTerceros = {
   totalCuentas: number;
   conDiferencia: number;
   incompletas: number;
-  /** Cuentas de detalle obligatorio (13/21/22/23/28) con saldo o movimiento y sin terceros. */
+  /** Cuentas de detalle obligatorio (13/21/22/23/24/28) con saldo o movimiento y sin terceros. */
   sinDetalleObligatorio: number;
   saldoBalance: number;
   saldoTercero: number;

@@ -460,7 +460,7 @@ export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
     { etiqueta: "Mapeo difiere · Importes difieren", significado: "La homologación o los importes del detalle no coinciden con el balance." },
     {
       etiqueta: "Falta detalle por tercero",
-      significado: "Una cuenta que debe venir por tercero (grupos 13, 21, 22, 23 y 28) llegó sin ese detalle.",
+      significado: "Una cuenta que debe venir por tercero (grupos 13, 21, 22, 23, 24 y 28) llegó sin ese detalle.",
     },
   ],
 };

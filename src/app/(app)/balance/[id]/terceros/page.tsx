@@ -55,7 +55,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
   const encabezadoTercero = balance.loteId
     ? await prisma.balanceTerceroEncabezado.findUnique({
         where: { loteId: balance.loteId, clienteId: balance.clienteId },
-        select: { id: true, version: true, archivo: true, filasTotales: true, origenExtraccion: true },
+        select: { id: true, version: true, archivo: true, filasTotales: true, origenExtraccion: true, creadoEn: true },
       })
     : null;
 
@@ -105,7 +105,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     saldoFinal: Number(f.saldoFinal),
   })));
 
-  const comparaciones = vinculado ? construirComparacionCuentasTerceros(filasBalance, filasTercero) : [];
+  const comparaciones = vinculado ? construirComparacionCuentasTerceros(filasBalance, filasTercero, encabezadoTercero?.creadoEn) : [];
   const [estandar, subgrupos] = vinculado ? await Promise.all([
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),

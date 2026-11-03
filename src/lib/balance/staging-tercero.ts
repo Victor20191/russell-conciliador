@@ -334,26 +334,34 @@ export function claveTerceroDeCaptura(fila: Pick<FilaCapturaTercero, "identidadT
 
 /**
  * Cuentas cuyo detalle por tercero es OBLIGATORIO para la auditoría (deudores, obligaciones
- * financieras, proveedores, cuentas por pagar y otros pasivos): si una de ellas trae saldo
- * o movimiento y quedó sin terceros, es una novedad que se avisa — no un «sin desagregar»
- * neutro como en el resto del balance.
+ * financieras, proveedores, cuentas por pagar, impuestos y otros pasivos): si una de ellas trae
+ * saldo o movimiento y quedó sin terceros, es una novedad que se avisa — no un «sin desagregar»
+ * neutro como en el resto del balance. El 24 entró el 3/Nov/2026: sin terceros en la 2436 el cruce
+ * de Retención no puede restar a la DIAN (Hospital Manuel Uribe Ángel).
  */
-export const PREFIJOS_TERCERO_OBLIGATORIO = ["13", "21", "22", "23", "28"] as const;
+export const PREFIJOS_TERCERO_OBLIGATORIO = ["13", "21", "22", "23", "24", "28"] as const;
 
-export function exigeDetalleTercero(cuenta: string): boolean {
+/**
+ * Hasta esta fecha se descartaban al cargar los terceros del grupo 24 (22/Sep a 1/Nov/2026), así
+ * que en una captura anterior su ausencia no dice nada del archivo: no se marca como faltante.
+ */
+const TERCEROS_24_CONSERVADOS_DESDE = new Date("2026-11-02T00:00:00.000Z");
+
+/** `capturadaEn` = cuándo se guardó la captura; sin ella se evalúa la regla de hoy (una carga nueva). */
+export function exigeDetalleTercero(cuenta: string, capturadaEn?: Date): boolean {
+  if (cuenta.startsWith("24") && capturadaEn && capturadaEn < TERCEROS_24_CONSERVADOS_DESDE) return false;
   return PREFIJOS_TERCERO_OBLIGATORIO.some((p) => cuenta.startsWith(p));
 }
 
 /**
  * Cuentas del cliente cuyo detalle por tercero se GUARDA al promover (22/Sep/2026): las de
- * detalle obligatorio, los ingresos (41), que usa el cruce por tercero de Ingresos, y las que
- * necesita Impuestos: 24, donde el plan de las entidades públicas lleva las retenciones (2436)
- * y sin terceros el cruce no puede restar a la DIAN, y 41 a 45 para IVA. El resto del balance
- * no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil filas); queda con su
- * fila propia. No afecta la homologación ni el balance oficial. 24 y 42 a 45 no son de detalle
- * obligatorio: si una cuenta llega sin terceros, no se avisa.
+ * detalle obligatorio (entre ellas 24, donde el plan de las entidades públicas lleva las
+ * retenciones), los ingresos (41), que usa el cruce por tercero de Ingresos, y 41 a 45 para IVA.
+ * El resto del balance no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil
+ * filas); queda con su fila propia. No afecta la homologación ni el balance oficial. 41 a 45 no son
+ * de detalle obligatorio: si una cuenta llega sin terceros, no se avisa.
  */
-export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "24", "41", "42", "43", "44", "45"] as const;
+export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "41", "42", "43", "44", "45"] as const;
 
 export function conservaDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
