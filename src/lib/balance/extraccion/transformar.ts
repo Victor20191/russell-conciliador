@@ -4,6 +4,7 @@
 // CUENTA como texto, filtra padres/totales, agrega por tercero y valida la
 // ecuación de control fila por fila. Es puro y testeable (`transformar.test.ts`).
 import { CUADRE_NO_APLICA, normalizarSubtotalesTercero } from "./esquema";
+import { ACCION_RESPALDO_NO_IMPORTABLE, REGLA_ARCHIVO_NO_IMPORTABLE, REGLA_HOJA_NO_ENCONTRADA } from "./causa-sin-cuentas";
 import type { CuadreTotales, Estandar, Excepcion, ExtraccionDirecta, MappingSpec, Origen, ResumenAuditoria } from "./esquema";
 import { conForzarHoja } from "@/lib/balance/calcular";
 import type { CuentaCruda } from "@/lib/balance/calcular";
@@ -394,7 +395,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       filasCrudas: [],
       excepciones: [
         ...excepciones,
-        { hoja: spec.hoja, fila: null, campo: null, valor: null, regla: "Archivo no importable", accion: spec.motivoNoImportable ?? "Solicitar un balance con saldos." },
+        { hoja: spec.hoja, fila: null, campo: null, valor: null, regla: REGLA_ARCHIVO_NO_IMPORTABLE, accion: spec.motivoNoImportable ?? ACCION_RESPALDO_NO_IMPORTABLE },
       ],
       resumen: resumenVacio(cabecera, spec.signoCredito),
       cabecera,
@@ -407,7 +408,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     return {
       importReady: [],
       filasCrudas: [],
-      excepciones: [...excepciones, { hoja: spec.hoja, fila: null, campo: "hoja", valor: spec.hoja, regla: "Hoja no encontrada", accion: "Revisar el nombre de la hoja." }],
+      excepciones: [...excepciones, { hoja: spec.hoja, fila: null, campo: "hoja", valor: spec.hoja, regla: REGLA_HOJA_NO_ENCONTRADA, accion: "Revisar el nombre de la hoja." }],
       resumen: resumenVacio(cabecera, spec.signoCredito),
       cabecera,
       cuadre: CUADRE_NO_APLICA,
@@ -1167,7 +1168,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
     return {
       importReady: [],
       filasCrudas: [],
-      excepciones: [...excepciones, { hoja: null, fila: null, campo: null, valor: null, regla: "Archivo no importable", accion: extr.motivoNoImportable ?? "Solicitar un balance con saldos." }],
+      excepciones: [...excepciones, { hoja: null, fila: null, campo: null, valor: null, regla: REGLA_ARCHIVO_NO_IMPORTABLE, accion: extr.motivoNoImportable ?? ACCION_RESPALDO_NO_IMPORTABLE }],
       resumen: resumenVacio(cabecera, "firmado"),
       cabecera,
       cuadre: CUADRE_NO_APLICA,

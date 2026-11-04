@@ -152,6 +152,7 @@ import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/se
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA, normalizarSubtotalesTercero } from "@/lib/balance/extraccion/esquema";
+import { causaSinCuentas, type RechazoLectura } from "@/lib/balance/extraccion/causa-sin-cuentas";
 import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { z } from "zod";
 
@@ -236,7 +237,26 @@ export type LeerBalanceState = {
   errores?: NonNullable<ImportBalanceState["errores"]>;
   excepciones?: Excepcion[];
   sugerencia?: SugerenciaBalance;
+  // Presente solo cuando el modelo marcó el archivo como no importable: la UI
+  // muestra el panel de rechazo con la causa en vez de la tabla de excepciones.
+  // El tipo vive en `src/lib` (un archivo "use server" no puede re-exportar tipos).
+  rechazoLectura?: RechazoLectura;
 };
+
+/**
+ * Estado de una lectura que terminó con 0 cuentas. `message` dice la causa por sí
+ * solo (hay superficies que únicamente pintan el mensaje); el rechazo estructurado
+ * viaja aparte para que el modal lo destaque.
+ */
+function estadoSinCuentas(extr: ResultadoTransform, spec: MappingSpec | null): LeerBalanceState {
+  const causa = causaSinCuentas(extr, spec);
+  return {
+    ok: false,
+    message: causa.mensaje,
+    excepciones: extr.excepciones,
+    ...(causa.rechazo ? { rechazoLectura: causa.rechazo } : {}),
+  };
+}
 
 function estadoClientePendiente(
   nitDetectado: string | null,
@@ -3386,13 +3406,7 @@ export async function leerBalance(
       }
     }
     if (clienteDetectadoId == null) {
-      if (extr.importReady.length === 0) {
-        return {
-          ok: false,
-          message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.",
-          excepciones: extr.excepciones,
-        };
-      }
+      if (extr.importReady.length === 0) return estadoSinCuentas(extr, spec);
       // La revisión viaja al navegador, pero persistirLoteYSugerencia no se
       // invoca: todavía no existe borrador, staging ni lote.
       const sugerencia = construirSugerenciaTransitoria({
@@ -3711,9 +3725,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   if (p.clienteDetectadoId == null) {
     return { ok: false, message: "No se puede crear el borrador sin cliente: selecciona la empresa (NIT) y vuelve a leer el archivo." };
   }
-  if (extr.importReady.length === 0) {
-    return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
-  }
+  if (extr.importReady.length === 0) return estadoSinCuentas(extr, p.spec);
   const loteAnteriorAutorizado = await autorizarLoteAnterior(p.loteIdAnterior);
   // Reprocesar reemplaza el borrador por UNA lectura: con varias partes se perderían
   // las demás. Se exige volver a cargar el balance completo.

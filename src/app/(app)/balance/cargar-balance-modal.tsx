@@ -29,6 +29,8 @@ import {
 } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
+import { PanelRechazoLectura } from "@/app/(app)/balance/panel-rechazo-lectura";
+import { resolverResultadoLectura } from "@/lib/balance/resultado-lectura";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { nitCoincide } from "@/lib/nit";
 import { EstadoProcesando } from "@/components/estado-procesando";
@@ -674,6 +676,17 @@ function CargarBalanceModal({
     !leyendo &&
     !mensajeLecturaDesactualizado &&
     leerState.message === MENSAJE_RECUPERAR_LECTURA;
+  // Qué se pinta del resultado de la lectura. Se ve en ambos pasos (con y sin cliente
+  // elegido) y un RECHAZO del archivo (el modelo lo marcó como no importable) se
+  // invalida al elegir otro archivo (`mensajeLecturaDesactualizado`) y mientras se
+  // sube o se lee de nuevo. Detalle y pruebas: `resolverResultadoLectura`.
+  const resultadoLectura = resolverResultadoLectura({
+    estado: leerState,
+    segundoPaso: segundoPasoCliente,
+    desactualizado: mensajeLecturaDesactualizado,
+    enCurso: leyendo || progresoSubida != null,
+    reintentoPendiente: reintentoLecturaPendiente,
+  });
 
   const footer =
     fase === "revisar" ? (
@@ -883,7 +896,7 @@ function CargarBalanceModal({
               <input type="hidden" name="loteIdSolicitud" value={loteIdSolicitud} />
 
               {!segundoPasoCliente && inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
-              {!segundoPasoCliente && archivoGrande && (
+              {!segundoPasoCliente && archivoGrande && !resultadoLectura.rechazo && (
                 <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
                   <span className="font-semibold"><IconoEnTexto name="warn" />¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
                 </p>
@@ -909,10 +922,10 @@ function CargarBalanceModal({
             </>
           )}
 
-          {!segundoPasoCliente &&
-            leerState?.message &&
-            !leerState.requiereCliente &&
-            (leerState.message !== MENSAJE_RECUPERAR_LECTURA || reintentoLecturaPendiente) &&
+          {resultadoLectura.rechazo && leerState.message && (
+            <PanelRechazoLectura message={leerState.message} rechazo={resultadoLectura.rechazo} />
+          )}
+          {resultadoLectura.mensaje &&
             (leerState.errorProveedorIA ? (
               <div className="rounded-md border border-warn-100 bg-warn-100 px-3 py-2.5 text-[12px] text-warn-700">
                 <p className="font-semibold"><IconoEnTexto name="warn" />Inconveniente temporal del proveedor de IA</p>
@@ -930,11 +943,14 @@ function CargarBalanceModal({
                 {leerState.message}
               </p>
             ))}
-          {!segundoPasoCliente && leerState?.errores && leerState.errores.length > 0 && (
+          {resultadoLectura.errores && leerState.errores && (
             <ErroresTabla errores={leerState.errores} />
           )}
-          {!segundoPasoCliente && leerState?.excepciones && leerState.excepciones.length > 0 && (
-            <ExcepcionesTabla excepciones={leerState.excepciones} />
+          {resultadoLectura.excepciones.length > 0 && (
+            <ExcepcionesTabla
+              excepciones={resultadoLectura.excepciones}
+              titulo={resultadoLectura.tituloExcepciones}
+            />
           )}
         </form>
       )}
@@ -1885,10 +1901,12 @@ function DetalleMovimiento({
   );
 }
 
-function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
+function ExcepcionesTabla({ excepciones, titulo }: { excepciones: Excepcion[]; titulo?: string }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11.5px] font-semibold text-warn-700">{excepciones.length} excepción(es) — filas/datos que la lectura marcó para revisar:</span>
+      <span className="text-[11.5px] font-semibold text-warn-700">
+        {titulo ?? `${excepciones.length} excepción(es) — filas/datos que la lectura marcó para revisar:`}
+      </span>
       <div className="max-h-60 overflow-y-auto rounded-md border border-ink-150">
         <table className="w-full text-[11.5px]">
           <thead className="sticky top-0 bg-ink-50 text-ink-500">
