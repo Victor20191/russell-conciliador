@@ -8,6 +8,7 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { EjemploLecturaInventario, PreguntaAsistenciaInventario, ResumenLecturaInventario } from "@/lib/modulos/asistencia/tipos";
 import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { EditorMapeoModulo, type RolModulo } from "./editor-mapeo-modulo";
+import { hojaInicialEjemplo } from "@/lib/modulos/asistencia/constructor-estado";
 import { modeloVacio, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
 import { ConstructorLectura, type ConsultaVentana } from "./constructor-lectura/constructor-lectura";
 
@@ -30,6 +31,8 @@ export type ResultadoAsistenciaVista = {
   /** Lectura por ejemplo: lo entendido, como ejemplo editable sobre la grilla. */
   modeloSugerido?: ModeloUsuarioInventario;
   filasSugeridas?: { fila: number; mensaje: string }[];
+  /** La hoja que el usuario ya eligió, aunque la lectura de esa hoja no haya salido. */
+  hojaElegida?: string;
 };
 
 const campo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50";
@@ -224,7 +227,7 @@ export function AsistenciaInventarioPanel({
 
       {!confirmado && !consultando && (constructorAbierto ? (
         <ConstructorLectura
-          modelo={modeloEjemplo ?? modeloVacio(resultado.resumen?.hoja ?? spec?.hoja ?? analisis?.hoja ?? "")}
+          modelo={modeloEjemplo ?? modeloVacio(hojaInicialEjemplo({ respuesta: respuestas.hoja, ajustes: hoja, lectura: resultado.resumen?.hoja, guardada: resultado.hojaElegida, spec: spec?.hoja, analisis: analisis?.hoja }))}
           onModelo={(m) => { setModeloEjemplo(m); setModeloEditado(true); setCambioPendiente(true); }}
           spec={resultado.spec ?? null}
           filasSugeridas={resultado.filasSugeridas}

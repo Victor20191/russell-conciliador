@@ -127,7 +127,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
     elegir({ tipo: "fila", fila });
   };
 
-  const validacion = ModeloUsuarioSchema.safeParse(modeloParaEnviar(modelo));
+  const validacion = ModeloUsuarioSchema.safeParse(modeloParaEnviar(modelo, ventana?.hoja));
   const problemaModelo = validacion.success ? null : validacion.error.issues[0]?.message ?? "Revisa el ejemplo.";
   const problemas = useMemo(() => filasConProblemas([
     ...(filasSugeridas ?? []).map((f) => ({ fila: f.fila, tipo: "registro" as const, mensaje: f.mensaje })),
@@ -170,7 +170,7 @@ export function ConstructorLectura({ modelo, onModelo, spec, filasSugeridas, tra
           <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-600">
             {ventana && ventana.hojas.length > 1 && (
               <label className="flex items-center gap-1.5">Hoja
-                <select className={`${claseCampo} w-auto`} value={modelo.hoja} disabled={trabajando} onChange={(e) => { actualizar({ ...modelo, hoja: e.target.value, productos: [{ asignaciones: [] }], columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [] }); setFilaDesde(1); setSeleccion(undefined); setProductoActivo(0); }}>
+                <select className={`${claseCampo} w-auto`} value={modelo.hoja || ventana.hoja} disabled={trabajando} onChange={(e) => { actualizar({ ...modelo, hoja: e.target.value, productos: [{ asignaciones: [] }], columnas: [], secciones: [], totales: [], ignorarFilas: [], ignorarColumnas: [] }); setFilaDesde(1); setSeleccion(undefined); setProductoActivo(0); }}>
                   {ventana.hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre}{h.oculta ? " (oculta)" : ""}</option>)}
                 </select>
               </label>

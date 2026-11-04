@@ -121,6 +121,12 @@ describe("asistencia de inventario, autoridad del original y continuidad", () =>
     expect(await consultarAsistenciaInventario({ recepcionLoteId: ID })).toMatchObject({ estado: "requiere_respuesta", spec });
     expect(m.resolver).toHaveBeenCalledOnce();
   });
+  it("recuerda la hoja elegida aunque su lectura no haya salido, para retomarla con el ejemplo", async () => {
+    m.resolver.mockResolvedValue({ ...resultado, spec: null, resumen: { ...resumen, hoja: null }, estructuraValida: false, listoParaBorrador: false, preguntas: [{ id: "ia_aclarar_estructura", requiereIA: true, etiqueta: "¿Qué marca el inicio de cada producto?" }] });
+    const r = await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-09", erpId: 3, respuestas: { hoja: "Inventario" } });
+    expect(r).toMatchObject({ estado: "requiere_respuesta", hojaElegida: "Inventario" });
+    expect(await consultarAsistenciaInventario({ recepcionLoteId: ID })).toMatchObject({ hojaElegida: "Inventario" });
+  });
   it("no repite IA ni permite que una revisión obsoleta escriba", async () => {
     original.revisionAsistencia = 4;
     original.asistenciaJson = { version: 1, estado: "analizando", operacionId: "a", erpId: 3, periodo: "2026-09", venceEn: new Date(Date.now() + 60_000).toISOString() };

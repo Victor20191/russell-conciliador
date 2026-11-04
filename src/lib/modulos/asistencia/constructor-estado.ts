@@ -123,10 +123,29 @@ export function filasConProblemas(incidencias: readonly IncidenciaLectura[], top
   return [...vistas.values()].sort((a, b) => a.fila - b.fila);
 }
 
-/** Modelo listo para enviar: sin productos vacíos (el que se está armando puede quedar vacío). */
-export function modeloParaEnviar(modelo: ModeloUsuarioInventario): ModeloUsuarioInventario {
+/**
+ * Modelo listo para enviar: sin productos vacíos (el que se está armando puede quedar vacío) y, si
+ * nadie eligió hoja, con la que el archivo está mostrando: es sobre la que se armó el ejemplo.
+ */
+export function modeloParaEnviar(modelo: ModeloUsuarioInventario, hojaMostrada?: string | null): ModeloUsuarioInventario {
   const productos = modelo.productos.filter((p) => p.asignaciones.length > 0);
-  return { ...modelo, productos };
+  return { ...modelo, hoja: modelo.hoja || hojaMostrada || "", productos };
+}
+
+/**
+ * Hoja con la que abre el ejemplo. Lo que eligió el usuario (en la pregunta, en los ajustes o en
+ * un intento anterior) manda sobre lo deducido; vacía si aún no se sabe y el archivo abre en la
+ * primera hoja visible.
+ */
+export function hojaInicialEjemplo(fuentes: {
+  respuesta?: string;
+  ajustes?: string;
+  lectura?: string | null;
+  guardada?: string;
+  spec?: string;
+  analisis?: string;
+}): string {
+  return fuentes.respuesta || fuentes.ajustes || fuentes.lectura || fuentes.guardada || fuentes.spec || fuentes.analisis || "";
 }
 
 /**

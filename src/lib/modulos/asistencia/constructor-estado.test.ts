@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarProducto, asignarPartesSugeridas, filasConProblemas, marcarInicioProducto, marcasEnCelda, modeloParaEnviar, quitarProducto, soltarDato } from "./constructor-estado";
+import { agregarProducto, asignarPartesSugeridas, filasConProblemas, hojaInicialEjemplo, marcarInicioProducto, marcasEnCelda, modeloParaEnviar, quitarProducto, soltarDato } from "./constructor-estado";
 import { ModeloUsuarioSchema, modeloVacio } from "./modelo-usuario";
 
 const texto = "Ref: MP-001 | Cant: 120 | Total: 300000";
@@ -62,6 +62,24 @@ describe("constructor de la lectura por ejemplo", () => {
     expect(enviar.productos).toHaveLength(1);
     expect(ModeloUsuarioSchema.safeParse(enviar).success).toBe(true);
     expect(quitarProducto(quitarProducto(quitarProducto(m, 0), 0), 0).productos).toEqual([{ asignaciones: [] }]);
+  });
+
+  it("sin hoja elegida envía la que el archivo muestra, sin reemplazar nunca una elegida", () => {
+    const armado = soltarDato(modeloVacio(""), 0, { tipo: "rol", rol: "referencia" }, celda("MP-001"), 1).modelo;
+    expect(ModeloUsuarioSchema.safeParse(modeloParaEnviar(armado)).success).toBe(false);
+    const enviar = modeloParaEnviar(armado, "Sheet1");
+    expect(enviar.hoja).toBe("Sheet1");
+    expect(ModeloUsuarioSchema.safeParse(enviar).success).toBe(true);
+    expect(modeloParaEnviar({ ...armado, hoja: "Detalle" }, "Sheet1").hoja).toBe("Detalle");
+  });
+
+  it("el ejemplo abre en la hoja que eligió el usuario antes que en la deducida", () => {
+    const deducidas = { lectura: null, spec: "Resumen", analisis: "Resumen" };
+    expect(hojaInicialEjemplo({ ...deducidas, respuesta: "Sheet1", guardada: "Detalle" })).toBe("Sheet1");
+    expect(hojaInicialEjemplo({ ...deducidas, guardada: "Detalle" })).toBe("Detalle");
+    // Volver a «Selecciona una respuesta» deja la respuesta vacía: no cuenta como elección.
+    expect(hojaInicialEjemplo({ ...deducidas, respuesta: "" })).toBe("Resumen");
+    expect(hojaInicialEjemplo({ lectura: null })).toBe("");
   });
 
   it("resume los problemas por fila para navegar hasta ellos", () => {

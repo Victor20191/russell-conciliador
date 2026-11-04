@@ -92,6 +92,7 @@ function respuesta(asistencia: AsistenciaInventarioGuardada, revision: number, l
     ejemplosLectura: resultado?.ejemplosLectura ?? [],
     ...(resultado?.modeloSugerido ? { modeloSugerido: resultado.modeloSugerido } : {}),
     ...(resultado?.filasSugeridas?.length ? { filasSugeridas: resultado.filasSugeridas } : {}),
+    ...(asistencia.respuestas?.hoja ? { hojaElegida: asistencia.respuestas.hoja } : {}),
     advertencias: [...(resultado?.advertencias ?? []), ...(resultado?.errores ?? [])],
     spec: spec ?? undefined,
     message: asistencia.error ?? (asistencia.estado === "analizando" ? "La lectura está en curso. Consulta su avance sin volver a subir el archivo." : undefined),
