@@ -166,7 +166,8 @@ export function AsistenciaInventarioPanel({
 
       {resultado.message && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-100 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
       {error && <p role="alert" className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-err-700">{error}</p>}
-      {resultado.resumen && <ResumenAsistencia actual={resultado.resumen} anterior={propuesta ? resultado.resumenAnterior : null} />}
+      {/* Sin hoja aún no se ha leído nada: una tabla en ceros parecería un archivo vacío. */}
+      {resultado.resumen?.hoja && <ResumenAsistencia actual={resultado.resumen} anterior={propuesta ? resultado.resumenAnterior : null} />}
       {(resultado.advertencias?.length ?? 0) > 0 && (
         <ul className="list-disc space-y-1 rounded-md border border-warn-300 bg-warn-100 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
           {resultado.advertencias?.map((aviso, index) => <li key={`${index}-${aviso}`}>{aviso}</li>)}

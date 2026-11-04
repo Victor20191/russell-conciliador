@@ -27,6 +27,17 @@ describe("asistencia de inventario: controles antes de cambiar un borrador", () 
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Continuar al borrador<\/button>/);
   });
 
+  it("sin una hoja leída no muestra el resumen en ceros, y con una hoja leída sí aunque no traiga registros", () => {
+    const enCeros = { filasIncluidas: 0, filasExcluidas: 0, valorLeido: 0, totalDeclarado: null, diferencia: null, tipoInventario: null };
+    const preguntas = [{ id: "hoja", etiqueta: "Hay inventario en varias hojas. ¿Cuál quieres cargar?", opciones: [{ valor: "Sheet1", etiqueta: "Sheet1" }, { valor: "Detalle", etiqueta: "Detalle" }] }];
+    const sinLeer = render({ ok: true, estado: "requiere_respuesta", resumen: { ...enCeros, hoja: null }, preguntas });
+    expect(sinLeer).not.toContain("Registros incluidos");
+    expect(sinLeer).not.toContain("Valor leído");
+    expect(sinLeer).toContain("¿Cuál quieres cargar?");
+    expect(sinLeer).toContain("Diseñador de formato");
+    expect(render({ ok: true, estado: "requiere_respuesta", resumen: { ...enCeros, hoja: "Sheet1" } })).toContain("Registros incluidos");
+  });
+
   it("muestra los datos separados con sus celdas físicas y exige confirmar los ejemplos", () => {
     const html = render({ ok: true, estado: "requiere_respuesta", ejemplosLectura: [{ fila: 9, campos: [
       { rol: "referencia", valor: "REF-001", fuentes: [{ hoja: "Existencias", fila: 9, columna: 1, texto: "Ref: REF-001 | Tipo: MP | Cant: 8" }] },
