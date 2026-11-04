@@ -22,6 +22,8 @@ export const CLAVE_SUMA_EDADES = "_sumaEdades";
 export const CLAVE_SALDO_REPORTADO = "_saldoReportado";
 export const CLAVE_ORIGEN_VALOR = "_origenValor";
 export const CLAVE_SALDO_DECLARADO = "_saldoDeclarado";
+/** Importe que el lector calculó para una fila que apartó del total: «Incluir» lo recupera. */
+export const CLAVE_VALOR_APARTADO = "_valorApartado";
 /** Importe en divisa del que salió el valor en pesos, su moneda y la TRM con que se convirtió. */
 export const CLAVE_SALDO_DIVISA = "_saldoDivisa";
 export const CLAVE_MONEDA = "_moneda";
@@ -38,6 +40,7 @@ export const CLAVES_CARTERA = [
   CLAVE_SALDO_REPORTADO,
   CLAVE_ORIGEN_VALOR,
   CLAVE_SALDO_DECLARADO,
+  CLAVE_VALOR_APARTADO,
   CLAVE_SALDO_DIVISA,
   CLAVE_MONEDA,
   CLAVE_TRM,
@@ -54,6 +57,7 @@ export type ExtrasCartera = {
   origenValor?: "columna" | "familia" | "columna_y_familia" | "formula";
   terminosFormula?: Record<string, number>;
   saldoDeclarado?: number;
+  valorApartado?: number;
   saldoDivisa?: number;
   moneda?: string;
   trm?: number;
@@ -76,6 +80,7 @@ export function datosConExtrasCartera(
     || extras.valorReportado != null
     || extras.origenValor != null
     || extras.saldoDeclarado != null
+    || extras.valorApartado != null
     || extras.saldoDivisa != null
     || extras.terminosFormula != null
     || extras.contenido != null;
@@ -87,6 +92,7 @@ export function datosConExtrasCartera(
   if (extras.valorReportado != null) salida[CLAVE_SALDO_REPORTADO] = extras.valorReportado;
   if (extras.origenValor != null) salida[CLAVE_ORIGEN_VALOR] = extras.origenValor;
   if (extras.saldoDeclarado != null) salida[CLAVE_SALDO_DECLARADO] = extras.saldoDeclarado;
+  if (extras.valorApartado != null) salida[CLAVE_VALOR_APARTADO] = extras.valorApartado;
   if (extras.terminosFormula != null) salida[CLAVE_FORMULA] = extras.terminosFormula;
   if (extras.contenido != null) {
     salida[CLAVE_CONTENIDO] = extras.contenido;

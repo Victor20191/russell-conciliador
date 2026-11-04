@@ -20,7 +20,7 @@ import { alternarOrden, ordenarFilas, type OrdenTabla } from "@/lib/modulos/orde
 import { AYUDA_COMODIN } from "@/lib/filtro-comodin";
 import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
 import { textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
-import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor } from "@/lib/modulos/renglones-archivo";
+import { controlSeccion, etiquetaRenglonNoSuma, etiquetaSinItems, explicacionSinItems, indiceColumnaValor, valorAlIncluir } from "@/lib/modulos/renglones-archivo";
 import { grupoDeFila, type ResumenBorrador } from "@/lib/modulos/borrador-resumen";
 import { rolDeAgruparPor, type AgruparPorNomina } from "@/lib/modulos/nomina/agrupar-por";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
@@ -228,6 +228,7 @@ export default function BorradorModuloClient({
   );
   const [cambiandoAgrupar, startCambioAgrupar] = useTransition();
   const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  const rolValor = columnasDelCargue.find((c) => c.esValor)?.nombre;
   // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan (las
   // decide el servidor, que es quien ve el archivo entero).
   const [verTodasColumnas, setVerTodasColumnas] = useState(false);
@@ -281,12 +282,14 @@ export default function BorradorModuloClient({
       return {
         ...f,
         tipoFila,
+        // La fila apartada que se incluye entra con su importe, igual que al guardar.
+        valor: overrideTipo[f.filaNum] === "movimiento" ? valorAlIncluir(f, rolValor) : f.valor,
         // Un total nunca está «omitido»: al cambiar de tipo el tri-estado se limpia.
         omitida: f.filaNum in overrideTipo ? null : f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
         clasificador,
       };
     },
-    [overrideOmit, overrideClasif, overrideTipo],
+    [overrideOmit, overrideClasif, overrideTipo, rolValor],
   );
   const efectivas = useMemo(() => filas.map(efectivaDe), [filas, efectivaDe]);
 

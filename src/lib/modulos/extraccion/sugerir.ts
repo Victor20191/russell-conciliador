@@ -362,14 +362,17 @@ export function detectarSaldoDeBloque(
  * Fila ROTULADA de proveedor (SEVEN): «PROVEEDOR | 10126963 | HERNAN OROZCO» en las columnas de
  * tipo, número y factura, con los documentos debajo. El NIT no tiene columna propia: vive a la
  * derecha del rótulo, solo en esas filas. Se reconoce porque el mismo texto se repite en una de
- * las primeras columnas y casi siempre lleva dígitos de identificador al lado.
+ * las primeras columnas, casi siempre lleva dígitos de identificador al lado y la fila no trae
+ * ningún otro dato. Esto último descarta las columnas de nombres: en un auxiliar por documentos
+ * (SAP FBL5N) el cliente con más facturas también se repite y lleva su número de documento al
+ * lado, pero cada fila suya tiene importe, y leerla como rótulo la saca del total.
  */
 export function detectarFilaTercero(
   hoja: GridHoja,
   primeraFilaDatos: number,
   maxFilas = 600,
 ): NonNullable<SpecModulo["filaTercero"]> | null {
-  const conteo = new Map<string, { columna: number; texto: string; filas: number; conClave: number; conNombre: number }>();
+  const conteo = new Map<string, { columna: number; texto: string; filas: number; conClave: number; conNombre: number; conDatos: number }>();
   const desde = Math.max(0, primeraFilaDatos - 1);
   const hasta = Math.min(hoja.filas.length, desde + maxFilas);
   for (let r = desde; r < hasta; r++) {
@@ -380,16 +383,23 @@ export function detectarFilaTercero(
       const texto = v.replace(/\s+/g, " ").trim();
       if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ .]{3,20}$/.test(texto) || /total/i.test(texto)) continue;
       const k = c + "|" + texto.toUpperCase();
-      const e = conteo.get(k) ?? { columna: c + 1, texto, filas: 0, conClave: 0, conNombre: 0 };
+      const e = conteo.get(k) ?? { columna: c + 1, texto, filas: 0, conClave: 0, conNombre: 0, conDatos: 0 };
       e.filas++;
       if (/^\d{5,13}$/.test(String(fila[c + 1] ?? "").trim())) e.conClave++;
       if (typeof fila[c + 2] === "string" && /[A-Za-z]/.test(fila[c + 2] as string)) e.conNombre++;
+      // Fuera del rótulo, el identificador y el nombre: una cifra, una fecha o un código delatan un
+      // documento. El cero no cuenta: algunos reportes rellenan así las columnas de importe.
+      const traeOtroDato = fila.some((celdaFila, i) => {
+        if (i >= c && i <= c + 2) return false;
+        return typeof celdaFila === "number" ? celdaFila !== 0 : typeof celdaFila === "string" && /\d/.test(celdaFila);
+      });
+      if (traeOtroDato) e.conDatos++;
       conteo.set(k, e);
     }
   }
-  let mejor: { columna: number; texto: string; filas: number; conClave: number; conNombre: number } | null = null;
+  let mejor: { columna: number; texto: string; filas: number; conClave: number; conNombre: number; conDatos: number } | null = null;
   for (const e of conteo.values()) {
-    if (e.filas >= 5 && e.conClave / e.filas >= 0.8 && (!mejor || e.filas > mejor.filas)) mejor = e;
+    if (e.filas >= 5 && e.conClave / e.filas >= 0.8 && e.conDatos / e.filas <= 0.2 && (!mejor || e.filas > mejor.filas)) mejor = e;
   }
   if (!mejor) return null;
   return {

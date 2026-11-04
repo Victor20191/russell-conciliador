@@ -100,12 +100,12 @@ import {
   type AgruparPorNomina,
 } from "@/lib/modulos/nomina/agrupar-por";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
-import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { normalizarOrden, ordenarFilas } from "@/lib/modulos/orden-tabla";
 import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
-import { esRenglonEstructura } from "@/lib/modulos/renglones-archivo";
+import { conservaSaldoDeclarado, esRenglonEstructura, valorAlIncluir } from "@/lib/modulos/renglones-archivo";
 import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
 import { agruparPorDisponiblesLote, conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
 import { agruparPorDisponibles, ladosDelCargueActivos, nombresConceptoDelCargue, nombresCuentasCliente, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
@@ -2084,14 +2084,28 @@ export async function aplicarCambiosBorradorModulo(
       const valor = c.clasificador?.trim() ? c.clasificador.trim() : null;
       porAgrupador.set(valor, [...(porAgrupador.get(valor) ?? []), c.filaNum]);
     }
+    // «Incluir» una fila apartada: el lector la dejó en 0 y su importe vive en `datos`.
+    const aIncluir = validos.filter((c) => c.tipoFila === "movimiento").map((c) => c.filaNum);
+    const enCeroPorIncluir = aIncluir.length > 0
+      ? await prisma.moduloImportacionStaging.findMany({
+          where: { loteId: id, filaNum: { in: aIncluir }, valor: 0 },
+          select: { filaNum: true, datos: true },
+        })
+      : [];
+    const valorRecuperado = new Map(enCeroPorIncluir.map((f) => [
+      f.filaNum,
+      valorAlIncluir({ valor: 0, datos: (f.datos ?? {}) as Record<string, unknown> }, descriptor?.valor),
+    ]));
     await prisma.$transaction([
       ...validos.flatMap((c) => {
+        const recuperado = c.tipoFila === "movimiento" ? valorRecuperado.get(c.filaNum) : undefined;
         const data = {
           // `total` = subtotal del archivo (control). Al cambiar de tipo se limpia el
           // tri-estado `omitida` para no dejar estados mixtos (un total nunca se «omite»).
           ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" || c.tipoFila === "total"
             ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila, omitida: null }
             : {}),
+          ...(recuperado ? { valor: recuperado } : {}),
           ...(c.omitida !== undefined ? { omitida: c.omitida } : {}),
         };
         return Object.keys(data).length > 0
@@ -2399,10 +2413,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         // permite reconstruir ese agregado desde el detalle.
         // Igual el «Total <cliente>» debajo de sus documentos: el transform le dejó el saldo
         // declarado (`totalesPorTercero`); los demás totales no lo traen.
-        const cabeceras = filas.filter((f) => (
-          f.motivo === "subtotal_tercero:cabecera"
-          || (f.tipoFila === "total" && leerSaldoDeclarado(f.datos) != null)
-        ));
+        const cabeceras = filas.filter(conservaSaldoDeclarado);
         return {
           nivel,
           formato,

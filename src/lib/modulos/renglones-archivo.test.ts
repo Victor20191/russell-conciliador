@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  conservaSaldoDeclarado,
   controlSeccion,
   esEncabezadoTercero,
   esRenglonEstructura,
@@ -8,6 +9,7 @@ import {
   explicacionSinItems,
   indiceColumnaValor,
   totalesDeclaradosPorCuenta,
+  valorAlIncluir,
 } from "./renglones-archivo";
 
 // Aceros Mapa (SIESA): la fila 35 es el renglón de la cuenta 280510 con el total de sus 239 terceros.
@@ -42,6 +44,34 @@ describe("renglones del archivo", () => {
     const sinValor: { nombre: string; esValor?: boolean }[] = [{ nombre: "cuenta" }];
     expect(indiceColumnaValor(conValor)).toBe(2);
     expect(indiceColumnaValor(sinValor)).toBe(-1);
+  });
+});
+
+describe("incluir a mano una fila apartada", () => {
+  it("recupera el importe que calculó el lector, antes que cualquier otra cifra", () => {
+    const fila = { valor: 0, datos: { _valorApartado: -500, _saldoDeclarado: 700, total: 900 } };
+    expect(valorAlIncluir(fila, "total")).toBe(-500);
+  });
+
+  it("en un borrador anterior usa el saldo declarado y, si no hay, la cifra de la columna", () => {
+    expect(valorAlIncluir(cabecera, "total")).toBe(429_476);
+    expect(valorAlIncluir(seccion, "total")).toBe(-1_128_628_189.07);
+    expect(valorAlIncluir({ valor: 0, datos: { total: "1500.5" } }, "total")).toBe(1_500.5);
+  });
+
+  it("deja igual la fila que ya tiene valor, y en cero la que no trae ninguna cifra", () => {
+    expect(valorAlIncluir(tercero, "total")).toBe(-805_407);
+    expect(valorAlIncluir({ valor: 0, datos: { total: null } }, "total")).toBe(0);
+    expect(valorAlIncluir({ valor: 0, datos: { total: "sin dato" } }, "total")).toBe(0);
+    expect(valorAlIncluir({ valor: 0, datos: { total: 900 } }, null)).toBe(0);
+  });
+
+  it("una cabecera incluida ya no se guarda además como renglón de control", () => {
+    const totalCliente = { tipoFila: "total", motivo: "subtotal:rotulo", datos: { _saldoDeclarado: 150 } };
+    expect(conservaSaldoDeclarado(cabecera)).toBe(true);
+    expect(conservaSaldoDeclarado(totalCliente)).toBe(true);
+    expect(conservaSaldoDeclarado({ ...cabecera, tipoFila: "movimiento" })).toBe(false);
+    expect(conservaSaldoDeclarado({ ...totalCliente, datos: {} })).toBe(false);
   });
 });
 

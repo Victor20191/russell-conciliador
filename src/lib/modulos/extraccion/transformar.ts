@@ -79,6 +79,8 @@ export type FilaModulo = {
   terminosFormula?: Record<string, number>;
   /** Saldo que la CABECERA de un tercero declara para todo su bloque (`terceroModo`). */
   saldoDeclarado?: number;
+  /** Importe calculado de una fila apartada con valor 0: lo recupera «Incluir» en el borrador. */
+  valorApartado?: number;
   /** Importe en divisa del que salió `valor` (hoja en USD o celda «USD (54,323.40)»), su moneda y la TRM. */
   saldoDivisa?: number;
   moneda?: string;
@@ -300,7 +302,14 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   const ultimoPorRol = new Map<string, string>();
   // Reporte jerárquico: una fila trae el tercero y sus documentos van debajo sin él.
   const rolClave = descriptor.crucePorTercero.rolClave;
+  // La fila rotulada (SEVEN) solo vale con el identificador en la columna contigua a su rótulo, que
+  // es como la propone el sugeridor. Si el mapeo lo apunta a otra columna manda el mapeo: el ajuste
+  // queda sin efecto, y con él el modo jerárquico que trajo. Aplicarlo vaciaba el NIT de todas las
+  // filas y dejaba fuera del total las que coincidían con el «rótulo» (SAP FBL5N de MUMA).
+  const filaTerceroObsoleta = spec.filaTercero != null
+    && (!rolClave || spec.columnas[rolClave] !== spec.filaTercero.columnaClave);
   const modoCabecera = spec.terceroModo === "cabecera"
+    && !filaTerceroObsoleta
     && !!rolClave
     && (spec.columnas[rolClave] ?? 0) >= 1
     && (spec.columnas.documento ?? 0) >= 1;
@@ -369,7 +378,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // agrupadora con este motivo.
   const motivoAlDegradar = new Map<number, string>();
   // Fila rotulada de proveedor (SEVEN): el identificador solo existe en esas filas.
-  const filaTercero = conDetalleTercero && rolIdentificador ? spec.filaTercero ?? null : null;
+  const filaTercero = conDetalleTercero && rolIdentificador && !filaTerceroObsoleta ? spec.filaTercero ?? null : null;
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
   const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean }[] = [];
   // Filas en negrita cuya clasificación se decide DESPUÉS de detectar subtotales (ver
@@ -987,9 +996,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalNomina, marcaManual: false, marcaManualExacta: false });
       continue;
     }
+    // Las filas que se apartan abajo valen 0, pero el importe ya calculado (signo, TRM, edades) se
+    // conserva: si quien revisa la incluye a mano, entra con esta cifra y no en cero.
+    const apartado = valor !== 0 ? { valorApartado: valor } : {};
     if (exclusionNomina && !marcaManualExacta) {
       filasExcluidas++;
-      filas.push({ filaNum, clasificador, valor: 0, datos, tipoFila: "agrupadora", motivo: exclusionNomina });
+      filas.push({ filaNum, clasificador, valor: 0, datos, tipoFila: "agrupadora", motivo: exclusionNomina, ...apartado });
       crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo, marcaManual: false, marcaManualExacta: false });
       continue;
     }
@@ -1013,6 +1025,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         motivo: "subtotal_tercero:cabecera",
         // La fila rotulada de SEVEN solo nombra al proveedor: no declara su saldo.
         ...(esFilaRotuladaTercero ? {} : { saldoDeclarado: valor }),
+        ...apartado,
         ...(familias ? { familias, sumaFamilia } : {}),
       });
       crudo.push({
@@ -1038,6 +1051,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         datos,
         tipoFila: "agrupadora",
         motivo: esSeccionCuenta ? "seccion_cuenta" : "sin_identificador",
+        ...apartado,
         ...(familias ? { familias, sumaFamilia } : {}),
       });
       crudo.push({

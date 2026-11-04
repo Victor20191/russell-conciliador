@@ -4,7 +4,7 @@ import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { normalizarSpecModulo } from "../perfil-modulo";
 import { controlSubtotales } from "../subtotales";
-import { sugerirSpec } from "./sugerir";
+import { detectarFilaTercero, sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
 
 /**
@@ -499,6 +499,62 @@ describe("SIESA sin «#Ter.» (detalle de Mineralin, sep/2026): la cuenta va DEB
 
   it("sin negrita: el tercero no depende de ella", () => {
     esperar(hoja("Hoja 1", filas));
+  });
+});
+
+describe("SAP FBL5N: el cliente con más documentos no es un rótulo de tercero", () => {
+  // Encabezados reales del FBL5N de MUMA. El NIT va en «Clave referencia 1», que ningún sinónimo reconoce.
+  const general = (documento: string, valor: number) =>
+    [2000000003, "1305100100", "40485-72-27", "GENERAL SUPPLIERS S.", documento, "RV", "2026-09-30", valor];
+  const h = hoja("FBL5N", [
+    ["Cuenta", "Cuenta de mayor", "Clave referencia 1", "Clave referencia 3", "Nº documento", "Clase de documento", "Fecha de documento", "Importe en moneda local"],
+    general("90084581", 100),
+    general("90084580", 200),
+    general("90084571", 300),
+    general("90084394", 400),
+    general("90084360", 500),
+    general("90084326", 600),
+    [2000000005, "1305100100", "9923108040", "TOTINET S.A.", "1400058361", "DZ", "2026-06-05", 700],
+  ]);
+
+  it("el detector no toma la columna de nombres por rótulo: esas filas traen su importe", () => {
+    expect(detectarFilaTercero(h, 2)).toBeNull();
+  });
+
+  it("con el NIT mapeado a otra columna, un rótulo guardado no aparta filas ni pisa el NIT", () => {
+    const spec: SpecModulo = {
+      ...specDe(h),
+      tipoFormato: "documento",
+      terceroModo: "cabecera",
+      filaTercero: { texto: "GENERAL SUPPLIERS S.", columnaRotulo: 4, columnaClave: 5, columnaNombre: 6 },
+      columnas: { cuenta: 2, nit: 3, nombre: 4, documento: 5, tipoDocumento: 6, fecha: 7, total: 8 },
+    };
+    const r = transformarModulo(CAR, spec, h);
+    expect(r.filas.filter((f) => f.motivo === "subtotal_tercero:cabecera")).toHaveLength(0);
+    const filas = movimientos(r);
+    expect(filas.reduce((suma, f) => suma + f.valor, 0)).toBe(2_800);
+    expect(filas[0].datos).toMatchObject({ nit: "40485-72-27", nombre: "GENERAL SUPPLIERS S.", documento: "90084581", tipoDocumento: "RV" });
+    expect(filas[6].datos).toMatchObject({ nit: "9923108040", nombre: "TOTINET S.A.", documento: "1400058361", tipoDocumento: "DZ" });
+  });
+});
+
+describe("filas apartadas: conservan su importe para poder incluirlas", () => {
+  const h = hoja("Cartera", [
+    ["NIT", "Nombre", "Documento", "Saldo"],
+    ["900123456", "ACME S.A.S.", null, 150_000],
+    [null, null, "F-1", 100_000],
+    [null, null, "F-2", 50_000],
+    [null, null, null, 42],
+  ]);
+
+  it("la cabecera y la fila sin identidad valen 0, pero guardan la cifra leída", () => {
+    const r = transformarModulo(CAR, { ...specDe(h), terceroModo: "cabecera", arrastrarRoles: ["nit", "nombre"] }, h);
+    const apartadas = r.filas.filter((f) => f.tipoFila === "agrupadora");
+    expect(apartadas.map((f) => [f.filaNum, f.motivo, f.valor, f.valorApartado])).toEqual([
+      [2, "subtotal_tercero:cabecera", 0, 150_000],
+      [5, "sin_identificador", 0, 42],
+    ]);
+    expect(movimientos(r).every((f) => f.valorApartado === undefined)).toBe(true);
   });
 });
 

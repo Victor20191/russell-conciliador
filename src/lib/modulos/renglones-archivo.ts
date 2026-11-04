@@ -4,7 +4,7 @@
 // de sus terceros (SIESA), las filas de porcentajes, el pie del ERP, el encabezado de cada
 // tercero. El motor ya los deja fuera del total, pero mostrarlos con el aspecto de un ítem hacía
 // creer que sumaban. Aquí se decide cuáles se ocultan, cómo se rotulan y qué control aportan.
-import { CLAVE_SALDO_DECLARADO } from "./cartera/detalle-cartera";
+import { CLAVE_SALDO_DECLARADO, CLAVE_VALOR_APARTADO, leerSaldoDeclarado } from "./cartera/detalle-cartera";
 
 type FilaRenglon = { tipoFila?: string | null; motivo?: string | null };
 
@@ -101,6 +101,33 @@ export function controlSeccion(declarado: number, subtotal: number, tolerancia =
 /** Encabezado de tercero ya cargado (Cartera, CxP): conserva el saldo que declara y no suma. */
 export function esEncabezadoTercero(fila: { valor: number; datos: Record<string, unknown> }): boolean {
   return fila.valor === 0 && fila.datos[CLAVE_SALDO_DECLARADO] != null;
+}
+
+/**
+ * Importe con que entra al total una fila apartada al incluirla a mano. El lector guarda en 0 las
+ * cabeceras de tercero, las cuentas de SIESA, las filas sin identidad y las exclusiones de nómina:
+ * cambiarles solo el tipo las contaba como ítem sin sumar nada. Primero vale lo que calculó el
+ * lector; los borradores anteriores no lo traen y usan el saldo declarado o la cifra de la columna.
+ */
+export function valorAlIncluir(fila: { valor: number; datos: Record<string, unknown> }, rolValor: string | null | undefined): number {
+  if (fila.valor !== 0) return fila.valor;
+  const fuentes = [fila.datos[CLAVE_VALOR_APARTADO], fila.datos[CLAVE_SALDO_DECLARADO], rolValor ? fila.datos[rolValor] : null];
+  for (const bruto of fuentes) {
+    if (bruto == null || bruto === "") continue;
+    const n = Number(bruto);
+    if (Number.isFinite(n)) return redondear(n);
+  }
+  return 0;
+}
+
+/**
+ * Renglón que no imputa pero se guarda en el detalle por el saldo que declara: la cabecera de un
+ * tercero y el «Total <cliente>». Si quien revisa lo incluyó, ya entra como ítem: guardarlo también
+ * aquí lo duplicaría en el detalle.
+ */
+export function conservaSaldoDeclarado(fila: FilaRenglon & { datos: Record<string, unknown> }): boolean {
+  if (fila.tipoFila === "movimiento") return false;
+  return fila.motivo === "subtotal_tercero:cabecera" || (fila.tipoFila === "total" && leerSaldoDeclarado(fila.datos) != null);
 }
 
 /** Posición de la columna del valor entre las visibles (-1 si está oculta o no existe). */
