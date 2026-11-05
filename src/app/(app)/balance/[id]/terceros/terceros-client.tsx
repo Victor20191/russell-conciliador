@@ -12,7 +12,7 @@ import type { ResumenComparacionTerceros } from "@/lib/balance/visor-terceros";
 import { useSeleccionFilaTabla } from "../../use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ETIQUETAS_IDENTIDAD, estadoIdentidadTercero, type EstadoIdentidadTercero } from "@/lib/balance/identidad-tercero";
-import { PREFIJOS_TERCERO_OBLIGATORIO } from "@/lib/balance/staging-tercero";
+import { PREFIJOS_TERCERO_OBLIGATORIO, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import { ComparacionImportes } from "./comparacion-importes";
 
 export type FuenteTercero = { version: string; archivo: string; filas: number; origen: string };
@@ -25,9 +25,10 @@ const VALIDACIONES = [
 const claseBoton = (activo: boolean) => `rounded px-1.5 py-0.5 text-[11px] font-semibold transition ${activo ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`;
 
 /** La misma distribución del balance, con terceros al final de cada cuenta.
- * La interacción es de lectura: expansión, filtros y selección local. */
-export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
-  arbol: NodoVisorTerceros[]; resumen: ResumenComparacionTerceros; fuenteTercero: FuenteTercero;
+ * La interacción es de lectura: expansión, filtros y selección local.
+ * `gruposConTerceros`: grupos cuyos terceros guardó la captura (null = todas las cuentas). */
+export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposConTerceros = null }: {
+  arbol: NodoVisorTerceros[]; resumen: ResumenComparacionTerceros; fuenteTercero: FuenteTercero; gruposConTerceros?: readonly string[] | null;
 }) {
   const [q, setQ] = useState("");
   const [clase, setClase] = useState<"todo" | "balance" | "er">("todo");
@@ -66,6 +67,10 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
       <StatCard label="Incompletas" value={fmtNum(resumen.incompletas)} tone={resumen.incompletas ? "err" : "ok"} />
       <StatCard label="Saldo balance / Σ terceros" value={`${fmt(resumen.saldoBalance)} / ${fmt(resumen.saldoTercero)}`} tone={Math.abs(resumen.saldoBalance - resumen.saldoTercero) > 0.01 ? "warn" : "blue"} valueClassName="text-[14px]" />
     </div>
+    {gruposConTerceros && <p className="mb-4 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+      <Icon name="info" size={13} className="mt-0.5 shrink-0" />
+      <span><span className="font-semibold">Solo se muestran los terceros de las cuentas de los grupos {describirGruposTercero(gruposConTerceros)}.</span> Son los que se guardan al cargar el balance. Las demás cuentas se muestran con su total y aparecen como «Sin desagregar»: no es un error.</span>
+    </p>}
     {resumen.sinDetalleObligatorio > 0 && <p className="mb-4 flex items-start gap-2 rounded-md border border-warn-300 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
       <Icon name="warn" size={13} className="mt-0.5 shrink-0" />
       <span><span className="font-semibold">{fmtNum(resumen.sinDetalleObligatorio)} cuenta(s) de {PREFIJOS_TERCERO_OBLIGATORIO.join(", ")} con saldo o movimiento no traen terceros.</span> En esas cuentas el detalle por tercero es obligatorio: usa «Solo con diferencia» para verlas y revisa si el archivo las trae desagregadas.</span>
@@ -106,7 +111,7 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
         <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[12.5px]">
           <EncabezadoTablaBalance filtros={columnas} onChange={cambiarColumna} opcionesValidacion={VALIDACIONES} />
           <tbody onClick={seleccion.onClickFila} onDoubleClick={seleccion.onDoubleClickFila}>
-            {visible.length ? visible.map((n) => <Fila key={n.key} nodo={n} profundidad={0} abiertos={abiertos} toggle={toggle} seleccionada={seleccion.filaSeleccionada} />) : <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">Sin cuentas o terceros que coincidan con los filtros.</td></tr>}
+            {visible.length ? visible.map((n) => <Fila key={n.key} nodo={n} profundidad={0} abiertos={abiertos} toggle={toggle} seleccionada={seleccion.filaSeleccionada} gruposConTerceros={gruposConTerceros} />) : <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">Sin cuentas o terceros que coincidan con los filtros.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -117,8 +122,9 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
   </div>;
 }
 
-function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
+function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada, gruposConTerceros }: {
   nodo: NodoVisorTerceros; profundidad: number; abiertos: Set<string>; toggle: (key: string) => void; seleccionada: string | null;
+  gruposConTerceros: readonly string[] | null;
 }) {
   // Carga progresiva local solo de ramas muy grandes: no corta cuentas ni pierde
   // la ruta de sus terceros como lo haría paginar toda la tabla aplanada.
@@ -145,7 +151,7 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
         </div>}
         {n.tipo === "tercero" && (n.movimientos ?? 0) > 1 && <span className="ml-2 whitespace-nowrap text-[10.5px] text-ink-400">{n.movimientos} movimientos</span>}
         {c && !c.enBalance && <div className="mt-0.5 text-[11px] font-normal text-warn-700">Σ terceros: {fmt(c.saldoConsolidadoTercero)} · Sin cuenta en el balance</div>}
-        {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} porRedondeo={c.diferenciaPorRedondeo} />}
+        {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} grupoSinTerceros={!!gruposConTerceros && !gruposConTerceros.some((g) => c.cuenta8.startsWith(g))} porRedondeo={c.diferenciaPorRedondeo} />}
       </td>
       <td className="px-4 py-2">
         {n.mapeoInconsistente ? <Chip label="Inconsistente" tone="warn" /> : grupo ? n.nivel === 6 ? <Chip label={n.mapped ? "Russell" : "Sin mapeo"} tone={n.mapped ? "ok" : "warn"} /> : null : n.std ? <span className="inline-flex items-center gap-1.5 tabular-nums text-[11.5px] text-blue-600">→ {n.std}</span> : <Chip label="Sin mapeo" tone="warn" />}
@@ -154,7 +160,7 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
       <CeldasImportesBalance anterior={n.prevBalance} debito={n.debe} credito={n.haber} saldo={n.balance} variacion={n.variation} grupo={grupo} validacion={<Estado nodo={n} />} />
     </tr>
     {abierto && <>
-      {n.hijos.slice(0, limite).map((h) => <Fila key={h.key} nodo={h} profundidad={profundidad + 1} abiertos={abiertos} toggle={toggle} seleccionada={seleccionada} />)}
+      {n.hijos.slice(0, limite).map((h) => <Fila key={h.key} nodo={h} profundidad={profundidad + 1} abiertos={abiertos} toggle={toggle} seleccionada={seleccionada} gruposConTerceros={gruposConTerceros} />)}
       {n.hijos.length > limite && <tr><td colSpan={9} className="border-b border-ink-100 px-4 py-2" style={{ paddingLeft: 34 + profundidad * 18 }}><button type="button" onClick={() => setLimite((v) => v + 100)} className="text-[12px] font-semibold text-blue-600 hover:underline">Mostrar más de {n.code} ({limite} de {n.hijos.length})</button></td></tr>}
     </>}
   </Fragment>;

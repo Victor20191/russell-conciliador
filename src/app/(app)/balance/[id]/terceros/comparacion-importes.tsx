@@ -17,7 +17,7 @@ const ETIQUETAS_MONTO: Record<(typeof CAMPOS_MONTOS)[number], string> = {
 };
 
 /** Comparación de los cuatro componentes de una cuenta. `null` cuando no hay nada que mostrar. */
-export function ComparacionImportes({ montosBalance, montosTercero, diferenciasMontos, enBalance, enTercero, sinDesglose, porRedondeo }: {
+export function ComparacionImportes({ montosBalance, montosTercero, diferenciasMontos, enBalance, enTercero, sinDesglose, grupoSinTerceros, porRedondeo }: {
   montosBalance: Montos4;
   montosTercero: Montos4;
   diferenciasMontos: Montos4;
@@ -25,13 +25,21 @@ export function ComparacionImportes({ montosBalance, montosTercero, diferenciasM
   enTercero: boolean;
   /** La cuenta no tiene terceros reales (solo la fila «propia»): no hay nada que desglosar. */
   sinDesglose?: boolean;
+  /** La cuenta es de un grupo cuyos terceros no se guardan al cargar el balance. */
+  grupoSinTerceros?: boolean;
   /** La diferencia cabe en el redondeo a centavos de cada tercero: se informa sin alertar. */
   porRedondeo?: boolean;
 }) {
   if (!enBalance || !enTercero) return null; // el estado "incompleto" ya se señala aparte
   const componentesConDiferencia = CAMPOS_MONTOS.filter((campo) => diferenciasMontos[campo] !== 0);
   if (!componentesConDiferencia.length) {
-    if (sinDesglose) return <div className="mt-0.5 text-[11px] font-normal text-ink-400">Sin desglose por tercero: los cuatro importes cuadran contra la fila propia.</div>;
+    if (sinDesglose) {
+      return <div className="mt-0.5 text-[11px] font-normal text-ink-400">
+        {grupoSinTerceros
+          ? "Sin desglose por tercero: los terceros de su grupo no se guardan al cargar el balance."
+          : "Sin desglose por tercero: los cuatro importes cuadran contra la fila propia."}
+      </div>;
+    }
     return null;
   }
   return (

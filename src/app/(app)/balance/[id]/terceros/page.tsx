@@ -8,6 +8,7 @@ import { construirComparacionCuentasTerceros, resumirComparacionTerceros } from 
 import { construirArbolVisorTerceros } from "@/lib/balance/arbol-visor-terceros";
 import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/balance/identidad-tercero";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
+import { gruposTerceroConservados } from "@/lib/balance/staging-tercero";
 import TercerosClient from "./terceros-client";
 import Link from "next/link";
 
@@ -142,6 +143,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
             filas: encabezadoTercero!.filasTotales,
             origen: encabezadoTercero!.origenExtraccion ?? "—",
           }}
+          gruposConTerceros={gruposTerceroConservados(encabezadoTercero!.creadoEn)}
         />
       )}
     </div>

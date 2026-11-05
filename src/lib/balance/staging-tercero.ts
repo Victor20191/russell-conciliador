@@ -367,6 +367,39 @@ export function conservaDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
 }
 
+/** Antes de esta fecha la captura guardaba los terceros de TODAS las cuentas. */
+const TERCEROS_SOLO_GRUPOS_DESDE = new Date("2026-09-22T00:00:00.000Z");
+/** Grupos que se agregaron a la captura junto con el 24 (ver `TERCEROS_24_CONSERVADOS_DESDE`). */
+const GRUPOS_AGREGADOS_CON_24 = new Set(["24", "42", "43", "44", "45"]);
+
+/**
+ * Grupos del cliente cuyos terceros guardó una captura, según cuándo se hizo: los de hoy,
+ * sin el 24 ni 42 a 45 antes de que se agregaran, o `null` si es anterior a la regla y
+ * guardó todas las cuentas. Sin fecha, la regla de hoy (una carga nueva).
+ */
+export function gruposTerceroConservados(capturadaEn?: Date): readonly string[] | null {
+  if (capturadaEn && capturadaEn < TERCEROS_SOLO_GRUPOS_DESDE) return null;
+  if (capturadaEn && capturadaEn < TERCEROS_24_CONSERVADOS_DESDE) {
+    return PREFIJOS_TERCERO_CONSERVADOS.filter((p) => !GRUPOS_AGREGADOS_CON_24.has(p));
+  }
+  return PREFIJOS_TERCERO_CONSERVADOS;
+}
+
+/** «13, 21 a 24, 28 y 41 a 45»: tres o más grupos seguidos se dicen como rango. */
+export function describirGruposTercero(grupos: readonly string[]): string {
+  const numeros = [...new Set(grupos.map(Number))].sort((a, b) => a - b);
+  const partes: string[] = [];
+  for (let i = 0; i < numeros.length; i++) {
+    let fin = i;
+    while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
+    if (fin - i >= 2) {
+      partes.push(`${numeros[i]} a ${numeros[fin]}`);
+      i = fin;
+    } else partes.push(String(numeros[i]));
+  }
+  return partes.length > 1 ? `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}` : partes.join("");
+}
+
 /**
  * Tolerancia al comparar el total de una cuenta contra la Σ de sus `n` terceros: cada
  * renglón llega redondeado a centavos por su cuenta (hasta ½ centavo de error cada uno),

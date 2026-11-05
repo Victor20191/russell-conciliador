@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, exigeDetalleTercero, filasEfectivasTercero, PREFIJOS_TERCERO_CONSERVADOS, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, describirGruposTercero, gruposTerceroConservados, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, exigeDetalleTercero, filasEfectivasTercero, PREFIJOS_TERCERO_CONSERVADOS, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -394,5 +394,29 @@ describe("prepararCapturaTercero — el total de la cuenta leído como tercero n
     expect(r.filas).toHaveLength(1);
     expect(r.filas[0]).toMatchObject({ nitTercero: null, saldoFinal: 2 });
     expect(r.cuentasConDetalle).toBe(0);
+  });
+});
+
+describe("gruposTerceroConservados / describirGruposTercero", () => {
+  it("una carga nueva guarda los terceros de 13, 21 a 24, 28 y 41 a 45", () => {
+    const grupos = gruposTerceroConservados();
+    expect(grupos).toEqual(PREFIJOS_TERCERO_CONSERVADOS);
+    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 24, 28 y 41 a 45");
+    expect(gruposTerceroConservados(new Date("2026-11-05T12:00:00Z"))).toEqual(PREFIJOS_TERCERO_CONSERVADOS);
+  });
+
+  it("una captura de octubre aún no guardaba el 24 ni 42 a 45", () => {
+    const grupos = gruposTerceroConservados(new Date("2026-10-15T12:00:00Z"));
+    expect(grupos).toEqual(["13", "21", "22", "23", "28", "41"]);
+    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 23, 28 y 41");
+  });
+
+  it("antes del 22/Sep se guardaban todas las cuentas", () => {
+    expect(gruposTerceroConservados(new Date("2026-09-10T12:00:00Z"))).toBeNull();
+  });
+
+  it("dos grupos seguidos no se dicen como rango", () => {
+    expect(describirGruposTercero(["13", "14"])).toBe("13 y 14");
+    expect(describirGruposTercero(["41"])).toBe("41");
   });
 });

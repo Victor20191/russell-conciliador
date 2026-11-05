@@ -437,7 +437,7 @@ export const FICHA_BALANCE_DIFF: FichaAyuda = {
 export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
   id: "balance.terceros",
   titulo: "Balance por terceros",
-  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es solo de consulta.",
+  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es solo de consulta. Solo trae terceros en las cuentas de los grupos 13, 21 a 24, 28 y 41 a 45, que son los que se guardan al cargar el balance; un aviso en la pantalla lo recuerda.",
   etapas: [
     {
       titulo: "Buscar y filtrar",
@@ -457,6 +457,10 @@ export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
   ],
   estados: [
     { etiqueta: "OK", significado: "El detalle por tercero suma lo mismo que la cuenta del balance." },
+    {
+      etiqueta: "Sin desagregar",
+      significado: "La cuenta se muestra solo con su total: es de un grupo cuyos terceros no se guardan, o el archivo no la trajo por tercero. No es un error.",
+    },
     { etiqueta: "Mapeo difiere · Importes difieren", significado: "La homologación o los importes del detalle no coinciden con el balance." },
     {
       etiqueta: "Falta detalle por tercero",
