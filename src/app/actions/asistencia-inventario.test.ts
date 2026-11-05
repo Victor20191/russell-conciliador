@@ -243,6 +243,45 @@ describe("asistencia de inventario, autoridad del original y continuidad", () =>
     await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-10", revisionEsperada: 5 });
     expect(m.resolver).toHaveBeenCalledWith(expect.objectContaining({ forzarIA: true, instrucciones: "Revisar el tipo", specBase: spec }));
   });
+
+  it("entrega las pestañas del archivo, marcando las ocultas, para poder cambiar de hoja", async () => {
+    m.ingerir.mockResolvedValue({ modo: "tabular", hojas: [...hojas, { nombre: "Respaldo", oculta: true, filas: [["x"]] }] });
+    configurarBorrador("requiere_respuesta");
+    expect(await consultarAsistenciaInventario({ recepcionLoteId: ID })).toMatchObject({
+      hojasArchivo: [{ nombre: "Inventario", oculta: false }, { nombre: "Respaldo", oculta: true }],
+    });
+  });
+
+  it("elegir otra hoja no arrastra lo que se contestó ni lo que se indicó sobre la anterior", async () => {
+    const { asistencia } = configurarBorrador("requiere_respuesta");
+    const duda = { id: "ia_campos_compartidos", etiqueta: "¿Qué representa el último número?", requiereIA: true };
+    asistencia.respuestas = { columna_tipo: "4", total_archivo: "fila:90" };
+    asistencia.resultado = { ...resultado, listoParaBorrador: false, preguntas: [duda] };
+
+    await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-10", revisionEsperada: 5, hoja: "Detalle", respuestas: {} });
+
+    expect(m.resolver).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      respuestas: { hoja: "Detalle" }, preguntasPendientes: undefined, specBase: null, origenBase: "patron", instrucciones: "", forzarIA: false,
+    }));
+    expect(m.versiones).toHaveBeenCalledOnce();
+    expect((original.asistenciaJson as AsistenciaInventarioGuardada).instrucciones).toBe("");
+  });
+
+  it("elegir otra hoja no repite la IA que falló sobre la anterior", async () => {
+    const { asistencia } = configurarBorrador("error_recuperable");
+    asistencia.resultado!.errorProveedorIA = true;
+    asistencia.resultado!.listoParaBorrador = false;
+    await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-10", revisionEsperada: 5, hoja: "Detalle" });
+    expect(m.resolver).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ forzarIA: false, instrucciones: "", specBase: null, respuestas: { hoja: "Detalle" } }));
+  });
+
+  it("reenviar la hoja que ya se leyó conserva sus respuestas y su lectura", async () => {
+    const { asistencia } = configurarBorrador("requiere_respuesta");
+    asistencia.respuestas = { columna_tipo: "4" };
+    await prepararBorradorInventario({ recepcionLoteId: ID, periodo: "2026-10", revisionEsperada: 5, hoja: "Inventario" });
+    expect(m.resolver).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ respuestas: { columna_tipo: "4", hoja: "Inventario" }, specBase: spec }));
+    expect(m.versiones).not.toHaveBeenCalled();
+  });
 });
 
 describe("conservar la lectura aplicada de inventario", () => {

@@ -213,7 +213,7 @@ export function fichaModuloBorradores(d: DescriptorModulo): FichaAyuda {
           },
           {
             nombre: "Continuar lectura",
-            queHace: "En «Lecturas por completar», retoma una lectura del inventario sin volver a subir el archivo.",
+            queHace: "En «Lecturas por completar», retoma una lectura del inventario sin volver a subir el archivo. Si el archivo trae varias hojas, «Hoja del archivo» deja cambiar cuál se lee.",
             regla: REGLAS.cargarModulo,
             aplica: esInv,
           },
@@ -260,7 +260,7 @@ export function fichaModuloBorrador(d: DescriptorModulo): FichaAyuda {
           { nombre: "Versiones (N)", queHace: "Otros borradores del mismo cliente y período.", regla: REGLAS.cargarModulo },
           {
             nombre: "Corregir lectura",
-            queHace: "Relee el original con la asistencia y compara: «Aplicar nueva lectura» o «Conservar lectura actual».",
+            queHace: "Relee el original con la asistencia y compara: «Aplicar nueva lectura» o «Conservar lectura actual». Si el archivo trae varias hojas, «Hoja del archivo» deja cambiar cuál se lee.",
             regla: REGLAS.cargarModulo,
             condiciones: ["Sin cambios sin guardar."],
             aplica: esInv,

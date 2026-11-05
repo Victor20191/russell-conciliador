@@ -93,6 +93,7 @@ function respuesta(asistencia: AsistenciaInventarioGuardada, revision: number, l
     ...(resultado?.modeloSugerido ? { modeloSugerido: resultado.modeloSugerido } : {}),
     ...(resultado?.filasSugeridas?.length ? { filasSugeridas: resultado.filasSugeridas } : {}),
     ...(asistencia.respuestas?.hoja ? { hojaElegida: asistencia.respuestas.hoja } : {}),
+    ...(hojas ? { hojasArchivo: hojas.map((h) => ({ nombre: h.nombre, oculta: h.oculta === true })) } : {}),
     advertencias: [...(resultado?.advertencias ?? []), ...(resultado?.errores ?? [])],
     spec: spec ?? undefined,
     message: asistencia.error ?? (asistencia.estado === "analizando" ? "La lectura está en curso. Consulta su avance sin volver a subir el archivo." : undefined),
@@ -222,14 +223,17 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       }
     }
     revision = original.revisionAsistencia + 1;
+    // Otra hoja se lee de cero: lo contestado, lo indicado y la lectura anterior hablan de otras
+    // columnas y filas, y aplicarlos a esta daría una lectura equivocada.
+    const cambiaDeHoja = !!datos.hoja && datos.hoja !== (anterior?.resultado?.spec?.hoja ?? anterior?.respuestas?.hoja ?? anterior?.aplicado?.spec.hoja);
     asistencia = {
       version: 1, estado: "analizando", operacionId: randomUUID(), venceEn: new Date(Date.now() + 30 * 60_000).toISOString(),
       erpId: aplicativo.aplicativo.id, periodo, anexoEncabezadoId: anexoId,
-      instrucciones: datos.instrucciones ?? anterior?.instrucciones ?? "",
+      instrucciones: datos.instrucciones ?? (cambiaDeHoja ? "" : anterior?.instrucciones) ?? "",
       // Un ejemplo nuevo, como un mapa manual, retira las decisiones estructurales anteriores
       // (la regla deducida se vuelve a confirmar); su hoja manda.
       respuestas: datos.aplicarPropuesta ? anterior!.respuestas : datos.specManual ? {} : datos.modelo ? { hoja: datos.modelo.hoja } : {
-        ...(datos.instrucciones?.trim() ? {} : anterior?.respuestas), ...datos.respuestas, ...(datos.hoja ? { hoja: datos.hoja } : {}),
+        ...(datos.instrucciones?.trim() || cambiaDeHoja ? {} : anterior?.respuestas), ...datos.respuestas, ...(datos.hoja ? { hoja: datos.hoja } : {}),
       },
       ...(anterior?.huellaModelo ? { huellaModelo: anterior.huellaModelo } : {}),
       resultado: anterior?.resultado ?? null, aplicado: anterior?.aplicado ?? null,
@@ -263,7 +267,8 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
       } else if (anterior?.resultado) resultado = { ...anterior.resultado, usos: [] };
       else throw new ErrorAsistencia("No hay una lectura anterior con la cual comparar este ejemplo. Vuelve a reprocesar.");
     } else {
-      let base = anterior?.resultado?.spec ?? null;
+      const lecturaVigente = cambiaDeHoja ? null : anterior?.resultado?.spec ?? null;
+      let base = lecturaVigente;
       if (!base) {
         const { versiones } = await versionesPatronCandidatas(INV, aplicativo.aplicativo.id, original.clienteId);
         const ubicacion = mejorVersion(INV, hojas, versiones, { hojaElegida: asistencia.respuestas.hoja || null });
@@ -274,10 +279,10 @@ export async function prepararBorradorInventario(entrada: z.input<typeof Entrada
           coincidencia = ubicacion.coincidencia.porcentaje;
         } else asistencia.versionBaseId = null;
       } else coincidencia = lote?.patronCoincidencia ?? null;
-      const reintentarProveedor = anterior?.resultado?.errorProveedorIA === true;
+      const reintentarProveedor = anterior?.resultado?.errorProveedorIA === true && !cambiaDeHoja;
       resultado = await resolverLecturaInventario({
-        hojas, specBase: base, origenBase: anterior?.resultado?.spec ? anterior.resultado.origen : "patron",
-        preguntasPendientes: anterior?.resultado?.preguntas,
+        hojas, specBase: base, origenBase: lecturaVigente ? anterior?.resultado?.origen : "patron",
+        preguntasPendientes: cambiaDeHoja ? undefined : anterior?.resultado?.preguntas,
         respuestasNuevas: Object.fromEntries(Object.entries(datos.respuestas ?? {}).filter(([clave, valor]) => valor !== anterior?.respuestas?.[clave])),
         instrucciones: datos.instrucciones?.trim() || (reintentarProveedor ? asistencia.instrucciones : ""), respuestas: asistencia.respuestas,
         forzarIA: Boolean(datos.instrucciones?.trim()) || reintentarProveedor, nombreArchivo: original.nombreArchivo, aplicativo: aplicativo.aplicativo.name,

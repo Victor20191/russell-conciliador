@@ -33,6 +33,8 @@ export type ResultadoAsistenciaVista = {
   filasSugeridas?: { fila: number; mensaje: string }[];
   /** La hoja que el usuario ya eligió, aunque la lectura de esa hoja no haya salido. */
   hojaElegida?: string;
+  /** Las pestañas del archivo, para poder cambiar de hoja aunque la lectura no haya salido. */
+  hojasArchivo?: { nombre: string; oculta: boolean }[];
 };
 
 const campo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50";
@@ -84,7 +86,12 @@ export function AsistenciaInventarioPanel({
   const cargarVentana = useCallback((consulta: ConsultaVentana) => ventanaOriginalInventario({ recepcionLoteId, hoja: consulta.hoja, filaDesde: consulta.filaDesde, spec: consulta.spec }), [recepcionLoteId]);
   const enCurso = useRef(false);
   const analisis = analisisVista;
-  const preguntas = resultado.preguntas ?? [];
+  // La hoja de la lectura vigente; `hoja` solo tiene valor si el usuario escogió otra.
+  const hojaLeida = hojaInicialEjemplo({ lectura: resultado.resumen?.hoja, guardada: resultado.hojaElegida, spec: resultado.spec?.hoja, analisis: analisis?.hoja });
+  const eligioOtraHoja = !!hoja && hoja !== hojaLeida;
+  // Las dudas eran sobre la hoja anterior: no detienen la lectura de la nueva.
+  const preguntas = eligioOtraHoja ? [] : resultado.preguntas ?? [];
+  const hojasArchivo = resultado.hojasArchivo ?? [];
   // Una explicación puede corregir una interpretación incorrecta sin obligar a
   // aceptarla primero. El servidor volverá a pedir confirmación para la regla nueva.
   const pideReinterpretar = instrucciones.trim().length > 0;
@@ -102,7 +109,22 @@ export function AsistenciaInventarioPanel({
     setDescartarIncompatibles(false);
   };
 
-  const puedeConservarActual = correccion && resultado.resumenAnterior != null && resultado.revision != null && !consultando && !confirmado && resultado.estado !== "borrador_preparado";
+  const cambiarHoja = (nombre: string) => {
+    setHoja(nombre === hojaLeida ? undefined : nombre);
+    setRespuestas({});
+    setSpecEditado(false);
+    setSpec((previa) => {
+      if (nombre === hojaLeida && resultado.spec) return resultado.spec;
+      return previa ? { ...previa, hoja: nombre } : previa;
+    });
+    setCambioPendiente(true);
+    setDescartarIncompatibles(false);
+  };
+  // El Diseñador trae su propio selector: mientras está abierto, ese es el que se ve.
+  const mostrarSelectorHoja = hojasArchivo.length > 1 && !constructorAbierto && !confirmado && !consultando
+    && !resultado.preguntas?.some((p) => p.id === "hoja");
+
+  const puedeConservarActual = correccion &&resultado.resumenAnterior != null && resultado.revision != null && !consultando && !confirmado && resultado.estado !== "borrador_preparado";
 
   const ejecutar = (accion: "preparar" | "aplicar" | "conservar" = "preparar", modelo?: ModeloUsuarioInventario) => {
     const aplicar = accion === "aplicar";
@@ -166,6 +188,34 @@ export function AsistenciaInventarioPanel({
 
       {resultado.message && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-100 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
       {error && <p role="alert" className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-err-700">{error}</p>}
+      {mostrarSelectorHoja && (
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label className="flex min-w-0 flex-col gap-1.5">
+            <span className="font-medium text-ink-800">Hoja del archivo</span>
+            <select
+              className={campo}
+              value={hoja ?? hojaLeida}
+              disabled={trabajando}
+              onChange={(e) => {
+                const nombre = e.target.value;
+                cambiarHoja(nombre);
+                // Con este selector a la vista el Diseñador sigue cerrado: no hay nada armado que perder.
+                setModeloEjemplo(resultado.modeloSugerido?.hoja === nombre ? resultado.modeloSugerido : null);
+              }}
+            >
+              {!hoja && !hojaLeida && <option value="">Selecciona la hoja</option>}
+              {hojasArchivo.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre}{h.oculta ? " (oculta)" : ""}</option>)}
+            </select>
+          </label>
+          {eligioOtraHoja && (
+            <p role="status" className="text-[11px] leading-relaxed text-warn-700">
+              {resultado.resumen?.hoja
+                ? `Escogiste «${hoja}». La tabla sigue mostrando la lectura de «${resultado.resumen.hoja}» hasta que pulses «Leer esta hoja».`
+                : `Escogiste «${hoja}». Pulsa «Leer esta hoja» para leerla.`}
+            </p>
+          )}
+        </div>
+      )}
       {/* Sin hoja aún no se ha leído nada: una tabla en ceros parecería un archivo vacío. */}
       {resultado.resumen?.hoja && <ResumenAsistencia actual={resultado.resumen} anterior={propuesta ? resultado.resumenAnterior : null} />}
       {(resultado.advertencias?.length ?? 0) > 0 && (
@@ -199,7 +249,7 @@ export function AsistenciaInventarioPanel({
           <details className="rounded-md border border-ink-150 bg-ink-50/40">
             <summary className="cursor-pointer px-3 py-2.5 text-[11.5px] font-medium text-ink-600">Ajustes avanzados de lectura</summary>
             <div className="border-t border-ink-150 p-3">
-              {hoja && analisis.hoja !== hoja ? <p className="text-[11.5px] text-ink-600">Elegiste «{hoja}». Revisa la propuesta para reconocer sus columnas antes de editarlas.</p> : (
+              {hoja && analisis.hoja !== hoja ? <p className="text-[11.5px] text-ink-600">Escogiste «{hoja}». Primero léela para poder ajustar sus columnas.</p> : (
                 <EditorMapeoModulo
                   analisis={analisis}
                   spec={spec}
@@ -211,7 +261,6 @@ export function AsistenciaInventarioPanel({
                   cuentaEnClasificador={false}
                   conNivelCartera={false}
                   modo="carga"
-                  onCambiarHoja={(nombre) => { setHoja(nombre); setSpecEditado(false); setSpec((previa) => previa ? { ...previa, hoja: nombre } : previa); setCambioPendiente(true); }}
                   marcaTotalesCarga={(
                     <label className="flex flex-col gap-1.5">
                       <span className="text-[11px] font-medium text-ink-600">Fila del total en el archivo original</span>
@@ -229,7 +278,13 @@ export function AsistenciaInventarioPanel({
       {!confirmado && !consultando && (constructorAbierto ? (
         <ConstructorLectura
           modelo={modeloEjemplo ?? modeloVacio(hojaInicialEjemplo({ respuesta: respuestas.hoja, ajustes: hoja, lectura: resultado.resumen?.hoja, guardada: resultado.hojaElegida, spec: spec?.hoja, analisis: analisis?.hoja }))}
-          onModelo={(m) => { setModeloEjemplo(m); setModeloEditado(true); setCambioPendiente(true); }}
+          onModelo={(m) => {
+            setModeloEjemplo(m);
+            setModeloEditado(true);
+            setCambioPendiente(true);
+            // La hoja escogida en el Diseñador también es la que relee el botón de abajo.
+            if (m.hoja && m.hoja !== (hoja ?? hojaLeida)) cambiarHoja(m.hoja);
+          }}
           spec={resultado.spec ?? null}
           filasSugeridas={resultado.filasSugeridas}
           trabajando={trabajando}
@@ -255,7 +310,7 @@ export function AsistenciaInventarioPanel({
         {puedeConservarActual && <button type="button" className={secundario} disabled={trabajando} onClick={() => ejecutar("conservar")} title="Descartar esta propuesta y conservar la lectura y los cambios ya guardados en el borrador.">Conservar lectura actual</button>}
         {!confirmado && (!propuestaVigente || consultando) && (
           <button type="button" className={primario} disabled={trabajando || (!consultando && faltanRespuestas) || (necesitaCorreccion && !cambioPendiente)} onClick={() => ejecutar()}>
-            {consultando ? "Consultar avance" : pideReinterpretar ? "Revisar interpretación" : resultado.estado === "error_recuperable" ? "Reintentar lectura" : correccion ? "Revisar propuesta" : "Continuar al borrador"}
+            {consultando ? "Consultar avance" : eligioOtraHoja ? "Leer esta hoja" : pideReinterpretar ? "Revisar interpretación" : resultado.estado === "error_recuperable" ? "Reintentar lectura" : correccion ? "Revisar propuesta" : "Continuar al borrador"}
           </button>
         )}
         {propuestaVigente && (

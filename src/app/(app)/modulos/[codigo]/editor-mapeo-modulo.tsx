@@ -271,7 +271,8 @@ export function EditorMapeoModulo({
   cuentaEnClasificador?: boolean;
   conNivelCartera: boolean;
   modo: "carga" | "patron";
-  onCambiarHoja: (hoja: string) => void;
+  /** Sin él no se ofrece elegir la hoja aquí: quien usa el editor ya la deja elegir en otro sitio. */
+  onCambiarHoja?: (hoja: string) => void;
   /** Carga: fin del período, valor por defecto de la fecha de corte. */
   fechaCorteSugerida?: string;
   /** Se invoca cuando cambia el modo o la columna de los totales (la celda ubicada deja de valer). */
@@ -420,7 +421,7 @@ export function EditorMapeoModulo({
         </p>
       )}
 
-      {(analisis.hojas?.length ?? 0) > 1 && (
+      {onCambiarHoja && (analisis.hojas?.length ?? 0) > 1 && (
         <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
           <select value={spec.hoja} onChange={(e) => onCambiarHoja(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">

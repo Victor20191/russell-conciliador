@@ -38,6 +38,42 @@ describe("asistencia de inventario: controles antes de cambiar un borrador", () 
     expect(render({ ok: true, estado: "requiere_respuesta", resumen: { ...enCeros, hoja: "Sheet1" } })).toContain("Registros incluidos");
   });
 
+  describe("hoja del archivo a la vista", () => {
+    const hojasArchivo = [{ nombre: "Sheet1", oculta: false }, { nombre: "Detalle", oculta: false }, { nombre: "Respaldo", oculta: true }];
+    const leida = { ...resumen, hoja: "Sheet1" };
+
+    it("con varias pestañas deja escoger, con la leída marcada y las ocultas señaladas", () => {
+      const html = render({ ok: false, estado: "error_recuperable", resumen: leida, hojasArchivo });
+      expect(html).toContain("Hoja del archivo");
+      expect(html).toMatch(/<option value="Sheet1" selected="">Sheet1<\/option>/);
+      expect(html).toContain(">Detalle</option>");
+      expect(html).toContain(">Respaldo (oculta)</option>");
+      expect(html).not.toContain("Selecciona la hoja");
+    });
+
+    it("sin lectura todavía pide escoger en vez de suponer una hoja", () => {
+      const html = render({ ok: false, estado: "error_recuperable", hojasArchivo });
+      expect(html).toContain("Hoja del archivo");
+      expect(html).toContain("Selecciona la hoja");
+    });
+
+    it("retoma la hoja elegida aunque su lectura no haya salido", () => {
+      const html = render({ ok: true, estado: "requiere_respuesta", resumen: { ...leida, hoja: null }, hojaElegida: "Detalle", hojasArchivo });
+      expect(html).toMatch(/<option value="Detalle" selected="">Detalle<\/option>/);
+    });
+
+    it("con una sola pestaña no hay nada que escoger", () => {
+      expect(render({ ok: false, estado: "error_recuperable", resumen: leida, hojasArchivo: [hojasArchivo[0]] })).not.toContain("Hoja del archivo");
+    });
+
+    it("no se duplica con la pregunta de la hoja ni aparece si ya no se puede cambiar la lectura", () => {
+      const pregunta = { id: "hoja", etiqueta: "Hay inventario en varias hojas. ¿Cuál quieres cargar?", opciones: [{ valor: "Sheet1", etiqueta: "Sheet1" }, { valor: "Detalle", etiqueta: "Detalle" }] };
+      expect(render({ ok: true, estado: "requiere_respuesta", preguntas: [pregunta], hojasArchivo })).not.toContain("Hoja del archivo");
+      expect(render({ ok: true, estado: "confirmado", resumen: leida, hojasArchivo })).not.toContain("Hoja del archivo");
+      expect(render({ ok: true, estado: "analizando", resumen: leida, hojasArchivo })).not.toContain("Hoja del archivo");
+    });
+  });
+
   it("muestra los datos separados con sus celdas físicas y exige confirmar los ejemplos", () => {
     const html = render({ ok: true, estado: "requiere_respuesta", ejemplosLectura: [{ fila: 9, campos: [
       { rol: "referencia", valor: "REF-001", fuentes: [{ hoja: "Existencias", fila: 9, columna: 1, texto: "Ref: REF-001 | Tipo: MP | Cant: 8" }] },
