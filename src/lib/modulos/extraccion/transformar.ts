@@ -22,6 +22,7 @@ import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, prefijosCuentaDeCedula, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { esPieDeReporte } from "./pie-reporte";
+import { totalEnTexto } from "./total-en-texto";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 import { saldoFavorRedundante, type FilaMuestraEdades } from "../cartera/edades";
 import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
@@ -610,6 +611,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       // detección de fila vacía y de pie de reporte la sigue viendo como antes.
       datos[descriptor.valor] = evaluado.algunDato ? evaluado.valor : null;
       if (evaluado.algunDato) terminosFormula = evaluado.terminos;
+    }
+    // 1.15) La fila ubicada como total puede traer su importe junto al rótulo, en la celda ubicada
+    //       y no en la del valor («Valor stock : 6,042,080,922.47»): ese es su valor.
+    if (marcaManualExacta && !formulaValor && aTexto(celda(fila, spec.columnas[descriptor.valor] ?? 0)) == null) {
+      const enTexto = totalEnTexto(celda(fila, spec.subtotalesColumna ?? 0));
+      const tipoValor = descriptor.columnas.find((c) => c.nombre === descriptor.valor)?.tipo;
+      if (enTexto) datos[descriptor.valor] = tipoValor === "moneda" ? conSigno(enTexto.importe) : enTexto.importe;
     }
 
     // 1.2) SIESA · marcas de relleno en los roles de identidad («*» en la columna del NIT de

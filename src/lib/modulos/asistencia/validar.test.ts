@@ -17,6 +17,36 @@ describe("validación completa de la lectura de inventarios", () => {
     expect(r.resumen).toMatchObject({ filasIncluidas: 2, filasExcluidas: 1, valorLeido: 50, totalDeclarado: 50, diferencia: 0 });
   });
 
+  describe("total escrito junto a su rótulo en la última línea («Valor stock : …»)", () => {
+    const encabezadoStock = ["Artículo", "Cuenta contable", "Descripción", "Cantidad", "Valor stock"];
+    const specStock: SpecModulo = { hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 2, referencia: 1, descripcion: 3, cantidad: 4, valorUnitario: 0, valorTotal: 5 }, clasificadorModo: "columna" };
+    const productos = [["A1", "14600501", "Producto A", 2, 20], ["A2", "14600501", "Producto B", 3, 30]];
+    const leer = (pie: GridHoja["filas"]) => validarLecturaInventario({ hojas: [{ nombre: "Inventario", filas: [encabezadoStock, ...productos, [], ...pie] }], spec: specStock, origen: "patron" });
+
+    it("lo usa como total del archivo en vez de tomarlo por un producto sin valor", () => {
+      const r = leer([["Valor stock : 50.00                    "]]);
+      expect(r.errores).toEqual([]);
+      expect(r.listoParaBorrador).toBe(true);
+      expect(r.resumen).toMatchObject({ filasIncluidas: 2, valorLeido: 50, totalDeclarado: 50, diferencia: 0 });
+      expect(r.spec).toMatchObject({ subtotalesFila: 5, subtotalesColumna: 1 });
+    });
+
+    it("también con un rótulo de total, y avisa si no cuadra sin tocar los importes", () => {
+      const r = leer([["Total general: 55"]]);
+      expect(r.errores).toEqual([]);
+      expect(r.resumen).toMatchObject({ valorLeido: 50, totalDeclarado: 55, diferencia: 5 });
+      expect(r.advertencias.some((a) => a.includes("difiere"))).toBe(true);
+    });
+
+    it("no toma por total otro dato con dos puntos ni elige entre varios", () => {
+      for (const pie of [[["Cantidad : 5"]], [["Valor stock : 50"], ["Total general: 50"]], [["Valor stock : 50", "Nota"]]]) {
+        const r = leer(pie);
+        expect(r.resumen.totalDeclarado).toBeNull();
+        expect(r.spec?.subtotalesFila).toBeUndefined();
+      }
+    });
+  });
+
   it("informa una diferencia real de total sin cambiar importes ni invalidar el mapa", () => {
     const original = hoja([...detalle, ["Total general", null, null, null, null, 55]]);
     const antes = structuredClone(original);

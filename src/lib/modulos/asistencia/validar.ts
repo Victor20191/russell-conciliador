@@ -7,6 +7,7 @@ import { SpecModuloSchema, type SpecModulo } from "../extraccion/esquema";
 import { norm, puntajeRol } from "../extraccion/sugerir";
 import { transformarModulo, type ResultadoTransformModulo } from "../extraccion/transformar";
 import { prepararSpecLecturaEstructurada } from "../extraccion/lectura-estructurada";
+import { filaDeTotalEnTexto } from "../extraccion/total-en-texto";
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import { esImputable } from "../promocion";
 import { controlSubtotales, esRotuloGranTotal, TOLERANCIA_CONTROL } from "../subtotales";
@@ -157,6 +158,22 @@ function validarInterna(input: EntradaValidacionInventario, lecturaPreparada?: R
   if (totales.length === 1 && spec.subtotalesFila == null) {
     spec.subtotalesFila = totales[0].fila;
     spec.subtotalesColumna = spec.columnas.valorTotal;
+  }
+  // El total también puede venir escrito junto a su rótulo en una línea propia («Valor stock :
+  // 6,042,080,922.47»). Vale si el rótulo es el de la columna del valor o un «Total», y solo si
+  // es el único total del archivo: con varios no se adivina cuál controla.
+  if (totales.length === 0 && spec.subtotalesFila == null && spec.columnas.valorTotal > 0) {
+    const rotuloColumnaValor = norm(hoja.filas[spec.filaEncabezado - 1]?.[spec.columnas.valorTotal - 1]);
+    const enTexto = hoja.filas.flatMap((fila, i) => {
+      if (i < spec.primeraFilaDatos - 1) return [];
+      const total = filaDeTotalEnTexto(fila);
+      const rotuloValido = total != null && (esRotuloGranTotal(total.rotulo) || (rotuloColumnaValor !== "" && norm(total.rotulo) === rotuloColumnaValor));
+      return rotuloValido ? [{ fila: hoja.filasFisicas?.[i] ?? i + 1, columna: total.columna }] : [];
+    });
+    if (enTexto.length === 1) {
+      spec.subtotalesFila = enTexto[0].fila;
+      spec.subtotalesColumna = enTexto[0].columna;
+    }
   }
   const lectura = lecturaPreparada ?? transformarModulo(INV, spec, hoja);
   const incluidas = lectura.filas.filter((fila) => esImputable({ ...fila, omitida: fila.omitida ?? null }, NUMERICAS));
