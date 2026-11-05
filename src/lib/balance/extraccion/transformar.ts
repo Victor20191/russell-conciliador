@@ -12,11 +12,15 @@ import type { CeldaCruda, GridHoja } from "./ingesta";
 import type { FilaTerceroCruda } from "@/lib/balance/staging-tercero";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { PREFIJO_LETRAS_PEGADAS, detectarLetrasPegadasDocumento, reconocerIdentidadTercero } from "@/lib/balance/identidad-tercero";
+import { clasificarBloquesCuentaTercero, mismoNombre, type FilaBloque } from "./bloques-cuenta-tercero";
 
 // Nivel mínimo de imputación del PUC: ninguna cuenta de MOVIMIENTO es más corta
 // que la subcuenta (6 dígitos). Clases/grupos/cuentas (1/2/4 díg.) nunca son
 // hojas aunque el archivo las traiga "sueltas" (sin subcuentas debajo).
 const LONGITUD_MIN_IMPUTABLE = 6;
+
+export const REGLA_CUENTA_REPETIDA_OTRA_NOTACION = "Cuenta repetida en otra notación";
+export const REGLA_TERCERO_SIN_DOCUMENTO = "Tercero sin documento dentro del detalle de la cuenta";
 
 export type Cabecera = {
   nit: Origen;
@@ -306,7 +310,14 @@ const ENCABEZADO_NOMBRE_TERCERO = /(nombre|raz[oó]n)\s*(de\s*|del\s*)?(tercero|
  * Las coincidencias ambiguas y las dimensiones con rótulo no se reinterpretan.
  */
 export function resolverColumnaNombreTercero(spec: MappingSpec, hoja: GridHoja): MappingSpec["columnas"] {
-  const cols = spec.columnas;
+  // La columna del nombre de la CUENTA no sirve para identificar al tercero aunque en
+  // las filas de detalle traiga su nombre (QUIFARMA: «Descripcion» es la cuenta o el
+  // tercero según la fila): toda fila de cuenta tiene nombre, así que como identidad
+  // volvería terceros a todas. Con documento en su columna, el nombre del tercero se
+  // toma de esa misma columna al capturar el detalle.
+  const cols = spec.columnas.tercero > 0 && spec.columnas.nombreTercero && spec.columnas.nombreTercero === spec.columnas.nombre
+    ? { ...spec.columnas, nombreTercero: 0 }
+    : spec.columnas;
   if (cols.nombreTercero || cols.tercero <= 0) return cols;
   const encabezado = hoja.filas[spec.filaEncabezado - 1];
   if (!encabezado) return cols;
@@ -587,6 +598,38 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     return padres > 0 && hojas > 0 && padresBold / padres >= 0.8 && (hojas - hojasBold) / hojas >= 0.8;
   })();
 
+  // Cuenta RE-LISTADA antes de sus terceros (ver `bloques-cuenta-tercero.ts`): la repetición
+  // de la cuenta en otra notación no se suma y las filas sin documento del detalle
+  // («*SIN NOMBRE*») son terceros de la cuenta, no más cuenta. Solo con el detalle inferido
+  // por fila consolidada (sin columna marcadora ni el formato de cuentas en negrita).
+  const bloques = ((): ReturnType<typeof clasificarBloquesCuentaTercero> | null => {
+    if (!tieneColumnaTercero || spec.reglaDetalle.tipo === "columna" || descartarTerceroNegrita) return null;
+    const filasBloque: FilaBloque[] = [];
+    for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+      if (detalleBajoTotalTercero.has(r)) continue;
+      const fila = hoja.filas[r] ?? [];
+      const codigo = normalizarCodigo(celdaCodigo(fila, cols));
+      if (!/^\d+$/.test(codigo)) continue;
+      const si = (tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0) ?? 0;
+      const db = (cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0) ?? 0;
+      const cr = (cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0) ?? 0;
+      filasBloque.push({
+        indice: r,
+        codigo,
+        crudo: texto(celdaCodigo(fila, cols)),
+        conIdentidad: tieneIdentidadTercero(fila, cols),
+        nombre: texto(cell(fila, cols.nombre)),
+        saldoInicial: si,
+        debitos: db,
+        creditos: cr,
+        saldoFinal: leerSaldoFinal(fila, cols, si, db, cr) ?? 0,
+      });
+    }
+    return clasificarBloquesCuentaTercero(filasBloque);
+  })();
+  let filasRepeticionCuenta = 0;
+  let filasTerceroSinDocumento = 0;
+
   let filasLeidas = 0;
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
@@ -732,7 +775,9 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // Captura una fila (cuenta × tercero) para el staging paralelo. El NIT queda en
     // su clave canónica (la misma bajo la que cruzan los módulos); sin NIT ni nombre
     // reconocibles queda como tercero «Genérico».
-    const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }, identidadExplicita?: { documento: string; nombre: string }): void => {
+    // `nombreRespaldo`: nombre del tercero cuando no tiene columna propia y la del nombre
+    // de la cuenta lo trae en la fila de detalle (último recurso, tras la celda del documento).
+    const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }, identidadExplicita?: { documento: string; nombre: string }, nombreRespaldo?: string): void => {
       if (!codigoCuenta) return;
       const prefijoDocumento = prefijoDocumentoEfectivo;
       // Sin documento en su columna, se toma el de la columna alterna (ver
@@ -750,10 +795,15 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       // que el resto que `normalizarTerceroModulo` intenta desprender de la
       // celda de documento (que aquí solo trae el número).
       const nombreColumna = cols.nombreTercero ? texto(cell(fila, cols.nombreTercero)) : "";
-      const nombreTercero = identidadExplicita?.nombre || nombreColumna || t.nombre;
+      // Un documento alfanumérico sin nombre pegado («TCM-0761», «L23000424818») vuelve
+      // entero como «nombre»: con respaldo, ese no es el nombre del tercero.
+      const nombreDelDocumento = t.nombre && !(nombreRespaldo && /\d/.test(t.nombre) && !/\s/.test(t.nombre)) ? t.nombre : null;
+      const nombreTercero = identidadExplicita?.nombre || nombreColumna || nombreDelDocumento || nombreRespaldo || null;
       const identidadTercero = reconocerIdentidadTercero({
         documento: identidadExplicita?.documento ?? (documentoAlterno || (cols.tercero > 0 ? cell(fila, cols.tercero) : terceroRaw)),
-        nombre: identidadExplicita?.nombre ?? cell(fila, cols.nombreTercero ?? 0),
+        // Sin columna de nombre, manda el nombre pegado al documento (lo separa
+        // `reconocerIdentidadTercero`); el respaldo solo cuando el documento no lo trae.
+        nombre: identidadExplicita?.nombre ?? (nombreColumna ? cell(fila, cols.nombreTercero ?? 0) : nombreDelDocumento ? null : nombreRespaldo ?? null),
         tipo: cell(fila, cols.tipoDocumentoTercero ?? 0),
         dv: cell(fila, cols.dvTercero ?? 0),
       }, prefijoDocumento);
@@ -892,6 +942,20 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         continue; // tercero → descartar
       }
     }
+    // Cuenta re-listada en otra notación con los mismos importes: ya está contada una vez.
+    if (bloques?.repeticiones.has(r)) {
+      filasExcluidas++;
+      filasRepeticionCuenta++;
+      continue;
+    }
+    // Fila sin documento dentro del detalle de la cuenta («*SIN NOMBRE*»): es un tercero
+    // más (sin él los terceros no suman la cuenta) y su importe ya está en la cuenta.
+    if (bloques?.tercerosSinDocumento.has(r)) {
+      filasExcluidas++;
+      filasTerceroSinDocumento++;
+      capturarTercero(code, bloques.nombreCuenta.get(code) ?? name, "", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 }, { documento: "", nombre: name });
+      continue;
+    }
     // Variante jerárquica del balance por terceros: puede haber más de una fila
     // sin tercero para el mismo código (Cuenta + subtotales de dimensiones
     // internas). La señal autoritativa es `reglaDetalle` (p. ej. Cuenta frente a
@@ -912,10 +976,17 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     if (omitirDetalleTerceroPorConsolidadoInferido(code, fila)) {
       filasExcluidas++;
       filasDetalleTerceroExcluidas++;
-      capturarTercero(code, name, texto(cell(fila, cols.tercero)), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
+      // La cuenta se nombra por su fila consolidada. Sin columna para el nombre del
+      // tercero, si la del nombre trae otro texto que el de la cuenta, es el del tercero.
+      const nombreCuenta = bloques?.nombreCuenta.get(code);
+      const nombreRespaldo = nombreCuenta && !cols.nombreTercero && name && !mismoNombre(name, nombreCuenta) ? name : undefined;
+      capturarTercero(code, nombreCuenta ?? name, texto(cell(fila, cols.tercero)), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 }, undefined, nombreRespaldo);
       continue;
     }
-    const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
+    // También la cuenta cuyo detalle es solo un tercero sin documento («*SIN NOMBRE*»):
+    // su negrita es la de la cuenta, no la de una agrupadora.
+    const consolidadoConDetalleTercero = (codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code))
+      || (bloques?.codigos.has(code) ?? false);
     // SAP/otros ERP pueden omitir la fila `Cuenta` cuando un auxiliar termina en
     // saldo neto cero, aunque sus filas NIT sí contengan saldo inicial o rotación
     // débito/crédito. En ausencia de cualquier `Cuenta` marcada para ESE código,
@@ -1053,6 +1124,26 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       valor: `${filasDetalleTerceroExcluidas} fila(s)`,
       regla: "Detalle por tercero omitido por fila consolidada",
       accion: "Se usó la fila consolidada sin tercero del mismo código para evitar doble conteo.",
+    });
+  }
+  if (filasRepeticionCuenta > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "codigo",
+      valor: `${filasRepeticionCuenta} fila(s)`,
+      regla: REGLA_CUENTA_REPETIDA_OTRA_NOTACION,
+      accion: "La cuenta venía dos veces con los mismos importes (p. ej. 11050501 y 1105-05-01) antes de sus terceros; se contó una sola vez.",
+    });
+  }
+  if (filasTerceroSinDocumento > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasTerceroSinDocumento} fila(s)`,
+      regla: REGLA_TERCERO_SIN_DOCUMENTO,
+      accion: "Filas sin NIT dentro del detalle de una cuenta (p. ej. «*SIN NOMBRE*»): se guardaron como tercero sin documento y no se sumaron otra vez a la cuenta. Con ellas, los terceros suman el total de cada cuenta.",
     });
   }
   if (filasDetalleBajoTotalTercero > 0) {

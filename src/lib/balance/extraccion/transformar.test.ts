@@ -1324,3 +1324,87 @@ describe("subtotalesTercero (panel «Ajustar lectura terceros»)", () => {
     expect(r.filasTercero).toHaveLength(2);
   });
 });
+
+describe("transformarTabular — cuenta re-listada con guiones y tercero «*SIN NOMBRE*» (QUIFARMA)", () => {
+  // Cada cuenta viene plana («11050501», el total), repetida con guiones («1105-05-01») y
+  // debajo sus terceros con el mismo código: con NIT y, a veces, «*SIN NOMBRE*» sin NIT.
+  // La columna C es el nombre de la cuenta o el del tercero según la fila; las cuentas
+  // van en negrita.
+  const T = Array(7).fill(true);
+  const N = Array(7).fill(false);
+  function hojaQuifarma(): GridHoja {
+    const filas: GridHoja["filas"] = [["Cuenta", "NIT", "Descripcion", "Saldo Inicial", "Debitos", "Creditos", "Saldo Final"]];
+    const negrita: boolean[][] = [T];
+    const fila = (valores: GridHoja["filas"][number], b: boolean) => { filas.push(valores); negrita.push(b ? T : N); };
+    fila(["1105", "", "CAJA", 130, 12, 47, 95], true);
+    fila(["110505", "", "CAJA", 130, 12, 47, 95], true);
+    fila(["11050501", "", "CAJA GENERAL", 100, 0, 40, 60], true);
+    fila(["1105-05-01", "", "CAJA GENERAL", 100, 0, 40, 60], true);
+    fila(["1105-05-01", "", "*SIN NOMBRE*                    ", 10, 0, 0, 10], false);
+    fila(["1105-05-01", "890938300", "QUIFARMA S.A.S                  ", 90, 0, 40, 50], false);
+    // Sin fila plana: la de guiones ES la cuenta.
+    fila(["1105-05-04", "", "DOLARES EN CAJA", 30, 5, 0, 35], true);
+    fila(["1105-05-04", "", "*SIN NOMBRE*", -5, 5, 0, 0], false);
+    fila(["1105-05-04", "TCM-0761", "BANCOLOMBIA S.A", 35, 0, 0, 35], false);
+    // Solo un tercero, sin NIT, con los mismos importes de la cuenta.
+    fila(["11050508", "", "CAJA ECOMMERCE", 0, 7, 7, 0], true);
+    fila(["1105-05-08", "", "CAJA ECOMMERCE", 0, 7, 7, 0], true);
+    fila(["1105-05-08", "", "*SIN NOMBRE*", 0, 7, 7, 0], false);
+    fila(["1305", "", "CLIENTES", 350, 70, 35, 385], true);
+    fila(["130505", "", "NACIONALES", 350, 70, 35, 385], true);
+    fila(["13050501", "", "CLIENTES NACIONALES", 350, 70, 35, 385], true);
+    fila(["1305-05-01", "", "CLIENTES NACIONALES", 350, 70, 35, 385], true);
+    for (let i = 0; i < 35; i++) fila(["1305-05-01", String(900000100 + i), `CLIENTE ${i} S.A.S`, 10, 2, 1, 11], false);
+    fila(["Total General", "", "", 0, 82, 82, 0], false);
+    return { nombre: "SEPTIEMBRE", filas, negrita };
+  }
+  const columnas = { ...spec().columnas, codigo: 1, nombre: 3, saldoInicial: 4, debitos: 5, creditos: 6, saldoFinal: 7, tercero: 2, nombreTercero: 0 };
+  const specQ = (over: Partial<MappingSpec["columnas"]> = {}) =>
+    spec({ hoja: "SEPTIEMBRE", signoCredito: "magnitud", columnas: { ...columnas, ...over } });
+
+  it("cuenta cada auxiliar una sola vez y cuadra contra el total del archivo", () => {
+    const rr = transformarTabular(specQ(), [hojaQuifarma()], PARAMS);
+    const porCodigo = Object.fromEntries(rr.importReady.map((c) => [c.code, [c.prevBalance, c.debitos, c.creditos, c.balance]]));
+    expect(porCodigo).toEqual({
+      "11050501": [100, 0, 40, 60],
+      "11050504": [30, 5, 0, 35],
+      "11050508": [0, 7, 7, 0],
+      "13050501": [350, 70, 35, 385],
+    });
+    expect(rr.cuadre.cuadra).toBe(true);
+    // Ni la repetición ni los terceros sin documento llegan como filas de la cuenta.
+    expect(rr.filasCrudas.filter((f) => f.tipoFila === "movimiento").map((f) => f.codigoCrudo)).toEqual(["11050501", "1105-05-04", "11050508", "13050501"]);
+    expect(rr.excepciones.find((e) => e.regla === "Cuenta repetida en otra notación")?.valor).toBe("3 fila(s)");
+    expect(rr.excepciones.find((e) => e.regla === "Tercero sin documento dentro del detalle de la cuenta")?.valor).toBe("3 fila(s)");
+  });
+
+  it("guarda el «*SIN NOMBRE*» como tercero y los terceros de cada cuenta suman su total", () => {
+    const rr = transformarTabular(specQ(), [hojaQuifarma()], PARAMS);
+    const terceros = rr.filasTercero ?? [];
+    const caja = terceros.filter((t) => t.codigo === "11050501");
+    expect(caja.map((t) => [t.nitTercero, t.nombreTercero, t.nombreCuenta, t.saldoFinal])).toEqual([
+      [null, "*SIN NOMBRE*", "CAJA GENERAL", 10],
+      ["890938300", "QUIFARMA S.A.S", "CAJA GENERAL", 50],
+    ]);
+    expect(caja[1].identidadTercero?.nombre).toBe("QUIFARMA S.A.S");
+    // Documento alfanumérico: el nombre es el de la columna C, el documento se conserva.
+    const dolares = terceros.filter((t) => t.codigo === "11050504");
+    expect(dolares.map((t) => t.nombreTercero)).toEqual(["*SIN NOMBRE*", "BANCOLOMBIA S.A"]);
+    expect(dolares[1].identidadTercero?.numeroDocumento).toBe("TCM-0761");
+    expect(terceros.filter((t) => t.codigo === "11050508").map((t) => t.nombreTercero)).toEqual(["*SIN NOMBRE*"]);
+    for (const c of rr.importReady) {
+      const suyos = terceros.filter((t) => t.codigo === c.code);
+      expect(suyos.reduce((s, t) => s + t.saldoInicial, 0)).toBeCloseTo(c.prevBalance ?? 0, 2);
+      expect(suyos.reduce((s, t) => s + t.debitos, 0)).toBeCloseTo(c.debitos ?? 0, 2);
+      expect(suyos.reduce((s, t) => s + t.creditos, 0)).toBeCloseTo(c.creditos ?? 0, 2);
+      expect(suyos.reduce((s, t) => s + t.saldoFinal, 0)).toBeCloseTo(c.balance, 2);
+    }
+  });
+
+  it("lee igual si la estructura declara la columna del nombre de la cuenta como nombre del tercero", () => {
+    const base = transformarTabular(specQ(), [hojaQuifarma()], PARAMS);
+    const compartida = transformarTabular(specQ({ nombreTercero: 3 }), [hojaQuifarma()], PARAMS);
+    expect(compartida.importReady).toEqual(base.importReady);
+    expect(compartida.filasTercero?.map((t) => [t.codigo, t.nitTercero, t.nombreTercero])).toEqual(base.filasTercero?.map((t) => [t.codigo, t.nitTercero, t.nombreTercero]));
+  });
+});
