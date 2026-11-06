@@ -26,7 +26,7 @@ Especificación y decisiones del usuario en `docs/impuestos/retencion-fuente/` (
 
 - **Pagos efectuados · columna «Alerta»**: dice qué recibo 490 falta adjuntar (`conceptosSinRecibo`), en pantalla y en el Excel. Sale del desglose ya guardado, así que no cambia la forma de la copia congelada y también se ve en las revisiones en firme.
 
-- **Pagos efectuados · intereses aparte**: «Total pagado» es impuesto + sanción, así que Total pagado − Total (138) = Diferencia; los intereses de mora van en su propia sección y no se comparan. En «Por meses» y «Acumulado», «Total pagado» sigue siendo lo que dicen los recibos (34 + 35 + 36).
+- **Pagos efectuados · intereses aparte**: «Total pagado antes de intereses» (así se llama la columna desde el 6/Nov/2026) es impuesto + sanción, así que Total pagado antes de intereses − Total (138) = Diferencia; los intereses de mora van en su propia sección y no se comparan. En «Por meses» y «Acumulado», «Total pagado» sigue siendo lo que dicen los recibos (34 + 35 + 36).
 
 - **Calendario · importar el PDF**: la propuesta solo vive en la pantalla, así que salir o recargar mientras la IA lee la pierde y la lectura igual se cobra. `useAvisoSalidaSinGuardar` lo avisa mientras lee, y un fallo de la IA se explica con `mensajeErrorIA`.
 

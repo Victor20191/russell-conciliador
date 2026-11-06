@@ -221,7 +221,7 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">
-        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar.
+        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar.
       </Card>
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
@@ -230,7 +230,9 @@ export function VistaPagos({
               <th rowSpan={2} className="px-2 py-2 align-bottom">Período</th>
               <th colSpan={3} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor declarado · Formulario 350</th>
               <th colSpan={3} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor pagado · Recibos 490</th>
-              <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Resultado · Declarado contra pagado</th>
+              <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>
+                Resultado · <span className="whitespace-nowrap">Valor declarado vs valor pagado</span>
+              </th>
               <th className={`${BORDE_RESULTADO} whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Intereses pagados</th>
               <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
             </tr>
@@ -240,7 +242,7 @@ export function VistaPagos({
               <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total (138)</th>
               <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>Impuesto pagado</th>
               <th className="px-2 py-2 text-right">Sanción pagada</th>
-              <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total pagado</th>
+              <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total pagado antes de intereses</th>
               <th className={`${BORDE_RESULTADO} px-2 py-2 text-right`}>Diferencia</th>
               <th className="px-2 py-2">Estado</th>
               <th className="px-2 py-2">Alerta</th>
