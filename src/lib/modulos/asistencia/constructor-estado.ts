@@ -167,3 +167,17 @@ export function asignarPartesSugeridas(modelo: ModeloUsuarioInventario, producto
   }
   return { modelo: actual, aviso: avisos.length ? { nivel: "aviso", mensaje: avisos.join(" ") } : null };
 }
+
+/**
+ * Tras una lectura, ¿se abre solo el Diseñador de formato? Sí cuando la lectura automática no
+ * entendió el archivo o la IA tiene dudas sobre él. No cuando lo que falló es el ajuste de filas o
+ * columnas que hizo la persona: ahí lo útil es decirle por qué, junto a sus ajustes, para que los
+ * corrija o los deshaga.
+ */
+export function abrirDisenadorTrasLectura(
+  lectura: { estado: string; preguntas?: readonly { id: string }[] },
+  ajusteManual: boolean,
+): boolean {
+  if (lectura.estado === "error_recuperable") return !ajusteManual;
+  return (lectura.preguntas ?? []).some((p) => p.id.startsWith("ia_"));
+}

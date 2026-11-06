@@ -77,6 +77,12 @@ export function fichaModuloCargados(d: DescriptorModulo): FichaAyuda {
             aplica: esInv,
           },
           {
+            nombre: "Ajustes avanzados de lectura",
+            queHace: "Cambian la fila de encabezado, la primera fila de datos y la columna de cada campo. Si con esos ajustes el archivo no se puede leer, el motivo aparece junto al botón y «Deshacer mis ajustes» vuelve a la última lectura que sí salió.",
+            regla: REGLAS.cargarModulo,
+            aplica: esInv,
+          },
+          {
             nombre: "¿El archivo trae el valor total?",
             queHace: "Con «Sí, confirmo su ubicación» ubicas la celda del total para comprobar que el archivo cuadra; con «No trae total» se lee sin ese control.",
             regla: REGLAS.cargarModulo,
@@ -285,7 +291,7 @@ export function fichaModuloBorrador(d: DescriptorModulo): FichaAyuda {
           },
           {
             nombre: "Diseñador de formato",
-            queHace: "Armas uno o dos productos de ejemplo sobre el archivo original para enseñar al sistema a leerlo.",
+            queHace: "Armas uno o dos productos de ejemplo sobre el archivo original para enseñar al sistema a leerlo. Se abre solo cuando la lectura automática no entiende el archivo o la asistencia tiene dudas; un ajuste de filas o columnas que falla no lo abre.",
             regla: REGLAS.cargarModulo,
             aplica: esInv,
           },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agregarProducto, asignarPartesSugeridas, filasConProblemas, hojaInicialEjemplo, marcarInicioProducto, marcasEnCelda, modeloParaEnviar, quitarProducto, soltarDato } from "./constructor-estado";
+import { abrirDisenadorTrasLectura, agregarProducto, asignarPartesSugeridas, filasConProblemas, hojaInicialEjemplo, marcarInicioProducto, marcasEnCelda, modeloParaEnviar, quitarProducto, soltarDato } from "./constructor-estado";
 import { ModeloUsuarioSchema, modeloVacio } from "./modelo-usuario";
 
 const texto = "Ref: MP-001 | Cant: 120 | Total: 300000";
@@ -107,5 +107,21 @@ describe("constructor de la lectura por ejemplo", () => {
     expect(r.modelo.productos[0].asignaciones.map((a) => [a.rol, celda.texto.slice(a.inicio, a.fin)])).toEqual([
       ["referencia", "PP-004"], ["descripcion", "Pieza"], ["tipo", "Productos en proceso"], ["cantidad", "60"], ["valorUnitario", "12000"], ["valorTotal", "720000"],
     ]);
+  });
+});
+
+describe("cuándo se abre solo el Diseñador de formato", () => {
+  it("se abre cuando la lectura automática no salió o la IA tiene dudas", () => {
+    expect(abrirDisenadorTrasLectura({ estado: "error_recuperable" }, false)).toBe(true);
+    expect(abrirDisenadorTrasLectura({ estado: "requiere_respuesta", preguntas: [{ id: "ia_cantidad" }] }, false)).toBe(true);
+  });
+
+  it("no se abre cuando falla el ajuste de filas o columnas que hizo la persona", () => {
+    expect(abrirDisenadorTrasLectura({ estado: "error_recuperable", preguntas: [] }, true)).toBe(false);
+  });
+
+  it("no se abre por una pregunta que no es de la IA ni con la lectura lista", () => {
+    expect(abrirDisenadorTrasLectura({ estado: "requiere_respuesta", preguntas: [{ id: "hoja" }] }, false)).toBe(false);
+    expect(abrirDisenadorTrasLectura({ estado: "borrador_preparado", preguntas: [] }, true)).toBe(false);
   });
 });

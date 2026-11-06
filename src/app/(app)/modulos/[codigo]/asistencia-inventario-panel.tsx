@@ -8,7 +8,7 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { EjemploLecturaInventario, PreguntaAsistenciaInventario, ResumenLecturaInventario } from "@/lib/modulos/asistencia/tipos";
 import type { EstadoAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
 import { EditorMapeoModulo, type RolModulo } from "./editor-mapeo-modulo";
-import { hojaInicialEjemplo } from "@/lib/modulos/asistencia/constructor-estado";
+import { abrirDisenadorTrasLectura, hojaInicialEjemplo } from "@/lib/modulos/asistencia/constructor-estado";
 import { modeloVacio, type ModeloUsuarioInventario } from "@/lib/modulos/asistencia/modelo-usuario";
 import { ConstructorLectura, type ConsultaVentana } from "./constructor-lectura/constructor-lectura";
 
@@ -71,6 +71,12 @@ export function AsistenciaInventarioPanel({
   const [analisisVista, setAnalisisVista] = useState(resultadoInicial.analisis ?? analisisInicial);
   const [spec, setSpec] = useState<SpecModulo | null>(resultadoInicial.spec ?? analisisInicial?.spec ?? null);
   const [specEditado, setSpecEditado] = useState(false);
+  // Si el ajuste de filas o columnas no se puede leer, el motivo va junto al botón (no se abre el
+  // Diseñador) y «Deshacer mis ajustes» vuelve a la última lectura que sí salió.
+  const [falloAjuste, setFalloAjuste] = useState<string | null>(null);
+  const [lecturaValida, setLecturaValida] = useState<{ resultado: ResultadoAsistenciaVista; spec: SpecModulo | null; analisis: AnalisisModulo | null | undefined }>(() => ({
+    resultado: resultadoInicial, spec: resultadoInicial.spec ?? analisisInicial?.spec ?? null, analisis: resultadoInicial.analisis ?? analisisInicial,
+  }));
   const [hoja, setHoja] = useState<string | undefined>();
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [instrucciones, setInstrucciones] = useState("");
@@ -124,14 +130,30 @@ export function AsistenciaInventarioPanel({
   const mostrarSelectorHoja = hojasArchivo.length > 1 && !constructorAbierto && !confirmado && !consultando
     && !resultado.preguntas?.some((p) => p.id === "hoja");
 
+  // Vuelve a la última lectura que salió (su resumen, sus avisos y su mapa), con la revisión vigente.
+  // El mapa va como manual: la lectura guardada ahora es la del ajuste que falló, y releer sin mapa
+  // partiría de ella.
+  const deshacerAjustes = () => {
+    if (!lecturaValida.spec) return;
+    setResultado((actual) => ({ ...lecturaValida.resultado, revision: actual.revision }));
+    setSpec(lecturaValida.spec);
+    if (lecturaValida.analisis) setAnalisisVista(lecturaValida.analisis);
+    setSpecEditado(true);
+    setCambioPendiente(true);
+    setFalloAjuste(null);
+  };
+
   const puedeConservarActual = correccion &&resultado.resumenAnterior != null && resultado.revision != null && !consultando && !confirmado && resultado.estado !== "borrador_preparado";
 
   const ejecutar = (accion: "preparar" | "aplicar" | "conservar" = "preparar", modelo?: ModeloUsuarioInventario) => {
     const aplicar = accion === "aplicar";
     const conservar = accion === "conservar";
     if (enCurso.current || confirmado || (conservar && !puedeConservarActual) || (aplicar && (!propuestaVigente || (resultado.hayEdicionesIncompatibles && !descartarIncompatibles)))) return;
+    // Lo que se envía como mapa manual: las filas y columnas que la persona ajustó a mano.
+    const ajusteManual = !aplicar && !conservar && !consultando && !modelo && specEditado && spec != null;
     enCurso.current = true;
     setError(null);
+    setFalloAjuste(null);
     startTrabajo(async () => {
       try {
         const siguiente = conservar
@@ -155,7 +177,13 @@ export function AsistenciaInventarioPanel({
         if ("spec" in siguiente && siguiente.spec) setSpec(siguiente.spec);
         // Mientras el usuario no haya armado nada, el ejemplo muestra lo último que se entendió.
         if (!modelo && !modeloEditado && "modeloSugerido" in siguiente) setModeloEjemplo(siguiente.modeloSugerido ?? null);
-        if ("preguntas" in siguiente && (siguiente.estado === "error_recuperable" || siguiente.preguntas?.some((p) => p.id.startsWith("ia_")))) abrirConstructor(true);
+        if ("preguntas" in siguiente && abrirDisenadorTrasLectura(siguiente, ajusteManual)) abrirConstructor(true);
+        if (ajusteManual && siguiente.estado === "error_recuperable") {
+          setFalloAjuste(siguiente.message || "La lectura necesita otro ajuste de filas o columnas.");
+        }
+        if (siguiente.ok && "spec" in siguiente && siguiente.spec) {
+          setLecturaValida({ resultado: siguiente, spec: siguiente.spec, analisis: ("analisis" in siguiente ? siguiente.analisis : undefined) ?? analisis });
+        }
         if (siguiente.ok) {
           // El servidor ya guardó estas indicaciones. Volver a enviarlas al responder una
           // pregunta forzaría otra llamada IA aunque solo falte resolver esa ambigüedad.
@@ -186,7 +214,7 @@ export function AsistenciaInventarioPanel({
           : "Reconocemos el formato y preparamos el borrador. Solo necesitamos tu ayuda si algún dato admite más de una interpretación."}</p>
       </div>
 
-      {resultado.message && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-100 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
+      {resultado.message && !falloAjuste && <p role={resultado.ok ? "status" : "alert"} className={`rounded-md border px-3 py-2.5 leading-relaxed ${resultado.ok ? "border-blue-200 bg-blue-100 text-navy-800" : "border-err-200 bg-err-50 text-err-700"}`}>{resultado.message}</p>}
       {error && <p role="alert" className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-err-700">{error}</p>}
       {mostrarSelectorHoja && (
         <div className="flex min-w-0 flex-col gap-1.5">
@@ -305,12 +333,21 @@ export function AsistenciaInventarioPanel({
         </label>
       )}
       {propuesta && cambioPendiente && <p role="status" className="text-[11px] text-warn-700">Hay nuevas indicaciones. Revisa otra vez la propuesta antes de aplicarla.</p>}
+      {falloAjuste && (
+        <div role="alert" className="flex flex-col gap-2 rounded-md border border-err-200 bg-err-50 px-3 py-2.5 leading-relaxed text-err-700">
+          <p><span className="font-semibold">Con tus ajustes no se pudo leer el archivo:</span> {falloAjuste}</p>
+          <p className="text-[11.5px]">Corrige las filas o columnas en «Ajustes avanzados de lectura» y vuelve a continuar, o deshaz tus ajustes para seguir con la lectura sugerida.</p>
+          {lecturaValida.spec && (
+            <button type="button" className={`${secundario} self-start`} disabled={trabajando} onClick={deshacerAjustes}>Deshacer mis ajustes</button>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-ink-100 pt-3">
         {trabajando && <span role="status" className="mr-auto text-[11.5px] text-ink-500">{consultando ? "Consultando…" : "Revisando el archivo completo…"}</span>}
         {puedeConservarActual && <button type="button" className={secundario} disabled={trabajando} onClick={() => ejecutar("conservar")} title="Descartar esta propuesta y conservar la lectura y los cambios ya guardados en el borrador.">Conservar lectura actual</button>}
         {!confirmado && (!propuestaVigente || consultando) && (
           <button type="button" className={primario} disabled={trabajando || (!consultando && faltanRespuestas) || (necesitaCorreccion && !cambioPendiente)} onClick={() => ejecutar()}>
-            {consultando ? "Consultar avance" : eligioOtraHoja ? "Leer esta hoja" : pideReinterpretar ? "Revisar interpretación" : resultado.estado === "error_recuperable" ? "Reintentar lectura" : correccion ? "Revisar propuesta" : "Continuar al borrador"}
+            {consultando ? "Consultar avance" : eligioOtraHoja ? "Leer esta hoja" : pideReinterpretar ? "Revisar interpretación" : resultado.estado === "error_recuperable" && !specEditado ? "Reintentar lectura" : correccion ? "Revisar propuesta" : "Continuar al borrador"}
           </button>
         )}
         {propuestaVigente && (
