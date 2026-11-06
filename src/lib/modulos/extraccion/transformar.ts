@@ -160,14 +160,22 @@ const aNumero = (c: CeldaCruda): number | null =>
  * negrita de las columnas CLAVE (clasificador + valor): un renglón donde esas celdas van
  * en negrita es un subtotal del ERP, no un ítem. Si el archivo no trae negrita (xls/csv),
  * nunca marca agrupadora aquí (el usuario lo hace a mano en el borrador).
+ *
+ * Inventarios: la negrita SOLO en la celda del tipo no la hace agrupadora si la fila trae su
+ * producto en letra normal —referencia o descripción y un valor—. QUIFARMA resalta así la cuenta
+ * en el primer producto de cada bloque y tras cada salto de página.
  */
-function esAgrupadoraPorNegrita(negritaFila: boolean[] | undefined, spec: SpecModulo, descriptor: DescriptorModulo): boolean {
+function esAgrupadoraPorNegrita(negritaFila: boolean[] | undefined, spec: SpecModulo, descriptor: DescriptorModulo, fila?: CeldaCruda[]): boolean {
   if (!negritaFila) return false;
-  const cols = [descriptor.clasificador, descriptor.valor]
-    .map((rol) => spec.columnas[rol] ?? 0)
-    .filter((c) => c >= 1);
+  const colValor = spec.columnas[descriptor.valor] ?? 0;
+  const cols = [spec.columnas[descriptor.clasificador] ?? 0, colValor].filter((c) => c >= 1);
   if (cols.length === 0) return false;
-  return cols.some((c) => negritaFila[c - 1] === true);
+  if (!cols.some((c) => negritaFila[c - 1] === true)) return false;
+  if (fila && descriptor.codigo === "INV" && colValor >= 1 && negritaFila[colValor - 1] !== true && aNumero(celda(fila, colValor)) != null) {
+    const detalle = columnasDetalle(descriptor, spec).map((rol) => spec.columnas[rol] ?? 0).filter((c) => c >= 1);
+    if (detalle.some((c) => aTexto(celda(fila, c)) != null) && detalle.every((c) => negritaFila[c - 1] !== true)) return false;
+  }
+  return true;
 }
 
 /**
@@ -388,6 +396,27 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
   // un rol) cuyo contenido marca las filas de subtotal.
   const colMarcaSubtotal = spec.subtotales === "manual" ? (spec.subtotalesColumna ?? 0) : 0;
+  // INVENTARIOS · los roles de texto del producto que el mapa lee (referencia, descripción): una
+  // fila sin ninguno no es un producto, sea un total suelto o el pie del informe.
+  const esInventario = descriptor.codigo === "INV";
+  const detalleInventario = esInventario ? columnasDetalle(descriptor, spec) : [];
+  const numericosInventario = esInventario ? descriptor.columnas.filter((c) => c.tipo !== "texto").map((c) => c.nombre) : [];
+  const colValorSpec = spec.columnas[descriptor.valor] ?? 0;
+  /**
+   * Importe de una fila de total que no lo trae en la columna del valor: el único número distinto
+   * de cero de la fila (QUIFARMA lo imprime bajo «Cantidad»). Con varios no se adivina cuál es. La
+   * celda prestada no es el dato de su propio rol en esta fila: no es una cantidad.
+   */
+  const tomarImporteFueraDeLaColumna = (fila: CeldaCruda[], datos: Record<string, ValorCelda>): void => {
+    if (colValorSpec < 1 || aTexto(celda(fila, colValorSpec)) != null) return;
+    const numeros = fila.flatMap((c, i) => (typeof c === "number" && Number.isFinite(c) && c !== 0 ? [{ valor: c, columna: i + 1 }] : []));
+    if (numeros.length !== 1) return;
+    const [{ valor, columna }] = numeros;
+    datos[descriptor.valor] = conSigno(valor);
+    for (const rc of descriptor.columnas) {
+      if (rc.nombre !== descriptor.valor && (spec.columnas[rc.nombre] ?? 0) === columna) datos[rc.nombre] = null;
+    }
+  };
   // ¿La fila es un ENCABEZADO DE SECCIÓN? (modo "seccion"): su clasificador tiene texto y,
   // o bien la columna marcada viene vacía (título, no ítem), o el clasificador va en negrita.
   const rolVacioSeccion = spec.seccionColumnaVaciaRol;
@@ -467,7 +496,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const fila = hoja.filas[r] ?? [];
       if (esPieDeReporte(fila) || esFilaDeEncabezado(fila)) continue;
       if ((spec.subtotalesColumna ?? 0) >= 1 && spec.subtotalesFila === filaFisicaDe(r)) continue;
-      if (esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor)) continue;
+      if (esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor, fila)) continue;
       const rotulo = clasCol >= 1 ? aTexto(celda(fila, clasCol)) : null;
       if (rotulo != null && esTotal(rotulo)) continue;
       if (formulaValor) {
@@ -618,6 +647,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const enTexto = totalEnTexto(celda(fila, spec.subtotalesColumna ?? 0));
       const tipoValor = descriptor.columnas.find((c) => c.nombre === descriptor.valor)?.tipo;
       if (enTexto) datos[descriptor.valor] = tipoValor === "moneda" ? conSigno(enTexto.importe) : enTexto.importe;
+      // Inventarios: o bajo otra columna de la misma fila («Gran Total:» de QUIFARMA, bajo «Cantidad»).
+      else if (esInventario) tomarImporteFueraDeLaColumna(fila, datos);
     }
 
     // 1.2) SIESA · marcas de relleno en los roles de identidad («*» en la columna del NIT de
@@ -758,6 +789,18 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       }
     }
 
+    // 1.55) INVENTARIOS · fila sin producto (sin referencia ni descripción) que dice «Subtotal:» o
+    //       «Gran Total:». Su importe puede venir bajo otra columna (QUIFARMA lo deja bajo
+    //       «Cantidad»): ese es su valor. Si el rótulo va en una columna sin rol (QUIFARMA lo
+    //       imprime en la J) es un total SUELTO: espera a la detección de subtotales y, si no
+    //       resulta, queda fuera del total; no hereda el tipo, el bloque de arriba le da su grupo.
+    const sinProductoInventario = esInventario && detalleInventario.every((rol) => aTexto(datos[rol]) == null);
+    const rotuloEnLaFila = sinProductoInventario && !marcaManualExacta
+      ? (fila.map((c) => aTexto(c)).find((t): t is string => t != null && esTotal(t)) ?? null)
+      : null;
+    const rotuloTotalInventario = rotuloClasificadorCrudo == null ? rotuloEnLaFila : null;
+    if (rotuloEnLaFila != null && !formulaValor) tomarImporteFueraDeLaColumna(fila, datos);
+
     // 1.6) Columnas de FAMILIA: `{ rótulo del ERP → importe }` por familia, más la Σ de los
     //      baldes que suman. Un balde de clase `excluir` («Deuda dudosa» de SAP) se guarda
     //      —el auditor tiene que verlo— pero no entra en la suma: ya está contado en los otros.
@@ -841,7 +884,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       datos[descriptor.clasificador] = seccionActual;
     } else if (modo === "arrastrar") {
       if (clasificador != null) ultimoClasificador = clasificador;
-      else { clasificador = ultimoClasificador; datos[descriptor.clasificador] = clasificador; }
+      else if (rotuloTotalInventario == null) { clasificador = ultimoClasificador; datos[descriptor.clasificador] = clasificador; }
     }
 
     // 4.5) Forward-fill de los roles arrastrables: la fila que los trae los fija; las de
@@ -1071,7 +1114,18 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       continue;
     }
 
-    const enNegrita = !marcaManualExacta && esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
+    // 5.c) INVENTARIOS · fila de solo texto: sin producto y sin ninguna cifra (cantidad, unitario,
+    //      valor). Es un título o el pie del informe («Reporte Inventario Valotizado por Cuenta LM,
+    //      INVVALGL.RPT» bajo la columna del tipo), no un producto sin valor: queda fuera del total,
+    //      visible en el borrador.
+    if (sinProductoInventario && !marcaManualExacta && rotuloEnLaFila == null && numericosInventario.every((rol) => aNumero(datos[rol]) == null)) {
+      filasExcluidas++;
+      filas.push({ filaNum, clasificador, valor: 0, datos, tipoFila: "agrupadora", motivo: "sin_producto" });
+      crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo, marcaManual: false, marcaManualExacta: false });
+      continue;
+    }
+
+    const enNegrita = !marcaManualExacta && esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor, fila);
     const omitidaPorNegrita = enNegrita && descriptor.negritaComoOmitida === true;
     // Con `usarNegritaComoEstructura` la negrita NO decide aquí. La fila entra como
     // CANDIDATA —movimiento con la señal de negrita— para que la detección de subtotales
@@ -1080,7 +1134,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const diferir = (enNegrita && !omitidaPorNegrita && descriptor.usarNegritaComoEstructura === true)
       // El «Total» suelto también espera a la detección; si no resulta subtotal, vuelve a ser
       // lo que era —una fila sin dueño— y nunca imputa.
-      || rotuloTotalSuelto != null;
+      || rotuloTotalSuelto != null || rotuloTotalInventario != null;
     const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita && !diferir ? "agrupadora" : "movimiento";
     // La diferida cuenta como leída por ahora: la detección de subtotales y la degradación
     // posterior hacen el traspaso a excluidas con la misma contabilidad que ya usan.
@@ -1088,6 +1142,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     else filasLeidas++;
     if (diferir) negritaDiferida.add(filas.length);
     if (rotuloTotalSuelto != null) motivoAlDegradar.set(filas.length, "sin_identificador");
+    if (rotuloTotalInventario != null) motivoAlDegradar.set(filas.length, "sin_producto");
     // Saldo del proveedor impreso en la 1.ª fila de su bloque (SIIGO): control, nunca imputa.
     const saldoBloqueLeido = aNumero(datos.saldoTercero);
     const saldoDelBloque = saldoBloqueLeido != null && monedaArchivo && trmCierre ? aPesos(saldoBloqueLeido, trmCierre) : saldoBloqueLeido;
@@ -1130,7 +1185,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     });
     crudo.push({
       negrita: enNegrita,
-      rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalSuelto,
+      rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalSuelto ?? rotuloTotalInventario,
       marcaManual: marcaManualExacta || (
         spec.subtotalesFila == null
         && colMarcaSubtotal >= 1

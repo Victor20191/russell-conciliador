@@ -58,6 +58,8 @@ export function razonNoSuma(motivo: string | null | undefined): string | null {
   if (motivo === "fuera_de_periodo") return "fuera del período del cargue";
   if (motivo === "seccion_cuenta") return "cuenta del archivo";
   if (motivo === "sin_identificador") return "sin identificación";
+  // Inventarios: título, pie del informe o total sin reconocer; no trae producto.
+  if (motivo === "sin_producto") return "fila sin producto";
   if (motivo.startsWith("subtotal_tercero")) return "encabezado del tercero";
   // Nómina por empleado (HGI): la fila del empleado con el total de sus conceptos.
   if (motivo.startsWith("empleado:")) return "total del empleado";

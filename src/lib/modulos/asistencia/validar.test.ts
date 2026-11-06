@@ -47,6 +47,54 @@ describe("validación completa de la lectura de inventarios", () => {
     });
   });
 
+  describe("reporte por cuenta con subtotales rotulados aparte (QUIFARMA)", () => {
+    // Cuenta | Referencia | Descripción | Rótulo | Cantidad | Valor: la cuenta va solo en el primer
+    // producto de cada bloque y en negrita; «Subtotal:» y «Gran Total:» llevan su importe bajo
+    // «Cantidad», y el pie del informe cae bajo la columna de la cuenta.
+    const encabezadoCuenta = ["Cuenta LM", "ID de Pieza", "Descripción", null, "Cantidad Inventario", "Valor Liquidable", "No-Liquidable"];
+    const specCuenta: SpecModulo = { hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, referencia: 2, descripcion: 3, cantidad: 5, valorUnitario: 0, valorTotal: 6 }, clasificadorModo: "arrastrar" };
+    const filas: GridHoja["filas"] = [
+      encabezadoCuenta,
+      ["14059805", "MP1", "Materia uno", null, 10, 100],
+      [null, "MP2", "Materia dos", null, 5, 50],
+      [null, null, null, "Subtotal:", 150, null, 0],
+      ["14301005", "PT1", "Terminado uno", null, 2, 200],
+      [null, "PT2", "Terminado dos", null, 3, 300],
+      [null, null, null, "Subtotal:", 500, null, 0],
+      [null, null, null, "Gran Total:", 650, null, 0],
+      ["Reporte Inventario Valorizado, INVVALGL.RPT", null, null, "QUIFARMA SAS"],
+    ];
+    const negra = [true, false, false, false, false, false];
+    const total = [false, false, false, true, true, false, true];
+    const negrita: boolean[][] = [[], negra, [], total, negra, [], total, total, []];
+    const leer = () => validarLecturaInventario({ hojas: [{ nombre: "Inventario", filas, negrita }], spec: specCuenta, origen: "manual" });
+
+    it("lee los subtotales y el gran total con su importe, y cuadra sin errores", () => {
+      const r = leer();
+      expect(r.errores).toEqual([]);
+      expect(r.listoParaBorrador).toBe(true);
+      expect(r.resumen).toMatchObject({ filasIncluidas: 4, filasExcluidas: 4, valorLeido: 650, totalDeclarado: 650, diferencia: 0 });
+      expect(r.advertencias).toEqual([]);
+    });
+
+    it("no omite el producto que solo trae la cuenta en negrita", () => {
+      expect(leer().advertencias.some((a) => a.includes("negrita"))).toBe(false);
+    });
+
+    it("una fila en negrita entera sigue omitida", () => {
+      const toda = negrita.map((f, i) => (i === 2 ? [true, true, true, false, true, true] : f));
+      const r = validarLecturaInventario({ hojas: [{ nombre: "Inventario", filas, negrita: toda }], spec: specCuenta, origen: "manual" });
+      expect(r.advertencias.some((a) => a.includes("1 fila(s) en negrita"))).toBe(true);
+    });
+
+    it("con varios números en la fila del total no adivina su importe", () => {
+      const ambiguas = filas.map((f, i) => (i === 7 ? [null, null, null, "Gran Total:", 650, null, 12] : f));
+      const r = validarLecturaInventario({ hojas: [{ nombre: "Inventario", filas: ambiguas, negrita }], spec: specCuenta, origen: "manual" });
+      expect(r.resumen.totalDeclarado).not.toBe(650);
+      expect(r.errores).toEqual([]);
+    });
+  });
+
   it("informa una diferencia real de total sin cambiar importes ni invalidar el mapa", () => {
     const original = hoja([...detalle, ["Total general", null, null, null, null, 55]]);
     const antes = structuredClone(original);
