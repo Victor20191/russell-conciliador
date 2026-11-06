@@ -12,7 +12,7 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { cerrarRevisionRetencion, desbloquearRevisionRetencion } from "@/app/actions/impuestos-retencion";
 import type { ActionState } from "@/lib/definitions";
 import { MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
-import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
+import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad, type PagoOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { avisoReciboDeOtro350 } from "@/lib/impuestos/retencion/periodos-revision";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
@@ -52,13 +52,23 @@ function FechaConEstado({ fecha: iso, estado, dias }: { fecha: string | null; es
   );
 }
 
-/** El formulario que sustenta la fecha, en gris: número, concepto del 490 y autoadhesivo (996). El título de la columna ya dice cuál es. */
-function Soporte({ formulario, numero, concepto, autoadhesivo }: { formulario: "350" | "490"; numero: string | null; concepto?: string | null; autoadhesivo: string | null }) {
+/** El formulario que sustenta la fecha, en gris: número y autoadhesivo (996). El título de la columna ya dice cuál es. */
+function Soporte({ formulario, numero, autoadhesivo }: { formulario: "350" | "490"; numero: string | null; autoadhesivo: string | null }) {
   if (!numero) return <div className="mt-0.5 text-[11px] text-ink-400">{formulario === "350" ? "Sin el original" : "Sin recibo"}</div>;
   return (
     <div className="mt-0.5 text-[11px] tabular-nums text-ink-400">
-      {numero}{concepto ? ` (${concepto})` : ""}{autoadhesivo ? ` · Autoadhesivo ${autoadhesivo}` : ""}
+      {numero}{autoadhesivo ? ` · Autoadhesivo ${autoadhesivo}` : ""}
     </div>
+  );
+}
+
+/** El pago de un concepto (61 o 62): fecha con su estado y el recibo; si el 350 no declara ese valor, solo el estado. */
+function CeldaPago({ pago }: { pago: PagoOportunidad }) {
+  return (
+    <>
+      <FechaConEstado fecha={pago.fecha} estado={pago.estado} dias={pago.dias} />
+      {pago.estado !== "nada_que_pagar" && <Soporte formulario="490" numero={pago.numero} autoadhesivo={pago.autoadhesivo} />}
+    </>
   );
 }
 
@@ -114,7 +124,7 @@ export function VistaOportunidad({
     <div className="flex flex-col gap-3">
       <Card className="flex flex-col gap-1 p-4 text-[12px] text-ink-500">
         <p>
-          Vencimiento según el calendario tributario del año, el período y el último dígito del NIT (sin el dígito de verificación). La presentación es la del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección); el pago, la del último recibo 490 del concepto 61. Igual o antes del vencimiento es «Oportuno».
+          Vencimiento según el calendario tributario del año, el período y el último dígito del NIT (sin el dígito de verificación). La presentación es la del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección). El pago se mide por concepto: el 61 (renta) y, cuando el 350 declara reteIVA (renglón 134), el 62; en cada uno cuenta el último recibo 490. Igual o antes del vencimiento es «Oportuno».
         </p>
         {!calendario.aplica && <p className="text-warn-700">La periodicidad del cliente no es mensual: el calendario no tiene una fecha límite por período.</p>}
         {calendario.aplica && !calendario.cargado && (
@@ -124,13 +134,20 @@ export function VistaOportunidad({
         )}
       </Card>
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[900px] text-[12.5px]">
+        <table className="w-full min-w-[1100px] text-[12.5px]">
           <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
             <tr>
               <th className="w-32 px-3 py-2">Período</th>
               <th className="w-44 px-3 py-2">Fecha de vencimiento</th>
               <th className={`${INICIO_SECCION} px-3 py-2`}>Presentación · Formulario 350</th>
-              <th className={`${INICIO_SECCION} px-3 py-2`}>Pago · Formulario 490</th>
+              <th className={`${INICIO_SECCION} px-3 py-2`}>
+                Pago · Formulario 490 · Concepto 61
+                <span className="block text-[11.5px] font-normal">(Retención de renta)</span>
+              </th>
+              <th className={`${INICIO_SECCION} px-3 py-2`}>
+                Pago · Formulario 490 · Concepto 62
+                <span className="block text-[11.5px] font-normal">(ReteIVA)</span>
+              </th>
               <th className={`${INICIO_SECCION} w-24 px-3 py-2 text-center`}>Marca</th>
             </tr>
           </thead>
@@ -144,9 +161,10 @@ export function VistaOportunidad({
                   <Soporte formulario="350" numero={f.numero350} autoadhesivo={f.autoadhesivo350} />
                 </td>
                 <td className={`${INICIO_SECCION} px-3 py-2`}>
-                  <FechaConEstado fecha={f.pago} estado={f.estadoPago} dias={f.diasPago} />
-                  <Soporte formulario="490" numero={f.numeroPago} concepto={f.conceptoPago} autoadhesivo={f.autoadhesivoPago} />
-                  {f.pagoSinConcepto61 && <div className="mt-0.5 text-[11px] font-semibold text-warn-700">Sin recibo del 61</div>}
+                  <CeldaPago pago={f.pago61} />
+                </td>
+                <td className={`${INICIO_SECCION} px-3 py-2`}>
+                  <CeldaPago pago={f.pago62} />
                 </td>
                 <td className={`${INICIO_SECCION} px-3 py-2 text-center`}>
                   <CeldaMarca marca={f.marca} requiereMarca={f.requiereMarca} admiteMarca={f.requiereMarca} puedeEditar={puedeEditar} ancla={`marca-retencion-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />

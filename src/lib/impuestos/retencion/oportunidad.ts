@@ -5,11 +5,13 @@ import type { Formulario490, PeriodoRevision } from "./periodos-revision";
 /**
  * Indicador de oportunidad de Retención en la fuente (puro): por período, la fecha límite del
  * calendario DIAN (año, período y último dígito del NIT sin el DV) contra la fecha de presentación
- * del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección) y la de pago (997
- * del último 490 del concepto 61; sin 61, el primer 490 del período, y se dice cuál). Se comparan
- * fechas del calendario de Colombia, sin hora: igual o antes del vencimiento es «Oportuno». Un mes
- * sin formulario, sin calendario o sin original lo dice así; nunca sale «Oportuno» por falta de
- * fecha. Un período con la corrección sin su original pide marca para cerrar.
+ * del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección) y las de pago, una
+ * por concepto: 61 (renta, renglón 130) y 62 (reteIVA, renglón 134), cada una con el 997 del último
+ * 490 de ese concepto. Si el 350 no declara el valor, «Sin valor a pagar»; si lo declara y no hay
+ * recibo, «Sin pago». Se comparan fechas del calendario de Colombia, sin hora: igual o antes del
+ * vencimiento es «Oportuno». Un mes sin formulario, sin calendario o sin original lo dice así;
+ * nunca sale «Oportuno» por falta de fecha. Un período con la corrección sin su original pide
+ * marca para cerrar.
  */
 
 export type EstadoOportunidad =
@@ -35,6 +37,20 @@ export const ETIQUETA_OPORTUNIDAD: Readonly<Record<EstadoOportunidad, string>> =
   nada_que_pagar: "Sin valor a pagar",
 };
 
+/** Conceptos del 490 cuyo pago se mide: 61 (renta y autorretenciones) y 62 (reteIVA). */
+export const CONCEPTOS_OPORTUNIDAD_PAGO = ["61", "62"] as const;
+export type ConceptoOportunidadPago = (typeof CONCEPTOS_OPORTUNIDAD_PAGO)[number];
+
+/** El pago de un concepto: el 490 cuya fecha se mide, su autoadhesivo (996) y su estado. */
+export type PagoOportunidad = {
+  numero: string | null;
+  autoadhesivo: string | null;
+  fecha: string | null;
+  estado: EstadoOportunidad;
+  /** Días después del vencimiento (solo si es extemporáneo). */
+  dias: number | null;
+};
+
 export type FilaOportunidad = {
   periodo: number;
   /** Llave de la marca del período (`oportunidad:2026-01`). */
@@ -42,20 +58,13 @@ export type FilaOportunidad = {
   /** El 350 cuya presentación se mide (el original) y su autoadhesivo (996). */
   numero350: string | null;
   autoadhesivo350: string | null;
-  /** El 490 cuya fecha de pago se mide y su autoadhesivo (996). */
-  numeroPago: string | null;
-  autoadhesivoPago: string | null;
-  conceptoPago: string | null;
-  /** El período no tiene 490 del concepto 61: la fecha de pago es la del primer recibo que haya. */
-  pagoSinConcepto61: boolean;
   vencimiento: string | null;
   presentacion: string | null;
-  pago: string | null;
   estadoPresentacion: EstadoOportunidad;
-  estadoPago: EstadoOportunidad;
   /** Días después del vencimiento (solo si es extemporáneo). */
   diasPresentacion: number | null;
-  diasPago: number | null;
+  pago61: PagoOportunidad;
+  pago62: PagoOportunidad;
   /** La corrección llegó sin su original: no se puede medir la presentación y se exige marca. */
   requiereMarca: boolean;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
@@ -83,13 +92,22 @@ function comparar(fecha: string | null, vencimiento: string | null): { estado: E
   return fecha <= vencimiento ? { estado: "oportuno", dias: null } : { estado: "extemporaneo", dias: diasEntre(vencimiento, fecha) };
 }
 
-/** El 490 cuya fecha cuenta: el último pago del 61; sin 61, el primer recibo del período. */
-export function reciboDePago(periodo: Pick<PeriodoRevision, "pagos">): { recibo: Formulario490; sinConcepto61: boolean } | null {
+/** El 490 del concepto cuya fecha cuenta: el último pago (con cuotas o pagos posteriores, el que lo completa). */
+export function reciboDelConcepto(periodo: Pick<PeriodoRevision, "pagos">, concepto: ConceptoOportunidadPago): Formulario490 | null {
   const porFecha = (a: Formulario490, b: Formulario490) => (a.fechaPago ?? "").localeCompare(b.fechaPago ?? "") || a.numero.localeCompare(b.numero);
-  const del61 = [...(periodo.pagos.find((p) => p.concepto === "61")?.formularios ?? [])].sort(porFecha);
-  if (del61.length > 0) return { recibo: del61[del61.length - 1], sinConcepto61: false };
-  const todos = periodo.pagos.flatMap((p) => p.formularios).sort(porFecha);
-  return todos.length > 0 ? { recibo: todos[0], sinConcepto61: true } : null;
+  const recibos = [...(periodo.pagos.find((p) => p.concepto === concepto)?.formularios ?? [])].sort(porFecha);
+  return recibos.length > 0 ? recibos[recibos.length - 1] : null;
+}
+
+/** El pago de un concepto contra el vencimiento: sin recibo, «Sin pago» si el 350 declara el valor y «Sin valor a pagar» si no. */
+function medirPago(p: PeriodoRevision, concepto: ConceptoOportunidadPago, vencimiento: string | null): PagoOportunidad {
+  const recibo = reciboDelConcepto(p, concepto);
+  if (!recibo) {
+    const declara = p.pagos.find((x) => x.concepto === concepto)?.esperado ?? false;
+    return { numero: null, autoadhesivo: null, fecha: null, estado: declara ? "sin_pago" : "nada_que_pagar", dias: null };
+  }
+  const { estado, dias } = comparar(recibo.fechaPago, vencimiento);
+  return { numero: recibo.numero, autoadhesivo: recibo.autoadhesivo ?? null, fecha: recibo.fechaPago, estado, dias };
 }
 
 export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
@@ -97,40 +115,32 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
   return e.periodos.map((p) => {
     const clave = claveMarcaPeriodo("oportunidad", e.anio, p.periodo);
     const vencimiento = e.calendarioAplica ? fechaVencimiento(e.calendario, p.periodo, e.nit) : null;
-    const base = {
-      periodo: p.periodo, clave, numero350: null, autoadhesivo350: null, numeroPago: null, autoadhesivoPago: null, conceptoPago: null,
-      pagoSinConcepto61: false, vencimiento, presentacion: null, pago: null, diasPresentacion: null, diasPago: null,
-    };
     const marca = marcas.get(clave);
     if (!p.cadena.vigente) {
       const estado: EstadoOportunidad = p.causal ? "sin_formulario" : "falta_350";
-      return { ...base, estadoPresentacion: estado, estadoPago: estado, requiereMarca: false, marca: marca ? { ...marca, vigente: false } : null };
+      const sinPago: PagoOportunidad = { numero: null, autoadhesivo: null, fecha: null, estado, dias: null };
+      return {
+        periodo: p.periodo, clave, numero350: null, autoadhesivo350: null, vencimiento, presentacion: null, estadoPresentacion: estado, diasPresentacion: null,
+        pago61: sinPago, pago62: sinPago, requiereMarca: false, marca: marca ? { ...marca, vigente: false } : null,
+      };
     }
 
     const { original } = p.cadena;
     const presentacion = original
       ? comparar(original.fechaPresentacion, vencimiento)
       : { estado: "falta_original" as const, dias: null };
-    const recibo = reciboDePago(p);
-    const declaraPago = p.pagos.some((x) => x.esperado);
-    const pago = recibo
-      ? comparar(recibo.recibo.fechaPago, vencimiento)
-      : { estado: declaraPago ? ("sin_pago" as const) : ("nada_que_pagar" as const), dias: null };
     const requiereMarca = original == null;
     return {
-      ...base,
+      periodo: p.periodo,
+      clave,
       numero350: original?.numero ?? null,
       autoadhesivo350: original?.autoadhesivo ?? null,
-      numeroPago: recibo?.recibo.numero ?? null,
-      autoadhesivoPago: recibo?.recibo.autoadhesivo ?? null,
-      conceptoPago: recibo?.recibo.concepto ?? null,
-      pagoSinConcepto61: recibo?.sinConcepto61 ?? false,
+      vencimiento,
       presentacion: original?.fechaPresentacion ?? null,
-      pago: recibo?.recibo.fechaPago ?? null,
       estadoPresentacion: presentacion.estado,
-      estadoPago: pago.estado,
       diasPresentacion: presentacion.dias,
-      diasPago: pago.dias,
+      pago61: medirPago(p, "61", vencimiento),
+      pago62: medirPago(p, "62", vencimiento),
       requiereMarca,
       // La marca no lleva cifra: vale mientras el período siga sin su original.
       marca: marca ? { ...marca, vigente: requiereMarca } : null,

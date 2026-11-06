@@ -71,7 +71,6 @@ export function evaluarCierreRetencion(e: {
 
   for (const f of e.oportunidad) {
     if (f.requiereMarca && !f.marca) pendientes.push({ tipo: "oportunidad", texto: `${etq(f.periodo)}: falta el 350 original y no se puede medir la presentación; documéntalo con una marca.` });
-    if (f.pagoSinConcepto61) avisos.push(`${etq(f.periodo)}: sin recibo del concepto 61; la fecha de pago es la del recibo ${f.numeroPago} (concepto ${f.conceptoPago}).`);
   }
 
   return { pendientes, avisos };

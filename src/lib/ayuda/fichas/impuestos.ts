@@ -428,7 +428,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "oportunidad",
       titulo: "Oportunidad",
       proposito:
-        "Por período, la fecha límite del calendario tributario (año, período y último dígito del NIT sin el dígito de verificación) contra la presentación del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección) y el pago (997 del último recibo 490 del concepto 61; sin 61, el primer recibo que haya). Igual o antes del vencimiento es «Oportuno»; después, «Extemporáneo» con los días de atraso. Un mes sin formulario, sin calendario o sin original lo dice así.",
+        "Por período, la fecha límite del calendario tributario (año, período y último dígito del NIT sin el dígito de verificación) contra la presentación del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección) y el pago en dos columnas: concepto 61 (renta, renglón 130) y concepto 62 (reteIVA, renglón 134), cada una con el 997 del último recibo 490 de ese concepto. Igual o antes del vencimiento es «Oportuno»; después, «Extemporáneo» con los días de atraso. Si el 350 no declara ese valor, dice «Sin valor a pagar»; si lo declara y no hay recibo, «Sin pago». Un mes sin formulario, sin calendario o sin original lo dice así.",
       etapas: [
         {
           titulo: "Documentar",
@@ -475,7 +475,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "novedades",
       titulo: "Novedades",
       proposito:
-        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y oportunidad) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones o un mes sin recibo del concepto 61).",
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y oportunidad) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones).",
       etapas: [
         {
           titulo: "Consultar",

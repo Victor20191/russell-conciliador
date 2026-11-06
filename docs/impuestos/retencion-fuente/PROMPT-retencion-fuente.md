@@ -330,7 +330,8 @@ probado, para que el F300 de IVA se agregue igual.
      NIT de 9 dígitos, el 9.º). Nunca el DV. Ejemplo del levantamiento: NIT 902058973,
      enero 2026 → 12 de febrero.
    - Presentación: 997 del **primer** 350 del período (el original, no la corrección).
-   - Pago: 997 del 490 concepto 61.
+   - Pago: 997 del 490 concepto 61 y, en columna aparte, del concepto 62 cuando el 350
+     declara reteIVA (decisión del 5/Nov/2026).
    - Estado: «Oportuno» si la fecha es igual o anterior al vencimiento; «Extemporáneo» si
      es posterior; un mes sin formulario, sin calendario o sin original lo dice así
      (nunca «Oportuno» por falta de fecha). Se comparan fechas del calendario de

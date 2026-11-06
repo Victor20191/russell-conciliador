@@ -16,16 +16,20 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
   const etq = (p: number) => `Período ${p}`;
   const marcar = (clave: string, diferencia: number) => ({ clave, numero: 1, nota: "Documentado", referenciaAnexo: null, diferencia, marcadoPor: null, marcadoEn: "2026-10-31T00:00:00.000Z" });
 
-  it("enero: corrección sin original → presentación «Falta el original» con marca; pago oportuno el día del vencimiento", () => {
+  it("enero: corrección sin original → presentación «Falta el original» con marca; pago del 61 oportuno el día del vencimiento y sin pago del 62", () => {
     expect(oportunidad()[0]).toMatchObject({
-      vencimiento: "2026-02-20", estadoPresentacion: "falta_original", requiereMarca: true, pago: "2026-02-20", estadoPago: "oportuno", conceptoPago: "61",
+      vencimiento: "2026-02-20", estadoPresentacion: "falta_original", requiereMarca: true,
+      pago61: { numero: "4911086421291", fecha: "2026-02-20", estado: "oportuno", dias: null },
+      pago62: { numero: null, fecha: null, estado: "sin_pago" },
     });
   });
 
-  it("febrero a agosto: presentación y pago oportunos (abril se pagó el mismo día del vencimiento)", () => {
+  it("febrero a agosto: presentación y pago del 61 oportunos (abril se pagó el mismo día del vencimiento); el 62 solo se pagó en agosto", () => {
     const filas = oportunidad().slice(1);
-    expect(filas.every((f) => f.estadoPresentacion === "oportuno" && f.estadoPago === "oportuno")).toBe(true);
-    expect(filas[2]).toMatchObject({ periodo: 4, pago: "2026-05-25", vencimiento: "2026-05-25" });
+    expect(filas.every((f) => f.estadoPresentacion === "oportuno" && f.pago61.estado === "oportuno")).toBe(true);
+    expect(filas[2]).toMatchObject({ periodo: 4, vencimiento: "2026-05-25", pago61: { fecha: "2026-05-25" } });
+    expect(filas.map((f) => f.pago62.estado)).toEqual([...Array(6).fill("sin_pago"), "oportuno"]);
+    expect(filas[6].pago62).toMatchObject({ numero: "4911175045977", fecha: "2026-09-18" });
   });
 
   it("regresión del Programa: dígito 7, enero presentado el 17-feb es oportuno (vence el 18); dos días tarde es extemporáneo", () => {
@@ -34,25 +38,34 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
       formularios350: [{ id: 1, periodo: 1, numero: "3500000000001", codigoCorreccion: null, numeroAnterior: null, fechaPresentacion: fecha, valores: { 130: 0, 134: 0, 135: 0 } }],
     });
     const fila = (fecha: string) => oportunidadRevision({ anio: 2026, nit: "901240097", periodos: enero(fecha), calendario: CALENDARIO_RETEFUENTE_2026, calendarioAplica: true, marcas: [] })[0];
-    expect(fila("2026-02-17")).toMatchObject({ vencimiento: "2026-02-18", estadoPresentacion: "oportuno", estadoPago: "nada_que_pagar" });
+    expect(fila("2026-02-17")).toMatchObject({ vencimiento: "2026-02-18", estadoPresentacion: "oportuno", pago61: { estado: "nada_que_pagar" }, pago62: { estado: "nada_que_pagar" } });
     expect(fila("2026-02-20")).toMatchObject({ estadoPresentacion: "extemporaneo", diasPresentacion: 2 });
   });
 
   it("sin calendario, con otra periodicidad o sin formulario no sale «Oportuno»", () => {
     expect(oportunidad({ calendario: [] })[1].estadoPresentacion).toBe("sin_calendario");
-    expect(oportunidad({ calendarioAplica: false })[1].estadoPago).toBe("sin_calendario");
+    expect(oportunidad({ calendarioAplica: false })[1].pago61.estado).toBe("sin_calendario");
     const conCausal = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [{ periodo: 9, causal: "Sin retenciones" }] });
-    expect(oportunidad({ periodos: conCausal })[8]).toMatchObject({ estadoPresentacion: "sin_formulario", estadoPago: "sin_formulario" });
+    expect(oportunidad({ periodos: conCausal })[8]).toMatchObject({ estadoPresentacion: "sin_formulario", pago61: { estado: "sin_formulario" }, pago62: { estado: "sin_formulario" } });
     const sinCausal = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [] });
     expect(oportunidad({ periodos: sinCausal })[8].estadoPresentacion).toBe("falta_350");
   });
 
-  it("sin recibo del 61, la fecha de pago es la del primer 490 que haya, y se dice cuál", () => {
+  it("cada concepto se mide con sus propios recibos: sin el 61, su columna dice «Sin pago» aunque el 62 esté pagado", () => {
     const soloIva = periodosRevision({
       periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, porConfirmar: [], causales: [],
       formularios490: F490_2026.filter((f) => f.periodo !== 8 || f.concepto === "62"),
     });
-    expect(oportunidad({ periodos: soloIva })[7]).toMatchObject({ pagoSinConcepto61: true, conceptoPago: "62", numeroPago: "4911175045977" });
+    expect(oportunidad({ periodos: soloIva })[7]).toMatchObject({
+      pago61: { numero: null, estado: "sin_pago" },
+      pago62: { numero: "4911175045977", estado: "oportuno" },
+    });
+  });
+
+  it("con varios recibos del mismo concepto cuenta el último pago", () => {
+    const cuota = { ...F490_2026[7], id: 99, numero: "4911999999999", fechaPago: "2026-09-25" };
+    const conCuota = periodosRevision({ periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, formularios490: [...F490_2026, cuota], porConfirmar: [], causales: [] });
+    expect(oportunidad({ periodos: conCuota })[7].pago61).toMatchObject({ numero: "4911999999999", fecha: "2026-09-25", estado: "extemporaneo", dias: 4 });
   });
 
   it("pagos: enero −6.786.000 (130 vs 61 = −8.942.000; 134 vs 62 = +2.156.000); febrero a julio falta el reteIVA; agosto completo", () => {

@@ -248,7 +248,7 @@ esté en firme; queda en la auditoría.
   inicial; 129 resta en el declarado del 130; subtotales 130, 134, 135 y 136; nivel de cada
   diferencia con `nivelDiferencia` y el umbral nuevo.
 - `oportunidad.ts` — vencimiento por calendario y último dígito del NIT (sin DV);
-  presentación del original; pago del 490 concepto 61; estados Oportuno / Extemporáneo /
+  presentación del original; pago del 490 concepto 61 y, aparte, del 62; estados Oportuno / Extemporáneo /
   Sin formulario / Falta el original / Sin calendario / Sin pago.
 - `pagos.ts` — por mes con el 350 vigente: (136 − Σ36) + (137 − Σ34), intereses aparte,
   desglose 130/61, 134/62, 135/63; «Pago completo» o «Diferencia en el pago».
@@ -337,7 +337,8 @@ cuando lo autorices.
 6. **Conservar `formularios_dian` y `formularios_dian_cliente`** (sección 11).
 7. **Falta el original → marca para cerrar** ese mes.
 8. **Fecha de pago con varios 490 del 61**: la del último pago; **mes sin 61**: la del
-   primer 490 que haya, indicando cuál.
+   primer 490 que haya, indicando cuál. Cambiada el 5/Nov/2026: la oportunidad del pago se
+   mide aparte para el 61 y el 62 (último recibo de cada uno); sin 61 su columna dice «Sin pago».
 9. **Periodicidades distintas de mensual**: ¿cuáles hay? Propuesta: bimestral, trimestral,
    semestral y anual, cada una con sus períodos esperados. Cerrada el 5/Nov/2026: Retención
    en la fuente es siempre mensual y no se pregunta.

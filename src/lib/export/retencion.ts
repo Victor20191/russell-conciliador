@@ -215,21 +215,26 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
 
 const fechaExcel = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
 
-/** Hoja «Oportunidad»: vencimiento, presentación del original y pago (61) por período, con su estado. */
+/** Hoja «Oportunidad»: vencimiento, presentación del original y pago de los conceptos 61 y 62 por período, con su estado. */
 function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: readonly FilaOportunidad[]): void {
   const ws = wb.addWorksheet("Oportunidad");
   encabezadoLibro(ws, meta, "indicador de oportunidad");
-  ws.addRow(["Vencimiento por el último dígito del NIT sin el DV; presentación del 350 original; pago del último 490 del concepto 61."]).font = { color: { argb: EXCEL.textoSecundario } };
-  estiloEncabezado(ws.addRow(["Período", "350 (original)", "Autoadhesivo 350", "Recibo de pago", "Concepto", "Autoadhesivo pago", "Fecha de vencimiento", "Fecha de presentación", "Fecha de pago", "Estado presentación", "Estado pago", "Marca"]));
+  ws.addRow(["Vencimiento por el último dígito del NIT sin el DV; presentación del 350 original; pago del último 490 del concepto 61 (renta) y del 62 (reteIVA)."]).font = { color: { argb: EXCEL.textoSecundario } };
+  estiloEncabezado(ws.addRow([
+    "Período", "350 (original)", "Autoadhesivo 350", "Recibo 61", "Autoadhesivo 61", "Recibo 62", "Autoadhesivo 62", "Fecha de vencimiento", "Fecha de presentación",
+    "Fecha de pago 61", "Fecha de pago 62", "Estado presentación", "Estado pago 61", "Estado pago 62", "Marca",
+  ]));
   for (const f of filas) {
     const estado = (e: FilaOportunidad["estadoPresentacion"], dias: number | null) => `${ETIQUETA_OPORTUNIDAD[e]}${dias ? ` (${dias} día(s))` : ""}`;
     ws.addRow([
-      etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.numero350 ?? "", f.autoadhesivo350 ?? "", f.numeroPago ?? "", f.conceptoPago ?? "", f.autoadhesivoPago ?? "",
-      fechaExcel(f.vencimiento), fechaExcel(f.presentacion), fechaExcel(f.pago), estado(f.estadoPresentacion, f.diasPresentacion), estado(f.estadoPago, f.diasPago),
+      etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.numero350 ?? "", f.autoadhesivo350 ?? "",
+      f.pago61.numero ?? "", f.pago61.autoadhesivo ?? "", f.pago62.numero ?? "", f.pago62.autoadhesivo ?? "",
+      fechaExcel(f.vencimiento), fechaExcel(f.presentacion), fechaExcel(f.pago61.fecha), fechaExcel(f.pago62.fecha),
+      estado(f.estadoPresentacion, f.diasPresentacion), estado(f.pago61.estado, f.pago61.dias), estado(f.pago62.estado, f.pago62.dias),
       f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
     ]);
   }
-  [12, 16, 18, 16, 10, 18, 21, 22, 15, 22, 22, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [12, 16, 18, 16, 18, 16, 18, 21, 22, 16, 16, 22, 22, 22, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 }
 
 /** Hoja «Pagos efectuados»: lo declarado (136, 137, 138) contra lo pagado con los 490, con el desglose por concepto. */
