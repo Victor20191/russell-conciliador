@@ -252,8 +252,26 @@ export function fichaModuloBorrador(d: DescriptorModulo): FichaAyuda {
             regla: REGLAS.cargarModulo,
           },
           {
+            nombre: "Columna Diferencia",
+            queHace: "En el detalle, el valor total menos cantidad × valor unitario de los ítems que no cuadran («—» si cuadra). Su encabezado ordena de mayor a menor y su filtro acepta > < =, los dos por el tamaño de la diferencia, sin importar el signo. Con «Ver solo novedades» salen junto a las demás novedades, de todos los grupos.",
+            condiciones: ["Solo aparece si algún ítem no cuadra."],
+            regla: REGLAS.cargarModulo,
+            aplica: esInv,
+          },
+          {
+            nombre: "Columna Novedad",
+            queHace: "Con «Ver solo novedades», dice por qué cada fila es novedad: un negativo, el valor total que no cuadra con cantidad × valor unitario, costo cero con existencias, sin existencias y con costo, costo unitario 1, una fila que parece el total del archivo o un subtotal que no cuadra. La celda que la causa queda resaltada, y el motivo también se ve al pasar el cursor por la fila.",
+            regla: REGLAS.cargarModulo,
+          },
+          {
+            nombre: "Ver solo novedades",
+            queHace: "En el encabezado del detalle, deja en la tabla solo las filas con novedad, con su motivo. Se suma al grupo elegido en los chips de arriba: con uno elegido, quedan solo las novedades de ese grupo. El mismo botón vuelve a la tabla completa.",
+            condiciones: ["Solo aparece si el archivo tiene novedades."],
+            regla: REGLAS.cargarModulo,
+          },
+          {
             nombre: "Consolidado por grupo · toca para filtrar",
-            queHace: "Los chips de arriba filtran la tabla por grupo o por novedades.",
+            queHace: "Los chips de arriba filtran la tabla por grupo. Con «Ver solo novedades» o con un filtro de columna, la tabla deja de agrupar: muestra juntas solo las filas que coinciden y el orden de las columnas se aplica a todas. Sin ellos, sigue agrupada y cada grupo se abre y se cierra.",
             regla: REGLAS.cargarModulo,
           },
           { nombre: "Exportar a Excel", queHace: "Descarga lo guardado del borrador.", regla: REGLAS.cargarModulo },

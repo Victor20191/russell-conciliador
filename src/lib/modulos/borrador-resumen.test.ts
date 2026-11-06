@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODULOS_IMPORT } from "./descriptores";
-import { columnasDetalleModulo } from "./cartera/columnas-cartera";
+import { COLUMNA_DIFERENCIA, columnasDetalleModulo, conColumnaDiferencia } from "./cartera/columnas-cartera";
 import { claveColumna, GRUPO_SIN_CLASIFICAR, grupoDeFila, resumirBorrador, type FilaSlim, type InsumosResumen } from "./borrador-resumen";
 
 const INV = MODULOS_IMPORT.INV;
@@ -135,6 +135,16 @@ describe("resumirBorrador · lo que la pantalla ve sin recibir las filas", () =>
     expect(visibles).toContain(INV.clasificador);
     expect(visibles).toContain("referencia");
     expect(r.columnasOcultas.map(claveColumna)).toContain("cantidad");
+  });
+
+  it("la columna «Diferencia» se ve solo si algún ítem no cuadra con cantidad × valor unitario", () => {
+    const columnas = conColumnaDiferencia(INV, COLUMNAS_INV);
+    const sinDescuadres = resumir([fila(2, "MERCANCÍA", 100)], { columnas });
+    expect(sinDescuadres.columnasVisibles.map((c) => c.nombre)).not.toContain(COLUMNA_DIFERENCIA);
+    expect(sinDescuadres.columnasOcultas.map((c) => c.nombre)).toContain(COLUMNA_DIFERENCIA);
+    const conDescuadres = resumir([fila(2, "MERCANCÍA", 100)], { columnas, descuadres: [{ filaNum: 2, etiqueta: "Valor total", declarado: 100, esperado: 90 }] });
+    const visibles = conDescuadres.columnasVisibles.map((c) => c.nombre);
+    expect(visibles[visibles.indexOf(INV.valor) + 1]).toBe(COLUMNA_DIFERENCIA);
   });
 });
 

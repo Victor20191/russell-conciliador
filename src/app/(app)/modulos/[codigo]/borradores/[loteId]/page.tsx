@@ -5,12 +5,13 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { reglasNovedadDe } from "@/lib/modulos/motivos-novedad";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import { clavesDeDetalle, itemsRepetidos, llaveItem, rolesLlaveItemDe } from "@/lib/modulos/fraccionamiento";
 import { esImputable } from "@/lib/modulos/promocion";
-import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
+import { columnasDetalleModulo, conColumnaDiferencia } from "@/lib/modulos/cartera/columnas-cartera";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
@@ -186,10 +187,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const formatoDelLote = descriptor.crucePorTercero.detalleTercero && specDelLote
     ? formatoArchivoCartera(specDelLote, { loteId, archivo: lote.archivoNombre, rolTotal: descriptor.valor })
     : null;
-  const columnasDelBorrador = columnasDetalleModulo(
+  // Inventarios suma «Diferencia» (valor total − cantidad × valor unitario) junto al valor.
+  const columnasDelBorrador = conColumnaDiferencia(descriptor, columnasDetalleModulo(
     descriptor,
     (familiasDelLote?.edades ?? []).map((e) => e.etiqueta),
-  );
+  ));
 
   // ¿Se podrá guardar el formato como patrón del aplicativo al confirmar? En los cinco módulos,
   // cuando la lectura se configuró en la carga (el spec del lote trae la propuesta o el motivo);
@@ -274,6 +276,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         clasificadorRol={descriptor.clasificador}
         descripcionRol={descriptor.clasificadorAlterno ?? null}
         noNegativos={descriptor.noNegativos ?? []}
+        reglasNovedad={reglasNovedadDe(descriptor)}
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
         reporteConErrores={reporteConErrores}

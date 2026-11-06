@@ -341,7 +341,7 @@ export async function cargarResumenBorrador(input: {
   clienteId?: number | null;
 }): Promise<ResumenBorrador> {
   const { loteId, descriptor, columnas, formatoCartera } = input;
-  const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  const columnasNumericas = columnas.filter((c) => !c.familia && !c.calculada && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
   const grupoSql = sqlGrupo(input.agruparPor);
 
   const [slim, enCero, declarado, conDatos, novedades, descripciones] = await Promise.all([
@@ -350,7 +350,8 @@ export async function cargarResumenBorrador(input: {
       : pool().query<FilaCruda>(`SELECT ${CAMPOS}${grupoSql.columna} FROM ${grupoSql.desde} WHERE lote_id = $1 ORDER BY fila_num ASC`, [loteId]),
     imputablesEnCero(loteId, columnasNumericas),
     declaradoPorCuenta(loteId, descriptor.valor),
-    columnasConDatos(loteId, columnas),
+    // La columna calculada no está en `datos`: el resumen decide si se ve.
+    columnasConDatos(loteId, columnas.filter((c) => !c.calculada)),
     novedadesDeColumnas(loteId, descriptor, columnas),
     // El nombre del grupo solo hace falta donde el clasificador es un código y el nombre va aparte.
     descriptor.clasificadorAlterno

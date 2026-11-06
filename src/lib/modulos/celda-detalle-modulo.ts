@@ -12,6 +12,7 @@ import { CLAVE_FORMULA, CLAVE_MONEDA, CLAVE_ORIGEN_VALOR, CLAVE_SALDO_DIVISA, CL
 import { esRotuloEdad } from "./cartera/edades";
 import { fechaISO } from "./cartera/fecha-corte";
 import { parsearFechaCelda } from "./nomina/periodo";
+import { esDescuadreProducto } from "./validaciones";
 
 export type ColumnaCeldaDetalle = {
   nombre: string;
@@ -20,6 +21,8 @@ export type ColumnaCeldaDetalle = {
   esValor?: boolean;
   /** Dónde leer el valor dentro de `datos` cuando la columna la puso el archivo. */
   familia?: { clave: string; etiqueta: string };
+  /** Columna calculada por la tabla: valor total − cantidad × valor unitario. */
+  calculada?: { resultado: string; producto: [string, string] };
 };
 export type FilaCeldaDetalle = { valor: number; datos: Record<string, unknown> };
 
@@ -38,8 +41,22 @@ export function fechaDeCelda(valor: unknown): string | null {
   return fechaISO(valor) ?? parsearFechaCelda(valor);
 }
 
+/**
+ * Valor total − cantidad × valor unitario, solo cuando no cuadra: con el mismo criterio y la misma
+ * tolerancia del aviso de «Novedades de la carga», para que la tabla y el aviso digan lo mismo.
+ */
+function diferenciaProducto(datos: Record<string, unknown>, regla: NonNullable<ColumnaCeldaDetalle["calculada"]>): number | null {
+  const total = numero(datos[regla.resultado]);
+  const cantidad = numero(datos[regla.producto[0]]);
+  const unitario = numero(datos[regla.producto[1]]);
+  if (total == null || cantidad == null || unitario == null || cantidad === 0 || unitario === 0) return null;
+  if (!esDescuadreProducto(total, cantidad, unitario)) return null;
+  return Math.round((total - Math.round(cantidad * unitario * 100) / 100) * 100) / 100;
+}
+
 /** El valor que representa la celda: el que se pinta, se filtra y se exporta. */
 export function valorColumnaDetalle(fila: FilaCeldaDetalle, columna: ColumnaCeldaDetalle): string | number | null {
+  if (columna.calculada) return diferenciaProducto(fila.datos, columna.calculada);
   if (columna.familia) {
     const mapa = fila.datos[columna.familia.clave];
     if (mapa == null || typeof mapa !== "object") return null;
@@ -50,6 +67,15 @@ export function valorColumnaDetalle(fila: FilaCeldaDetalle, columna: ColumnaCeld
   const v = fila.datos[columna.nombre];
   if (v == null) return null;
   return typeof v === "number" || typeof v === "string" ? v : String(v);
+}
+
+/**
+ * Con qué valor se ordena y se filtra la celda. La diferencia, por su tamaño sin importar el
+ * signo: «de mayor a menor» y «> 1000» deben traer también las que el archivo declara de menos.
+ */
+export function valorOrdenFiltroDetalle(fila: FilaCeldaDetalle, columna: ColumnaCeldaDetalle): string | number | null {
+  const valor = valorColumnaDetalle(fila, columna);
+  return columna.calculada && typeof valor === "number" ? Math.abs(valor) : valor;
 }
 
 /**
@@ -79,6 +105,9 @@ export function textoCeldaDetalle(valor: string | number | null | undefined, col
 
 /** Por qué el saldo que se ve no es el de la columna del archivo, cuando no lo es. */
 export function tituloCeldaDetalle(fila: FilaCeldaDetalle, columna: ColumnaCeldaDetalle): string | undefined {
+  if (columna.calculada) {
+    return diferenciaProducto(fila.datos, columna.calculada) == null ? "Cuadra con cantidad × valor unitario." : "Valor total menos cantidad × valor unitario.";
+  }
   if (!columna.esValor || !saldoDelMotor(fila.datos)) return undefined;
   const divisa = numero(fila.datos[CLAVE_SALDO_DIVISA]);
   if (divisa != null) {

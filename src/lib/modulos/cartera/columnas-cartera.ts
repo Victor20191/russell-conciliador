@@ -19,7 +19,28 @@ export type ColumnaDetalle = {
   esValor?: boolean;
   /** Dónde leer el valor dentro de `datos` cuando la columna la puso el archivo. */
   familia?: { clave: string; etiqueta: string };
+  /** Columna que no está en el archivo: la calcula la tabla (`conColumnaDiferencia`). */
+  calculada?: ColumnaCalculada;
 };
+
+/** Valor total − cantidad × valor unitario: `resultado` − `producto[0]` × `producto[1]`. */
+export type ColumnaCalculada = { resultado: string; producto: [string, string] };
+
+/** Clave de la columna de la diferencia: no choca con ningún rol del descriptor. */
+export const COLUMNA_DIFERENCIA = "_diferencia";
+
+/**
+ * Detalle del borrador: «Diferencia» junto a la columna del valor, en los módulos que derivan el
+ * valor como cantidad × valor unitario (Inventarios). Muestra cuánto no cuadra cada ítem para
+ * poder ordenarlos y filtrarlos por eso sin salir de la tabla.
+ */
+export function conColumnaDiferencia<C extends ColumnaDetalle>(descriptor: DescriptorModulo, columnas: readonly C[]): (C | ColumnaDetalle)[] {
+  const regla = descriptor.derivar?.[descriptor.valor];
+  if (!regla || !("producto" in regla)) return [...columnas];
+  const diferencia: ColumnaDetalle = { nombre: COLUMNA_DIFERENCIA, etiqueta: "Diferencia", tipo: "moneda", calculada: { resultado: descriptor.valor, producto: regla.producto } };
+  const i = columnas.findIndex((c) => c.esValor);
+  return i < 0 ? [...columnas, diferencia] : [...columnas.slice(0, i + 1), diferencia, ...columnas.slice(i + 1)];
+}
 
 /** Prefijo de las columnas de familia, para que no choquen con el nombre de un rol. */
 export const PREFIJO_COLUMNA_EDAD = "_edades:";

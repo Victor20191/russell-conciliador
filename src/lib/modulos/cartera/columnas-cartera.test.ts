@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { descriptorModulo } from "../descriptores";
 import { CLAVE_EDADES } from "./detalle-cartera";
-import { columnasDetalleModulo, rotulosEdadesDeEncabezado } from "./columnas-cartera";
+import { COLUMNA_DIFERENCIA, columnasDetalleModulo, conColumnaDiferencia, rotulosEdadesDeEncabezado } from "./columnas-cartera";
 
 const CAR = descriptorModulo("CAR")!;
 const INV = descriptorModulo("INV")!;
@@ -59,5 +59,15 @@ describe("columnasDetalleModulo", () => {
   it("un cargue de cartera sin rangos se ve como antes", () => {
     expect(columnasDetalleModulo(CAR, []).map((c) => c.nombre))
       .toEqual(CAR.columnas.map((c) => c.nombre));
+  });
+});
+
+describe("conColumnaDiferencia", () => {
+  it("Inventarios suma «Diferencia» justo después del valor total; los demás módulos no", () => {
+    const inv = conColumnaDiferencia(INV, columnasDetalleModulo(INV, []));
+    const i = inv.findIndex((c) => c.esValor);
+    expect(inv[i + 1]).toMatchObject({ nombre: COLUMNA_DIFERENCIA, etiqueta: "Diferencia", tipo: "moneda", calculada: { resultado: "valorTotal", producto: ["cantidad", "valorUnitario"] } });
+    expect(inv).toHaveLength(INV.columnas.length + 1);
+    expect(conColumnaDiferencia(CAR, columnasDetalleModulo(CAR, [])).some((c) => c.calculada)).toBe(false);
   });
 });

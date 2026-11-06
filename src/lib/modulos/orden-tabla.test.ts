@@ -71,3 +71,21 @@ describe("orden por columna de las tablas de módulos", () => {
     expect(normalizarOrden("total", ["total"])).toBeNull();
   });
 });
+
+describe("columna que se mira de mayor a menor", () => {
+  it("con `primera: \"desc\"` el primer clic ordena de mayor a menor, luego al revés y luego sin orden", () => {
+    const primero = alternarOrden(null, "_diferencia", "desc");
+    expect(primero).toEqual({ columna: "_diferencia", direccion: "desc" });
+    const segundo = alternarOrden(primero, "_diferencia", "desc");
+    expect(segundo).toEqual({ columna: "_diferencia", direccion: "asc" });
+    expect(alternarOrden(segundo, "_diferencia", "desc")).toBeNull();
+    expect(alternarOrden({ columna: "otra", direccion: "asc" }, "_diferencia", "desc")).toEqual({ columna: "_diferencia", direccion: "desc" });
+  });
+
+  it("el título dice qué hará el próximo clic en ese mismo orden", () => {
+    expect(tituloOrden(null, "_diferencia", true, "desc")).toBe("Ordenar de mayor a menor");
+    expect(tituloOrden({ columna: "_diferencia", direccion: "desc" }, "_diferencia", true, "desc")).toBe("Ordenar de menor a mayor");
+    expect(tituloOrden({ columna: "_diferencia", direccion: "asc" }, "_diferencia", true, "desc")).toBe("Quitar el orden");
+    expect(tituloOrden(null, "total", true)).toBe("Ordenar de menor a mayor");
+  });
+});

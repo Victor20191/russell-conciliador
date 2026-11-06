@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fmtContable } from "@/lib/format";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
-import { celdaSinValor, columnasVisiblesDetalle, fechaDeCelda, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "./celda-detalle-modulo";
+import { celdaSinValor, columnasVisiblesDetalle, fechaDeCelda, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle, valorOrdenFiltroDetalle } from "./celda-detalle-modulo";
 
 const SALDO = { nombre: "total", tipo: "moneda", esValor: true };
 const edad = (etiqueta: string) => ({ nombre: `_edades:${etiqueta}`, tipo: "moneda", familia: { clave: "_edades", etiqueta } });
@@ -88,5 +88,28 @@ describe("celdaSinValor", () => {
     for (const [valor, columna] of casos) {
       expect(celdaSinValor(valor, columna), `${String(valor)} · ${columna.nombre}`).toBe(textoCeldaDetalle(valor, columna) === "—");
     }
+  });
+});
+
+describe("celda del detalle · diferencia de cantidad × valor unitario", () => {
+  const diferencia = { nombre: "_diferencia", tipo: "moneda", calculada: { resultado: "valorTotal", producto: ["cantidad", "valorUnitario"] as [string, string] } };
+  const fila = (valorTotal: number, cantidad: number | null, valorUnitario: number | null) => ({ valor: valorTotal, datos: { valorTotal, cantidad, valorUnitario } });
+
+  it("muestra cuánto no cuadra, con su signo, y «—» cuando cuadra o falta un dato", () => {
+    expect(valorColumnaDetalle(fila(757803.72, 3, 228899.236666), diferencia)).toBe(71106.01);
+    expect(valorColumnaDetalle(fila(386200.4, 4, 103045.3), diferencia)).toBe(-25980.8);
+    expect(valorColumnaDetalle(fila(300, 3, 100), diferencia)).toBeNull();
+    expect(valorColumnaDetalle(fila(300, null, 100), diferencia)).toBeNull();
+    expect(textoCeldaDetalle(valorColumnaDetalle(fila(300, 3, 100), diferencia), diferencia)).toBe("—");
+    expect(tituloCeldaDetalle(fila(300, 3, 100), diferencia)).toBe("Cuadra con cantidad × valor unitario.");
+  });
+
+  it("se ordena y se filtra por el tamaño de la diferencia, sin importar el signo", () => {
+    const filas = [fila(1010, 1, 1000), fila(386200.4, 4, 103045.3), fila(757803.72, 3, 228899.236666), fila(300, 3, 100)];
+    expect(filas.map((f) => valorOrdenFiltroDetalle(f, diferencia))).toEqual([10, 25980.8, 71106.01, null]);
+    const grandes = filtrarFilasDetalleModulo(filas, [diferencia], { _diferencia: "> 1000" }, valorOrdenFiltroDetalle);
+    expect(grandes.map((f) => f.valor)).toEqual([386200.4, 757803.72]);
+    // Las demás columnas no cambian: se ordenan y filtran con su valor de siempre.
+    expect(valorOrdenFiltroDetalle(fila(-300, 3, 100), { nombre: "valorTotal", tipo: "moneda" })).toBe(-300);
   });
 });

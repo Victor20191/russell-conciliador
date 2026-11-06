@@ -2,7 +2,7 @@
 
 import { hayReporteConErrores, motivoReporteConErrores, type ReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
 import { motivoCedulasVariosNombres, type CedulaConVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
-import { Fragment, useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
@@ -10,6 +10,7 @@ import { Icon, IconoEnTexto } from "@/components/icons";
 import { fmtContable } from "@/lib/format";
 import type { FormatoManualBorrador } from "@/lib/modulos/formatos-manuales";
 import { CasillaFormatoPropio } from "./casilla-formato-propio";
+import { motivosNovedadFila, type ContextoNovedad, type ReglasNovedad } from "@/lib/modulos/motivos-novedad";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
@@ -49,7 +50,9 @@ export type FilaBorradorModulo = {
   /** Nómina agrupada por nombre o por cuenta: el grupo de la fila (no cambia al editar el código). */
   grupo?: string | null;
 };
-type Columna = { nombre: string; etiqueta: string; tipo: string; esValor?: boolean; familia?: { clave: string; etiqueta: string } };
+type Columna = { nombre: string; etiqueta: string; tipo: string; esValor?: boolean; familia?: { clave: string; etiqueta: string }; calculada?: { resultado: string; producto: [string, string] } };
+
+const TITULO_DIFERENCIA = "Valor total menos cantidad × valor unitario, solo en los ítems que no cuadran («—» = cuadra). Ordena y filtra por el tamaño de la diferencia, sin importar el signo: «> 1000» deja las mayores de $1.000.";
 
 /** Nómina: «Agrupar por» del borrador (código, nombre o cuenta del cliente). */
 export type AgruparPorBorradorVm = {
@@ -61,7 +64,8 @@ export type AgruparPorBorradorVm = {
 };
 
 type VersionHermanaBorradorModulo = { loteId: string; version: number; archivoNombre: string; fecha: string };
-const FILTRO_NOVEDADES = "__novedades__";
+/** Clave del bloque único de la lista plana (con «Ver solo novedades» o un filtro activo). */
+const CLAVE_PLANO = "__plano__";
 
 function MenuVersionesBorradorModulo({
   moduloCodigo,
@@ -137,6 +141,7 @@ export default function BorradorModuloClient({
   clasificadorRol,
   descripcionRol = null,
   noNegativos,
+  reglasNovedad,
   productos,
   verificaciones,
   alertasConComentario = [],
@@ -169,6 +174,8 @@ export default function BorradorModuloClient({
   /** Columna con el NOMBRE del grupo cuando el clasificador es un código (Nómina). */
   descripcionRol?: string | null;
   noNegativos: string[];
+  /** Reglas con que el servidor cuenta las novedades: con ellas cada fila dice cuál es la suya. */
+  reglasNovedad: ReglasNovedad;
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
   /** Alertas que, ya cargado, exigirán un comentario por tipo para cerrar la conciliación (Inventarios). */
@@ -227,7 +234,7 @@ export default function BorradorModuloClient({
     [agruparPor, clasificadorRol, descripcionRol, otraDimension],
   );
   const [cambiandoAgrupar, startCambioAgrupar] = useTransition();
-  const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && !c.calculada && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
   const rolValor = columnasDelCargue.find((c) => c.esValor)?.nombre;
   // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan (las
   // decide el servidor, que es quien ve el archivo entero).
@@ -246,7 +253,9 @@ export default function BorradorModuloClient({
   const [periodoConfirmado, setPeriodoConfirmado] = useState<string | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>>({});
   const [observaciones, setObservaciones] = useState("");
-  const [filtro, setFiltro] = useState<string | null>(null); // null = todos · FILTRO_NOVEDADES · o un clasificador
+  const [filtro, setFiltro] = useState<string | null>(null); // null = todos los grupos · o un clasificador
+  // «Ver solo novedades» se enciende en el encabezado del detalle y se suma al grupo elegido en los chips.
+  const [soloNovedades, setSoloNovedades] = useState(false);
   const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosDetalleModulo>({});
   // Orden por columna: ordena los GRUPOS por su clasificador o su nombre (aquí, que la lista ya
   // está) y las filas de cada grupo (en el servidor: la página es una porción del grupo).
@@ -410,6 +419,22 @@ export default function BorradorModuloClient({
   const alertasCosto = (resumen.alertasCosto ?? []).filter((a) => a.referencias > 0);
   const resumenValidacion = { items: totalItems, sumaMovimientos: total };
   const filasConNovedad = useMemo(() => new Set(resumen.novedades), [resumen.novedades]);
+  // Las que deja ver el botón «Ver solo novedades»: las del grupo elegido en los chips, o todas.
+  const novedadesDelFiltro = filtro === null ? filasConNovedad.size : resumen.grupos.find((g) => g.clasificador === filtro)?.novedades ?? 0;
+  // Cada fila con novedad dice cuál es y en qué campo: en la columna «Novedad» mientras se ven las
+  // novedades, y siempre en el resaltado de la celda y al pasar el cursor por la fila.
+  const verMotivos = soloNovedades;
+  const anchoFila = columnas.length + 3 + (verMotivos ? 1 : 0);
+  const contextoNovedad = useMemo<ContextoNovedad>(() => {
+    const etiquetas = new Map(columnasDelCargue.map((c) => [c.nombre, c.etiqueta]));
+    return {
+      reglas: reglasNovedad,
+      etiqueta: (rol) => etiquetas.get(rol) ?? rol,
+      rolValor: rolValor ?? null,
+      totalizadoras: new Map(resumen.totalizadoras.map((t) => [t.filaNum, { resto: t.resto }])),
+      control: resumen.control,
+    };
+  }, [columnasDelCargue, reglasNovedad, rolValor, resumen.totalizadoras, resumen.control]);
   const verifCompletas = verificaciones.every((v) => respuestas[v.id]);
   const setResp = (id: string, respuesta: "si" | "no" | "na") => setRespuestas((p) => ({ ...p, [id]: { ...p[id], respuesta } }));
   const setNota = (id: string, nota: string) => setRespuestas((p) => ({ ...p, [id]: { respuesta: p[id]?.respuesta ?? "na", nota } }));
@@ -501,10 +526,17 @@ export default function BorradorModuloClient({
   const hayFiltrosColumnas = hayFiltrosDetalleModulo(filtrosColumnas);
   const [verEstructura, setVerEstructura] = useState(false);
   const renglonesEstructura = resumen.renglonesEstructura;
+  // Con «Ver solo novedades» o un filtro, la tabla deja de agrupar: muestra de una vez SOLO lo que coincide,
+  // de todos los grupos (o del elegido en los chips), y el orden por columna se aplica a todo junto.
+  // Sin ellos, sigue agrupada.
+  const modoPlano = soloNovedades || hayFiltrosColumnas;
+  // Cada filtro u orden nuevo invalida lo que estaba en camino: una respuesta vieja no pisa la nueva.
+  const generacion = useRef(0);
 
   // Filtrar es cosa del servidor: al cambiar un filtro se suelta lo cargado y los grupos se
   // vuelven a abrir a demanda, ya filtrados.
   const reiniciarDetalle = () => {
+    generacion.current += 1;
     setFilasPorGrupo({});
     setTotalPorGrupo({});
     setAbiertos(new Set());
@@ -512,20 +544,25 @@ export default function BorradorModuloClient({
     tablaRef.current?.scrollTo({ top: 0 });
   };
 
-  /** Trae del servidor una página de filas del grupo (la primera al abrirlo). */
+  /** Trae del servidor una página de filas del grupo (la primera al abrirlo), o de la lista plana. */
   const cargarGrupo = useCallback(
     async (clasificador: string, desde = 0) => {
+      const solicitud = generacion.current;
       setCargandoGrupos((prev) => new Set(prev).add(clasificador));
       try {
+        const plano = clasificador === CLAVE_PLANO;
         const r = await filasBorradorModulo({
           loteId,
-          clasificador,
+          // La lista plana respeta el grupo elegido en los chips de arriba, si hay uno.
+          clasificador: plano ? filtro : clasificador,
+          todos: plano,
           desde,
           verEstructura,
           filtros: hayFiltrosDetalleModulo(filtrosColumnas) ? filtrosColumnas : undefined,
-          soloNovedades: filtro === FILTRO_NOVEDADES ? resumen.novedades : undefined,
+          soloNovedades: soloNovedades ? resumen.novedades : undefined,
           orden,
         });
+        if (solicitud !== generacion.current) return;
         if (!r.ok) { notifyError(r.message ?? "No se pudo traer el detalle."); return; }
         setFilasPorGrupo((prev) => ({ ...prev, [clasificador]: desde > 0 ? [...(prev[clasificador] ?? []), ...r.filas] : r.filas }));
         setTotalPorGrupo((prev) => ({ ...prev, [clasificador]: r.total }));
@@ -538,12 +575,24 @@ export default function BorradorModuloClient({
         setCargandoGrupos((prev) => { const n = new Set(prev); n.delete(clasificador); return n; });
       }
     },
-    [filtro, filtrosColumnas, loteId, orden, resumen.novedades, verEstructura],
+    [filtro, filtrosColumnas, loteId, orden, resumen.novedades, soloNovedades, verEstructura],
   );
 
+  // La lista plana se pide sola al entrar en ella y cada vez que cambia el filtro o el orden; la
+  // espera corta deja terminar de escribir en un filtro antes de recorrer el archivo.
+  const planoCargado = filasPorGrupo[CLAVE_PLANO] != null;
+  const planoEnCamino = cargandoGrupos.has(CLAVE_PLANO);
+  useEffect(() => {
+    if (!modoPlano || planoCargado || planoEnCamino) return;
+    const espera = setTimeout(() => void cargarGrupo(CLAVE_PLANO), 300);
+    return () => clearTimeout(espera);
+  }, [modoPlano, planoCargado, planoEnCamino, cargarGrupo]);
+
   /** Un clic en el encabezado reordena: las filas ya traídas se piden de nuevo, ya ordenadas. */
+  // La diferencia se mira de mayor a menor: su primer clic ya ordena así.
+  const primeraDireccion = (columna: string) => (columnasDelCargue.some((c) => c.nombre === columna && c.calculada) ? "desc" as const : "asc" as const);
   const ordenarPor = (columna: string) => {
-    setOrden((actual) => alternarOrden(actual, columna));
+    setOrden((actual) => alternarOrden(actual, columna, primeraDireccion(columna)));
     reiniciarDetalle();
   };
 
@@ -561,8 +610,25 @@ export default function BorradorModuloClient({
 
   // La tabla muestra SIEMPRE los grupos; las filas de cada uno llegan al abrirlo.
   const gruposVista = useMemo(() => {
+    // Lista plana: un solo bloque, siempre abierto y sin renglón de grupo.
+    if (modoPlano) {
+      return [{
+        clasificador: CLAVE_PLANO,
+        descripcion: null,
+        motivoSinItems: null,
+        items: 0,
+        subtotal: 0,
+        declarado: null,
+        filasDelArchivo: totalPorGrupo[CLAVE_PLANO] ?? 0,
+        novedades: 0,
+        cargadas: filasPorGrupo[CLAVE_PLANO] ?? null,
+        totalFiltrado: totalPorGrupo[CLAVE_PLANO] ?? null,
+        abierto: true,
+        cargando: cargandoGrupos.has(CLAVE_PLANO),
+      }];
+    }
     const base = resumen.grupos
-      .filter((g) => (filtro === FILTRO_NOVEDADES ? g.novedades > 0 : filtro === null || g.clasificador === filtro))
+      .filter((g) => filtro === null || g.clasificador === filtro)
       .filter((g) => (verEstructura ? g.filas + g.estructura : g.filas) > 0)
       // Los filtros del clasificador y de su nombre recortan la LISTA de grupos; los de las demás
       // columnas solo recortan las filas de cada grupo, que llegan al abrirlo.
@@ -593,7 +659,7 @@ export default function BorradorModuloClient({
         cargando: cargandoGrupos.has(g.clasificador),
       };
     });
-  }, [abiertos, cargandoGrupos, rolesGrupo, delta.porGrupo, filasPorGrupo, filtro, filtrosColumnas, orden, resumen.grupos, totalPorGrupo, verEstructura]);
+  }, [abiertos, cargandoGrupos, rolesGrupo, delta.porGrupo, filasPorGrupo, filtro, filtrosColumnas, modoPlano, orden, resumen.grupos, totalPorGrupo, verEstructura]);
 
   const filasVisibles = gruposVista.reduce((n, g) => n + (g.cargadas?.length ?? 0), 0);
   const filasDelArchivoVisibles = gruposVista.reduce((n, g) => n + (g.totalFiltrado ?? g.filasDelArchivo), 0);
@@ -740,10 +806,11 @@ export default function BorradorModuloClient({
             {alertasConComentario.includes("valores_negativos") && <span className="ml-1">{AVISO_COMENTARIO_CIERRE}</span>}
           </div>
         )}
+        {/* Solo el aviso: los ítems se ven, se ordenan y se filtran en el detalle (columna Diferencia). */}
         {descuadres.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold"><IconoEnTexto name="warn" />{resumen.descuadresFilas} ítem(s) donde el valor total no cuadra con cantidad × valor unitario.</span>
-            <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{resumen.descuadresFilas > 8 ? "…" : ""}.</span>
+            <span className="ml-1">Se ven en el detalle con «Ver solo novedades»; la columna Diferencia los ordena.</span>
           </div>
         )}
         {alertasCosto.map((a) => (
@@ -868,12 +935,6 @@ export default function BorradorModuloClient({
             className={`rounded-md border px-3 py-1.5 text-[12px] ${filtro === null ? "border-navy-600 bg-blue-50 font-semibold text-navy-800" : "border-ink-150 bg-ink-50 text-ink-700 hover:bg-ink-100"}`}>
             Todos <span className="text-ink-400">({totalItems.toLocaleString("es-CO")})</span>
           </button>
-          {filasConNovedad.size > 0 && (
-            <button type="button" onClick={() => { setFiltro((f) => (f === FILTRO_NOVEDADES ? null : FILTRO_NOVEDADES)); reiniciarDetalle(); }}
-              className={`rounded-md border border-err-500 px-3 py-1.5 text-[12px] font-medium text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100 font-semibold" : "bg-err-100 hover:bg-err-100"}`}>
-              <IconoEnTexto name="warn" />Novedades <span>({filasConNovedad.size})</span>
-            </button>
-          )}
           {consolidado.map((c) => {
             const activo = filtro === c.clasificador;
             return (
@@ -907,10 +968,28 @@ export default function BorradorModuloClient({
             <span>
               <span className="font-semibold text-ink-700">{filasVisibles.toLocaleString("es-CO")}</span>
               {` de ${filasDelArchivoVisibles.toLocaleString("es-CO")} filas`}
-              {gruposVista.length > 0 ? " · abre un grupo para ver su detalle" : ""}
+              {modoPlano
+                ? " que coinciden · todas juntas, sin agrupar"
+                : gruposVista.length > 0 ? " · abre un grupo para ver su detalle" : ""}
             </span>
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* Filtro de la tabla, aparte de los chips de grupo: se suma al grupo elegido. */}
+            {filasConNovedad.size > 0 && (
+              <button
+                type="button"
+                aria-pressed={soloNovedades}
+                onClick={() => { setSoloNovedades((v) => !v); reiniciarDetalle(); }}
+                title={soloNovedades
+                  ? "Vuelve a la tabla completa"
+                  : `Muestra solo las filas con novedad${filtro !== null ? ` de ${filtro}` : ", de todos los grupos juntos"}, con su motivo`}
+                className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ${soloNovedades ? "border-err-700 bg-err-700 text-white" : "border-err-500 bg-err-100 text-err-700 hover:bg-err-200"}`}
+              >
+                <IconoEnTexto name="warn" />
+                {soloNovedades ? "Viendo solo novedades" : "Ver solo novedades"} ({novedadesDelFiltro.toLocaleString("es-CO")})
+                {soloNovedades && <span aria-hidden className="ml-0.5">×</span>}
+              </button>
+            )}
             {hayFiltrosColumnas && (
               <button
                 type="button"
@@ -951,34 +1030,14 @@ export default function BorradorModuloClient({
             <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
           </div>
         </div>
-        {/* En pantalla completa los filtros de «Consolidado por clasificador» quedan detrás: aquí se
-            ven el de novedades y el grupo filtrado, para no leer una tabla recortada sin saberlo. */}
-        {pantallaCompleta && (filasConNovedad.size > 0 || filtro !== null) && (
+        {/* En pantalla completa los chips de «Consolidado por clasificador» quedan detrás: aquí se ve
+            el grupo filtrado, para no leer una tabla recortada sin saberlo. */}
+        {pantallaCompleta && filtro !== null && (
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2 text-[11px]">
-            <button
-              type="button"
-              aria-pressed={filtro === null}
-              onClick={() => { setFiltro(null); reiniciarDetalle(); }}
-              className={`rounded-md border px-2 py-1 font-semibold ${filtro === null ? "border-navy-700 bg-blue-50 text-navy-800" : "border-ink-200 bg-white text-ink-600 hover:border-ink-300"}`}
-            >
-              Todos <span className="font-normal text-ink-400">({totalItems.toLocaleString("es-CO")})</span>
-            </button>
-            {filasConNovedad.size > 0 && (
-              <button
-                type="button"
-                aria-pressed={filtro === FILTRO_NOVEDADES}
-                onClick={() => { setFiltro((f) => (f === FILTRO_NOVEDADES ? null : FILTRO_NOVEDADES)); reiniciarDetalle(); }}
-                className={`rounded-md border border-err-500 px-2 py-1 font-semibold text-err-700 ${filtro === FILTRO_NOVEDADES ? "bg-err-100" : "bg-err-100 hover:bg-err-100"}`}
-              >
-                <IconoEnTexto name="warn" />Novedades ({filasConNovedad.size.toLocaleString("es-CO")})
-              </button>
-            )}
-            {filtro !== null && filtro !== FILTRO_NOVEDADES && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-navy-700 bg-blue-50 px-2 py-1 font-semibold text-navy-800">
-                {etiquetaGrupo}: {filtro}
-                <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-500 hover:text-err-700">×</button>
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1 rounded-md border border-navy-700 bg-blue-50 px-2 py-1 font-semibold text-navy-800">
+              {etiquetaGrupo}: {filtro}
+              <button type="button" onClick={() => { setFiltro(null); reiniciarDetalle(); }} aria-label="Quitar el filtro por grupo" title="Quitar el filtro por grupo" className="text-navy-500 hover:text-err-700">×</button>
+            </span>
           </div>
         )}
         {pantallaCompleta && barraSeleccion}
@@ -990,9 +1049,10 @@ export default function BorradorModuloClient({
                   <input type="checkbox" checked={todasVistaSeleccionadas} onChange={alternarTodasVista} title="Seleccionar todo lo visible" className="cursor-pointer align-middle" />
                 </th>
                 <th className="px-2.5 py-2 font-semibold">#</th>
+                {verMotivos && <th className="px-2.5 py-2 font-semibold">Novedad</th>}
                 {columnas.map((c) => (
-                  <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
-                    <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} />
+                  <th key={c.nombre} title={c.calculada ? TITULO_DIFERENCIA : undefined} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>
+                    <EncabezadoOrdenable etiqueta={c.etiqueta} columna={c.nombre} orden={orden} onOrdenar={ordenarPor} numerica={esNum(c.tipo)} primera={primeraDireccion(c.nombre)} />
                   </th>
                 ))}
                 <th className="px-2.5 py-2 text-center font-semibold">Acciones</th>
@@ -1000,6 +1060,7 @@ export default function BorradorModuloClient({
               <tr className="bg-ink-50">
                 <th className="px-2.5 pb-2" />
                 <th className="px-2.5 pb-2" />
+                {verMotivos && <th className="px-2.5 pb-2" />}
                 {columnas.map((c) => (
                   <th key={c.nombre} className="px-1.5 pb-2 font-normal">
                     <input
@@ -1008,7 +1069,7 @@ export default function BorradorModuloClient({
                       onChange={(e) => { setFiltrosColumnas((actuales) => ({ ...actuales, [c.nombre]: e.target.value })); reiniciarDetalle(); }}
                       aria-label={`Filtrar la columna ${c.etiqueta}`}
                       placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
-                      title={esNum(c.tipo) ? undefined : AYUDA_COMODIN}
+                      title={c.calculada ? TITULO_DIFERENCIA : esNum(c.tipo) ? undefined : AYUDA_COMODIN}
                       className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
                     />
                   </th>
@@ -1019,14 +1080,14 @@ export default function BorradorModuloClient({
             <tbody>
               {gruposVista.length === 0 && (
                 <tr>
-                  <td colSpan={columnas.length + 3} className="px-2.5 py-6 text-center text-ink-400">
+                  <td colSpan={anchoFila} className="px-2.5 py-6 text-center text-ink-400">
                     Ninguna fila coincide con los filtros activos.
                   </td>
                 </tr>
               )}
               {gruposVista.map((g) => (
                 <Fragment key={g.clasificador}>
-                  <tr className="border-t-2 border-ink-200 bg-blue-100">
+                  {g.clasificador !== CLAVE_PLANO && (<tr className="border-t-2 border-ink-200 bg-blue-100">
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, idxValor >= 1 ? idxValor : columnas.length - 1)}>
@@ -1058,7 +1119,7 @@ export default function BorradorModuloClient({
                         if (declarado == null || g.items === 0) return null;
                         const ctl = controlSeccion(declarado, g.subtotal);
                         // Solo con la cuenta completa a la vista tiene sentido decir si cuadra.
-                        const completa = !hayFiltrosColumnas && filtro === null;
+                        const completa = !hayFiltrosColumnas && !soloNovedades;
                         return (
                           <span className="ml-2 font-normal text-ink-500" title="Total que el archivo imprime en el renglón de la cuenta">
                             · el archivo declara {fmtContable(declarado)}
@@ -1071,7 +1132,7 @@ export default function BorradorModuloClient({
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
                     <td className="px-2.5 py-1.5" colSpan={idxValor >= 1 ? columnas.length - idxValor : 1} />
-                  </tr>
+                  </tr>)}
                   {g.abierto && (g.cargadas ?? []).map((cargada) => {
                     const f = efectivas.find((e) => e.filaNum === cargada.filaNum) ?? cargada;
                     const esAgr = f.tipoFila === "agrupadora";
@@ -1083,6 +1144,9 @@ export default function BorradorModuloClient({
                     // subtotales del detalle. Se muestran para que quede claro que se vieron.
                     const esCierre = esAgr && (f.motivo ?? "").startsWith("cola_control");
                     const neg = filasConNovedad.has(f.filaNum);
+                    // Sobre la fila guardada: las novedades también se calcularon sobre lo guardado.
+                    const motivos = neg ? motivosNovedadFila(cargada, contextoNovedad) : [];
+                    const motivosDe = (columna: string) => motivos.filter((m) => m.campos.includes(columna)).map((m) => m.texto).join(" · ");
                     const tituloFila = cero
                       ? "Renglón en cero: no se carga al definitivo"
                       : esTot
@@ -1091,15 +1155,20 @@ export default function BorradorModuloClient({
                           ? "Cifra del cuadro de cierre del archivo — excluida del consolidado"
                           : esAgr
                             ? "Renglón del archivo que no es un ítem: no suma al total"
-                            : undefined;
+                            : motivos.length ? `Novedad: ${motivos.map((m) => m.texto).join(" · ")}` : undefined;
                     return (
                       <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100" : neg && !omit ? "bg-err-100" : esTot ? "bg-blue-100 font-semibold" : esAgr ? "bg-ink-50 italic" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot || esAgr ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
                         <td className="px-2.5 py-1.5 text-center">
                           {!cero && <input type="checkbox" checked={seleccion.has(f.filaNum)} onChange={() => toggleSel(f.filaNum)} className="cursor-pointer align-middle" />}
                         </td>
                         <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
+                        {verMotivos && (
+                          <td className="min-w-[220px] px-2.5 py-1.5 text-[11.5px] leading-snug">
+                            {motivos.length ? motivos.map((m) => <span key={m.texto} className="block">{m.texto}</span>) : "—"}
+                          </td>
+                        )}
                         {columnas.map((c) => (
-                          <td key={c.nombre} title={c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
+                          <td key={c.nombre} title={motivosDe(c.nombre) || (c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c))} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "whitespace-nowrap text-right tabular-nums" : ""} ${!omit && motivosDe(c.nombre) ? "bg-err-200 font-semibold" : ""}`}>
                             {c.nombre === clasificadorRol ? (f.clasificador ?? "—") : celda(f, c)}
                           </td>
                         ))}
@@ -1139,7 +1208,7 @@ export default function BorradorModuloClient({
                   })}
                   {g.abierto && g.cargadas != null && g.totalFiltrado != null && g.cargadas.length < g.totalFiltrado && (
                     <tr className="border-t border-ink-100 bg-ink-50">
-                      <td colSpan={columnas.length + 3} className="px-2.5 py-2 text-center">
+                      <td colSpan={anchoFila} className="px-2.5 py-2 text-center">
                         <button
                           type="button"
                           disabled={g.cargando}
@@ -1151,10 +1220,17 @@ export default function BorradorModuloClient({
                       </td>
                     </tr>
                   )}
+                  {g.clasificador === CLAVE_PLANO && g.cargadas == null && (
+                    <tr className="border-t border-ink-100">
+                      <td colSpan={anchoFila} className="px-2.5 py-3 text-center text-[12px] text-ink-400" role="status">
+                        Buscando en todo el archivo…
+                      </td>
+                    </tr>
+                  )}
                   {g.abierto && g.cargadas != null && g.cargadas.length === 0 && !g.cargando && (
                     <tr className="border-t border-ink-100">
-                      <td colSpan={columnas.length + 3} className="px-2.5 py-3 text-center text-[12px] text-ink-400">
-                        Ninguna fila de este grupo coincide con los filtros activos.
+                      <td colSpan={anchoFila} className="px-2.5 py-3 text-center text-[12px] text-ink-400">
+                        {g.clasificador === CLAVE_PLANO ? "Ninguna fila coincide con los filtros activos." : "Ninguna fila de este grupo coincide con los filtros activos."}
                       </td>
                     </tr>
                   )}

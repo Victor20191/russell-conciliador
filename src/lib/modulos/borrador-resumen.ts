@@ -208,6 +208,11 @@ export function resumirBorrador(input: InsumosResumen): ResumenBorrador {
   const visibles: ColumnaDetalle[] = [];
   const ocultas: ColumnaDetalle[] = [];
   for (const columna of columnas) {
+    // La diferencia no está en el archivo: se ve cuando algún ítem no cuadra.
+    if (columna.calculada) {
+      (input.descuadres.length > 0 ? visibles : ocultas).push(columna);
+      continue;
+    }
     const fija = columna.esValor === true || columna.nombre === descriptor.clasificador;
     if (fija || columnasConDatos.has(claveColumna(columna))) visibles.push(columna);
     else ocultas.push(columna);

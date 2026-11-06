@@ -12,10 +12,13 @@ export type DireccionOrden = "asc" | "desc";
 /** Columna por la que se ordena y hacia dónde. `null` = el orden natural de la tabla. */
 export type OrdenTabla = { columna: string; direccion: DireccionOrden } | null;
 
-/** Un clic en el encabezado: ascendente → descendente → sin orden. */
-export function alternarOrden(actual: OrdenTabla, columna: string): OrdenTabla {
-  if (!actual || actual.columna !== columna) return { columna, direccion: "asc" };
-  return actual.direccion === "asc" ? { columna, direccion: "desc" } : null;
+/**
+ * Un clic en el encabezado: ascendente → descendente → sin orden. Una columna que se mira de
+ * mayor a menor (la diferencia del borrador) empieza por `primera: "desc"`.
+ */
+export function alternarOrden(actual: OrdenTabla, columna: string, primera: DireccionOrden = "asc"): OrdenTabla {
+  if (!actual || actual.columna !== columna) return { columna, direccion: primera };
+  return actual.direccion === primera ? { columna, direccion: primera === "asc" ? "desc" : "asc" } : null;
 }
 
 const colador = new Intl.Collator("es-CO", { numeric: true, sensitivity: "base" });
@@ -69,11 +72,13 @@ export function flechaOrden(orden: OrdenTabla, columna: string): "↑" | "↓" |
 }
 
 /** Texto del `title` del encabezado, para que el clic diga qué va a hacer. */
-export function tituloOrden(orden: OrdenTabla, columna: string, numerica: boolean): string {
-  const ascendente = numerica ? "de menor a mayor" : "de la A a la Z";
-  const descendente = numerica ? "de mayor a menor" : "de la Z a la A";
-  if (!orden || orden.columna !== columna) return `Ordenar ${ascendente}`;
-  return orden.direccion === "asc" ? `Ordenar ${descendente}` : "Quitar el orden";
+export function tituloOrden(orden: OrdenTabla, columna: string, numerica: boolean, primera: DireccionOrden = "asc"): string {
+  const texto: Record<DireccionOrden, string> = {
+    asc: numerica ? "de menor a mayor" : "de la A a la Z",
+    desc: numerica ? "de mayor a menor" : "de la Z a la A",
+  };
+  if (!orden || orden.columna !== columna) return `Ordenar ${texto[primera]}`;
+  return orden.direccion === primera ? `Ordenar ${texto[primera === "asc" ? "desc" : "asc"]}` : "Quitar el orden";
 }
 
 /** Valida lo que llega del navegador a una Server Action (columna conocida y dirección válida). */

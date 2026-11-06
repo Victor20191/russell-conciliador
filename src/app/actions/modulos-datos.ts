@@ -101,13 +101,13 @@ import {
 } from "@/lib/modulos/nomina/agrupar-por";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
-import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
+import { columnasDetalleModulo, conColumnaDiferencia, type ColumnaDetalle } from "@/lib/modulos/cartera/columnas-cartera";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import { normalizarOrden, ordenarFilas } from "@/lib/modulos/orden-tabla";
-import { valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { valorOrdenFiltroDetalle } from "@/lib/modulos/celda-detalle-modulo";
 import { conservaSaldoDeclarado, esRenglonEstructura, valorAlIncluir } from "@/lib/modulos/renglones-archivo";
-import { type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
-import { agruparPorDisponiblesLote, conteoDelGrupo, filasDelGrupo } from "@/lib/modulos/borrador-servidor";
+import { grupoDeFila, type FilaBorrador, type PaginaFilasBorrador } from "@/lib/modulos/borrador-resumen";
+import { agruparPorDisponiblesLote, conteoDelGrupo, filasDelGrupo, filasDelLote } from "@/lib/modulos/borrador-servidor";
 import { agruparPorDisponibles, ladosDelCargueActivos, nombresConceptoDelCargue, nombresCuentasCliente, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
@@ -1948,7 +1948,13 @@ const FILAS_POR_PAGINA_BORRADOR = 500;
  */
 export async function filasBorradorModulo(entrada: {
   loteId: string;
-  clasificador: string;
+  /** El grupo que se abre. Con `todos`, opcional: restringe la lista plana a ese grupo. */
+  clasificador?: string | null;
+  /**
+   * Lista PLANA: las filas de todos los grupos juntas, para ver y ordenar de una vez lo que
+   * coincide con «Novedades» o con un filtro, sin abrir los grupos uno por uno.
+   */
+  todos?: boolean;
   desde?: number;
   verEstructura?: boolean;
   soloNovedades?: number[];
@@ -1971,12 +1977,14 @@ export async function filasBorradorModulo(entrada: {
     const agruparPor = descriptor.consolidado ? agruparPorDeLote(lote.specJson) : null;
 
     const grupo = String(entrada.clasificador ?? "").trim();
+    const todos = entrada.todos === true;
+    if (!todos && !grupo) return { ok: false, message: "Indica el grupo del detalle.", filas: [], total: 0 };
     const novedades = Array.isArray(entrada.soloNovedades) ? new Set(entrada.soloNovedades.filter(Number.isInteger)) : null;
     const filtros = entrada.filtros && hayFiltrosDetalleModulo(entrada.filtros) ? entrada.filtros : null;
     const desde = Number.isInteger(entrada.desde) && entrada.desde! > 0 ? entrada.desde! : 0;
     // Ordenar, como filtrar, exige ver el grupo entero: la página es una porción del total.
     const ordenPedido = entrada.orden ?? null;
-    const recorta = entrada.verEstructura !== true || novedades != null || filtros != null || ordenPedido != null;
+    const recorta = todos || entrada.verEstructura !== true || novedades != null || filtros != null || ordenPedido != null;
 
     // Sin nada que recortar, la página se pide directamente a la base: un grupo de 23.000 filas
     // no viaja entero para mostrar 500. Con filtros hay que verlo completo, pero es UN grupo.
@@ -1989,12 +1997,16 @@ export async function filasBorradorModulo(entrada: {
     }
 
     const familias = ((lote.specJson ?? {}) as { familias?: Record<string, { etiqueta: string }[]> }).familias;
-    const columnas = columnasDetalleModulo(descriptor, (familias?.edades ?? []).map((e) => e.etiqueta));
-    let visibles = await filasDelGrupo(id, grupo, { agruparPor });
+    const columnas = conColumnaDiferencia(descriptor, columnasDetalleModulo(descriptor, (familias?.edades ?? []).map((e) => e.etiqueta)));
+    // La lista plana recorre el lote entero (la página del borrador ya lo lee al abrir) y, si se
+    // eligió un grupo, se queda con el suyo.
+    let visibles = todos ? await filasDelLote(id, { agruparPor }) : await filasDelGrupo(id, grupo, { agruparPor });
+    if (todos && grupo) visibles = visibles.filter((f) => grupoDeFila(f) === grupo);
     if (entrada.verEstructura !== true) visibles = visibles.filter((f) => !esRenglonEstructura(f));
     if (novedades) visibles = visibles.filter((f) => novedades.has(f.filaNum));
-    const valorDe = (fila: FilaBorrador, columna: { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } }) =>
-      columna.nombre === descriptor.clasificador ? fila.clasificador : valorColumnaDetalle(fila, columna);
+    // La diferencia se ordena y se filtra por su tamaño, sin importar el signo.
+    const valorDe = (fila: FilaBorrador, columna: Pick<ColumnaDetalle, "nombre" | "tipo" | "familia" | "calculada">) =>
+      columna.nombre === descriptor.clasificador ? fila.clasificador : valorOrdenFiltroDetalle(fila, columna);
     if (filtros) visibles = filtrarFilasDetalleModulo(visibles, columnas, filtros, valorDe);
     const orden = normalizarOrden(ordenPedido, columnas.map((c) => c.nombre));
     if (orden) {
