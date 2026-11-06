@@ -19,7 +19,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
-import { avisoReciboDeOtro350, ETIQUETA_ESTADO_PERIODO, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import { avisoReciboDeOtro350, avisoRecibosSin350, ETIQUETA_ESTADO_PERIODO, recibosSin350, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { ControlesModal } from "./controles-modal";
@@ -258,6 +258,11 @@ function FilaPeriodo({
           <ul className="mt-1 list-disc pl-4 text-[11.5px] font-semibold text-warn-700">
             {(p.recibosDeOtro350 ?? []).map((r) => <li key={r.numero}>{avisoReciboDeOtro350(r)} Exige marca en Pagos efectuados.</li>)}
           </ul>
+        )}
+        {recibosSin350(p).length > 0 && (
+          <p className="mt-1 text-[11.5px] font-semibold text-warn-700">
+            {avisoRecibosSin350(recibosSin350(p).map((f) => f.numero))} Exige marca en Pagos efectuados.
+          </p>
         )}
         {p.avisos.length > 0 && <ul className="mt-1 list-disc pl-4 text-[11.5px] text-warn-700">{p.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       </td>

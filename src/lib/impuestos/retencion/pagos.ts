@@ -3,7 +3,7 @@ import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "../formularios/f350";
 import { CONCEPTOS_PAGO_RETENCION, type ConceptoPagoRetencion } from "../formularios/f490";
 import type { MarcaCruceRetencion } from "./cruce";
 import { claveMarcaPeriodo } from "./oportunidad";
-import type { PeriodoRevision, ReciboDeOtro350 } from "./periodos-revision";
+import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./periodos-revision";
 
 /**
  * Pagos efectuados de Retención en la fuente (puro): por período, lo que declara el 350 VIGENTE
@@ -12,7 +12,8 @@ import type { PeriodoRevision, ReciboDeOtro350 } from "./periodos-revision";
  * Diferencia = total pagado − 138 = (Σ36 − 136) + (Σ34 − 137): positiva si se pagó de más y
  * negativa si se pagó de menos. El total pagado no lleva los intereses de mora: van aparte y no se
  * comparan. Se compara al peso (sin umbral); una diferencia exige marca para cerrar, y también un
- * recibo que paga un 350 de otro período. El desglose por concepto (pagado − declarado) dice qué
+ * recibo que paga un 350 de otro período. Un mes sin 350 con recibos 490 confirmados muestra lo
+ * pagado como diferencia y exige marca. El desglose por concepto (pagado − declarado) dice qué
  * falta: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135.
  */
 
@@ -43,6 +44,8 @@ export type FilaPagos = {
   desglose: DesglosePago[];
   /** Recibos que cuentan en este mes pero citan un 350 de otro. Las copias antiguas no lo traen. */
   recibosDeOtro350?: ReciboDeOtro350[];
+  /** Números de los 490 confirmados de un mes sin 350: lo que pagaron es toda la diferencia. Las copias antiguas no lo traen. */
+  recibosSin350?: string[];
   requiereMarca: boolean;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
 };
@@ -63,6 +66,8 @@ export const alertaSinRecibo = (d: Pick<DesglosePago, "concepto">) => `Falta el 
 
 export const alertaReciboDeOtro350 = (r: ReciboDeOtro350) => `Recibo de otro 350 (${r.numeroPagado})`;
 
+export const alertaRecibosSin350 = (numeros: readonly string[]) => (numeros.length === 1 ? "Recibo 490 sin 350" : `${numeros.length} recibos 490 sin 350`);
+
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
 
@@ -73,10 +78,17 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
     const marcaGuardada = marcas.get(clave);
     const vigente = p.cadena.vigente;
     if (!vigente) {
+      // Sin 350 no hay nada declarado: si hay 490 confirmados, lo que pagaron es toda la diferencia y exige marca.
+      const sin350 = recibosSin350(p).map((f) => f.numero);
+      const impuestoPagado = sumar(p.pagos.map((x) => x.impuesto));
+      const sancionPagada = sumar(p.pagos.map((x) => x.sancion));
+      const totalPagado = sumar([impuestoPagado, sancionPagada]);
+      const requiereMarca = sin350.length > 0;
       return {
         periodo: p.periodo, clave, estado: p.causal ? "sin_formulario" : "falta_350",
-        retenciones: 0, sanciones: 0, totalDeclarado: 0, impuestoPagado: 0, sancionPagada: 0, intereses: 0, totalPagado: 0, diferencia: 0,
-        desglose: [], requiereMarca: false, marca: marcaGuardada ? { ...marcaGuardada, vigente: false } : null,
+        retenciones: 0, sanciones: 0, totalDeclarado: 0, impuestoPagado, sancionPagada, intereses: sumar(p.pagos.map((x) => x.intereses)), totalPagado,
+        diferencia: totalPagado, desglose: [], recibosSin350: sin350, requiereMarca,
+        marca: marcaGuardada ? { ...marcaGuardada, vigente: requiereMarca && centavos(marcaGuardada.diferencia) === centavos(totalPagado) } : null,
       };
     }
     // Los totales se recalculan con la definición del formulario, como en las vistas.

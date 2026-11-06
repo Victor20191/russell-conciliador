@@ -207,7 +207,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
             "Ningún formulario de esos períodos está por confirmar.",
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
-            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con una corrección que llegó sin el original tiene marca.",
+            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período, con recibos 490 sin 350 o con una corrección que llegó sin el original tiene marca.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cerrarRevisionRetencion" },
         },
@@ -448,16 +448,16 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "pagos",
       titulo: "Pagos efectuados",
       proposito:
-        "Por período, el 350 vigente (136 retenciones, 137 sanciones, 138 total) contra los recibos 490 de su cadena (impuesto y sanción). Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos. Los intereses de mora van en su propia sección: no suman al total pagado ni se comparan. Se compara al peso. Al desplegar un período se ve qué falta por concepto: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135. La columna Alerta dice qué recibo 490 falta adjuntar: el 350 declara ese concepto y no hay recibo cargado.",
+        "Por período, el 350 vigente (136 retenciones, 137 sanciones, 138 total) contra los recibos 490 de su cadena (impuesto y sanción). Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos. Los intereses de mora van en su propia sección: no suman al total pagado ni se comparan. Se compara al peso. Al desplegar un período se ve qué falta por concepto: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135. La columna Alerta dice qué recibo 490 falta adjuntar (el 350 declara ese concepto y no hay recibo cargado), si un recibo paga un 350 de otro período o si hay recibos 490 en un mes sin 350: en ese caso se muestra lo pagado, todo es diferencia y exige marca, aunque se haya registrado que no hubo formulario.",
       etapas: [
         {
           titulo: "Documentar",
           acciones: [
             {
               nombre: "Marcar una diferencia en el pago",
-              queHace: "Explica la diferencia del mes o por qué un recibo paga un 350 de otro período. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
+              queHace: "Explica la diferencia del mes, por qué un recibo paga un 350 de otro período o por qué hay recibos 490 en un mes sin 350. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
-              condiciones: ["El mes tiene diferencia en el pago o un recibo que paga un 350 de otro período.", "La revisión no está en firme."],
+              condiciones: ["El mes tiene diferencia en el pago, un recibo que paga un 350 de otro período o recibos 490 sin 350 (aunque se haya registrado que no hubo formulario).", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
             },
             {

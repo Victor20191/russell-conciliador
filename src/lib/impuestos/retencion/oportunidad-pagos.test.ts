@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { F350_2026, F490_2026 } from "../__fixtures__/retencion-2026";
 import { CALENDARIO_RETEFUENTE_2026 } from "../__fixtures__/calendario-retefuente-2026";
 import { MAPEO_F350_FABRICA } from "../mapeo-dian";
-import { periodosRevision } from "./periodos-revision";
+import { avisoRecibosSin350, periodosRevision, recibosSin350 } from "./periodos-revision";
 import { cruceRetencion } from "./cruce";
 import { oportunidadRevision } from "./oportunidad";
-import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
+import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
 import { evaluarCierreRetencion } from "./cierre";
 
 describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte agosto)", () => {
@@ -132,6 +132,49 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
 
     it("sin un recibo así, el mes completo no pide marca", () => {
       expect(pagosRevision({ anio: 2026, periodos, marcas: [] }).filas[7].requiereMarca).toBe(false);
+    });
+  });
+
+  describe("recibos 490 de un mes sin 350", () => {
+    // Marzo sin su 350, con el recibo del 61 confirmado.
+    const sinMarzo = (causales: { periodo: number; causal: string }[]) => periodosRevision({
+      periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026.filter((f) => f.periodo !== 3), formularios490: F490_2026, porConfirmar: [], causales,
+    });
+    const reciboMarzo = F490_2026.find((f) => f.periodo === 3)!.numero;
+    const sinBalance = { estado: "sin_balance" as const, mensaje: "Sin balance.", balance: null, umbral: 6_000 };
+    const pendientesDeMarzo = (causales: { periodo: number; causal: string }[], marcas: Parameters<typeof pagosRevision>[0]["marcas"]) => {
+      const periodos3 = sinMarzo(causales);
+      return evaluarCierreRetencion({ periodos: periodos3, cruce: sinBalance, pagos: pagosRevision({ anio: 2026, periodos: periodos3, marcas }), oportunidad: [], etiquetaPeriodo: etq })
+        .pendientes.filter((p) => p.texto.startsWith("Período 3"));
+    };
+
+    it("lo pagado se muestra, es toda la diferencia y exige marca", () => {
+      const marzo = pagosRevision({ anio: 2026, periodos: sinMarzo([]), marcas: [] }).filas[2];
+      expect(marzo).toMatchObject({
+        estado: "falta_350", totalDeclarado: 0, impuestoPagado: 129_528_000, totalPagado: 129_528_000, diferencia: 129_528_000, recibosSin350: [reciboMarzo], requiereMarca: true,
+      });
+      expect(alertaRecibosSin350(marzo.recibosSin350!)).toBe("Recibo 490 sin 350");
+      expect(avisoRecibosSin350(recibosSin350(sinMarzo([])[2]).map((f) => f.numero))).toBe(`El mes no tiene 350 y tiene el recibo 490 ${reciboMarzo}.`);
+    });
+
+    it("con la causal de que no hubo formulario también impide cerrar hasta marcarlo", () => {
+      const causal = [{ periodo: 3, causal: "No hubo retenciones en marzo" }];
+      expect(pagosRevision({ anio: 2026, periodos: sinMarzo(causal), marcas: [] }).filas[2]).toMatchObject({ estado: "sin_formulario", requiereMarca: true });
+      const pendientes = pendientesDeMarzo(causal, []);
+      expect(pendientes).toHaveLength(1);
+      expect(pendientes[0]).toMatchObject({ tipo: "pagos" });
+      expect(pendientes[0].texto).toMatch(/^Período 3: el mes no tiene 350 y tiene un recibo 490 por \$ 129.528.000 sin marca\.$/);
+      expect(pendientesDeMarzo(causal, [marcar("pago:2026-03", 129_528_000)])).toEqual([]);
+      // Si cambian los recibos, la marca queda desactualizada.
+      expect(pendientesDeMarzo(causal, [marcar("pago:2026-03", 1)])[0].texto).toMatch(/con la marca desactualizada\.$/);
+    });
+
+    it("un mes sin 350 y sin recibos no pide marca", () => {
+      expect(pagosRevision({ anio: 2026, periodos: sinMarzo([]), marcas: [] }).filas.filter((f) => f.periodo !== 3).every((f) => !f.recibosSin350?.length)).toBe(true);
+      const sinRecibos = periodosRevision({
+        periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026.filter((f) => f.periodo !== 3), formularios490: F490_2026.filter((f) => f.periodo !== 3), porConfirmar: [], causales: [],
+      });
+      expect(pagosRevision({ anio: 2026, periodos: sinRecibos, marcas: [] }).filas[2]).toMatchObject({ estado: "falta_350", requiereMarca: false, totalPagado: 0, recibosSin350: [] });
     });
   });
 

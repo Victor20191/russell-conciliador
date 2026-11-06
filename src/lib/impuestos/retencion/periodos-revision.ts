@@ -108,6 +108,12 @@ export type ReciboDeOtro350 = { numero: string; numeroPagado: string };
 
 export const avisoReciboDeOtro350 = (r: ReciboDeOtro350) => `El recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período.`;
 
+/** 490 confirmados de un mes sin 350 (falta, o se registró que no hubo): exigen marca en Pagos efectuados. */
+export const recibosSin350 = (p: Pick<PeriodoRevision, "cadena" | "pagos">): Formulario490[] => (p.cadena.vigente ? [] : p.pagos.flatMap((x) => x.formularios));
+
+export const avisoRecibosSin350 = (numeros: readonly string[]) =>
+  `El mes no tiene 350 y tiene ${numeros.length === 1 ? `el recibo 490 ${numeros[0]}` : `los recibos 490 ${numeros.join(", ")}`}.`;
+
 export type PeriodoRevision = {
   periodo: number;
   mesFin: number;

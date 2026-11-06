@@ -13,8 +13,8 @@ import { cerrarRevisionRetencion, desbloquearRevisionRetencion } from "@/app/act
 import type { ActionState } from "@/lib/definitions";
 import { MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad, type PagoOportunidad } from "@/lib/impuestos/retencion/oportunidad";
-import { alertaReciboDeOtro350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
-import { avisoReciboDeOtro350 } from "@/lib/impuestos/retencion/periodos-revision";
+import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
+import { avisoReciboDeOtro350, avisoRecibosSin350 } from "@/lib/impuestos/retencion/periodos-revision";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
 import type { CierreRetencionVista } from "@/lib/impuestos/retencion/resultados-servidor";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
@@ -286,7 +286,11 @@ export function VistaPagos({
           placeholder="Ej.: el recibo del reteIVA (concepto 62) se pagó en el mes siguiente; ver anexo."
           resumen={
             <>
-              {fila.diferencia !== 0 && <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>}
+              {(fila.recibosSin350 ?? []).length > 0 ? (
+                <span className="block">{avisoRecibosSin350(fila.recibosSin350 ?? [])} Pagaron <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.totalPagado)}</span>.</span>
+              ) : fila.diferencia !== 0 && (
+                <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>
+              )}
               {(fila.recibosDeOtro350 ?? []).map((r) => <span key={r.numero} className="block">{avisoReciboDeOtro350(r)}</span>)}
             </>
           }
@@ -299,6 +303,9 @@ export function VistaPagos({
 
 function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: { f: FilaPagos; etiqueta: string; abierta: boolean; onAlternar: () => void; puedeEditar: boolean; onMarcar: () => void }) {
   const conFormulario = f.estado === "completo" || f.estado === "diferencia";
+  // Un mes sin 350 con recibos 490 muestra lo pagado; lo declarado queda en «—».
+  const sin350 = f.recibosSin350 ?? [];
+  const conPagos = conFormulario || sin350.length > 0;
   return (
     <Fragment>
       <tr className="border-b border-ink-100 align-top">
@@ -317,6 +324,15 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
             <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(f.retenciones)}</td>
             <td className={NUM}>{fmt(f.sanciones)}</td>
             <td className={`${NUM} ${TOTAL_SECCION}`}>{fmt(f.totalDeclarado)}</td>
+          </>
+        ) : (
+          <>
+            <td colSpan={2} className={INICIO_SECCION} />
+            <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
+          </>
+        )}
+        {conPagos ? (
+          <>
             <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(f.impuestoPagado)}</td>
             <td className={NUM}>{fmt(f.sancionPagada)}</td>
             <td className={`${NUM} ${TOTAL_SECCION}`}>{fmt(f.totalPagado)}</td>
@@ -324,8 +340,6 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
           </>
         ) : (
           <>
-            <td colSpan={2} className={INICIO_SECCION} />
-            <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
             <td colSpan={2} className={INICIO_SECCION} />
             <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
             <td className={`${NUM} ${BORDE_RESULTADO} ${FONDO_RESULTADO} text-ink-400`}>—</td>
@@ -341,8 +355,9 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
           {(f.recibosDeOtro350 ?? []).map((r) => (
             <div key={r.numero} title={avisoReciboDeOtro350(r)}>{alertaReciboDeOtro350(r)}</div>
           ))}
+          {sin350.length > 0 && <div title={avisoRecibosSin350(sin350)}>{alertaRecibosSin350(sin350)}</div>}
         </td>
-        <td className={`${NUM} ${BORDE_RESULTADO} ${conFormulario ? "" : "text-ink-400"}`}>{conFormulario ? fmt(f.intereses) : "—"}</td>
+        <td className={`${NUM} ${BORDE_RESULTADO} ${conPagos ? "" : "text-ink-400"}`}>{conPagos ? fmt(f.intereses) : "—"}</td>
         <td className={`${INICIO_SECCION} px-2 py-1.5 text-center`}>
           <CeldaMarca
             marca={f.marca}
