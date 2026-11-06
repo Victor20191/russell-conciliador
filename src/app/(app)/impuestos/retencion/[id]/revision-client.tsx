@@ -20,7 +20,17 @@ import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { etiquetaConceptoPago } from "@/lib/impuestos/formularios/f490";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
-import { avisoReciboDeOtro350, avisoRecibosSin350, ETIQUETA_ESTADO_PERIODO, recibosSin350, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import {
+  avisoFaltaOriginal,
+  avisoFueraDeCadena,
+  avisoReciboDeOtro350,
+  avisoRecibosSin350,
+  ETIQUETA_ESTADO_PERIODO,
+  recibosSin350,
+  type EstadoPeriodo,
+  type PeriodoRevision,
+} from "@/lib/impuestos/retencion/periodos-revision";
+import { alertaRecibosSin350, alertaSinRecibo } from "@/lib/impuestos/retencion/pagos";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { ControlesModal } from "./controles-modal";
@@ -143,7 +153,7 @@ export default function RevisionClient({
                 <th className="px-3 py-2">Estado</th>
                 <th className="px-3 py-2">Formulario 350</th>
                 <th className="px-3 py-2">Pagos (490)</th>
-                <th className="px-3 py-2" />
+                <th className="px-3 py-2">Alertas</th>
               </tr>
             </thead>
             <tbody>
@@ -204,6 +214,8 @@ function FilaPeriodo({
   onCausal: (periodo: number) => void;
 }) {
   const { vigente, cadena, faltaOriginal } = p.cadena;
+  // La columna de pagos muestra lo que hay (confirmado o por confirmar); lo que falta va en Alertas.
+  const lineasPago = p.pagos.filter((x) => x.formularios.length > 0 || x.porConfirmar > 0);
   return (
     <tr className="border-b border-ink-100 align-top last:border-0">
       <td className="px-3 py-2 font-semibold text-navy-800">{mes(p.periodo)}</td>
@@ -234,13 +246,11 @@ function FilaPeriodo({
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col gap-0.5">
-          {p.pagos.filter((x) => x.esperado || x.formularios.length > 0 || x.porConfirmar > 0).map((x) => (
+          {lineasPago.map((x) => (
             <span key={x.concepto} className="text-[12px]">
               <span className="inline-block min-w-[14.5rem] font-semibold text-ink-700">{etiquetaConceptoPago(x.concepto)}</span>
-              {x.formularios.length === 0 && x.porConfirmar > 0 ? (
+              {x.formularios.length === 0 ? (
                 <span className="ml-1.5 text-warn-700">por confirmar{x.esperado ? ` (paga el ${x.renglon}: ${fmt(x.declarado)})` : ""}</span>
-              ) : x.formularios.length === 0 ? (
-                <span className="ml-1.5 text-err-700">falta el recibo (paga el {x.renglon}: {fmt(x.declarado)})</span>
               ) : (
                 <span className="ml-1.5 text-ink-600">
                   {x.formularios.map((f, i) => (
@@ -253,26 +263,50 @@ function FilaPeriodo({
             </span>
           ))}
           {p.recibosSinConcepto > 0 && <span className="text-[12px] text-warn-700">{p.recibosSinConcepto} {p.recibosSinConcepto === 1 ? "recibo" : "recibos"} por confirmar, sin concepto</span>}
-          {!vigente && !p.recibosSinConcepto && p.pagos.every((x) => x.formularios.length === 0 && !x.porConfirmar) && <span className="text-[12px] text-ink-400">—</span>}
+          {lineasPago.length === 0 && !p.recibosSinConcepto && <span className="text-[12px] text-ink-400">—</span>}
         </div>
-        {(p.recibosDeOtro350?.length ?? 0) > 0 && (
-          <ul className="mt-1 list-disc pl-4 text-[11.5px] font-semibold text-warn-700">
-            {(p.recibosDeOtro350 ?? []).map((r) => <li key={r.numero}>{avisoReciboDeOtro350(r)} Exige marca en Pagos efectuados.</li>)}
-          </ul>
-        )}
-        {recibosSin350(p).length > 0 && (
-          <p className="mt-1 text-[11.5px] font-semibold text-warn-700">
-            {avisoRecibosSin350(recibosSin350(p).map((f) => f.numero))} Exige marca en Pagos efectuados.
-          </p>
-        )}
-        {p.avisos.length > 0 && <ul className="mt-1 list-disc pl-4 text-[11.5px] text-warn-700">{p.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
       </td>
-      <td className="px-3 py-2 text-right">
-        {puedeCargar && !vigente && (p.causal ? <QuitarCausal revisionId={revisionId} periodo={p.periodo} /> : (
-          <button type="button" onClick={() => onCausal(p.periodo)} className={BOTON_SECUNDARIO}>No hubo formulario</button>
-        ))}
+      <td className="px-3 py-2">
+        <div className="flex flex-col items-start gap-1.5">
+          <AlertasPeriodo p={p} />
+          {puedeCargar && !vigente && (p.causal ? <QuitarCausal revisionId={revisionId} periodo={p.periodo} /> : (
+            <button type="button" onClick={() => onCausal(p.periodo)} className={BOTON_SECUNDARIO}>No hubo formulario</button>
+          ))}
+        </div>
       </td>
     </tr>
+  );
+}
+
+type AlertaPeriodo = { clave: string; texto: string; detalle: string; tono: "err" | "warn"; marcaEn?: string };
+
+/**
+ * Lo que hay que resolver en el mes, en texto corto; al pasar el mouse, el detalle. Las que exigen
+ * marca dicen en qué pestaña se pone. Mismos textos que la columna Alerta de Pagos efectuados.
+ */
+function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
+  const sin350 = recibosSin350(p).map((f) => f.numero);
+  const alertas: AlertaPeriodo[] = [
+    ...p.pagos
+      .filter((x) => x.esperado && x.formularios.length === 0 && x.porConfirmar === 0)
+      .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}`, tono: "err" })),
+    ...(p.cadena.faltaOriginal
+      ? [{ clave: "original", texto: "Falta el 350 original", detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", marcaEn: "Oportunidad" } satisfies AlertaPeriodo]
+      : []),
+    ...p.cadena.fueraDeCadena.map((f): AlertaPeriodo => ({ clave: `fuera-${f.numero}`, texto: "350 fuera de la cadena", detalle: avisoFueraDeCadena(f.numero), tono: "warn" })),
+    ...(p.recibosDeOtro350 ?? []).map((r): AlertaPeriodo => ({ clave: `otro-${r.numero}`, texto: "Recibo de otro 350", detalle: avisoReciboDeOtro350(r), tono: "err", marcaEn: "Pagos" })),
+    ...(sin350.length > 0 ? [{ clave: "sin350", texto: alertaRecibosSin350(sin350), detalle: avisoRecibosSin350(sin350), tono: "err", marcaEn: "Pagos" } satisfies AlertaPeriodo] : []),
+  ];
+  if (alertas.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5 text-[11.5px] leading-5">
+      {alertas.map((a) => (
+        <li key={a.clave} title={a.detalle} className={`font-semibold ${a.tono === "err" ? "text-err-700" : "text-warn-700"}`}>
+          {a.texto}
+          {a.marcaEn && <span className="font-normal text-ink-500"> · exige marca en {a.marcaEn}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -108,6 +108,10 @@ export type ReciboDeOtro350 = { numero: string; numeroPagado: string };
 
 export const avisoReciboDeOtro350 = (r: ReciboDeOtro350) => `El recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período.`;
 
+export const avisoFueraDeCadena = (numero: string) => `El formulario ${numero} no hace parte de la cadena de correcciones del período.`;
+
+export const avisoFaltaOriginal = (numero: string) => `Falta el formulario original ${numero}: sin él no se mide la oportunidad de presentación.`;
+
 /** 490 confirmados de un mes sin 350 (falta, o se registró que no hubo): exigen marca en Pagos efectuados. */
 export const recibosSin350 = (p: Pick<PeriodoRevision, "cadena" | "pagos">): Formulario490[] => (p.cadena.vigente ? [] : p.pagos.flatMap((x) => x.formularios));
 
@@ -168,10 +172,8 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
     const recibosDeOtro350: ReciboDeOtro350[] = del490.flatMap((f) =>
       f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado) ? [{ numero: f.numero, numeroPagado: f.numeroPagado }] : [],
     );
-    for (const f of cadena.fueraDeCadena) {
-      avisos.push(`El formulario ${f.numero} no hace parte de la cadena de correcciones del período.`);
-    }
-    if (cadena.faltaOriginal) avisos.push(`Falta el formulario original ${cadena.faltaOriginal}: sin él no se mide la oportunidad de presentación.`);
+    for (const f of cadena.fueraDeCadena) avisos.push(avisoFueraDeCadena(f.numero));
+    if (cadena.faltaOriginal) avisos.push(avisoFaltaOriginal(cadena.faltaOriginal));
     const pagosFaltantes = pagos.filter((p) => p.esperado && p.formularios.length === 0 && p.porConfirmar === 0).map((p) => p.concepto);
 
     const estado: EstadoPeriodo = cadena.vigente

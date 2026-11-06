@@ -177,7 +177,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   id: "impuestos.retencion_revision",
   titulo: "Revisión de Retención en la fuente",
   proposito:
-    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué pagos faltan o están por confirmar; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
+    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué recibos 490 hay (confirmados o por confirmar); la columna Alertas reúne lo que hay que resolver en el mes (un recibo 490 que falta, el 350 original que falta, un 350 fuera de la cadena, un recibo de otro 350 o recibos 490 sin 350), con el detalle al pasar el mouse, y dice cuáles exigen marca y en qué pestaña; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 350: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -237,7 +237,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     {
       id: "formularios",
       titulo: "Formularios",
-      proposito: "Importar los PDF, confirmar lo que leyó la IA y ver, por período, qué 350 rige y qué pagos faltan.",
+      proposito: "Importar los PDF, confirmar lo que leyó la IA y ver, por período, qué 350 rige, qué recibos hay y, en la columna Alertas, qué falta.",
       etapas: [
     {
       titulo: "Importar",
