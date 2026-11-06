@@ -231,7 +231,7 @@ export function VistaPagos({
               <th colSpan={3} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor declarado · Formulario 350</th>
               <th colSpan={3} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor pagado · Recibos 490</th>
               <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>
-                Resultado · <span className="whitespace-nowrap">Valor declarado vs valor pagado</span>
+                Resultado · Valor declarado vs <span className="whitespace-nowrap">total pagado antes de intereses</span>
               </th>
               <th className={`${BORDE_RESULTADO} whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Intereses pagados</th>
               <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
