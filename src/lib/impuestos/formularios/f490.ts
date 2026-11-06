@@ -23,6 +23,11 @@ const OFICIAL = "Uso oficial";
 export const CONCEPTOS_PAGO_RETENCION = ["61", "62", "63"] as const;
 export type ConceptoPagoRetencion = (typeof CONCEPTOS_PAGO_RETENCION)[number];
 
+const NOMBRE_CONCEPTO_PAGO: Readonly<Record<ConceptoPagoRetencion, string>> = { "61": "Retenciones de renta", "62": "ReteIVA", "63": "Retención de timbre" };
+
+/** «Retenciones de renta (Concepto 61)»: el nombre del concepto de pago con su número. */
+export const etiquetaConceptoPago = (concepto: ConceptoPagoRetencion) => `${NOMBRE_CONCEPTO_PAGO[concepto]} (Concepto ${concepto})`;
+
 export const F490: DefinicionFormulario = {
   codigo: "490",
   nombre: "Recibo oficial de pago de impuestos nacionales",

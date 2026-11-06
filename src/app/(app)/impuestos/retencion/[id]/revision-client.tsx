@@ -18,6 +18,7 @@ import {
 } from "@/app/actions/impuestos-retencion";
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
+import { etiquetaConceptoPago } from "@/lib/impuestos/formularios/f490";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
 import { avisoReciboDeOtro350, avisoRecibosSin350, ETIQUETA_ESTADO_PERIODO, recibosSin350, type EstadoPeriodo, type PeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
@@ -235,7 +236,7 @@ function FilaPeriodo({
         <div className="flex flex-col gap-0.5">
           {p.pagos.filter((x) => x.esperado || x.formularios.length > 0 || x.porConfirmar > 0).map((x) => (
             <span key={x.concepto} className="text-[12px]">
-              <span className="font-semibold text-ink-700">{x.concepto}</span>
+              <span className="inline-block min-w-[14.5rem] font-semibold text-ink-700">{etiquetaConceptoPago(x.concepto)}</span>
               {x.formularios.length === 0 && x.porConfirmar > 0 ? (
                 <span className="ml-1.5 text-warn-700">por confirmar{x.esperado ? ` (paga el ${x.renglon}: ${fmt(x.declarado)})` : ""}</span>
               ) : x.formularios.length === 0 ? (
