@@ -16,7 +16,7 @@ import { ingerir, type GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella } from "@/lib/balance/extraccion/huella";
 import { descriptorModulo, bloqueoAnexoPorVerificacionesCriticasModulo } from "@/lib/modulos/descriptores";
 import { exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
-import { huellaSha256Archivo } from "@/lib/modulos/archivo-original";
+import { datosArchivoOriginalDescartado, huellaSha256Archivo } from "@/lib/modulos/archivo-original";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { vistaAnalisisHoja } from "@/lib/modulos/extraccion/vista-analisis";
@@ -167,6 +167,43 @@ export async function conservarLecturaInventario(entrada: { recepcionLoteId: str
   } catch (error) {
     if (!(error instanceof ErrorAsistencia)) registrarError("conservarLecturaInventario", error);
     return errorRespuesta(error instanceof ErrorAsistencia ? error.message : "No se pudo conservar la lectura. Consulta el borrador e inténtalo nuevamente.");
+  }
+}
+
+/**
+ * Descarta una lectura por completar: un archivo recibido que todavía no tiene borrador sale de la
+ * lista. El original queda en la bitácora como descartado, igual que al descartar un borrador; un
+ * archivo con borrador se descarta desde la lista de borradores.
+ */
+export async function descartarLecturaInventario(entrada: { recepcionLoteId: string }): Promise<{ ok: boolean; message: string }> {
+  const parsed = ConsultaSchema.safeParse(entrada);
+  if (!parsed.success) return { ok: false, message: "Recepción inválida." };
+  const loteId = parsed.data.recepcionLoteId;
+  const conBorrador = "Este archivo ya tiene borrador: descártalo desde la lista de borradores.";
+  try {
+    const original = await originalAutorizado(loteId);
+    if (original.estado === "borrador") throw new ErrorAsistencia(conBorrador);
+    const guardada = leerAsistenciaInventario(original.asistenciaJson);
+    if (guardada && intentoInventarioVigente(guardada)) throw new ErrorAsistencia("La lectura sigue en curso. Espera a que termine para descartarla.");
+    await transaccionSerializable(async (tx) => {
+      // El mismo candado que prepara el borrador: no se descarta mientras otra operación lo crea.
+      await tomarCandadoTransaccion(tx, `modulo-borrador:${loteId}`);
+      if (await tx.moduloImportacionLote.findUnique({ where: { loteId }, select: { id: true } })) throw new ErrorAsistencia(conBorrador);
+      const descartado = await tx.archivoOriginalModulo.updateMany({
+        where: { id: original.id, revisionAsistencia: original.revisionAsistencia, estado: { in: ["recibido", "no_procesable"] } },
+        data: datosArchivoOriginalDescartado(),
+      });
+      if (descartado.count !== 1) throw new ErrorAsistencia("La lectura cambió en otra operación. Vuelve a abrir la lista.");
+    });
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "DESCARTÓ LECTURA DE INVENTARIOS", entity: original.nombreCliente,
+      detail: `${original.nombreArchivo} · revisión ${original.revisionAsistencia}`, clientId: original.clienteId }).catch((e) => registrarError("descartarLecturaInventario.auditoria", e));
+    revalidar(loteId);
+    revalidatePath("/modulos/inv/formatos-propios");
+    return { ok: true, message: "Lectura descartada." };
+  } catch (error) {
+    if (!(error instanceof ErrorAsistencia)) registrarError("descartarLecturaInventario", error);
+    return { ok: false, message: error instanceof ErrorAsistencia ? error.message : "No se pudo descartar la lectura. Inténtalo nuevamente." };
   }
 }
 

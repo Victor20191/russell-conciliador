@@ -31,7 +31,8 @@ vi.mock("@/lib/modulos/asistencia/validar", () => ({ validarLecturaInventario: m
 vi.mock("@/lib/modulos/patrones/servidor", () => ({ aplicativoConfirmadoDeCarga: m.aplicativo, versionesPatronCandidatas: m.versiones }));
 
 import prisma from "@/lib/prisma";
-import { conservarLecturaInventario, consultarAsistenciaInventario, prepararBorradorInventario, ventanaOriginalInventario } from "./asistencia-inventario";
+import { logAudit } from "@/lib/audit";
+import { conservarLecturaInventario, consultarAsistenciaInventario, descartarLecturaInventario, prepararBorradorInventario, ventanaOriginalInventario } from "./asistencia-inventario";
 const ID = "00000000-0000-4000-8000-000000000001";
 const bytes = new Uint8Array([1, 2, 3]);
 const spec = { hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, referencia: 2, descripcion: 0, cantidad: 3, valorUnitario: 0, valorTotal: 4 } };
@@ -377,5 +378,53 @@ describe("lectura por ejemplo en el cargue", () => {
     m.permiso.mockImplementation(async (_p: string, opciones?: { clientId?: number }) => opciones?.clientId ? { ok: false, message: "Sin alcance" } : { ok: true });
     expect(await ventanaOriginalInventario({ recepcionLoteId: ID })).toEqual({ ok: false, message: "Sin alcance" });
     expect(m.objeto).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("descartar una lectura por completar", () => {
+  beforeEach(() => { vi.mocked(logAudit).mockResolvedValue(undefined); });
+  const conAsistencia = (estado: AsistenciaInventarioGuardada["estado"], venceEn = new Date(Date.now() - 1000).toISOString()) => {
+    original = { ...baseOriginal, revisionAsistencia: 2, asistenciaJson: { version: 1, estado, operacionId: "a", erpId: 3, periodo: "2026-09", venceEn } };
+  };
+
+  it("deja el original en la bitácora como descartado, sin tocar el archivo ni crear borrador", async () => {
+    conAsistencia("error_recuperable");
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toEqual({ ok: true, message: "Lectura descartada." });
+    expect(original).toMatchObject({ estado: "descartado", encabezadoId: null, claveObjeto: "privado/prueba" });
+    expect(m.actualizar).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 1, revisionAsistencia: 2, estado: { in: ["recibido", "no_procesable"] } }) }));
+    expect(m.guardarLote).not.toHaveBeenCalled();
+    expect(m.borrarFilas).not.toHaveBeenCalled();
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "DESCARTÓ LECTURA DE INVENTARIOS", clientId: 7 }));
+  });
+
+  it("exige el alcance sobre el cliente del original", async () => {
+    conAsistencia("requiere_respuesta");
+    m.permiso.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, message: "Sin alcance" });
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toEqual({ ok: false, message: "Sin alcance" });
+    expect(m.permiso).toHaveBeenLastCalledWith("modulos_datos:crear", { clientId: 7 });
+    expect(original.estado).toBe("recibido");
+  });
+
+  it("no descarta mientras la lectura sigue en curso", async () => {
+    conAsistencia("analizando", new Date(Date.now() + 60_000).toISOString());
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toMatchObject({ ok: false, message: expect.stringContaining("en curso") });
+    expect(original.estado).toBe("recibido");
+  });
+
+  it("un archivo con borrador se descarta desde la lista de borradores", async () => {
+    configurarBorrador();
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toMatchObject({ ok: false, message: expect.stringContaining("lista de borradores") });
+    expect(original.estado).toBe("borrador");
+    conAsistencia("error_recuperable");
+    m.lote.mockResolvedValue({ id: 10 });
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toMatchObject({ ok: false, message: expect.stringContaining("lista de borradores") });
+    expect(original.estado).toBe("recibido");
+  });
+
+  it("si otra operación cambió la lectura, no descarta", async () => {
+    conAsistencia("requiere_respuesta");
+    m.actualizar.mockResolvedValueOnce({ count: 0 });
+    expect(await descartarLecturaInventario({ recepcionLoteId: ID })).toMatchObject({ ok: false, message: expect.stringContaining("cambió") });
+    expect(original.estado).toBe("recibido");
   });
 });
