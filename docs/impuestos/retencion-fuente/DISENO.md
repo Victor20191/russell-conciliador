@@ -269,7 +269,8 @@ está cubierto por el catálogo».
 ## 9. Umbral «Diferencias de impuestos»
 
 Clave `impuestos_diferencia`, sección nueva «Impuestos» en Parámetros de alertas.
-**Valor de fábrica propuesto: $6.000** — es lo máximo que el redondeo a miles de la DIAN
+**Valor de fábrica: $501 desde el 6/Nov/2026** (decisión del usuario: lo primero que pasa el redondeo de
+$500 por renglón y mes). Propuesta original: **$6.000** — es lo máximo que el redondeo a miles de la DIAN
 ($500 por renglón y mes) acumula en un renglón en 12 meses. Por debajo, «Diferencia
 informativa» sin marca; desde el umbral, marca obligatoria para cerrar. Lo cambian Gerente,
 Socio y administradores en `/config/parametros`. «Pagos efectuados» no usa umbral: compara

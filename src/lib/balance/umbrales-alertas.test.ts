@@ -113,7 +113,7 @@ describe("catálogo de umbrales", () => {
     expect(getUmbralDef("afi_detalle")?.defecto).toBe(10_000);
     expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "balance").map((u) => u.clave)).toEqual(["descuadre", "naturaleza", "corte_saldo_final"]);
     expect(UMBRALES_CATALOGO.filter((u) => u.seccion === "modulos")).toHaveLength(4);
-    expect(getUmbralDef("impuestos_diferencia")).toMatchObject({ seccion: "impuestos", defecto: 6_000, nombre: "Diferencias de impuestos" });
+    expect(getUmbralDef("impuestos_diferencia")).toMatchObject({ seccion: "impuestos", defecto: 501, nombre: "Diferencias de impuestos" });
   });
 
   it("exige marca desde el umbral inclusive, con cualquier signo", () => {

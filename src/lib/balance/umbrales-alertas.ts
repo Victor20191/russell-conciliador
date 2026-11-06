@@ -34,8 +34,9 @@ export type UmbralesAlertas = {
   afi_detalle: number;
   /**
    * Impuestos · cruce contable de Retención en la fuente: desde este monto (inclusive) la diferencia
-   * entre lo declarado y la contabilidad exige marca. Propio de Impuestos (la DIAN redondea cada
-   * renglón a miles: hasta $500 por renglón y mes, $6.000 en un renglón de 12 meses).
+   * entre lo declarado y la contabilidad exige marca. Propio de Impuestos. La DIAN redondea cada
+   * renglón a miles (hasta $500 por renglón y mes): de fábrica $501, lo primero que pasa ese redondeo
+   * (decisión del usuario del 6/Nov/2026; antes $6.000, el redondeo de 12 meses).
    */
   impuestos_diferencia: number;
 };
@@ -51,7 +52,7 @@ export const UMBRAL_CEDULA_MODULOS = 2_000;
 export const UMBRAL_TERCERO_DIFERENCIA = 2_000;
 export const UMBRAL_TERCERO_NATURALEZA = 10_000;
 export const UMBRAL_AFI_DETALLE = 10_000;
-export const UMBRAL_IMPUESTOS_DIFERENCIA = 6_000;
+export const UMBRAL_IMPUESTOS_DIFERENCIA = 501;
 // Un movimiento (débito o crédito) que vino con signo CONTRARIO al dominante de su
 // columna se sube en NEGATIVO. Ese negativo es la "alerta de magnitud".
 export const UMBRAL_MAGNITUD_ALERTA = 50_000;

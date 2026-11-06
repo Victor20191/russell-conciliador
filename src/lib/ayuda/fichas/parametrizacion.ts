@@ -207,7 +207,7 @@ export const FICHA_PARAMETROS_ALERTAS: FichaAyuda = {
     },
     {
       etiqueta: "Diferencias de impuestos",
-      significado: "Desde el monto, una diferencia del cruce contable de Retención en la fuente necesita marca para cerrar la revisión. De fábrica, $6.000.",
+      significado: "Desde el monto, una diferencia del cruce contable de Retención en la fuente necesita marca para cerrar la revisión. De fábrica, $501.",
     },
     { etiqueta: "Predeterminado · Personalizado", significado: "Si el umbral está en su valor predeterminado o fue cambiado." },
   ],
