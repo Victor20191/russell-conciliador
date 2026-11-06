@@ -88,7 +88,8 @@ describe("tercero DIAN", () => {
 
 describe("periodicidad", () => {
   it("ofrece opciones por formulario y valida lo que llega de la ficha", () => {
-    expect(opcionesPeriodicidad("RETEFUENTE")).toContain("Mensual");
+    expect(opcionesPeriodicidad("RETEFUENTE")).toEqual(["Mensual"]);
+    expect(validarPeriodicidad("RETEFUENTE", "Bimestral").ok).toBe(false);
     expect(opcionesPeriodicidad("IVA")).toEqual(["Bimestral", "Cuatrimestral"]);
     expect(opcionesPeriodicidad("ICA")).toEqual([]);
     expect(validarPeriodicidad("IVA", "Cuatrimestral")).toEqual({ ok: true, periodicidad: "Cuatrimestral" });
@@ -98,7 +99,9 @@ describe("periodicidad", () => {
 
   it("la del cliente manda; si no tiene, rige la del formulario", () => {
     expect(periodicidadVigente("RETEFUENTE", null, "Mensual")).toBe("Mensual");
-    expect(periodicidadVigente("RETEFUENTE", "Bimestral", "Mensual")).toBe("Bimestral");
+    expect(periodicidadVigente("IVA", "Cuatrimestral", "Bimestral")).toBe("Cuatrimestral");
+    // Retención es siempre mensual: una periodicidad vieja guardada en la ficha ya no rige.
+    expect(periodicidadVigente("RETEFUENTE", "Bimestral", "Mensual")).toBe("Mensual");
     expect(periodicidadVigente("IVA", "Mensual", "Bimestral")).toBe("Bimestral");
   });
 

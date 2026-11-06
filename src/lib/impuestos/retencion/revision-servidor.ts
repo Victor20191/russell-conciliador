@@ -1,7 +1,6 @@
 import "server-only";
 import prisma from "@/lib/prisma";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
-import { periodicidadVigente } from "../periodicidad";
 import { controlesLectura, normalizarLectura, type ControlLectura, type LecturaCruda, type LecturaFormulario } from "./lectura";
 import { periodosRevision, type PeriodoRevision } from "./periodos-revision";
 import type { EstadoFormulario } from "./tipos";
@@ -192,23 +191,14 @@ export async function cargarRevisiones(clientIds: number[] | null): Promise<Revi
   }));
 }
 
-export type ClienteRevision = { id: number; nombre: string; nit: string; periodicidad: string };
+export type ClienteRevision = { id: number; nombre: string; nit: string };
 
-/** Clientes para «Nueva revisión» (los de alcance de escritura), con su periodicidad de Retención. */
+/** Clientes para «Nueva revisión» (los de alcance de escritura). */
 export async function clientesParaRevision(clientIds: number[] | null): Promise<ClienteRevision[]> {
-  const [clientes, formulario] = await Promise.all([
-    prisma.client.findMany({
-      where: clientIds ? { id: { in: clientIds } } : {},
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, nit: true, dianForms: { select: { periodicidad: true, form: { select: { key: true } } } } },
-    }),
-    prisma.dianForm.findUnique({ where: { key: "RETEFUENTE" }, select: { periodicity: true } }),
-  ]);
-  const deFabrica = formulario?.periodicity ?? "Mensual";
-  return clientes.map((c) => ({
-    id: c.id,
-    nombre: c.name,
-    nit: c.nit,
-    periodicidad: periodicidadVigente("RETEFUENTE", c.dianForms.find((f) => f.form.key === "RETEFUENTE")?.periodicidad, deFabrica),
-  }));
+  const clientes = await prisma.client.findMany({
+    where: clientIds ? { id: { in: clientIds } } : {},
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, nit: true },
+  });
+  return clientes.map((c) => ({ id: c.id, nombre: c.name, nit: c.nit }));
 }

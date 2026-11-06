@@ -1046,9 +1046,9 @@ function ClientModal({
                             </span>
                           </span>
                         </label>
-                        {/* Periodicidad de presentación del cliente para este formato (Retención e IVA).
-                            Solo viaja si el formato está marcado. */}
-                        {checked && periodicidades.length > 0 && (
+                        {/* Periodicidad de presentación del cliente para este formato (IVA; Retención
+                            es siempre mensual). Solo viaja si el formato está marcado y hay de dónde elegir. */}
+                        {checked && periodicidades.length > 1 && (
                           <label className="ml-6 flex items-center gap-2 text-[11px] text-ink-500">
                             Periodicidad
                             <select

@@ -2,8 +2,8 @@
  * Periodicidad de presentación por cliente y formulario DIAN (puro).
  *
  * Se guarda en `formularios_dian_cliente.periodicidad`; nula = la del formulario
- * (`formularios_dian.periodicidad`). La mayoría de los clientes declara Retención en la
- * fuente cada mes; unos pocos, por condiciones especiales, con otra periodicidad.
+ * (`formularios_dian.periodicidad`). Retención en la fuente se declara siempre cada mes, así
+ * que no se elige: la ficha del cliente solo pide la periodicidad cuando hay más de una opción.
  */
 
 export type Periodicidad = "Mensual" | "Bimestral" | "Trimestral" | "Cuatrimestral" | "Semestral" | "Anual";
@@ -15,7 +15,7 @@ const MESES_POR_PERIODO: Readonly<Record<Periodicidad, number>> = {
 
 /** Opciones por clave de formulario. ICA no tiene: su periodicidad se define con su módulo. */
 export const PERIODICIDADES_POR_FORMULARIO: Readonly<Record<string, readonly Periodicidad[]>> = {
-  RETEFUENTE: ["Mensual", "Bimestral", "Trimestral", "Semestral", "Anual"],
+  RETEFUENTE: ["Mensual"],
   IVA: ["Bimestral", "Cuatrimestral"],
 };
 

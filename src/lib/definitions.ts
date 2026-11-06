@@ -464,7 +464,6 @@ export const RevisionRetencionSchema = z.object({
   clienteId: z.coerce.number().int().positive({ error: "Elige el cliente." }),
   anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
   mesCorte: z.coerce.number().int().min(1, { error: "Elige el corte." }).max(12, { error: "Elige el corte." }),
-  periodicidad: z.string().trim().min(1, { error: "Elige la periodicidad." }),
 });
 export const PeriodoSinFormularioSchema = z.object({
   revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),

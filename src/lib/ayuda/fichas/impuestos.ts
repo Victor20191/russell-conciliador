@@ -148,9 +148,8 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
         {
           nombre: "Nueva revisión",
           queHace:
-            "Abre la revisión de un cliente para un año y un corte (precierre a septiembre, cierre a diciembre u otro mes) y confirma su periodicidad, que define qué formularios se esperan. Si la revisión ya existe, la abre.",
+            "Abre la revisión de un cliente para un año y un corte (precierre a septiembre, cierre a diciembre u otro mes). Retención en la fuente es siempre mensual: se espera un 350 por cada mes hasta el corte. Si la revisión ya existe, la abre.",
           regla: REGLAS.cargarImpuestos,
-          condiciones: ["Si cambias la periodicidad, queda también en la ficha del cliente cuando puedes editarla."],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "crearRevisionRetencion" },
         },
       ],
@@ -507,7 +506,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     },
     {
       pregunta: "¿Por qué la oportunidad dice «Sin calendario»?",
-      respuesta: "Falta el calendario tributario del año en Parametrización › Calendario tributario, o la periodicidad del cliente no es mensual (el calendario tiene una fecha por mes).",
+      respuesta: "Falta el calendario tributario del año en Parametrización › Calendario tributario.",
     },
     {
       pregunta: "¿Una corrección importada después cambia una revisión en firme?",

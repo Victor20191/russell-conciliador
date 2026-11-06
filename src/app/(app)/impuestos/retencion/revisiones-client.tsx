@@ -12,7 +12,6 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { crearRevisionRetencion } from "@/app/actions/impuestos-retencion";
 import { BuscadorListado, FiltroEstadoListado } from "@/app/(app)/modulos/[codigo]/listado-compartido";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
-import { opcionesPeriodicidad } from "@/lib/impuestos/periodicidad";
 import {
   contarRevisionesPorEstado,
   ESTADOS_REVISION,
@@ -117,14 +116,6 @@ function NuevaRevisionModal({ clientes, anioActual, onClose }: { clientes: Clien
   const [clienteId, setClienteId] = useState("");
   const [anio, setAnio] = useState(String(anioActual));
   const [mesCorte, setMesCorte] = useState("9");
-  const cliente = useMemo(() => clientes.find((c) => String(c.id) === clienteId) ?? null, [clientes, clienteId]);
-  const [periodicidad, setPeriodicidad] = useState("Mensual");
-  // Al elegir el cliente se propone su periodicidad (ajuste en render).
-  const [clientePrevio, setClientePrevio] = useState(clienteId);
-  if (clienteId !== clientePrevio) {
-    setClientePrevio(clienteId);
-    if (cliente) setPeriodicidad(cliente.periodicidad);
-  }
   useEffect(() => {
     notifyActionState(state, { success: state.message ?? "Revisión creada.", error: "No se pudo crear la revisión." });
     if (state.ok && state.id) router.push(`/impuestos/retencion/${state.id}`);
@@ -174,15 +165,6 @@ function NuevaRevisionModal({ clientes, anioActual, onClose }: { clientes: Clien
             <input type="hidden" name="mesCorte" value={mesCorte} />
           </fieldset>
         </div>
-        <label className="flex flex-col gap-1">
-          <span className="font-semibold text-ink-700">Periodicidad de Retención en la fuente del cliente</span>
-          <select name="periodicidad" value={periodicidad} onChange={(e) => setPeriodicidad(e.target.value)} className="h-9 w-56 rounded-md border border-ink-200 bg-white px-2">
-            {opcionesPeriodicidad("RETEFUENTE").map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <span className="text-[11.5px] text-ink-500">
-            Confírmala: la mayoría de clientes declara cada mes. Define qué formularios se esperan hasta el corte{cliente && cliente.periodicidad !== periodicidad ? " y quedará también en la ficha del cliente" : ""}.
-          </span>
-        </label>
       </form>
     </Modal>
   );

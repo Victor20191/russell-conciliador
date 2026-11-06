@@ -57,7 +57,8 @@ y una consulta de solo lectura a la base del mismo día.
 **`/impuestos/retencion`** — índice agrupado cliente → año → revisiones (precierre,
 cierre u otro corte), con estado (En proceso / con pendientes / En firme), como el índice
 de los módulos. Botón «Nueva revisión»: cliente → año → corte (atajos «Precierre ·
-septiembre» y «Cierre · diciembre», cualquier mes posible) → confirmar la periodicidad.
+septiembre» y «Cierre · diciembre», cualquier mes posible). La periodicidad no se pregunta:
+Retención en la fuente es siempre mensual (5/Nov/2026).
 
 **`/impuestos/retencion/[id]`** — una revisión, con pestañas:
 
@@ -189,8 +190,8 @@ la misma forma.
 
 ## 7. Flujos
 
-**Nueva revisión.** Cliente → año → corte → periodicidad (precargada de la ficha; si el
-usuario la cambia, se guarda en la ficha y en la revisión). Si ya existe la revisión, se
+**Nueva revisión.** Cliente → año → corte; la periodicidad es siempre mensual (decisión del
+5/Nov/2026: antes se confirmaba y se guardaba en la ficha). Si ya existe la revisión, se
 abre. Con eso se calculan los períodos esperados.
 
 **Importar PDF.** Varios a la vez (tope de tamaño y de páginas por archivo). Por cada uno:
@@ -338,7 +339,8 @@ cuando lo autorices.
 8. **Fecha de pago con varios 490 del 61**: la del último pago; **mes sin 61**: la del
    primer 490 que haya, indicando cuál.
 9. **Periodicidades distintas de mensual**: ¿cuáles hay? Propuesta: bimestral, trimestral,
-   semestral y anual, cada una con sus períodos esperados.
+   semestral y anual, cada una con sus períodos esperados. Cerrada el 5/Nov/2026: Retención
+   en la fuente es siempre mensual y no se pregunta.
 10. **Cuentas de pago aparte** (236599, 236799): fuera del cruce (ya señalado en el prompt).
 11. **Cuenta del renglón 129**: sigue pendiente con Russell.
 

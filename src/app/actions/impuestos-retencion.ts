@@ -25,7 +25,6 @@ import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloque
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { transaccionSerializable } from "@/lib/concurrency";
 import { cargarCruceRetencion, MODULO_RETENCION } from "@/lib/impuestos/retencion/cruce-servidor";
-import { validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import { leerFormularioDianConIA } from "@/lib/impuestos/retencion/lectura-servidor";
@@ -50,20 +49,17 @@ async function revisionConAlcance(revisionId: number, permiso: string) {
   return { ok: true as const, revision };
 }
 
-/** «Nueva revisión»: cliente, año, corte y periodicidad. Si ya existe, devuelve la existente. */
+/** «Nueva revisión»: cliente, año y corte. Retención en la fuente es siempre mensual. Si ya existe, devuelve la existente. */
 export async function crearRevisionRetencion(_prev: ResultadoRevision, formData: FormData): Promise<ResultadoRevision> {
   const parsed = RevisionRetencionSchema.safeParse({
     clienteId: formData.get("clienteId"),
     anio: formData.get("anio"),
     mesCorte: formData.get("mesCorte"),
-    periodicidad: formData.get("periodicidad"),
   });
   if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
   const { clienteId, anio, mesCorte } = parsed.data;
   const authz = await authorizePermiso("impuestos:cargar", { clientId: clienteId, modo: "escritura" });
   if (!authz.ok) return { ok: false, message: authz.message };
-  const periodicidad = validarPeriodicidad("RETEFUENTE", parsed.data.periodicidad);
-  if (!periodicidad.ok || !periodicidad.periodicidad) return { ok: false, message: "Elige una periodicidad válida." };
 
   try {
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true, nit: true, code: true } });
@@ -80,22 +76,16 @@ export async function crearRevisionRetencion(_prev: ResultadoRevision, formData:
         anio,
         mesCorte,
         periodo: `${anio}-${String(mesCorte).padStart(2, "0")}`,
-        periodicidad: periodicidad.periodicidad,
+        periodicidad: "Mensual",
         creadoPor: user?.name ?? null,
         creadoPorId: user?.id ?? null,
       },
     });
-    // La periodicidad confirmada queda también en la ficha del cliente, si quien crea puede editarla.
-    const formulario = await prisma.dianForm.findUnique({ where: { key: "RETEFUENTE" }, select: { id: true } });
-    const puedeFicha = (await authorizePermiso("clientes:editar", { clientId: clienteId, modo: "lectura" })).ok;
-    if (formulario && puedeFicha) {
-      await prisma.clientDianForm.updateMany({ where: { clientId: clienteId, formId: formulario.id }, data: { periodicidad: periodicidad.periodicidad } });
-    }
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "CREÓ REVISIÓN DE RETENCIÓN",
       entity: `Retención en la fuente · ${cliente.name} · ${anio} corte ${etiquetaPeriodo(mesCorte)}`,
-      detail: `Periodicidad ${periodicidad.periodicidad}`,
+      detail: "Periodicidad Mensual",
       clientId: clienteId,
     });
     revalidatePath(RUTA);

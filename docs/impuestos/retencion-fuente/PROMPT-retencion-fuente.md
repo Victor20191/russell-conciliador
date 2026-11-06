@@ -248,9 +248,9 @@ probado, para que el F300 de IVA se agregue igual.
 ### Fase 2 — Cargue de formularios
 
 1. **Inicio**: cliente → año → **corte** (el sistema siempre pregunta a qué corte se
-   revisa; precierre septiembre y cierre diciembre como atajos, cualquier mes posible) →
-   confirmar la periodicidad del cliente (si no es mensual, cambian los períodos
-   esperados). Con eso arma la lista de períodos esperados.
+   revisa; precierre septiembre y cierre diciembre como atajos, cualquier mes posible).
+   Retención en la fuente es siempre mensual: no se pregunta la periodicidad (decisión
+   del 5/Nov/2026). Con eso arma la lista de períodos esperados.
 2. **Importación**: varios PDF a la vez. Cada archivo se reconoce como 350 o 490, se valida
    contra el cliente (NIT por núcleo de 9 dígitos), el año y el corte, y se rechaza un
    formulario repetido (mismo número). Se conserva el original.
