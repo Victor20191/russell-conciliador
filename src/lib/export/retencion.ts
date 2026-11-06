@@ -241,8 +241,8 @@ function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: r
 function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: ResultadoPagos): void {
   const ws = wb.addWorksheet("Pagos efectuados");
   encabezadoLibro(ws, meta, "pagos efectuados");
-  ws.addRow(["Diferencia = Total (138) − Total pagado; los intereses de mora van aparte y no se comparan. Se compara al peso."]).font = { color: { argb: EXCEL.textoSecundario } };
-  estiloEncabezado(ws.addRow(["Período", "Retenciones (136)", "Sanciones (137)", "Total (138)", "Impuesto pagado (36)", "Sanción pagada (34)", "Total pagado", "Diferencia", "Estado", "130 vs 61", "134 vs 62", "135 vs 63", "Alerta", "Intereses pagados (35)", "Marca"]));
+  ws.addRow(["Diferencia = Total pagado − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso."]).font = { color: { argb: EXCEL.textoSecundario } };
+  estiloEncabezado(ws.addRow(["Período", "Retenciones (136)", "Sanciones (137)", "Total (138)", "Impuesto pagado (36)", "Sanción pagada (34)", "Total pagado", "Diferencia", "Estado", "61 vs 130", "62 vs 134", "63 vs 135", "Alerta", "Intereses pagados (35)", "Marca"]));
   for (const f of pagos.filas) {
     const desglose = (c: string) => f.desglose.find((d) => d.concepto === c)?.diferencia ?? null;
     ws.addRow([

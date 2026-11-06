@@ -17,7 +17,7 @@ describe("copia congelada de una revisión en firme", () => {
   it("se guarda como JSON y se vuelve a leer igual", () => {
     const leida = leerCopiaRetencion(JSON.parse(JSON.stringify(copia)));
     expect(leida?.huella).toBe(copia.huella);
-    expect(leida?.pagos.filas[0].diferencia).toBe(-6_786_000);
+    expect(leida?.pagos.filas[0].diferencia).toBe(6_786_000);
   });
 
   it("una copia alterada, de otro tipo o vacía no se usa", () => {

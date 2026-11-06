@@ -250,7 +250,7 @@ esté en firme; queda en la auditoría.
 - `oportunidad.ts` — vencimiento por calendario y último dígito del NIT (sin DV);
   presentación del original; pago del 490 concepto 61 y, aparte, del 62; estados Oportuno / Extemporáneo /
   Sin formulario / Falta el original / Sin calendario / Sin pago.
-- `pagos.ts` — por mes con el 350 vigente: (136 − Σ36) + (137 − Σ34), intereses aparte,
+- `pagos.ts` — por mes con el 350 vigente: (Σ36 − 136) + (Σ34 − 137) (pagado − declarado desde el 6/Nov/2026), intereses aparte,
   desglose 130/61, 134/62, 135/63; «Pago completo» o «Diferencia en el pago».
 - `cierre.ts` — qué falta para cerrar en firme.
 

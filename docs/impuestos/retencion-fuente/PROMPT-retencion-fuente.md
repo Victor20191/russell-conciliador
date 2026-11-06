@@ -340,9 +340,10 @@ probado, para que el F300 de IVA se agregue igual.
    vigente:
    136 | 137 | 138 | Σ renglón 36 de los 490 (61 + 62 + 63) | Σ 34 | total pagado (Σ36 + Σ34) |
    diferencia | estado.
-   - Diferencia = 138 − total pagado = (136 − Σ36) + (137 − Σ34). Los intereses de mora (35) van en su propia sección, no suman al total pagado y
-     no generan diferencia.
-   - Desglose por concepto para ver qué falta: 130 vs 61, 134 vs 62, 135 vs 63.
+   - Diferencia = total pagado − 138 = (Σ36 − 136) + (Σ34 − 137): positiva si se pagó de más y
+     negativa si se pagó de menos (decisión del 6/Nov/2026; antes era 138 − total pagado). Los
+     intereses de mora (35) van en su propia sección, no suman al total pagado y no generan diferencia.
+   - Desglose por concepto para ver qué falta: 61 vs 130, 62 vs 134, 63 vs 135.
    - Comparación al peso. «Pago completo» o «Diferencia en el pago»; la diferencia exige
      marca para cerrar.
 3. **Cierre en firme** como en los módulos: exige cada período del corte resuelto
@@ -398,9 +399,9 @@ Lo que debe pasar:
 
 - **Período 1**: la corrección (25 = 1, 26 = 3510669606483, presentada el 7-abr) llega sin
   su original → aviso y presentación pendiente; el 490 de enero (concepto 61, renglón 29 =
-  3510669606483, el original) paga 122.704.000 → «Diferencia en el pago» de **−6.786.000**
-  (136 − Σ36 = 115.918.000 − 122.704.000), con desglose 130 vs 61 = −8.942.000 y 134 vs 62
-  = +2.156.000 (no hay 490 del 62). Es el caso de una corrección que **baja** lo declarado
+  3510669606483, el original) paga 122.704.000 → «Diferencia en el pago» de **+6.786.000**
+  (Σ36 − 136 = 122.704.000 − 115.918.000: pagó de más), con desglose 61 vs 130 = +8.942.000 y
+  62 vs 134 = −2.156.000 (no hay 490 del 62). Es el caso de una corrección que **baja** lo declarado
   después de pagado: la diferencia negativa es real y pide marca.
 - **Períodos 2 a 7**: solo hay pago 61; falta el 62 (reteIVA) → la lista lo marca como
   faltante y «Pagos efectuados» da «Diferencia en el pago» por el 134 de cada mes

@@ -99,7 +99,7 @@ describe("Excel de una revisión de Retención en la fuente", () => {
     const agosto = filasDe(wb.getWorksheet("Oportunidad")!).find((r) => r.getCell(1).value === "Agosto")!;
     expect([6, 11, 14].map((c) => agosto.getCell(c).value)).toEqual(["4911175045977", "18/09/2026", "Oportuno"]);
     const pagoEnero = filasDe(wb.getWorksheet("Pagos efectuados")!).find((r) => r.getCell(1).value === "Enero")!;
-    expect([pagoEnero.getCell(8).value, pagoEnero.getCell(9).value, pagoEnero.getCell(10).value, pagoEnero.getCell(11).value]).toEqual([-6_786_000, "Diferencia en el pago", -8_942_000, 2_156_000]);
+    expect([pagoEnero.getCell(8).value, pagoEnero.getCell(9).value, pagoEnero.getCell(10).value, pagoEnero.getCell(11).value]).toEqual([6_786_000, "Diferencia en el pago", 8_942_000, -2_156_000]);
     expect(pagoEnero.getCell(7).value).toBe(122_704_000);
     expect(pagoEnero.getCell(13).value).toBe("Falta el 490 concepto 62");
     expect(pagoEnero.getCell(14).value).toBe(0);

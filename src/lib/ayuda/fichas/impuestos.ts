@@ -448,7 +448,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "pagos",
       titulo: "Pagos efectuados",
       proposito:
-        "Por período, el 350 vigente (136 retenciones, 137 sanciones, 138 total) contra los recibos 490 de su cadena (impuesto y sanción). Diferencia = Total (138) − Total pagado. Los intereses de mora van en su propia sección: no suman al total pagado ni se comparan. Se compara al peso. Al desplegar un período se ve qué falta por concepto: 130 contra el 61, 134 contra el 62 y 135 contra el 63. La columna Alerta dice qué recibo 490 falta adjuntar: el 350 declara ese concepto y no hay recibo cargado.",
+        "Por período, el 350 vigente (136 retenciones, 137 sanciones, 138 total) contra los recibos 490 de su cadena (impuesto y sanción). Diferencia = Total pagado − Total (138): positiva si se pagó de más y negativa si se pagó de menos. Los intereses de mora van en su propia sección: no suman al total pagado ni se comparan. Se compara al peso. Al desplegar un período se ve qué falta por concepto: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135. La columna Alerta dice qué recibo 490 falta adjuntar: el 350 declara ese concepto y no hay recibo cargado.",
       etapas: [
         {
           titulo: "Documentar",

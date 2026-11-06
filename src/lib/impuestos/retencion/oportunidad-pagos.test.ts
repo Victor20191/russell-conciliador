@@ -68,11 +68,11 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(oportunidad({ periodos: conCuota })[7].pago61).toMatchObject({ numero: "4911999999999", fecha: "2026-09-25", estado: "extemporaneo", dias: 4 });
   });
 
-  it("pagos: enero −6.786.000 (130 vs 61 = −8.942.000; 134 vs 62 = +2.156.000); febrero a julio falta el reteIVA; agosto completo", () => {
+  it("pagos (pagado − declarado): enero +6.786.000, pagó de más (61 vs 130 = +8.942.000; 62 vs 134 = −2.156.000); febrero a julio falta el reteIVA; agosto completo", () => {
     const r = pagosRevision({ anio: 2026, periodos, marcas: [] });
-    expect(r.filas[0]).toMatchObject({ retenciones: 115_918_000, impuestoPagado: 122_704_000, diferencia: -6_786_000, estado: "diferencia", requiereMarca: true });
-    expect(r.filas[0].desglose.map((d) => [d.concepto, d.diferencia])).toEqual([["61", -8_942_000], ["62", 2_156_000], ["63", 0]]);
-    expect(r.filas[1]).toMatchObject({ diferencia: 2_556_000, estado: "diferencia" });
+    expect(r.filas[0]).toMatchObject({ retenciones: 115_918_000, impuestoPagado: 122_704_000, diferencia: 6_786_000, estado: "diferencia", requiereMarca: true });
+    expect(r.filas[0].desglose.map((d) => [d.concepto, d.diferencia])).toEqual([["61", 8_942_000], ["62", -2_156_000], ["63", 0]]);
+    expect(r.filas[1]).toMatchObject({ diferencia: -2_556_000, estado: "diferencia" });
     expect(r.filas[7]).toMatchObject({ diferencia: 0, estado: "completo", requiereMarca: false, totalPagado: 154_801_000 });
     expect(r.pendientesMarca).toBe(7);
     expect(r.total.retenciones).toBe(1_092_190_000);
@@ -98,10 +98,10 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(pagosRevision({ anio: 2026, periodos: conIntereses, marcas: [] }).filas[7]).toMatchObject({ intereses: 120_000, diferencia: 0, estado: "completo", totalPagado: 154_801_000, totalDeclarado: 154_801_000 });
   });
 
-  it("la diferencia es siempre el total declarado menos el total pagado", () => {
+  it("la diferencia es siempre el total pagado menos el total declarado", () => {
     const { filas, total } = pagosRevision({ anio: 2026, periodos, marcas: [] });
-    for (const f of filas) expect(f.totalDeclarado - f.totalPagado).toBe(f.diferencia);
-    expect(total.totalDeclarado - total.totalPagado).toBe(total.diferencia);
+    for (const f of filas) expect(f.totalPagado - f.totalDeclarado).toBe(f.diferencia);
+    expect(total.totalPagado - total.totalDeclarado).toBe(total.diferencia);
   });
 
   describe("un recibo que paga un 350 de otro período", () => {
@@ -136,7 +136,7 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
   });
 
   it("una marca de pago vale mientras la diferencia sea la misma", () => {
-    const marca = marcar("pago:2026-02", 2_556_000);
+    const marca = marcar("pago:2026-02", -2_556_000);
     expect(pagosRevision({ anio: 2026, periodos, marcas: [marca] }).filas[1].marca?.vigente).toBe(true);
     expect(pagosRevision({ anio: 2026, periodos, marcas: [{ ...marca, diferencia: 1 }] }).filas[1].marca?.vigente).toBe(false);
   });

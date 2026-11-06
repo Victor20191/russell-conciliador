@@ -221,7 +221,7 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">
-        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total (138) − Total pagado; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (130 contra el 61, 134 contra el 62 y 135 contra el 63). La columna Alerta dice qué recibo 490 falta adjuntar.
+        Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar.
       </Card>
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
@@ -284,7 +284,7 @@ export function VistaPagos({
           placeholder="Ej.: el recibo del reteIVA (concepto 62) se pagó en el mes siguiente; ver anexo."
           resumen={
             <>
-              {fila.diferencia !== 0 && <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (declarado {fmt(fila.retenciones + fila.sanciones)} − pagado {fmt(fila.impuestoPagado + fila.sancionPagada)}).</span>}
+              {fila.diferencia !== 0 && <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>}
               {(fila.recibosDeOtro350 ?? []).map((r) => <span key={r.numero} className="block">{avisoReciboDeOtro350(r)}</span>)}
             </>
           }
@@ -369,7 +369,7 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
               <tbody>
                 {f.desglose.map((d) => (
                   <tr key={d.concepto}>
-                    <td className="py-0.5 pr-6 text-ink-700">{d.renglon} contra el concepto {d.concepto}</td>
+                    <td className="py-0.5 pr-6 text-ink-700">Concepto {d.concepto} contra el {d.renglon}</td>
                     <td className="py-0.5 pr-6 text-right tabular-nums">{fmt(d.declarado)}</td>
                     <td className="py-0.5 pr-6 text-right tabular-nums">{fmt(d.pagado)}</td>
                     <td className={`py-0.5 pr-6 text-right tabular-nums ${d.diferencia === 0 ? "text-ink-500" : "font-semibold text-err-700"}`}>{fmt(d.diferencia)}</td>

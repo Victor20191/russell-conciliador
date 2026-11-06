@@ -9,10 +9,11 @@ import type { PeriodoRevision, ReciboDeOtro350 } from "./periodos-revision";
  * Pagos efectuados de Retención en la fuente (puro): por período, lo que declara el 350 VIGENTE
  * (136 retenciones, 137 sanciones, 138 total) contra lo pagado con los recibos 490 de su cadena
  * (Σ renglón 36 impuesto de los conceptos 61, 62 y 63; Σ 34 sanción; Σ 35 intereses de mora).
- * Diferencia = 138 − total pagado = (136 − Σ36) + (137 − Σ34). El total pagado no lleva los
- * intereses de mora: van aparte y no se comparan. Se compara al peso (sin umbral); una diferencia
- * exige marca para cerrar, y también un recibo que paga un 350 de otro período. El desglose
- * por concepto dice qué falta: 130 contra el 61, 134 contra el 62 y 135 contra el 63.
+ * Diferencia = total pagado − 138 = (Σ36 − 136) + (Σ34 − 137): positiva si se pagó de más y
+ * negativa si se pagó de menos. El total pagado no lleva los intereses de mora: van aparte y no se
+ * comparan. Se compara al peso (sin umbral); una diferencia exige marca para cerrar, y también un
+ * recibo que paga un 350 de otro período. El desglose por concepto (pagado − declarado) dice qué
+ * falta: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135.
  */
 
 export type EstadoPago = "completo" | "diferencia" | "sin_formulario" | "falta_350";
@@ -87,12 +88,12 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
       const pago = p.pagos.find((x) => x.concepto === concepto);
       const declarado = calcularTotal(F350, renglon, valores);
       const pagado = pago?.impuesto ?? 0;
-      return { concepto, renglon, declarado, pagado, diferencia: sumar([declarado, -pagado]), recibos: pago?.formularios.length ?? 0 };
+      return { concepto, renglon, declarado, pagado, diferencia: sumar([pagado, -declarado]), recibos: pago?.formularios.length ?? 0 };
     });
     const impuestoPagado = sumar(p.pagos.map((x) => x.impuesto));
     const sancionPagada = sumar(p.pagos.map((x) => x.sancion));
     const intereses = sumar(p.pagos.map((x) => x.intereses));
-    const diferencia = sumar([retenciones, -impuestoPagado, sanciones, -sancionPagada]);
+    const diferencia = sumar([impuestoPagado, -retenciones, sancionPagada, -sanciones]);
     const hayDiferencia = centavos(diferencia) !== 0;
     const recibosDeOtro350 = p.recibosDeOtro350 ?? [];
     const requiereMarca = hayDiferencia || recibosDeOtro350.length > 0;
