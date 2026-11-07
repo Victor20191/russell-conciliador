@@ -395,7 +395,14 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
               <span className="tabular-nums text-ink-600">{f.numero}</span>
               {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
               {f.codigoCorreccion === 1 && <Chip label="Corrección" tone="warn" />}
-              <span className={pendientes ? "text-err-700" : "text-ok-700"}>{pendientes ? `${pendientes} por corregir` : "Todo cuadra"}</span>
+              {pendientes ? (
+                <span className="text-err-700">{pendientes} por corregir</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-semibold text-ok-700">
+                  <Icon name="check" size={13} stroke={2.4} />
+                  Cuadrado
+                </span>
+              )}
               <span className="text-[11.5px] text-ink-400">{f.nombreArchivo}</span>
               <button type="button" onClick={() => onAbrir(f.id)} className={`ml-auto ${BOTON_SECUNDARIO}`}>Revisar</button>
             </div>

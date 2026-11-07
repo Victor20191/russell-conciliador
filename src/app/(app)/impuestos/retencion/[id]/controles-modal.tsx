@@ -2,7 +2,7 @@
 
 import { Modal } from "@/components/modal";
 
-// Consulta: qué revisa el sistema para decir «Todo cuadra» o «N por corregir».
+// Consulta: qué revisa el sistema para decir «Cuadrado» o «N por corregir».
 // Tiene que decir lo mismo que `controlesLectura` (`src/lib/impuestos/retencion/lectura.ts`).
 
 const TITULO = "mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500";
@@ -77,7 +77,7 @@ export function ControlesModal({ onClose }: { onClose: () => void }) {
         </section>
 
         <p className="border-t border-ink-100 pt-3 font-medium text-ink-800">
-          Si alguno falla, en vez de «Todo cuadra» sale «N por corregir» en rojo, y no se puede confirmar hasta corregirlo.
+          Si alguno falla, en vez de «Cuadrado» sale «N por corregir» en rojo, y no se puede confirmar hasta corregirlo.
         </p>
       </div>
     </Modal>

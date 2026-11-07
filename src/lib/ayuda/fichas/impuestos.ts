@@ -270,7 +270,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         },
         {
           nombre: "¿Qué revisa el sistema?",
-          queHace: "Recuerda qué revisa el sistema en cada formulario para decir «Todo cuadra» o «N por corregir».",
+          queHace: "Recuerda qué revisa el sistema en cada formulario para decir «Cuadrado» (con un check) o «N por corregir».",
           regla: REGLAS.verRevisionImpuestos,
         },
         {
@@ -278,7 +278,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           queHace:
             "Confirma de una vez los formularios marcados, tal como los leyó la IA, sin abrirlos uno por uno. «Seleccionar todos» marca los que se pueden confirmar y puedes desmarcar los que no quieras. Cada uno queda en la auditoría.",
           regla: REGLAS.cargarImpuestos,
-          condiciones: ["Solo se pueden marcar los que dicen «Todo cuadra»; los que dicen «por corregir» se corrigen en «Revisar»."],
+          condiciones: ["Solo se pueden marcar los que dicen «Cuadrado»; los que dicen «por corregir» se corrigen en «Revisar»."],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "confirmarFormulariosDian" },
         },
         {
