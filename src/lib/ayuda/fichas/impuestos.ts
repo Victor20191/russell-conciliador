@@ -207,7 +207,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
             "Ningún formulario de esos períodos está por confirmar.",
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
-            "Si el cruce resta el saldo inicial, lo restado tiene marca en Novedades y el total no cambió desde que se marcó.",
+            "Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» de Novedades tiene marca y el total no cambió desde que se marcó.",
             "Si llegó una corrección, su 350 original también está cargado: una marca no lo reemplaza.",
             "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con recibos 490 sin 350 tiene marca.",
           ],
@@ -477,7 +477,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "novedades",
       titulo: "Novedades",
       proposito:
-        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y saldo inicial restado; la corrección sin su 350 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones). Si el cruce resta el saldo inicial, la sección «Saldo inicial restado» muestra tercero por tercero lo que se restó: NIT y nombre, cuenta del cliente, cuenta Russell, saldo inicial, saldo final y lo restado, con el total.",
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y saldos restados; la corrección sin su 350 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones). Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» muestra, NIT por NIT y cuenta por cuenta, lo que se le restó de su saldo final: NIT y nombre, cuenta del cliente, cuenta Russell, saldo inicial, saldo final y lo restado (su saldo inicial), con el total.",
       etapas: [
         {
           titulo: "Consultar",
@@ -487,8 +487,8 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           titulo: "Documentar",
           acciones: [
             {
-              nombre: "Marcar el saldo inicial restado",
-              queHace: "Explica por qué se restó el saldo inicial de esos terceros (por ejemplo, retenciones del año anterior pagadas en enero). Es una sola marca para todo lo restado y guarda el total: si cambia, queda desactualizada. Es obligatoria para cerrar.",
+              nombre: "Marcar los saldos restados",
+              queHace: "Explica por qué se les resta a esos NITs el saldo inicial que traían a enero (por ejemplo, retenciones del año anterior pagadas en enero). Es una sola marca para todo lo restado y guarda el total: si cambia, queda desactualizada. Es obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
               condiciones: ["El cruce contable resta el saldo inicial.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },

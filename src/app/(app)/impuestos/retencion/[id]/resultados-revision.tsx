@@ -403,11 +403,13 @@ function FilaPago({ f, etiqueta, abierta, onAlternar, puedeEditar, onMarcar }: {
   );
 }
 
+const TITULO_SALDOS_RESTADOS = "Saldos restados: NITs con saldo inicial a enero";
+
 const ETIQUETA_PENDIENTE: Record<TipoPendiente, { titulo: string; tab: TabRevisionRetencion }> = {
   formularios: { titulo: "Formularios", tab: "formularios" },
   cruce: { titulo: "Cruce contable", tab: "cruce" },
   pagos: { titulo: "Pagos efectuados", tab: "pagos" },
-  saldo_inicial: { titulo: "Saldo inicial restado", tab: "novedades" },
+  saldo_inicial: { titulo: TITULO_SALDOS_RESTADOS, tab: "novedades" },
 };
 
 const ANCLA_SALDO_INICIAL = "saldo-inicial-restado";
@@ -485,9 +487,9 @@ function SaldoInicialRestado({ detalle, revisionId, puedeEditar }: { detalle: De
       <Card className="overflow-x-auto p-0 text-[12.5px]">
         <div className="flex flex-wrap items-start gap-3 border-b border-ink-100 px-4 py-3">
           <div className="min-w-0 flex-1">
-            <h3 className="text-[12.5px] font-semibold text-navy-800">Saldo inicial restado</h3>
+            <h3 className="text-[12.5px] font-semibold text-navy-800">{TITULO_SALDOS_RESTADOS}</h3>
             <p className="mt-0.5 text-[12px] text-ink-500">
-              En el cruce contable se restó el saldo inicial de {alcanceSaldoInicial(detalle)}, por {fmt(detalle.total)}{pidio}. Revisa cada tercero y documenta con una marca por qué se resta: es obligatoria para cerrar en firme y guarda el total; si el total cambia, queda desactualizada.
+              A estos NITs ({alcanceSaldoInicial(detalle)}) el cruce contable les resta de su saldo final el saldo inicial que traían a enero, por {fmt(detalle.total)}{pidio}. Revisa cada tercero y documenta con una marca por qué se resta: es obligatoria para cerrar en firme y guarda el total; si el total cambia, queda desactualizada.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -544,21 +546,21 @@ function SaldoInicialRestado({ detalle, revisionId, puedeEditar }: { detalle: De
       </Card>
       {marca && (
         <ObservacionesMarcas
-          etiqueta="saldo inicial restado"
+          etiqueta="saldos restados"
           puedeEditar={puedeEditar}
           onEditar={() => setMarcando(true)}
-          filas={[{ clave: CLAVE_MARCA_SALDO_INICIAL, titulo: "Saldo inicial restado", marca, hoy: detalle.total }]}
+          filas={[{ clave: CLAVE_MARCA_SALDO_INICIAL, titulo: "Saldos restados", marca, hoy: detalle.total }]}
         />
       )}
       {marcando && (
         <MarcaModal
           revisionId={revisionId}
           clave={CLAVE_MARCA_SALDO_INICIAL}
-          titulo="Saldo inicial restado"
+          titulo="Saldos restados"
           marca={marca}
           diferencia={detalle.total}
           placeholder="Ej.: el saldo inicial son retenciones de diciembre del año anterior que se pagaron en enero; ver anexo."
-          resumen={<>Se restó el saldo inicial de {alcanceSaldoInicial(detalle)}: <span className="font-semibold tabular-nums text-ink-800">{fmt(detalle.total)}</span>.</>}
+          resumen={<>Saldo inicial a enero restado del saldo final ({alcanceSaldoInicial(detalle)}): <span className="font-semibold tabular-nums text-ink-800">{fmt(detalle.total)}</span>.</>}
           onClose={() => setMarcando(false)}
         />
       )}

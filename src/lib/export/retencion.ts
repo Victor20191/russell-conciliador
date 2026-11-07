@@ -1,6 +1,6 @@
 // Exportación a Excel de una revisión de Retención en la fuente (puro, sin BD): las vistas «Por
 // meses» y «Acumulado», la lista de formularios cargados, el cruce contable con todos sus terceros, el
-// indicador de oportunidad, los pagos efectuados y, si el cruce lo resta, el saldo inicial restado.
+// indicador de oportunidad, los pagos efectuados y, si el cruce los resta, los saldos restados de los NITs con saldo inicial a enero.
 // La marca la aplica `escribirLibroMarca`.
 
 import ExcelJS from "exceljs";
@@ -260,11 +260,11 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
   for (let c = 2; c <= 14; c++) if (c !== 9 && c !== 13) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
 }
 
-/** Hoja «Saldo inicial restado»: lo que el cruce restó, tercero por tercero y cuenta por cuenta, con su marca. */
+/** Hoja «Saldos restados»: los NITs con saldo inicial a enero a los que el cruce les resta ese saldo inicial, cuenta por cuenta, con su marca. */
 function hojaSaldoInicialRestado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, d: DetalleSaldoInicialRestado): void {
-  const ws = wb.addWorksheet("Saldo inicial restado");
-  encabezadoLibro(ws, meta, "saldo inicial restado");
-  ws.addRow([`Se restó el saldo inicial de ${alcanceSaldoInicial(d)} en el cruce contable${d.por ? ` (lo pidió ${d.por})` : ""}. Saldos con los signos del cruce: el pasivo en positivo.`]).font = { color: { argb: EXCEL.textoSecundario } };
+  const ws = wb.addWorksheet("Saldos restados");
+  encabezadoLibro(ws, meta, "saldos restados: NITs con saldo inicial a enero");
+  ws.addRow([`El cruce contable les resta de su saldo final el saldo inicial que traían a enero (${alcanceSaldoInicial(d)})${d.por ? `; lo pidió ${d.por}` : ""}. Saldos con los signos del cruce: el pasivo en positivo.`]).font = { color: { argb: EXCEL.textoSecundario } };
   ws.addRow([d.marca ? `Marca ${d.marca.numero}${d.marca.vigente ? "" : " (desactualizada)"}: ${d.marca.nota}` : "Sin marca: es obligatoria para cerrar en firme."]).font = { color: { argb: EXCEL.textoSecundario } };
   estiloEncabezado(ws.addRow(["NIT", "Tercero", "Cuenta del cliente", "Nombre de la cuenta", "Cuenta Russell", "Saldo inicial", "Saldo final", "Restado"]));
   for (const f of d.filas) ws.addRow([f.nit ?? "", f.nombre ?? "", f.cuentaCliente, f.nombreCuenta, f.cuentaRussell ?? "", f.saldoInicial, f.saldoFinal, f.restado]);

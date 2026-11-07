@@ -564,7 +564,7 @@ async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<Obj
     if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
     const inicial = cruce.resultado.saldoInicial;
     if (!inicial?.restado) return { ok: false, message: "El cruce no está restando el saldo inicial: no hay nada que marcar." };
-    return { ok: true, dimension: "control", diferencia: inicial.monto, etiqueta: "Novedades · Saldo inicial restado" };
+    return { ok: true, dimension: "control", diferencia: inicial.monto, etiqueta: "Novedades · Saldos restados (NITs con saldo inicial a enero)" };
   }
   if (clave.startsWith("pago:") || clave.startsWith("oportunidad:")) {
     const resultados = await resultadosEnVivo(vista);

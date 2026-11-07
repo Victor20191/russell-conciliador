@@ -225,13 +225,13 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
 
     const sinMarca = evaluar(cruce);
     expect(sinMarca.pendientes.filter((p) => p.tipo === "saldo_inicial").map((p) => p.texto)).toEqual([
-      "Saldo inicial restado: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000, sin marca.",
+      "Saldos restados de NITs con saldo inicial a enero (1 tercero en 1 cuenta): se resta el saldo inicial del saldo final, por $ 100.000, sin marca.",
     ]);
     expect(sinMarca.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
 
     const conMarca = evaluar(conMarcaSaldoInicial(cruce, [marcar(CLAVE_MARCA_SALDO_INICIAL, 100_000)]));
     expect(conMarca.pendientes.some((p) => p.tipo === "saldo_inicial")).toBe(false);
-    expect(conMarca.avisos).toContain("Cruce contable: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000 (marca 1).");
+    expect(conMarca.avisos).toContain("Cruce contable: saldos restados de NITs con saldo inicial a enero (1 tercero en 1 cuenta): se resta el saldo inicial del saldo final, por $ 100.000 (marca 1).");
 
     const desactualizada = evaluar(conMarcaSaldoInicial(cruce, [marcar(CLAVE_MARCA_SALDO_INICIAL, 90_000)]));
     expect(desactualizada.pendientes.find((p) => p.tipo === "saldo_inicial")?.texto).toMatch(/con la marca desactualizada\.$/);

@@ -61,9 +61,9 @@ export function evaluarCierreRetencion(e: {
     const inicial = e.cruce.resultado.saldoInicial;
     if (inicial?.restado) {
       const marca = e.cruce.resultado.marcaSaldoInicial;
-      const texto = `se restó el saldo inicial de ${alcanceSaldoInicial(inicial)}, por ${pesos(inicial.monto)}`;
+      const texto = `saldos restados de NITs con saldo inicial a enero (${alcanceSaldoInicial(inicial)}): se resta el saldo inicial del saldo final, por ${pesos(inicial.monto)}`;
       if (marca?.vigente) avisos.push(`Cruce contable: ${texto} (marca ${marca.numero}).`);
-      else pendientes.push({ tipo: "saldo_inicial", texto: `Saldo inicial restado: ${texto}, ${marca ? "con la marca desactualizada" : "sin marca"}.` });
+      else pendientes.push({ tipo: "saldo_inicial", texto: `${texto.charAt(0).toUpperCase()}${texto.slice(1)}, ${marca ? "con la marca desactualizada" : "sin marca"}.` });
     }
   }
 
