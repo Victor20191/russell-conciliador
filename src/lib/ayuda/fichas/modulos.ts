@@ -124,7 +124,11 @@ export function fichaModuloCargados(d: DescriptorModulo): FichaAyuda {
           },
           {
             nombre: "Configurar la lectura aquí",
-            queHace: "Si ningún patrón coincide, mapeas las columnas tú mismo y pruebas el mapeo antes de crear el borrador.",
+            queHace:
+              "Si ningún patrón coincide, mapeas las columnas tú mismo y pruebas el mapeo antes de crear el borrador." +
+              (esAfi(d)
+                ? " Si dos campos que se suman leen la misma columna (el costo y una adición, mejora o valorización, o la depreciación y el deterioro), el mapeo avisa que ese valor quedará duplicado; el aviso no impide cargar."
+                : ""),
             regla: REGLAS.cargarModulo,
             aplica: noInv,
           },

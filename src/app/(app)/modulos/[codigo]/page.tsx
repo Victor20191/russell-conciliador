@@ -4,6 +4,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { sumaDelRol } from "@/lib/modulos/columna-doble";
 import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
 import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
 import { agruparCargasModuloPorCliente } from "@/lib/modulos/versiones";
@@ -178,7 +179,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       <ModulosDatosClient
         moduloCodigo={moduloCodigo}
         moduloLabel={descriptor.label}
-        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
+        roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}), ...sumaDelRol(descriptor, c.nombre) }))}
         clasificadorRol={descriptor.clasificador}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
         clientes={clientes.map((c) => ({ ...c, periodosEnFirme: cierresEnFirme.filter((x) => x.clienteId === c.id).map((x) => x.periodo) }))}

@@ -61,7 +61,8 @@ import {
 import { NotasCargaModulo } from "./notas-carga-modulo";
 import { AvisoFormatoPropio } from "./aviso-formato-propio";
 import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
-import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
+import { CamposCargueCartera, EditorMapeoModulo, avisosColumnaDobleAnalisis, celdaTxt, opcionesColumnaAnalisis, rolDerivado, type RolModulo } from "./editor-mapeo-modulo";
+import { AvisosColumnaDoble } from "./avisos-columna-doble";
 import { prepararBorradorInventario } from "@/app/actions/asistencia-inventario";
 import type { ResultadoAsistenciaVista } from "./asistencia-inventario-panel";
 
@@ -1512,6 +1513,12 @@ function CargarModal({
               {analisis.coincidencia.advertencias.map((a) => <li key={a}>{a}</li>)}
             </ul>
           )}
+          {/* El patrón se aplica sin mostrar el mapeo: si dos importes que se suman leen la misma
+              columna, aquí es donde se ve que el valor quedará duplicado. */}
+          <AvisosColumnaDoble
+            avisos={avisosColumnaDobleAnalisis(analisis, spec, roles, rolValor)}
+            consejo="Pide a un administrador que corrija el mapeo del patrón antes de cargar."
+          />
           {(() => {
             // Ingresos: el patrón lee el valor de una columna (o fórmula) de «total» que el
             // administrador confirmó sin IVA al crearlo. Aquí solo se informa; no se pregunta.

@@ -9,6 +9,7 @@ import { mensajeErrorBD } from "@/lib/errores";
 import { AjustesCargaModuloSchema, EditarPerfilCargaModuloSchema, type ActionState } from "@/lib/definitions";
 import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
+import { sumaDelRol, type SumaDelRol } from "@/lib/modulos/columna-doble";
 import {
   modoClasificadorDe,
   normalizarSpecModulo,
@@ -36,6 +37,8 @@ export type RolPerfilModulo = {
   etiqueta: string;
   tipo: string;
   requerido: boolean;
+  /** Grupo de importes que el módulo suma entre sí (Activos fijos): avisa la columna doble. */
+  suma?: SumaDelRol;
 };
 
 export type PerfilCargaModuloResumen = {
@@ -68,6 +71,8 @@ export type PerfilesCargaModuloState = {
   moduloLabel: string;
   roles: RolPerfilModulo[];
   clasificadorRol: string;
+  /** El rol del valor del descriptor (su fórmula, si la hay, cuenta para la columna doble). */
+  rolValor: string;
   perfiles: PerfilCargaModuloResumen[];
   ajustes: AjustesCargaModuloResumen | null;
 };
@@ -77,7 +82,8 @@ function estadoVacio(moduloCodigo: string, descriptor: DescriptorModulo | null):
     ok: false,
     moduloCodigo,
     moduloLabel: descriptor?.label ?? moduloCodigo,
-    roles: descriptor?.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido })) ?? [],
+    roles: descriptor?.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...sumaDelRol(descriptor, c.nombre) })) ?? [],
+    rolValor: descriptor?.valor ?? "",
     clasificadorRol: descriptor?.clasificador ?? "",
     perfiles: [],
     ajustes: null,

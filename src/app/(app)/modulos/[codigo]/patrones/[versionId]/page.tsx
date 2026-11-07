@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { BackLink, PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { sumaDelRol } from "@/lib/modulos/columna-doble";
 import { esVersionEditable } from "@/lib/modulos/patrones/version";
 import EditorPatronClient from "../editor-patron-client";
 
@@ -40,7 +41,7 @@ export default async function EditarPatronPage({ params }: { params: Promise<{ c
         <EditorPatronClient
           moduloCodigo={moduloCodigo}
           moduloLabel={descriptor.label}
-          roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}) }))}
+          roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido, ...(c.nombre === descriptor.valor ? { derivaDe: descriptor.valorAlterno ?? [] } : {}), ...sumaDelRol(descriptor, c.nombre) }))}
           clasificadorRol={descriptor.clasificador}
         rolValor={descriptor.valor}
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}

@@ -30,6 +30,8 @@ import {
   type ModoClasificador,
   type ModoSubtotales,
 } from "@/lib/modulos/perfil-modulo";
+import { avisosColumnaDoble } from "@/lib/modulos/columna-doble";
+import { AvisosColumnaDoble } from "@/app/(app)/modulos/[codigo]/avisos-columna-doble";
 
 const TIPO_LEGIBLE: Record<string, string> = {
   texto: "Texto",
@@ -274,6 +276,7 @@ export function AjustesCargaModuloModal({
                             perfil={p}
                             roles={data.roles}
                             clasificadorRol={data.clasificadorRol}
+                            rolValor={data.rolValor}
                             moduloLabel={etiquetaModulo}
                             soloLectura={soloLectura}
                             onActualizado={recargar}
@@ -367,6 +370,7 @@ function PerfilCargaModuloDetalle({
   perfil,
   roles,
   clasificadorRol,
+  rolValor,
   moduloLabel,
   soloLectura = false,
   onActualizado,
@@ -374,6 +378,7 @@ function PerfilCargaModuloDetalle({
   perfil: PerfilCargaModuloResumen;
   roles: RolPerfilModulo[];
   clasificadorRol: string;
+  rolValor: string;
   moduloLabel: string;
   soloLectura?: boolean;
   onActualizado: () => Promise<void>;
@@ -399,6 +404,12 @@ function PerfilCargaModuloDetalle({
       subtotalesColumna: siguiente === "manual" ? actual.subtotalesColumna ?? 0 : undefined,
       subtotalesTexto: siguiente === "manual" ? actual.subtotalesTexto : undefined,
     }));
+
+  // Dos importes que se suman en la misma columna: el valor quedaría duplicado. Solo avisa.
+  const columnaDoble = (spec: SpecModulo) =>
+    avisosColumnaDoble({ roles, spec, rolValor, rotulo: (c) => letraColumnaModulo(c) });
+  const avisosGuardado = columnaDoble(perfil.estructura);
+  const avisosEdicion = columnaDoble(estructura);
 
   const cambiarColumna = (rol: string, valor: number) => {
     const normalizado = Number.isInteger(valor) && valor >= 0 ? valor : 0;
@@ -529,6 +540,10 @@ function PerfilCargaModuloDetalle({
               </tbody>
             </table>
           </div>
+          <AvisosColumnaDoble
+            avisos={avisosGuardado}
+            consejo={soloLectura ? undefined : "Con «Editar estructura», deja en 0 el campo que el archivo no trae."}
+          />
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
@@ -637,6 +652,7 @@ function PerfilCargaModuloDetalle({
                 );
               })}
             </div>
+            <AvisosColumnaDoble avisos={avisosEdicion} consejo="Deja en 0 el campo que el archivo no trae." />
           </fieldset>
 
           <fieldset className="grid grid-cols-1 gap-3 border-t border-ink-100 pt-3 sm:grid-cols-2">

@@ -50,6 +50,8 @@ import { ConfirmacionFecha } from "@/components/confirmacion-fecha";
 import { cuentaDelClasificador } from "@/lib/modulos/cuenta-clasificador";
 import { esCodigoDeduccion, parsearRangosCodigos, textoRangosCodigos } from "@/lib/modulos/nomina/codigos-deduccion";
 import { IconoEnTexto } from "@/components/icons";
+import { avisosColumnaDoble, type AvisoColumnaDoble, type SumaDelRol } from "@/lib/modulos/columna-doble";
+import { AvisosColumnaDoble } from "./avisos-columna-doble";
 
 export type RolModulo = {
   nombre: string;
@@ -61,6 +63,8 @@ export type RolModulo = {
    * Con alguno mapeado deja de ser obligatorio: SIESA y Novasoft no traen una columna de valor.
    */
   derivaDe?: string[];
+  /** Grupo de importes que el módulo suma entre sí (Activos fijos): avisa la columna doble. */
+  suma?: SumaDelRol;
 };
 
 /** Lo que el editor expone a quien lo contiene (por `ref`). */
@@ -89,6 +93,27 @@ export function opcionesColumnaAnalisis(analisis: AnalisisModulo): { index1: num
   return Array.from({ length: ancho }, (_, c) => {
     const enc = celdaTxt(analisis.encabezado?.[c] ?? null);
     return { index1: c + 1, label: `${columnaLetra(c + (analisis.columnaInicial ?? 0))}${enc ? ` · ${enc.slice(0, 28)}` : ""}` };
+  });
+}
+
+/**
+ * Columnas que dos importes que se suman toman a la vez (Activos fijos: costo y valorización),
+ * nombradas como en los selectores: «D («VALOR»)». Lo usa también la carga con patrón.
+ */
+export function avisosColumnaDobleAnalisis(
+  analisis: AnalisisModulo,
+  spec: SpecModulo,
+  roles: RolModulo[],
+  rolValor: string,
+): AvisoColumnaDoble[] {
+  return avisosColumnaDoble({
+    roles,
+    spec,
+    rolValor,
+    rotulo: (c) => {
+      const enc = celdaTxt(analisis.encabezado?.[c - 1] ?? null).trim();
+      return `${columnaLetra(c - 1 + (analisis.columnaInicial ?? 0))}${enc ? ` («${enc.slice(0, 40)}»)` : ""}`;
+    },
   });
 }
 
@@ -404,6 +429,9 @@ export function EditorMapeoModulo({
   })();
   const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
   const colSubtotales = spec.subtotalesColumna ?? 0;
+  // Dos importes que se suman leyendo la misma columna: el valor quedaría duplicado. Solo avisa.
+  const avisosDoble = avisosColumnaDobleAnalisis(analisis, spec, roles, rolValor);
+  const rolesEnColumnaDoble = new Set(avisosDoble.flatMap((a) => a.roles));
 
   return (
     <div ref={raizRef} className="flex flex-col gap-4">
@@ -444,6 +472,11 @@ export function EditorMapeoModulo({
 
       <div className="overflow-hidden rounded-md border border-ink-150">
         <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mapeo de columnas</div>
+        {avisosDoble.length > 0 && (
+          <div className="border-b border-ink-100 px-3 py-2.5">
+            <AvisosColumnaDoble avisos={avisosDoble} consejo="Si el archivo no trae ese dato, deja en «— sin mapear —» el campo que sobra." />
+          </div>
+        )}
         <div className="flex flex-col divide-y divide-ink-100">
           {roles.map((rc) => {
             const muestras = preview(rc.nombre);
@@ -471,6 +504,9 @@ export function EditorMapeoModulo({
                   )}
                   {rc.nombre === clasificadorRol && (
                     <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">clasifica</span>
+                  )}
+                  {rolesEnColumnaDoble.has(rc.nombre) && (
+                    <span className="rounded bg-warn-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-warn-700">columna repetida</span>
                   )}
                 </div>
                 {conFormula ? (

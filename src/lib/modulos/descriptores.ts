@@ -152,6 +152,12 @@ export type CuentaAdicionalCedula = { cuenta: string };
 export type SubgrupoAbiertoCedula = { subgrupo: string; naturaleza: "D" | "C" };
 
 /**
+ * Roles de importe que se suman entre sí. `efecto` completa la frase del aviso de columna doble:
+ * «Los dos {efecto}» («se suman al costo del activo»).
+ */
+export type GrupoImportesQueSeSuman = { roles: readonly string[]; efecto: string };
+
+/**
  * Segundo valor del archivo que cruza contra una cuenta RELACIONADA con la del clasificador:
  * en Activos fijos, la depreciación acumulada de un activo de 1520 cruza contra la 159210.
  */
@@ -359,6 +365,14 @@ export type DescriptorModulo = {
    * ellos (`valor-nomina.ts`). Con alguno mapeado, `valor` deja de contar como faltante.
    */
   valorAlterno?: string[];
+  /**
+   * Roles de importe que el módulo SUMA entre sí (Activos fijos: el costo y lo que se capitaliza
+   * sobre él; la depreciación y el deterioro, que restan los dos del neto). Dos de un mismo grupo
+   * mapeados a la misma columna toman su importe dos veces y el valor queda duplicado: el mapeo lo
+   * avisa (`columna-doble.ts`). Roles que se restan o se excluyen entre sí no van aquí: compartir
+   * columna los anula o los ignora, no los duplica (Nómina: devengo y deducción).
+   */
+  importesQueSeSuman?: readonly GrupoImportesQueSeSuman[];
   /** Capacidades propias de Nómina (ver `ConfiguracionNomina`). Ausente en los demás módulos. */
   nomina?: ConfiguracionNomina;
   /**
@@ -562,6 +576,12 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       sumaAlCosto: ["adiciones", "mejoras", "valorizacion"],
       correctoraFija: { rol: "deterioro", cuenta6: "159916" },
     },
+    // La misma columna en dos de estos campos duplica el importe (KOEN PACK, 6/Nov/2026: la
+    // valorización leía la columna del costo y el activo salía al doble en la cédula).
+    importesQueSeSuman: [
+      { roles: ["costo", "adiciones", "mejoras", "valorizacion"], efecto: "se suman al costo del activo" },
+      { roles: ["depreciacion", "deterioro"], efecto: "se restan del costo neto del activo" },
+    ],
     crucePorTercero: { habilitado: false },
     // Sin verificaciones manuales en el borrador (4/Oct/2026, decisión del usuario), como Ingresos
     // y Nómina: leasing, activos totalmente depreciados y bajas se ven en la cédula y se explican
