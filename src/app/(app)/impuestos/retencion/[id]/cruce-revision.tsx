@@ -7,7 +7,6 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
-import { RestaSaldoInicialModal } from "./resta-saldo-inicial-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import {
   alcanceSaldoInicial,
@@ -73,7 +72,6 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
   const [marcando, setMarcando] = useState<string | null>(null);
   const [ocultarCeros, setOcultarCeros] = useState(false);
-  const [cambiandoResta, setCambiandoResta] = useState(false);
   const { pantallaCompleta, alternar: alternarPantalla } = usePantallaCompletaTabla();
 
   if (cruce.estado !== "listo") {
@@ -92,7 +90,6 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
 
   const { resultado, balance, umbral, inicioEnero } = cruce;
   const saldoInicial = resultado.saldoInicial ?? null;
-  const resta = cruce.restaSaldoInicial ?? null;
   const filas = resultado.grupos.flatMap((g) => g.filas);
   const grupos = ocultarCeros ? gruposCruceConValores(resultado.grupos) : resultado.grupos;
   const filaMarcando = filas.find((f) => f.clave === marcando) ?? null;
@@ -106,12 +103,12 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
         </span>
         <p className="text-[11.5px] text-ink-500">
-          Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.{saldoInicial?.restado && " Además se resta el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
+          Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
         {!inicioEnero && (
           <p className="text-[11.5px] text-warn-700">El balance no empieza el 1 de enero: no se puede medir el saldo inicial que arrastran los terceros.</p>
         )}
-        <ResumenSaldoInicial saldoInicial={saldoInicial} resta={resta} inicioEnero={inicioEnero} puedeEditar={puedeEditar} onCambiar={() => setCambiandoResta(true)} />
+        <ResumenSaldoInicial saldoInicial={saldoInicial} />
       </Card>
 
       {/* Región propia (no `<Card>`): en pantalla completa ocupa el viewport y solo la tabla scrollea. */}
@@ -197,37 +194,22 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           onClose={() => setMarcando(null)}
         />
       )}
-
-      {cambiandoResta && (
-        <RestaSaldoInicialModal revisionId={revisionId} activa={resta !== null} saldoInicial={saldoInicial} total={resultado.total} onClose={() => setCambiandoResta(false)} />
-      )}
     </div>
   );
 }
 
-/** El saldo inicial de todo el cruce, con el botón que lo resta. Solo hay cifra con un balance desde el 1 de enero. */
-function ResumenSaldoInicial({ saldoInicial, resta, inicioEnero, puedeEditar, onCambiar }: {
-  saldoInicial: NonNullable<ResultadoCrucePantalla["saldoInicial"]> | null;
-  resta: { por: string | null; en: string | null } | null;
-  inicioEnero: boolean;
-  puedeEditar: boolean;
-  onCambiar: () => void;
-}) {
-  if (!saldoInicial && !resta) return null;
-  const restado = saldoInicial?.restado ?? false;
+/**
+ * El saldo inicial de todo el cruce. Con un balance desde el 1 de enero se resta siempre; una copia
+ * congelada antigua puede traerlo sin restar. El detalle y su marca están en Novedades.
+ */
+function ResumenSaldoInicial({ saldoInicial }: { saldoInicial: NonNullable<ResultadoCrucePantalla["saldoInicial"]> | null }) {
+  if (!saldoInicial) return null;
+  const { restado } = saldoInicial;
   return (
-    <div className={`mt-1 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12px] ${restado ? "border-ink-150 bg-ink-50 text-ink-700" : "border-warn-300 bg-warn-50 text-warn-700"}`}>
-      <span>
-        {saldoInicial && !restado && `${alcanceSaldoInicial(saldoInicial)}: ${saldoInicial.terceros === 1 ? "trae" : "traen"} saldo inicial por ${fmtContable(saldoInicial.monto)}, que la contabilidad incluye.`}
-        {saldoInicial && restado && (
-          <>
-            Se restó el saldo inicial de {alcanceSaldoInicial(saldoInicial)}, por {fmtContable(saldoInicial.monto)}.
-            {resta && <span className="text-ink-500"> {resta.por ?? "—"}{resta.en ? ` · ${fmtDateTime(resta.en)}` : ""}</span>}
-          </>
-        )}
-        {!saldoInicial && (inicioEnero ? "La resta del saldo inicial está guardada, pero ningún tercero trae saldo inicial en este balance." : "La resta del saldo inicial está guardada, pero no aplica: este balance no empieza el 1 de enero y no se resta nada.")}
-      </span>
-      {puedeEditar && <button type="button" onClick={onCambiar} className={BOTON_SECUNDARIO}>{resta ? "Dejar de restar" : "Restar terceros con saldo inicial"}</button>}
+    <div className={`mt-1 rounded-md border px-3 py-2 text-[12px] ${restado ? "border-ink-150 bg-ink-50 text-ink-700" : "border-warn-300 bg-warn-50 text-warn-700"}`}>
+      {restado
+        ? `Se restó el saldo inicial de ${alcanceSaldoInicial(saldoInicial)}, por ${fmtContable(saldoInicial.monto)}: el balance empieza el 1 de enero, así que se resta siempre. El detalle y su marca están en Novedades.`
+        : `${alcanceSaldoInicial(saldoInicial)}: ${saldoInicial.terceros === 1 ? "trae" : "traen"} saldo inicial por ${fmtContable(saldoInicial.monto)}, que la contabilidad incluye.`}
     </div>
   );
 }

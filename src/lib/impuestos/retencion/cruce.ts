@@ -136,9 +136,6 @@ export type DetalleSaldoInicialRestado = {
   cuentas: number;
   total: number;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
-  /** Quién pidió la resta y cuándo. */
-  por: string | null;
-  en: string | null;
 };
 
 /** Una cuenta del cliente en 2365/2367 que quedó fuera de retención, con el saldo en positivo como el resto del cruce. */
@@ -161,7 +158,7 @@ export type EntradaCruce = {
   nombresFueraDeRetencion?: ReadonlyMap<string, string>;
   /** El balance del corte empieza el 1 de enero del año revisado (si no, no se mide el arrastre). */
   inicioEnero: boolean;
-  /** La revisión pidió restar el saldo inicial; sin `inicioEnero` no resta nada. */
+  /** Restar el saldo inicial de los NITs que lo traen (el servidor lo pide siempre); sin `inicioEnero` no resta nada. */
   restarSaldoInicial: boolean;
   umbral: number;
   marcas: readonly (MarcaCruceRetencion & { clave: string })[];
@@ -360,8 +357,6 @@ export function detalleSaldoInicialRestado(cruce: CruceRetencionVista): DetalleS
     cuentas: saldoInicial.cuentas,
     total: saldoInicial.monto,
     marca: marcaSaldoInicial ?? null,
-    por: cruce.restaSaldoInicial?.por ?? null,
-    en: cruce.restaSaldoInicial?.en ?? null,
   };
 }
 
@@ -433,8 +428,6 @@ export type CruceRetencionVista =
       resultado: ResultadoCruce;
       /** Huella del prevalidador del balance: el cierre la vuelve a leer bajo candado y exige la misma. */
       huellaBalance?: string;
-      /** La revisión pidió restar el saldo inicial, quién y cuándo. Puede estar pedida sin aplicar: lo que resta lo dice `resultado.saldoInicial`. */
-      restaSaldoInicial?: { por: string | null; en: string | null } | null;
     };
 
 /** Terceros por cuenta del cliente que viajan a la pantalla (el Excel lleva todos). */

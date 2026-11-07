@@ -149,8 +149,7 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
   ws.addRow([`Contabilidad = saldo final al corte, en positivo; los terceros DIAN de las cuentas que lo indican no suman. Diferencias desde ${cruce.umbral.toLocaleString("es-CO")} exigen marca.`]).font = { color: { argb: EXCEL.textoSecundario } };
   if (!cruce.inicioEnero) ws.addRow(["El balance no empieza el 1 de enero: no se mide el saldo inicial de los terceros."]).font = { color: { argb: EXCEL.textoSecundario } };
   if (resultado.saldoInicial?.restado) {
-    const por = cruce.restaSaldoInicial?.por;
-    ws.addRow([`Se restó el saldo inicial de ${alcanceSaldoInicial(resultado.saldoInicial)}, por ${resultado.saldoInicial.monto.toLocaleString("es-CO")}${por ? ` (${por})` : ""}: cada tercero suma solo lo del año.`]).font = { color: { argb: EXCEL.textoSecundario } };
+    ws.addRow([`Se restó el saldo inicial de ${alcanceSaldoInicial(resultado.saldoInicial)}, por ${resultado.saldoInicial.monto.toLocaleString("es-CO")} (el balance empieza el 1 de enero: se resta siempre): cada tercero suma solo lo del año.`]).font = { color: { argb: EXCEL.textoSecundario } };
   }
   ws.addRow([]);
 
@@ -264,7 +263,7 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
 function hojaSaldoInicialRestado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, d: DetalleSaldoInicialRestado): void {
   const ws = wb.addWorksheet("Saldos restados");
   encabezadoLibro(ws, meta, "saldos restados: NITs con saldo inicial a enero");
-  ws.addRow([`El cruce contable les resta de su saldo final el saldo inicial que traían a enero (${alcanceSaldoInicial(d)})${d.por ? `; lo pidió ${d.por}` : ""}. Saldos con los signos del cruce: el pasivo en positivo.`]).font = { color: { argb: EXCEL.textoSecundario } };
+  ws.addRow([`El cruce contable les resta de su saldo final el saldo inicial que traían a enero (${alcanceSaldoInicial(d)}); se hace siempre que el balance del corte empieza el 1 de enero. Saldos con los signos del cruce: el pasivo en positivo.`]).font = { color: { argb: EXCEL.textoSecundario } };
   ws.addRow([d.marca ? `Marca ${d.marca.numero}${d.marca.vigente ? "" : " (desactualizada)"}: ${d.marca.nota}` : "Sin marca: es obligatoria para cerrar en firme."]).font = { color: { argb: EXCEL.textoSecundario } };
   estiloEncabezado(ws.addRow(["NIT", "Tercero", "Cuenta del cliente", "Nombre de la cuenta", "Cuenta Russell", "Saldo inicial", "Saldo final", "Restado"]));
   for (const f of d.filas) ws.addRow([f.nit ?? "", f.nombre ?? "", f.cuentaCliente, f.nombreCuenta, f.cuentaRussell ?? "", f.saldoInicial, f.saldoFinal, f.restado]);

@@ -68,10 +68,10 @@ describe("Excel de una revisión de Retención en la fuente", () => {
       periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA, nombresRussell: new Map(),
       filasContables: [conInicial("Generico", "Genérico", -500_000, -500_000), conInicial("800111222", "PROVEEDOR A", -150_000, -100_000)], inicioEnero: true, restarSaldoInicial: true, umbral: 6_000, marcas: [],
     });
-    const ws = libroRetencion(meta, vista, formularios, { cruce: { ...cruce, resultado, restaSaldoInicial: { por: "Senior", en: "2026-11-01T15:00:00.000Z" } } }).getWorksheet("Cruce contable")!;
+    const ws = libroRetencion(meta, vista, formularios, { cruce: { ...cruce, resultado } }).getWorksheet("Cruce contable")!;
     const filas: ExcelJS.Row[] = [];
     ws.eachRow((f) => filas.push(f));
-    expect(filas.some((f) => String(f.getCell(1).value).startsWith("Se restó el saldo inicial de 2 terceros en 1 cuenta, por 600.000 (Senior)"))).toBe(true);
+    expect(filas.some((f) => String(f.getCell(1).value).startsWith("Se restó el saldo inicial de 2 terceros en 1 cuenta, por 600.000 (el balance empieza el 1 de enero: se resta siempre)"))).toBe(true);
     const generico = filas.find((f) => f.getCell(4).value === "Generico")!;
     expect(generico.getCell(8).value).toBe("Saldo inicial · se resta");
     expect(generico.font?.strike).toBe(true);
@@ -108,7 +108,7 @@ describe("Excel de una revisión de Retención en la fuente", () => {
   it("con saldos restados: su hoja con cada tercero, el total y la marca; sin resta no hay hoja", () => {
     const detalle = {
       filas: [{ nit: "900000002", nombre: "Alfa S.A.S.", cuentaCliente: "23651501", nombreCuenta: "Honorarios", cuentaRussell: "236515", saldoInicial: 20_000, saldoFinal: 20_000, restado: 20_000 }],
-      terceros: 1, cuentas: 1, total: 20_000, por: "Usuaria de prueba", en: null,
+      terceros: 1, cuentas: 1, total: 20_000,
       marca: { numero: 3, nota: "Retenciones de diciembre pagadas en enero", referenciaAnexo: null, diferencia: 20_000, marcadoPor: null, marcadoEn: "2026-11-06T00:00:00.000Z", vigente: true },
     };
     const ws = libroRetencion(meta, vista, formularios, { cruce, saldoInicialRestado: detalle }).getWorksheet("Saldos restados")!;

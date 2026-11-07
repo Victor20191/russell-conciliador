@@ -26,7 +26,7 @@ import type { RevisionVista } from "./revision-servidor";
 export const MODULO_RETENCION = "RET";
 
 export async function cargarCruceRetencion(
-  revision: Pick<RevisionVista, "clienteId" | "anio" | "periodo" | "periodos" | "restarSaldoInicial" | "saldoInicialRestadoPor" | "saldoInicialRestadoEn">,
+  revision: Pick<RevisionVista, "clienteId" | "anio" | "periodo" | "periodos">,
 ): Promise<CruceRetencionVista> {
   const umbrales = await getUmbralesAlertas();
   const umbral = Number.isFinite(umbrales.impuestos_diferencia) ? umbrales.impuestos_diferencia : UMBRAL_IMPUESTOS_DIFERENCIA;
@@ -122,7 +122,8 @@ export async function cargarCruceRetencion(
     filasFueraDeRetencion,
     nombresFueraDeRetencion: new Map(planDestino.map((c) => [c.code, c.name])),
     inicioEnero,
-    restarSaldoInicial: revision.restarSaldoInicial,
+    // Con balance desde el 1 de enero se resta siempre el saldo inicial de los NITs que lo traen (7/Nov/2026).
+    restarSaldoInicial: true,
     umbral,
     marcas: marcas
       .filter((m) => m.cuenta4)
@@ -138,6 +139,5 @@ export async function cargarCruceRetencion(
   });
   return {
     estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella,
-    restaSaldoInicial: revision.restarSaldoInicial ? { por: revision.saldoInicialRestadoPor, en: revision.saldoInicialRestadoEn } : null,
   };
 }

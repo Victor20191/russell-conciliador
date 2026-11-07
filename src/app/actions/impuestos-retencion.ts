@@ -12,14 +12,14 @@ import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
 import { almacenamientoDisponible, subirObjeto } from "@/lib/storage/objetos";
 import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { CLAVE_MARCA_RETENCION, ConfirmarFormularioDianSchema, ConfirmarFormulariosDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RestaSaldoInicialSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
+import { CLAVE_MARCA_RETENCION, ConfirmarFormularioDianSchema, ConfirmarFormulariosDianSchema, MarcaRetencionSchema, PeriodoSinFormularioSchema, RevisionRetencionSchema, type ActionState } from "@/lib/definitions";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { siguienteNumeroMarca } from "@/lib/modulos/marcas-cruce";
 import { cargarRevision, type RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { resultadosEnVivo } from "@/lib/impuestos/retencion/resultados-servidor";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { construirCopiaRetencion } from "@/lib/impuestos/retencion/copia-cierre";
-import { alcanceSaldoInicial, CLAVE_MARCA_SALDO_INICIAL, prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
+import { CLAVE_MARCA_SALDO_INICIAL, prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
 import { cuentasBloqueoDelModulo, ESTADO_CIERRE_DESBLOQUEADO, ESTADO_CIERRE_FIRME, validarJustificacionDesbloqueo } from "@/lib/conciliacion/cuentas-bloqueo";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
@@ -622,66 +622,18 @@ export async function quitarMarcaRetencion(_prev: ActionState, formData: FormDat
   }
 }
 
-/**
- * «Restar terceros con saldo inicial» o «Dejar de restar» en el cruce de la revisión. Activarla exige
- * un balance del corte que empiece el 1 de enero (en otro, el saldo inicial trae retenciones del
- * mismo año) y algún tercero no DIAN con saldo inicial; quitarla siempre se puede. Las marcas cuya
- * diferencia cambie quedan desactualizadas y la fila vuelve a pedirlas.
- */
-export async function cambiarRestaSaldoInicial(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const parsed = RestaSaldoInicialSchema.safeParse({ revisionId: formData.get("revisionId"), restar: formData.get("restar") });
-  if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
-  const { revisionId, restar } = parsed.data;
-  const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
-  if (!acceso.ok) return { ok: false, message: acceso.message };
-  const { revision } = acceso;
-
-  try {
-    const vista = await cargarRevision(revision.id);
-    if (!vista) return { ok: false, message: "La revisión no existe." };
-    const cruce = await cargarCruceRetencion(vista);
-    if (restar) {
-      if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
-      if (!cruce.inicioEnero) return { ok: false, message: "El balance del corte no empieza el 1 de enero: su saldo inicial trae retenciones del mismo año y no se puede restar." };
-      if (!cruce.resultado.saldoInicial) return { ok: false, message: "Ningún tercero distinto de la DIAN trae saldo inicial." };
-    }
-    const mensaje = restar ? "Se restó el saldo inicial de los terceros." : "Se dejó de restar el saldo inicial.";
-    if (vista.restarSaldoInicial === restar) return { ok: true, message: mensaje };
-
-    const user = await getCurrentUser();
-    await prisma.revisionRetencion.update({
-      where: { id: revision.id },
-      data: { restarSaldoInicial: restar, saldoInicialRestadoPor: restar ? (user?.name ?? null) : null, saldoInicialRestadoEn: restar ? new Date() : null },
-    });
-    const inicial = cruce.estado === "listo" ? cruce.resultado.saldoInicial : null;
-    await logAudit({
-      user: user?.name ?? "Sistema",
-      action: restar ? "RESTÓ SALDO INICIAL DE RETENCIÓN" : "DEJÓ DE RESTAR SALDO INICIAL DE RETENCIÓN",
-      entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
-      detail: inicial ? `${alcanceSaldoInicial(inicial)} · saldo inicial ${inicial.monto}` : "Sin saldo inicial en el balance del corte",
-      clientId: revision.clienteId,
-    });
-    revalidatePath(`${RUTA}/${revision.id}`);
-    return { ok: true, message: mensaje };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("cambiarRestaSaldoInicial", e) };
-  }
-}
-
-/** Huella de lo que el cierre evaluó: formularios del año, causales, marcas de la revisión y si resta el saldo inicial. */
-async function firmaParaCierre(db: Pick<typeof prisma, "formularioDianCargado" | "periodoSinFormulario" | "marcaCruceModulo" | "revisionRetencion">, r: { id: number; clienteId: number; anio: number; periodo: string }): Promise<string> {
-  const [formularios, causales, marcas, revision] = await Promise.all([
+/** Huella de lo que el cierre evaluó: formularios del año, causales y marcas de la revisión. */
+async function firmaParaCierre(db: Pick<typeof prisma, "formularioDianCargado" | "periodoSinFormulario" | "marcaCruceModulo">, r: { id: number; clienteId: number; anio: number; periodo: string }): Promise<string> {
+  const [formularios, causales, marcas] = await Promise.all([
     db.formularioDianCargado.findMany({ where: { clienteId: r.clienteId, anio: r.anio }, select: { id: true, estado: true, actualizadoEn: true }, orderBy: { id: "asc" } }),
     db.periodoSinFormulario.findMany({ where: { clienteId: r.clienteId, anio: r.anio }, select: { periodo: true, causal: true }, orderBy: { periodo: "asc" } }),
     db.marcaCruceModulo.findMany({ where: { clienteId: r.clienteId, moduloCodigo: MODULO_RETENCION, periodo: r.periodo }, select: { id: true, diferencia: true, marcadoEn: true }, orderBy: { id: "asc" } }),
-    db.revisionRetencion.findUnique({ where: { id: r.id }, select: { restarSaldoInicial: true } }),
   ]);
   return createHash("sha256")
     .update(JSON.stringify([
       formularios.map((f) => [f.id, f.estado, f.actualizadoEn.getTime()]),
       causales.map((c) => [c.periodo, c.causal]),
       marcas.map((m) => [m.id, m.diferencia.toString(), m.marcadoEn.getTime()]),
-      revision?.restarSaldoInicial ?? false,
     ]))
     .digest("hex");
 }

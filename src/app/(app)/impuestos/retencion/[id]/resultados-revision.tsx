@@ -481,7 +481,6 @@ export function VistaNovedades({
 function SaldoInicialRestado({ detalle, revisionId, puedeEditar }: { detalle: DetalleSaldoInicialRestado; revisionId: number; puedeEditar: boolean }) {
   const [marcando, setMarcando] = useState(false);
   const { marca } = detalle;
-  const pidio = detalle.por ? ` (lo pidió ${detalle.por}${detalle.en ? ` el ${fmtDateTime(detalle.en)}` : ""})` : "";
   return (
     <div id={ANCLA_SALDO_INICIAL} className="flex flex-col gap-3">
       <Card className="overflow-x-auto p-0 text-[12.5px]">
@@ -489,7 +488,7 @@ function SaldoInicialRestado({ detalle, revisionId, puedeEditar }: { detalle: De
           <div className="min-w-0 flex-1">
             <h3 className="text-[12.5px] font-semibold text-navy-800">{TITULO_SALDOS_RESTADOS}</h3>
             <p className="mt-0.5 text-[12px] text-ink-500">
-              A estos NITs ({alcanceSaldoInicial(detalle)}) el cruce contable les resta de su saldo final el saldo inicial que traían a enero, por {fmt(detalle.total)}{pidio}. Revisa cada tercero y documenta con una marca por qué se resta: es obligatoria para cerrar en firme y guarda el total; si el total cambia, queda desactualizada.
+              A estos NITs ({alcanceSaldoInicial(detalle)}) el cruce contable les resta de su saldo final el saldo inicial que traían a enero, por {fmt(detalle.total)}: se hace siempre que el balance del corte empieza el 1 de enero. Revisa cada tercero y documenta con una marca por qué se resta: es obligatoria para cerrar en firme y guarda el total; si el total cambia, queda desactualizada.
             </p>
           </div>
           <div className="flex items-center gap-2">

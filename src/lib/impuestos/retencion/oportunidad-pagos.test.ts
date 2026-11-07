@@ -250,11 +250,11 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     const cruceCon = (restar: boolean) => ({
       estado: "listo" as const, mensaje: null, umbral: 1e12, inicioEnero: true,
       balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
-      restaSaldoInicial: restar ? { por: "Usuaria de prueba", en: "2026-11-03T19:30:00.000Z" } : null,
+
       resultado: cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables, inicioEnero: true, restarSaldoInicial: restar, umbral: 1e12, marcas: [] }),
     });
     const detalle = detalleSaldoInicialRestado(conMarcaSaldoInicial(cruceCon(true), [marcar(CLAVE_MARCA_SALDO_INICIAL, 70_000)]));
-    expect(detalle).toMatchObject({ terceros: 2, cuentas: 2, total: 70_000, por: "Usuaria de prueba", marca: { numero: 1, vigente: true } });
+    expect(detalle).toMatchObject({ terceros: 2, cuentas: 2, total: 70_000, marca: { numero: 1, vigente: true } });
     // Ordenado por tercero; el que no trae saldo inicial no aparece.
     expect(detalle!.filas.map((f) => [f.nombre, f.cuentaCliente, f.cuentaRussell, f.saldoInicial, f.saldoFinal, f.restado])).toEqual([
       ["Alfa S.A.S.", "23651501", "236515", 20_000, 20_000, 20_000],
