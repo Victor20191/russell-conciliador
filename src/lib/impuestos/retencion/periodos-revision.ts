@@ -110,7 +110,8 @@ export const avisoReciboDeOtro350 = (r: ReciboDeOtro350) => `El recibo ${r.numer
 
 export const avisoFueraDeCadena = (numero: string) => `El formulario ${numero} no hace parte de la cadena de correcciones del período.`;
 
-export const avisoFaltaOriginal = (numero: string) => `Falta el formulario original ${numero}: sin él no se mide la oportunidad de presentación.`;
+export const avisoFaltaOriginal = (numero: string) =>
+  `Falta el formulario original ${numero}: sin él no se mide la oportunidad de presentación ni se puede cerrar en firme.`;
 
 /** 490 confirmados de un mes sin 350 (falta, o se registró que no hubo): exigen marca en Pagos efectuados. */
 export const recibosSin350 = (p: Pick<PeriodoRevision, "cadena" | "pagos">): Formulario490[] => (p.cadena.vigente ? [] : p.pagos.flatMap((x) => x.formularios));
@@ -173,7 +174,7 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
       f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado) ? [{ numero: f.numero, numeroPagado: f.numeroPagado }] : [],
     );
     for (const f of cadena.fueraDeCadena) avisos.push(avisoFueraDeCadena(f.numero));
-    if (cadena.faltaOriginal) avisos.push(avisoFaltaOriginal(cadena.faltaOriginal));
+    // La corrección sin su original no va como aviso: el cierre la cuenta como pendiente.
     const pagosFaltantes = pagos.filter((p) => p.esperado && p.formularios.length === 0 && p.porConfirmar === 0).map((p) => p.concepto);
 
     const estado: EstadoPeriodo = cadena.vigente

@@ -231,7 +231,7 @@ function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: r
       f.pago61.numero ?? "", f.pago61.autoadhesivo ?? "", f.pago62.numero ?? "", f.pago62.autoadhesivo ?? "",
       fechaExcel(f.vencimiento), fechaExcel(f.presentacion), fechaExcel(f.pago61.fecha), fechaExcel(f.pago62.fecha),
       estado(f.estadoPresentacion, f.diasPresentacion), estado(f.pago61.estado, f.pago61.dias), estado(f.pago62.estado, f.pago62.dias),
-      f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
+      f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : "",
     ]);
   }
   [12, 16, 18, 16, 18, 16, 18, 21, 22, 16, 16, 22, 22, 22, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));

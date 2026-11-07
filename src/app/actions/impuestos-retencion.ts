@@ -568,7 +568,7 @@ async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<Obj
     }
     const fila = resultados.oportunidad.find((f) => f.clave === clave);
     if (!fila) return { ok: false, message: "Ese período ya no está en la revisión." };
-    if (!fila.requiereMarca) return { ok: false, message: "Ese período ya tiene su 350 original: no hace falta la marca." };
+    if (!fila.admiteMarca) return { ok: false, message: "Ese período ya tiene su 350 original: no hace falta la marca." };
     return { ok: true, dimension: "control", diferencia: 0, etiqueta: `Oportunidad · ${etiquetaPeriodoRevision(vista.periodicidad, fila.periodo)}` };
   }
   const cruce = await cargarCruceRetencion(vista);

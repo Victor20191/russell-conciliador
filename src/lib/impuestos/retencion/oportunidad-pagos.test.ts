@@ -18,7 +18,7 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
 
   it("enero: corrección sin original → presentación «Falta el original» con marca; pago del 61 oportuno el día del vencimiento y sin pago del 62", () => {
     expect(oportunidad()[0]).toMatchObject({
-      vencimiento: "2026-02-20", estadoPresentacion: "falta_original", requiereMarca: true,
+      vencimiento: "2026-02-20", estadoPresentacion: "falta_original", admiteMarca: true,
       pago61: { numero: "4911086421291", fecha: "2026-02-20", estado: "oportuno", dias: null },
       pago62: { numero: null, fecha: null, estado: "sin_pago" },
     });
@@ -184,12 +184,13 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(pagosRevision({ anio: 2026, periodos, marcas: [{ ...marca, diferencia: 1 }] }).filas[1].marca?.vigente).toBe(false);
   });
 
-  it("cierre: pide el cruce, las marcas de pagos y la del original de enero; con todo marcado no queda nada", () => {
+  it("cierre: pide el 350 original de enero, el cruce y las marcas de pagos; la marca de oportunidad no reemplaza el original", () => {
     const sinBalance = { estado: "sin_balance" as const, mensaje: "No hay un balance cerrado con corte en 2026-08.", balance: null, umbral: 6_000 };
     const pagos = pagosRevision({ anio: 2026, periodos, marcas: [] });
     const ev = evaluarCierreRetencion({ periodos, cruce: sinBalance, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
-    expect(ev.pendientes.map((p) => p.tipo)).toEqual(["cruce", ...Array(7).fill("pagos"), "oportunidad"]);
-    expect(ev.avisos.some((a) => a.includes("Falta el formulario original"))).toBe(true);
+    expect(ev.pendientes.map((p) => p.tipo)).toEqual(["formularios", "cruce", ...Array(7).fill("pagos")]);
+    expect(ev.pendientes[0].texto).toBe("Período 1: falta el 350 original 3510669606483; hay que cargarlo para cerrar en firme.");
+    expect(ev.avisos.some((a) => a.includes("Falta el formulario original"))).toBe(false);
 
     const marcasPago = pagos.filas.filter((f) => f.requiereMarca).map((f) => marcar(f.clave, f.diferencia));
     const cruceListo = {
@@ -197,12 +198,22 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
       balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
       resultado: cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables: [], inicioEnero: true, restarSaldoInicial: false, umbral: 1e12, marcas: [] }),
     };
-    const listo = evaluarCierreRetencion({
+    const conMarcas = evaluarCierreRetencion({
       periodos, cruce: cruceListo, pagos: pagosRevision({ anio: 2026, periodos, marcas: marcasPago }),
       oportunidad: oportunidad({ marcas: [marcar("oportunidad:2026-01", 0)] }), etiquetaPeriodo: etq,
     });
+    expect(conMarcas.pendientes.map((p) => p.texto)).toEqual(["Período 1: falta el 350 original 3510669606483; hay que cargarlo para cerrar en firme."]);
+    expect(conMarcas.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
+
+    // Con el original cargado ya no queda nada, y la marca de oportunidad deja de hacer falta.
+    const original = { id: 99, periodo: 1, numero: "3510669606483", codigoCorreccion: null, numeroAnterior: null, fechaPresentacion: "2026-02-18", valores: { 130: 122_704_000, 134: 0, 135: 0 } };
+    const conOriginal = periodosRevision({ periodicidad: "Mensual", mesCorte: 8, formularios350: [...F350_2026, original], formularios490: F490_2026, porConfirmar: [], causales: [] });
+    const listo = evaluarCierreRetencion({
+      periodos: conOriginal, cruce: cruceListo, pagos: pagosRevision({ anio: 2026, periodos: conOriginal, marcas: marcasPago }),
+      oportunidad: oportunidad({ periodos: conOriginal, marcas: [marcar("oportunidad:2026-01", 0)] }), etiquetaPeriodo: etq,
+    });
     expect(listo.pendientes).toEqual([]);
-    expect(listo.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
+    expect(oportunidad({ periodos: conOriginal, marcas: [marcar("oportunidad:2026-01", 0)] })[0]).toMatchObject({ admiteMarca: false, marca: { vigente: false } });
   });
 
   it("cierre: restar el saldo inicial queda como aviso, no como pendiente, y una copia antigua sin el dato no lo menciona", () => {
@@ -224,6 +235,7 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
       pagos: pagosRevision({ anio: 2026, periodos: corteSep, marcas: [] }), oportunidad: [], etiquetaPeriodo: etq,
     });
     expect(ev.pendientes.filter((p) => p.tipo === "formularios").map((p) => p.texto)).toEqual([
+      "Período 1: falta el 350 original 3510669606483; hay que cargarlo para cerrar en firme.",
       "Período 3: 1 formulario por confirmar.",
       "Período 9: falta el 350 o la causal de que no hubo formulario.",
     ]);

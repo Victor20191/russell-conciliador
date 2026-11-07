@@ -207,7 +207,8 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
             "Ningún formulario de esos períodos está por confirmar.",
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
-            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período, con recibos 490 sin 350 o con una corrección que llegó sin el original tiene marca.",
+            "Si llegó una corrección, su 350 original también está cargado: una marca no lo reemplaza.",
+            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con recibos 490 sin 350 tiene marca.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cerrarRevisionRetencion" },
         },
@@ -435,7 +436,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           acciones: [
             {
               nombre: "Marcar un mes sin original",
-              queHace: "Explica por qué falta el 350 original de un mes cuya corrección sí se cargó (sin él no se mide la presentación). La marca es obligatoria para cerrar.",
+              queHace: "Explica por qué falta el 350 original de un mes cuya corrección sí se cargó (sin él no se mide la presentación). La marca es opcional: para cerrar en firme hay que cargar el original.",
               regla: REGLAS.marcarImpuestos,
               condiciones: ["La corrección del mes llegó sin su original.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
@@ -475,7 +476,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "novedades",
       titulo: "Novedades",
       proposito:
-        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y oportunidad) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones).",
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable y pagos; la corrección sin su 350 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones).",
       etapas: [
         {
           titulo: "Consultar",
@@ -489,7 +490,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     { etiqueta: "Por confirmar", significado: "Hay un formulario del período leído y sin confirmar." },
     { etiqueta: "Falta el 350", significado: "No hay un 350 confirmado ni una causal de mes sin formulario." },
     { etiqueta: "Sin formulario", significado: "Se registró que en el período no hubo 350, con su causal." },
-    { etiqueta: "Falta el original", significado: "Llegó una corrección sin el formulario que corrige: sin el original no se mide la oportunidad de presentación." },
+    { etiqueta: "Falta el original", significado: "Llegó una corrección sin el formulario que corrige: sin el original no se mide la oportunidad de presentación y la revisión no se puede cerrar en firme." },
     { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y su recibo 490 no está cargado." },
     { etiqueta: "En firme", significado: "La revisión se cerró: es de solo lectura, sus resultados salen de la copia congelada y las cuentas del cruce quedan bloqueadas en el balance del corte." },
   ],

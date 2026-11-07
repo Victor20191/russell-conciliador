@@ -5,14 +5,14 @@ import type { PeriodoRevision } from "./periodos-revision";
 
 /**
  * Qué falta para cerrar en firme una revisión de Retención en la fuente (puro). Exige: cada período
- * del corte con su 350 confirmado o su causal, ningún formulario por confirmar en esos períodos, el
- * cruce contable disponible y marca en cada fila desde el umbral, marca en cada mes con «Diferencia
- * en el pago», con un recibo que paga un 350 de otro período o con recibos 490 sin 350 (también con
- * la causal de que no hubo formulario), y en cada mes cuya corrección llegó sin el original. Los
- * avisos no impiden cerrar.
+ * del corte con su 350 confirmado o su causal, el 350 original cargado cuando llegó una corrección
+ * (una marca no lo reemplaza), ningún formulario por confirmar en esos períodos, el cruce contable
+ * disponible y marca en cada fila desde el umbral, y marca en cada mes con «Diferencia en el pago»,
+ * con un recibo que paga un 350 de otro período o con recibos 490 sin 350 (también con la causal de
+ * que no hubo formulario). Los avisos no impiden cerrar.
  */
 
-export type TipoPendiente = "formularios" | "cruce" | "pagos" | "oportunidad";
+export type TipoPendiente = "formularios" | "cruce" | "pagos";
 
 export type PendienteCierre = { tipo: TipoPendiente; texto: string };
 
@@ -33,6 +33,9 @@ export function evaluarCierreRetencion(e: {
 
   for (const p of e.periodos) {
     if (!p.cadena.vigente && !p.causal) pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el 350 o la causal de que no hubo formulario.` });
+    if (p.cadena.vigente && p.cadena.faltaOriginal) {
+      pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el 350 original ${p.cadena.faltaOriginal}; hay que cargarlo para cerrar en firme.` });
+    }
     if (p.porConfirmar > 0) {
       pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: ${p.porConfirmar} ${p.porConfirmar === 1 ? "formulario" : "formularios"} por confirmar.` });
     }
@@ -71,10 +74,6 @@ export function evaluarCierreRetencion(e: {
       tipo: "pagos",
       texto: `${etq(f.periodo)}: ${motivos.join("; ")} ${f.marca ? "con la marca desactualizada" : "sin marca"}.`,
     });
-  }
-
-  for (const f of e.oportunidad) {
-    if (f.requiereMarca && !f.marca) pendientes.push({ tipo: "oportunidad", texto: `${etq(f.periodo)}: falta el 350 original y no se puede medir la presentación; documéntalo con una marca.` });
   }
 
   return { pendientes, avisos };

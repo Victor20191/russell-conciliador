@@ -128,7 +128,9 @@ describe("períodos de la revisión (casos de prueba del levantamiento)", () => 
     expect(p.map((x) => x.estado)).toEqual(["falta_original", "faltan_pagos", "faltan_pagos", "faltan_pagos", "faltan_pagos", "faltan_pagos", "faltan_pagos", "completo"]);
     expect(p[1].pagosFaltantes).toEqual(["62"]);
     expect(p[7].pagos.find((x) => x.concepto === "62")).toMatchObject({ declarado: 2_545_000, impuesto: 2_545_000 });
-    expect(p[0].avisos).toContain("Falta el formulario original 3510669606483: sin él no se mide la oportunidad de presentación.");
+    // La corrección sin original ya no es aviso: el cierre la pide como pendiente.
+    expect(p[0].avisos.some((a) => a.includes("Falta el formulario original"))).toBe(false);
+    expect(p[0].cadena.faltaOriginal).toBe("3510669606483");
   });
 
   it("el 490 de enero paga el original que la corrección cita: no es un pago de otro período", () => {

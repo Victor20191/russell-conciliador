@@ -167,7 +167,7 @@ export function VistaOportunidad({
                   <CeldaPago pago={f.pago62} />
                 </td>
                 <td className={`${INICIO_SECCION} px-3 py-2 text-center`}>
-                  <CeldaMarca marca={f.marca} requiereMarca={f.requiereMarca} admiteMarca={f.requiereMarca} puedeEditar={puedeEditar} ancla={`marca-retencion-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />
+                  <CeldaMarca marca={f.marca} requiereMarca={false} admiteMarca={f.admiteMarca} puedeEditar={puedeEditar} ancla={`marca-retencion-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />
                 </td>
               </tr>
             ))}
@@ -190,7 +190,7 @@ export function VistaOportunidad({
           conCifra={false}
           diferencia={0}
           placeholder="Ej.: el cliente no entregó el 350 original; se presentó a tiempo según la DIAN (consulta del …)."
-          resumen={<>La corrección de {etiquetaPeriodo(fila.periodo).toLowerCase()} llegó sin el 350 original: no se puede medir la presentación. Explica por qué falta o cómo se verificó.</>}
+          resumen={<>La corrección de {etiquetaPeriodo(fila.periodo).toLowerCase()} llegó sin el 350 original: no se puede medir la presentación. Para cerrar en firme hay que cargar el original; esta marca es opcional y solo deja la explicación.</>}
           onClose={() => setMarcando(null)}
         />
       )}
@@ -406,7 +406,6 @@ const ETIQUETA_PENDIENTE: Record<TipoPendiente, { titulo: string; tab: TabRevisi
   formularios: { titulo: "Formularios", tab: "formularios" },
   cruce: { titulo: "Cruce contable", tab: "cruce" },
   pagos: { titulo: "Pagos efectuados", tab: "pagos" },
-  oportunidad: { titulo: "Oportunidad", tab: "oportunidad" },
 };
 
 export function VistaNovedades({ evaluacion, enFirme, onIr }: { evaluacion: EvaluacionCierreRetencion; enFirme: boolean; onIr: (tab: TabRevisionRetencion) => void }) {

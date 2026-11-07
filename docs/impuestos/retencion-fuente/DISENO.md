@@ -280,7 +280,7 @@ al peso.
 
 Exige: cada período esperado con su 350 confirmado o su causal; las cadenas de corrección
 confirmadas; ningún formulario por confirmar; marca en cada fila del cruce desde el umbral,
-en cada mes con «Diferencia en el pago» y en cada mes con «Falta el original». Bloquea las
+en cada mes con «Diferencia en el pago»; con «Falta el original» exige cargar el original (6/Nov/2026). Bloquea las
 cuentas del cliente que entraron al cruce, deja el período de solo lectura y guarda la
 copia congelada. Desbloquear exige justificación. El cierre no toca Nómina: Nómina trata la
 2365 como control y su cierre es independiente (dos cierres pueden bloquear la misma
@@ -336,7 +336,7 @@ cuando lo autorices.
 4. **Retención fuera del catálogo del prevalidador** (sección 8).
 5. **Mapeo global** para todos los clientes (no por cliente).
 6. **Conservar `formularios_dian` y `formularios_dian_cliente`** (sección 11).
-7. **Falta el original → marca para cerrar** ese mes.
+7. **Falta el original → hay que cargarlo para cerrar** ese mes (6/Nov/2026; antes bastaba una marca, que ahora es opcional).
 8. **Fecha de pago con varios 490 del 61**: la del último pago; **mes sin 61**: la del
    primer 490 que haya, indicando cuál. Cambiada el 5/Nov/2026: la oportunidad del pago se
    mide aparte para el 61 y el 62 (último recibo de cada uno); sin 61 su columna dice «Sin pago».

@@ -10,8 +10,8 @@ import type { Formulario490, PeriodoRevision } from "./periodos-revision";
  * 490 de ese concepto. Si el 350 no declara el valor, «Sin valor a pagar»; si lo declara y no hay
  * recibo, «Sin pago». Se comparan fechas del calendario de Colombia, sin hora: igual o antes del
  * vencimiento es «Oportuno». Un mes sin formulario, sin calendario o sin original lo dice así;
- * nunca sale «Oportuno» por falta de fecha. Un período con la corrección sin su original pide
- * marca para cerrar.
+ * nunca sale «Oportuno» por falta de fecha. Un período con la corrección sin su original admite
+ * una marca opcional; lo que permite cerrar es cargar el original (lo exige el cierre).
  */
 
 export type EstadoOportunidad =
@@ -65,8 +65,8 @@ export type FilaOportunidad = {
   diasPresentacion: number | null;
   pago61: PagoOportunidad;
   pago62: PagoOportunidad;
-  /** La corrección llegó sin su original: no se puede medir la presentación y se exige marca. */
-  requiereMarca: boolean;
+  /** La corrección llegó sin su original: no se puede medir la presentación y admite una marca opcional (para cerrar hay que cargar el original). */
+  admiteMarca: boolean;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
 };
 
@@ -121,7 +121,7 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
       const sinPago: PagoOportunidad = { numero: null, autoadhesivo: null, fecha: null, estado, dias: null };
       return {
         periodo: p.periodo, clave, numero350: null, autoadhesivo350: null, vencimiento, presentacion: null, estadoPresentacion: estado, diasPresentacion: null,
-        pago61: sinPago, pago62: sinPago, requiereMarca: false, marca: marca ? { ...marca, vigente: false } : null,
+        pago61: sinPago, pago62: sinPago, admiteMarca: false, marca: marca ? { ...marca, vigente: false } : null,
       };
     }
 
@@ -129,7 +129,7 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
     const presentacion = original
       ? comparar(original.fechaPresentacion, vencimiento)
       : { estado: "falta_original" as const, dias: null };
-    const requiereMarca = original == null;
+    const admiteMarca = original == null;
     return {
       periodo: p.periodo,
       clave,
@@ -141,9 +141,9 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
       diasPresentacion: presentacion.dias,
       pago61: medirPago(p, "61", vencimiento),
       pago62: medirPago(p, "62", vencimiento),
-      requiereMarca,
+      admiteMarca,
       // La marca no lleva cifra: vale mientras el período siga sin su original.
-      marca: marca ? { ...marca, vigente: requiereMarca } : null,
+      marca: marca ? { ...marca, vigente: admiteMarca } : null,
     };
   });
 }

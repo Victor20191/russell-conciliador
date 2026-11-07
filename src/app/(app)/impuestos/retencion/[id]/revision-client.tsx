@@ -278,11 +278,12 @@ function FilaPeriodo({
   );
 }
 
-type AlertaPeriodo = { clave: string; texto: string; detalle: string; tono: "err" | "warn"; marcaEn?: string };
+type AlertaPeriodo = { clave: string; texto: string; detalle: string; tono: "err" | "warn"; nota?: string };
 
 /**
- * Lo que hay que resolver en el mes, en texto corto; al pasar el mouse, el detalle. Las que exigen
- * marca dicen en qué pestaña se pone. Mismos textos que la columna Alerta de Pagos efectuados.
+ * Lo que hay que resolver en el mes, en texto corto; al pasar el mouse, el detalle. La nota dice qué
+ * pide para cerrar (cargar el original o una marca, y en qué pestaña). Mismos textos que la columna
+ * Alerta de Pagos efectuados.
  */
 function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
   const sin350 = recibosSin350(p).map((f) => f.numero);
@@ -291,11 +292,11 @@ function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
       .filter((x) => x.esperado && x.formularios.length === 0 && x.porConfirmar === 0)
       .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}`, tono: "err" })),
     ...(p.cadena.faltaOriginal
-      ? [{ clave: "original", texto: "Falta el 350 original", detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", marcaEn: "Oportunidad" } satisfies AlertaPeriodo]
+      ? [{ clave: "original", texto: "Falta el 350 original", detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", nota: "hay que cargarlo para cerrar" } satisfies AlertaPeriodo]
       : []),
     ...p.cadena.fueraDeCadena.map((f): AlertaPeriodo => ({ clave: `fuera-${f.numero}`, texto: "350 fuera de la cadena", detalle: avisoFueraDeCadena(f.numero), tono: "warn" })),
-    ...(p.recibosDeOtro350 ?? []).map((r): AlertaPeriodo => ({ clave: `otro-${r.numero}`, texto: "Recibo de otro 350", detalle: avisoReciboDeOtro350(r), tono: "err", marcaEn: "Pagos" })),
-    ...(sin350.length > 0 ? [{ clave: "sin350", texto: alertaRecibosSin350(sin350), detalle: avisoRecibosSin350(sin350), tono: "err", marcaEn: "Pagos" } satisfies AlertaPeriodo] : []),
+    ...(p.recibosDeOtro350 ?? []).map((r): AlertaPeriodo => ({ clave: `otro-${r.numero}`, texto: "Recibo de otro 350", detalle: avisoReciboDeOtro350(r), tono: "err", nota: "exige marca en Pagos" })),
+    ...(sin350.length > 0 ? [{ clave: "sin350", texto: alertaRecibosSin350(sin350), detalle: avisoRecibosSin350(sin350), tono: "err", nota: "exige marca en Pagos" } satisfies AlertaPeriodo] : []),
   ];
   if (alertas.length === 0) return null;
   return (
@@ -303,7 +304,7 @@ function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
       {alertas.map((a) => (
         <li key={a.clave} title={a.detalle} className={`font-semibold ${a.tono === "err" ? "text-err-700" : "text-warn-700"}`}>
           {a.texto}
-          {a.marcaEn && <span className="font-normal text-ink-500"> · exige marca en {a.marcaEn}</span>}
+          {a.nota && <span className="font-normal text-ink-500"> · {a.nota}</span>}
         </li>
       ))}
     </ul>
