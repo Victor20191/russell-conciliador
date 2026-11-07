@@ -206,10 +206,19 @@ function ResumenSaldoInicial({ saldoInicial }: { saldoInicial: NonNullable<Resul
   if (!saldoInicial) return null;
   const { restado } = saldoInicial;
   return (
-    <div className={`mt-1 rounded-md border px-3 py-2 text-[12px] ${restado ? "border-ink-150 bg-ink-50 text-ink-700" : "border-warn-300 bg-warn-50 text-warn-700"}`}>
-      {restado
-        ? `Se restó el saldo inicial de ${alcanceSaldoInicial(saldoInicial)}, por ${fmtContable(saldoInicial.monto)}: el balance empieza el 1 de enero, así que se resta siempre. El detalle y su marca están en Novedades.`
-        : `${alcanceSaldoInicial(saldoInicial)}: ${saldoInicial.terceros === 1 ? "trae" : "traen"} saldo inicial por ${fmtContable(saldoInicial.monto)}, que la contabilidad incluye.`}
+    <div className={`mt-1.5 flex items-start gap-2 rounded-md border border-l-4 px-3 py-2.5 text-[12.5px] ${restado ? "border-navy-300 border-l-navy-600 bg-navy-50 text-ink-800" : "border-warn-300 border-l-warn-500 bg-warn-50 text-warn-700"}`}>
+      <Icon name="info" size={15} className={`mt-px shrink-0 ${restado ? "text-navy-600" : "text-warn-600"}`} />
+      {restado ? (
+        <span>
+          Se restó el saldo inicial de <span className="font-semibold text-navy-800">{alcanceSaldoInicial(saldoInicial)}</span>, por{" "}
+          <span className="font-semibold tabular-nums text-navy-800">{fmtContable(saldoInicial.monto)}</span>: el balance empieza el 1 de enero, así que se resta siempre. El detalle y su marca están en Novedades.
+        </span>
+      ) : (
+        <span>
+          <span className="font-semibold">{alcanceSaldoInicial(saldoInicial)}</span>: {saldoInicial.terceros === 1 ? "trae" : "traen"} saldo inicial por{" "}
+          <span className="font-semibold tabular-nums">{fmtContable(saldoInicial.monto)}</span>, que la contabilidad incluye.
+        </span>
+      )}
     </div>
   );
 }
