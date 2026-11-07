@@ -39,7 +39,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       return null;
     });
     const resultados: ResultadosExcel = calculados
-      ? { cruce: calculados.cruce, oportunidad: calculados.oportunidad, pagos: calculados.pagos }
+      ? { cruce: calculados.cruce, oportunidad: calculados.oportunidad, pagos: calculados.pagos, saldoInicialRestado: calculados.saldoInicialRestado }
       : { cruce: { estado: "bloqueado", mensaje: "No fue posible calcular el cruce contable.", balance: null, umbral: 0 } };
     const periodos = calculados?.periodos ?? revision.periodos;
     const corte = `${mes(revision.mesCorte).toLowerCase()}${revision.mesCorte === 9 ? " (precierre)" : revision.mesCorte === 12 ? " (cierre)" : ""}`;

@@ -4,7 +4,7 @@ import { ESTADO_CIERRE_FIRME } from "@/lib/conciliacion/cuentas-bloqueo";
 import { cargarCalendarioDian } from "../configuracion-servidor";
 import { evaluarCierreRetencion, type EvaluacionCierreRetencion } from "./cierre";
 import { leerCopiaRetencion } from "./copia-cierre";
-import type { CruceRetencionPantalla, CruceRetencionVista, MarcaCruceRetencion } from "./cruce";
+import { conMarcaSaldoInicial, detalleSaldoInicialRestado, type CruceRetencionPantalla, type CruceRetencionVista, type DetalleSaldoInicialRestado, type MarcaCruceRetencion } from "./cruce";
 import { cargarCruceRetencion, MODULO_RETENCION } from "./cruce-servidor";
 import { oportunidadRevision, type FilaOportunidad } from "./oportunidad";
 import { pagosRevision, type ResultadoPagos } from "./pagos";
@@ -36,6 +36,8 @@ export type ResultadosRevision = {
   cruce: CruceRetencionVista;
   oportunidad: FilaOportunidad[];
   pagos: ResultadoPagos;
+  /** Lo restado como saldo inicial, tercero por tercero (Novedades); null si el cruce no lo resta. */
+  saldoInicialRestado: DetalleSaldoInicialRestado | null;
   evaluacion: EvaluacionCierreRetencion;
   calendario: { cargado: boolean; aplica: boolean };
   /** El último cierre de la revisión (en firme o desbloqueado). */
@@ -47,7 +49,7 @@ export type ResultadosRevision = {
 /** Lo que viaja a la pantalla: el cruce con los terceros recortados (`cruceParaPantalla`). */
 export type ResultadosPantalla = Omit<ResultadosRevision, "cruce"> & { cruce: CruceRetencionPantalla };
 
-/** Marcas de los meses (pagos y oportunidad) de la revisión: dimensión `control` de RET. */
+/** Marcas de los meses (pagos y oportunidad) y la del saldo inicial restado: dimensión `control` de RET. */
 async function marcasDeControl(revision: Pick<RevisionVista, "clienteId" | "periodo">): Promise<(MarcaCruceRetencion & { clave: string })[]> {
   const filas = await prisma.marcaCruceModulo.findMany({
     where: { clienteId: revision.clienteId, moduloCodigo: MODULO_RETENCION, periodo: revision.periodo, dimension: "control" },
@@ -68,11 +70,12 @@ async function marcasDeControl(revision: Pick<RevisionVista, "clienteId" | "peri
 
 /** Los resultados en vivo (lo que evalúa el cierre). */
 export async function resultadosEnVivo(revision: RevisionVista): Promise<Omit<ResultadosRevision, "cierre" | "desdeCopia">> {
-  const [cruce, marcas, { calendario }] = await Promise.all([
+  const [cruceSinMarca, marcas, { calendario }] = await Promise.all([
     cargarCruceRetencion(revision),
     marcasDeControl(revision),
     cargarCalendarioDian(revision.anio, "RETEFUENTE"),
   ]);
+  const cruce = conMarcaSaldoInicial(cruceSinMarca, marcas);
   const aplica = revision.periodicidad === "Mensual";
   const oportunidad = oportunidadRevision({
     anio: revision.anio, nit: revision.nitCliente, periodos: revision.periodos, calendario: calendario.filas, calendarioAplica: aplica, marcas,
@@ -81,7 +84,10 @@ export async function resultadosEnVivo(revision: RevisionVista): Promise<Omit<Re
   const evaluacion = evaluarCierreRetencion({
     periodos: revision.periodos, cruce, pagos, oportunidad, etiquetaPeriodo: (p) => etiquetaPeriodoRevision(revision.periodicidad, p),
   });
-  return { periodos: revision.periodos, cruce, oportunidad, pagos, evaluacion, calendario: { cargado: calendario.filas.length > 0, aplica } };
+  return {
+    periodos: revision.periodos, cruce, oportunidad, pagos, saldoInicialRestado: detalleSaldoInicialRestado(cruce), evaluacion,
+    calendario: { cargado: calendario.filas.length > 0, aplica },
+  };
 }
 
 export async function cargarResultadosRevision(revision: RevisionVista): Promise<ResultadosRevision> {
@@ -111,7 +117,7 @@ export async function cargarResultadosRevision(revision: RevisionVista): Promise
       etiquetaPeriodo: (p) => etiquetaPeriodoRevision(revision.periodicidad, p),
     });
     return {
-      periodos: copia.periodos, cruce: copia.cruce, oportunidad: copia.oportunidad, pagos: copia.pagos, evaluacion,
+      periodos: copia.periodos, cruce: copia.cruce, oportunidad: copia.oportunidad, pagos: copia.pagos, saldoInicialRestado: detalleSaldoInicialRestado(copia.cruce), evaluacion,
       calendario: { cargado: true, aplica: revision.periodicidad === "Mensual" }, cierre, desdeCopia: true,
     };
   }

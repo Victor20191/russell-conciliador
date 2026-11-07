@@ -19,7 +19,7 @@ import { cargarRevision, type RevisionVista } from "@/lib/impuestos/retencion/re
 import { resultadosEnVivo } from "@/lib/impuestos/retencion/resultados-servidor";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { construirCopiaRetencion } from "@/lib/impuestos/retencion/copia-cierre";
-import { alcanceSaldoInicial, prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
+import { alcanceSaldoInicial, CLAVE_MARCA_SALDO_INICIAL, prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
 import { cuentasBloqueoDelModulo, ESTADO_CIERRE_DESBLOQUEADO, ESTADO_CIERRE_FIRME, validarJustificacionDesbloqueo } from "@/lib/conciliacion/cuentas-bloqueo";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
@@ -493,9 +493,10 @@ export async function eliminarRevisionRetencion(_prev: ActionState, formData: Fo
 /**
  * Marca de auditoría (tabla de marcas de los módulos, código RET, período de la revisión) de una
  * fila del cruce contable (dimensión `cuenta4`, la clave es la cuenta Russell o `sin_cuenta:…`), de
- * un mes con diferencia en el pago (`pago:2026-02`) o de un mes cuya corrección llegó sin el
- * original (`oportunidad:2026-01`), estas dos en la dimensión `control`. Guarda la diferencia del
- * momento: si después cambia, la marca queda desactualizada y la fila vuelve a pedirla.
+ * un mes con diferencia en el pago (`pago:2026-02`), de un mes cuya corrección llegó sin el
+ * original (`oportunidad:2026-01`) o de lo restado como saldo inicial (`saldo_inicial`, guarda el
+ * total), estas tres en la dimensión `control`. Guarda la diferencia del momento: si después cambia,
+ * la marca queda desactualizada y la fila vuelve a pedirla.
  */
 export async function guardarMarcaRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = MarcaRetencionSchema.safeParse({
@@ -556,8 +557,15 @@ export async function guardarMarcaRetencion(_prev: ActionState, formData: FormDa
 
 type ObjetivoMarca = { ok: true; dimension: "cuenta4" | "control"; diferencia: number; etiqueta: string } | { ok: false; message: string };
 
-/** Qué se marca con la clave: la fila del cruce, el mes de pagos o el mes de oportunidad, con su diferencia de hoy. */
+/** Qué se marca con la clave: la fila del cruce, el mes de pagos, el mes de oportunidad o el saldo inicial restado, con su cifra de hoy. */
 async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<ObjetivoMarca> {
+  if (clave === CLAVE_MARCA_SALDO_INICIAL) {
+    const cruce = await cargarCruceRetencion(vista);
+    if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
+    const inicial = cruce.resultado.saldoInicial;
+    if (!inicial?.restado) return { ok: false, message: "El cruce no está restando el saldo inicial: no hay nada que marcar." };
+    return { ok: true, dimension: "control", diferencia: inicial.monto, etiqueta: "Novedades · Saldo inicial restado" };
+  }
   if (clave.startsWith("pago:") || clave.startsWith("oportunidad:")) {
     const resultados = await resultadosEnVivo(vista);
     if (clave.startsWith("pago:")) {
@@ -587,7 +595,7 @@ export async function quitarMarcaRetencion(_prev: ActionState, formData: FormDat
   const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
   if (!acceso.ok) return { ok: false, message: acceso.message };
   const { revision } = acceso;
-  const control = clave.startsWith("pago:") || clave.startsWith("oportunidad:");
+  const control = clave.startsWith("pago:") || clave.startsWith("oportunidad:") || clave === CLAVE_MARCA_SALDO_INICIAL;
 
   try {
     const user = await getCurrentUser();

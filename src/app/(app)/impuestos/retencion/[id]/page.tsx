@@ -64,6 +64,7 @@ async function resultadosDeLaRevision(revision: Parameters<typeof cargarResultad
       cruce: { estado: "bloqueado", mensaje, balance: null, umbral: 0 },
       oportunidad: [],
       pagos: { filas: [], total, pendientesMarca: 0 },
+      saldoInicialRestado: null,
       evaluacion: { pendientes: [{ tipo: "cruce", texto: mensaje }], avisos: [] },
       calendario: { cargado: false, aplica: revision.periodicidad === "Mensual" },
       cierre: null,

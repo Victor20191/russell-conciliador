@@ -135,7 +135,16 @@ export default function RevisionClient({
         <VistaOportunidad filas={resultados.oportunidad} calendario={resultados.calendario} anio={revision.anio} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />
       )}
       {tab === "pagos" && <VistaPagos resultado={resultados.pagos} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />}
-      {tab === "novedades" && <VistaNovedades evaluacion={resultados.evaluacion} enFirme={enFirme} onIr={setTab} />}
+      {tab === "novedades" && (
+        <VistaNovedades
+          evaluacion={resultados.evaluacion}
+          enFirme={enFirme}
+          onIr={setTab}
+          saldoInicial={resultados.saldoInicialRestado}
+          revisionId={revision.id}
+          puedeEditar={puedeEditar}
+        />
+      )}
 
       {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} onTerminar={() => router.refresh()} />}
 

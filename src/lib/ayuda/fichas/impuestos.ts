@@ -207,6 +207,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
             "Ningún formulario de esos períodos está por confirmar.",
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
+            "Si el cruce resta el saldo inicial, lo restado tiene marca en Novedades y el total no cambió desde que se marcó.",
             "Si llegó una corrección, su 350 original también está cargado: una marca no lo reemplaza.",
             "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con recibos 490 sin 350 tiene marca.",
           ],
@@ -382,7 +383,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             {
               nombre: "Restar terceros con saldo inicial",
               queHace:
-                "Quita de la contabilidad el saldo inicial de los terceros distintos de la DIAN, en toda la revisión, y actualiza las diferencias. El tercero sin movimiento queda tachado; el que tuvo movimiento sigue sumando solo lo del año, con su saldo inicial tachado. Antes de aplicar muestra cómo queda el total. Las marcas cuya diferencia cambie quedan desactualizadas y la fila vuelve a pedirlas.",
+                "Quita de la contabilidad el saldo inicial de los terceros distintos de la DIAN, en toda la revisión, y actualiza las diferencias. El tercero sin movimiento queda tachado; el que tuvo movimiento sigue sumando solo lo del año, con su saldo inicial tachado. Antes de aplicar muestra cómo queda el total. Las marcas cuya diferencia cambie quedan desactualizadas y la fila vuelve a pedirlas. El detalle de lo restado (tercero, cuenta, saldo inicial y final) se revisa y se documenta con una marca en Novedades, obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
               condiciones: ["El balance del corte empieza el 1 de enero del año de la revisión; con otro balance no se ofrece y no resta nada.", "Algún tercero distinto de la DIAN trae saldo inicial.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "cambiarRestaSaldoInicial" },
@@ -476,11 +477,23 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "novedades",
       titulo: "Novedades",
       proposito:
-        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable y pagos; la corrección sin su 350 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones).",
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y saldo inicial restado; la corrección sin su 350 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar (por ejemplo, un 350 fuera de la cadena de correcciones). Si el cruce resta el saldo inicial, la sección «Saldo inicial restado» muestra tercero por tercero lo que se restó: NIT y nombre, cuenta del cliente, cuenta Russell, saldo inicial, saldo final y lo restado, con el total.",
       etapas: [
         {
           titulo: "Consultar",
           acciones: [{ nombre: "Ir", queHace: "Abre la pestaña donde se resuelve el pendiente.", regla: REGLAS.verRevisionImpuestos }],
+        },
+        {
+          titulo: "Documentar",
+          acciones: [
+            {
+              nombre: "Marcar el saldo inicial restado",
+              queHace: "Explica por qué se restó el saldo inicial de esos terceros (por ejemplo, retenciones del año anterior pagadas en enero). Es una sola marca para todo lo restado y guarda el total: si cambia, queda desactualizada. Es obligatoria para cerrar.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["El cruce contable resta el saldo inicial.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-retencion.ts`, funcion: "guardarMarcaRetencion" },
+            },
+          ],
         },
       ],
     },

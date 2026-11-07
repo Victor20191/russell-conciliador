@@ -7,12 +7,13 @@ import type { PeriodoRevision } from "./periodos-revision";
  * Qué falta para cerrar en firme una revisión de Retención en la fuente (puro). Exige: cada período
  * del corte con su 350 confirmado o su causal, el 350 original cargado cuando llegó una corrección
  * (una marca no lo reemplaza), ningún formulario por confirmar en esos períodos, el cruce contable
- * disponible y marca en cada fila desde el umbral, y marca en cada mes con «Diferencia en el pago»,
- * con un recibo que paga un 350 de otro período o con recibos 490 sin 350 (también con la causal de
- * que no hubo formulario). Los avisos no impiden cerrar.
+ * disponible y marca en cada fila desde el umbral, marca en lo restado como saldo inicial (si se
+ * restó), y marca en cada mes con «Diferencia en el pago», con un recibo que paga un 350 de otro
+ * período o con recibos 490 sin 350 (también con la causal de que no hubo formulario). Los avisos no
+ * impiden cerrar.
  */
 
-export type TipoPendiente = "formularios" | "cruce" | "pagos";
+export type TipoPendiente = "formularios" | "cruce" | "pagos" | "saldo_inicial";
 
 export type PendienteCierre = { tipo: TipoPendiente; texto: string };
 
@@ -55,9 +56,14 @@ export function evaluarCierreRetencion(e: {
     if (e.cruce.resultado.grupos.some((g) => g.filas.some((f) => f.posiblesDian.length > 0))) {
       avisos.push("Cruce contable: hay terceros sin NIT con nombre de la DIAN que no se restaron.");
     }
+    // Lo restado como saldo inicial se documenta con una marca en Novedades: sin ella (o si el total
+    // cambió) es pendiente; con ella queda como aviso. Una copia antigua sin el dato no lo menciona.
     const inicial = e.cruce.resultado.saldoInicial;
     if (inicial?.restado) {
-      avisos.push(`Cruce contable: se restó el saldo inicial de ${alcanceSaldoInicial(inicial)}, por ${pesos(inicial.monto)}.`);
+      const marca = e.cruce.resultado.marcaSaldoInicial;
+      const texto = `se restó el saldo inicial de ${alcanceSaldoInicial(inicial)}, por ${pesos(inicial.monto)}`;
+      if (marca?.vigente) avisos.push(`Cruce contable: ${texto} (marca ${marca.numero}).`);
+      else pendientes.push({ tipo: "saldo_inicial", texto: `Saldo inicial restado: ${texto}, ${marca ? "con la marca desactualizada" : "sin marca"}.` });
     }
   }
 

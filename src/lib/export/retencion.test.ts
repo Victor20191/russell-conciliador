@@ -105,6 +105,22 @@ describe("Excel de una revisión de Retención en la fuente", () => {
     expect(pagoEnero.getCell(14).value).toBe(0);
   });
 
+  it("con saldo inicial restado: su hoja con cada tercero, el total y la marca; sin resta no hay hoja", () => {
+    const detalle = {
+      filas: [{ nit: "900000002", nombre: "Alfa S.A.S.", cuentaCliente: "23651501", nombreCuenta: "Honorarios", cuentaRussell: "236515", saldoInicial: 20_000, saldoFinal: 20_000, restado: 20_000 }],
+      terceros: 1, cuentas: 1, total: 20_000, por: "Usuaria de prueba", en: null,
+      marca: { numero: 3, nota: "Retenciones de diciembre pagadas en enero", referenciaAnexo: null, diferencia: 20_000, marcadoPor: null, marcadoEn: "2026-11-06T00:00:00.000Z", vigente: true },
+    };
+    const ws = libroRetencion(meta, vista, formularios, { cruce, saldoInicialRestado: detalle }).getWorksheet("Saldo inicial restado")!;
+    const filas: unknown[][] = [];
+    ws.eachRow((r) => filas.push((r.values as unknown[]).slice(1)));
+    expect(filas.some((f) => String(f[0]).startsWith("Marca 3: Retenciones de diciembre"))).toBe(true);
+    expect(filas).toContainEqual(["900000002", "Alfa S.A.S.", "23651501", "Honorarios", "236515", 20_000, 20_000, 20_000]);
+    const total = filas.at(-1)!;
+    expect([total[0], total[7]]).toEqual(["Total restado", 20_000]);
+    expect(libroRetencion(meta, vista, formularios, { cruce }).getWorksheet("Saldo inicial restado")).toBeUndefined();
+  });
+
   it("se escribe con la marca y se vuelve a leer", async () => {
     const buffer = await excelRetencion(meta, vista, formularios);
     const leido = new ExcelJS.Workbook();

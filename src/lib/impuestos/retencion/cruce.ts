@@ -110,6 +110,35 @@ export type ResultadoCruce = {
   fueraDeRetencion?: CuentaFueraDeRetencion[];
   /** Filas que exigen marca y no la tienen (o la tienen desactualizada). */
   pendientesMarca: number;
+  /** Marca de lo restado como saldo inicial (se pone en Novedades; guarda el total). Las copias antiguas no la traen. */
+  marcaSaldoInicial?: (MarcaCruceRetencion & { vigente: boolean }) | null;
+};
+
+/** Llave de la marca de lo restado como saldo inicial (dimensión `control`, una por revisión). */
+export const CLAVE_MARCA_SALDO_INICIAL = "saldo_inicial";
+
+/** Un tercero en una cuenta del cliente al que se le restó el saldo inicial, con los signos del cruce (pasivo en positivo). */
+export type FilaSaldoInicialRestado = {
+  nit: string | null;
+  nombre: string | null;
+  cuentaCliente: string;
+  nombreCuenta: string;
+  cuentaRussell: string | null;
+  saldoInicial: number;
+  saldoFinal: number;
+  restado: number;
+};
+
+/** Lo restado como saldo inicial, para analizarlo y documentarlo en Novedades. */
+export type DetalleSaldoInicialRestado = {
+  filas: FilaSaldoInicialRestado[];
+  terceros: number;
+  cuentas: number;
+  total: number;
+  marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
+  /** Quién pidió la resta y cuándo. */
+  por: string | null;
+  en: string | null;
 };
 
 /** Una cuenta del cliente en 2365/2367 que quedó fuera de retención, con el saldo en positivo como el resto del cruce. */
@@ -293,6 +322,46 @@ function resumenSaldoInicial(filas: readonly FilaCruce[], restado: boolean): Res
     cuentas: new Set(registros.map((r) => r.cuenta)).size,
     monto: sumar(registros.map((r) => r.monto)),
     restado,
+  };
+}
+
+/**
+ * Pone en el cruce la marca de lo restado como saldo inicial (viaja con él, también a la copia
+ * congelada). Vale mientras se siga restando el mismo total.
+ */
+export function conMarcaSaldoInicial(cruce: CruceRetencionVista, marcas: readonly (MarcaCruceRetencion & { clave: string })[]): CruceRetencionVista {
+  if (cruce.estado !== "listo") return cruce;
+  const m = marcas.find((x) => x.clave === CLAVE_MARCA_SALDO_INICIAL);
+  const inicial = cruce.resultado.saldoInicial;
+  const marca = m ? { ...m, vigente: Boolean(inicial?.restado) && centavos(m.diferencia) === centavos(inicial?.monto ?? 0) } : null;
+  return { ...cruce, resultado: { ...cruce.resultado, marcaSaldoInicial: marca } };
+}
+
+/** Tercero por tercero y cuenta por cuenta, lo que se restó como saldo inicial. Null si el cruce no lo resta. */
+export function detalleSaldoInicialRestado(cruce: CruceRetencionVista): DetalleSaldoInicialRestado | null {
+  if (cruce.estado !== "listo" || !cruce.resultado.saldoInicial?.restado) return null;
+  const { saldoInicial, marcaSaldoInicial } = cruce.resultado;
+  const filas = cruce.resultado.grupos
+    .flatMap((g) => g.filas)
+    .flatMap((f) =>
+      f.cuentasCliente.flatMap((c) =>
+        c.terceros
+          .filter((t) => (t.saldoInicialRestado ?? 0) !== 0)
+          .map((t): FilaSaldoInicialRestado => ({
+            nit: t.nit, nombre: t.nombre, cuentaCliente: c.cuenta, nombreCuenta: c.nombre, cuentaRussell: f.cuentaRussell,
+            saldoInicial: t.saldoInicial, saldoFinal: t.saldo, restado: t.saldoInicialRestado ?? 0,
+          })),
+      ),
+    )
+    .sort((a, b) => (a.nombre ?? a.nit ?? "").localeCompare(b.nombre ?? b.nit ?? "") || (a.nit ?? "").localeCompare(b.nit ?? "") || a.cuentaCliente.localeCompare(b.cuentaCliente));
+  return {
+    filas,
+    terceros: saldoInicial.terceros,
+    cuentas: saldoInicial.cuentas,
+    total: saldoInicial.monto,
+    marca: marcaSaldoInicial ?? null,
+    por: cruce.restaSaldoInicial?.por ?? null,
+    en: cruce.restaSaldoInicial?.en ?? null,
   };
 }
 

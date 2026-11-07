@@ -1,11 +1,11 @@
 // Exportación a Excel de una revisión de Retención en la fuente (puro, sin BD): las vistas «Por
 // meses» y «Acumulado», la lista de formularios cargados, el cruce contable con todos sus terceros, el
-// indicador de oportunidad y los pagos efectuados.
+// indicador de oportunidad, los pagos efectuados y, si el cruce lo resta, el saldo inicial restado.
 // La marca la aplica `escribirLibroMarca`.
 
 import ExcelJS from "exceljs";
 import type { VistaRevision } from "@/lib/impuestos/retencion/vistas";
-import { alcanceSaldoInicial, etiquetaFilaCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
+import { alcanceSaldoInicial, etiquetaFilaCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type DetalleSaldoInicialRestado, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { ETIQUETA_OPORTUNIDAD, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
@@ -260,7 +260,20 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
   for (let c = 2; c <= 14; c++) if (c !== 9 && c !== 13) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
 }
 
-export type ResultadosExcel = { cruce: CruceRetencionVista; oportunidad?: readonly FilaOportunidad[]; pagos?: ResultadoPagos };
+/** Hoja «Saldo inicial restado»: lo que el cruce restó, tercero por tercero y cuenta por cuenta, con su marca. */
+function hojaSaldoInicialRestado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, d: DetalleSaldoInicialRestado): void {
+  const ws = wb.addWorksheet("Saldo inicial restado");
+  encabezadoLibro(ws, meta, "saldo inicial restado");
+  ws.addRow([`Se restó el saldo inicial de ${alcanceSaldoInicial(d)} en el cruce contable${d.por ? ` (lo pidió ${d.por})` : ""}. Saldos con los signos del cruce: el pasivo en positivo.`]).font = { color: { argb: EXCEL.textoSecundario } };
+  ws.addRow([d.marca ? `Marca ${d.marca.numero}${d.marca.vigente ? "" : " (desactualizada)"}: ${d.marca.nota}` : "Sin marca: es obligatoria para cerrar en firme."]).font = { color: { argb: EXCEL.textoSecundario } };
+  estiloEncabezado(ws.addRow(["NIT", "Tercero", "Cuenta del cliente", "Nombre de la cuenta", "Cuenta Russell", "Saldo inicial", "Saldo final", "Restado"]));
+  for (const f of d.filas) ws.addRow([f.nit ?? "", f.nombre ?? "", f.cuentaCliente, f.nombreCuenta, f.cuentaRussell ?? "", f.saldoInicial, f.saldoFinal, f.restado]);
+  ws.addRow(["Total restado", null, null, null, null, null, null, d.total]).font = { bold: true };
+  [16, 40, 18, 40, 15, 18, 18, 18].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  for (const c of [6, 7, 8]) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
+}
+
+export type ResultadosExcel = { cruce: CruceRetencionVista; oportunidad?: readonly FilaOportunidad[]; pagos?: ResultadoPagos; saldoInicialRestado?: DetalleSaldoInicialRestado | null };
 
 export function libroRetencion(meta: MetaRevisionExcel, vista: VistaRevision, formularios: readonly FormularioExcel[], resultados?: ResultadosExcel): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
@@ -271,6 +284,7 @@ export function libroRetencion(meta: MetaRevisionExcel, vista: VistaRevision, fo
   if (resultados) hojaCruce(wb, meta, resultados.cruce);
   if (resultados?.oportunidad) hojaOportunidad(wb, meta, resultados.oportunidad);
   if (resultados?.pagos) hojaPagos(wb, meta, resultados.pagos);
+  if (resultados?.saldoInicialRestado) hojaSaldoInicialRestado(wb, meta, resultados.saldoInicialRestado);
   return wb;
 }
 

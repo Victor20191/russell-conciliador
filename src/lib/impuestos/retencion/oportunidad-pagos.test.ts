@@ -3,7 +3,7 @@ import { F350_2026, F490_2026 } from "../__fixtures__/retencion-2026";
 import { CALENDARIO_RETEFUENTE_2026 } from "../__fixtures__/calendario-retefuente-2026";
 import { MAPEO_F350_FABRICA } from "../mapeo-dian";
 import { avisoRecibosSin350, periodosRevision, recibosSin350 } from "./periodos-revision";
-import { cruceRetencion } from "./cruce";
+import { CLAVE_MARCA_SALDO_INICIAL, conMarcaSaldoInicial, cruceRetencion, detalleSaldoInicialRestado } from "./cruce";
 import { oportunidadRevision } from "./oportunidad";
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, pagosRevision } from "./pagos";
 import { evaluarCierreRetencion } from "./cierre";
@@ -216,16 +216,51 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     expect(oportunidad({ periodos: conOriginal, marcas: [marcar("oportunidad:2026-01", 0)] })[0]).toMatchObject({ admiteMarca: false, marca: { vigente: false } });
   });
 
-  it("cierre: restar el saldo inicial queda como aviso, no como pendiente, y una copia antigua sin el dato no lo menciona", () => {
+  it("cierre: lo restado como saldo inicial exige una marca que guarda el total; con ella queda como aviso, y una copia antigua sin el dato no lo menciona", () => {
     const pagos = pagosRevision({ anio: 2026, periodos, marcas: [] });
     const generico = { cuentaCliente: "23652501", nombreCuenta: "Servicios", cuentaRussell: "236525", nit: "Generico", nombreTercero: "Genérico", saldoInicial: -100_000, saldoFinal: -100_000 };
     const resultado = cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables: [generico], inicioEnero: true, restarSaldoInicial: true, umbral: 1e12, marcas: [] });
     const cruce = { estado: "listo" as const, mensaje: null, umbral: 1e12, inicioEnero: true, balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" }, resultado };
-    const ev = evaluarCierreRetencion({ periodos, cruce, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
-    expect(ev.avisos).toContain("Cruce contable: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000.");
-    expect(ev.pendientes.some((p) => p.tipo === "cruce")).toBe(false);
-    const evAntigua = evaluarCierreRetencion({ periodos, cruce: { ...cruce, resultado: { ...resultado, saldoInicial: undefined } }, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
+    const evaluar = (c: typeof cruce | ReturnType<typeof conMarcaSaldoInicial>) => evaluarCierreRetencion({ periodos, cruce: c, pagos, oportunidad: oportunidad(), etiquetaPeriodo: etq });
+
+    const sinMarca = evaluar(cruce);
+    expect(sinMarca.pendientes.filter((p) => p.tipo === "saldo_inicial").map((p) => p.texto)).toEqual([
+      "Saldo inicial restado: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000, sin marca.",
+    ]);
+    expect(sinMarca.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
+
+    const conMarca = evaluar(conMarcaSaldoInicial(cruce, [marcar(CLAVE_MARCA_SALDO_INICIAL, 100_000)]));
+    expect(conMarca.pendientes.some((p) => p.tipo === "saldo_inicial")).toBe(false);
+    expect(conMarca.avisos).toContain("Cruce contable: se restó el saldo inicial de 1 tercero en 1 cuenta, por $ 100.000 (marca 1).");
+
+    const desactualizada = evaluar(conMarcaSaldoInicial(cruce, [marcar(CLAVE_MARCA_SALDO_INICIAL, 90_000)]));
+    expect(desactualizada.pendientes.find((p) => p.tipo === "saldo_inicial")?.texto).toMatch(/con la marca desactualizada\.$/);
+
+    const evAntigua = evaluar({ ...cruce, resultado: { ...resultado, saldoInicial: undefined } });
     expect(evAntigua.avisos.some((a) => a.includes("saldo inicial"))).toBe(false);
+    expect(evAntigua.pendientes.some((p) => p.tipo === "saldo_inicial")).toBe(false);
+  });
+
+  it("detalle del saldo inicial restado: tercero por tercero y cuenta por cuenta, con la marca; nada si no se resta", () => {
+    const filasContables = [
+      { cuentaCliente: "23652501", nombreCuenta: "Servicios", cuentaRussell: "236525", nit: "900000001", nombreTercero: "Zeta S.A.S.", saldoInicial: -50_000, saldoFinal: -80_000 },
+      { cuentaCliente: "23651501", nombreCuenta: "Honorarios", cuentaRussell: "236515", nit: "900000002", nombreTercero: "Alfa S.A.S.", saldoInicial: -20_000, saldoFinal: -20_000 },
+      { cuentaCliente: "23652501", nombreCuenta: "Servicios", cuentaRussell: "236525", nit: "900000003", nombreTercero: "Beta Ltda.", saldoInicial: 0, saldoFinal: -10_000 },
+    ];
+    const cruceCon = (restar: boolean) => ({
+      estado: "listo" as const, mensaje: null, umbral: 1e12, inicioEnero: true,
+      balance: { id: 1, periodo: "Enero 2026 – Agosto 2026", descripcion: "v1", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" },
+      restaSaldoInicial: restar ? { por: "Usuaria de prueba", en: "2026-11-03T19:30:00.000Z" } : null,
+      resultado: cruceRetencion({ periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(), tercerosDian: [], nombresRussell: new Map(), filasContables, inicioEnero: true, restarSaldoInicial: restar, umbral: 1e12, marcas: [] }),
+    });
+    const detalle = detalleSaldoInicialRestado(conMarcaSaldoInicial(cruceCon(true), [marcar(CLAVE_MARCA_SALDO_INICIAL, 70_000)]));
+    expect(detalle).toMatchObject({ terceros: 2, cuentas: 2, total: 70_000, por: "Usuaria de prueba", marca: { numero: 1, vigente: true } });
+    // Ordenado por tercero; el que no trae saldo inicial no aparece.
+    expect(detalle!.filas.map((f) => [f.nombre, f.cuentaCliente, f.cuentaRussell, f.saldoInicial, f.saldoFinal, f.restado])).toEqual([
+      ["Alfa S.A.S.", "23651501", "236515", 20_000, 20_000, 20_000],
+      ["Zeta S.A.S.", "23652501", "236525", 50_000, 80_000, 50_000],
+    ]);
+    expect(detalleSaldoInicialRestado(cruceCon(false))).toBeNull();
   });
 
   it("cierre: un período sin 350 ni causal o con formularios por confirmar lo impide", () => {

@@ -506,9 +506,9 @@ export const ConfirmarFormularioDianSchema = z.object({
     .pipe(z.record(z.string().regex(/^\d{1,3}$/), z.number().int().min(0).max(1e15))),
 });
 
-// Marca de Retención en la fuente: una fila del cruce (cuenta Russell o concepto sin cuenta) o un mes de
-// pagos efectuados o de oportunidad.
-export const CLAVE_MARCA_RETENCION = /^(\d{6}|sin_cuenta:[a-z0-9_]{2,60}|(pago|oportunidad):\d{4}-\d{2})$/;
+// Marca de Retención en la fuente: una fila del cruce (cuenta Russell o concepto sin cuenta), un mes de
+// pagos efectuados o de oportunidad, o lo restado como saldo inicial (`saldo_inicial`, en Novedades).
+export const CLAVE_MARCA_RETENCION = /^(\d{6}|sin_cuenta:[a-z0-9_]{2,60}|(pago|oportunidad):\d{4}-\d{2}|saldo_inicial)$/;
 export const MarcaRetencionSchema = z.object({
   revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
   clave: z.string().trim().regex(CLAVE_MARCA_RETENCION, { error: "Fila de la revisión inválida." }),

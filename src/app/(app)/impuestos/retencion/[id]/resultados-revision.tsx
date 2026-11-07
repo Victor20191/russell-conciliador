@@ -16,6 +16,7 @@ import { ETIQUETA_OPORTUNIDAD, type EstadoOportunidad, type FilaOportunidad, typ
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, ETIQUETA_PAGO, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { avisoReciboDeOtro350, avisoRecibosSin350 } from "@/lib/impuestos/retencion/periodos-revision";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
+import { alcanceSaldoInicial, CLAVE_MARCA_SALDO_INICIAL, type DetalleSaldoInicialRestado } from "@/lib/impuestos/retencion/cruce";
 import type { CierreRetencionVista } from "@/lib/impuestos/retencion/resultados-servidor";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
 import type { TabRevisionRetencion } from "./tabs";
@@ -406,9 +407,26 @@ const ETIQUETA_PENDIENTE: Record<TipoPendiente, { titulo: string; tab: TabRevisi
   formularios: { titulo: "Formularios", tab: "formularios" },
   cruce: { titulo: "Cruce contable", tab: "cruce" },
   pagos: { titulo: "Pagos efectuados", tab: "pagos" },
+  saldo_inicial: { titulo: "Saldo inicial restado", tab: "novedades" },
 };
 
-export function VistaNovedades({ evaluacion, enFirme, onIr }: { evaluacion: EvaluacionCierreRetencion; enFirme: boolean; onIr: (tab: TabRevisionRetencion) => void }) {
+const ANCLA_SALDO_INICIAL = "saldo-inicial-restado";
+
+export function VistaNovedades({
+  evaluacion,
+  enFirme,
+  onIr,
+  saldoInicial,
+  revisionId,
+  puedeEditar,
+}: {
+  evaluacion: EvaluacionCierreRetencion;
+  enFirme: boolean;
+  onIr: (tab: TabRevisionRetencion) => void;
+  saldoInicial: DetalleSaldoInicialRestado | null;
+  revisionId: number;
+  puedeEditar: boolean;
+}) {
   const tipos = (Object.keys(ETIQUETA_PENDIENTE) as TipoPendiente[]).filter((t) => evaluacion.pendientes.some((p) => p.tipo === t));
   return (
     <div className="flex flex-col gap-3">
@@ -424,7 +442,11 @@ export function VistaNovedades({ evaluacion, enFirme, onIr }: { evaluacion: Eval
               <div key={t}>
                 <div className="flex items-center gap-2">
                   <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ink-500">{ETIQUETA_PENDIENTE[t].titulo}</span>
-                  <button type="button" onClick={() => onIr(ETIQUETA_PENDIENTE[t].tab)} className="text-[11.5px] font-semibold text-blue-700 hover:underline">Ir →</button>
+                  {ETIQUETA_PENDIENTE[t].tab === "novedades" ? (
+                    <a href={`#${ANCLA_SALDO_INICIAL}`} className="text-[11.5px] font-semibold text-blue-700 hover:underline">Ver el detalle abajo</a>
+                  ) : (
+                    <button type="button" onClick={() => onIr(ETIQUETA_PENDIENTE[t].tab)} className="text-[11.5px] font-semibold text-blue-700 hover:underline">Ir →</button>
+                  )}
                 </div>
                 <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5 text-ink-700">
                   {evaluacion.pendientes.filter((p) => p.tipo === t).map((p, i) => <li key={i}>{p.texto}</li>)}
@@ -434,6 +456,7 @@ export function VistaNovedades({ evaluacion, enFirme, onIr }: { evaluacion: Eval
           </div>
         )}
       </Card>
+      {saldoInicial && <SaldoInicialRestado detalle={saldoInicial} revisionId={revisionId} puedeEditar={puedeEditar && !enFirme} />}
       <Card className="p-4 text-[12.5px]">
         <h3 className="text-[12.5px] font-semibold text-navy-800">Avisos</h3>
         {evaluacion.avisos.length === 0 ? (
@@ -445,6 +468,100 @@ export function VistaNovedades({ evaluacion, enFirme, onIr }: { evaluacion: Eval
         )}
         <p className="mt-2 text-[11.5px] text-ink-400">Los avisos no impiden cerrar. Las alertas de la carga y del cruce aún no están diseñadas.</p>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Lo que el cruce contable restó como saldo inicial, tercero por tercero y cuenta por cuenta, para
+ * analizarlo y documentarlo. La marca es una sola, obligatoria para cerrar, y guarda el total.
+ */
+function SaldoInicialRestado({ detalle, revisionId, puedeEditar }: { detalle: DetalleSaldoInicialRestado; revisionId: number; puedeEditar: boolean }) {
+  const [marcando, setMarcando] = useState(false);
+  const { marca } = detalle;
+  const pidio = detalle.por ? ` (lo pidió ${detalle.por}${detalle.en ? ` el ${fmtDateTime(detalle.en)}` : ""})` : "";
+  return (
+    <div id={ANCLA_SALDO_INICIAL} className="flex flex-col gap-3">
+      <Card className="overflow-x-auto p-0 text-[12.5px]">
+        <div className="flex flex-wrap items-start gap-3 border-b border-ink-100 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[12.5px] font-semibold text-navy-800">Saldo inicial restado</h3>
+            <p className="mt-0.5 text-[12px] text-ink-500">
+              En el cruce contable se restó el saldo inicial de {alcanceSaldoInicial(detalle)}, por {fmt(detalle.total)}{pidio}. Revisa cada tercero y documenta con una marca por qué se resta: es obligatoria para cerrar en firme y guarda el total; si el total cambia, queda desactualizada.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Chip label={marca?.vigente ? "Marcada" : marca ? "Marca desactualizada" : "Exige marca"} tone={marca?.vigente ? "blue" : "warn"} />
+            <CeldaMarca
+              marca={marca}
+              requiereMarca
+              admiteMarca
+              puedeEditar={puedeEditar}
+              ancla={`marca-retencion-${marca?.numero ?? ""}`}
+              tituloDesactualizada={marca ? `Marca ${marca.numero} · el total era ${fmt(marca.diferencia)} y hoy es ${fmt(detalle.total)}` : undefined}
+              onMarcar={() => setMarcando(true)}
+            />
+          </div>
+        </div>
+        {detalle.filas.length === 0 ? (
+          <p className="px-4 py-3 text-ink-400">Esta revisión no guardó el detalle por tercero.</p>
+        ) : (
+          <table className="w-full min-w-[900px]">
+            <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
+              <tr>
+                <th className="px-3 py-2">Tercero</th>
+                <th className="px-3 py-2">Cuenta del cliente</th>
+                <th className="px-3 py-2">Cuenta Russell</th>
+                <th className="px-3 py-2 text-right">Saldo inicial</th>
+                <th className="px-3 py-2 text-right">Saldo final</th>
+                <th className="px-3 py-2 text-right">Restado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detalle.filas.map((f) => (
+                <tr key={`${f.cuentaCliente}|${f.nit ?? ""}|${f.nombre ?? ""}`} className="border-b border-ink-100 align-top">
+                  <td className="px-3 py-1.5">
+                    <div className="font-semibold text-ink-800">{f.nombre ?? "Sin nombre"}</div>
+                    <div className="text-[11px] tabular-nums text-ink-400">{f.nit ? `NIT ${f.nit}` : "Sin NIT"}</div>
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <div className="tabular-nums text-ink-800">{f.cuentaCliente}</div>
+                    <div className="text-[11px] text-ink-400">{f.nombreCuenta}</div>
+                  </td>
+                  <td className="px-3 py-1.5 tabular-nums text-ink-700">{f.cuentaRussell ?? "—"}</td>
+                  <td className={NUM}>{fmt(f.saldoInicial)}</td>
+                  <td className={NUM}>{fmt(f.saldoFinal)}</td>
+                  <td className={`${NUM} font-semibold text-ink-800`}>{fmt(f.restado)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
+                <td colSpan={5} className="px-3 py-1.5">Total restado</td>
+                <td className={NUM}>{fmt(detalle.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </Card>
+      {marca && (
+        <ObservacionesMarcas
+          etiqueta="saldo inicial restado"
+          puedeEditar={puedeEditar}
+          onEditar={() => setMarcando(true)}
+          filas={[{ clave: CLAVE_MARCA_SALDO_INICIAL, titulo: "Saldo inicial restado", marca, hoy: detalle.total }]}
+        />
+      )}
+      {marcando && (
+        <MarcaModal
+          revisionId={revisionId}
+          clave={CLAVE_MARCA_SALDO_INICIAL}
+          titulo="Saldo inicial restado"
+          marca={marca}
+          diferencia={detalle.total}
+          placeholder="Ej.: el saldo inicial son retenciones de diciembre del año anterior que se pagaron en enero; ver anexo."
+          resumen={<>Se restó el saldo inicial de {alcanceSaldoInicial(detalle)}: <span className="font-semibold tabular-nums text-ink-800">{fmt(detalle.total)}</span>.</>}
+          onClose={() => setMarcando(false)}
+        />
+      )}
     </div>
   );
 }
