@@ -22,6 +22,8 @@ import {
   descriptorModulo,
   type DescriptorModulo,
 } from "@/lib/modulos/descriptores";
+import { cargarCandidatosBalanceCruce, guardarEleccionBalanceCruce } from "@/lib/modulos/balance-cruce-servidor";
+import { balancesQueSirvenCruce, describirBalanceCruce } from "@/lib/modulos/compuerta-cruce";
 import {
   alcancesEliminacionModuloPermitidos,
   MENSAJE_HISTORIAL_MODULO_SOLO_ADMIN,
@@ -4822,6 +4824,59 @@ export async function eliminarDatosModulo(input: {
   }
 }
 
+const OPERACION_BALANCE_CRUCE = "cambiar el balance contra el que se concilia";
+
+/**
+ * «Conciliar contra este» (7/Nov/2026): cuando varios balances cerrados del corte sirven para el cruce,
+ * el usuario escoge uno. Se guarda por cliente, módulo y período (como las marcas y el cierre), así
+ * que vale para todas las versiones del cargue de ese período. Quien edita el cargue
+ * (`modulos_datos:editar`), con el período abierto.
+ */
+export async function escogerBalanceCruceModulo(input: { encabezadoId: number; balanceId: number }): Promise<ActionState> {
+  const balanceId = Number(input?.balanceId);
+  if (!Number.isSafeInteger(balanceId) || balanceId <= 0) return { ok: false, message: "Balance inválido." };
+  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId), OPERACION_BALANCE_CRUCE);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const { encabezado } = ctx;
+
+  try {
+    const cargue = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezado.id }, select: { fechaCorte: true } });
+    const base = descriptorModulo(encabezado.moduloCodigo);
+    if (!base || !cargue) return { ok: false, message: "El cargue ya no existe." };
+    const descriptor = await resolverDescriptorVigente(base, { clienteId: encabezado.clienteId, periodo: encabezado.periodo });
+    const exigirDetalleTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.exigirBalanceConTerceros === true;
+    const { candidatos, vigentes } = await cargarCandidatosBalanceCruce(encabezado.clienteId, exigirDetalleTercero);
+    const sirven = balancesQueSirvenCruce(candidatos, encabezado.periodo, { exigirDetalleTercero, vigentes, fechaCorte: cargue.fechaCorte ?? null });
+    const balance = sirven.find((b) => b.id === balanceId);
+    if (!balance) return { ok: false, message: "Ese balance ya no sirve para este cruce (se abrió, otra versión lo reemplazó o no termina en la fecha de corte). Recarga la página." };
+
+    const user = await getCurrentUser();
+    await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_BALANCE_CRUCE, enTransaccion: true });
+      await guardarEleccionBalanceCruce(tx, {
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo: encabezado.periodo,
+        balanceId,
+        usuario: user ? { id: user.id, name: user.name } : null,
+      });
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ESCOGIÓ EL BALANCE DEL CRUCE",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · balance #${balance.id} ${describirBalanceCruce(balance)} (${sirven.length} balances servían)`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `El cruce se concilia contra el balance ${describirBalanceCruce(balance)}.` };
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
+    return { ok: false, message: mensajeErrorBD("escogerBalanceCruceModulo", e) };
+  }
+}
+
 // ============================================================
 // CONCILIACIÓN EN FIRME: cerrar el cruce contable de un módulo bloquea, para ese
 // período, las cuentas del balance que pertenecen al módulo (ver
@@ -4833,9 +4888,14 @@ export async function eliminarDatosModulo(input: {
 // ============================================================
 
 /** Cierra la conciliación del módulo: crea (o reactiva) el cierre y bloquea las cuentas. */
-export async function cerrarConciliacionModulo(input: { encabezadoId: number }): Promise<ActionState> {
+export async function cerrarConciliacionModulo(input: {
+  encabezadoId: number;
+  /** Balance contra el que el usuario vio el cruce: si entretanto alguien escogió otro, no se cierra. */
+  balanceId?: number;
+}): Promise<ActionState> {
   const encabezadoId = Number(input?.encabezadoId);
   if (!Number.isSafeInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
+  const balanceVisto = input?.balanceId == null ? null : Number(input.balanceId);
 
   try {
     // Cómo estaba el cargue al evaluarlo: el cierre lo vuelve a leer bajo candado y no cierra si una
@@ -4855,6 +4915,9 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     if (cruce.bloqueo) return { ok: false, message: `No se puede cerrar: ${cruce.bloqueo}` };
     if (!cruce.balanceEmparejado || !cruce.cruceContable) {
       return { ok: false, message: "No hay balance de comprobación confirmado para este período: no hay nada que cerrar." };
+    }
+    if (balanceVisto != null && balanceVisto !== cruce.balanceEmparejado.id) {
+      return { ok: false, message: `El balance del cruce cambió: ahora es el ${cruce.balanceEmparejado.descripcion}. Recarga la página y revisa el cruce antes de cerrar.` };
     }
     // Donde el módulo lo exige (Cartera, CxP), el cruce por tercero también tiene que estar
     // conciliado: disponible y con marca en toda diferencia desde «Diferencia por tercero».

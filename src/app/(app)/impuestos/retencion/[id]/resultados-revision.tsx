@@ -576,6 +576,7 @@ export function BarraCierre({
   puedeCerrar,
   puedeDesbloquear,
   onVerNovedades,
+  balanceId,
 }: {
   revisionId: number;
   enFirme: boolean;
@@ -584,6 +585,8 @@ export function BarraCierre({
   puedeCerrar: boolean;
   puedeDesbloquear: boolean;
   onVerNovedades: () => void;
+  /** Balance contra el que el usuario ve el cruce: el cierre se niega si entretanto se escogió otro. */
+  balanceId?: number | null;
 }) {
   const [panel, setPanel] = useState<"cerrar" | "desbloquear" | null>(null);
   if (enFirme && cierre) {
@@ -616,12 +619,12 @@ export function BarraCierre({
           Cerrar en firme
         </button>
       )}
-      {panel === "cerrar" && <PanelCerrar revisionId={revisionId} onClose={() => setPanel(null)} />}
+      {panel === "cerrar" && <PanelCerrar revisionId={revisionId} balanceId={balanceId ?? null} onClose={() => setPanel(null)} />}
     </div>
   );
 }
 
-function PanelCerrar({ revisionId, onClose }: { revisionId: number; onClose: () => void }) {
+function PanelCerrar({ revisionId, balanceId, onClose }: { revisionId: number; balanceId: number | null; onClose: () => void }) {
   const [state, action, cerrando] = useActionState<ActionState, FormData>(cerrarRevisionRetencion, {});
   useEffect(() => {
     if (state.ok) onClose();
@@ -637,6 +640,7 @@ function PanelCerrar({ revisionId, onClose }: { revisionId: number; onClose: () 
     }>
       <form id="cerrar-revision" action={action} className="flex flex-col gap-2 text-[12.5px] text-ink-700">
         <input type="hidden" name="revisionId" value={revisionId} />
+        {balanceId != null && <input type="hidden" name="balanceId" value={balanceId} />}
         <p>Al cerrar en firme:</p>
         <ul className="list-disc pl-5">
           <li>La revisión queda de solo lectura y guarda una copia congelada de sus resultados.</li>

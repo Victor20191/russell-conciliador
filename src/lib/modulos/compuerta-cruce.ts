@@ -9,10 +9,12 @@ import { fechaCorteISO } from "@/lib/balance/corte";
 // de corte del cargue (Cartera y CxP la guardan) o, sin ella, el último día del mes de corte. Antes
 // bastaba con el mismo mes, y un balance al 30 o con la fecha mal digitada (01/01 en «Enero») podía
 // servir sin que nada lo comparara con el del 31: los balances del corte se agrupan por fecha exacta.
-// Desde el 18/Oct/2026 ese balance tiene que estar CERRADO y ser la versión vigente de su línea:
-// cerrar exige que todos los balances del corte coincidan en saldos finales, así que cualquier
-// cerrado del corte da el mismo cruce. Cartera y CxP exigen además que conserve el detalle por
-// tercero, porque su cruce por tercero lo lee.
+// Desde el 18/Oct/2026 ese balance tiene que estar CERRADO y ser la versión vigente de su línea.
+// Cartera, CxP y Retención exigen además que conserve el detalle por tercero, porque su cruce por
+// tercero lo lee. Cerrar exige que los balances del corte coincidan en saldos finales por cuenta del
+// cliente, pero no en la homologación (la del cliente solo se propaga a los abiertos): por eso, desde
+// el 7/Nov/2026, cuando sirve más de uno el usuario escoge contra cuál concilia
+// (`resolverBalanceCruce`; sin elección, el de modificación más reciente).
 
 export type ContextoCompuertaCruce = {
   balance: {
@@ -89,23 +91,136 @@ const terminaEn = (periodoFin: Date, fecha: string | null): boolean => fecha != 
 const fechaLegible = (fecha: string): string => fecha.split("-").reverse().join("/");
 
 /**
- * Balance contra el que cruza un cargue: uno CERRADO y vigente que termine EXACTAMENTE en su fecha de
- * corte (con detalle por tercero si el módulo lo exige). Los candidatos llegan del más reciente al más
- * antiguo (fecha de corte, fecha de carga, id) y gana el primero. null = no hay contra qué cruzar
- * (`motivoSinBalanceCruce` dice por qué).
+ * Balances que SIRVEN para el cruce de un cargue: CERRADOS, vigentes de su línea, que terminen
+ * EXACTAMENTE en su fecha de corte (con detalle por tercero si el módulo lo exige), en el orden
+ * recibido. Si hay más de uno, el usuario escoge (`resolverBalanceCruce`).
+ */
+export function balancesQueSirvenCruce<T extends CandidatoBalanceCruce>(
+  candidatos: readonly T[],
+  periodoModulo: string,
+  opciones: OpcionesBalanceCruce = {},
+): T[] {
+  const fecha = fechaCorteDelCruce(periodoModulo, opciones.fechaCorte);
+  return candidatos.filter((c) =>
+    terminaEn(c.periodoFin, fecha)
+    && c.estaCongelado
+    && (!opciones.vigentes || opciones.vigentes.has(c.id))
+    && (!opciones.exigirDetalleTercero || c.conDetalleTercero === true),
+  );
+}
+
+/**
+ * El primero de los que sirven (`balancesQueSirvenCruce`) en el orden recibido: del más reciente al
+ * más antiguo (fecha de corte, fecha de carga, id). null = no hay contra qué cruzar
+ * (`motivoSinBalanceCruce` dice por qué). Con varios, el cruce usa `resolverBalanceCruce`.
  */
 export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   candidatos: readonly T[],
   periodoModulo: string,
   opciones: OpcionesBalanceCruce = {},
 ): T | null {
-  const fecha = fechaCorteDelCruce(periodoModulo, opciones.fechaCorte);
-  return candidatos.find((c) =>
-    terminaEn(c.periodoFin, fecha)
-    && c.estaCongelado
-    && (!opciones.vigentes || opciones.vigentes.has(c.id))
-    && (!opciones.exigirDetalleTercero || c.conDetalleTercero === true),
-  ) ?? null;
+  return balancesQueSirvenCruce(candidatos, periodoModulo, opciones)[0] ?? null;
+}
+
+/**
+ * De dónde sale el balance del cruce: `unico` (solo uno sirve), `elegido` (el usuario lo escogió
+ * entre varios) o `preseleccionado` (varios sirven y nadie ha escogido: el de modificación más
+ * reciente).
+ */
+export type OrigenBalanceCruce = "unico" | "elegido" | "preseleccionado";
+
+export type BalanceCruceResuelto<T> = {
+  balance: T | null;
+  origen: OrigenBalanceCruce | null;
+  /** Los que sirven, del de modificación más reciente al más antiguo (empate: el orden recibido). */
+  opciones: T[];
+  /** Había una elección guardada y ese balance ya no sirve (se abrió, otra versión lo reemplazó…). */
+  eleccionCaida: boolean;
+};
+
+const instanteDe = (v: Date | string | null | undefined): number => (v == null ? Number.NEGATIVE_INFINITY : new Date(v).getTime());
+
+/**
+ * Balance del cruce entre los que sirven (7/Nov/2026). Dos balances cerrados del mismo corte coinciden
+ * en saldos finales, pero no necesariamente en la homologación: la del cliente solo se propaga a los
+ * balances abiertos. Por eso, con varios, manda la elección del usuario y, sin ella, se preselecciona
+ * el de modificación más reciente (`ultimaModificacion` por id).
+ */
+export function resolverBalanceCruce<T extends { id: number }>(
+  sirven: readonly T[],
+  ultimaModificacion: ReadonlyMap<number, Date | string | null>,
+  eleccion: { balanceId: number } | null,
+): BalanceCruceResuelto<T> {
+  const opciones = sirven
+    .map((b, i) => ({ b, i, t: instanteDe(ultimaModificacion.get(b.id)) }))
+    .sort((x, y) => y.t - x.t || x.i - y.i)
+    .map((x) => x.b);
+  const elegido = eleccion ? opciones.find((b) => b.id === eleccion.balanceId) ?? null : null;
+  const eleccionCaida = eleccion != null && elegido == null;
+  if (opciones.length === 0) return { balance: null, origen: null, opciones, eleccionCaida };
+  if (opciones.length === 1) return { balance: opciones[0], origen: "unico", opciones, eleccionCaida };
+  if (elegido) return { balance: elegido, origen: "elegido", opciones, eleccionCaida: false };
+  return { balance: opciones[0], origen: "preseleccionado", opciones, eleccionCaida };
+}
+
+/** Un balance de la lista para escoger: lo que el usuario necesita para distinguirlos. */
+export type OpcionBalanceCruce = {
+  id: number;
+  /** Texto del período del balance («Agosto 2026», «Enero – Agosto 2026»). */
+  periodo: string;
+  version: string;
+  /** Apertura declarada («cuenta» | «tercero»); null en cargues anteriores a ese dato. */
+  aperturaBalance: string | null;
+  periodoInicio: string;
+  periodoFin: string;
+  /** Carga, último cambio de homologación o ajuste del prevalidador, lo más reciente (ISO). */
+  ultimaModificacion: string | null;
+};
+
+export function opcionBalanceCruce(
+  b: { id: number; periodo: string; version: string; aperturaBalance?: string | null; periodoInicio: Date; periodoFin: Date },
+  ultimaModificacion: Date | string | null | undefined,
+): OpcionBalanceCruce {
+  return {
+    id: b.id,
+    periodo: b.periodo,
+    version: b.version,
+    aperturaBalance: b.aperturaBalance ?? null,
+    periodoInicio: fechaCorteISO(b.periodoInicio),
+    periodoFin: fechaCorteISO(b.periodoFin),
+    ultimaModificacion: ultimaModificacion == null ? null : new Date(ultimaModificacion).toISOString(),
+  };
+}
+
+/** Lo que la pantalla del cruce muestra de la elección del balance. */
+export type EleccionBalanceVista = {
+  origen: OrigenBalanceCruce;
+  /** Con dos o más que sirven, la lista para escoger (la de modificación más reciente primero); si no, vacía. */
+  opciones: OpcionBalanceCruce[];
+  /** Quién escogió el balance en uso y cuándo (solo con origen «elegido»). */
+  elegidoPor: string | null;
+  elegidoEn: string | null;
+  /** La elección guardada dejó de servir: el cruce volvió a preseleccionar. */
+  aviso: string | null;
+};
+
+/** La más reciente de varias fechas (null si no hay ninguna). */
+export function fechaMasReciente(...fechas: readonly (Date | string | null | undefined)[]): Date | null {
+  let mayor: number | null = null;
+  for (const f of fechas) {
+    if (f == null) continue;
+    const t = new Date(f).getTime();
+    if (Number.isFinite(t) && (mayor == null || t > mayor)) mayor = t;
+  }
+  return mayor == null ? null : new Date(mayor);
+}
+
+/** Aviso cuando la elección guardada ya no sirve y el cruce volvió a preseleccionar. */
+export function avisoEleccionCaida(resuelto: Pick<BalanceCruceResuelto<unknown>, "eleccionCaida" | "origen">): string | null {
+  if (!resuelto.eleccionCaida || resuelto.origen == null) return null;
+  return resuelto.origen === "unico"
+    ? "El balance que se había escogido para este cruce ya no sirve (se abrió, otra versión lo reemplazó o no termina en la fecha de corte): el cruce usa el único balance cerrado que queda."
+    : "El balance que se había escogido para este cruce ya no sirve (se abrió, otra versión lo reemplazó o no termina en la fecha de corte): se preseleccionó el de modificación más reciente. Escoge otro si no es el que corresponde.";
 }
 
 export type MotivoSinBalanceCruce =

@@ -18,8 +18,8 @@ const conVerificaciones: AplicaModulo = (d) => (d.verificaciones?.length ?? 0) >
 
 function requisitoBalance(d: DescriptorModulo): string {
   return porTercero(d)
-    ? "Para cruzar contra la contabilidad hace falta un balance «Por terceros» cerrado que termine exactamente en la fecha de corte del cargue, con el prevalidador aprobado. Si el cliente tiene la excepción «No maneja balance por terceros», sirve un balance «Por cuenta» y no hay cruce por tercero."
-    : "Para cruzar contra la contabilidad hace falta un balance cerrado que termine exactamente el último día del mes de corte, con el prevalidador aprobado.";
+    ? "Para cruzar contra la contabilidad hace falta un balance «Por terceros» cerrado que termine exactamente en la fecha de corte del cargue, con el prevalidador aprobado. Si el cliente tiene la excepción «No maneja balance por terceros», sirve un balance «Por cuenta» y no hay cruce por tercero. Si sirven varios, se escoge cuál en «Cruce contable»."
+    : "Para cruzar contra la contabilidad hace falta un balance cerrado que termine exactamente el último día del mes de corte, con el prevalidador aprobado. Si sirven varios, se escoge cuál en «Cruce contable».";
 }
 
 function erroresDelReporte(d: DescriptorModulo): string[] {
@@ -595,6 +595,23 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
         proposito:
           "Compara lo que suma el módulo en cada cuenta contra el saldo final del balance cerrado. Cada diferencia desde la tolerancia necesita una marca para poder cerrar.",
         etapas: [
+          {
+            titulo: "Escoger el balance",
+            acciones: [
+              {
+                nombre: "Conciliar contra este",
+                queHace:
+                  "Cuando sirven varios balances cerrados del corte, lista cada uno con su apertura, su período y su última modificación, y fija contra cuál se concilia el período. Coinciden en saldos finales, pero pueden traer homologaciones distintas. Mientras nadie escoge, se usa el de modificación más reciente.",
+                regla: REGLAS.editarModulo,
+                condiciones: [
+                  "Solo aparece si sirve más de un balance.",
+                  "La elección vale para todos los cargues del período y queda en la auditoría.",
+                  "No con la conciliación en firme: manda el balance con que se cerró.",
+                ],
+                fuente: { archivo: ACCIONES_MODULOS, funcion: "escogerBalanceCruceModulo" },
+              },
+            ],
+          },
           {
             titulo: "Revisar",
             acciones: [

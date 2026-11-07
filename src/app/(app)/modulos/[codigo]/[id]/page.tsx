@@ -454,6 +454,7 @@ export default async function DatoModuloPage({
     puedeCerrar: cerrarAuth.ok,
     puedeDesbloquear: desbloquearAuth.ok,
     motivoNoCerrable: evaluacionCierre && !evaluacionCierre.ok ? evaluacionCierre.motivo : null,
+    balanceId: balanceEmparejado?.id ?? null,
   };
 
   // Con la conciliación del período EN FIRME el cargue es de solo lectura aunque haya permiso.
@@ -482,6 +483,8 @@ export default async function DatoModuloPage({
           descripcion: balanceEmparejado.descripcion,
         }
       : null,
+    eleccionBalance: cruce.eleccionBalance,
+    puedeEscogerBalance: edicion.puedeEditar,
     filasMarcadas: cruce.filasMarcadas,
     // Marcas de cuenta del período cuyo renglón ya no aparece: se pueden pasar al renglón actual.
     marcasSinRenglon: cruce.cruceContable
@@ -519,6 +522,7 @@ export default async function DatoModuloPage({
     estado: cruceTercero?.estado ?? "sin_balance",
     mensaje: cruceTercero?.mensaje ?? cruce.motivoSinBalance?.mensaje ?? null,
     avisoBalance: cruce.avisoBalance,
+    balancesQueSirven: cruce.eleccionBalance?.opciones.length ?? 0,
     balance: balanceEmparejado
       ? {
           id: balanceEmparejado.id,

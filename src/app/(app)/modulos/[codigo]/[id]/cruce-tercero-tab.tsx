@@ -46,6 +46,8 @@ export type CruceTerceroVm = {
   balance: { id: number; version: string; periodoFin: string; estaCongelado: boolean; descripcion: string } | null;
   /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
   avisoBalance: string | null;
+  /** Cuántos balances cerrados del corte sirven (se escoge en «Cruce contable»); 0 o 1 = no hay que escoger. */
+  balancesQueSirven?: number;
   balanceTercero: { id: number; version: string } | null;
   resumen: ResumenCruceTerceroMarcado | null;
   /** Diferencias que exigen marca para cerrar, y cuántas la tienen. */
@@ -527,6 +529,7 @@ export function CruceTerceroTab({
         {cruceTercero.balanceTercero ? <> · detalle por tercero <b className="text-ink-700">{cruceTercero.balanceTercero.version}</b></> : null}
         {" · "}
         <Link href={`/balance/${balance.id}/terceros`} className="font-semibold text-blue-700 hover:underline">Ver por terceros</Link>
+        {(cruceTercero.balancesQueSirven ?? 0) > 1 && <> · es el mismo de «Cruce contable», donde se escoge entre los {cruceTercero.balancesQueSirven} balances cerrados que sirven</>}
       </p>
       {cruceTercero.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceTercero.avisoBalance}</div>

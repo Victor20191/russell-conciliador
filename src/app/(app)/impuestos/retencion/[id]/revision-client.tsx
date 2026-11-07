@@ -107,6 +107,7 @@ export default function RevisionClient({
             puedeCerrar={puedeCerrar}
             puedeDesbloquear={puedeDesbloquear}
             onVerNovedades={() => setTab("novedades")}
+            balanceId={resultados.cruce.balance?.id ?? null}
           />
         </div>
         {enFirme && resultados.desdeCopia && (

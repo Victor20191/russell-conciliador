@@ -1,7 +1,7 @@
 import "server-only";
 import prisma from "@/lib/prisma";
-import { agruparPorCorte, balancesVigentesDelCorte } from "@/lib/balance/corte";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { cargarCandidatosBalanceCruce, resolverBalanceCruceDelPeriodo } from "@/lib/modulos/balance-cruce-servidor";
 import { esTotalDeCuentaComoTercero, filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { UMBRAL_IMPUESTOS_DIFERENCIA } from "@/lib/balance/umbrales-alertas";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -9,7 +9,6 @@ import {
   cuentasAgrupadorasExcluidas,
   describirBalanceCruce,
   motivoSinBalanceCruce,
-  seleccionarBalanceCruceModulo,
   validarCompuertaPrevalidador,
 } from "@/lib/modulos/compuerta-cruce";
 import { cargarMapeoDian } from "../configuracion-servidor";
@@ -18,7 +17,8 @@ import type { RevisionVista } from "./revision-servidor";
 
 /**
  * Cruce contable de una revisión de Retención en la fuente: elige el balance del corte (cerrado,
- * vigente, que termine el último día del mes de corte y CON detalle por tercero), exige la aprobación vigente
+ * vigente, que termine el último día del mes de corte y CON detalle por tercero; si sirve más de uno,
+ * el escogido por el usuario o el de modificación más reciente), exige la aprobación vigente
  * de su prevalidador (sin pedir que Retención esté en su catálogo) y cruza contra su detalle por
  * tercero ligado por \`loteId\`. Sin caché: la pantalla muestra siempre lo vigente.
  */
@@ -31,20 +31,16 @@ export async function cargarCruceRetencion(
   const umbrales = await getUmbralesAlertas();
   const umbral = Number.isFinite(umbrales.impuestos_diferencia) ? umbrales.impuestos_diferencia : UMBRAL_IMPUESTOS_DIFERENCIA;
 
-  const balances = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: revision.clienteId },
-    select: { id: true, clienteId: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, estaCongelado: true, loteId: true, aperturaBalance: true, creadoEn: true },
-    orderBy: [{ periodoFin: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
-  });
-  const vigentes = new Set([...agruparPorCorte(balances).values()].flatMap((delCorte) => balancesVigentesDelCorte(delCorte).map((b) => b.id)));
-  const lotes = balances.map((b) => b.loteId).filter((l): l is string => l != null);
-  const capturas = lotes.length
-    ? await prisma.balanceTerceroEncabezado.findMany({ where: { clienteId: revision.clienteId, loteId: { in: lotes } }, select: { id: true, loteId: true } })
-    : [];
-  const capturaPorLote = new Map(capturas.map((c) => [c.loteId as string, c.id]));
-  const candidatos = balances.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && capturaPorLote.has(b.loteId) }));
+  const { candidatos, vigentes, capturaPorLote } = await cargarCandidatosBalanceCruce(revision.clienteId, true);
   const opciones = { exigirDetalleTercero: true, vigentes, modulo: "Retención en la fuente" };
-  const elegido = seleccionarBalanceCruceModulo(candidatos, revision.periodo, opciones);
+  // Si sirve más de un balance del corte, el escogido por el usuario o el de modificación más reciente.
+  const { balance: elegido, eleccion: eleccionBalance } = await resolverBalanceCruceDelPeriodo({
+    clienteId: revision.clienteId,
+    moduloCodigo: MODULO_RETENCION,
+    periodo: revision.periodo,
+    candidatos,
+    opciones,
+  });
   if (!elegido) {
     const motivo = motivoSinBalanceCruce(candidatos, revision.periodo, opciones);
     return { estado: "sin_balance", mensaje: motivo?.mensaje ?? `No hay un balance cerrado con corte en ${revision.periodo}.`, balance: null, umbral };
@@ -61,10 +57,10 @@ export async function cargarCruceRetencion(
   try {
     contexto = await cargarContextoPrevalidadorBalance(elegido.id);
   } catch {
-    return { estado: "bloqueado", mensaje: "No fue posible verificar de forma íntegra el prevalidador del balance del corte.", balance, umbral };
+    return { estado: "bloqueado", mensaje: "No fue posible verificar de forma íntegra el prevalidador del balance del corte.", balance, umbral, eleccionBalance };
   }
   const bloqueo = validarCompuertaPrevalidador(contexto, revision.clienteId, null);
-  if (bloqueo) return { estado: "bloqueado", mensaje: bloqueo, balance, umbral };
+  if (bloqueo) return { estado: "bloqueado", mensaje: bloqueo, balance, umbral, eleccionBalance };
 
   const agrupadoras = cuentasAgrupadorasExcluidas(contexto.prevalidador);
   const capturaId = capturaPorLote.get(elegido.loteId as string) as number;
@@ -138,6 +134,6 @@ export async function cargarCruceRetencion(
       })),
   });
   return {
-    estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella,
+    estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella, eleccionBalance,
   };
 }

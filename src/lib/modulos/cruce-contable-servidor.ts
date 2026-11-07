@@ -50,12 +50,12 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { UMBRAL_AFI_DETALLE, UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { resolverDescriptorVigente } from "@/lib/parametros/cuentas-conciliacion";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
-import { agruparPorCorte, balancesVigentesDelCorte } from "@/lib/balance/corte";
+import { cargarCandidatosBalanceCruce, resolverBalanceCruceDelPeriodo } from "@/lib/modulos/balance-cruce-servidor";
 import {
+  type EleccionBalanceVista,
   avisoBalanceFijado,
   balanceFijadoDelCierre,
   cuentasAgrupadorasExcluidas,
-  seleccionarBalanceCruceModulo,
   motivoSinBalanceCruce,
   describirBalanceCruce,
   type MotivoSinBalanceCruce,
@@ -176,6 +176,11 @@ export type BalanceFuenteCruce = {
 
 export type ResultadoCruceModulo = {
   balanceEmparejado: BalanceFuenteCruce | null;
+  /**
+   * Cómo se escogió el balance del cruce (7/Nov/2026) y, si sirve más de uno, la lista para
+   * escoger. null con la conciliación en firme (manda el del cierre) o sin balance que sirva.
+   */
+  eleccionBalance: EleccionBalanceVista | null;
   bloqueo: string | null;
   /** Con la conciliación en firme: hoy se elegiría otro balance cerrado del mes, pero el cruce sigue contra el conciliado. */
   avisoBalance: string | null;
@@ -480,35 +485,29 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
 
   // Balance del período (18/Oct/2026): uno CERRADO y vigente de su línea que TERMINE en la fecha de
   // corte del cargue —exacta desde el 6/Nov/2026: la del cargue (Cartera y CxP) o el último día del
-  // mes—. Todos los módulos comparan saldos finales, así que no importa desde cuándo arranca; y como
-  // cerrar exige que los balances del corte coincidan, cualquier cerrado da el mismo cruce (gana el
-  // de carga más reciente). Sin él, la cédula no se calcula y la pestaña dice por qué. Después, la
-  // compuerta común exige la aprobación vigente del prevalidador.
-  const balancesDelCliente = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: encabezado.clienteId },
-    select: { id: true, clienteId: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, estaCongelado: true, loteId: true, aperturaBalance: true, creadoEn: true },
-    orderBy: [{ periodoFin: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
-  });
-  const vigentes = new Set([...agruparPorCorte(balancesDelCliente).values()].flatMap((delCorte) => balancesVigentesDelCorte(delCorte).map((b) => b.id)));
+  // mes—. Todos los módulos comparan saldos finales, así que no importa desde cuándo arranca. Si
+  // sirve más de uno (7/Nov/2026), el usuario escoge: coinciden en saldos finales pero pueden traer
+  // homologaciones distintas; sin elección, el de modificación más reciente. Sin ninguno, la cédula
+  // no se calcula y la pestaña dice por qué. Después, la compuerta común exige la aprobación vigente
+  // del prevalidador.
   // Cartera y CxP: solo sirve un balance con detalle por tercero (el cruce por tercero lee el
   // LIGADO por `loteId`), así las dos pestañas cruzan contra el mismo balance.
   const exigirDetalleTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.exigirBalanceConTerceros === true;
-  const lotesConTerceros = new Set<string>();
-  const lotes = exigirDetalleTercero ? balancesDelCliente.map((b) => b.loteId).filter((l): l is string => l != null) : [];
-  if (lotes.length > 0) {
-    const capturas = await prisma.balanceTerceroEncabezado.findMany({
-      where: { clienteId: encabezado.clienteId, loteId: { in: lotes } },
-      select: { loteId: true },
-    });
-    for (const captura of capturas) if (captura.loteId) lotesConTerceros.add(captura.loteId);
-  }
-  const balancesConfirmados = balancesDelCliente.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && lotesConTerceros.has(b.loteId) }));
+  const { candidatos: balancesConfirmados, vigentes } = await cargarCandidatosBalanceCruce(encabezado.clienteId, exigirDetalleTercero);
   const opcionesBalance = { exigirDetalleTercero, vigentes, modulo: descriptor.label, fechaCorte: encabezado.fechaCorte ?? null };
-  const elegidoVivo = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, opcionesBalance);
+  const delPeriodo = await resolverBalanceCruceDelPeriodo({
+    clienteId: encabezado.clienteId,
+    moduloCodigo,
+    periodo: encabezado.periodo,
+    candidatos: balancesConfirmados,
+    opciones: opcionesBalance,
+  });
+  const elegidoVivo = delPeriodo.balance;
   // Con la conciliación en firme el cruce se fija al balance con que se cerró: otro balance del mes,
   // cerrado después, no cambia contra qué se concilió (aunque el conciliado se haya abierto).
   const fijado = insumos.cierreFijado ?? null;
   const emparejado = fijado ? balanceFijadoDelCierre(balancesConfirmados, fijado.balanceEncabezadoId) : elegidoVivo;
+  const eleccionBalance = fijado ? null : delPeriodo.eleccion;
   const avisoBalance = fijado && emparejado ? avisoBalanceFijado(emparejado, elegidoVivo) : null;
   const motivoSinBalance = fijado ? null : motivoSinBalanceCruce(balancesConfirmados, encabezado.periodo, opcionesBalance);
   const balanceEmparejado: BalanceFuenteCruce | null = emparejado
@@ -803,6 +802,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
 
   return {
     balanceEmparejado,
+    eleccionBalance,
     bloqueo,
     avisoBalance,
     motivoSinBalance,
@@ -869,6 +869,7 @@ async function marcasControlDelPeriodo(clienteId: number, moduloCodigo: string, 
 function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | null): ResultadoCruceModulo {
   return {
     balanceEmparejado,
+    eleccionBalance: null,
     bloqueo,
     avisoBalance: null,
     motivoSinBalance: null,

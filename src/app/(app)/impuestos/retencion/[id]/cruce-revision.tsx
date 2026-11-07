@@ -6,6 +6,8 @@ import { Icon } from "@/components/icons";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
+import { SelectorBalanceCruce } from "@/components/selector-balance-cruce";
+import { escogerBalanceRetencion } from "@/app/actions/impuestos-retencion";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import {
@@ -73,18 +75,35 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   const [marcando, setMarcando] = useState<string | null>(null);
   const [ocultarCeros, setOcultarCeros] = useState(false);
   const { pantallaCompleta, alternar: alternarPantalla } = usePantallaCompletaTabla();
+  // Varios balances cerrados del corte: la lista para escoger contra cuál se concilia.
+  const selectorBalance = (
+    <SelectorBalanceCruce
+      eleccion={cruce.eleccionBalance}
+      balanceEnUsoId={cruce.balance?.id ?? null}
+      puedeEscoger={puedeEditar}
+      escoger={(balanceId) => {
+        const datos = new FormData();
+        datos.set("revisionId", String(revisionId));
+        datos.set("balanceId", String(balanceId));
+        return escogerBalanceRetencion({}, datos);
+      }}
+    />
+  );
 
   if (cruce.estado !== "listo") {
     return (
+      <div className="flex flex-col gap-3">
+      {selectorBalance}
       <Card className="flex items-start gap-3 p-4 text-[12.5px]">
         <Icon name="warn" size={16} className="mt-0.5 shrink-0 text-warn-700" />
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-navy-800">{cruce.estado === "sin_balance" ? "Aún no hay balance para el cruce" : "El cruce está bloqueado"}</span>
           <span className="text-ink-600">{cruce.mensaje}</span>
           {cruce.balance && <span className="text-ink-500">Balance del corte: {cruce.balance.descripcion} (del {fecha(cruce.balance.periodoInicio)} al {fecha(cruce.balance.periodoFin)}).</span>}
-          <span className="text-[11.5px] text-ink-400">El cruce usa el balance cerrado y vigente que termina en el mes de corte, cargado con detalle por tercero y con el prevalidador aprobado.</span>
+          <span className="text-[11.5px] text-ink-400">El cruce usa un balance cerrado y vigente que termine el último día del mes de corte, cargado con detalle por tercero y con el prevalidador aprobado. Si hay varios, se escoge cuál.</span>
         </div>
       </Card>
+      </div>
     );
   }
 
@@ -98,6 +117,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
 
   return (
     <div className="flex flex-col gap-3">
+      {selectorBalance}
       <Card className="flex flex-col gap-1.5 p-4 text-[12.5px]">
         <span className="text-ink-700">
           Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}

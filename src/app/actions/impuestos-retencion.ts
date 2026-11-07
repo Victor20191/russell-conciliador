@@ -25,6 +25,8 @@ import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloque
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { transaccionSerializable } from "@/lib/concurrency";
 import { cargarCruceRetencion, MODULO_RETENCION } from "@/lib/impuestos/retencion/cruce-servidor";
+import { cargarCandidatosBalanceCruce, guardarEleccionBalanceCruce } from "@/lib/modulos/balance-cruce-servidor";
+import { balancesQueSirvenCruce, describirBalanceCruce } from "@/lib/modulos/compuerta-cruce";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import { leerFormularioDianConIA } from "@/lib/impuestos/retencion/lectura-servidor";
@@ -622,6 +624,57 @@ export async function quitarMarcaRetencion(_prev: ActionState, formData: FormDat
   }
 }
 
+/**
+ * «Conciliar contra este» (7/Nov/2026): cuando varios balances cerrados del corte sirven para el cruce,
+ * el usuario escoge uno. Se guarda por cliente y período con el código RET (como las marcas y el
+ * cierre). `impuestos:editar` con alcance de escritura, con la revisión abierta.
+ */
+export async function escogerBalanceRetencion(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const revisionId = Number(formData.get("revisionId"));
+  const balanceId = Number(formData.get("balanceId"));
+  if (!Number.isSafeInteger(revisionId) || revisionId <= 0 || !Number.isSafeInteger(balanceId) || balanceId <= 0) {
+    return { ok: false, message: "Datos inválidos." };
+  }
+  const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
+  if (!acceso.ok) return { ok: false, message: acceso.message };
+  const { revision } = acceso;
+
+  try {
+    const { candidatos, vigentes } = await cargarCandidatosBalanceCruce(revision.clienteId, true);
+    const sirven = balancesQueSirvenCruce(candidatos, revision.periodo, { exigirDetalleTercero: true, vigentes });
+    const balance = sirven.find((b) => b.id === balanceId);
+    if (!balance) return { ok: false, message: "Ese balance ya no sirve para este cruce (se abrió, otra versión lo reemplazó o no termina en la fecha de corte). Recarga la página." };
+
+    const user = await getCurrentUser();
+    const guardado = await prisma.$transaction(async (tx) => {
+      // El mismo candado que el cierre: no se cambia el balance mientras la revisión se pone en firme.
+      await tomarCandadoTransaccion(tx, `conciliacion-cierre:${revision.clienteId}:${MODULO_RETENCION}:${revision.periodo}`);
+      const actual = await tx.revisionRetencion.findUnique({ where: { id: revision.id }, select: { estado: true } });
+      if (!actual || actual.estado === "en_firme") return false;
+      await guardarEleccionBalanceCruce(tx, {
+        clienteId: revision.clienteId,
+        moduloCodigo: MODULO_RETENCION,
+        periodo: revision.periodo,
+        balanceId,
+        usuario: user ? { id: user.id, name: user.name } : null,
+      });
+      return true;
+    });
+    if (!guardado) return { ok: false, message: "La revisión está en firme: no se puede cambiar." };
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ESCOGIÓ EL BALANCE DEL CRUCE DE RETENCIÓN",
+      entity: `Retención en la fuente · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaPeriodo(revision.mesCorte)}`,
+      detail: `Revisión #${revision.id} · balance #${balance.id} ${describirBalanceCruce(balance)} (${sirven.length} balances servían)`,
+      clientId: revision.clienteId,
+    });
+    revalidatePath(`${RUTA}/${revision.id}`);
+    return { ok: true, message: `El cruce se concilia contra el balance ${describirBalanceCruce(balance)}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("escogerBalanceRetencion", e) };
+  }
+}
+
 /** Huella de lo que el cierre evaluó: formularios del año, causales y marcas de la revisión. */
 async function firmaParaCierre(db: Pick<typeof prisma, "formularioDianCargado" | "periodoSinFormulario" | "marcaCruceModulo">, r: { id: number; clienteId: number; anio: number; periodo: string }): Promise<string> {
   const [formularios, causales, marcas] = await Promise.all([
@@ -663,9 +716,15 @@ export async function cerrarRevisionRetencion(_prev: ActionState, formData: Form
     if (pendientes.length > 0) {
       return { ok: false, message: `No se puede cerrar: ${pendientes[0].texto}${pendientes.length > 1 ? ` (y ${pendientes.length - 1} pendiente(s) más; míralos en Novedades)` : ""}` };
     }
-    const { cruce } = resultados;
+    const { eleccionBalance: _eleccion, ...cruce } = resultados.cruce;
+    void _eleccion; // La lista para escoger el balance no va en la copia congelada.
     if (cruce.estado !== "listo") return { ok: false, message: `No se puede cerrar: ${cruce.mensaje}` };
     const balance = cruce.balance;
+    // El balance contra el que el usuario vio el cruce: si entretanto alguien escogió otro, no se cierra.
+    const balanceVisto = Number(formData.get("balanceId"));
+    if (Number.isSafeInteger(balanceVisto) && balanceVisto > 0 && balanceVisto !== balance.id) {
+      return { ok: false, message: `El balance del cruce cambió: ahora es el ${balance.descripcion}. Recarga la página y revisa el cruce antes de cerrar.` };
+    }
     const cuentasRussell6 = [...new Set(cruce.resultado.grupos.flatMap((g) => g.filas).map((f) => f.cuentaRussell).filter((c): c is string => c != null))].sort();
     const copia = construirCopiaRetencion({ tomadaEn: new Date(), periodos: vista.periodos, cruce, oportunidad: resultados.oportunidad, pagos: resultados.pagos });
     const user = await getCurrentUser();

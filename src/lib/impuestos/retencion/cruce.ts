@@ -1,5 +1,6 @@
 import { nivelDiferencia, type NivelDiferencia } from "@/lib/balance/umbrales-alertas";
 import { esTerceroDian, pareceNombreDian, renglonesDeFila, type FilaMapeoDian, type TerceroDian } from "../mapeo-dian";
+import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
 import type { PeriodoRevision } from "./periodos-revision";
 
 /**
@@ -418,7 +419,14 @@ export function renglonesFilaCruce(f: Pick<FilaCruce, "conceptos">): string {
 export type BalanceCruceRetencion = { id: number; periodo: string; descripcion: string; periodoInicio: string; periodoFin: string };
 
 export type CruceRetencionVista =
-  | { estado: "sin_balance" | "bloqueado"; mensaje: string; balance: BalanceCruceRetencion | null; umbral: number }
+  | {
+      estado: "sin_balance" | "bloqueado";
+      mensaje: string;
+      balance: BalanceCruceRetencion | null;
+      umbral: number;
+      /** Si sirve más de un balance del corte: cómo se escogió y la lista para escoger. No va en la copia del cierre. */
+      eleccionBalance?: EleccionBalanceVista | null;
+    }
   | {
       estado: "listo";
       mensaje: null;
@@ -428,6 +436,7 @@ export type CruceRetencionVista =
       resultado: ResultadoCruce;
       /** Huella del prevalidador del balance: el cierre la vuelve a leer bajo candado y exige la misma. */
       huellaBalance?: string;
+      eleccionBalance?: EleccionBalanceVista | null;
     };
 
 /** Terceros por cuenta del cliente que viajan a la pantalla (el Excel lleva todos). */

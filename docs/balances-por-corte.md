@@ -89,9 +89,20 @@ distintivo «En firme» va bajo el saldo final y la homologación de esas cuenta
 
 ## Módulos
 
-`seleccionarBalanceCruceModulo` solo elige un balance **cerrado y vigente** que termine en el mes del
-cargue; Cartera y CxP exigen además el detalle por tercero. Sin él, `motivoSinBalanceCruce` explica
-qué falta y la cédula no se calcula. Una conciliación en firme sigue fijada a su balance.
+Sirve para el cruce un balance **cerrado y vigente** que termine **exactamente** en la fecha de corte
+del cargue (la de Cartera y CxP o, sin ella, el último día del mes; `balancesQueSirvenCruce`);
+Cartera, CxP y Retención exigen además el detalle por tercero. Sin ninguno, `motivoSinBalanceCruce`
+explica qué falta y la cédula no se calcula. Una conciliación en firme sigue fijada a su balance.
+
+Si sirve **más de uno** (7/Nov/2026), el usuario escoge contra cuál concilia: coinciden en saldos
+finales por cuenta del cliente, pero no necesariamente en la homologación, que solo se propaga a los
+balances abiertos. La pestaña del cruce lista cada uno con su apertura, su período y su última
+modificación (carga, último cambio del detalle u override del prevalidador) y «Conciliar contra este»
+guarda la elección en `eleccion_balance_cruce`, por cliente, módulo (`RET` para Retención) y
+período, la llave de las marcas y del cierre. Sin elección, o si la guardada deja de servir, se
+preselecciona el de modificación más reciente (`resolverBalanceCruce`). El cierre recibe el balance
+que vio el usuario y no cierra si entretanto se escogió otro. Código en `compuerta-cruce.ts` (puro) y
+`balance-cruce-servidor.ts`.
 
 ## Migración de datos
 

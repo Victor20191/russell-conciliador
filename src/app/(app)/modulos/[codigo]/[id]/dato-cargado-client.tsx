@@ -21,8 +21,11 @@ import {
   cerrarConciliacionModulo,
   desbloquearConciliacion,
   consultarCuentasRussell,
+  escogerBalanceCruceModulo,
   filasDetalleCargue,
 } from "@/app/actions/modulos-datos";
+import { SelectorBalanceCruce } from "@/components/selector-balance-cruce";
+import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
 import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
@@ -313,6 +316,10 @@ export type CruceContableVm = {
     estaCongelado: boolean;
     descripcion: string;
   } | null;
+  /** Si sirve más de un balance cerrado del corte: cómo se escogió y la lista para escoger. */
+  eleccionBalance?: EleccionBalanceVista | null;
+  /** Puede escoger el balance del cruce: edita el cargue y el período está abierto. */
+  puedeEscogerBalance?: boolean;
   /** Filas contables omitidas conservadoramente porque no resolvieron una regla activa. */
   sinReglaContableFilas: number;
   /** Las filas del cruce con su marca de auditoría pegada (vacío si no hay balance). */
@@ -370,6 +377,8 @@ export type CierreConciliacionVm = {
   puedeDesbloquear: boolean;
   /** Por qué NO se puede cerrar todavía (null = cerrable). */
   motivoNoCerrable: string | null;
+  /** Balance contra el que el usuario ve el cruce: el cierre se niega si entretanto se escogió otro. */
+  balanceId?: number | null;
 };
 export type { CruceTerceroVm } from "./cruce-tercero-tab";
 export type NovedadesVm = {
@@ -2542,11 +2551,21 @@ function CruceContableTab({
   const panelFirme = cruceContable.conciliacion.cierre?.enFirme
     ? <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
     : null;
+  // Varios balances cerrados del corte: la lista para escoger contra cuál se concilia.
+  const selectorBalance = (
+    <SelectorBalanceCruce
+      eleccion={cruceContable.eleccionBalance}
+      balanceEnUsoId={cruceContable.balanceFuente?.id ?? null}
+      puedeEscoger={cruceContable.puedeEscogerBalance === true}
+      escoger={(balanceId) => escogerBalanceCruceModulo({ encabezadoId, balanceId })}
+    />
+  );
 
   if (cruceContable.bloqueo) {
     return (
       <div className="flex flex-col gap-4">
       {panelFirme}
+      {selectorBalance}
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">Cruce contable no habilitado</div>
         <p className="max-w-2xl text-[12.5px] text-warn-700">{cruceContable.bloqueo}</p>
@@ -2667,6 +2686,7 @@ function CruceContableTab({
 
   return (
     <div className="flex flex-col gap-4">
+      {selectorBalance}
       {cruceContable.balanceFuente && (
         <p className="text-[11.5px] text-ink-500">
           Fuente contable: {" "}
@@ -3461,7 +3481,7 @@ function ConciliacionEnFirmePanel({
 
   const cerrar = () => {
     start(async () => {
-      const r = await cerrarConciliacionModulo({ encabezadoId });
+      const r = await cerrarConciliacionModulo({ encabezadoId, balanceId: conciliacion.balanceId ?? undefined });
       if (r.ok) {
         notifySuccess(r.message ?? "Conciliación en firme.");
         setConfirmarCierre(false);

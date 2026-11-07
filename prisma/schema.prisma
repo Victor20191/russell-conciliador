@@ -784,6 +784,7 @@ model BalancePruebaEncabezado {
   conciliacionesPrevalidadas Reconciliation[]
   comparacionesComoA         BalanceComparacionCorte[]     @relation("ComparacionCorteA")
   comparacionesComoB         BalanceComparacionCorte[]     @relation("ComparacionCorteB")
+  eleccionesCruce            EleccionBalanceCruce[]
 
   @@unique([clienteId, periodo, version])
   @@index([clienteId, periodo])
@@ -813,6 +814,28 @@ model BalanceComparacionCorte {
   @@index([clienteId, periodoFin])
   @@index([balanceBId])
   @@map("balance_comparacion_corte")
+}
+
+// Balance contra el que se concilia un período (7/Nov/2026). Cuando sirve más de un balance —cerrado,
+// vigente de su línea y que termina en la fecha de corte— el usuario escoge uno: coinciden en saldos
+// finales, pero pueden traer homologaciones distintas. Misma llave que las marcas y el cierre
+// (cliente, módulo, período); `modulo_codigo` incluye RET (Retención en la fuente). Sin fila, el cruce
+// preselecciona el de modificación más reciente; una elección que deja de servir se ignora. Con la
+// conciliación en firme manda el balance del cierre. Cae en cascada con el balance.
+model EleccionBalanceCruce {
+  id                  Int                     @id @default(autoincrement()) @map("id")
+  clienteId           Int                     @map("cliente_id") // FK suave a clientes
+  moduloCodigo        String                  @map("modulo_codigo")
+  periodo             String                  @map("periodo") // período del módulo o de la revisión, «2026-08»
+  balanceEncabezadoId Int                     @map("balance_encabezado_id")
+  balance             BalancePruebaEncabezado @relation(fields: [balanceEncabezadoId], references: [id], onDelete: Cascade)
+  elegidoPor          String?                 @map("elegido_por")
+  elegidoPorId        Int?                    @map("elegido_por_id") // FK suave a usuarios
+  elegidoEn           DateTime                @default(now()) @map("elegido_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, periodo], map: "eleccion_balance_cruce_unico")
+  @@index([balanceEncabezadoId])
+  @@map("eleccion_balance_cruce")
 }
 
 model BalancePruebaDetalle {

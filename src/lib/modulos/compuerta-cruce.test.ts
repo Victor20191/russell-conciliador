@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  avisoEleccionCaida,
+  balancesQueSirvenCruce,
   balanceTerminaEnPeriodo,
   cuentasAgrupadorasExcluidas,
   describirBalanceCruce,
   fechaCorteDelCruce,
+  fechaMasReciente,
   motivoSinBalanceCruce,
+  opcionBalanceCruce,
+  resolverBalanceCruce,
   seleccionarBalanceCruceModulo,
   ultimoDiaDelMes,
   validarCompuertaPrevalidador,
@@ -147,6 +152,58 @@ describe("selección del balance: fecha de corte exacta (6/Nov/2026)", () => {
     expect(seleccionarBalanceCruceModulo([fin], "2026-08", { fechaCorte: "2026-08-15" })).toBeNull();
     expect(motivoSinBalanceCruce([fin], "2026-08", { fechaCorte: "2026-08-15" })?.mensaje).toContain("Ningún balance termina el 15/08/2026");
     expect(seleccionarBalanceCruceModulo([fin, al15], "2026-08", { fechaCorte: null })?.id).toBe(9);
+  });
+});
+
+describe("escoger el balance entre varios que sirven (7/Nov/2026)", () => {
+  const mod = (pares: [number, string | null][]) => new Map(pares);
+
+  it("balancesQueSirvenCruce devuelve todos los cerrados y vigentes de la fecha exacta, en el orden recibido", () => {
+    const abierto = agosto(3, { estaCongelado: false });
+    const al30 = agosto(4, { periodoFin: new Date("2026-08-30T00:00:00.000Z") });
+    expect(balancesQueSirvenCruce([agosto(1), abierto, al30, agosto(2)], "2026-08").map((b) => b.id)).toEqual([1, 2]);
+    expect(balancesQueSirvenCruce([agosto(1), agosto(2)], "2026-08", { vigentes: new Set([2]) }).map((b) => b.id)).toEqual([2]);
+  });
+
+  it("uno solo: se usa sin preguntar", () => {
+    const r = resolverBalanceCruce([agosto(1)], mod([]), null);
+    expect(r).toMatchObject({ origen: "unico", eleccionCaida: false });
+    expect(r.balance?.id).toBe(1);
+  });
+
+  it("varios sin elección: se preselecciona el de modificación más reciente; a igual fecha, el orden recibido", () => {
+    const r = resolverBalanceCruce([agosto(1), agosto(2), agosto(3)], mod([[1, "2026-10-01T10:00:00Z"], [2, "2026-11-05T09:00:00Z"], [3, "2026-11-05T09:00:00Z"]]), null);
+    expect(r.origen).toBe("preseleccionado");
+    expect(r.balance?.id).toBe(2);
+    expect(r.opciones.map((b) => b.id)).toEqual([2, 3, 1]);
+    // Sin dato de modificación queda al final.
+    expect(resolverBalanceCruce([agosto(1), agosto(2)], mod([[2, "2026-01-01T00:00:00Z"]]), null).balance?.id).toBe(2);
+  });
+
+  it("la elección del usuario manda aunque otro se haya modificado después", () => {
+    const r = resolverBalanceCruce([agosto(1), agosto(2)], mod([[1, "2026-10-01T00:00:00Z"], [2, "2026-11-05T00:00:00Z"]]), { balanceId: 1 });
+    expect(r).toMatchObject({ origen: "elegido", eleccionCaida: false });
+    expect(r.balance?.id).toBe(1);
+  });
+
+  it("una elección que ya no sirve se ignora y avisa", () => {
+    const varios = resolverBalanceCruce([agosto(1), agosto(2)], mod([[1, "2026-10-01T00:00:00Z"], [2, "2026-11-05T00:00:00Z"]]), { balanceId: 9 });
+    expect(varios).toMatchObject({ origen: "preseleccionado", eleccionCaida: true });
+    expect(varios.balance?.id).toBe(2);
+    expect(avisoEleccionCaida(varios)).toContain("se preseleccionó el de modificación más reciente");
+    const unico = resolverBalanceCruce([agosto(1)], mod([]), { balanceId: 9 });
+    expect(unico).toMatchObject({ origen: "unico", eleccionCaida: true });
+    expect(avisoEleccionCaida(unico)).toContain("el único balance cerrado que queda");
+    expect(resolverBalanceCruce([], mod([]), { balanceId: 9 })).toMatchObject({ balance: null, origen: null, eleccionCaida: true });
+    expect(avisoEleccionCaida(resolverBalanceCruce([], mod([]), { balanceId: 9 }))).toBeNull();
+    expect(avisoEleccionCaida(resolverBalanceCruce([agosto(1)], mod([]), { balanceId: 1 }))).toBeNull();
+  });
+
+  it("la última modificación es la fecha más reciente; la opción lleva fechas de calendario", () => {
+    expect(fechaMasReciente(null, "2026-10-01T00:00:00Z", new Date("2026-11-02T00:00:00Z"), undefined)?.toISOString()).toBe("2026-11-02T00:00:00.000Z");
+    expect(fechaMasReciente(null, undefined)).toBeNull();
+    expect(opcionBalanceCruce({ id: 5, periodo: "Agosto 2026", version: "v2", aperturaBalance: "tercero", periodoInicio: new Date("2026-08-01T00:00:00Z"), periodoFin: new Date("2026-08-31T00:00:00Z") }, "2026-11-05T14:00:00Z"))
+      .toEqual({ id: 5, periodo: "Agosto 2026", version: "v2", aperturaBalance: "tercero", periodoInicio: "2026-08-01", periodoFin: "2026-08-31", ultimaModificacion: "2026-11-05T14:00:00.000Z" });
   });
 });
 
