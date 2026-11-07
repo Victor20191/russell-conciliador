@@ -72,4 +72,10 @@ describe("avisoHojasGemelas", () => {
   it("habla en plural cuando hay varias", () => {
     expect(avisoHojasGemelas([{ hojas: ["Ene", "Feb", "Mar"] }], "Ene")).toContain("otras hojas");
   });
+
+  it("no nombra un módulo: lo ve igual quien carga activos fijos con una hoja por mes", () => {
+    const aviso = avisoHojasGemelas([{ hojas: ["SEPTIEMBRE 2026", "AGOSTO 2026"] }], "SEPTIEMBRE 2026");
+    expect(aviso).toContain("«AGOSTO 2026»");
+    expect(aviso).not.toMatch(/cartera|inventario|activo/i);
+  });
 });

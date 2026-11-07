@@ -71,7 +71,7 @@ export function vistaAnalisisHoja(
   }
 
   // HOJAS GEMELAS: otra hoja del libro con exactamente el mismo formato. No se bloquea
-  // —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro momento,
+  // —a veces es legítimo—, pero se avisa: si es el mismo reporte exportado en otro momento,
   // cada hoja cuadra consigo misma y ningún control delataría la equivocada.
   const encabezadoSeleccion = new Map(seleccion?.puntajes.map((p) => [p.nombre, p.filaEncabezado]) ?? []);
   const avisoGemelas = hojas.length > 1

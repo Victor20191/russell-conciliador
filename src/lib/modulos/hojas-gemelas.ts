@@ -42,7 +42,9 @@ export function hojasConMismoEncabezado(hojas: readonly HojaConEncabezado[]): Gr
 
 /**
  * Aviso para quien carga, o `null` si la hoja elegida no tiene gemelas. Nombra las otras
- * hojas: la decisión es del usuario y necesita saber contra qué está eligiendo.
+ * hojas: la decisión es del usuario y necesita saber contra qué está eligiendo. El texto no
+ * nombra un módulo: lo ven todos (un libro de activos fijos con una hoja por mes, uno de
+ * cartera exportado dos veces).
  */
 export function avisoHojasGemelas(
   grupos: readonly GrupoHojasGemelas[],
@@ -53,7 +55,7 @@ export function avisoHojasGemelas(
   if (!grupo) return null;
   const otras = grupo.hojas.filter((h) => h !== hojaElegida).map((h) => `«${h}»`);
   return `El libro trae ${otras.length === 1 ? "otra hoja" : "otras hojas"} con el mismo formato que «${hojaElegida}»: `
-    + `${otras.join(", ")}. Si es la misma cartera exportada en otro momento, confirma que estás `
-    + "cargando la versión vigente: los totales de cada hoja cuadran por sí solos y ningún control "
-    + "detectaría que elegiste la equivocada.";
+    + `${otras.join(", ")}. Si es el mismo reporte en distintos momentos, confirma que estás `
+    + "cargando el del corte que concilias: los totales de cada hoja cuadran por sí solos y ningún "
+    + "control detectaría que elegiste la equivocada.";
 }

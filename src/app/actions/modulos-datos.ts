@@ -410,7 +410,7 @@ export type AnalisisModulo = {
   advertenciaFormato?: string;
   /**
    * El libro trae otra hoja con exactamente el mismo formato que la elegida. No se bloquea
-   * —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro momento,
+   * —a veces es legítimo—, pero se avisa: si es el mismo reporte exportado en otro momento,
    * los totales de cada hoja cuadran por sí solos y ningún control detectaría la equivocada.
    * En Cartera y CxP explica además qué hojas del libro no se tomaron (balances, hojas de
    * trabajo) y cuáles otras también parecen un auxiliar.
