@@ -12,10 +12,10 @@ import { PantallaError } from "@/components/pantalla-error";
  */
 export default function RootError({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -24,7 +24,7 @@ export default function RootError({
   return (
     <PantallaError
       error={error}
-      retry={unstable_retry}
+      retry={retry}
       className="min-h-screen"
       conMarca
     />

@@ -12,10 +12,10 @@ import "./globals.css";
  */
 export default function GlobalError({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -26,7 +26,7 @@ export default function GlobalError({
       <body>
         <PantallaError
           error={error}
-          retry={unstable_retry}
+          retry={retry}
           className="min-h-screen"
           conMarca
         />

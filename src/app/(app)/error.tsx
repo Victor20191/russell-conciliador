@@ -12,15 +12,15 @@ import { PantallaError } from "@/components/pantalla-error";
  */
 export default function AppError({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     // Rastro en consola del navegador; el detalle completo está en el servidor.
     console.error(error);
   }, [error]);
 
-  return <PantallaError error={error} retry={unstable_retry} />;
+  return <PantallaError error={error} retry={retry} />;
 }
