@@ -41,6 +41,19 @@ export function seguirAlControl(evento: Event, panel: HTMLElement | null, contro
   else reubicar();
 }
 
+/** Nombre de la propiedad interna de React (`__reactFiber$…`, `__reactProps$…`) que tiene el nodo, si la tiene. */
+export const tieneClave = (objeto: object, prefijo: string) => Object.keys(objeto).find((k) => k.startsWith(prefijo));
+
+/**
+ * React ya tomó este elemento (hidratación). Estos controles viven en el layout raíz
+ * e hidratan antes que la página: cambiar un atributo de un elemento que React aún no
+ * tomó hace que, al tomarlo, React vea un HTML distinto del que pintó el servidor y
+ * avise de un desajuste. React marca cada elemento que toma con `__reactFiber$…`.
+ */
+export function hidratadoPorReact(elemento: Element): boolean {
+  return tieneClave(elemento, "__reactFiber$") != null;
+}
+
 /** Medidas de la ventana para posicionar. */
 export function vista(): { ancho: number; alto: number } {
   return { ancho: window.innerWidth, alto: window.innerHeight };

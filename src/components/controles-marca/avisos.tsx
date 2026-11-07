@@ -3,17 +3,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { posicionAviso } from "@/lib/marca/emergentes";
-import { CAPA_AVISO, vista } from "./comun";
+import { CAPA_AVISO, hidratadoPorReact, vista } from "./comun";
 
 /**
  * Avisos de `title` con la marca. El navegador los dibuja con la fuente y los
  * colores del sistema operativo; aquí, al pasar el mouse o llegar con el teclado,
  * el texto se muestra en un aviso Space Blue con Lato. El atributo se aparta
- * mientras tanto (si no, aparecerían los dos) y vuelve al salir.
+ * mientras tanto (si no, aparecerían los dos) y vuelve al salir. No se aparta de
+ * un elemento que React aún no hidrató (ver `hidratadoPorReact`).
  */
 
 const GUARDADO = "data-rb-aviso";
 const DEMORA_MS = 450;
+const REINTENTO_MS = 50;
 
 type Aviso = { texto: string; ancla: DOMRect };
 
@@ -36,17 +38,30 @@ export function AvisosDeMarca() {
       setAviso(null);
     };
 
-    const tomar = (elemento: Element) => {
-      if (elemento === actual) return;
-      devolver();
+    // Aparta el `title` solo si React ya tomó el elemento; si no (la página aún
+    // hidrata), se reintenta mientras el puntero siga ahí y entretanto queda el
+    // aviso del navegador.
+    const apartar = (elemento: Element) => {
+      if (actual !== elemento || !elemento.isConnected) return;
+      if (!hidratadoPorReact(elemento)) {
+        reloj = window.setTimeout(() => apartar(elemento), REINTENTO_MS);
+        return;
+      }
       const texto = elemento.getAttribute("title");
       if (!texto?.trim()) return;
       elemento.setAttribute(GUARDADO, texto);
       elemento.removeAttribute("title");
-      actual = elemento;
       reloj = window.setTimeout(() => {
         if (actual === elemento && elemento.isConnected) setAviso({ texto: texto.trim(), ancla: elemento.getBoundingClientRect() });
       }, DEMORA_MS);
+    };
+
+    const tomar = (elemento: Element) => {
+      if (elemento === actual) return;
+      devolver();
+      if (!elemento.getAttribute("title")?.trim()) return;
+      actual = elemento;
+      apartar(elemento);
     };
 
     const alEntrar = (evento: Event) => {

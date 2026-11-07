@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { glifosDeEntrada, glifosDeMarca, necesitaGlifos } from "@/lib/marca/glifos";
+import { tieneClave } from "./comun";
 
 /**
  * Glifos de la marca en todo lo que se muestra y se escribe (§2): un emoji o un
@@ -14,8 +15,6 @@ import { glifosDeEntrada, glifosDeMarca, necesitaGlifos } from "@/lib/marca/glif
 // Lo que la persona está editando no se toca al mostrar (se filtra al escribir).
 const NO_TOCAR = "textarea, input, select, [contenteditable], script, style, noscript";
 const CAMPOS_DE_TEXTO = new Set(["text", "search", ""]);
-
-const tieneClave = (objeto: object, prefijo: string) => Object.keys(objeto).find((k) => k.startsWith(prefijo));
 
 type PropsReact = { children?: unknown; dangerouslySetInnerHTML?: unknown } | undefined;
 
