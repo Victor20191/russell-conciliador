@@ -317,10 +317,16 @@ async function archivoBalanceDesdeFormulario(
 
   const usuario = await getCurrentUser();
   if (!usuario) return { ok: false, message: "La sesión ya no es válida. Ingresa nuevamente." };
-  const temporal = await consumirArchivoBalanceTemporal({
-    loteId: loteIdSolicitud,
-    usuarioId: usuario.id,
-  });
+  let temporal: Awaited<ReturnType<typeof consumirArchivoBalanceTemporal>>;
+  try {
+    temporal = await consumirArchivoBalanceTemporal({
+      loteId: loteIdSolicitud,
+      usuarioId: usuario.id,
+    });
+  } catch (e) {
+    // Si falla la BD, el temporal no se borra: el usuario puede reintentar.
+    return { ok: false, message: mensajeErrorBD("leerBalance", e) };
+  }
   if (!temporal.ok) return temporal;
   const errorTamano = mensajeTamanoBalanceNoPermitido(
     temporal.archivo.nombre,

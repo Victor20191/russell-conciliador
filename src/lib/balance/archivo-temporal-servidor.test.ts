@@ -17,12 +17,16 @@ import { iniciarArchivoBalanceTemporal, descartarArchivoBalanceTemporal, guardar
 
 type Archivo = {
   loteId: string; usuarioId: number; nombreArchivo: string; tipoContenido: string; tamanoBytes: number;
-  tamanoParte: number; totalPartes: number; completado: boolean; expiraEn: Date;
+  tamanoParte: number; totalPartes: number; completado: boolean; expiraEn: Date; creadoEn: Date;
 };
 type Parte = { loteId: string; numero: number; tamanoBytes: number; contenido: Uint8Array };
 let archivo: Archivo | null;
 let partes: Parte[];
 let pausaLectura: { iniciada: () => void; esperar: Promise<void> } | undefined;
+let pausaPartes: { iniciada: () => void; esperar: Promise<void> } | undefined;
+// Reloj propio: cada generación del lote recibe un `creadoEn` distinto aunque
+// las pruebas corran dentro del mismo milisegundo.
+let reloj: number;
 
 function diferido() {
   let resolver!: () => void;
@@ -39,6 +43,8 @@ beforeEach(() => {
   archivo = null;
   partes = [];
   pausaLectura = undefined;
+  pausaPartes = undefined;
+  reloj = Date.UTC(2026, 10, 5);
   // Doble transaccional serializado: prueba el orden/autorización del código;
   // no sustituye una prueba de candados contra PostgreSQL real.
   let cola = Promise.resolve();
@@ -62,7 +68,7 @@ beforeEach(() => {
   });
   mocks.create.mockImplementation(async ({ data }) => {
     if (archivo) throw new Error("Identificador duplicado");
-    archivo = { ...data };
+    archivo = { ...data, creadoEn: new Date(++reloj) };
     return archivo;
   });
   mocks.remove.mockImplementation(async () => { const anterior = archivo; archivo = null; partes = []; return anterior; });
@@ -79,7 +85,16 @@ beforeEach(() => {
     return create;
   });
   mocks.aggregate.mockImplementation(async () => ({ _count: { _all: partes.length }, _sum: { tamanoBytes: partes.reduce((sum, parte) => sum + parte.tamanoBytes, 0) } }));
-  mocks.partes.mockImplementation(async () => [...partes].sort((a, b) => a.numero - b.numero));
+  mocks.partes.mockImplementation(async () => {
+    const leidas = [...partes].sort((a, b) => a.numero - b.numero);
+    if (pausaPartes) {
+      const pausa = pausaPartes;
+      pausaPartes = undefined;
+      pausa.iniciada();
+      await pausa.esperar;
+    }
+    return leidas;
+  });
 });
 
 describe("propiedad y ciclo de vida de archivos temporales", () => {
@@ -155,5 +170,29 @@ describe("propiedad y ciclo de vida de archivos temporales", () => {
     if (resultado.ok) expect(new TextDecoder().decode(resultado.archivo.contenido)).toBe("SECRETO!");
     expect(archivo).toBeNull();
     expect(partes).toEqual([]);
+  });
+
+  it("lee los bytes sin retener la transacción y descarta una generación recreada entretanto", async () => {
+    await iniciar(1);
+    await guardarParteArchivoBalance({ loteId, usuarioId: 1, numero: 1, contenido: new TextEncoder().encode("VIEJO!!!") });
+    await completarArchivoBalanceTemporal({ loteId, usuarioId: 1 });
+    const leyendo = diferido();
+    const continuar = diferido();
+    pausaPartes = { iniciada: leyendo.resolver, esperar: continuar.promesa };
+    const pendiente = consumirArchivoBalanceTemporal({ loteId, usuarioId: 1 });
+    await leyendo.promesa;
+    // Con la lectura de bytes en pausa, otras operaciones sobre el lote avanzan:
+    // la descarga ya no ocupa la transacción (que vencía a los 10 s con la BD remota).
+    await descartarArchivoBalanceTemporal({ loteId, usuarioId: 1 });
+    await iniciar(1);
+    await guardarParteArchivoBalance({ loteId, usuarioId: 1, numero: 1, contenido: new TextEncoder().encode("NUEVO!!!") });
+    expect(await completarArchivoBalanceTemporal({ loteId, usuarioId: 1 })).toMatchObject({ ok: true });
+    continuar.resolver();
+    expect(await pendiente).toMatchObject({ ok: false });
+    // La generación nueva queda intacta para su propio consumo.
+    expect(archivo).toMatchObject({ usuarioId: 1, completado: true });
+    const nuevo = await consumirArchivoBalanceTemporal({ loteId, usuarioId: 1 });
+    expect(nuevo.ok).toBe(true);
+    if (nuevo.ok) expect(new TextDecoder().decode(nuevo.archivo.contenido)).toBe("NUEVO!!!");
   });
 });

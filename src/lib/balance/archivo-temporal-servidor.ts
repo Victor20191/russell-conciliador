@@ -207,41 +207,71 @@ export async function consumirArchivoBalanceTemporal(args: {
   | { ok: true; archivo: ArchivoBalanceTemporalConsumido }
   | { ok: false; message: string }
 > {
-  return conArchivoBloqueado(args.loteId, async (tx) => {
+  // 1) Autorización corta bajo el candado: dueño, completo y vigente.
+  const validacion = await conArchivoBloqueado(args.loteId, async (tx) => {
     const archivo = await tx.balanceArchivoTemporal.findUnique({
       where: { loteId: args.loteId },
     });
     if (!archivo || !archivo.completado || archivo.expiraEn < new Date()) {
-      return { ok: false, message: "No se encontró el archivo completo. Vuelve a seleccionarlo y reintenta." };
+      return { ok: false as const, message: "No se encontró el archivo completo. Vuelve a seleccionarlo y reintenta." };
     }
     if (archivo.usuarioId !== args.usuarioId) {
-      return { ok: false, message: "No tienes acceso al archivo temporal de esta lectura." };
+      return { ok: false as const, message: "No tienes acceso al archivo temporal de esta lectura." };
     }
-    // Los bytes se consultan solo después de autorizar al dueño y manteniendo el
-    // mismo bloqueo hasta consumir: no pueden mezclarse con otra generación/lote.
-    const partes = await tx.balanceArchivoTemporalParte.findMany({
-      where: { loteId: args.loteId }, orderBy: { numero: "asc" },
-    });
-    const total = partes.reduce((suma, parte) => suma + parte.tamanoBytes, 0);
-    if (partes.length !== archivo.totalPartes || total !== archivo.tamanoBytes) {
-      return { ok: false, message: "El archivo temporal está incompleto. Vuelve a cargarlo." };
-    }
+    return { ok: true as const, archivo };
+  });
+  if (!validacion.ok) return validacion;
+  const { archivo } = validacion;
 
-    const contenido = new Uint8Array(archivo.tamanoBytes);
-    let offset = 0;
-    for (const parte of partes) {
-      contenido.set(parte.contenido, offset);
-      offset += parte.tamanoBytes;
+  // 2) Los bytes se leen FUERA de la transacción: con la BD remota, traer
+  //    decenas de MB (bytea viaja en hexadecimal, el doble) supera el plazo de
+  //    una transacción interactiva. Es seguro porque un archivo completado ya no
+  //    admite fragmentos (`guardarParteArchivoBalance` lo rechaza): sus partes
+  //    solo cambian si el lote se descarta y se recrea, y el paso 3 lo detecta.
+  const partes = await prisma.balanceArchivoTemporalParte.findMany({
+    where: { loteId: args.loteId }, orderBy: { numero: "asc" },
+  });
+  const total = partes.reduce((suma, parte) => suma + parte.tamanoBytes, 0);
+  if (partes.length !== archivo.totalPartes || total !== archivo.tamanoBytes) {
+    return { ok: false, message: "El archivo temporal está incompleto. Vuelve a cargarlo." };
+  }
+
+  // 3) Consumo bajo el candado: solo se borra —y se entregan los bytes— si el
+  //    lote sigue siendo la MISMA generación autorizada en el paso 1. Si otro
+  //    usuario (o el mismo) lo recreó entretanto, lo leído no se usa.
+  const consumido = await conArchivoBloqueado(args.loteId, async (tx) => {
+    const actual = await tx.balanceArchivoTemporal.findUnique({
+      where: { loteId: args.loteId },
+      select: { usuarioId: true, completado: true, creadoEn: true },
+    });
+    if (
+      !actual
+      || !actual.completado
+      || actual.usuarioId !== archivo.usuarioId
+      || actual.creadoEn.getTime() !== archivo.creadoEn.getTime()
+    ) {
+      return false;
     }
     await tx.balanceArchivoTemporal.delete({ where: { loteId: args.loteId } });
-    return {
-      ok: true,
-      archivo: {
-        nombre: archivo.nombreArchivo,
-        tipo: archivo.tipoContenido,
-        tamano: archivo.tamanoBytes,
-        contenido: contenido.buffer,
-      },
-    };
+    return true;
   });
+  if (!consumido) {
+    return { ok: false, message: "El archivo temporal cambió mientras se leía. Vuelve a seleccionarlo y reintenta." };
+  }
+
+  const contenido = new Uint8Array(archivo.tamanoBytes);
+  let offset = 0;
+  for (const parte of partes) {
+    contenido.set(parte.contenido, offset);
+    offset += parte.tamanoBytes;
+  }
+  return {
+    ok: true,
+    archivo: {
+      nombre: archivo.nombreArchivo,
+      tipo: archivo.tipoContenido,
+      tamano: archivo.tamanoBytes,
+      contenido: contenido.buffer,
+    },
+  };
 }
