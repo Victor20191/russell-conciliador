@@ -1,7 +1,7 @@
 // VALOR CONTABLE del lado del balance en el cruce de un módulo — puro.
 //
 // Todos los módulos se concilian contra el SALDO FINAL del balance (confirmado con los usuarios el
-// 21/Sep/2026, también Ingresos y Nómina): el balance que termina en el mes de corte del cargue se
+// 21/Sep/2026, también Ingresos y Nómina): el balance que termina en la fecha de corte del cargue se
 // lee por su saldo final, sin importar desde cuándo arranca ni sus débitos y créditos. La base de
 // cálculo del catálogo del prevalidador (saldo | movimiento) rige solo el INFORME del prevalidador;
 // aquí la regla activa del módulo sigue siendo obligatoria (sin ella la fila no se valora) pero solo

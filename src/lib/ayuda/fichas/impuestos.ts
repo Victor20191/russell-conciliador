@@ -502,7 +502,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     {
       pregunta: "¿Por qué el cruce dice que no hay balance o que está bloqueado?",
       respuesta:
-        "El cruce necesita el balance cerrado y vigente que termina en el mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta.",
+        "El cruce necesita el balance cerrado y vigente que termina el último día del mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta.",
     },
     {
       pregunta: "¿Por qué la oportunidad dice «Sin calendario»?",

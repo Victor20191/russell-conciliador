@@ -18,7 +18,7 @@ import type { RevisionVista } from "./revision-servidor";
 
 /**
  * Cruce contable de una revisión de Retención en la fuente: elige el balance del corte (cerrado,
- * vigente, que termine en el mes de corte y CON detalle por tercero), exige la aprobación vigente
+ * vigente, que termine el último día del mes de corte y CON detalle por tercero), exige la aprobación vigente
  * de su prevalidador (sin pedir que Retención esté en su catálogo) y cruza contra su detalle por
  * tercero ligado por \`loteId\`. Sin caché: la pantalla muestra siempre lo vigente.
  */

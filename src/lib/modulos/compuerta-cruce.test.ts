@@ -3,8 +3,10 @@ import {
   balanceTerminaEnPeriodo,
   cuentasAgrupadorasExcluidas,
   describirBalanceCruce,
+  fechaCorteDelCruce,
   motivoSinBalanceCruce,
   seleccionarBalanceCruceModulo,
+  ultimoDiaDelMes,
   validarCompuertaPrevalidador,
   type ContextoCompuertaCruce,
 } from "./compuerta-cruce";
@@ -105,7 +107,7 @@ describe("motivoSinBalanceCruce", () => {
     expect(motivoSinBalanceCruce([], "2026-08")).toMatchObject({ motivo: "sin_balance_en_mes" });
     expect(motivoSinBalanceCruce([agosto(1, { estaCongelado: false })], "2026-08")).toEqual({
       motivo: "sin_balance_cerrado",
-      mensaje: "No hay un balance cerrado con corte en 2026-08. Cierra el balance del período en /balance para conciliar contra él.",
+      mensaje: "No hay un balance cerrado con corte al 31/08/2026. Cierra el balance del período en /balance para conciliar contra él.",
     });
     const porTercerosSinDetalle = motivoSinBalanceCruce([agosto(1, { conDetalleTercero: false })], "2026-08", { exigirDetalleTercero: true, modulo: "Cartera" });
     expect(porTercerosSinDetalle?.motivo).toBe("sin_balance_cerrado_por_terceros");
@@ -115,6 +117,36 @@ describe("motivoSinBalanceCruce", () => {
 
   it("una versión anterior cerrada (no vigente) cuenta como «sin balance cerrado»", () => {
     expect(motivoSinBalanceCruce([agosto(70)], "2026-08", { vigentes: new Set([71]) })?.motivo).toBe("sin_balance_cerrado");
+  });
+
+  it("un balance del mes que termina otro día dice en qué fecha termina", () => {
+    const motivo = motivoSinBalanceCruce([agosto(1, { periodoFin: new Date("2026-08-30T00:00:00.000Z") })], "2026-08");
+    expect(motivo).toEqual({
+      motivo: "sin_balance_en_fecha",
+      mensaje: "Ningún balance termina el 31/08/2026, la fecha de corte de este cargue: los de ese mes terminan el 30/08/2026. Corrige el período de ese balance o carga uno al 31/08/2026 y ciérralo.",
+    });
+  });
+});
+
+describe("selección del balance: fecha de corte exacta (6/Nov/2026)", () => {
+  it("sin fecha de corte del cargue, el balance tiene que terminar el último día del mes", () => {
+    expect(fechaCorteDelCruce("2026-08")).toBe("2026-08-31");
+    expect(fechaCorteDelCruce("2024-02")).toBe("2024-02-29");
+    expect(fechaCorteDelCruce("2026-02")).toBe("2026-02-28");
+    expect(ultimoDiaDelMes("agosto")).toBeNull();
+    const al30 = agosto(5, { periodoFin: new Date("2026-08-30T00:00:00.000Z") });
+    const al01 = agosto(6, { periodoFin: new Date("2026-08-01T00:00:00.000Z") });
+    expect(seleccionarBalanceCruceModulo([al30, al01], "2026-08")).toBeNull();
+    expect(seleccionarBalanceCruceModulo([al30, agosto(7), al01], "2026-08")?.id).toBe(7);
+  });
+
+  it("con fecha de corte del cargue (Cartera y CxP), sirve solo el balance que termina ese día", () => {
+    const al15 = agosto(8, { periodoFin: new Date("2026-08-15T00:00:00.000Z") });
+    const fin = agosto(9);
+    expect(seleccionarBalanceCruceModulo([fin, al15], "2026-08", { fechaCorte: new Date("2026-08-15T00:00:00.000Z") })?.id).toBe(8);
+    expect(seleccionarBalanceCruceModulo([fin], "2026-08", { fechaCorte: "2026-08-15" })).toBeNull();
+    expect(motivoSinBalanceCruce([fin], "2026-08", { fechaCorte: "2026-08-15" })?.mensaje).toContain("Ningún balance termina el 15/08/2026");
+    expect(seleccionarBalanceCruceModulo([fin, al15], "2026-08", { fechaCorte: null })?.id).toBe(9);
   });
 });
 

@@ -88,6 +88,8 @@ export type InsumosCruceModulo = {
     moduloCodigo: string;
     periodo: string;
     verificaciones: unknown;
+    /** Fecha de corte del cargue (Cartera y CxP): el balance del cruce tiene que terminar ese día. */
+    fechaCorte?: Date | null;
     /**
      * `datos` solo hace falta en Nómina (agrupador, cuenta del archivo, subcuenta) y en los módulos
      * con valor relacionado (la depreciación de Activos fijos). `imputable: false` no suma.
@@ -264,6 +266,7 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
       periodo: true,
       verificaciones: true,
       agruparPor: true,
+      fechaCorte: true,
     },
   });
   if (!encabezado) return null;
@@ -475,11 +478,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       })
     : [];
 
-  // Balance del período (18/Oct/2026): uno CERRADO y vigente de su línea que TERMINE en el mes de
-  // corte del cargue. Todos los módulos comparan saldos finales, así que no importa desde cuándo
-  // arranca; y como cerrar exige que los balances del corte coincidan, cualquier cerrado da el mismo
-  // cruce (gana el de corte y carga más recientes). Sin él, la cédula no se calcula y la pestaña dice
-  // por qué. Después, la compuerta común exige la aprobación vigente del prevalidador.
+  // Balance del período (18/Oct/2026): uno CERRADO y vigente de su línea que TERMINE en la fecha de
+  // corte del cargue —exacta desde el 6/Nov/2026: la del cargue (Cartera y CxP) o el último día del
+  // mes—. Todos los módulos comparan saldos finales, así que no importa desde cuándo arranca; y como
+  // cerrar exige que los balances del corte coincidan, cualquier cerrado da el mismo cruce (gana el
+  // de carga más reciente). Sin él, la cédula no se calcula y la pestaña dice por qué. Después, la
+  // compuerta común exige la aprobación vigente del prevalidador.
   const balancesDelCliente = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId: encabezado.clienteId },
     select: { id: true, clienteId: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, estaCongelado: true, loteId: true, aperturaBalance: true, creadoEn: true },
@@ -499,7 +503,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     for (const captura of capturas) if (captura.loteId) lotesConTerceros.add(captura.loteId);
   }
   const balancesConfirmados = balancesDelCliente.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && lotesConTerceros.has(b.loteId) }));
-  const opcionesBalance = { exigirDetalleTercero, vigentes, modulo: descriptor.label };
+  const opcionesBalance = { exigirDetalleTercero, vigentes, modulo: descriptor.label, fechaCorte: encabezado.fechaCorte ?? null };
   const elegidoVivo = seleccionarBalanceCruceModulo(balancesConfirmados, encabezado.periodo, opcionesBalance);
   // Con la conciliación en firme el cruce se fija al balance con que se cerró: otro balance del mes,
   // cerrado después, no cambia contra qué se concilió (aunque el conciliado se haya abierto).

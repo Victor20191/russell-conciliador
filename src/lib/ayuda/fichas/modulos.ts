@@ -18,8 +18,8 @@ const conVerificaciones: AplicaModulo = (d) => (d.verificaciones?.length ?? 0) >
 
 function requisitoBalance(d: DescriptorModulo): string {
   return porTercero(d)
-    ? "Para cruzar contra la contabilidad hace falta un balance «Por terceros» cerrado que termine en el mismo mes de corte, con el prevalidador aprobado. Si el cliente tiene la excepción «No maneja balance por terceros», sirve un balance «Por cuenta» y no hay cruce por tercero."
-    : "Para cruzar contra la contabilidad hace falta un balance cerrado que termine en el mismo mes de corte, con el prevalidador aprobado.";
+    ? "Para cruzar contra la contabilidad hace falta un balance «Por terceros» cerrado que termine exactamente en la fecha de corte del cargue, con el prevalidador aprobado. Si el cliente tiene la excepción «No maneja balance por terceros», sirve un balance «Por cuenta» y no hay cruce por tercero."
+    : "Para cruzar contra la contabilidad hace falta un balance cerrado que termine exactamente el último día del mes de corte, con el prevalidador aprobado.";
 }
 
 function erroresDelReporte(d: DescriptorModulo): string[] {

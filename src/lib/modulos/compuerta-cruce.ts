@@ -1,13 +1,18 @@
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
+import { fechaCorteISO } from "@/lib/balance/corte";
 
 // COMPUERTA Y SELECCIÓN DEL BALANCE del cruce de un módulo — puro.
 //
 // Todos los módulos se concilian contra el SALDO FINAL del balance (21/Sep/2026, también Ingresos
-// y Nómina): sirve un balance que TERMINE en el mes de corte del cargue, sin importar desde cuándo
-// arranca (mensual, trimestral o acumulado del año). Desde el 18/Oct/2026 ese balance tiene que estar
-// CERRADO y ser la versión vigente de su línea: cerrar exige que todos los balances del corte
-// coincidan en saldos finales, así que cualquier cerrado del corte da el mismo cruce. Cartera y CxP
-// exigen además que conserve el detalle por tercero, porque su cruce por tercero lo lee.
+// y Nómina): sirve un balance que TERMINE en la fecha de corte del cargue, sin importar desde cuándo
+// arranca (mensual, trimestral o acumulado del año). Desde el 6/Nov/2026 la fecha es EXACTA: la fecha
+// de corte del cargue (Cartera y CxP la guardan) o, sin ella, el último día del mes de corte. Antes
+// bastaba con el mismo mes, y un balance al 30 o con la fecha mal digitada (01/01 en «Enero») podía
+// servir sin que nada lo comparara con el del 31: los balances del corte se agrupan por fecha exacta.
+// Desde el 18/Oct/2026 ese balance tiene que estar CERRADO y ser la versión vigente de su línea:
+// cerrar exige que todos los balances del corte coincidan en saldos finales, así que cualquier
+// cerrado del corte da el mismo cruce. Cartera y CxP exigen además que conserve el detalle por
+// tercero, porque su cruce por tercero lo lee.
 
 export type ContextoCompuertaCruce = {
   balance: {
@@ -40,7 +45,11 @@ export type CandidatoBalanceCruce = {
   conDetalleTercero?: boolean;
 };
 
-/** Indica si la fecha final del balance pertenece al mes de corte del módulo («YYYY-MM»). */
+/**
+ * Indica si la fecha final del balance pertenece al mes de corte del módulo («YYYY-MM»). Ya no elige
+ * el balance (ver `fechaCorteDelCruce`): solo distingue «no hay balance del mes» de «hay, pero termina
+ * otro día».
+ */
 export function balanceTerminaEnPeriodo(periodoFin: Date, periodoModulo: string): boolean {
   const coincidencia = /^(\d{4})-(\d{2})$/.exec(periodoModulo);
   if (!coincidencia) return false;
@@ -55,12 +64,34 @@ export type OpcionesBalanceCruce = {
   exigirDetalleTercero?: boolean;
   /** Ids de las versiones vigentes de su línea; ausente = no se filtra (pruebas, datos ya filtrados). */
   vigentes?: ReadonlySet<number>;
+  /** Fecha de corte del cargue (Cartera y CxP); sin ella, el último día del mes de corte. */
+  fechaCorte?: Date | string | null;
 };
 
+/** Último día del mes de corte «YYYY-MM» (AAAA-MM-DD); null si el período no es válido. */
+export function ultimoDiaDelMes(periodoModulo: string): string | null {
+  const coincidencia = /^(\d{4})-(\d{2})$/.exec(periodoModulo);
+  if (!coincidencia) return null;
+  const anio = Number(coincidencia[1]);
+  const mes = Number(coincidencia[2]);
+  if (!Number.isInteger(anio) || mes < 1 || mes > 12) return null;
+  return new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10);
+}
+
+/** Fecha EXACTA en que tiene que terminar el balance del cruce (AAAA-MM-DD). */
+export function fechaCorteDelCruce(periodoModulo: string, fechaCorte?: Date | string | null): string | null {
+  return fechaCorte ? fechaCorteISO(fechaCorte) : ultimoDiaDelMes(periodoModulo);
+}
+
+const terminaEn = (periodoFin: Date, fecha: string | null): boolean => fecha != null && fechaCorteISO(periodoFin) === fecha;
+
+/** «31/12/2025». */
+const fechaLegible = (fecha: string): string => fecha.split("-").reverse().join("/");
+
 /**
- * Balance contra el que cruza un cargue: uno CERRADO y vigente que termine en su mes de corte (con
- * detalle por tercero si el módulo lo exige). Los candidatos llegan del más reciente al más antiguo
- * (fecha de corte, fecha de carga, id) y gana el primero. null = no hay contra qué cruzar
+ * Balance contra el que cruza un cargue: uno CERRADO y vigente que termine EXACTAMENTE en su fecha de
+ * corte (con detalle por tercero si el módulo lo exige). Los candidatos llegan del más reciente al más
+ * antiguo (fecha de corte, fecha de carga, id) y gana el primero. null = no hay contra qué cruzar
  * (`motivoSinBalanceCruce` dice por qué).
  */
 export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
@@ -68,15 +99,20 @@ export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   periodoModulo: string,
   opciones: OpcionesBalanceCruce = {},
 ): T | null {
+  const fecha = fechaCorteDelCruce(periodoModulo, opciones.fechaCorte);
   return candidatos.find((c) =>
-    balanceTerminaEnPeriodo(c.periodoFin, periodoModulo)
+    terminaEn(c.periodoFin, fecha)
     && c.estaCongelado
     && (!opciones.vigentes || opciones.vigentes.has(c.id))
     && (!opciones.exigirDetalleTercero || c.conDetalleTercero === true),
   ) ?? null;
 }
 
-export type MotivoSinBalanceCruce = "sin_balance_en_mes" | "sin_balance_cerrado" | "sin_balance_cerrado_por_terceros";
+export type MotivoSinBalanceCruce =
+  | "sin_balance_en_mes"
+  | "sin_balance_en_fecha"
+  | "sin_balance_cerrado"
+  | "sin_balance_cerrado_por_terceros";
 
 /** Por qué un cargue no tiene balance contra el que cruzar (null = sí lo tiene). */
 export function motivoSinBalanceCruce<T extends CandidatoBalanceCruce>(
@@ -85,17 +121,27 @@ export function motivoSinBalanceCruce<T extends CandidatoBalanceCruce>(
   opciones: OpcionesBalanceCruce & { modulo?: string } = {},
 ): { motivo: MotivoSinBalanceCruce; mensaje: string } | null {
   if (seleccionarBalanceCruceModulo(candidatos, periodoModulo, opciones)) return null;
+  const fecha = fechaCorteDelCruce(periodoModulo, opciones.fechaCorte);
+  const al = fecha ? fechaLegible(fecha) : periodoModulo;
   const delMes = candidatos.filter((c) => balanceTerminaEnPeriodo(c.periodoFin, periodoModulo));
   if (delMes.length === 0) {
-    return { motivo: "sin_balance_en_mes", mensaje: `No hay un balance con corte en ${periodoModulo}. Carga el balance del período en /balance y ciérralo para conciliar contra él.` };
+    return { motivo: "sin_balance_en_mes", mensaje: `No hay un balance con corte al ${al}. Carga el balance del período en /balance y ciérralo para conciliar contra él.` };
   }
-  const cerrados = delMes.filter((c) => c.estaCongelado && (!opciones.vigentes || opciones.vigentes.has(c.id)));
+  const enFecha = delMes.filter((c) => terminaEn(c.periodoFin, fecha));
+  if (enFecha.length === 0) {
+    const otras = [...new Set(delMes.map((c) => fechaLegible(fechaCorteISO(c.periodoFin))))].join(", ");
+    return {
+      motivo: "sin_balance_en_fecha",
+      mensaje: `Ningún balance termina el ${al}, la fecha de corte de este cargue: los de ese mes terminan el ${otras}. Corrige el período de ese balance o carga uno al ${al} y ciérralo.`,
+    };
+  }
+  const cerrados = enFecha.filter((c) => c.estaCongelado && (!opciones.vigentes || opciones.vigentes.has(c.id)));
   if (cerrados.length === 0) {
-    return { motivo: "sin_balance_cerrado", mensaje: `No hay un balance cerrado con corte en ${periodoModulo}. Cierra el balance del período en /balance para conciliar contra él.` };
+    return { motivo: "sin_balance_cerrado", mensaje: `No hay un balance cerrado con corte al ${al}. Cierra el balance del período en /balance para conciliar contra él.` };
   }
   return {
     motivo: "sin_balance_cerrado_por_terceros",
-    mensaje: `El balance cerrado con corte en ${periodoModulo} no conserva el detalle por tercero, que ${opciones.modulo ?? "este módulo"} necesita. Carga uno «Por terceros» del mismo corte y ciérralo.`,
+    mensaje: `El balance cerrado con corte al ${al} no conserva el detalle por tercero, que ${opciones.modulo ?? "este módulo"} necesita. Carga uno «Por terceros» del mismo corte y ciérralo.`,
   };
 }
 

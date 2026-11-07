@@ -47,8 +47,8 @@ export type CuentaBloqueada = FilaDetalleBloqueo;
  * Mes de corte («YYYY-MM») de un balance: el de su FECHA FINAL. Un cierre en firme protege a todo
  * balance que termine en ese mes, sin importar desde cuándo arranca ni cómo se llame su período:
  * «Enero 2025 – Diciembre 2025» y «Diciembre 2025» terminan en el mismo corte y sus saldos finales
- * son comparables. Es el mismo criterio con que el cruce elige el balance (`balanceTerminaEnPeriodo`)
- * y coincide con el período del módulo que guarda el cierre.
+ * son comparables. Coincide con el período del módulo que guarda el cierre. Proteger por MES es a
+ * propósito más amplio que elegir: el cruce exige la fecha exacta (`fechaCorteDelCruce`).
  */
 export function mesDeCorteBalance(periodoFin: Date): string {
   return `${periodoFin.getUTCFullYear()}-${String(periodoFin.getUTCMonth() + 1).padStart(2, "0")}`;
