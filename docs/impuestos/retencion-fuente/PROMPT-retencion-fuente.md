@@ -131,13 +131,14 @@ Nómina, y al revés.
 Todos los valores se guardan **en positivo**. Los renglones «Menos…» restan en su total.
 
 **No se guardan ni se concilian las bases**: 29 a 41, 55, 56, 59 a 67, 77 a 92, 109,
-110 y 113 a 120. Tampoco nombres, apellidos, código de seccional, 27, 28, 139, 140, 980
-(del 350), 981 a 983 ni 994.
+110 y 113 a 120. Tampoco nombres, apellidos, código de seccional, 27, 28, 139, 140,
+981 a 983 ni 994.
 
 **Se guardan**: 1 (año), 3 (período), 4 (número de formulario), 5 (NIT), 6 (DV),
 11 (razón social), 25 (código de corrección), 26 (número del formulario anterior), los
-valores de retención 42 a 54, 57, 58, 68 a 76, 93 a 108, 111, 112, 121 a 138, 996
-(autoadhesivo) y 997 (fecha de presentación). De la hoja 2 (pagos al exterior): 141, 143,
+valores de retención 42 a 54, 57, 58, 68 a 76, 93 a 108, 111, 112, 121 a 138, 980
+(pago total, informativo: no entra a los totales, al cruce ni a Pagos efectuados; se agregó
+el 7/Nov/2026), 996 (autoadhesivo) y 997 (fecha de presentación). De la hoja 2 (pagos al exterior): 141, 143,
 147 y los totales 150, 151, 154 y 155.
 
 **Totales** (se recalculan y deben coincidir con lo impreso):

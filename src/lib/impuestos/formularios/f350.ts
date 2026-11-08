@@ -5,8 +5,10 @@ import type { DefinicionFormulario, PersonaRenglon, RenglonDian } from "./defini
  *
  * Fuente: «Retencion en la fuente - F350 y F490.xlsx», pestaña «Formulario 350»
  * (docs/impuestos/retencion-fuente). Las bases (29 a 41, 55, 56, 59 a 67, 77 a 92, 109,
- * 110 y 113 a 120) no se guardan ni se concilian; tampoco los nombres, la seccional, las
- * firmas ni el pago total.
+ * 110 y 113 a 120) no se guardan ni se concilian; tampoco los nombres, la seccional ni las
+ * firmas. El pago total (980) se guarda como importe INFORMATIVO: no lo suma ningún total, no
+ * tiene concepto en «Mapeos DIAN» (no entra al cruce) y Pagos efectuados mide lo pagado con
+ * los recibos 490.
  */
 
 type Concepto = {
@@ -84,6 +86,8 @@ const unico = (renglon: number, concepto: string, etiqueta: string, seccion: str
 });
 
 const ANEXO = "Anexo · pagos al exterior (hoja 2)";
+/** Importes que se guardan y se muestran sin entrar a los totales, al cruce ni a Pagos efectuados. */
+const INFORMATIVO = "Informativo";
 
 export const F350: DefinicionFormulario = {
   codigo: "350",
@@ -120,7 +124,7 @@ export const F350: DefinicionFormulario = {
     unico(138, "total_mas_sanciones", "Total retenciones más sanciones", TOTALES, "total", [[136, 1], [137, 1]]),
     dato(139, "Número de identificación del signatario", false, "Firmas"),
     dato(140, "DV del signatario", false, "Firmas"),
-    dato(980, "Pago total", false, "Firmas"),
+    { renglon: 980, seccion: INFORMATIVO, concepto: "pago_total", etiqueta: "Pago total", persona: "unica", tipo: "informativo", guardar: true },
     dato(981, "Código de representación", false, "Firmas"),
     dato(982, "Código contador o revisor fiscal", false, "Firmas"),
     dato(983, "Número de tarjeta profesional", false, "Firmas"),

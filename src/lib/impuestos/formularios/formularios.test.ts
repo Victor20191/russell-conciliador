@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { calcularTotal, controlarTotales, renglonDe, renglonesConImporte, renglonesGuardados } from "./definicion";
 import { F350, RENGLONES_RENTA_F350 } from "./f350";
 import { F490 } from "./f490";
+import { MAPEO_F350_FABRICA } from "../mapeo-dian";
 
 const BASES_350 = [
   ...Array.from({ length: 13 }, (_, i) => 29 + i), // 29..41
@@ -38,8 +39,15 @@ describe("formulario 350 como dato", () => {
 
   it("se guardan los datos que piden la corrección, la oportunidad y el cruce", () => {
     const guardados = renglonesGuardados(F350);
-    for (const r of [1, 3, 4, 5, 6, 11, 25, 26, 996, 997]) expect(guardados, `renglón ${r}`).toContain(r);
-    for (const r of [7, 8, 9, 10, 12, 27, 28, 139, 140, 980, 981, 982, 983, 994]) expect(guardados, `renglón ${r}`).not.toContain(r);
+    for (const r of [1, 3, 4, 5, 6, 11, 25, 26, 980, 996, 997]) expect(guardados, `renglón ${r}`).toContain(r);
+    for (const r of [7, 8, 9, 10, 12, 27, 28, 139, 140, 981, 982, 983, 994]) expect(guardados, `renglón ${r}`).not.toContain(r);
+  });
+
+  it("el pago total (980) se guarda como importe informativo: no lo suma ningún total ni tiene concepto en el mapeo", () => {
+    expect(renglonDe(F350, 980)).toMatchObject({ tipo: "informativo", guardar: true });
+    expect(renglonesConImporte(F350)).toContain(980);
+    expect(F350.renglones.filter((r) => r.terminos?.some(([t]) => t === 980))).toEqual([]);
+    expect(MAPEO_F350_FABRICA.some((m) => m.renglonPj === 980 || m.renglonPn === 980)).toBe(false);
   });
 
   it("guarda todas las retenciones y totales de 42 a 138", () => {

@@ -17,11 +17,16 @@ export type PersonaRenglon = "juridica" | "natural" | "unica";
 
 /**
  * - `valor`: retención declarada (se guarda y, si el mapeo lo dice, se concilia).
+ * - `informativo`: importe que se guarda y se muestra, pero no lo suma ningún total ni tiene
+ *   concepto en el mapeo (no entra al cruce). Ej.: el pago total (980) del 350.
  * - `base`: base sujeta a retención (no se guarda ni se concilia).
  * - `total`: se recalcula con `terminos` y se compara con lo impreso.
  * - `dato`: encabezado, firmas o uso oficial (se guarda solo si `guardar`).
  */
-export type TipoRenglon = "valor" | "base" | "total" | "dato";
+export type TipoRenglon = "valor" | "informativo" | "base" | "total" | "dato";
+
+/** ¿El renglón lleva un importe en pesos (no un dato del encabezado ni una base)? */
+export const esImporte = (r: Pick<RenglonDian, "tipo">): boolean => r.tipo === "valor" || r.tipo === "informativo" || r.tipo === "total";
 
 export type TerminoTotal = readonly [renglon: number, signo: 1 | -1];
 
@@ -52,9 +57,9 @@ export function renglonesGuardados(def: DefinicionFormulario): number[] {
   return def.renglones.filter((r) => r.guardar).map((r) => r.renglon);
 }
 
-/** Renglones con importe que se guardan (valores y totales; no los datos del encabezado). */
+/** Renglones con importe que se guardan (valores, informativos y totales; no los datos del encabezado). */
 export function renglonesConImporte(def: DefinicionFormulario): number[] {
-  return def.renglones.filter((r) => r.guardar && (r.tipo === "valor" || r.tipo === "total")).map((r) => r.renglon);
+  return def.renglones.filter((r) => r.guardar && esImporte(r)).map((r) => r.renglon);
 }
 
 export function aCentavos(valor: number): number {

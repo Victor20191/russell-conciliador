@@ -9,6 +9,7 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { confirmarFormularioDian, descartarFormularioDian } from "@/app/actions/impuestos-retencion";
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
+import { esImporte } from "@/lib/impuestos/formularios/definicion";
 import { F350 } from "@/lib/impuestos/formularios/f350";
 import { F490 } from "@/lib/impuestos/formularios/f490";
 import { controlesLectura, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
@@ -83,7 +84,7 @@ export function FormularioModal({
   const avisos = controles.filter((c) => !c.bloquea && !c.ok);
   const correctos = controles.filter((c) => c.ok).length;
 
-  const renglones = def.renglones.filter((r) => r.guardar && (r.tipo === "valor" || r.tipo === "total"));
+  const renglones = def.renglones.filter((r) => r.guardar && esImporte(r));
   const visibles = renglones.filter((r) => mostrarTodos || r.tipo === "total" || (valores[r.renglon] ?? "") !== "" || f.leido.valores[r.renglon] != null);
   // Secciones en el orden del formulario (tramos seguidos): el total de renta va después de lo que suma.
   const secciones = visibles.reduce<{ seccion: string; renglones: typeof visibles }[]>((grupos, r) => {

@@ -176,9 +176,11 @@ revisión):
 ## 6. Los formularios como dato
 
 `src/lib/impuestos/formularios/f350.ts` y `f490.ts` (puros, con pruebas) describen cada
-renglón: número, sección, persona (jurídica / natural / única), tipo (`valor` | `base` |
-`total` | `dato`), si se guarda, y para los totales su fórmula como lista de términos con
-signo:
+renglón: número, sección, persona (jurídica / natural / única), tipo (`valor` |
+`informativo` | `base` | `total` | `dato`), si se guarda, y para los totales su fórmula como
+lista de términos con signo. Un renglón `informativo` (desde el 7/Nov/2026, el pago total 980
+del 350) se guarda y se muestra, pero no lo suma ningún total ni tiene concepto en el mapeo.
+Así se ve un total:
 
 ```ts
 { renglon: 134, tipo: "total", terminos: [[131, +1], [132, +1], [133, -1]] }

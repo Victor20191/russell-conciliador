@@ -327,7 +327,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "meses",
       titulo: "Por meses",
       proposito:
-        "Cada renglón del 350 por mes, con persona jurídica y natural, y debajo los pagos de los recibos 490. Los valores son los del 350 vigente de cada mes (la última corrección) y los totales se recalculan con los renglones del formulario.",
+        "Cada renglón del 350 por mes, con persona jurídica y natural, y debajo los pagos de los recibos 490. Los valores son los del 350 vigente de cada mes (la última corrección) y los totales se recalculan con los renglones del formulario. El pago total (renglón 980) sale aparte, como informativo: no entra a los totales, al cruce ni a Pagos efectuados.",
       etapas: [
         {
           titulo: "Consultar",

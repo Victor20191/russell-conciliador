@@ -43,7 +43,8 @@ export type FilaPago = { clave: string; etiqueta: string; meses: (number | null)
 
 export type VistaRevision = { meses: MesVista[]; filas: FilaVista[]; pagos: FilaPago[] };
 
-const RENGLONES_UNICOS = [129, 130, 131, 132, 133, 134, 135, 136, 137, 138] as const;
+/** Renglones de un solo valor, en el orden del formulario; el 980 (pago total) es informativo. */
+const RENGLONES_UNICOS = [129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 980] as const;
 
 export function vistasRevision(periodos: readonly PeriodoRevision[]): VistaRevision {
   const meses: MesVista[] = periodos.map((p) => ({

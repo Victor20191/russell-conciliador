@@ -35,11 +35,11 @@ describe("normalización de lo que lee la IA", () => {
     expect(separarNitDv("", "")).toEqual({ nit: null, dv: null });
   });
 
-  it("febrero: descarta las bases y el pago total, conserva retenciones y totales", () => {
+  it("febrero: descarta las bases, conserva retenciones, totales y el pago total", () => {
     const l = normalizarLectura(lecturaCrudaFebrero(NIT_FICTICIO + DV));
     expect(l).toMatchObject({ formulario: "350", anio: 2026, periodo: 2, numero: "3510673398173", nit: NIT_FICTICIO, dv: DV, fechaSello: "2026-03-19", codigoCorreccion: null });
     for (const base of [77, 29, 79, 30, 31, 81, 33, 36, 55, 59]) expect(l.valores[base], `base ${base}`).toBeUndefined();
-    expect(l.valores[980]).toBeUndefined();
+    expect(l.valores[980]).toBe(0);
     expect(l.valores[93]).toBe(63_256_000);
     expect(l.valores[130]).toBe(127_141_000);
     expect(l.exterior).toEqual([
@@ -209,6 +209,12 @@ describe("vistas por meses y acumulado (Melonn, corte agosto)", () => {
     expect(fila("timbre").total).toBe(0);
     expect(fila("sanciones").total).toBe(0);
     expect(fila("total_mas_sanciones").total).toBe(1_092_190_000);
+  });
+
+  it("el pago total (980) sale después del 138, en su sección informativa", () => {
+    const claves = vista.filas.map((f) => f.clave);
+    expect(claves.indexOf("pago_total")).toBe(claves.indexOf("total_mas_sanciones") + 1);
+    expect(fila("pago_total")).toMatchObject({ seccion: "Informativo", tipo: "unico", renglonPj: 980 });
   });
 
   it("los totales de cada mes se recalculan con la definición", () => {

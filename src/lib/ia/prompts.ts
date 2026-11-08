@@ -5,6 +5,7 @@
 // El resultado se cachea en el Data Cache de Next y se invalida al editar con
 // updateTag(PROMPTS_CACHE_TAG) desde la Server Action — mismo patrón que getMatriz().
 import "server-only";
+import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { PROMPTS_CATALOGO, getPromptDefecto, CLAVES_PROMPT } from "./prompts-catalogo";
@@ -26,9 +27,14 @@ async function leerContenido(clave: string): Promise<string> {
 /**
  * Contenido vigente del prompt `clave` (BD → fábrica), cacheado. Lo usan el
  * pipeline de extracción (`extraer.ts`) y el de mapeo (`mapeo-ia.ts`).
+ *
+ * La llave lleva una huella del texto de fábrica: si una versión nueva cambia ese
+ * texto, la caché vieja (que sobrevive a reinicios y despliegues) deja de servir el
+ * anterior a quien no tiene el prompt editado en la BD.
  */
 export function getPromptContenido(clave: string): Promise<string> {
-  return unstable_cache(() => leerContenido(clave), ["prompt-ia-contenido", clave], {
+  const huellaFabrica = createHash("sha256").update(getPromptDefecto(clave)).digest("hex").slice(0, 12);
+  return unstable_cache(() => leerContenido(clave), ["prompt-ia-contenido", clave, huellaFabrica], {
     tags: [PROMPTS_CACHE_TAG],
   })();
 }

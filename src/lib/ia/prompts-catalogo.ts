@@ -53,7 +53,7 @@ const DEFECTO_FORMULARIO_DIAN = [
   "Ubica cada valor por el NÚMERO del renglón impreso a su izquierda, no por el rótulo: en estos PDF el rótulo y el valor a veces quedan corridos de línea.",
   "Datos del encabezado: año (1), período (3), número de formulario (4), NIT (5) y DV (6) —si el DV viene pegado al NIT, copia ambos tal cual—, razón social (11). En el 350: código de corrección (25) y número del formulario anterior (26). En el 490: concepto (2), cuota (27), de (28), número del formulario que se paga (29) y fecha para el pago (32).",
   "Uso oficial: autoadhesivo / número interno (996) y la fecha del sello de la entidad recaudadora (997), tal como aparece (puede venir con espacios entre los dígitos y con la hora).",
-  "Renglones: en el 350 devuelve TODOS los renglones numerados del 29 al 138 que tengan un valor impreso (también los que digan 0) y, en la hoja 2, los totales 148 a 155 y cada línea del detalle de pagos al exterior (país o convenio, tipo de persona y valor de la retención). En el 490 devuelve los renglones 34, 35, 36 y 980.",
+  "Renglones: en el 350 devuelve TODOS los renglones numerados del 29 al 138 que tengan un valor impreso (también los que digan 0), el 980 (pago total) y, en la hoja 2, los totales 148 a 155 y cada línea del detalle de pagos al exterior (país o convenio, tipo de persona y valor de la retención). En el 490 devuelve los renglones 34, 35, 36 y 980.",
   "No inventes valores: si un renglón no se lee con certeza, omítelo.",
 ].join(" ");
 
