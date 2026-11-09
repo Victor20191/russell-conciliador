@@ -2173,12 +2173,15 @@ model VencimientoDian {
   @@map("vencimiento_dian")
 }
 
-// Revisión de Retención en la fuente de un cliente, un año y un corte (precierre, cierre u otro
-// mes). Los formularios NO cuelgan de la revisión sino del cliente y el año: el precierre y el
-// cierre del mismo año comparten los de enero a septiembre. `periodo` («2026-09») es la llave de
-// las marcas y del cierre en firme (`marca_cruce_modulo`, `conciliacion_modulo_cierre`, código RET).
-model RevisionRetencion {
+// Revisión de un impuesto DIAN (Retención en la fuente, RET, o IVA) de un cliente, un año y un
+// corte (precierre, cierre u otro mes que cierre período). Los formularios NO cuelgan de la revisión
+// sino del cliente, el impuesto y el año: el precierre y el cierre del mismo año comparten los de
+// enero a septiembre. `periodo` («2026-09») es la llave de las marcas y del cierre en firme
+// (`marca_cruce_modulo`, `conciliacion_modulo_cierre`, con el código del impuesto). Antes se llamaba
+// `revision_retencion` (renombrada el 8/Nov/2026).
+model RevisionImpuesto {
   id            Int      @id @default(autoincrement()) @map("id")
+  impuesto      String   @default("RET") @map("impuesto") // RET | IVA
   clienteId     Int      @map("cliente_id") // FK suave a clientes
   nombreCliente String   @map("nombre_cliente")
   nitCliente    String   @map("nit_cliente")
@@ -2197,20 +2200,21 @@ model RevisionRetencion {
   creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  @@unique([clienteId, anio, mesCorte])
+  @@unique([clienteId, impuesto, anio, mesCorte])
   @@index([clienteId, anio])
-  @@map("revision_retencion")
+  @@map("revision_impuesto")
 }
 
-// Cada PDF de un formulario 350 o 490 leído para un cliente y un año. Se confirma antes de
-// contar: `por_confirmar` no entra en ningún cálculo. El número de formulario (renglón 4) es único
-// en la DIAN; uno descartado que se vuelve a importar reutiliza su fila.
+// Cada PDF de un formulario 350, 300 o 490 leído para un cliente, un impuesto y un año. Se confirma
+// antes de contar: `por_confirmar` no entra en ningún cálculo. El número de formulario (renglón 4)
+// es único en la DIAN; uno descartado que se vuelve a importar reutiliza su fila.
 model FormularioDianCargado {
   id               Int                     @id @default(autoincrement()) @map("id")
+  impuesto         String                  @default("RET") @map("impuesto") // RET | IVA (el 490 lo comparten)
   clienteId        Int                     @map("cliente_id") // FK suave a clientes
   anio             Int                     @map("anio")
   periodo          Int                     @map("periodo") // 1–12 (renglón 3)
-  formulario       String                  @map("formulario") // 350 | 490
+  formulario       String                  @map("formulario") // 350 | 300 | 490
   numero           String                  @unique @map("numero") // renglón 4
   estado           String                  @default("por_confirmar") @map("estado") // por_confirmar | confirmado | descartado
   codigoCorreccion Int?                    @map("codigo_correccion") // 350, renglón 25 (1 = corrección)
@@ -2246,6 +2250,7 @@ model FormularioDianCargado {
   renglones        RenglonFormularioDian[]
 
   @@index([clienteId, anio, formulario, estado])
+  @@index([clienteId, impuesto, anio, estado])
   @@index([clienteId, huellaSha256])
   @@map("formulario_dian_cargado")
 }
@@ -2268,7 +2273,7 @@ model PeriodoSinFormulario {
   clienteId       Int      @map("cliente_id")
   anio            Int      @map("anio")
   periodo         Int      @map("periodo")
-  formulario      String   @map("formulario") // 350
+  formulario      String   @map("formulario") // 350 (Retención) | 300 (IVA)
   causal          String   @map("causal")
   registradoPor   String?  @map("registrado_por")
   registradoPorId Int?     @map("registrado_por_id")

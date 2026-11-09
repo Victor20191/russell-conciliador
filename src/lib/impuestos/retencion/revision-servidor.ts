@@ -1,15 +1,20 @@
 import "server-only";
 import prisma from "@/lib/prisma";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
-import { controlesLectura, normalizarLectura, type ControlLectura, type LecturaCruda, type LecturaFormulario } from "./lectura";
+import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
+import { opcionesPeriodicidad } from "../periodicidad";
+import { controlesLectura, normalizarLectura, type CodigoFormulario, type ControlLectura, type LecturaCruda, type LecturaFormulario } from "./lectura";
 import { periodosRevision, type PeriodoRevision } from "./periodos-revision";
 import type { EstadoFormulario } from "./tipos";
 
-/** Lecturas de Impuestos · Retención en la fuente para las pantallas (sin caché). */
+/**
+ * Lecturas de las revisiones de Impuestos · DIAN (Retención en la fuente e IVA) para las pantallas
+ * (sin caché). Cada revisión lee solo los formularios de su impuesto: el 490 lo comparten los dos.
+ */
 
 export type FormularioVista = {
   id: number;
-  formulario: "350" | "490";
+  formulario: CodigoFormulario;
   periodo: number;
   numero: string;
   estado: EstadoFormulario;
@@ -39,6 +44,7 @@ export type FormularioVista = {
 
 export type RevisionVista = {
   id: number;
+  impuesto: ClaveImpuesto;
   clienteId: number;
   nombreCliente: string;
   nitCliente: string;
@@ -55,24 +61,26 @@ export type RevisionVista = {
 };
 
 export async function cargarRevision(id: number): Promise<RevisionVista | null> {
-  const r = await prisma.revisionRetencion.findUnique({ where: { id } });
+  const r = await prisma.revisionImpuesto.findUnique({ where: { id } });
   if (!r) return null;
+  const impuesto = impuestoPorClave(r.impuesto) ?? RETENCION;
+  const codigo = impuesto.declaracion.codigo;
   const [filas, causales] = await Promise.all([
     prisma.formularioDianCargado.findMany({
-      where: { clienteId: r.clienteId, anio: r.anio, estado: { not: "descartado" } },
+      where: { clienteId: r.clienteId, impuesto: impuesto.clave, anio: r.anio, estado: { not: "descartado" } },
       include: { renglones: { select: { renglon: true, valor: true } } },
       orderBy: [{ periodo: "asc" }, { formulario: "asc" }, { fechaSello: "asc" }, { id: "asc" }],
     }),
-    prisma.periodoSinFormulario.findMany({ where: { clienteId: r.clienteId, anio: r.anio, formulario: "350" }, orderBy: { periodo: "asc" } }),
+    prisma.periodoSinFormulario.findMany({ where: { clienteId: r.clienteId, anio: r.anio, formulario: codigo }, orderBy: { periodo: "asc" } }),
   ]);
-  const ctx = { nitCliente: r.nitCliente, anio: r.anio, mesCorte: r.mesCorte };
+  const ctx = { nitCliente: r.nitCliente, anio: r.anio, mesCorte: r.mesCorte, impuesto: impuesto.clave, periodicidad: r.periodicidad };
   const formularios: FormularioVista[] = filas.map((f) => {
     const leido = normalizarLectura(f.lecturaJson as unknown as LecturaCruda);
     const valores = Object.fromEntries(f.renglones.map((x) => [x.renglon, Number(x.valor)]));
     const fechaSello = f.fechaSello ? fechaCalendarioISO(f.fechaSello) : null;
     const actual: LecturaFormulario = {
       ...leido,
-      formulario: f.formulario === "490" ? "490" : "350",
+      formulario: codigoGuardado(f.formulario, impuesto),
       periodo: f.periodo,
       numero: f.numero,
       codigoCorreccion: f.codigoCorreccion,
@@ -84,7 +92,7 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
     };
     return {
       id: f.id,
-      formulario: f.formulario === "490" ? "490" : "350",
+      formulario: codigoGuardado(f.formulario, impuesto),
       periodo: f.periodo,
       numero: f.numero,
       estado: f.estado as EstadoFormulario,
@@ -112,9 +120,10 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
   });
   const confirmados = formularios.filter((f) => f.estado === "confirmado");
   const periodos = periodosRevision({
+    impuesto: impuesto.clave,
     periodicidad: r.periodicidad,
     mesCorte: r.mesCorte,
-    formularios350: confirmados.filter((f) => f.formulario === "350").map((f) => ({
+    formularios350: confirmados.filter((f) => f.formulario === codigo).map((f) => ({
       id: f.id, periodo: f.periodo, numero: f.numero, codigoCorreccion: f.codigoCorreccion, numeroAnterior: f.numeroAnterior, fechaPresentacion: f.fechaSello, autoadhesivo: f.autoadhesivo, valores: f.valores,
     })),
     formularios490: confirmados.filter((f) => f.formulario === "490").map((f) => ({
@@ -125,6 +134,7 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
   });
   return {
     id: r.id,
+    impuesto: impuesto.clave,
     clienteId: r.clienteId,
     nombreCliente: r.nombreCliente,
     nitCliente: r.nitCliente,
@@ -156,16 +166,21 @@ export type RevisionResumen = {
   porConfirmar: number;
 };
 
-/** Revisiones visibles: todas (alcance global) o las de los clientes de la cartera. */
-export async function cargarRevisiones(clientIds: number[] | null): Promise<RevisionResumen[]> {
-  const revisiones = await prisma.revisionRetencion.findMany({
-    where: clientIds ? { clienteId: { in: clientIds } } : {},
+/** El código guardado de un formulario: el 490 o la declaración del impuesto. */
+function codigoGuardado(formulario: string, impuesto: ImpuestoDian): CodigoFormulario {
+  return formulario === "490" ? "490" : (impuesto.declaracion.codigo as CodigoFormulario);
+}
+
+/** Revisiones visibles de un impuesto: todas (alcance global) o las de los clientes de la cartera. */
+export async function cargarRevisiones(clientIds: number[] | null, impuesto: ClaveImpuesto = "RET"): Promise<RevisionResumen[]> {
+  const revisiones = await prisma.revisionImpuesto.findMany({
+    where: { impuesto, ...(clientIds ? { clienteId: { in: clientIds } } : {}) },
     orderBy: [{ nombreCliente: "asc" }, { anio: "desc" }, { mesCorte: "desc" }],
   });
   if (revisiones.length === 0) return [];
   const conteos = await prisma.formularioDianCargado.groupBy({
     by: ["clienteId", "anio", "estado"],
-    where: { clienteId: { in: [...new Set(revisiones.map((r) => r.clienteId))] }, estado: { not: "descartado" } },
+    where: { clienteId: { in: [...new Set(revisiones.map((r) => r.clienteId))] }, impuesto, estado: { not: "descartado" } },
     _count: { _all: true },
   });
   const conteo = (clienteId: number, anio: number, estado: string) =>
@@ -185,14 +200,23 @@ export async function cargarRevisiones(clientIds: number[] | null): Promise<Revi
   }));
 }
 
-export type ClienteRevision = { id: number; nombre: string; nit: string };
+/**
+ * Un cliente para «Nueva revisión». `periodicidad` es la de su ficha para el formulario del impuesto
+ * (null si no la tiene o no es válida: IVA la pide al crear la revisión).
+ */
+export type ClienteRevision = { id: number; nombre: string; nit: string; periodicidad: string | null };
 
-/** Clientes para «Nueva revisión» (los de alcance de escritura). */
-export async function clientesParaRevision(clientIds: number[] | null): Promise<ClienteRevision[]> {
+/** Clientes para «Nueva revisión» (los de alcance de escritura), con su periodicidad del impuesto. */
+export async function clientesParaRevision(clientIds: number[] | null, impuesto: ClaveImpuesto = "RET"): Promise<ClienteRevision[]> {
+  const imp = impuestoPorClave(impuesto) ?? RETENCION;
+  const opciones = opcionesPeriodicidad(imp.claveFormularioCliente) as readonly string[];
   const clientes = await prisma.client.findMany({
     where: clientIds ? { id: { in: clientIds } } : {},
     orderBy: { name: "asc" },
-    select: { id: true, name: true, nit: true },
+    select: { id: true, name: true, nit: true, dianForms: { where: { form: { key: imp.claveFormularioCliente } }, select: { periodicidad: true } } },
   });
-  return clientes.map((c) => ({ id: c.id, nombre: c.name, nit: c.nit }));
+  return clientes.map((c) => {
+    const propia = c.dianForms[0]?.periodicidad ?? null;
+    return { id: c.id, nombre: c.name, nit: c.nit, periodicidad: propia && opciones.includes(propia) ? propia : null };
+  });
 }

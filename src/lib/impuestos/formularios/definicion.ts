@@ -10,7 +10,7 @@
  * no arrastrar errores de coma flotante.
  */
 
-export type CodigoFormularioDian = "350" | "490";
+export type CodigoFormularioDian = "300" | "350" | "490";
 
 /** Persona del renglón: las dos columnas del 350 o un solo valor. */
 export type PersonaRenglon = "juridica" | "natural" | "unica";
@@ -40,12 +40,21 @@ export type RenglonDian = {
   tipo: TipoRenglon;
   guardar: boolean;
   terminos?: readonly TerminoTotal[];
+  /** Total que la DIAN escribe en cero si da negativo (82, 83, 86, 88 y 89 del 300). */
+  pisoCero?: boolean;
 };
+
+/**
+ * Cuadre entre renglones que el formulario pide pero no es un total impreso (en el 300,
+ * 90 + 91 + 92 = 89). No bloquea la confirmación: avisa.
+ */
+export type ValidacionFormulario = { clave: string; etiqueta: string; terminos: readonly TerminoTotal[]; contra: number };
 
 export type DefinicionFormulario = {
   codigo: CodigoFormularioDian;
   nombre: string;
   renglones: readonly RenglonDian[];
+  validaciones?: readonly ValidacionFormulario[];
 };
 
 export function renglonDe(def: DefinicionFormulario, renglon: number): RenglonDian | undefined {
@@ -64,6 +73,12 @@ export function renglonesConImporte(def: DefinicionFormulario): number[] {
 
 export function aCentavos(valor: number): number {
   return Math.round(valor * 100);
+}
+
+/** Σ con signo de los términos, en centavos; con piso cero si el renglón lo pide. */
+function sumaTerminos(r: Pick<RenglonDian, "terminos" | "pisoCero">, valor: (renglon: number) => number): number {
+  const suma = (r.terminos ?? []).reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
+  return r.pisoCero ? Math.max(0, suma) : suma;
 }
 
 export type ControlTotal = {
@@ -87,7 +102,7 @@ export function controlarTotales(def: DefinicionFormulario, valores: ReadonlyMap
   return def.renglones
     .filter((r) => r.tipo === "total" && r.terminos)
     .map((r) => {
-      const calculado = (r.terminos ?? []).reduce((suma, [renglon, signo]) => suma + signo * valor(renglon), 0);
+      const calculado = sumaTerminos(r, valor);
       const impreso = valor(r.renglon);
       return { renglon: r.renglon, etiqueta: r.etiqueta, calculado: calculado / 100, impreso: impreso / 100, cuadra: calculado === impreso };
     });
@@ -97,6 +112,18 @@ export function controlarTotales(def: DefinicionFormulario, valores: ReadonlyMap
 export function calcularTotal(def: DefinicionFormulario, renglon: number, valores: ReadonlyMap<number, number>): number {
   const r = renglonDe(def, renglon);
   if (!r?.terminos) return valores.get(renglon) ?? 0;
-  const centavos = r.terminos.reduce((suma, [termino, signo]) => suma + signo * aCentavos(valores.get(termino) ?? 0), 0);
+  const centavos = sumaTerminos(r, (termino) => aCentavos(valores.get(termino) ?? 0));
   return centavos / 100;
+}
+
+export type ControlValidacion = { clave: string; etiqueta: string; calculado: number; contra: number; renglonContra: number; cuadra: boolean };
+
+/** Las validaciones del formulario (cuadres que avisan) con los valores leídos. */
+export function controlarValidaciones(def: DefinicionFormulario, valores: ReadonlyMap<number, number>): ControlValidacion[] {
+  const valor = (r: number) => aCentavos(valores.get(r) ?? 0);
+  return (def.validaciones ?? []).map((v) => {
+    const calculado = v.terminos.reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
+    const contra = valor(v.contra);
+    return { clave: v.clave, etiqueta: v.etiqueta, calculado: calculado / 100, contra: contra / 100, renglonContra: v.contra, cuadra: calculado === contra };
+  });
 }

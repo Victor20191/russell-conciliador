@@ -14,7 +14,8 @@ import type { PeriodoRevision } from "./periodos-revision";
  */
 
 export type CopiaRetencionV1 = {
-  tipo: "retencion";
+  /** El `slug` del impuesto: «retencion» o «iva». */
+  tipo: "retencion" | "iva";
   version: 1;
   tomadaEn: string;
   periodos: PeriodoRevision[];
@@ -29,16 +30,16 @@ type Contenido = Pick<CopiaRetencionV1, "periodos" | "cruce" | "oportunidad" | "
 
 const huellaDe = (c: Contenido) => createHash("sha256").update(JSON.stringify([c.periodos, c.cruce, c.oportunidad, c.pagos])).digest("hex");
 
-export function construirCopiaRetencion(c: Contenido & { tomadaEn: Date }): CopiaRetencionV1 {
+export function construirCopiaRetencion(c: Contenido & { tomadaEn: Date; tipo?: CopiaRetencionV1["tipo"] }): CopiaRetencionV1 {
   const contenido = { periodos: c.periodos, cruce: c.cruce, oportunidad: c.oportunidad, pagos: c.pagos };
-  return { tipo: "retencion", version: 1, tomadaEn: c.tomadaEn.toISOString(), ...contenido, huella: huellaDe(contenido) };
+  return { tipo: c.tipo ?? "retencion", version: 1, tomadaEn: c.tomadaEn.toISOString(), ...contenido, huella: huellaDe(contenido) };
 }
 
-/** La copia guardada, o null si no es una copia de Retención válida (falta o la alteraron). */
-export function leerCopiaRetencion(valor: unknown): CopiaRetencionV1 | null {
+/** La copia guardada, o null si no es una copia válida del impuesto (falta, es de otro o la alteraron). */
+export function leerCopiaRetencion(valor: unknown, tipo: CopiaRetencionV1["tipo"] = "retencion"): CopiaRetencionV1 | null {
   if (!valor || typeof valor !== "object") return null;
   const c = valor as Partial<CopiaRetencionV1>;
-  if (c.tipo !== "retencion" || c.version !== 1 || !Array.isArray(c.periodos) || !Array.isArray(c.oportunidad) || !c.cruce || !c.pagos || typeof c.huella !== "string") return null;
+  if (c.tipo !== tipo || c.version !== 1 || !Array.isArray(c.periodos) || !Array.isArray(c.oportunidad) || !c.cruce || !c.pagos || typeof c.huella !== "string") return null;
   const copia = c as CopiaRetencionV1;
   return huellaDe(copia) === copia.huella ? copia : null;
 }

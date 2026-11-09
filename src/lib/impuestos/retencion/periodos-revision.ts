@@ -1,15 +1,20 @@
-import { periodosEsperados } from "../periodicidad";
-import { NOMBRES_MES } from "../calendario";
-import { RENGLON_PAGADO_POR_CONCEPTO_490 } from "../formularios/f350";
-import { CONCEPTOS_PAGO_RETENCION, type ConceptoPagoRetencion } from "../formularios/f490";
+import { etiquetaPeriodo, periodosEsperados } from "../periodicidad";
+import { calcularTotal } from "../formularios/definicion";
+import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
 
 /**
- * Estado de cada período de una revisión de Retención en la fuente (puro): qué 350 rige, si es
- * corrección, qué pagos (490) se esperan y cuáles faltan, o la causal de un mes sin formulario.
+ * Estado de cada período de una revisión de Impuestos · DIAN (puro): qué declaración rige (el 350 en
+ * Retención en la fuente, el 300 en IVA), si es corrección, qué pagos (490) se esperan y cuáles
+ * faltan, o la causal de un período sin formulario. Los tipos y avisos conservan el nombre «350» de
+ * Retención (viven en las copias congeladas), pero valen para las dos declaraciones.
  *
- * Correcciones: un 350 con renglón 25 = 1 corrige al del renglón 26 (puede haber cadena). Los
- * VALORES salen del último de la cadena (la corrección vigente) y la OPORTUNIDAD del primero (el
+ * Correcciones: una declaración con renglón 25 = 1 corrige a la del renglón 26 (puede haber cadena).
+ * Los VALORES salen del último de la cadena (la corrección vigente) y la OPORTUNIDAD del primero (el
  * original). Si llega la corrección sin su original, se avisa.
+ *
+ * Pagos esperados: en Retención, un 490 por cada concepto (61, 62, 63) cuyo renglón declara valor
+ * (130, 134, 135); en IVA, un 490 del concepto de la periodicidad (05, 57 o 58) si el total a pagar
+ * (88, recalculado) es mayor que cero.
  */
 
 export type Formulario350 = {
@@ -81,8 +86,9 @@ export function cadenaCorrecciones(formularios: readonly Formulario350[]): Caden
 }
 
 export type PagoConcepto = {
-  concepto: ConceptoPagoRetencion;
-  /** Renglón del 350 que paga (130, 134 o 135) y su valor en el 350 vigente. */
+  /** Renglón 2 del 490: 61, 62 o 63 en Retención; el de la periodicidad (05, 57 o 58) en IVA. */
+  concepto: string;
+  /** Renglón de la declaración que paga (130, 134 o 135 del 350; 86 del 300) y su valor en la vigente. */
   renglon: number;
   declarado: number;
   esperado: boolean;
@@ -106,7 +112,7 @@ export type EstadoPeriodo =
 /** Recibo cuyo renglón 29 cita un 350 que no es de la cadena del período. */
 export type ReciboDeOtro350 = { numero: string; numeroPagado: string };
 
-export const avisoReciboDeOtro350 = (r: ReciboDeOtro350) => `El recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período.`;
+export const avisoReciboDeOtro350 = (r: ReciboDeOtro350, codigo = "350") => `El recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un ${codigo} de este período.`;
 
 export const avisoFueraDeCadena = (numero: string) => `El formulario ${numero} no hace parte de la cadena de correcciones del período.`;
 
@@ -116,8 +122,8 @@ export const avisoFaltaOriginal = (numero: string) =>
 /** 490 confirmados de un mes sin 350 (falta, o se registró que no hubo): exigen marca en Pagos efectuados. */
 export const recibosSin350 = (p: Pick<PeriodoRevision, "cadena" | "pagos">): Formulario490[] => (p.cadena.vigente ? [] : p.pagos.flatMap((x) => x.formularios));
 
-export const avisoRecibosSin350 = (numeros: readonly string[]) =>
-  `El mes no tiene 350 y tiene ${numeros.length === 1 ? `el recibo 490 ${numeros[0]}` : `los recibos 490 ${numeros.join(", ")}`}.`;
+export const avisoRecibosSin350 = (numeros: readonly string[], codigo = "350") =>
+  `${codigo === "350" ? "El mes" : "El período"} no tiene ${codigo} y tiene ${numeros.length === 1 ? `el recibo 490 ${numeros[0]}` : `los recibos 490 ${numeros.join(", ")}`}.`;
 
 export type PeriodoRevision = {
   periodo: number;
@@ -128,19 +134,22 @@ export type PeriodoRevision = {
   porConfirmar: number;
   /** De los anteriores, los que no son 490 (incluye el que no se reconoció como 350 ni 490). */
   porConfirmar350: number;
-  /** 490 por confirmar sin un concepto 61, 62 o 63: no se sabe qué renglón pagan. */
+  /** 490 por confirmar sin un concepto del impuesto: no se sabe qué renglón pagan. */
   recibosSinConcepto: number;
   pagos: PagoConcepto[];
-  /** Conceptos que el 350 vigente obliga a pagar y no tienen 490, ni confirmado ni por confirmar. */
-  pagosFaltantes: ConceptoPagoRetencion[];
+  /** Conceptos que la declaración vigente obliga a pagar y no tienen 490, ni confirmado ni por confirmar. */
+  pagosFaltantes: string[];
   /** Siguen contando como pago del período por su renglón 3, pero exigen marca en Pagos efectuados. Las copias antiguas no lo traen. */
   recibosDeOtro350?: ReciboDeOtro350[];
   avisos: string[];
 };
 
 export type EntradaPeriodos = {
+  /** Sin impuesto es Retención en la fuente. */
+  impuesto?: ClaveImpuesto;
   periodicidad: string;
   mesCorte: number;
+  /** Las declaraciones confirmadas del impuesto (350 o 300). */
   formularios350: (Formulario350 & { periodo: number })[];
   formularios490: (Formulario490 & { periodo: number })[];
   porConfirmar: { periodo: number | null; formulario: string | null; concepto: string | null }[];
@@ -149,6 +158,9 @@ export type EntradaPeriodos = {
 
 /** Estado de todos los períodos esperados hasta el corte. */
 export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
+  const impuesto = impuestoPorClave(e.impuesto) ?? RETENCION;
+  const conceptos = conceptosPagoDe(impuesto, e.periodicidad);
+  const codigosConcepto = new Set(conceptos.map((c) => c.concepto));
   return periodosEsperados(e.periodicidad, e.mesCorte).map(({ periodo, mesFin }) => {
     const cadena = cadenaCorrecciones(e.formularios350.filter((f) => f.periodo === periodo));
     const causal = e.causales.find((c) => c.periodo === periodo)?.causal ?? null;
@@ -156,19 +168,23 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
     const porConfirmar = pendientes.length;
     const recibosPendientes = pendientes.filter((f) => f.formulario === "490");
     const porConfirmar350 = porConfirmar - recibosPendientes.length;
-    const recibosSinConcepto = recibosPendientes.filter((f) => !(CONCEPTOS_PAGO_RETENCION as readonly (string | null)[]).includes(f.concepto)).length;
+    const recibosSinConcepto = recibosPendientes.filter((f) => !f.concepto || !codigosConcepto.has(f.concepto)).length;
     // Un 490 puede pagar cualquier 350 de la cadena, también el original que la corrección cita
     // aunque no esté cargado (el pago se hizo antes de corregir).
     const numerosCadena = new Set([...cadena.cadena.map((f) => f.numero), ...cadena.cadena.map((f) => f.numeroAnterior).filter((n): n is string => n != null)]);
     const del490 = e.formularios490.filter((f) => f.periodo === periodo);
     const avisos: string[] = [];
 
-    const pagos: PagoConcepto[] = CONCEPTOS_PAGO_RETENCION.map((concepto) => {
-      const renglon = RENGLON_PAGADO_POR_CONCEPTO_490[concepto];
+    // IVA espera un 490 si el total a pagar (88, recalculado) es mayor que cero; Retención, uno por
+    // cada concepto cuyo renglón declara valor.
+    const valoresVigente = cadena.vigente ? new Map(Object.entries(cadena.vigente.valores).map(([r, v]) => [Number(r), v])) : null;
+    const totalAPagar = valoresVigente ? calcularTotal(impuesto.declaracion, impuesto.renglones.total, valoresVigente) : 0;
+    const pagos: PagoConcepto[] = conceptos.map(({ concepto, renglonPagado: renglon }) => {
       const declarado = cadena.vigente?.valores[renglon] ?? 0;
       const formularios = del490.filter((f) => f.concepto === concepto);
       const suma = (r: number) => formularios.reduce((s, f) => s + (f.valores[r] ?? 0), 0);
-      return { concepto, renglon, declarado, esperado: declarado > 0, formularios, impuesto: suma(36), sancion: suma(34), intereses: suma(35), porConfirmar: recibosPendientes.filter((f) => f.concepto === concepto).length };
+      const esperado = impuesto.pagoEsperadoPorTotal ? totalAPagar > 0 : declarado > 0;
+      return { concepto, renglon, declarado, esperado, formularios, impuesto: suma(36), sancion: suma(34), intereses: suma(35), porConfirmar: recibosPendientes.filter((f) => f.concepto === concepto).length };
     });
     const recibosDeOtro350: ReciboDeOtro350[] = del490.flatMap((f) =>
       f.numeroPagado && numerosCadena.size > 0 && !numerosCadena.has(f.numeroPagado) ? [{ numero: f.numero, numeroPagado: f.numeroPagado }] : [],
@@ -194,9 +210,9 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
   });
 }
 
-/** Nombre de un período en pantalla: el mes con periodicidad mensual; si no, «Período n». */
+/** Nombre de un período en pantalla: el mes con periodicidad mensual; «Bimestre 01 · Enero-Febrero», «Cuatrimestre 02 · Mayo-Agosto» o «Año». */
 export function etiquetaPeriodoRevision(periodicidad: string, periodo: number): string {
-  return periodicidad === "Mensual" ? (NOMBRES_MES[periodo - 1] ?? `Período ${periodo}`) : `Período ${periodo}`;
+  return etiquetaPeriodo(periodicidad, periodo);
 }
 
 export const ETIQUETA_ESTADO_PERIODO: Readonly<Record<EstadoPeriodo, string>> = {
@@ -207,3 +223,8 @@ export const ETIQUETA_ESTADO_PERIODO: Readonly<Record<EstadoPeriodo, string>> = 
   falta_original: "Falta el original",
   faltan_pagos: "Faltan pagos",
 };
+
+/** La etiqueta del estado con el formulario de la declaración del impuesto («Falta el 300» en IVA). */
+export function etiquetaEstadoPeriodo(estado: EstadoPeriodo, codigoDeclaracion = "350"): string {
+  return estado === "falta_350" ? `Falta el ${codigoDeclaracion}` : ETIQUETA_ESTADO_PERIODO[estado];
+}

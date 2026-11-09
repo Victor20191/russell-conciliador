@@ -1,10 +1,16 @@
 import { nivelDiferencia, type NivelDiferencia } from "@/lib/balance/umbrales-alertas";
-import { esTerceroDian, pareceNombreDian, renglonesDeFila, type FilaMapeoDian, type TerceroDian } from "../mapeo-dian";
+import { claveCuentasMapeo, cuentasDeMapeo, esTerceroDian, pareceNombreDian, renglonesDeFila, type FilaMapeoDian, type TerceroDian } from "../mapeo-dian";
+import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
 import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
 import type { PeriodoRevision } from "./periodos-revision";
 
 /**
- * Cruce contable de Retención en la fuente (puro).
+ * Cruce contable de una revisión de Impuestos · DIAN (puro). Lo de abajo describe Retención en la
+ * fuente; IVA usa el mismo cálculo con su descriptor (`impuestos-dian.ts`): secciones del 300
+ * (generado, descontable, retención de IVA y, al final, ingresos), el lado contable con el signo de la
+ * naturaleza del plan Russell (crédito → −saldo, débito → +saldo), los ingresos por el saldo de la
+ * cuenta (sin terceros, sin DIAN ni saldo inicial), filas de varias cuentas (el renglón 40) y el signo
+ * «−» del mapeo restando en el subtotal (42 y 80), no en lo declarado. IVA no tiene total general.
  *
  * Por cada cuenta Russell del mapeo, lo DECLARADO (la suma de sus conceptos en los 350 vigentes
  * hasta el corte, cada uno con su signo: el 133 resta) contra la CONTABILIDAD (el saldo final al
@@ -19,15 +25,16 @@ import type { PeriodoRevision } from "./periodos-revision";
  * balance el saldo inicial trae retenciones del mismo año y restarlo quitaría lo declarado.
  */
 
-export type GrupoCruce = "renta" | "iva" | "timbre";
+/** «renta», «iva» y «timbre» en Retención; «generado», «descontable», «reteiva» e «ingresos» en IVA. */
+export type GrupoCruce = string;
 
-export const ETIQUETA_GRUPO: Readonly<Record<GrupoCruce, string>> = {
+export const ETIQUETA_GRUPO: Readonly<Record<"renta" | "iva" | "timbre", string>> = {
   renta: "Retenciones a título de renta (130)",
   iva: "Retenciones a título de IVA (134)",
   timbre: "Retención de timbre nacional (135)",
 };
 
-export function grupoDeSeccion(seccion: string): GrupoCruce {
+export function grupoDeSeccion(seccion: string): "renta" | "iva" | "timbre" {
   const s = seccion.toLowerCase();
   if (s.includes("iva")) return "iva";
   if (s.includes("timbre")) return "timbre";
@@ -60,7 +67,8 @@ export type TerceroCruce = {
   saldoInicialRestado?: number;
 };
 
-export type CuentaClienteCruce = { cuenta: string; nombre: string; saldo: number; terceros: TerceroCruce[] };
+/** Una cuenta del cliente. `porCuenta`: se tomó el saldo de la cuenta (ingresos de IVA), sin terceros. */
+export type CuentaClienteCruce = { cuenta: string; nombre: string; saldo: number; terceros: TerceroCruce[]; porCuenta?: boolean };
 
 export type ConceptoCruce = { concepto: string; etiqueta: string; renglones: number[]; signo: "+" | "-"; declarado: number };
 
@@ -75,10 +83,15 @@ export type MarcaCruceRetencion = {
 };
 
 export type FilaCruce = {
-  /** Llave estable de la fila (la de la marca): la cuenta Russell o `sin_cuenta:<concepto>`. */
+  /** Llave estable de la fila (la de la marca): la cuenta Russell, varias unidas con «+», o `sin_cuenta:<concepto>`. */
   clave: string;
   grupo: GrupoCruce;
+  /** La cuenta Russell de la fila; con varias, unidas con «+» (el renglón 40 del 300). */
   cuentaRussell: string | null;
+  /** Las cuentas Russell de la fila, una por una. Las copias antiguas no lo traen. */
+  cuentasRussell?: string[];
+  /** −1 si la fila resta en el subtotal de su sección (42 y 80 del 300). Las copias antiguas no lo traen. */
+  signoSubtotal?: 1 | -1;
   nombreCuenta: string | null;
   conceptos: ConceptoCruce[];
   declarado: number;
@@ -101,6 +114,8 @@ export type SubtotalCruce = { declarado: number; contable: number; diferencia: n
 export type ResumenSaldoInicial = { terceros: number; cuentas: number; monto: number; restado: boolean };
 
 export type ResultadoCruce = {
+  /** El impuesto del cruce. Las copias antiguas no lo traen: son de Retención en la fuente. */
+  impuesto?: ClaveImpuesto;
   grupos: { grupo: GrupoCruce; etiqueta: string; filas: FilaCruce[]; subtotal: SubtotalCruce }[];
   total: SubtotalCruce;
   /** Lo que el botón ofrece y resta: null sin saldos iniciales o sin balance desde enero. Las copias antiguas no lo traen. */
@@ -145,7 +160,16 @@ export type CuentaFueraDeRetencion = { cuenta: string; nombre: string | null; cu
 /** Fila del balance de una cuenta del cliente en 2365/2367; `cuentaRussell` en null si no está homologada. */
 export type FilaFueraDeRetencion = { cuentaCliente: string; nombreCuenta: string | null; cuentaRussell: string | null; saldoFinal: number };
 
+/** Una cuenta del cliente leída del balance por cuenta (sin terceros): los ingresos del 300. */
+export type FilaCuentaContable = { cuentaCliente: string; nombreCuenta: string; cuentaRussell: string; saldoInicial: number; saldoFinal: number };
+
 export type EntradaCruce = {
+  /** Sin impuesto es Retención en la fuente. */
+  impuesto?: ClaveImpuesto;
+  /** Naturaleza de las cuentas Russell (D | C), para los impuestos que siguen el signo del plan (IVA). */
+  naturalezas?: ReadonlyMap<string, "D" | "C">;
+  /** Las cuentas que se leen por cuenta, sin terceros (los ingresos de IVA). */
+  filasContablesCuenta?: readonly FilaCuentaContable[];
   periodos: readonly PeriodoRevision[];
   mapeo: readonly FilaMapeoDian[];
   /** Cuentas Russell que NO restan el tercero DIAN. */
@@ -173,8 +197,12 @@ const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centa
  * el cruce lee por cuenta Russell, así que su saldo no llega a él. Una cuenta en cero no se avisa, porque
  * no le falta nada al cruce. Es informativo: no impide cerrar.
  */
-export function cuentasFueraDeRetencion(filas: readonly FilaFueraDeRetencion[], nombres: ReadonlyMap<string, string> = new Map()): CuentaFueraDeRetencion[] {
-  const esRetencion = (c: string) => prefijosRetencion().some((p) => c.startsWith(p));
+export function cuentasFueraDeRetencion(
+  filas: readonly FilaFueraDeRetencion[],
+  nombres: ReadonlyMap<string, string> = new Map(),
+  prefijos: readonly string[] = prefijosRetencion(),
+): CuentaFueraDeRetencion[] {
+  const esRetencion = (c: string) => prefijos.some((p) => c.startsWith(p));
   const porCuenta = new Map<string, { nombre: string | null; cuentaRussell: string | null; saldos: number[] }>();
   for (const f of filas) {
     if (!esRetencion(f.cuentaCliente) || (f.cuentaRussell && esRetencion(f.cuentaRussell))) continue;
@@ -205,65 +233,95 @@ export function terceroTachado(t: Pick<TerceroCruce, "saldo" | "restado" | "sald
 }
 
 /** Lo declarado por concepto: Σ de sus renglones en los 350 vigentes de los meses del corte, con signo. */
-export function declaradoPorConcepto(periodos: readonly PeriodoRevision[], fila: Pick<FilaMapeoDian, "renglonPj" | "renglonPn" | "signo">): number {
-  const signo = fila.signo === "-" ? -1 : 1;
+export function declaradoPorConcepto(periodos: readonly PeriodoRevision[], fila: Pick<FilaMapeoDian, "renglonPj" | "renglonPn" | "signo">, signoEnSubtotal = false): number {
+  const signo = fila.signo === "-" && !signoEnSubtotal ? -1 : 1;
   const renglones = renglonesDeFila(fila);
   return sumar(periodos.flatMap((p) => (p.cadena.vigente ? renglones.map((r) => signo * (p.cadena.vigente!.valores[r] ?? 0)) : [])));
 }
 
 export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
-  const cuentasMapeo = new Set(e.mapeo.filter((f) => f.enCruce && f.cuentaRussell).map((f) => f.cuentaRussell as string));
+  const impuesto: ImpuestoDian = impuestoPorClave(e.impuesto) ?? RETENCION;
+  const signoEnSubtotal = impuesto.cruce.signoEnSubtotal;
+  // El grupo de una sección del mapeo: el del descriptor; en Retención, el de siempre si la sección es otra.
+  const grupoDe = (seccion: string) =>
+    impuesto.cruce.grupos.find((g) => g.secciones.includes(seccion)) ??
+    impuesto.cruce.grupos.find((g) => g.grupo === grupoDeSeccion(seccion)) ??
+    impuesto.cruce.grupos[0];
+  // Signo del lado contable: Retención, pasivo en positivo; IVA, según la naturaleza de la cuenta Russell.
+  const signoDe = (cuentaRussell: string) => (impuesto.cruce.signoPorNaturaleza && e.naturalezas?.get(cuentaRussell) === "D" ? 1 : -1);
   const marcas = new Map(e.marcas.map((m) => [m.clave, m]));
   const filas = new Map<string, FilaCruce>();
+  // Cada cuenta Russell del mapeo, a la fila que la reúne.
+  const filaDeCuenta = new Map<string, string>();
   const restarInicial = e.restarSaldoInicial && e.inicioEnero;
 
   for (const m of e.mapeo) {
     if (!m.enCruce) continue;
-    const grupo = grupoDeSeccion(m.seccion);
-    const clave = m.cuentaRussell ?? `sin_cuenta:${m.concepto}`;
+    const grupo = grupoDe(m.seccion).grupo;
+    const cuentas = cuentasDeMapeo(m);
+    const clave = cuentas.length > 0 ? claveCuentasMapeo(cuentas) : `sin_cuenta:${m.concepto}`;
     let fila = filas.get(clave);
     if (!fila) {
       fila = {
-        clave, grupo, cuentaRussell: m.cuentaRussell, nombreCuenta: m.cuentaRussell ? (e.nombresRussell.get(m.cuentaRussell) ?? null) : null,
+        clave, grupo, cuentaRussell: cuentas.length > 0 ? clave : null, cuentasRussell: cuentas,
+        nombreCuenta: cuentas.length === 1 ? (e.nombresRussell.get(cuentas[0]) ?? null) : null,
+        signoSubtotal: signoEnSubtotal && m.signo === "-" ? -1 : 1,
         conceptos: [], declarado: 0, contable: 0, diferencia: 0, nivel: "cero", requiereMarca: false,
-        restaDian: m.cuentaRussell ? !e.sinRestaDian.has(m.cuentaRussell) : false, dianRestado: 0,
+        restaDian: cuentas.some((c) => !e.sinRestaDian.has(c)), dianRestado: 0,
         cuentasCliente: [], saldoInicial: null, posiblesDian: [], marca: null,
       };
       filas.set(clave, fila);
+      for (const c of cuentas) filaDeCuenta.set(c, clave);
     }
-    fila.conceptos.push({ concepto: m.concepto, etiqueta: m.etiqueta, renglones: renglonesDeFila(m), signo: m.signo, declarado: declaradoPorConcepto(e.periodos, m) });
+    fila.conceptos.push({ concepto: m.concepto, etiqueta: m.etiqueta, renglones: renglonesDeFila(m), signo: m.signo, declarado: declaradoPorConcepto(e.periodos, m, signoEnSubtotal) });
   }
 
-  // Lado contable: cada cuenta del cliente con sus terceros, por cuenta Russell.
-  const porCuentaRussell = new Map<string, Map<string, CuentaClienteCruce>>();
+  // Lado contable: cada cuenta del cliente con sus terceros, por fila del cruce.
+  const porFila = new Map<string, Map<string, CuentaClienteCruce>>();
+  const cuentasDeFila = (clave: string) => {
+    const cuentas = porFila.get(clave) ?? new Map<string, CuentaClienteCruce>();
+    porFila.set(clave, cuentas);
+    return cuentas;
+  };
   const fuera = new Map<string, { cuentas: Set<string>; saldo: number }>();
   for (const t of e.filasContables) {
     const russell = t.cuentaRussell;
-    if (!cuentasMapeo.has(russell)) {
+    const signo = signoDe(russell);
+    const claveFila = filaDeCuenta.get(russell);
+    if (!claveFila) {
       const f = fuera.get(russell) ?? { cuentas: new Set<string>(), saldo: 0 };
       f.cuentas.add(t.cuentaCliente);
-      f.saldo = sumar([f.saldo, -t.saldoFinal]);
+      f.saldo = sumar([f.saldo, signo * t.saldoFinal]);
       fuera.set(russell, f);
       continue;
     }
-    const cuentas = porCuentaRussell.get(russell) ?? new Map<string, CuentaClienteCruce>();
-    porCuentaRussell.set(russell, cuentas);
+    const cuentas = cuentasDeFila(claveFila);
     const cuenta = cuentas.get(t.cuentaCliente) ?? { cuenta: t.cuentaCliente, nombre: t.nombreCuenta, saldo: 0, terceros: [] };
     cuentas.set(t.cuentaCliente, cuenta);
     const esDian = esTerceroDian(t.nit, e.tercerosDian);
     const restado = esDian && !e.sinRestaDian.has(russell);
     cuenta.terceros.push({
-      nit: t.nit, nombre: t.nombreTercero, saldo: -t.saldoFinal, saldoInicial: -t.saldoInicial,
+      nit: t.nit, nombre: t.nombreTercero, saldo: signo * t.saldoFinal, saldoInicial: signo * t.saldoInicial,
       esDian, restado, posibleDian: !esDian && !t.nit && pareceNombreDian(t.nombreTercero),
-      saldoInicialRestado: restarInicial && !esDian && t.saldoInicial !== 0 ? -t.saldoInicial : 0,
+      saldoInicialRestado: restarInicial && !esDian && t.saldoInicial !== 0 ? signo * t.saldoInicial : 0,
     });
+  }
+  // Las cuentas que se leen por cuenta (ingresos de IVA): el saldo final, sin terceros ni restas.
+  for (const c of e.filasContablesCuenta ?? []) {
+    const claveFila = filaDeCuenta.get(c.cuentaRussell);
+    if (!claveFila) continue;
+    const cuentas = cuentasDeFila(claveFila);
+    const previa = cuentas.get(c.cuentaCliente);
+    const saldo = sumar([previa?.saldo ?? 0, signoDe(c.cuentaRussell) * c.saldoFinal]);
+    cuentas.set(c.cuentaCliente, { cuenta: c.cuentaCliente, nombre: c.nombreCuenta, saldo, terceros: [], porCuenta: true });
   }
 
   for (const fila of filas.values()) {
     fila.declarado = sumar(fila.conceptos.map((c) => c.declarado));
     if (fila.cuentaRussell) {
-      const cuentas = [...(porCuentaRussell.get(fila.cuentaRussell)?.values() ?? [])].sort((a, b) => a.cuenta.localeCompare(b.cuenta));
+      const cuentas = [...(porFila.get(fila.clave)?.values() ?? [])].sort((a, b) => a.cuenta.localeCompare(b.cuenta));
       for (const c of cuentas) {
+        if (c.porCuenta) continue;
         c.terceros.sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo));
         c.saldo = sumar(c.terceros.map(aporteTercero));
       }
@@ -284,29 +342,31 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     if (marca) fila.marca = { ...marca, vigente: centavos(marca.diferencia) === centavos(fila.diferencia) };
   }
 
-  const orden: GrupoCruce[] = ["renta", "iva", "timbre"];
-  const grupos = orden
-    .map((grupo) => {
+  // Las secciones en el orden del descriptor (en IVA, los ingresos al final).
+  const grupos = impuesto.cruce.grupos
+    .map(({ grupo, etiqueta }) => {
       const delGrupo = [...filas.values()].filter((f) => f.grupo === grupo);
-      return { grupo, etiqueta: ETIQUETA_GRUPO[grupo], filas: delGrupo, subtotal: subtotal(delGrupo) };
+      return { grupo, etiqueta, filas: delGrupo, subtotal: subtotal(delGrupo) };
     })
     .filter((g) => g.filas.length > 0);
   const todas = grupos.flatMap((g) => g.filas);
   return {
+    ...(impuesto.clave === RETENCION.clave ? {} : { impuesto: impuesto.clave }),
     grupos,
     total: subtotal(todas),
     saldoInicial: resumenSaldoInicial(todas, restarInicial),
     fueraDelMapeo: [...fuera.entries()]
       .map(([cuentaRussell, f]) => ({ cuentaRussell, cuentas: [...f.cuentas].sort(), saldo: f.saldo }))
       .sort((a, b) => a.cuentaRussell.localeCompare(b.cuentaRussell)),
-    fueraDeRetencion: cuentasFueraDeRetencion(e.filasFueraDeRetencion ?? [], e.nombresFueraDeRetencion),
+    fueraDeRetencion: cuentasFueraDeRetencion(e.filasFueraDeRetencion ?? [], e.nombresFueraDeRetencion, impuesto.cruce.prefijosCliente),
     pendientesMarca: todas.filter((f) => f.requiereMarca && !f.marca?.vigente).length,
   };
 }
 
+/** Subtotal de filas: cada una con su signo en el subtotal (en IVA, 42 y 80 restan). */
 function subtotal(filas: readonly FilaCruce[]): SubtotalCruce {
-  const declarado = sumar(filas.map((f) => f.declarado));
-  const contable = sumar(filas.map((f) => f.contable));
+  const declarado = sumar(filas.map((f) => (f.signoSubtotal ?? 1) * f.declarado));
+  const contable = sumar(filas.map((f) => (f.signoSubtotal ?? 1) * f.contable));
   return { declarado, contable, diferencia: sumar([declarado, -contable]) };
 }
 
@@ -403,6 +463,16 @@ export function resumenCuentaCruce(c: CuentaClienteCruce, oculto?: { cantidad: n
     dianRestado: sumar(c.terceros.filter((t) => t.restado).map((t) => t.saldo)),
     posibleDian: c.terceros.some((t) => t.posibleDian),
   };
+}
+
+/** El impuesto de un cruce: las copias antiguas no lo traen y son de Retención. */
+export function impuestoDelCruce(r: Pick<ResultadoCruce, "impuesto">): ImpuestoDian {
+  return impuestoPorClave(r.impuesto) ?? RETENCION;
+}
+
+/** Las cuentas Russell de una fila, una por una (las copias antiguas solo traen `cuentaRussell`). */
+export function cuentasDeFilaCruce(f: Pick<FilaCruce, "cuentaRussell" | "cuentasRussell">): string[] {
+  return f.cuentasRussell ?? (f.cuentaRussell ? f.cuentaRussell.split("+") : []);
 }
 
 export function etiquetaFilaCruce(f: Pick<FilaCruce, "nombreCuenta" | "conceptos">): string {

@@ -175,7 +175,7 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
     nombre: "Diferencias de impuestos",
     descripcion:
       "Desde este monto (inclusive), una diferencia entre lo declarado en los formularios y la contabilidad exige marca de auditoría para poder cerrar la revisión; por debajo es «Diferencia informativa». La DIAN redondea cada renglón a miles, así que casi todas las filas tienen unos cientos de pesos de diferencia.",
-    dondeAplica: "Cruce contable de Retención en la fuente.",
+    dondeAplica: "Cruce contable de Retención en la fuente y de IVA.",
     defecto: UMBRAL_IMPUESTOS_DIFERENCIA,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,

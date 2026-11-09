@@ -119,12 +119,29 @@ export function renglonesDeFila(fila: Pick<FilaMapeoDian, "renglonPj" | "renglon
   return [fila.renglonPj, fila.renglonPn].filter((r): r is number => r != null);
 }
 
-/** Valida una cuenta Russell escrita en «Mapeos DIAN»: 6 dígitos o vacío (sin cuenta). */
+/**
+ * Clave de varias cuentas Russell en una fila del mapeo: únicas, ordenadas y unidas con «+»
+ * («420505+421005»), el mismo formato de las claves de grupo del cruce de los módulos.
+ */
+export function claveCuentasMapeo(cuentas: readonly string[]): string {
+  return [...new Set(cuentas)].sort().join("+");
+}
+
+/** Las cuentas Russell de una fila del mapeo (una sola en el 350; varias en el renglón 40 del 300). */
+export function cuentasDeMapeo(fila: Pick<FilaMapeoDian, "cuentaRussell">): string[] {
+  return fila.cuentaRussell ? fila.cuentaRussell.split("+").filter((c) => c !== "") : [];
+}
+
+/**
+ * Valida la cuenta Russell escrita en «Mapeos DIAN»: vacío (sin cuenta) o una o varias cuentas de
+ * 6 dígitos separadas con «+», coma o punto y coma (los espacios se ignoran). Varias se guardan
+ * ordenadas y unidas con «+».
+ */
 export function normalizarCuentaMapeo(valor: string | null | undefined): { ok: true; cuenta: string | null } | { ok: false; message: string } {
-  const limpia = (valor ?? "").replace(/\s/g, "");
-  if (limpia === "") return { ok: true, cuenta: null };
-  if (!/^\d{6}$/.test(limpia)) return { ok: false, message: "La cuenta Russell debe tener 6 dígitos." };
-  return { ok: true, cuenta: limpia };
+  const partes = (valor ?? "").replace(/\s/g, "").split(/[+,;]+/).filter((p) => p !== "");
+  if (partes.length === 0) return { ok: true, cuenta: null };
+  if (partes.some((p) => !/^\d{6}$/.test(p))) return { ok: false, message: "Cada cuenta Russell debe tener 6 dígitos (varias se separan con +)." };
+  return { ok: true, cuenta: claveCuentasMapeo(partes) };
 }
 
 /** Valida un NIT de la lista de la DIAN: 9 dígitos (núcleo, sin DV). */

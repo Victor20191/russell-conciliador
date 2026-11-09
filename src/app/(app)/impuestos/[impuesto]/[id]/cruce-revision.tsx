@@ -7,13 +7,16 @@ import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPant
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { SelectorBalanceCruce } from "@/components/selector-balance-cruce";
-import { escogerBalanceRetencion } from "@/app/actions/impuestos-retencion";
+import { escogerBalanceImpuesto } from "@/app/actions/impuestos-revisiones";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
 import { ConmutadorCeros } from "./vistas-revision";
+import type { ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import {
   alcanceSaldoInicial,
   aporteTercero,
+  cuentasDeFilaCruce,
   etiquetaFilaCruce,
+  impuestoDelCruce,
   gruposCruceConValores,
   renglonesFilaCruce,
   resumenCuentaCruce,
@@ -25,8 +28,9 @@ import {
   type SubtotalCruce,
 } from "@/lib/impuestos/retencion/cruce";
 
-// Cruce contable de la revisión: lo declarado en los 350 hasta el corte contra el saldo final de
-// las cuentas del cliente homologadas a 2365/2367, con los terceros que lo sustentan al desplegar.
+// Cruce contable de la revisión: lo declarado en las declaraciones (350 o 300) hasta el corte contra el
+// saldo final de las cuentas del cliente homologadas a cada cuenta Russell, con los terceros que lo
+// sustentan al desplegar (en IVA, los ingresos van por el saldo de la cuenta, sin terceros).
 
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
 const NUM = "px-3 py-1.5 text-right tabular-nums whitespace-nowrap";
@@ -85,7 +89,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
         const datos = new FormData();
         datos.set("revisionId", String(revisionId));
         datos.set("balanceId", String(balanceId));
-        return escogerBalanceRetencion({}, datos);
+        return escogerBalanceImpuesto({}, datos);
       }}
     />
   );
@@ -108,6 +112,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
   }
 
   const { resultado, balance, umbral, inicioEnero } = cruce;
+  const impuesto = impuestoDelCruce(resultado);
+  const codigo = impuesto.declaracion.codigo;
   const saldoInicial = resultado.saldoInicial ?? null;
   const filas = resultado.grupos.flatMap((g) => g.filas);
   const grupos = ocultarCeros ? gruposCruceConValores(resultado.grupos) : resultado.grupos;
@@ -123,7 +129,9 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
         </span>
         <p className="text-[11.5px] text-ink-500">
-          Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
+          {impuesto.cruce.signoPorNaturaleza
+            ? "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el IVA generado y los ingresos (crédito) y el IVA descontable, la retención de IVA y las devoluciones (débito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros. En las cuentas de IVA y de retención de IVA, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma. Las devoluciones (42) y el ajuste de descontables (80) restan en el subtotal de su sección."
+            : "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma."}{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
         {!inicioEnero && (
           <FranjaAviso tono="warn">
@@ -134,7 +142,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
       </Card>
 
       {/* Región propia (no `<Card>`): en pantalla completa ocupa el viewport y solo la tabla scrollea. */}
-      <div role="region" aria-label="Cruce contable de retención en la fuente" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+      <div role="region" aria-label={`Cruce contable de ${impuesto.nombre}`} {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-white px-4 py-2.5">
           <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
           <div className="flex flex-wrap items-center gap-2">
@@ -152,7 +160,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
           <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
             <tr>
               <th rowSpan={2} className={`${TITULO_FIJO} bg-ink-50 px-3 py-2 align-bottom shadow-[inset_0_-1px_0_var(--color-ink-150)]`}>Concepto</th>
-              <th colSpan={2} className={`${TITULO_FIJO} ${INICIO_SECCION} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Declarado · Formulario 350</th>
+              <th colSpan={2} className={`${TITULO_FIJO} ${INICIO_SECCION} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Declarado · Formulario {codigo}</th>
               <th colSpan={2} className={`${TITULO_FIJO} ${INICIO_SECCION} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Balance del corte</th>
               <th colSpan={2} className={`${TITULO_FIJO} ${BORDE_RESULTADO} h-8 whitespace-nowrap ${ENCABEZADO_GRUPO}`}>Resultado</th>
               <th rowSpan={2} className={`${TITULO_FIJO} ${BORDE_RESULTADO} bg-ink-50 px-3 py-2 text-center align-bottom shadow-[inset_0_-1px_0_var(--color-ink-150)]`}>Marca</th>
@@ -178,7 +186,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
                     {abiertas.has(f.clave) && (
                       <tr className="border-b border-ink-100 bg-ink-50/40">
                         <td colSpan={COLUMNAS} className="border-l-2 border-ink-300 px-4 py-3">
-                          <DetalleFila fila={f} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} />
+                          <DetalleFila fila={f} codigo={codigo} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} />
                         </td>
                       </tr>
                     )}
@@ -187,15 +195,15 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
                 <FilaSubtotal etiqueta={`Subtotal · ${g.etiqueta}`} subtotal={g.subtotal} />
               </Fragment>
             ))}
-            <FilaSubtotal etiqueta="Total retenciones (136)" subtotal={resultado.total} total />
+            {impuesto.cruce.conTotalGeneral && <FilaSubtotal etiqueta="Total retenciones (136)" subtotal={resultado.total} total />}
           </tbody>
         </table>
         </div>
       </div>
 
-      {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} />}
+      {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} impuesto={impuesto} />}
 
-      {(resultado.fueraDeRetencion?.length ?? 0) > 0 && <FueraDeRetencion filas={resultado.fueraDeRetencion ?? []} />}
+      {(resultado.fueraDeRetencion?.length ?? 0) > 0 && <FueraDeRetencion filas={resultado.fueraDeRetencion ?? []} impuesto={impuesto} />}
 
       <Observaciones filas={conMarca} puedeEditar={puedeEditar} onEditar={setMarcando} />
 
@@ -270,7 +278,12 @@ function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila:
       <td className={`${RENGLONES} ${INICIO_SECCION}`}>{renglonesFilaCruce(fila)}</td>
       <td className={NUM}>{fmtContable(fila.declarado)}</td>
       <td className={`${INICIO_SECCION} px-3 py-1.5`}>
-        {fila.cuentaRussell ? (
+        {fila.cuentaRussell && cuentasDeFilaCruce(fila).length > 1 ? (
+          <div className="flex flex-col" title={cuentasDeFilaCruce(fila).join(", ")}>
+            <span className="text-ink-800">{cuentasDeFilaCruce(fila).length} cuentas</span>
+            <span className="truncate text-[11px] text-ink-400">{cuentasDeFilaCruce(fila).join(" · ")}</span>
+          </div>
+        ) : fila.cuentaRussell ? (
           <div className="flex flex-col">
             <span className="tabular-nums text-ink-800">{fila.cuentaRussell}</span>
             {fila.nombreCuenta && <span className="truncate text-[11px] text-ink-400" title={fila.nombreCuenta}>{fila.nombreCuenta}</span>}
@@ -355,13 +368,14 @@ function TituloDetalle({ titulo, detalle, cuentaRussell }: { titulo: string; det
   );
 }
 
-function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"] }) {
+function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; codigo: string; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"] }) {
+  const cuentasRussell = cuentasDeFilaCruce(fila);
   const [cuentasAbiertas, setCuentasAbiertas] = useState<ReadonlySet<string>>(new Set());
   const hayAvisos = fila.saldoInicial || fila.posiblesDian.length > 0 || (fila.marca && !fila.marca.vigente);
   return (
     <div className="flex flex-col gap-4 text-[12px]">
       <section>
-        <TituloDetalle titulo="Lo declarado" detalle="350 vigentes hasta el corte" />
+        <TituloDetalle titulo="Lo declarado" detalle={`${codigo} vigentes hasta el corte`} />
         <div className="rounded border border-ink-150 bg-white">
           <table className="w-full table-fixed">
             {COLUMNAS_DETALLE}
@@ -396,9 +410,13 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
 
       {fila.cuentaRussell && (
         <section>
-          <TituloDetalle titulo="La contabilidad" detalle={fila.saldoInicial?.restado ? "saldo final al corte, sin el saldo inicial" : "saldo final al corte"} cuentaRussell={fila.cuentaRussell} />
+          <TituloDetalle
+            titulo="La contabilidad"
+            detalle={fila.saldoInicial?.restado ? "saldo final al corte, sin el saldo inicial" : "saldo final al corte"}
+            cuentaRussell={cuentasRussell.length > 1 ? `${cuentasRussell.length} cuentas` : fila.cuentaRussell}
+          />
           {fila.cuentasCliente.length === 0 ? (
-            <p className="text-ink-500">Ninguna cuenta del cliente está homologada a {fila.cuentaRussell} en este balance.</p>
+            <p className="text-ink-500">Ninguna cuenta del cliente está homologada a {cuentasRussell.join(", ")} en este balance.</p>
           ) : (
             <div className="max-h-[30rem] overflow-y-auto rounded border border-ink-150 bg-white">
               <table className="w-full table-fixed">
@@ -419,12 +437,21 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
                     <tbody key={c.cuenta}>
                       <tr>
                         <td colSpan={2} className={`${BANDA_CUENTA} px-2 py-1.5`}>
-                          <button type="button" onClick={() => setCuentasAbiertas((prev) => alternarEnConjunto(prev, c.cuenta))} aria-expanded={abierta} className="flex w-full items-center gap-1.5 text-left">
-                            <Icon name={chevronDivulgacion(abierta)} size={13} className="shrink-0" />
-                            <span className="tabular-nums">{c.cuenta}</span>
-                            <span className="ml-1">{c.nombre}</span>
-                            <span className="ml-1 font-normal text-ink-600">· {resumen.terceros} {resumen.terceros === 1 ? "tercero" : "terceros"}</span>
-                          </button>
+                          {c.porCuenta ? (
+                            // Ingresos de IVA: el saldo de la cuenta, sin terceros que desplegar.
+                            <span className="flex w-full items-center gap-1.5 pl-[19px]">
+                              <span className="tabular-nums">{c.cuenta}</span>
+                              <span className="ml-1">{c.nombre}</span>
+                              <span className="ml-1 font-normal text-ink-600">· saldo de la cuenta</span>
+                            </span>
+                          ) : (
+                            <button type="button" onClick={() => setCuentasAbiertas((prev) => alternarEnConjunto(prev, c.cuenta))} aria-expanded={abierta} className="flex w-full items-center gap-1.5 text-left">
+                              <Icon name={chevronDivulgacion(abierta)} size={13} className="shrink-0" />
+                              <span className="tabular-nums">{c.cuenta}</span>
+                              <span className="ml-1">{c.nombre}</span>
+                              <span className="ml-1 font-normal text-ink-600">· {resumen.terceros} {resumen.terceros === 1 ? "tercero" : "terceros"}</span>
+                            </button>
+                          )}
                         </td>
                         <td className={`${BANDA_CUENTA} ${VALOR_DETALLE}`}>
                           {inicioEnero && resumen.saldoInicial !== 0 && <span className={resumen.saldoInicialRestado !== 0 ? SALDO_INICIAL_RESTADO : RESALTE_SALDO_INICIAL}>{fmtContable(resumen.saldoInicial)}</span>}
@@ -512,12 +539,15 @@ function DetalleFila({ fila, inicioEnero, ocultos }: { fila: FilaCruce; inicioEn
   );
 }
 
-function FueraDelMapeo({ filas }: { filas: ResultadoCrucePantalla["fueraDelMapeo"] }) {
+function FueraDelMapeo({ filas, impuesto }: { filas: ResultadoCrucePantalla["fueraDelMapeo"]; impuesto: ImpuestoDian }) {
+  const iva = impuesto.clave === "IVA";
   return (
     <Card className="p-4 text-[12.5px]">
-      <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas de retención fuera del cruce</h3>
+      <h3 className="text-[12.5px] font-semibold text-navy-800">{iva ? "Cuentas de IVA fuera del cruce" : "Cuentas de retención fuera del cruce"}</h3>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
-        Cuentas del cliente homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce.
+        {iva
+          ? "Cuentas del cliente homologadas a una cuenta Russell de 2408 o a la 135517 que no está en el mapeo del 300 (por ejemplo 240899 «IVA saldo a pagar / pagos de IVA»). Se informan y no suman al cruce."
+          : "Cuentas del cliente homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce."}
       </p>
       <table className="mt-2 text-[12px]">
         <tbody>
@@ -534,12 +564,14 @@ function FueraDelMapeo({ filas }: { filas: ResultadoCrucePantalla["fueraDelMapeo
   );
 }
 
-function FueraDeRetencion({ filas }: { filas: CuentaFueraDeRetencion[] }) {
+function FueraDeRetencion({ filas, impuesto }: { filas: CuentaFueraDeRetencion[]; impuesto: ImpuestoDian }) {
+  const prefijos = impuesto.cruce.prefijosCliente.join(" o ");
+  const de = impuesto.clave === "IVA" ? "IVA" : "retención";
   return (
     <Card className="p-4 text-[12.5px]">
-      <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas del cliente en 2365 o 2367 homologadas fuera de retención</h3>
+      <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas del cliente en {prefijos} homologadas fuera de {de}</h3>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
-        Están en 2365 o 2367 del cliente, pero homologadas a una cuenta Russell de otro grupo o sin homologar, así que su saldo no llega al cruce. Revisa si la homologación es correcta. Es informativo: no impide cerrar.
+        Están en {prefijos} del cliente, pero homologadas a una cuenta Russell de otro grupo o sin homologar, así que su saldo no llega al cruce. Revisa si la homologación es correcta. Es informativo: no impide cerrar.
       </p>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full min-w-[480px] text-[12px]">

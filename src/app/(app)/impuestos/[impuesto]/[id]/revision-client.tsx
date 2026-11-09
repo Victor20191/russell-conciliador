@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Pestana } from "@/components/pestanas";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import { useAnunciarPestanaAyuda } from "@/components/ayuda/contexto";
@@ -11,11 +12,11 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import {
   confirmarFormulariosDian,
-  eliminarRevisionRetencion,
+  eliminarRevisionImpuesto,
   importarFormularioDian,
   quitarPeriodoSinFormulario,
   registrarPeriodoSinFormulario,
-} from "@/app/actions/impuestos-retencion";
+} from "@/app/actions/impuestos-revisiones";
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { etiquetaConceptoPago } from "@/lib/impuestos/formularios/f490";
@@ -25,11 +26,12 @@ import {
   avisoFueraDeCadena,
   avisoReciboDeOtro350,
   avisoRecibosSin350,
-  ETIQUETA_ESTADO_PERIODO,
+  etiquetaEstadoPeriodo,
   recibosSin350,
   type EstadoPeriodo,
   type PeriodoRevision,
 } from "@/lib/impuestos/retencion/periodos-revision";
+import { impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { alertaRecibosSin350, alertaSinRecibo } from "@/lib/impuestos/retencion/pagos";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
@@ -49,7 +51,9 @@ const TONO_ESTADO: Record<EstadoPeriodo, "ok" | "warn" | "err" | "ink" | "blue">
   completo: "ok", por_confirmar: "warn", falta_350: "err", sin_formulario: "ink", falta_original: "warn", faltan_pagos: "warn",
 };
 const CONCURRENCIA_LECTURA = 2;
+/** El mes del corte. Los períodos de la revisión se nombran con su periodicidad (`etiquetaPeriodoRevision`). */
 const mes = (p: number) => NOMBRES_MES[p - 1] ?? `Período ${p}`;
+type Etiqueta = (periodo: number) => string;
 
 type EnCola = { nombre: string; estado: "pendiente" | "leyendo" | "ok" | "error"; mensaje?: string };
 
@@ -75,13 +79,18 @@ export default function RevisionClient({
   const [causalDe, setCausalDe] = useState<number | null>(null);
   const formularioAbierto = revision.formularios.find((f) => f.id === abierto) ?? null;
   const porConfirmar = revision.formularios.filter((f) => f.estado === "por_confirmar");
-  const contexto = { revisionId: revision.id, nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte };
+  const impuesto = impuestoPorClave(revision.impuesto) ?? RETENCION;
+  const codigo = impuesto.declaracion.codigo;
+  const contexto = { revisionId: revision.id, nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte, impuesto: impuesto.clave, periodicidad: revision.periodicidad };
+  // Con periodicidad anual hay un solo período: el acumulado sería igual a la vista por períodos.
+  const hay = (t: TabRevisionRetencion) => impuesto.pestanas.includes(t) && !(t === "acumulado" && revision.periodicidad === "Anual");
+  const atajoCorte = impuesto.cortesAtajo.find((c) => c.mes === revision.mesCorte);
   const porId = new Map(revision.formularios.map((f) => [f.id, f]));
   const [tab, setTab] = useState<TabRevisionRetencion>("formularios");
   useAnunciarPestanaAyuda(tab);
   // En firme, los períodos salen de la copia congelada del cierre.
   const periodos = resultados.periodos;
-  const vista = useMemo(() => vistasRevision(periodos), [periodos]);
+  const vista = useMemo(() => vistasRevision(periodos, revision.impuesto, revision.periodicidad), [periodos, revision.impuesto, revision.periodicidad]);
   const enFirme = revision.estado === "en_firme";
   const etiquetaPeriodo = (p: number) => etiquetaPeriodoRevision(revision.periodicidad, p);
 
@@ -92,14 +101,15 @@ export default function RevisionClient({
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <Dato etiqueta="NIT" valor={revision.nitCliente} />
             <Dato etiqueta="Año" valor={String(revision.anio)} />
-            <Dato etiqueta="Corte" valor={`${mes(revision.mesCorte)}${revision.mesCorte === 9 ? " · precierre" : revision.mesCorte === 12 ? " · cierre" : ""}`} />
+            <Dato etiqueta="Corte" valor={`${mes(revision.mesCorte)}${atajoCorte ? ` · ${atajoCorte.etiqueta.split(" · ")[0].toLowerCase()}` : ""}`} />
             <Dato etiqueta="Periodicidad" valor={revision.periodicidad} />
             <Dato etiqueta="Estado" valor={revision.estado === "en_firme" ? "En firme" : "En proceso"} />
           </div>
-          {puedeEliminar && <EliminarRevision id={revision.id} />}
+          {puedeEliminar && <EliminarRevision id={revision.id} slug={impuesto.slug} />}
         </div>
-        <div className="mt-3">
+        {hay("novedades") && <div className="mt-3">
           <BarraCierre
+            impuestoClave={impuesto.clave}
             revisionId={revision.id}
             enFirme={enFirme}
             cierre={resultados.cierre}
@@ -109,7 +119,7 @@ export default function RevisionClient({
             onVerNovedades={() => setTab("novedades")}
             balanceId={resultados.cruce.balance?.id ?? null}
           />
-        </div>
+        </div>}
         {enFirme && resultados.desdeCopia && (
           <p className="mt-2 text-[11.5px] text-ink-500">Las vistas y los resultados son los de la copia congelada del cierre: una corrección importada después no los cambia.</p>
         )}
@@ -118,26 +128,29 @@ export default function RevisionClient({
 
       <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vistas de la revisión">
         <TabBtn on={tab === "formularios"} onClick={() => setTab("formularios")} label="Formularios" />
-        <TabBtn on={tab === "meses"} onClick={() => setTab("meses")} label="Por meses" />
-        <TabBtn on={tab === "acumulado"} onClick={() => setTab("acumulado")} label="Acumulado" />
-        <TabBtn on={tab === "cruce"} onClick={() => setTab("cruce")} label="Cruce contable" />
-        <TabBtn on={tab === "oportunidad"} onClick={() => setTab("oportunidad")} label="Oportunidad" />
-        <TabBtn on={tab === "pagos"} onClick={() => setTab("pagos")} label="Pagos efectuados" />
-        <TabBtn on={tab === "novedades"} onClick={() => setTab("novedades")} label={`Novedades${!enFirme && resultados.evaluacion.pendientes.length > 0 ? ` (${resultados.evaluacion.pendientes.length})` : ""}`} />
-        <a href={`/api/impuestos/revisiones/${revision.id}/excel`} download className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
-          <Icon name="download" size={13} /> Exportar a Excel
-        </a>
+        {hay("meses") && <TabBtn on={tab === "meses"} onClick={() => setTab("meses")} label={revision.periodicidad === "Mensual" ? "Por meses" : "Por períodos"} />}
+        {hay("acumulado") && <TabBtn on={tab === "acumulado"} onClick={() => setTab("acumulado")} label="Acumulado" />}
+        {hay("cruce") && <TabBtn on={tab === "cruce"} onClick={() => setTab("cruce")} label="Cruce contable" />}
+        {hay("oportunidad") && <TabBtn on={tab === "oportunidad"} onClick={() => setTab("oportunidad")} label="Oportunidad" />}
+        {hay("pagos") && <TabBtn on={tab === "pagos"} onClick={() => setTab("pagos")} label="Pagos efectuados" />}
+        {hay("novedades") && <TabBtn on={tab === "novedades"} onClick={() => setTab("novedades")} label={`Novedades${!enFirme && resultados.evaluacion.pendientes.length > 0 ? ` (${resultados.evaluacion.pendientes.length})` : ""}`} />}
+        {hay("meses") && (
+          <a href={`/api/impuestos/revisiones/${revision.id}/excel`} download className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
+            <Icon name="download" size={13} /> Exportar a Excel
+          </a>
+        )}
       </div>
 
       {tab === "meses" && <VistaPorMeses vista={vista} onAbrir={setAbierto} />}
       {tab === "acumulado" && <VistaAcumulada vista={vista} />}
       {tab === "cruce" && <CruceRevision cruce={resultados.cruce} revisionId={revision.id} puedeEditar={puedeEditar} />}
       {tab === "oportunidad" && (
-        <VistaOportunidad filas={resultados.oportunidad} calendario={resultados.calendario} anio={revision.anio} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />
+        <VistaOportunidad impuestoClave={impuesto.clave} filas={resultados.oportunidad} calendario={resultados.calendario} anio={revision.anio} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />
       )}
-      {tab === "pagos" && <VistaPagos resultado={resultados.pagos} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />}
+      {tab === "pagos" && <VistaPagos impuestoClave={impuesto.clave} resultado={resultados.pagos} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />}
       {tab === "novedades" && (
         <VistaNovedades
+          impuestoClave={impuesto.clave}
           evaluacion={resultados.evaluacion}
           enFirme={enFirme}
           onIr={setTab}
@@ -147,10 +160,10 @@ export default function RevisionClient({
         />
       )}
 
-      {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} onTerminar={() => router.refresh()} />}
+      {tab === "formularios" && puedeCargar && <Importador revisionId={revision.id} codigo={codigo} onTerminar={() => router.refresh()} />}
 
       {tab === "formularios" && porConfirmar.length > 0 && (
-        <ListaPorConfirmar revisionId={revision.id} formularios={porConfirmar} puedeConfirmar={puedeCargar && !enFirme} onAbrir={setAbierto} />
+        <ListaPorConfirmar revisionId={revision.id} impuesto={impuesto} etq={etiquetaPeriodo} formularios={porConfirmar} puedeConfirmar={puedeCargar && !enFirme} onAbrir={setAbierto} />
       )}
 
       {tab === "formularios" && <section className="flex flex-col gap-2">
@@ -161,14 +174,14 @@ export default function RevisionClient({
               <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
                 <th className="px-3 py-2">Período</th>
                 <th className="px-3 py-2">Estado</th>
-                <th className="px-3 py-2">Formulario 350</th>
+                <th className="px-3 py-2">Formulario {codigo}</th>
                 <th className="px-3 py-2">Pagos (490)</th>
                 <th className="px-3 py-2">Alertas</th>
               </tr>
             </thead>
             <tbody>
               {periodos.map((p) => (
-                <FilaPeriodo key={p.periodo} p={p} porId={porId} puedeCargar={puedeCargar} revisionId={revision.id} onAbrir={setAbierto} onCausal={setCausalDe} />
+                <FilaPeriodo key={p.periodo} p={p} impuesto={impuesto} etq={etiquetaPeriodo} porId={porId} puedeCargar={puedeCargar} revisionId={revision.id} onAbrir={setAbierto} onCausal={setCausalDe} />
               ))}
             </tbody>
           </table>
@@ -186,17 +199,13 @@ export default function RevisionClient({
           onClose={() => setAbierto(null)}
         />
       )}
-      {causalDe != null && <CausalModal revisionId={revision.id} periodo={causalDe} onClose={() => setCausalDe(null)} />}
+      {causalDe != null && <CausalModal revisionId={revision.id} impuesto={impuesto} etq={etiquetaPeriodo} periodo={causalDe} onClose={() => setCausalDe(null)} />}
     </div>
   );
 }
 
 function TabBtn({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
-  return (
-    <button type="button" role="tab" aria-selected={on} onClick={onClick} className={`rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
-      {label}
-    </button>
-  );
+  return <Pestana activa={on} onClick={onClick} label={label} />;
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
@@ -210,6 +219,8 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 
 function FilaPeriodo({
   p,
+  impuesto,
+  etq,
   porId,
   puedeCargar,
   revisionId,
@@ -217,6 +228,8 @@ function FilaPeriodo({
   onCausal,
 }: {
   p: PeriodoRevision;
+  impuesto: ImpuestoDian;
+  etq: Etiqueta;
   porId: Map<number, FormularioVista>;
   puedeCargar: boolean;
   revisionId: number;
@@ -226,10 +239,12 @@ function FilaPeriodo({
   const { vigente, cadena, faltaOriginal } = p.cadena;
   // La columna de pagos muestra lo que hay (confirmado o por confirmar); lo que falta va en Alertas.
   const lineasPago = p.pagos.filter((x) => x.formularios.length > 0 || x.porConfirmar > 0);
+  const codigo = impuesto.declaracion.codigo;
+  const total = impuesto.textos.totalPeriodo;
   return (
     <tr className="border-b border-ink-100 align-top last:border-0">
-      <td className="px-3 py-2 font-semibold text-navy-800">{mes(p.periodo)}</td>
-      <td className="px-3 py-2"><Chip label={ETIQUETA_ESTADO_PERIODO[p.estado]} tone={TONO_ESTADO[p.estado]} /></td>
+      <td className="px-3 py-2 font-semibold text-navy-800">{etq(p.periodo)}</td>
+      <td className="px-3 py-2"><Chip label={etiquetaEstadoPeriodo(p.estado, codigo)} tone={TONO_ESTADO[p.estado]} /></td>
       <td className="px-3 py-2">
         {vigente ? (
           <div className="flex flex-col gap-0.5">
@@ -245,8 +260,8 @@ function FilaPeriodo({
               </span>
             )}
             {faltaOriginal && <span className="text-[11.5px] text-warn-700">Corrección del {faltaOriginal}, que no está cargado</span>}
-            <span className="text-[11.5px] text-ink-500">Total retenciones (136): {fmt(vigente.valores[136] ?? 0)}</span>
-            {p.porConfirmar350 > 0 && <span className="text-[11.5px] text-warn-700">Hay otro 350 por confirmar</span>}
+            <span className="text-[11.5px] text-ink-500">{total.etiqueta} ({total.renglon}): {fmt(vigente.valores[total.renglon] ?? 0)}</span>
+            {p.porConfirmar350 > 0 && <span className="text-[11.5px] text-warn-700">Hay otro {codigo} por confirmar</span>}
           </div>
         ) : p.causal ? (
           <span className="text-[12px] text-ink-600">Sin formulario: {p.causal}</span>
@@ -278,7 +293,7 @@ function FilaPeriodo({
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col items-start gap-1.5">
-          <AlertasPeriodo p={p} />
+          <AlertasPeriodo p={p} codigo={codigo} />
           {puedeCargar && !vigente && (p.causal ? <QuitarCausal revisionId={revisionId} periodo={p.periodo} /> : (
             <button type="button" onClick={() => onCausal(p.periodo)} className={BOTON_SECUNDARIO}>No hubo formulario</button>
           ))}
@@ -295,18 +310,18 @@ type AlertaPeriodo = { clave: string; texto: string; detalle: string; tono: "err
  * pide para cerrar (cargar el original o una marca, y en qué pestaña). Mismos textos que la columna
  * Alerta de Pagos efectuados.
  */
-function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
+function AlertasPeriodo({ p, codigo }: { p: PeriodoRevision; codigo: string }) {
   const sin350 = recibosSin350(p).map((f) => f.numero);
   const alertas: AlertaPeriodo[] = [
     ...p.pagos
       .filter((x) => x.esperado && x.formularios.length === 0 && x.porConfirmar === 0)
       .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}`, tono: "err" })),
     ...(p.cadena.faltaOriginal
-      ? [{ clave: "original", texto: "Falta el 350 original", detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", nota: "hay que cargarlo para cerrar" } satisfies AlertaPeriodo]
+      ? [{ clave: "original", texto: `Falta el ${codigo} original`, detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", nota: "hay que cargarlo para cerrar" } satisfies AlertaPeriodo]
       : []),
-    ...p.cadena.fueraDeCadena.map((f): AlertaPeriodo => ({ clave: `fuera-${f.numero}`, texto: "350 fuera de la cadena", detalle: avisoFueraDeCadena(f.numero), tono: "warn" })),
-    ...(p.recibosDeOtro350 ?? []).map((r): AlertaPeriodo => ({ clave: `otro-${r.numero}`, texto: "Recibo de otro 350", detalle: avisoReciboDeOtro350(r), tono: "err", nota: "exige marca en Pagos" })),
-    ...(sin350.length > 0 ? [{ clave: "sin350", texto: alertaRecibosSin350(sin350), detalle: avisoRecibosSin350(sin350), tono: "err", nota: "exige marca en Pagos" } satisfies AlertaPeriodo] : []),
+    ...p.cadena.fueraDeCadena.map((f): AlertaPeriodo => ({ clave: `fuera-${f.numero}`, texto: `${codigo} fuera de la cadena`, detalle: avisoFueraDeCadena(f.numero), tono: "warn" })),
+    ...(p.recibosDeOtro350 ?? []).map((r): AlertaPeriodo => ({ clave: `otro-${r.numero}`, texto: `Recibo de otro ${codigo}`, detalle: avisoReciboDeOtro350(r, codigo), tono: "err", nota: "exige marca en Pagos" })),
+    ...(sin350.length > 0 ? [{ clave: "sin350", texto: alertaRecibosSin350(sin350, codigo), detalle: avisoRecibosSin350(sin350, codigo), tono: "err", nota: "exige marca en Pagos" } satisfies AlertaPeriodo] : []),
   ];
   if (alertas.length === 0) return null;
   return (
@@ -325,8 +340,10 @@ function AlertasPeriodo({ p }: { p: PeriodoRevision }) {
  * Formularios leídos sin confirmar. Los que pasan todos los controles se pueden confirmar de a varios;
  * los que tienen algo por corregir se abren con «Revisar».
  */
-function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }: {
+function ListaPorConfirmar({ revisionId, impuesto, etq, formularios, puedeConfirmar, onAbrir }: {
   revisionId: number;
+  impuesto: ImpuestoDian;
+  etq: Etiqueta;
   formularios: FormularioVista[];
   puedeConfirmar: boolean;
   onAbrir: (id: number) => void;
@@ -394,14 +411,14 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
               {puedeConfirmar && (
                 <input
                   type="checkbox"
-                  aria-label={`Seleccionar F${f.formulario} ${mes(f.periodo)} ${f.numero}`}
+                  aria-label={`Seleccionar F${f.formulario} ${etq(f.periodo)} ${f.numero}`}
                   title={pendientes ? "Tiene controles por corregir: ábrelo con «Revisar»." : undefined}
                   disabled={pendientes > 0}
                   checked={pendientes === 0 && marcados.has(f.id)}
                   onChange={() => alternar(f.id)}
                 />
               )}
-              <span className="font-semibold text-navy-800">F{f.formulario} · {mes(f.periodo)}</span>
+              <span className="font-semibold text-navy-800">F{f.formulario} · {etq(f.periodo)}</span>
               <span className="tabular-nums text-ink-600">{f.numero}</span>
               {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
               {f.codigoCorreccion === 1 && <Chip label="Corrección" tone="warn" />}
@@ -419,7 +436,7 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
           );
         })}
       </Card>
-      {viendoControles && <ControlesModal onClose={() => setViendoControles(false)} />}
+      {viendoControles && <ControlesModal impuestoClave={impuesto.clave} onClose={() => setViendoControles(false)} />}
       {preguntando && (
         <Modal
           open
@@ -441,7 +458,7 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
             <ul className="max-h-64 divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-150">
               {seleccionados.map((f) => (
                 <li key={f.id} className="px-2.5 py-1.5">
-                  <span className="font-semibold text-navy-800">F{f.formulario} · {mes(f.periodo)}</span> <span className="tabular-nums text-ink-600">{f.numero}</span>
+                  <span className="font-semibold text-navy-800">F{f.formulario} · {etq(f.periodo)}</span> <span className="tabular-nums text-ink-600">{f.numero}</span>
                   {f.controles.filter((c) => !c.bloquea && !c.ok).map((c) => <div key={c.clave} className="text-[11.5px] text-warn-700">{c.mensaje}</div>)}
                 </li>
               ))}
@@ -453,7 +470,7 @@ function ListaPorConfirmar({ revisionId, formularios, puedeConfirmar, onAbrir }:
   );
 }
 
-function Importador({ revisionId, onTerminar }: { revisionId: number; onTerminar: () => void }) {
+function Importador({ revisionId, codigo, onTerminar }: { revisionId: number; codigo: string; onTerminar: () => void }) {
   const entrada = useRef<HTMLInputElement>(null);
   const [cola, setCola] = useState<EnCola[]>([]);
   const [trabajando, setTrabajando] = useState(false);
@@ -494,7 +511,7 @@ function Importador({ revisionId, onTerminar }: { revisionId: number; onTerminar
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-[14px] font-semibold text-navy-800">Importar formularios</h2>
-          <p className="mt-0.5 text-[12px] text-ink-500">PDF de los formularios 350 y 490 tal como salen de la DIAN; puedes elegir varios a la vez. La IA los lee y quedan por confirmar.</p>
+          <p className="mt-0.5 text-[12px] text-ink-500">PDF de los formularios {codigo} y 490 tal como salen de la DIAN; puedes elegir varios a la vez. La IA los lee y quedan por confirmar.</p>
         </div>
         <input
           ref={entrada}
@@ -503,7 +520,7 @@ function Importador({ revisionId, onTerminar }: { revisionId: number; onTerminar
           multiple
           disabled={trabajando}
           onChange={(e) => importar(Array.from(e.target.files ?? []))}
-          aria-label="PDF de formularios 350 y 490"
+          aria-label={`PDF de formularios ${codigo} y 490`}
           className="max-w-[280px] text-[12px] text-ink-600 file:mr-2 file:rounded-md file:border-0 file:bg-navy-700 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-white"
         />
       </div>
@@ -521,7 +538,8 @@ function Importador({ revisionId, onTerminar }: { revisionId: number; onTerminar
   );
 }
 
-function CausalModal({ revisionId, periodo, onClose }: { revisionId: number; periodo: number; onClose: () => void }) {
+function CausalModal({ revisionId, impuesto, etq, periodo, onClose }: { revisionId: number; impuesto: ImpuestoDian; etq: Etiqueta; periodo: number; onClose: () => void }) {
+  const codigo = impuesto.declaracion.codigo;
   const [state, action, guardando] = useActionState<ActionState, FormData>(registrarPeriodoSinFormulario, {});
   const [causal, setCausal] = useState("");
   // Cerrar cambia el estado de la pantalla que abrió el panel: en un efecto, no al dibujar.
@@ -532,7 +550,7 @@ function CausalModal({ revisionId, periodo, onClose }: { revisionId: number; per
     notifyActionState(state, { success: "Causal registrada.", error: "No se pudo registrar la causal." });
   }, [state]);
   return (
-    <Modal open onClose={onClose} title={`${mes(periodo)}: no hubo formulario 350`} size="lg" footer={
+    <Modal open onClose={onClose} title={`${etq(periodo)}: no hubo formulario ${codigo}`} size="lg" footer={
       <button type="submit" form="causal-periodo" disabled={guardando || causal.trim().length < 10} className={BOTON_PRIMARIO}>
         {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Registrar causal"}
       </button>
@@ -540,14 +558,14 @@ function CausalModal({ revisionId, periodo, onClose }: { revisionId: number; per
       <form id="causal-periodo" action={action} className="flex flex-col gap-2 text-[12.5px]">
         <input type="hidden" name="revisionId" value={revisionId} />
         <input type="hidden" name="periodo" value={periodo} />
-        <p className="text-ink-600">Un mes sin retenciones que declarar no es un error. Confirma que no vas a importar el 350 de {mes(periodo).toLowerCase()} y escribe por qué.</p>
+        <p className="text-ink-600">{impuesto.textos.explicacionCausal} Confirma que no vas a importar el {codigo} de {etq(periodo).toLowerCase()} y escribe por qué.</p>
         <textarea
           name="causal"
           value={causal}
           onChange={(e) => setCausal(e.target.value)}
           rows={3}
           maxLength={500}
-          placeholder="Ej.: en el mes no hubo pagos sujetos a retención."
+          placeholder={impuesto.textos.ejemploCausal}
           aria-label="Causal"
           className="rounded-md border border-ink-200 bg-white px-2 py-1.5"
         />
@@ -570,14 +588,14 @@ function QuitarCausal({ revisionId, periodo }: { revisionId: number; periodo: nu
   );
 }
 
-function EliminarRevision({ id }: { id: number }) {
+function EliminarRevision({ id, slug }: { id: number; slug: string }) {
   const router = useRouter();
-  const [state, action, eliminando] = useActionState<ActionState, FormData>(eliminarRevisionRetencion, {});
+  const [state, action, eliminando] = useActionState<ActionState, FormData>(eliminarRevisionImpuesto, {});
   const [confirmar, setConfirmar] = useState(false);
   useEffect(() => {
     notifyActionState(state, { success: "Revisión eliminada.", error: "No se pudo eliminar la revisión." });
-    if (state.ok) router.push("/impuestos/retencion");
-  }, [state, router]);
+    if (state.ok) router.push(`/impuestos/${slug}`);
+  }, [state, router, slug]);
   return confirmar ? (
     <form action={action} className="flex items-center gap-1.5">
       <input type="hidden" name="id" value={id} />

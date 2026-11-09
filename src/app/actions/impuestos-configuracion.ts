@@ -9,11 +9,12 @@ import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { CalendarioDianSchema, CuentaMapeoDianSchema, RestaTerceroDianSchema, TerceroDianSchema, type ActionState } from "@/lib/definitions";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
-import { esFormularioCalendario, FORMULARIOS_CALENDARIO, validarCalendario, type ResultadoLecturaCalendario } from "@/lib/impuestos/calendario";
-import { leerCalendarioDianConIA } from "@/lib/impuestos/calendario-lectura-servidor";
+import { FORMULARIOS_CALENDARIO, validarCalendario, type PropuestaCalendario, type ResultadoLecturaCalendario } from "@/lib/impuestos/calendario";
+import { leerCalendarioCompletoConIA } from "@/lib/impuestos/calendario-lectura-servidor";
+import { cuentasDeMapeo } from "@/lib/impuestos/mapeo-dian";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 
-// Impuestos · DIAN, configuración global (Fase 1): Mapeos DIAN. Todos consultan con
+// Impuestos · DIAN, configuración global: Mapeos DIAN (350 y 300) y calendario tributario. Todos consultan con
 // `impuestos:ver`; editan Gerente, Socio y administradores con `impuestos:configurar`. No es dato
 // de un cliente, así que no lleva alcance por cartera (como el plan Russell).
 const PERMISO = "impuestos:configurar";
@@ -24,22 +25,30 @@ const MAX_BYTES_PDF_CALENDARIO = 15 * 1024 * 1024;
 
 const primerError = (issues: { message: string }[]) => issues[0]?.message ?? "Datos inválidos.";
 
-/** Cambia la cuenta Russell de un concepto del 350 (vacía = sin cuenta). */
+/** Cambia la cuenta Russell de un concepto del 350 o del 300 (vacía = sin cuenta; varias con «+»). */
 export async function guardarCuentaMapeoDian(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso(PERMISO);
   if (!authz.ok) return { ok: false, message: authz.message };
-  const parsed = CuentaMapeoDianSchema.safeParse({ concepto: formData.get("concepto"), cuenta: formData.get("cuenta") ?? "" });
+  const parsed = CuentaMapeoDianSchema.safeParse({
+    formulario: formData.get("formulario") ?? "350",
+    concepto: formData.get("concepto"),
+    cuenta: formData.get("cuenta") ?? "",
+  });
   if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
-  const { concepto } = parsed.data;
+  const { formulario, concepto } = parsed.data;
   const cuenta = parsed.data.cuenta === "" ? null : parsed.data.cuenta;
 
   try {
-    const fila = await prisma.mapeoRenglonDian.findUnique({ where: { formulario_concepto: { formulario: "350", concepto } } });
+    const fila = await prisma.mapeoRenglonDian.findUnique({ where: { formulario_concepto: { formulario, concepto } } });
     if (!fila) return { ok: false, message: "El concepto no existe en el mapeo." };
     if (!fila.enCruce && cuenta) return { ok: false, message: `«${fila.etiqueta}» no entra al cruce contable: no lleva cuenta.` };
-    if (cuenta) {
-      const existe = await prisma.standardAccount.findUnique({ where: { code: cuenta }, select: { code: true } });
-      if (!existe) return { ok: false, message: `La cuenta ${cuenta} no existe en el plan Russell. Créala primero en Plan Estándar Russell.` };
+    const cuentas = cuentasDeMapeo({ cuentaRussell: cuenta });
+    if (cuentas.length > 0) {
+      const existen = await prisma.standardAccount.findMany({ where: { code: { in: cuentas } }, select: { code: true } });
+      const faltan = cuentas.filter((c) => !existen.some((e) => e.code === c));
+      if (faltan.length > 0) {
+        return { ok: false, message: `${faltan.length === 1 ? `La cuenta ${faltan[0]} no existe` : `Las cuentas ${faltan.join(", ")} no existen`} en el plan Russell. Créala${faltan.length === 1 ? "" : "s"} primero en Plan Estándar Russell.` };
+      }
     }
     if (fila.cuentaRussell === cuenta) return { ok: true, message: "Sin cambios." };
 
@@ -48,7 +57,7 @@ export async function guardarCuentaMapeoDian(_prev: ActionState, formData: FormD
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "EDITÓ MAPEO DIAN",
-      entity: `Mapeos DIAN · F350 · ${fila.etiqueta}`,
+      entity: `Mapeos DIAN · F${formulario} · ${fila.etiqueta}`,
       detail: `Renglones ${[fila.renglonPj, fila.renglonPn].filter((r) => r != null).join(" + ")}: cuenta Russell ${fila.cuentaRussell ?? "sin cuenta"} → ${cuenta ?? "sin cuenta"}`,
     });
     revalidatePath(RUTA_MAPEOS);
@@ -68,8 +77,9 @@ export async function cambiarRestaTerceroDian(_prev: ActionState, formData: Form
   const restar = parsed.data.restar === "1";
 
   try {
-    const enMapeo = await prisma.mapeoRenglonDian.count({ where: { cuentaRussell: cuenta } });
-    if (enMapeo === 0) return { ok: false, message: `La cuenta ${cuenta} no está en el mapeo del formulario 350.` };
+    // Una fila puede llevar varias cuentas («420505+421005»): se busca la cuenta dentro de cada una.
+    const filas = await prisma.mapeoRenglonDian.findMany({ where: { cuentaRussell: { contains: cuenta } }, select: { cuentaRussell: true } });
+    if (!filas.some((f) => cuentasDeMapeo(f).includes(cuenta))) return { ok: false, message: `La cuenta ${cuenta} no está en Mapeos DIAN.` };
     const user = await getCurrentUser();
     await prisma.cuentaRussellDian.upsert({
       where: { cuentaRussell: cuenta },
@@ -132,16 +142,15 @@ export async function quitarTerceroDian(_prev: ActionState, formData: FormData):
 }
 
 /**
- * «Importar desde el PDF de la DIAN»: Claude lee el calendario y devuelve una PROPUESTA (no se
- * guarda). La grilla se valida en código y el usuario la revisa antes de guardarla.
+ * «Importar desde el PDF de la DIAN»: Claude lee del mismo PDF las cuatro secciones (Retención en la
+ * fuente e IVA bimestral, cuatrimestral y anual) y devuelve una PROPUESTA por formulario (no se
+ * guarda nada). Cada grilla se valida en código y el usuario la revisa antes de guardarla.
  */
 export async function leerCalendarioPdf(_prev: ResultadoLecturaCalendario, formData: FormData): Promise<ResultadoLecturaCalendario> {
   const authz = await authorizePermiso(PERMISO);
   if (!authz.ok) return { ok: false, message: authz.message };
   const anio = Number(formData.get("anio"));
-  const formulario = String(formData.get("formulario") ?? "");
   if (!Number.isInteger(anio) || anio < 2020 || anio > 2100) return { ok: false, message: "Año inválido." };
-  if (!esFormularioCalendario(formulario)) return { ok: false, message: "Formulario sin calendario." };
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Elige el PDF del calendario de la DIAN." };
   if (archivo.size > MAX_BYTES_PDF_CALENDARIO) return { ok: false, message: "El PDF supera 15 MB." };
@@ -151,14 +160,23 @@ export async function leerCalendarioPdf(_prev: ResultadoLecturaCalendario, formD
 
   try {
     const user = await getCurrentUser();
-    const { anioLeido, filas, usos } = await leerCalendarioDianConIA(bytes.toString("base64"), anio, formulario);
+    const { lecturas, fallidos, usos } = await leerCalendarioCompletoConIA(bytes.toString("base64"), anio);
     await registrarConsumoIA(usos, { usuarioId: user?.id ?? null, usuarioNombre: user?.name ?? null, archivoNombre: archivo.name, modulo: "impuestos" });
-    const { errores, avisos } = validarCalendario(anio, formulario, filas);
-    if (anioLeido !== anio) avisos.unshift(`El documento parece ser del año ${anioLeido}, no de ${anio}.`);
+    if (lecturas.length === 0) return { ok: false, message: mensajeErrorIA("leerCalendarioPdf", fallidos[0]?.error) };
+    const propuestas: PropuestaCalendario[] = lecturas.map(({ formulario, anioLeido, filas }) => {
+      const { errores, avisos } = validarCalendario(anio, formulario, filas);
+      if (anioLeido !== anio) avisos.unshift(`El documento parece ser del año ${anioLeido}, no de ${anio}.`);
+      return { anio, formulario, filas, errores, avisos };
+    });
+    const conErrores = propuestas.filter((p) => p.errores.length > 0).length;
+    const sinLeer = fallidos.map((f) => FORMULARIOS_CALENDARIO[f.formulario].etiqueta);
     return {
       ok: true,
-      message: errores.length ? "Revisa la propuesta: hay fechas por completar o corregir." : "Propuesta lista para revisar.",
-      propuesta: { anio, formulario, filas, errores, avisos },
+      message: [
+        conErrores ? "Revisa las propuestas: hay fechas por completar o corregir." : "Propuestas listas para revisar.",
+        ...(sinLeer.length ? [`No se pudo leer: ${sinLeer.join(", ")}. Vuelve a importar o escríbelo a mano.`] : []),
+      ].join(" "),
+      propuestas,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerCalendarioPdf", e) };

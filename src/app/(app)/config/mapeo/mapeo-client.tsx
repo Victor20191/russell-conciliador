@@ -1,5 +1,6 @@
 "use client";
 
+import { Pestana } from "@/components/pestanas";
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
@@ -478,12 +479,7 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
 }
 
 function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count: number }) {
-  return (
-    <button type="button" role="tab" aria-selected={on} onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
-      {label}
-      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-navy-600 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
-    </button>
-  );
+  return <Pestana activa={on} onClick={onClick} label={label} conteo={count} />;
 }
 
 // ===== Subgrupos del plan estándar (nivel 4) — editan Gerente, Socio y administradores =====

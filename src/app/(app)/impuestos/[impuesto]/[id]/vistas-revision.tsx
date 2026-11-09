@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
-import { filaConValores, type FilaPago, type FilaVista, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
+import { faltaDeclaracion, filaConValores, unidadPlural, vistaConPersonas, type FilaPago, type FilaVista, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
 
 const miles = (n: number | null) => (n == null ? "" : Math.round(n).toLocaleString("es-CO"));
 const CELDA = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
@@ -36,16 +36,24 @@ function tramos<T extends { seccion: string }>(filas: readonly T[]): { seccion: 
 
 const renglones = (f: FilaVista) => (f.tipo === "concepto" ? [f.renglonPj, f.renglonPn].map((r) => r ?? "—").join(" · ") : String(f.renglonPj));
 
-/** Vista 1 · Por meses: cada renglón por mes (persona jurídica y natural) y el bloque de pagos del 490. */
+/**
+ * Vista 1 · Por meses (Retención) o Por períodos (IVA): cada renglón por período y el bloque de pagos
+ * del 490. Los conceptos de Retención van por persona jurídica y natural; los renglones del 300, en una
+ * sola columna.
+ */
 export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbrir: (id: number) => void }) {
   const [ocultarCeros, setOcultarCeros] = useState(false);
   const { pantallaCompleta, alternar } = usePantallaCompletaTabla();
   const filas = ocultarCeros ? vista.filas.filter(filaConValores) : vista.filas;
-  const columnas = 3 + vista.meses.length * 2;
+  const personas = vistaConPersonas(vista);
+  const ancho = personas ? 2 : 1;
+  const filasEncabezado = personas ? 2 : 1;
+  const columnas = 3 + vista.meses.length * ancho;
+  const unidad = vista.unidad ?? "mes";
   return (
-    <div role="region" aria-label="Retención en la fuente por meses" {...propsRegionPantallaCompleta(pantallaCompleta, "flex flex-col gap-2")}>
+    <div role="region" aria-label={`Valores por ${unidadPlural(vista)}`} {...propsRegionPantallaCompleta(pantallaCompleta, "flex flex-col gap-2")}>
       <div className={`flex shrink-0 flex-wrap items-center justify-between gap-2 ${pantallaCompleta ? "border-b border-ink-100 px-4 py-2.5" : ""}`}>
-        <p className="text-[12px] text-ink-500">Valores del 350 vigente de cada mes (la última corrección). Los totales se recalculan con los renglones del formulario.</p>
+        <p className="text-[12px] text-ink-500">Valores del {vista.codigo ?? "350"} vigente de cada {unidad} (la última corrección). Los totales se recalculan con los renglones del formulario.</p>
         <div className="flex flex-wrap items-center gap-3">
           <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
           <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternar} />
@@ -55,36 +63,38 @@ export function VistaPorMeses({ vista, onAbrir }: { vista: VistaRevision; onAbri
         <table className="w-full text-[12px]">
           <thead>
             <tr className="bg-ink-50 text-[11px] font-semibold text-ink-600">
-              <th rowSpan={2} className={`sticky left-0 top-0 z-30 bg-ink-50 px-3 py-1 text-left align-bottom ${LINEA_ABAJO}`}>Concepto</th>
-              <th rowSpan={2} className={`${TITULO_FIJO} ${LINEA_ABAJO} px-2 py-1 text-center align-bottom`}>Renglón</th>
+              <th rowSpan={filasEncabezado} className={`sticky left-0 top-0 z-30 bg-ink-50 px-3 py-1 text-left align-bottom ${LINEA_ABAJO}`}>Concepto</th>
+              <th rowSpan={filasEncabezado} className={`${TITULO_FIJO} ${LINEA_ABAJO} px-2 py-1 text-center align-bottom`}>Renglón</th>
               {vista.meses.map((m) => (
-                <th key={m.periodo} colSpan={2} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} ${pantallaCompleta ? "h-[3.25rem]" : ""} px-2 py-1 text-center`}>
+                <th key={m.periodo} colSpan={ancho} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} ${pantallaCompleta ? "h-[3.25rem]" : ""} px-2 py-1 text-center`}>
                   <div>{m.etiqueta}</div>
                   {m.formulario ? (
                     <button type="button" onClick={() => onAbrir(m.formulario!.id)} className="whitespace-nowrap tabular-nums text-[10.5px] font-semibold text-blue-700 hover:underline">
                       {m.formulario.numero}{m.formulario.esCorreccion ? " · corrección" : ""}
                     </button>
                   ) : (
-                    <div className="text-[10.5px] font-normal text-ink-400">{m.causal ? "Sin formulario" : "Falta el 350"}</div>
+                    <div className="text-[10.5px] font-normal text-ink-400">{m.causal ? "Sin formulario" : faltaDeclaracion(vista)}</div>
                   )}
                 </th>
               ))}
-              <th rowSpan={2} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} px-2 py-1 text-right align-bottom`}>Total</th>
+              <th rowSpan={filasEncabezado} className={`${TITULO_FIJO} ${LINEA_IZQUIERDA_Y_ABAJO} px-2 py-1 text-right align-bottom`}>Total</th>
             </tr>
-            <tr className="bg-ink-50 text-[10.5px] font-semibold text-ink-500">
-              {vista.meses.map((m) => (
-                <SubEncabezado key={m.periodo} />
-              ))}
-            </tr>
+            {personas && (
+              <tr className="bg-ink-50 text-[10.5px] font-semibold text-ink-500">
+                {vista.meses.map((m) => (
+                  <SubEncabezado key={m.periodo} />
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {tramos(filas).map((t) => (
-              <TramoMeses key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} columnas={columnas} completa={pantallaCompleta} />
+              <TramoMeses key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} columnas={columnas} ancho={ancho} completa={pantallaCompleta} />
             ))}
             <tr className="bg-ink-50">
               <td colSpan={columnas} className="sticky left-0 px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Pagos · formulario 490</td>
             </tr>
-            {vista.pagos.map((p) => <FilaPagoMeses key={p.clave} p={p} />)}
+            {vista.pagos.map((p) => <FilaPagoMeses key={p.clave} p={p} ancho={ancho} />)}
           </tbody>
         </table>
       </div>
@@ -101,7 +111,7 @@ function SubEncabezado() {
   );
 }
 
-function TramoMeses({ seccion, filas, columnas, completa }: { seccion: string; filas: FilaVista[]; columnas: number; completa: boolean }) {
+function TramoMeses({ seccion, filas, columnas, ancho, completa }: { seccion: string; filas: FilaVista[]; columnas: number; ancho: number; completa: boolean }) {
   return (
     <>
       <tr className="bg-ink-50">
@@ -115,7 +125,7 @@ function TramoMeses({ seccion, filas, columnas, completa }: { seccion: string; f
             f.tipo === "concepto" ? (
               <FilaConcepto key={i} pj={m.pj} pn={m.pn} />
             ) : (
-              <td key={i} colSpan={2} className={`${CELDA} border-l border-ink-100`}>{miles(m.valor)}</td>
+              <td key={i} colSpan={ancho} className={`${CELDA} border-l border-ink-100`}>{miles(m.valor)}</td>
             ),
           )}
           <td className={`${CELDA} border-l border-ink-150 font-semibold`}>{miles(f.total)}</td>
@@ -134,28 +144,30 @@ function FilaConcepto({ pj, pn }: { pj: number | null; pn: number | null }) {
   );
 }
 
-function FilaPagoMeses({ p }: { p: FilaPago }) {
+function FilaPagoMeses({ p, ancho }: { p: FilaPago; ancho: number }) {
   return (
     <tr className={`border-t border-ink-100 ${p.clave === "total_pagado" ? "font-semibold" : ""}`}>
       <td className={PRIMERA}>{p.etiqueta}</td>
       <td className="px-2 py-1" />
-      {p.meses.map((v, i) => <td key={i} colSpan={2} className={`${CELDA} border-l border-ink-100`}>{miles(v)}</td>)}
+      {p.meses.map((v, i) => <td key={i} colSpan={ancho} className={`${CELDA} border-l border-ink-100`}>{miles(v)}</td>)}
       <td className={`${CELDA} border-l border-ink-150 font-semibold`}>{miles(p.total)}</td>
     </tr>
   );
 }
 
-/** Vista 2 · Acumulado: la suma de los meses hasta el corte. */
+/** Vista 2 · Acumulado: la suma de los períodos hasta el corte. */
 export function VistaAcumulada({ vista }: { vista: VistaRevision }) {
   const [ocultarCeros, setOcultarCeros] = useState(false);
   const filas = ocultarCeros ? vista.filas.filter(filaConValores) : vista.filas;
   const conFormulario = vista.meses.filter((m) => m.formulario).length;
+  const personas = vistaConPersonas(vista);
+  const columnas = personas ? 4 : 3;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12px] text-ink-500">
-          Suma de {conFormulario} de {vista.meses.length} meses con 350 hasta el corte.
-          {conFormulario < vista.meses.length && <span className="ml-1"><Chip label="Faltan meses" tone="warn" /></span>}
+          Suma de {conFormulario} de {vista.meses.length} {unidadPlural(vista)} con {vista.codigo ?? "350"} hasta el corte.
+          {conFormulario < vista.meses.length && <span className="ml-1"><Chip label={`Faltan ${unidadPlural(vista)}`} tone="warn" /></span>}
         </p>
         <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
       </div>
@@ -164,21 +176,27 @@ export function VistaAcumulada({ vista }: { vista: VistaRevision }) {
           <thead>
             <tr className="border-b border-ink-150 bg-ink-50 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
               <th className="px-3 py-2 text-left">Concepto</th>
-              <th className="px-3 py-2 text-center">Renglón P. jurídica</th>
-              <th className="px-3 py-2 text-center">Renglón P. natural</th>
+              {personas ? (
+                <>
+                  <th className="px-3 py-2 text-center">Renglón P. jurídica</th>
+                  <th className="px-3 py-2 text-center">Renglón P. natural</th>
+                </>
+              ) : (
+                <th className="px-3 py-2 text-center">Renglón</th>
+              )}
               <th className="px-3 py-2 text-right">Total</th>
             </tr>
           </thead>
           <tbody>
             {tramos(filas).map((t) => (
-              <TramoAcumulado key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} />
+              <TramoAcumulado key={`${t.seccion}-${t.filas[0]?.clave}`} seccion={t.seccion} filas={t.filas} personas={personas} />
             ))}
             <tr className="bg-ink-50">
-              <td colSpan={4} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Pagos · formulario 490</td>
+              <td colSpan={columnas} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Pagos · formulario 490</td>
             </tr>
             {vista.pagos.map((p) => (
               <tr key={p.clave} className={`border-t border-ink-100 ${p.clave === "total_pagado" ? "font-semibold" : ""}`}>
-                <td className="px-3 py-1" colSpan={3}>{p.etiqueta}</td>
+                <td className="px-3 py-1" colSpan={columnas - 1}>{p.etiqueta}</td>
                 <td className={CELDA}>{miles(p.total)}</td>
               </tr>
             ))}
@@ -189,11 +207,11 @@ export function VistaAcumulada({ vista }: { vista: VistaRevision }) {
   );
 }
 
-function TramoAcumulado({ seccion, filas }: { seccion: string; filas: FilaVista[] }) {
+function TramoAcumulado({ seccion, filas, personas }: { seccion: string; filas: FilaVista[]; personas: boolean }) {
   return (
     <>
       <tr className="bg-ink-50">
-        <td colSpan={4} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{seccion}</td>
+        <td colSpan={personas ? 4 : 3} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{seccion}</td>
       </tr>
       {filas.map((f) => (
         <tr key={f.clave} className={`border-t border-ink-100 ${f.tipo === "total" ? "font-semibold" : ""}`}>
@@ -204,7 +222,7 @@ function TramoAcumulado({ seccion, filas }: { seccion: string; filas: FilaVista[
               <td className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPn ?? "—"}</td>
             </>
           ) : (
-            <td colSpan={2} className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPj}</td>
+            <td colSpan={personas ? 2 : 1} className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPj}</td>
           )}
           <td className={CELDA}>{miles(f.total)}</td>
         </tr>

@@ -26,9 +26,9 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
 
   it("febrero a agosto: presentación y pago del 61 oportunos (abril se pagó el mismo día del vencimiento); el 62 solo se pagó en agosto", () => {
     const filas = oportunidad().slice(1);
-    expect(filas.every((f) => f.estadoPresentacion === "oportuno" && f.pago61.estado === "oportuno")).toBe(true);
+    expect(filas.every((f) => f.estadoPresentacion === "oportuno" && f.pago61!.estado === "oportuno")).toBe(true);
     expect(filas[2]).toMatchObject({ periodo: 4, vencimiento: "2026-05-25", pago61: { fecha: "2026-05-25" } });
-    expect(filas.map((f) => f.pago62.estado)).toEqual([...Array(6).fill("sin_pago"), "oportuno"]);
+    expect(filas.map((f) => f.pago62!.estado)).toEqual([...Array(6).fill("sin_pago"), "oportuno"]);
     expect(filas[6].pago62).toMatchObject({ numero: "4911175045977", fecha: "2026-09-18" });
   });
 
@@ -44,7 +44,7 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
 
   it("sin calendario, con otra periodicidad o sin formulario no sale «Oportuno»", () => {
     expect(oportunidad({ calendario: [] })[1].estadoPresentacion).toBe("sin_calendario");
-    expect(oportunidad({ calendarioAplica: false })[1].pago61.estado).toBe("sin_calendario");
+    expect(oportunidad({ calendarioAplica: false })[1].pago61!.estado).toBe("sin_calendario");
     const conCausal = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [{ periodo: 9, causal: "Sin retenciones" }] });
     expect(oportunidad({ periodos: conCausal })[8]).toMatchObject({ estadoPresentacion: "sin_formulario", pago61: { estado: "sin_formulario" }, pago62: { estado: "sin_formulario" } });
     const sinCausal = periodosRevision({ periodicidad: "Mensual", mesCorte: 9, formularios350: F350_2026, formularios490: F490_2026, porConfirmar: [], causales: [] });

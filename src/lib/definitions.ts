@@ -409,14 +409,22 @@ export const ActualizarUmbralSchema = z.object({
 });
 
 // ---- Impuestos · DIAN: Mapeos DIAN y calendario tributario ----
-// Cuenta Russell de un concepto del 350: 6 dígitos, o vacía para dejarlo sin cuenta.
+// Cuenta Russell de un concepto del 350 o del 300: una o varias de 6 dígitos (separadas con «+»,
+// coma o punto y coma), o vacía para dejarlo sin cuenta. Varias quedan ordenadas y unidas con «+».
 export const CuentaMapeoDianSchema = z.object({
+  formulario: z.enum(["350", "300"], { error: "Formulario inválido." }),
   concepto: z.string().trim().regex(/^[a-z0-9_]{2,60}$/, { error: "Concepto inválido." }),
   cuenta: z
     .string()
     .trim()
-    .transform((s) => s.replace(/\s/g, ""))
-    .refine((s) => s === "" || /^\d{6}$/.test(s), { error: "La cuenta Russell debe tener 6 dígitos." }),
+    .transform((s, ctx) => {
+      const partes = s.replace(/\s/g, "").split(/[+,;]+/).filter((p) => p !== "");
+      if (partes.some((p) => !/^\d{6}$/.test(p))) {
+        ctx.addIssue({ code: "custom", message: "Cada cuenta Russell debe tener 6 dígitos (varias se separan con +)." });
+        return z.NEVER;
+      }
+      return [...new Set(partes)].sort().join("+");
+    }),
 });
 export const RestaTerceroDianSchema = z.object({
   cuenta: z.string().trim().regex(/^\d{6}$/, { error: "Cuenta Russell inválida." }),
@@ -435,7 +443,7 @@ export const TerceroDianSchema = z.object({
 // de fondo (casillas, fechas después del período) la hace `validarCalendario`.
 export const CalendarioDianSchema = z.object({
   anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
-  formulario: z.enum(["RETEFUENTE"], { error: "Formulario sin calendario." }),
+  formulario: z.enum(["RETEFUENTE", "IVA_BIMESTRAL", "IVA_CUATRIMESTRAL", "IVA_ANUAL"], { error: "Formulario sin calendario." }),
   filas: z
     .string()
     .transform((s, ctx) => {
@@ -459,8 +467,11 @@ export const CalendarioDianSchema = z.object({
     ),
 });
 
-// ---- Impuestos · Retención en la fuente: revisiones y formularios ----
-export const RevisionRetencionSchema = z.object({
+// ---- Impuestos · DIAN (Retención en la fuente e IVA): revisiones y formularios ----
+// `periodicidad` solo se usa en IVA cuando la ficha del cliente no la tiene (la valida la acción).
+export const RevisionImpuestoSchema = z.object({
+  impuesto: z.enum(["RET", "IVA"], { error: "Impuesto inválido." }),
+  periodicidad: z.string().trim().max(20).default(""),
   clienteId: z.coerce.number().int().positive({ error: "Elige el cliente." }),
   anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
   mesCorte: z.coerce.number().int().min(1, { error: "Elige el corte." }).max(12, { error: "Elige el corte." }),
@@ -491,7 +502,7 @@ export const ConfirmarFormularioDianSchema = z.object({
   fechaSello: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Escribe la fecha del sello (renglón 997)." }),
   codigoCorreccion: z.enum(["", "1"], { error: "Código de corrección inválido." }).default(""),
   numeroAnterior: numeroFormularioOpcional.default(""),
-  concepto: z.enum(["", "61", "62", "63"], { error: "Concepto de pago inválido." }).default(""),
+  concepto: z.enum(["", "61", "62", "63", "05", "57", "58"], { error: "Concepto de pago inválido." }).default(""),
   numeroPagado: numeroFormularioOpcional.default(""),
   valores: z
     .string()
@@ -506,12 +517,13 @@ export const ConfirmarFormularioDianSchema = z.object({
     .pipe(z.record(z.string().regex(/^\d{1,3}$/), z.number().int().min(0).max(1e15))),
 });
 
-// Marca de Retención en la fuente: una fila del cruce (cuenta Russell o concepto sin cuenta), un mes de
-// pagos efectuados o de oportunidad, o lo restado como saldo inicial (`saldo_inicial`, en Novedades).
-export const CLAVE_MARCA_RETENCION = /^(\d{6}|sin_cuenta:[a-z0-9_]{2,60}|(pago|oportunidad):\d{4}-\d{2}|saldo_inicial)$/;
-export const MarcaRetencionSchema = z.object({
+// Marca de una revisión de Impuestos · DIAN: una fila del cruce (cuenta Russell, varias unidas con «+»
+// como el renglón 40 del 300, o concepto sin cuenta), un período de pagos efectuados o de oportunidad,
+// o lo restado como saldo inicial (`saldo_inicial`, en Novedades).
+export const CLAVE_MARCA_IMPUESTO = /^(\d{6}(\+\d{6}){0,30}|sin_cuenta:[a-z0-9_]{2,60}|(pago|oportunidad):\d{4}-\d{2}|saldo_inicial)$/;
+export const MarcaImpuestoSchema = z.object({
   revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
-  clave: z.string().trim().regex(CLAVE_MARCA_RETENCION, { error: "Fila de la revisión inválida." }),
+  clave: z.string().trim().regex(CLAVE_MARCA_IMPUESTO, { error: "Fila de la revisión inválida." }),
   nota: z.string().trim().min(10, { error: "Explica la diferencia (al menos 10 caracteres)." }).max(2000, { error: "La explicación es muy larga." }),
   referenciaAnexo: z.string().trim().max(120, { error: "La referencia es muy larga (máximo 120 caracteres)." }).default(""),
 });

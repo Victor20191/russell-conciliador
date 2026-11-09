@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { fmtContable } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
-import { guardarMarcaRetencion, quitarMarcaRetencion } from "@/app/actions/impuestos-retencion";
+import { guardarMarcaImpuesto, quitarMarcaImpuesto } from "@/app/actions/impuestos-revisiones";
 import type { ActionState } from "@/lib/definitions";
 import type { MarcaCruceRetencion } from "@/lib/impuestos/retencion/cruce";
 
@@ -41,8 +41,8 @@ export function MarcaModal({
   placeholder: string;
   onClose: () => void;
 }) {
-  const [state, action, guardando] = useActionState<ActionState, FormData>(guardarMarcaRetencion, {});
-  const [stateQuitar, actionQuitar, quitando] = useActionState<ActionState, FormData>(quitarMarcaRetencion, {});
+  const [state, action, guardando] = useActionState<ActionState, FormData>(guardarMarcaImpuesto, {});
+  const [stateQuitar, actionQuitar, quitando] = useActionState<ActionState, FormData>(quitarMarcaImpuesto, {});
   const [nota, setNota] = useState(marca?.nota ?? "");
   const [referencia, setReferencia] = useState(marca?.referenciaAnexo ?? "");
   // Cerrar cambia el estado de la pantalla que abrió el panel: en un efecto, no al dibujar.

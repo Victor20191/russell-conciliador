@@ -6,12 +6,12 @@ import { Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
-import { confirmarFormularioDian, descartarFormularioDian } from "@/app/actions/impuestos-retencion";
+import { confirmarFormularioDian, descartarFormularioDian } from "@/app/actions/impuestos-revisiones";
 import type { ActionState } from "@/lib/definitions";
-import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { esImporte } from "@/lib/impuestos/formularios/definicion";
-import { F350 } from "@/lib/impuestos/formularios/f350";
-import { F490 } from "@/lib/impuestos/formularios/f490";
+import { etiquetaConceptoPago, F490 } from "@/lib/impuestos/formularios/f490";
+import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "@/lib/impuestos/impuestos-dian";
+import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { controlesLectura, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import type { FormularioVista } from "@/lib/impuestos/retencion/revision-servidor";
 
@@ -20,7 +20,7 @@ const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-3 py-1.5 text-[12p
 const ETIQUETA_PERSONA = { juridica: "P. jurídica", natural: "P. natural", unica: "" } as const;
 const conMiles = (s: string) => (s === "" ? "" : Number(s).toLocaleString("es-CO"));
 
-export type ContextoRevision = { revisionId: number; nitCliente: string; anio: number; mesCorte: number };
+export type ContextoRevision = { revisionId: number; nitCliente: string; anio: number; mesCorte: number; impuesto: ClaveImpuesto; periodicidad: string };
 
 export function FormularioModal({
   formulario: f,
@@ -37,7 +37,11 @@ export function FormularioModal({
   puedeEliminar: boolean;
   onClose: () => void;
 }) {
-  const def = f.formulario === "490" ? F490 : F350;
+  const impuesto = impuestoPorClave(contexto.impuesto) ?? RETENCION;
+  const codigo = impuesto.declaracion.codigo;
+  const esDeclaracion = f.formulario !== "490";
+  const def = esDeclaracion ? impuesto.declaracion : F490;
+  const conceptos = conceptosPagoDe(impuesto, contexto.periodicidad);
   const editable = f.estado === "por_confirmar" && puedeCargar;
   const [confirmarState, confirmarAction, confirmando] = useActionState<ActionState, FormData>(confirmarFormularioDian, {});
   const [descartarState, descartarAction, descartando] = useActionState<ActionState, FormData>(descartarFormularioDian, {});
@@ -73,8 +77,8 @@ export function FormularioModal({
     periodo: f.periodo,
     numero: f.numero,
     fechaSello: fechaSello || null,
-    codigoCorreccion: f.formulario === "350" && esCorreccion ? 1 : null,
-    numeroAnterior: f.formulario === "350" && esCorreccion ? numeroAnterior.replace(/\D/g, "") || null : null,
+    codigoCorreccion: esDeclaracion && esCorreccion ? 1 : null,
+    numeroAnterior: esDeclaracion && esCorreccion ? numeroAnterior.replace(/\D/g, "") || null : null,
     concepto: f.formulario === "490" ? concepto || null : null,
     numeroPagado: f.formulario === "490" ? numeroPagado.replace(/\D/g, "") || null : null,
     valores: numericos,
@@ -99,7 +103,7 @@ export function FormularioModal({
     <Modal
       open
       onClose={onClose}
-      title={`Formulario ${f.formulario} · ${NOMBRES_MES[f.periodo - 1] ?? `Período ${f.periodo}`} ${contexto.anio}`}
+      title={`Formulario ${f.formulario} · ${etiquetaPeriodoRevision(contexto.periodicidad, f.periodo)} ${contexto.anio}`}
       size="4xl"
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -123,8 +127,8 @@ export function FormularioModal({
               <input type="hidden" name="id" value={f.id} />
               <input type="hidden" name="revisionId" value={contexto.revisionId} />
               <input type="hidden" name="fechaSello" value={fechaSello} />
-              <input type="hidden" name="codigoCorreccion" value={f.formulario === "350" && esCorreccion ? "1" : ""} />
-              <input type="hidden" name="numeroAnterior" value={f.formulario === "350" && esCorreccion ? numeroAnterior : ""} />
+              <input type="hidden" name="codigoCorreccion" value={esDeclaracion && esCorreccion ? "1" : ""} />
+              <input type="hidden" name="numeroAnterior" value={esDeclaracion && esCorreccion ? numeroAnterior : ""} />
               <input type="hidden" name="concepto" value={f.formulario === "490" ? concepto : ""} />
               <input type="hidden" name="numeroPagado" value={f.formulario === "490" ? numeroPagado : ""} />
               <input type="hidden" name="valores" value={JSON.stringify(numericos)} />
@@ -174,8 +178,14 @@ export function FormularioModal({
             <span className="font-semibold text-ink-700">{f.formulario === "490" ? "Fecha de pago" : "Fecha de presentación"} (renglón 997)</span>
             <input type="date" value={fechaSello} disabled={!editable} onChange={(e) => setFechaSello(e.target.value)} className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 disabled:bg-ink-50" />
           </label>
-          {f.formulario === "350" ? (
+          {esDeclaracion ? (
             <div className="flex flex-col gap-1">
+              {f.formulario === "300" && (
+                <span className="text-ink-700">
+                  <span className="font-semibold">Periodicidad (casilla 24):</span> {f.leido.periodicidad ?? "no se leyó"}
+                  <span className="ml-1 text-[11.5px] text-ink-500">· la del cliente es {contexto.periodicidad.toLowerCase()}</span>
+                </span>
+              )}
               <label className="flex items-center gap-2 font-semibold text-ink-700">
                 <input type="checkbox" checked={esCorreccion} disabled={!editable} onChange={(e) => setEsCorreccion(e.target.checked)} />
                 Es una corrección (renglón 25 = 1)
@@ -190,13 +200,12 @@ export function FormularioModal({
                 <span className="font-semibold text-ink-700">Concepto (renglón 2)</span>
                 <select value={concepto} disabled={!editable} onChange={(e) => setConcepto(e.target.value)} className="h-9 rounded-md border border-ink-200 bg-white px-2 disabled:bg-ink-50">
                   <option value="">—</option>
-                  <option value="61">61 · Retención renta y autorretenciones</option>
-                  <option value="62">62 · ReteIVA</option>
-                  <option value="63">63 · Timbre</option>
+                  {conceptos.map((c) => <option key={c.concepto} value={c.concepto}>{etiquetaConceptoPago(c.concepto)}</option>)}
+                  {concepto && !conceptos.some((c) => c.concepto === concepto) && <option value={concepto}>{etiquetaConceptoPago(concepto)}</option>}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className="font-semibold text-ink-700">350 que paga (renglón 29)</span>
+                <span className="font-semibold text-ink-700">{codigo} que paga (renglón 29)</span>
                 <input value={numeroPagado} disabled={!editable} onChange={(e) => setNumeroPagado(e.target.value.replace(/\D/g, "").slice(0, 13))} aria-label="Número del formulario que se paga" className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 tabular-nums disabled:bg-ink-50" />
               </label>
             </div>

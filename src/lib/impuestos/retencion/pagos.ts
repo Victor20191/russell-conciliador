@@ -1,6 +1,5 @@
 import { calcularTotal } from "../formularios/definicion";
-import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "../formularios/f350";
-import { CONCEPTOS_PAGO_RETENCION, type ConceptoPagoRetencion } from "../formularios/f490";
+import { impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
 import type { MarcaCruceRetencion } from "./cruce";
 import { claveMarcaPeriodo } from "./oportunidad";
 import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./periodos-revision";
@@ -15,6 +14,11 @@ import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./per
  * recibo que paga un 350 de otro período. Un mes sin 350 con recibos 490 confirmados muestra lo
  * pagado como diferencia y exige marca. El desglose por concepto (pagado − declarado) dice qué
  * falta: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135.
+ *
+ * IVA usa la misma regla con su descriptor: lo declarado es el 86 (saldo a pagar por impuesto), el 87
+ * (sanciones) y el 88 (total saldo a pagar), recalculados con su piso en cero, contra el 36 y el 34 de
+ * los 490 del concepto de la periodicidad. Los nombres de los campos (`retenciones`, `sanciones`) son
+ * los de Retención: en IVA, `retenciones` es el 86.
  */
 
 export type EstadoPago = "completo" | "diferencia" | "sin_formulario" | "falta_350";
@@ -26,7 +30,10 @@ export const ETIQUETA_PAGO: Readonly<Record<EstadoPago, string>> = {
   falta_350: "Falta el 350",
 };
 
-export type DesglosePago = { concepto: ConceptoPagoRetencion; renglon: number; declarado: number; pagado: number; diferencia: number; recibos: number };
+/** La etiqueta del estado con el formulario de la declaración del impuesto («Falta el 300» en IVA). */
+export const etiquetaPago = (estado: EstadoPago, codigo = "350") => (estado === "falta_350" ? `Falta el ${codigo}` : ETIQUETA_PAGO[estado]);
+
+export type DesglosePago = { concepto: string; renglon: number; declarado: number; pagado: number; diferencia: number; recibos: number };
 
 export type FilaPagos = {
   periodo: number;
@@ -64,14 +71,17 @@ export const conceptosSinRecibo = (f: Pick<FilaPagos, "desglose">): DesglosePago
 
 export const alertaSinRecibo = (d: Pick<DesglosePago, "concepto">) => `Falta el 490 concepto ${d.concepto}`;
 
-export const alertaReciboDeOtro350 = (r: ReciboDeOtro350) => `Recibo de otro 350 (${r.numeroPagado})`;
+export const alertaReciboDeOtro350 = (r: ReciboDeOtro350, codigo = "350") => `Recibo de otro ${codigo} (${r.numeroPagado})`;
 
-export const alertaRecibosSin350 = (numeros: readonly string[]) => (numeros.length === 1 ? "Recibo 490 sin 350" : `${numeros.length} recibos 490 sin 350`);
+export const alertaRecibosSin350 = (numeros: readonly string[], codigo = "350") => (numeros.length === 1 ? `Recibo 490 sin ${codigo}` : `${numeros.length} recibos 490 sin ${codigo}`);
 
 const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
 
-export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevision[]; marcas: readonly (MarcaCruceRetencion & { clave: string })[] }): ResultadoPagos {
+export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; periodos: readonly PeriodoRevision[]; marcas: readonly (MarcaCruceRetencion & { clave: string })[] }): ResultadoPagos {
+  const impuesto = impuestoPorClave(e.impuesto) ?? RETENCION;
+  const def = impuesto.declaracion;
+  const { impuesto: rImpuesto, sanciones: rSanciones, total: rTotal } = impuesto.renglones;
   const marcas = new Map(e.marcas.map((m) => [m.clave, m]));
   const filas = e.periodos.map((p): FilaPagos => {
     const clave = claveMarcaPeriodo("pago", e.anio, p.periodo);
@@ -93,12 +103,12 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
     }
     // Los totales se recalculan con la definición del formulario, como en las vistas.
     const valores = new Map(Object.entries(vigente.valores).map(([r, v]) => [Number(r), v]));
-    const retenciones = calcularTotal(F350, 136, valores);
-    const sanciones = valores.get(137) ?? 0;
-    const desglose = CONCEPTOS_PAGO_RETENCION.map((concepto): DesglosePago => {
-      const renglon = RENGLON_PAGADO_POR_CONCEPTO_490[concepto];
+    const retenciones = calcularTotal(def, rImpuesto, valores);
+    const sanciones = valores.get(rSanciones) ?? 0;
+    // Un renglón del desglose por concepto de pago del período (61, 62 y 63 en Retención; el de la periodicidad en IVA).
+    const desglose = p.pagos.map(({ concepto, renglon }): DesglosePago => {
       const pago = p.pagos.find((x) => x.concepto === concepto);
-      const declarado = calcularTotal(F350, renglon, valores);
+      const declarado = calcularTotal(def, renglon, valores);
       const pagado = pago?.impuesto ?? 0;
       return { concepto, renglon, declarado, pagado, diferencia: sumar([pagado, -declarado]), recibos: pago?.formularios.length ?? 0 };
     });
@@ -111,7 +121,7 @@ export function pagosRevision(e: { anio: number; periodos: readonly PeriodoRevis
     const requiereMarca = hayDiferencia || recibosDeOtro350.length > 0;
     return {
       periodo: p.periodo, clave, estado: hayDiferencia ? "diferencia" : "completo",
-      retenciones, sanciones, totalDeclarado: calcularTotal(F350, 138, valores),
+      retenciones, sanciones, totalDeclarado: calcularTotal(def, rTotal, valores),
       impuestoPagado, sancionPagada, intereses, totalPagado: sumar([impuestoPagado, sancionPagada]), diferencia,
       desglose, recibosDeOtro350, requiereMarca,
       marca: marcaGuardada ? { ...marcaGuardada, vigente: centavos(marcaGuardada.diferencia) === centavos(diferencia) } : null,

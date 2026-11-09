@@ -1,6 +1,6 @@
 {
   "name": "russell-conciliador",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "private": true,
   "engines": {
     "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
@@ -20,6 +20,7 @@
     "db:status": "prisma migrate status",
     "db:exportar:estructura": "tsx scripts/exportar-estructura-bd.ts",
     "db:load:puc": "tsx prisma/load-puc-maestro.ts",
+    "db:plan:foto": "tsx scripts/generate-ai-context-cuentas-estandar.ts",
     "db:load:subgrupos": "tsx prisma/load-subgrupos.ts",
     "db:inicializar:rbac": "tsx prisma/inicializar-rbac.ts",
     "db:sync:rbac": "tsx prisma/sync-matriz.ts",

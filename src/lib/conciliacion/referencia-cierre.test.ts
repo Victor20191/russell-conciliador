@@ -3,9 +3,10 @@ import { referenciaCierre } from "./referencia-cierre";
 import { mensajeConciliacionEnFirme, mensajePeriodoEnFirme } from "./cuentas-bloqueo";
 
 describe("referenciaCierre — el origen de un cierre en firme", () => {
-  it("un módulo cierra un cargue; Retención en la fuente, una revisión", () => {
+  it("un módulo cierra un cargue; Retención en la fuente e IVA, una revisión", () => {
     expect(referenciaCierre({ moduloCodigo: "CAR", moduloDatoEncabezadoId: 12 })).toEqual({ modulo: "CAR", etiqueta: "cargue #12", ruta: "/modulos/car/12" });
     expect(referenciaCierre({ moduloCodigo: "RET", moduloDatoEncabezadoId: 3 })).toEqual({ modulo: "Retención en la fuente", etiqueta: "revisión #3", ruta: "/impuestos/retencion/3" });
+    expect(referenciaCierre({ moduloCodigo: "IVA", moduloDatoEncabezadoId: 7 })).toEqual({ modulo: "IVA", etiqueta: "revisión #7", ruta: "/impuestos/iva/7" });
   });
 
   it("los mensajes del bloqueo nombran la revisión", () => {

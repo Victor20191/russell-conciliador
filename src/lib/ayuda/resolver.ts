@@ -21,6 +21,8 @@ export type FichaId =
   | "catalogo.mapeos_dian"
   | "impuestos.retencion"
   | "impuestos.retencion_revision"
+  | "impuestos.iva"
+  | "impuestos.iva_revision"
   | "equipo.clientes"
   | "equipo.usuarios"
   | "equipo.estructura"
@@ -67,10 +69,10 @@ export function resolverAyuda(pathname: string): AyudaResuelta | null {
     const modulo = s[2] ? descriptorModulo(s[2].toUpperCase())?.codigo : "ING";
     return modulo ? { fichaId: "parametros.filtros_cuentas", modulo } : null;
   }
-  // Impuestos · Retención en la fuente: la lista de revisiones y una revisión.
-  if (s[0] === "impuestos" && s[1] === "retencion") {
-    if (s.length === 2) return { fichaId: "impuestos.retencion" };
-    if (s.length === 3 && ENTERO.test(s[2]!)) return { fichaId: "impuestos.retencion_revision" };
+  // Impuestos · DIAN (Retención en la fuente e IVA): la lista de revisiones y una revisión.
+  if (s[0] === "impuestos" && (s[1] === "retencion" || s[1] === "iva")) {
+    if (s.length === 2) return { fichaId: s[1] === "iva" ? "impuestos.iva" : "impuestos.retencion" };
+    if (s.length === 3 && ENTERO.test(s[2]!)) return { fichaId: s[1] === "iva" ? "impuestos.iva_revision" : "impuestos.retencion_revision" };
   }
   // El detalle de una novedad es la misma Mesa de ayuda.
   if (s[0] === "reportes" && s.length === 2 && ENTERO.test(s[1]!)) return { fichaId: "soporte.mesa_ayuda" };

@@ -3,10 +3,11 @@ import type { DefinicionFormulario, RenglonDian } from "./definicion";
 /**
  * Formulario 490 · Recibo oficial de pago de impuestos nacionales.
  *
- * Fuente: «Retencion en la fuente - F350 y F490.xlsx», pestaña «Formulario 490». Para la
- * retención en la fuente, el concepto (renglón 2) es 61 (renta y autorretenciones, paga el
- * 130 del 350), 62 (reteIVA, paga el 134) o 63 (timbre, paga el 135); el valor del
- * impuesto va en el 36, y puede venir sanción (34) e intereses de mora (35).
+ * Fuente: «Retencion en la fuente - F350 y F490.xlsx» e «IVA - F300 y F490.xlsx», pestaña
+ * «Formulario 490». En la retención en la fuente el concepto (renglón 2) es 61 (renta y
+ * autorretenciones, paga el 130 del 350), 62 (reteIVA, paga el 134) o 63 (timbre, paga el 135). En
+ * el IVA es 05 (bimestral), 57 (cuatrimestral) o 58 (anual), según la periodicidad del 300, y paga
+ * el 86. El valor del impuesto va en el 36, y puede venir sanción (34) e intereses de mora (35).
  */
 
 const r = (renglon: number, etiqueta: string, seccion: string, tipo: RenglonDian["tipo"], guardar: boolean, terminos?: RenglonDian["terminos"]): RenglonDian => ({
@@ -23,10 +24,23 @@ const OFICIAL = "Uso oficial";
 export const CONCEPTOS_PAGO_RETENCION = ["61", "62", "63"] as const;
 export type ConceptoPagoRetencion = (typeof CONCEPTOS_PAGO_RETENCION)[number];
 
-const NOMBRE_CONCEPTO_PAGO: Readonly<Record<ConceptoPagoRetencion, string>> = { "61": "Retenciones de renta", "62": "ReteIVA", "63": "Retención de timbre" };
+export const CONCEPTOS_PAGO_IVA = ["05", "57", "58"] as const;
+export type ConceptoPagoIva = (typeof CONCEPTOS_PAGO_IVA)[number];
+
+/** El concepto del 490 de IVA según la periodicidad del 300. */
+export const CONCEPTO_490_IVA_POR_PERIODICIDAD: Readonly<Record<string, ConceptoPagoIva>> = { Bimestral: "05", Cuatrimestral: "57", Anual: "58" };
+
+const NOMBRE_CONCEPTO_PAGO: Readonly<Record<string, string>> = {
+  "61": "Retenciones de renta",
+  "62": "ReteIVA",
+  "63": "Retención de timbre",
+  "05": "IVA bimestral",
+  "57": "IVA cuatrimestral",
+  "58": "IVA anual",
+};
 
 /** «Retenciones de renta (Concepto 61)»: el nombre del concepto de pago con su número. */
-export const etiquetaConceptoPago = (concepto: ConceptoPagoRetencion) => `${NOMBRE_CONCEPTO_PAGO[concepto]} (Concepto ${concepto})`;
+export const etiquetaConceptoPago = (concepto: string) => `${NOMBRE_CONCEPTO_PAGO[concepto] ?? "Concepto"} (Concepto ${concepto})`;
 
 export const F490: DefinicionFormulario = {
   codigo: "490",

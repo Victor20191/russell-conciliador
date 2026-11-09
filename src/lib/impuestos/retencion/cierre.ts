@@ -22,6 +22,8 @@ export type EvaluacionCierreRetencion = { pendientes: PendienteCierre[]; avisos:
 const pesos = (n: number) => `${n < 0 ? "-" : ""}$ ${Math.abs(n).toLocaleString("es-CO", { maximumFractionDigits: 2 })}`;
 
 export function evaluarCierreRetencion(e: {
+  /** El formulario de la declaración (350 o 300); sin él, 350. */
+  codigo?: string;
   periodos: readonly PeriodoRevision[];
   cruce: CruceRetencionVista;
   pagos: ResultadoPagos;
@@ -31,11 +33,13 @@ export function evaluarCierreRetencion(e: {
   const pendientes: PendienteCierre[] = [];
   const avisos: string[] = [];
   const etq = e.etiquetaPeriodo;
+  const codigo = e.codigo ?? "350";
+  const elPeriodo = codigo === "350" ? "el mes" : "el período";
 
   for (const p of e.periodos) {
-    if (!p.cadena.vigente && !p.causal) pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el 350 o la causal de que no hubo formulario.` });
+    if (!p.cadena.vigente && !p.causal) pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el ${codigo} o la causal de que no hubo formulario.` });
     if (p.cadena.vigente && p.cadena.faltaOriginal) {
-      pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el 350 original ${p.cadena.faltaOriginal}; hay que cargarlo para cerrar en firme.` });
+      pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: falta el ${codigo} original ${p.cadena.faltaOriginal}; hay que cargarlo para cerrar en firme.` });
     }
     if (p.porConfirmar > 0) {
       pendientes.push({ tipo: "formularios", texto: `${etq(p.periodo)}: ${p.porConfirmar} ${p.porConfirmar === 1 ? "formulario" : "formularios"} por confirmar.` });
@@ -72,9 +76,9 @@ export function evaluarCierreRetencion(e: {
     const sin350 = f.recibosSin350 ?? [];
     const motivos = [
       ...(sin350.length > 0
-        ? [`el mes no tiene 350 y tiene ${sin350.length === 1 ? "un recibo 490" : `${sin350.length} recibos 490`} por ${pesos(f.totalPagado)}`]
+        ? [`${elPeriodo} no tiene ${codigo} y tiene ${sin350.length === 1 ? "un recibo 490" : `${sin350.length} recibos 490`} por ${pesos(f.totalPagado)}`]
         : f.diferencia !== 0 ? [`diferencia en el pago de ${pesos(f.diferencia)}`] : []),
-      ...(f.recibosDeOtro350 ?? []).map((r) => `el recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un 350 de este período`),
+      ...(f.recibosDeOtro350 ?? []).map((r) => `el recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un ${codigo} de este período`),
     ];
     pendientes.push({
       tipo: "pagos",

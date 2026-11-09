@@ -90,7 +90,7 @@ describe("periodicidad", () => {
   it("ofrece opciones por formulario y valida lo que llega de la ficha", () => {
     expect(opcionesPeriodicidad("RETEFUENTE")).toEqual(["Mensual"]);
     expect(validarPeriodicidad("RETEFUENTE", "Bimestral").ok).toBe(false);
-    expect(opcionesPeriodicidad("IVA")).toEqual(["Bimestral", "Cuatrimestral"]);
+    expect(opcionesPeriodicidad("IVA")).toEqual(["Bimestral", "Cuatrimestral", "Anual"]);
     expect(opcionesPeriodicidad("ICA")).toEqual([]);
     expect(validarPeriodicidad("IVA", "Cuatrimestral")).toEqual({ ok: true, periodicidad: "Cuatrimestral" });
     expect(validarPeriodicidad("IVA", "Mensual").ok).toBe(false);

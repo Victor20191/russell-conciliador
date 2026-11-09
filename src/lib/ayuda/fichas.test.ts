@@ -4,9 +4,10 @@ import { describe, expect, it } from "vitest";
 import { TABS_BALANCE } from "@/app/(app)/balance/[id]/tabs";
 import { TABS_CARGUE } from "@/app/(app)/modulos/[codigo]/[id]/tabs";
 import { TABS_PLAN_RUSSELL } from "@/app/(app)/config/mapeo/tabs";
-import { TABS_REVISION_RETENCION } from "@/app/(app)/impuestos/retencion/[id]/tabs";
+import { TABS_REVISION_RETENCION } from "@/app/(app)/impuestos/[impuesto]/[id]/tabs";
 import { ESTADO_CERRADO, ESTADO_EN_PROCESO, ESTADO_EN_PROCESO_CON_ALERTAS } from "@/lib/balance/estado-balance";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
+import { IVA } from "@/lib/impuestos/impuestos-dian";
 import { PERMISOS } from "@/lib/rbac/catalogo";
 import { fichaAyuda, permisosAyuda, permisosDeFicha, todasLasFichas } from "./fichas";
 import { PANTALLAS } from "./pantallas";
@@ -74,6 +75,9 @@ describe("fichas de ayuda", () => {
     expect(plan.pestanas?.map((p) => p.id)).toEqual([...TABS_PLAN_RUSSELL]);
     const retencion = fichaAyuda({ fichaId: "impuestos.retencion_revision" })!;
     expect(retencion.pestanas?.map((p) => p.id)).toEqual([...TABS_REVISION_RETENCION]);
+    // IVA muestra solo las pestañas que ya tiene (las demás llegan por fases).
+    const iva = fichaAyuda({ fichaId: "impuestos.iva_revision" })!;
+    expect(iva.pestanas?.map((p) => p.id)).toEqual([...IVA.pestanas]);
     for (const codigo of Object.keys(MODULOS_IMPORT)) {
       const cargue = fichaAyuda({ fichaId: "modulo.cargue", modulo: codigo })!;
       for (const p of cargue.pestanas ?? []) expect(TABS_CARGUE as readonly string[], `${codigo} · ${p.id}`).toContain(p.id);

@@ -9,7 +9,7 @@ import type { UsoIA } from "@/lib/ia/uso";
 import { controlesLectura, lecturaConErrores, normalizarLectura, type ContextoLectura, type ControlLectura, type LecturaCruda, type LecturaFormulario } from "./lectura";
 
 /**
- * Lectura de un formulario DIAN (350 o 490) con Claude: primero el modelo rápido y, si algún
+ * Lectura de un formulario DIAN (350, 300 o 490) con Claude: primero el modelo rápido y, si algún
  * control que bloquea falla, una segunda lectura con el más capaz (la cascada del balance). Se
  * queda con la lectura que menos controles bloqueantes falla. No guarda nada.
  */
@@ -22,6 +22,7 @@ const LecturaFormularioSchema = z.object({
   nit: z.string(),
   dv: z.string(),
   razonSocial: z.string(),
+  periodicidad: z.string(),
   codigoCorreccion: z.string(),
   numeroAnterior: z.string(),
   concepto: z.string(),
