@@ -696,7 +696,8 @@ export function CruceTerceroTab({
                   key={f.clave}
                   data-clave={f.clave}
                   className={`border-t border-ink-100 transition-colors duration-500 ${
-                    destacada === f.clave ? "bg-blue-100" : f.estado === "descuadre" ? "bg-err-100" : ""
+                    // Todas las filas en blanco: el estado lo dicen las etiquetas («Diferencia», «Solo en…»).
+                    destacada === f.clave ? "bg-blue-100" : ""
                   } ${f.estado === "sin_saldo" ? "text-ink-400" : ""}`}
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
