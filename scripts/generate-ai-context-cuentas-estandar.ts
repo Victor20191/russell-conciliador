@@ -21,6 +21,10 @@ type AccountRow = {
 };
 
 const OUTPUT = "docs/ai-context/cuentas-estandar-russell.md";
+// Foto del plan vigente para cruzar códigos sin leer el .md. La copia de
+// `prisma/data/puc-maestro-russell.json` es solo la semilla de `db:load:puc`:
+// las cuentas creadas desde la app viven únicamente en la BD.
+const OUTPUT_JSON = "docs/ai-context/cuentas-estandar-russell.json";
 const CLASS_LABELS: Record<string, string> = {
   "1": "Activo",
   "2": "Pasivo",
@@ -77,9 +81,11 @@ async function main() {
     byClass.get(klass)!.push(row);
   }
 
+  const generadoEn = fechaHoraColombiaISO();
+
   let md = "";
   md += "# Cuenta estandar Russell Bedford - contexto para modelos de IA\n\n";
-  md += `Generado desde la tabla PostgreSQL \`cuentas_estandar\` el ${fechaHoraColombiaISO()}.\n\n`;
+  md += `Generado desde la tabla PostgreSQL \`cuentas_estandar\` el ${generadoEn}.\n\n`;
   md += "Este documento describe la estructura semantica del plan estandar Russell Bedford y enumera todas las cuentas cargadas en base de datos. Su proposito es servir como contexto de recuperacion para modelos de inteligencia artificial que comparen cuentas de clientes contra el plan estandar Russell.\n\n";
 
   md += "## Fuente de verdad\n\n";
@@ -159,7 +165,28 @@ async function main() {
 
   mkdirSync("docs/ai-context", { recursive: true });
   writeFileSync(OUTPUT, md, "utf8");
-  console.log(JSON.stringify({ output: OUTPUT, accounts: rows.length, bytes: Buffer.byteLength(md, "utf8") }, null, 2));
+
+  const foto = {
+    fuente: "Tabla cuentas_estandar de la BD configurada en .env (solo lectura)",
+    generadoEn,
+    cuentas: rows.length,
+    plan: rows.map((r) => ({
+      codigo: r.code,
+      nombre: r.name,
+      cuentaRussell: r.russellAccount,
+      naturaleza: r.nature,
+      padre: r.parent,
+    })),
+  };
+  writeFileSync(OUTPUT_JSON, `${JSON.stringify(foto, null, 2)}\n`, "utf8");
+
+  console.log(
+    JSON.stringify(
+      { output: [OUTPUT, OUTPUT_JSON], generadoEn, accounts: rows.length, bytes: Buffer.byteLength(md, "utf8") },
+      null,
+      2,
+    ),
+  );
 }
 
 main()
