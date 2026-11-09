@@ -195,18 +195,18 @@ describe("prepararCapturaTercero — herencia de ajustes y fila propia", () => {
     expect(r.filas[1].nitTercero).toBe("890903938");
   });
 
-  it("solo conserva los terceros de 13, 21, 22, 23, 24, 28 y 41 a 45; el resto queda con su fila propia", () => {
+  it("solo conserva los terceros de 13, 21, 22, 23, 24 y 28; 41 a 45 y el resto quedan con su fila propia", () => {
     const cuentas = ["11050501", "13050501", "14350101", "21050501", "23350501", "24360502", "28050501", "41350501", "42100501", "43120501", "44280501", "45300501", "46000501", "51050601"];
     const stg: FilaTerceroCruda[] = cuentas.map((codigo, i) => (
       { filaNum: i + 1, codigo, codigoCrudo: null, nombreCuenta: null, nitTercero: `90000000${i}`, nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 10 }
     ));
     const r = prepararCapturaTercero(stg, cuentas.map((cuenta8) => detalle({ cuenta8, saldoFinal: 10 })), new Set());
     const conTerceros = [...new Set(r.filas.filter((f) => f.nitTercero !== null).map((f) => f.cuenta8))];
-    expect(conTerceros).toEqual(["13050501", "21050501", "23350501", "24360502", "28050501", "41350501", "42100501", "43120501", "44280501", "45300501"]);
+    expect(conTerceros).toEqual(["13050501", "21050501", "23350501", "24360502", "28050501"]);
     // Toda cuenta conserva su fila propia con el saldo oficial.
     expect(r.filas.filter((f) => f.nitTercero === null).map((f) => f.cuenta8)).toEqual(cuentas);
-    expect(r.cuentasConDetalle).toBe(10);
-    expect(r.terceros).toBe(10);
+    expect(r.cuentasConDetalle).toBe(5);
+    expect(r.terceros).toBe(5);
   });
 });
 
@@ -318,8 +318,8 @@ describe("evaluarCoberturaTercero", () => {
     expect(exigeDetalleTercero("41350505")).toBe(false);
   });
 
-  it("guarda los terceros de los grupos obligatorios y de 41 a 45, sin repetir ninguno", () => {
-    expect(PREFIJOS_TERCERO_CONSERVADOS).toEqual(["13", "21", "22", "23", "24", "28", "41", "42", "43", "44", "45"]);
+  it("guarda los terceros de los mismos grupos obligatorios; ya no los de 41 a 45 (9/Nov/2026)", () => {
+    expect(PREFIJOS_TERCERO_CONSERVADOS).toEqual(["13", "21", "22", "23", "24", "28"]);
   });
 
   it("mira los cuatro importes: el saldo puede cuadrar con débitos duplicados", () => {
@@ -398,11 +398,23 @@ describe("prepararCapturaTercero — el total de la cuenta leído como tercero n
 });
 
 describe("gruposTerceroConservados / describirGruposTercero", () => {
-  it("una carga nueva guarda los terceros de 13, 21 a 24, 28 y 41 a 45", () => {
+  it("una carga nueva guarda los terceros de 13, 21 a 24 y 28", () => {
     const grupos = gruposTerceroConservados();
     expect(grupos).toEqual(PREFIJOS_TERCERO_CONSERVADOS);
+    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 24 y 28");
+    expect(gruposTerceroConservados(new Date("2026-11-10T12:00:00Z"))).toEqual(["13", "21", "22", "23", "24", "28"]);
+  });
+
+  it("una captura del 2 al 9 de noviembre también guardó 41 a 45", () => {
+    const grupos = gruposTerceroConservados(new Date("2026-11-05T12:00:00Z"));
+    expect(grupos).toEqual(["13", "21", "22", "23", "24", "28", "41", "42", "43", "44", "45"]);
     expect(describirGruposTercero(grupos!)).toBe("13, 21 a 24, 28 y 41 a 45");
-    expect(gruposTerceroConservados(new Date("2026-11-05T12:00:00Z"))).toEqual(PREFIJOS_TERCERO_CONSERVADOS);
+  });
+
+  it("una captura posterior que igual trae terceros de ingresos (servidor sin el cambio) los nombra", () => {
+    expect(gruposTerceroConservados(new Date("2026-11-12T12:00:00Z"), new Set(["13", "41", "42"]))).toEqual(["13", "21", "22", "23", "24", "28", "41", "42"]);
+    // Otros grupos con filas (la fila propia de cada cuenta) no se suman.
+    expect(gruposTerceroConservados(new Date("2026-11-12T12:00:00Z"), new Set(["11", "51"]))).toEqual(["13", "21", "22", "23", "24", "28"]);
   });
 
   it("una captura de octubre aún no guardaba el 24 ni 42 a 45", () => {

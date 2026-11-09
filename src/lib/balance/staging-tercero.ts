@@ -354,14 +354,15 @@ export function exigeDetalleTercero(cuenta: string, capturadaEn?: Date): boolean
 }
 
 /**
- * Cuentas del cliente cuyo detalle por tercero se GUARDA al promover (22/Sep/2026): las de
- * detalle obligatorio (entre ellas 24, donde el plan de las entidades públicas lleva las
- * retenciones), los ingresos (41), que usa el cruce por tercero de Ingresos, y 41 a 45 para IVA.
- * El resto del balance no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil
- * filas); queda con su fila propia. No afecta la homologación ni el balance oficial. 41 a 45 no son
- * de detalle obligatorio: si una cuenta llega sin terceros, no se avisa.
+ * Cuentas del cliente cuyo detalle por tercero se GUARDA al promover: las mismas de detalle
+ * obligatorio (13, 21, 22, 23, 24 y 28; el 24 porque el plan de las entidades públicas lleva ahí
+ * las retenciones). Son las que leen por tercero el cruce de Cartera y CxP, Retención en la fuente
+ * (2365, 2367) e IVA (2408, 135517). Desde el 9/Nov/2026 (decisión del usuario) ya no se guardan
+ * 41 a 45: ningún cruce los lee por tercero (Ingresos no cruza por tercero e IVA lee los ingresos
+ * por cuenta). El resto del balance no tiene consumidor del detalle y solo inflaba la captura (IGB:
+ * 306 mil filas); queda con su fila propia. No afecta la homologación ni el balance oficial.
  */
-export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "41", "42", "43", "44", "45"] as const;
+export const PREFIJOS_TERCERO_CONSERVADOS: readonly string[] = [...PREFIJOS_TERCERO_OBLIGATORIO];
 
 export function conservaDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
@@ -369,23 +370,32 @@ export function conservaDetalleTercero(cuenta: string): boolean {
 
 /** Antes de esta fecha la captura guardaba los terceros de TODAS las cuentas. */
 const TERCEROS_SOLO_GRUPOS_DESDE = new Date("2026-09-22T00:00:00.000Z");
-/** Grupos que se agregaron a la captura junto con el 24 (ver `TERCEROS_24_CONSERVADOS_DESDE`). */
-const GRUPOS_AGREGADOS_CON_24 = new Set(["24", "42", "43", "44", "45"]);
+/** Hasta este momento también se guardaban los terceros de los ingresos: el 41 desde el 22/Sep y 42 a 45 desde el 2/Nov. */
+const TERCEROS_INGRESOS_HASTA = new Date("2026-11-09T23:15:00.000Z");
+const GRUPOS_INGRESOS = ["41", "42", "43", "44", "45"] as const;
 
 /**
- * Grupos del cliente cuyos terceros guardó una captura, según cuándo se hizo: los de hoy,
- * sin el 24 ni 42 a 45 antes de que se agregaran, o `null` si es anterior a la regla y
- * guardó todas las cuentas. Sin fecha, la regla de hoy (una carga nueva).
+ * Grupos del cliente cuyos terceros guardó una captura, según cuándo se hizo: del 22/Sep al 1/Nov
+ * los obligatorios sin el 24 más el 41; del 2/Nov al 9/Nov también 24 y 42 a 45; desde entonces,
+ * los de hoy. `null` si es anterior a la regla y guardó todas las cuentas. Sin fecha, la regla de
+ * hoy (una carga nueva). `gruposConDetalle` (los grupos que de verdad traen terceros) suma los de
+ * ingresos que una captura posterior al corte haya guardado igual: la hizo un servidor todavía sin
+ * este cambio.
  */
-export function gruposTerceroConservados(capturadaEn?: Date): readonly string[] | null {
+export function gruposTerceroConservados(capturadaEn?: Date, gruposConDetalle?: ReadonlySet<string>): readonly string[] | null {
   if (capturadaEn && capturadaEn < TERCEROS_SOLO_GRUPOS_DESDE) return null;
-  if (capturadaEn && capturadaEn < TERCEROS_24_CONSERVADOS_DESDE) {
-    return PREFIJOS_TERCERO_CONSERVADOS.filter((p) => !GRUPOS_AGREGADOS_CON_24.has(p));
-  }
-  return PREFIJOS_TERCERO_CONSERVADOS;
+  const grupos = new Set<string>(
+    capturadaEn && capturadaEn < TERCEROS_24_CONSERVADOS_DESDE
+      ? [...PREFIJOS_TERCERO_OBLIGATORIO.filter((p) => p !== "24"), "41"]
+      : capturadaEn && capturadaEn < TERCEROS_INGRESOS_HASTA
+        ? [...PREFIJOS_TERCERO_OBLIGATORIO, ...GRUPOS_INGRESOS]
+        : PREFIJOS_TERCERO_CONSERVADOS,
+  );
+  for (const g of GRUPOS_INGRESOS) if (gruposConDetalle?.has(g)) grupos.add(g);
+  return [...grupos].sort((a, b) => Number(a) - Number(b));
 }
 
-/** «13, 21 a 24, 28 y 41 a 45»: tres o más grupos seguidos se dicen como rango. */
+/** «13, 21 a 24 y 28»: tres o más grupos seguidos se dicen como rango. */
 export function describirGruposTercero(grupos: readonly string[]): string {
   const numeros = [...new Set(grupos.map(Number))].sort((a, b) => a - b);
   const partes: string[] = [];

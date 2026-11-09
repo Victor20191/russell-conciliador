@@ -152,7 +152,11 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
             filas: encabezadoTercero!.filasTotales,
             origen: encabezadoTercero!.origenExtraccion ?? "—",
           }}
-          gruposConTerceros={gruposTerceroConservados(encabezadoTercero!.creadoEn)}
+          gruposConTerceros={gruposTerceroConservados(
+            encabezadoTercero!.creadoEn,
+            // Grupos con terceros de verdad (no la fila propia de la cuenta, que no trae NIT ni nombre).
+            new Set(filasTerceroRaw.filter((f) => f.nitTercero || f.nombreTercero).map((f) => f.cuenta8.replace(/\D/g, "").slice(0, 2))),
+          )}
           detalleHref={`/balance/${id}`}
         />
       )}
