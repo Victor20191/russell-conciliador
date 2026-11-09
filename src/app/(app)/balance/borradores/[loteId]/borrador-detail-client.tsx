@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName, IconoEnTexto } from "@/components/icons";
+import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import {
@@ -1387,10 +1388,23 @@ export default function BorradorDetailClient({
         repetidas={cuentasRepetidasPartes}
         onOmitir={soloLectura ? undefined : (filaNum) => onOmitir(filaNum, false)}
       />
+      {/* El archivo trae el detalle por tercero, pero el borrador trabaja por cuenta: dicho corto y a la
+          vista, porque sin él parece que los terceros se perdieron. */}
       {porTercero && (
-        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-          <Icon name="warn" size={14} />
-          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta. Si algún tercero no se detectó y quedó como fila, exclúyelo a mano desde «Más acciones» (…) › <span className="font-semibold">Omitir del cálculo</span>.</span>
+        <div role="note" className="flex items-start gap-3 rounded-lg border border-navy-300 bg-navy-50 px-4 py-3">
+          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-800 text-white">
+            <Icon name="users" size={15} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-semibold text-navy-800">Balance por terceros: en el borrador solo ves el saldo de cada cuenta.</p>
+            <p className="mt-0.5 text-[12.5px] text-ink-700">
+              Los terceros (NIT o cédula) no se muestran aquí. Cuando cargues el balance como «Por terceros», su detalle se verá en{" "}
+              <span className="font-semibold">«Ver por terceros»</span> para las cuentas de los grupos {describirGruposTercero(PREFIJOS_TERCERO_CONSERVADOS)}.
+            </p>
+            <p className="mt-1 text-[11.5px] text-ink-500">
+              Si un tercero quedó como si fuera una cuenta, exclúyelo con «Más acciones» (…) › «Omitir del cálculo».
+            </p>
+          </div>
         </div>
       )}
       {relistadoGuiones > 0 && (
