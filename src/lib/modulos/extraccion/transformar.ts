@@ -151,6 +151,7 @@ function redondear(v: number): number {
 const celda = (fila: CeldaCruda[], col1: number): CeldaCruda => (col1 >= 1 ? (fila[col1 - 1] ?? null) : null);
 /** Importe con código de divisa escrito como texto: «USD (54,323.40)», «EUR 1.200,00». */
 const MONTO_EN_DIVISA = /^[A-Z]{3}\s*\(?-?[\d.,]+\)?$/;
+const CON_LETRAS = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/;
 const aTexto = (c: CeldaCruda): string | null => (c == null ? null : String(c).replace(/\s+/g, " ").trim() || null);
 const aNumero = (c: CeldaCruda): number | null =>
   typeof c === "number" ? c : typeof c === "boolean" ? (c ? 1 : 0) : c == null ? null : normalizarMonto(String(c));
@@ -259,6 +260,36 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     .map((f) => ({ nombre: f.nombre, columnas: spec.familias?.[f.nombre] ?? [] }))
     .filter((f) => f.columnas.length > 0);
   const hayFamilias = familiasSpec.length > 0;
+
+  // ENCABEZADO REPETIDO: muchos ERP vuelven a imprimir el encabezado en cada bloque (QUIFARMA, por
+  // cliente) o al cambiar de página. No es un dato, y leído como uno suma sus rótulos de edades
+  // («1 a 30 dias» da 130). Se reconoce comparándolo con la fila de encabezado del mapa, celda por
+  // celda: dos o más columnas mapeadas con su mismo rótulo, y al menos una de importe, donde un
+  // dato real trae una cifra y nunca letras. Por eso un mapa con la fila de encabezado mal ubicada
+  // no aparta datos que se parezcan entre sí («COP», «FACTURA»).
+  const filaEncabezadoMapa = hoja.filas[spec.filaEncabezado - 1] ?? [];
+  const columnasConRotulo = new Map<number, boolean>(); // columna → ¿es de importe?
+  const anotarColumna = (columna: number, deImporte: boolean) => {
+    if (columna >= 1) columnasConRotulo.set(columna, deImporte || columnasConRotulo.get(columna) === true);
+  };
+  for (const rc of descriptor.columnas) anotarColumna(spec.columnas[rc.nombre] ?? 0, rc.tipo === "numero" || rc.tipo === "moneda");
+  for (const f of familiasSpec) for (const c of f.columnas) anotarColumna(c.columna, true);
+  if (tieneValorFormula(spec)) for (const t of spec.valorFormula) anotarColumna(t.columna, true);
+  const repiteElEncabezado = (filaR: CeldaCruda[], r: number): boolean => {
+    if (r === spec.filaEncabezado - 1) return false;
+    let iguales = 0;
+    let deImporte = false;
+    for (const [columna, esImporte] of columnasConRotulo) {
+      const rotulo = aTexto(celda(filaEncabezadoMapa, columna));
+      if (rotulo == null || !CON_LETRAS.test(rotulo)) continue;
+      const txt = aTexto(celda(filaR, columna));
+      if (txt == null || norm(txt) !== norm(rotulo)) continue;
+      iguales++;
+      if (esImporte) deImporte = true;
+    }
+    return iguales >= 2 && deImporte;
+  };
+
   // Convención de signo del archivo (CxP): la deuda que el ERP imprime en negativo se guarda
   // en positivo. Se aplica a los importes al leerlos, así el valor, las edades, el saldo
   // declarado y los controles quedan todos en la misma convención.
@@ -494,7 +525,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const crudos: (number | null)[] = [];
     for (let r = inicio; r < hoja.filas.length; r++) {
       const fila = hoja.filas[r] ?? [];
-      if (esPieDeReporte(fila) || esFilaDeEncabezado(fila)) continue;
+      if (esPieDeReporte(fila) || esFilaDeEncabezado(fila) || repiteElEncabezado(fila, r)) continue;
       if ((spec.subtotalesColumna ?? 0) >= 1 && spec.subtotalesFila === filaFisicaDe(r)) continue;
       if (esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor, fila)) continue;
       const rotulo = clasCol >= 1 ? aTexto(celda(fila, clasCol)) : null;
@@ -572,6 +603,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const muestra: FilaMuestraEdades[] = [];
       for (let r = inicio; r < hoja.filas.length; r++) {
         const fila = hoja.filas[r] ?? [];
+        if (repiteElEncabezado(fila, r)) continue;
         const baldes: Record<string, number | null> = {};
         for (const c of f.columnas) baldes[c.etiqueta] = leerImporte(celda(fila, c.columna));
         muestra.push({ total: leerImporte(celda(fila, colTotal)), baldes });
@@ -600,6 +632,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // Nómina: el ERP repite el encabezado al cambiar de página (o el auditor pegó dos reportes
     // uno debajo del otro). Se reconoce por contenido y no entra como dato.
     if (nomina && r !== spec.filaEncabezado - 1 && esFilaDeEncabezado(fila)) continue;
+    // En cualquier módulo, la fila que repite el encabezado del mapa (ver `repiteElEncabezado`).
+    if (repiteElEncabezado(fila, r)) continue;
 
     // 1) Leer cada columna mapeada según su tipo.
     const datos: Record<string, ValorCelda> = {};

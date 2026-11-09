@@ -262,6 +262,75 @@ describe("el encabezado se reconoce por su contenido, no por su número de fila"
   });
 });
 
+describe("el encabezado repetido en cada bloque no es un documento", () => {
+  // «Estado de cuentas por cobrar» de QUIFARMA: cada cliente abre con «Id Cliente:», «Nombre
+  // Cliente:» y el encabezado completo otra vez, y cierra con su subtotal sin rótulo. Leído como
+  // documento, el encabezado sumaba sus rótulos de edades («1 a 30 dias» da 130).
+  const ENCABEZADO = ["Moneda", "Fecha Doc.", "Tipo Documento", "Num. Documento", "ID Cliente", "Cliente", "Monto Pendiente Pesos", "Sin Vencer", "1 a 30 dias", "31 a 60 dias"];
+  const porCliente = hoja("ORIGINAL", [
+    ["ESTADO DE CUENTAS POR COBRAR CLIENTES"],
+    ["Id Cliente: 860013570"],
+    ["Nombre Cliente: CAJA DE COMPENSACION FAMILIAR CAFAM"],
+    ENCABEZADO,
+    ["COP", "2026-06-23", "FACTURA", "00004467", "860013570", "CAJA DE COMPENSACION FAMILIAR CAFAM", 3_000, 0, 3_000, 0],
+    ["COP", "2026-09-28", "FACTURA", "00005299", "860013570", "CAJA DE COMPENSACION FAMILIAR CAFAM", 6_000, 6_000, 0, 0],
+    [null, null, null, null, null, null, 9_000, 6_000, 3_000, 0],
+    ["Id Cliente: 890107487"],
+    ["Nombre Cliente: SUPERTIENDAS Y DROGUERIAS OLIMPICA S.A."],
+    [...ENCABEZADO],
+    ["COP", "2026-06-26", "FACTURA", "00004500", "890107487", "SUPERTIENDAS Y DROGUERIAS OLIMPICA S.A.", 34_088, 0, 0, 34_088],
+    [null, null, null, null, null, null, 34_088, 0, 0, 34_088],
+    [null, null, null, null, "Total Estado CxC:", null, 43_088, 6_000, 3_000, 34_088],
+  ]);
+  // El mapeo de la usuaria: el NIT en «ID Cliente» y el nombre en «Cliente».
+  const specUsuaria = (): SpecModulo => {
+    const base = specDe(porCliente);
+    return { ...base, columnas: { ...base.columnas, nit: 5, nombre: 6, total: 7 } };
+  };
+
+  it("solo entran los documentos y cuadran con el total del archivo", () => {
+    const r = transformarModulo(CAR, specUsuaria(), porCliente);
+    expect(movimientos(r).map((f) => [f.datos.nit, f.valor])).toEqual([
+      ["860013570", 3_000],
+      ["860013570", 6_000],
+      ["890107487", 34_088],
+    ]);
+    expect(r.filas.some((f) => f.filaNum === 10)).toBe(false);
+    const control = controlSubtotales(r.filas);
+    expect(control.descuadres).toBe(0);
+  });
+
+  it("también con el mapeo que propone el sistema", () => {
+    const r = transformarModulo(CAR, specDe(porCliente), porCliente);
+    expect(movimientos(r).map((f) => f.valor)).toEqual([3_000, 6_000, 34_088]);
+  });
+
+  it("con la fila de encabezado del mapa sobre un dato no aparta los documentos que se le parecen", () => {
+    // Sin un rótulo con letras en una columna de importe no hay encabezado que reconocer: tres
+    // facturas del mismo cliente comparten moneda, tipo y nombre, y las tres son cartera.
+    const h = hoja("H", [
+      ["Moneda", "Tipo Documento", "ID Cliente", "Cliente", "Saldo"],
+      ["COP", "FACTURA", "860013570", "CAFAM", 1_000],
+      ["COP", "FACTURA", "860013570", "CAFAM", 2_000],
+      ["COP", "FACTURA", "860013570", "CAFAM", 3_000],
+    ]);
+    const spec: SpecModulo = { ...specDe(h), filaEncabezado: 2, primeraFilaDatos: 3 };
+    expect(movimientos(transformarModulo(CAR, spec, h)).map((f) => f.valor)).toEqual([1_000, 2_000, 3_000]);
+  });
+
+  it("en Inventarios el encabezado repetido tras un salto de página tampoco es un producto", () => {
+    const encabezado = ["Tipo", "Referencia", "Descripción", "Cantidad", "Valor total"];
+    const h = hoja("Hoja1", [
+      encabezado,
+      ["MERCANCIA", "REF-1", "Tornillo", 10, 1_000],
+      [...encabezado],
+      ["MERCANCIA", "REF-2", "Tuerca", 5, 2_000],
+    ]);
+    const r = transformarModulo(INV, sugerirSpec(INV, h), h);
+    expect(r.filas.map((f) => f.datos.referencia)).toEqual(["REF-1", "REF-2"]);
+  });
+});
+
 describe("el gran total en negrita entra al control del archivo", () => {
   // Ofimática imprime su total al pie EN NEGRITA. Si la negrita decidía «agrupadora» antes
   // de detectar subtotales, esa fila nunca llegaba al control: el panel «Validación del

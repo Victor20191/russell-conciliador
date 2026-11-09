@@ -311,7 +311,7 @@ export function fichaModuloBorrador(d: DescriptorModulo): FichaAyuda {
         acciones: [
           {
             nombre: "Omitir · Incluir · Marcar total · Agrupador: Asignar",
-            queHace: "Edición por fila o de varias filas seleccionadas; queda pendiente hasta «Guardar cambios». «Incluir» en una fila que no suma la lleva al total con el importe que trae el archivo.",
+            queHace: "Edición por fila o de varias filas seleccionadas; queda pendiente hasta «Guardar cambios». «Incluir» en una fila que no suma la lleva al total con el importe que trae el archivo. Las filas que repiten el encabezado del archivo (en cada cliente o en cada página) no se leen como datos: no hace falta omitirlas.",
             regla: REGLAS.cargarModulo,
           },
           {
