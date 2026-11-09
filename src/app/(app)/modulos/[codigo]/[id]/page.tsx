@@ -117,7 +117,7 @@ export default async function DatoModuloPage({
       where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
       orderBy: { numero: "asc" },
       select: {
-        numero: true, dimension: true, cuenta4: true, clave: true, nota: true, diferencia: true, marcadoPor: true, marcadoEn: true,
+        numero: true, dimension: true, cuenta4: true, clave: true, nota: true, diferencia: true, monto: true, marcadoPor: true, marcadoEn: true,
         _count: { select: { adjuntos: true } },
         noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true } },
       },
@@ -129,6 +129,7 @@ export default async function DatoModuloPage({
     llave: (m.dimension === "tercero" || m.dimension === "control" ? m.clave : m.cuenta4) ?? "",
     nota: m.nota,
     diferencia: Number(m.diferencia),
+    ...(m.monto != null ? { monto: Number(m.monto) } : {}),
     marcadoPor: m.marcadoPor,
     marcadoEn: fmtDateTime(m.marcadoEn),
     soportes: m._count.adjuntos,

@@ -11,7 +11,14 @@ import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico
 import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import { coincidenciaTercero, type CoincidenciaTercero } from "@/lib/modulos/cartera/coincidencia-tercero";
-import { anclaCruceTercero, type FilaCruceTerceroMarcada, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import {
+  anclaCruceTercero,
+  observacionesDeMarcas,
+  type FilaCruceTerceroMarcada,
+  type MarcaCruce,
+  type ObservacionDeMarca,
+  type ResumenMarcas,
+} from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
 import { MenuAccionesFila, type AccionMenuFila } from "@/components/menu-acciones-fila";
 import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
@@ -191,7 +198,7 @@ function cumpleFiltro(fila: FilaCruceTerceroMarcada, filtro: Filtro): boolean {
   if (filtro === "por_dv") return fila.claveModuloPorDv != null;
   if (filtro === "por_nucleo") return fila.claveModuloPorNucleo != null;
   if (filtro === "sugeridos") return fila.sugerencia != null;
-  if (filtro === "pendientes") return fila.requiereMarca && (!fila.marca || fila.desactualizada);
+  if (filtro === "pendientes") return fila.requiereMarca && (fila.marcas.length === 0 || fila.desactualizada);
   return fila.estado === filtro;
 }
 
@@ -240,7 +247,8 @@ export function CruceTerceroTab({
   const [limite, setLimite] = useState(PAGINA);
   // Terceros en cero en los dos lados: ocultos de entrada. Se ven con su tarjeta, al buscarlos o a pedido.
   const [verSinSaldo, setVerSinSaldo] = useState(false);
-  const [marcando, setMarcando] = useState<FilaCruceTerceroMarcada | null>(null);
+  // Marca que se está escribiendo: la del tercero que se edita, o null para agregar una nueva.
+  const [marcando, setMarcando] = useState<{ fila: FilaCruceTerceroMarcada; marca: MarcaCruce | null } | null>(null);
   // Tercero suelto que se está emparejando y, si se abrió desde el renglón con diferencia, su destino.
   const [emparejando, setEmparejando] = useState<{ fila: FilaCruceTerceroMarcada; destino: string | null } | null>(null);
   // Orden por columna elegido en el encabezado (null = el del sistema: diferencias primero).
@@ -307,10 +315,7 @@ export function CruceTerceroTab({
     [resumen],
   );
   const cantidadSinSaldo = useMemo(() => (resumen?.filas ?? []).filter((f) => f.estado === "sin_saldo").length, [resumen]);
-  const observaciones = useMemo(
-    () => (resumen?.filas ?? []).filter((f) => f.marca != null).sort((a, b) => a.marca!.numero - b.marca!.numero),
-    [resumen],
-  );
+  const observaciones = useMemo(() => observacionesDeMarcas(resumen?.filas ?? []), [resumen]);
   const candidatosBalance = useMemo(
     () => (resumen?.filas ?? []).filter((f) => Object.keys(f.contable.porCuenta).length > 0),
     [resumen],
@@ -332,9 +337,9 @@ export function CruceTerceroTab({
   );
   const filaPorClave = useMemo(() => new Map((resumen?.filas ?? []).map((f) => [f.clave, f])), [resumen]);
 
-  const quitarMarca = (fila: FilaCruceTerceroMarcada) => {
+  const quitarMarca = ({ marca }: ObservacionDeMarca<FilaCruceTerceroMarcada>) => {
     startAccion(async () => {
-      const r = await quitarMarcaCruce({ encabezadoId, clave: fila.clave });
+      const r = await quitarMarcaCruce({ encabezadoId, numero: marca.numero });
       if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
       else notifyError(r.message ?? "No se pudo retirar la marca.");
       router.refresh();
@@ -343,7 +348,7 @@ export function CruceTerceroTab({
   // Marca de tercero cuyo renglón ya no aparece en el cruce: se retira desde las observaciones.
   const quitarMarcaHuerfana = (marca: ReferenciaMarcaVm) => {
     startAccion(async () => {
-      const r = await quitarMarcaCruce({ encabezadoId, clave: marca.llave });
+      const r = await quitarMarcaCruce({ encabezadoId, numero: marca.numero });
       if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
       else notifyError(r.message ?? "No se pudo retirar la marca.");
       router.refresh();
@@ -558,7 +563,10 @@ export function CruceTerceroTab({
             <span>Sin marcar: <b>{resumenMarcas.pendientes}</b> ({fmtContable(resumenMarcas.montoPendiente)})</span>
           )}
           {resumenMarcas.desactualizadas > 0 && (
-            <span title="La diferencia cambió después de escribir la marca.">Por revisar: <b>{resumenMarcas.desactualizadas}</b></span>
+            <span title="Terceros cuyas marcas no alcanzan a explicar la diferencia: falta monto o la diferencia cambió después de marcar.">
+              Con saldo por explicar: <b>{resumenMarcas.desactualizadas}</b>
+              {resumenMarcas.montoPorExplicar ? ` (${fmtContable(resumenMarcas.montoPorExplicar)})` : ""}
+            </span>
           )}
           {(resumenMarcas.bajoUmbral ?? 0) > 0 && (
             <span className="text-ink-500">{contar(resumenMarcas.bajoUmbral ?? 0)} por debajo de {fmtContable(cruceTercero.umbralDescuadre)}: la marca es opcional.</span>
@@ -780,7 +788,7 @@ export function CruceTerceroTab({
                       encabezadoId={encabezadoId}
                       comentarios={comentarios[anclaCruceTercero(f.clave)] ?? 0}
                       puedeEditar={puedeEditar}
-                      onMarcar={() => setMarcando(f)}
+                      onMarcar={() => setMarcando({ fila: f, marca: null })}
                     />
                   </td>
                 </tr>
@@ -819,7 +827,7 @@ export function CruceTerceroTab({
           puedeEditar={puedeEditar}
           ocupado={ocupado}
           onQuitarHuerfana={quitarMarcaHuerfana}
-          onEditar={(fila) => setMarcando(fila)}
+          onEditar={(observacion) => setMarcando(observacion)}
           onQuitar={quitarMarca}
         />
       )}
@@ -872,7 +880,8 @@ export function CruceTerceroTab({
 
       {marcando && (
         <ModalMarcaTercero
-          fila={marcando}
+          fila={marcando.fila}
+          marca={marcando.marca}
           encabezadoId={encabezadoId}
           onClose={() => setMarcando(null)}
           onGuardado={() => {

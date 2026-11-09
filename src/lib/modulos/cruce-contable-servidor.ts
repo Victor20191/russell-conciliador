@@ -562,7 +562,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo, dimension: "cuenta4" },
     orderBy: { numero: "asc" },
     select: {
-      cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
+      cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, monto: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
       adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
       noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true, valorAlMarcar: true } },
       clasificadoresNoModulares: { orderBy: { clasificador: "asc" }, select: { clasificador: true, totalAlMarcar: true } },
@@ -574,12 +574,15 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     marcasPeriodo.filter((m) => m.cuenta4 === CLAVE_SIN_CUENTA).flatMap((m) => m.clasificadoresNoModulares.map((c) => c.clasificador)),
   );
   // Conceptos NO CONTABILIZADOS por renglón: lo que el archivo trae y la contabilidad no registra
-  // en esa cuenta. Es el espejo de las cuentas no modulares, del lado del módulo.
+  // en esa cuenta. Es el espejo de las cuentas no modulares, del lado del módulo. Un renglón puede
+  // llevar varias marcas: se juntan los de todas.
   const noContabilizadosPorFila = new Map<string, Set<string>>();
   for (const m of marcasPeriodo) {
     const clave = m.cuenta4 ?? "";
     if (!clave || clave === CLAVE_SIN_CUENTA || m.clasificadoresNoModulares.length === 0) continue;
-    noContabilizadosPorFila.set(clave, new Set(m.clasificadoresNoModulares.map((c) => c.clasificador)));
+    const conceptos = noContabilizadosPorFila.get(clave) ?? new Set<string>();
+    for (const c of m.clasificadoresNoModulares) conceptos.add(c.clasificador);
+    noContabilizadosPorFila.set(clave, conceptos);
   }
 
   const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
@@ -764,6 +767,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     nota: m.nota,
     referenciaAnexo: m.referenciaAnexo,
     diferencia: Number(m.diferencia),
+    ...(m.monto != null ? { monto: Number(m.monto) } : {}),
     comentarioId: m.comentarioId,
     marcadoPor: m.marcadoPor,
     marcadoEn: fmtDateTime(m.marcadoEn),
@@ -846,7 +850,7 @@ async function marcasControlDelPeriodo(clienteId: number, moduloCodigo: string, 
     where: { clienteId, moduloCodigo, periodo, dimension: "control" },
     orderBy: { numero: "asc" },
     select: {
-      clave: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
+      clave: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, monto: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
       adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
     },
   });
@@ -858,6 +862,7 @@ async function marcasControlDelPeriodo(clienteId: number, moduloCodigo: string, 
     nota: m.nota,
     referenciaAnexo: m.referenciaAnexo,
     diferencia: Number(m.diferencia),
+    ...(m.monto != null ? { monto: Number(m.monto) } : {}),
     comentarioId: m.comentarioId,
     marcadoPor: m.marcadoPor,
     marcadoEn: fmtDateTime(m.marcadoEn),

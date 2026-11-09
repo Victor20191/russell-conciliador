@@ -1502,9 +1502,10 @@ model ComentarioAlertaModulo {
 ///
 /// Se ancla al PERÍODO del cliente —no al cargue—, de modo que sobrevive a las versiones
 /// nuevas del mismo período: volver a cargar el archivo no obliga a reescribir las marcas.
-/// `diferencia` congela el monto marcado, para poder avisar cuando la diferencia actual ya
-/// no es la misma. FK suaves a cliente, usuario y comentario (el rastro en el hilo de la
-/// cuenta): borrar el comentario no borra la marca. Reversible.
+/// `diferencia` congela la diferencia del renglón cuando se escribió la marca. Un renglón puede
+/// llevar varias marcas (9/Nov/2026) y cada una explica su `monto`: el renglón queda explicado
+/// cuando la suma cubre la diferencia. FK suaves a cliente, usuario y comentario (el rastro en
+/// el hilo de la cuenta): borrar el comentario no borra la marca. Reversible.
 model MarcaCruceModulo {
   id                        Int                          @id @default(autoincrement()) @map("id")
   clienteId                 Int                          @map("cliente_id")
@@ -1520,6 +1521,9 @@ model MarcaCruceModulo {
   nota                      String                       @map("nota") // detalle de la marca (la observación)
   referenciaAnexo           String?                      @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
   diferencia                Decimal                      @default(0) @map("diferencia") @db.Decimal(18, 2)
+  /// Cuánto de la diferencia del renglón explica esta marca, con su signo (9/Nov/2026: un renglón
+  /// puede llevar varias). NULL en las marcas anteriores: explican toda la `diferencia` que congelaron.
+  monto                     Decimal?                     @map("monto") @db.Decimal(18, 2)
   comentarioId              Int?                         @map("comentario_id")
   marcadoPor                String?                      @map("marcado_por")
   marcadoPorId              Int?                         @map("marcado_por_id")
@@ -1528,10 +1532,9 @@ model MarcaCruceModulo {
   noModulares               CuentaNoModularCruce[]
   clasificadoresNoModulares ClasificadorNoModularCruce[]
 
-  @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
   @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
-  @@unique([clienteId, moduloCodigo, periodo, clave], map: "marca_cruce_modulo_tercero_unica")
   @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
+  @@index([clienteId, moduloCodigo, periodo, dimension, cuenta4, clave], map: "marca_cruce_modulo_renglon_idx")
   @@map("marca_cruce_modulo")
 }
 

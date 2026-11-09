@@ -200,7 +200,7 @@ describe("evaluarCierreConciliacion", () => {
     expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ pendientes: 1 })))
       .toMatchObject({ ok: false, motivo: expect.stringContaining("control de deducciones sin marca") });
     expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ marcadas: 1, desactualizadas: 1 })))
-      .toMatchObject({ ok: false, motivo: expect.stringContaining("quedaron desactualizadas") });
+      .toMatchObject({ ok: false, motivo: expect.stringContaining("no cubren su diferencia") });
     expect(evaluarCierreConciliacion(cruce, resumen, null, [], [], control({ marcadas: 1 }))).toEqual({ ok: true });
   });
 

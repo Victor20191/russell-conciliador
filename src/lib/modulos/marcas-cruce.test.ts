@@ -18,8 +18,11 @@ import {
   motivoNoPasarMarca,
   etiquetaMarca,
   intercalarObservaciones,
+  leerMontoMarca,
+  montoDeMarca,
   normalizarCuenta4,
   observacionesDeMarcas,
+  textoMontoMarca,
   siguienteNumeroMarca,
   validarNoModulares,
   validarClasificadoresNoModulares,
@@ -141,7 +144,7 @@ describe("anotarCruceConMarcas", () => {
   it("señala las filas con diferencia y resume lo pendiente", () => {
     const { filas, resumen } = anotarCruceConMarcas(cruce(), []);
 
-    expect(filas.find((f) => f.cuenta4 === "1410")).toMatchObject({ admiteMarca: false, marca: null });
+    expect(filas.find((f) => f.cuenta4 === "1410")).toMatchObject({ admiteMarca: false, marcas: [] });
     expect(resumen).toMatchObject({ conDiferencia: 2, marcadas: 0, pendientes: 2, desactualizadas: 0 });
     // -988.836.804,40 (solo inventario) + 4.120.895.928,40 (descuadre)
     expect(resumen.montoPendiente).toBeCloseTo(3_132_059_124, 2);
@@ -153,8 +156,8 @@ describe("anotarCruceConMarcas", () => {
     ]);
 
     const fila = filas.find((f) => f.cuenta4 === "1435");
-    expect(fila?.marca?.numero).toBe(2);
-    expect(fila?.marca?.nota).toBe("Mercancía en tránsito no facturada.");
+    expect(fila?.marcas.map((m) => m.numero)).toEqual([2]);
+    expect(fila?.marcas[0]?.nota).toBe("Mercancía en tránsito no facturada.");
     expect(fila?.desactualizada).toBe(false);
     expect(resumen).toMatchObject({ conDiferencia: 2, marcadas: 1, pendientes: 1, desactualizadas: 0 });
     expect(resumen.montoPendiente).toBeCloseTo(-988_836_804.4, 2);
@@ -179,7 +182,7 @@ describe("anotarCruceConMarcas", () => {
     const { filas, resumen } = anotarCruceConMarcas(cruce(), [marca({ cuenta4: "1410", diferencia: 500 })]);
 
     const fila = filas.find((f) => f.cuenta4 === "1410");
-    expect(fila?.marca?.nota).toBeTruthy();
+    expect(fila?.marcas[0]?.nota).toBeTruthy();
     expect(fila?.admiteMarca).toBe(false);
     expect(fila?.desactualizada).toBe(false);
     expect(resumen).toMatchObject({ conDiferencia: 2, marcadas: 0, pendientes: 2 });
@@ -220,12 +223,13 @@ describe("marcas del control de deducciones (Nómina)", () => {
   it("la marca se pega por la cuenta del cliente y queda desactualizada si cambia la diferencia", () => {
     const marcaControl = marca({ dimension: "control", cuenta4: "", clave: "237025", diferencia: 300, numero: 7 });
     const vigente = anotarControlConMarcas([filaControl("237025", null, -300)], [marcaControl]);
-    expect(vigente.filas[0]).toMatchObject({ marca: { numero: 7 }, desactualizada: false });
+    expect(vigente.filas[0].marcas.map((m) => m.numero)).toEqual([7]);
+    expect(vigente.filas[0].desactualizada).toBe(false);
     expect(vigente.resumen).toMatchObject({ marcadas: 1, pendientes: 0 });
     const cambio = anotarControlConMarcas([filaControl("237025", null, -450)], [marcaControl]);
     expect(cambio.resumen).toMatchObject({ desactualizadas: 1 });
     // Una marca de cuenta con la misma clave no se confunde con la del control.
-    expect(anotarControlConMarcas([filaControl("237025", null, -300)], [marca({ cuenta4: "237025" })]).filas[0].marca).toBeNull();
+    expect(anotarControlConMarcas([filaControl("237025", null, -300)], [marca({ cuenta4: "237025" })]).filas[0].marcas).toEqual([]);
   });
 });
 
@@ -250,12 +254,12 @@ describe("anotarCruceConMarcas con la tolerancia de la cédula", () => {
     expect(por("1410")).toMatchObject({ admiteMarca: true, requiereMarca: true });
     expect(por("1435")).toMatchObject({ admiteMarca: true, requiereMarca: false });
     expect(por("1440")).toMatchObject({ admiteMarca: false, requiereMarca: false });
-    expect(resumen).toEqual({ conDiferencia: 1, marcadas: 0, pendientes: 1, desactualizadas: 0, montoPendiente: -2_000, bajoUmbral: 2 });
+    expect(resumen).toEqual({ conDiferencia: 1, marcadas: 0, pendientes: 1, desactualizadas: 0, montoPendiente: -2_000, montoPorExplicar: 0, bajoUmbral: 2 });
   });
 
-  it("una marca dentro de la tolerancia se conserva, aunque quede desactualizada no bloquea", () => {
+  it("una marca dentro de la tolerancia se conserva; lo que falta por debajo de la tolerancia no la desactualiza", () => {
     const { filas, resumen } = anotarCruceConMarcas(conTolerancia(), [marca({ cuenta4: "1435", diferencia: 100 })], { toleranciaMarca: 2_000 });
-    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ requiereMarca: false, desactualizada: true });
+    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ requiereMarca: false, desactualizada: false, explicado: 100, porExplicar: 400 });
     expect(resumen).toMatchObject({ marcadas: 0, desactualizadas: 0, bajoUmbral: 2 });
   });
 
@@ -280,11 +284,12 @@ describe("anotarCruceConMarcas con la tolerancia de la cédula", () => {
     const chica = anotarCruceConMarcas(afi(95_000, 25_000), [], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
     expect(chica.filas[0]).toMatchObject({ admiteMarca: true, requiereMarca: false });
     expect(chica.resumen.bajoUmbral).toBe(1);
-    // La marca congela la diferencia del costo: si la reclasificación cambia, queda desactualizada.
+    // La marca explica la diferencia del costo: si la reclasificación crece más allá de la tolerancia
+    // del detalle, falta por explicar.
     const vigente = anotarCruceConMarcas(reclasificada, [marca({ cuenta4: "1516", diferencia: 12_000 })], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
     expect(vigente.filas[0].desactualizada).toBe(false);
-    const cambio = anotarCruceConMarcas(afi(80_000, 10_000), [marca({ cuenta4: "1516", diferencia: 12_000 })], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
-    expect(cambio.filas[0]).toMatchObject({ requiereMarca: true, desactualizada: true });
+    const cambio = anotarCruceConMarcas(afi(70_000, 0), [marca({ cuenta4: "1516", diferencia: 12_000 })], { toleranciaMarca: 2_000, toleranciaDetalle: 10_000 });
+    expect(cambio.filas[0]).toMatchObject({ requiereMarca: true, desactualizada: true, porExplicar: 18_000 });
     // Sin la tolerancia del detalle (cierre anterior), el detalle solo admite marca opcional.
     expect(anotarCruceConMarcas(reclasificada, [], { toleranciaMarca: 2_000 }).filas[0]).toMatchObject({ admiteMarca: true, requiereMarca: false });
   });
@@ -295,6 +300,79 @@ describe("anotarCruceConMarcas con la tolerancia de la cédula", () => {
   });
 });
 
+describe("varias marcas por renglón, cada una con su monto", () => {
+  const dif1435 = 4_120_895_928.4;
+
+  it("el renglón queda explicado cuando la suma de los montos cubre la diferencia", () => {
+    const { filas, resumen } = anotarCruceConMarcas(cruce(), [
+      marca({ cuenta4: "1435", numero: 5, diferencia: dif1435, monto: 120_895_928.4 }),
+      marca({ cuenta4: "1435", numero: 2, diferencia: dif1435, monto: 4_000_000_000 }),
+    ]);
+    const fila = filas.find((f) => f.cuenta4 === "1435")!;
+    expect(fila.marcas.map((m) => m.numero)).toEqual([2, 5]);
+    expect(fila).toMatchObject({ explicado: dif1435, porExplicar: 0, desactualizada: false });
+    expect(resumen).toMatchObject({ marcadas: 1, desactualizadas: 0, pendientes: 1 });
+  });
+
+  it("si los montos no alcanzan, el renglón queda con saldo por explicar e impide cerrar", () => {
+    const { filas, resumen } = anotarCruceConMarcas(cruce(), [
+      marca({ cuenta4: "1435", numero: 2, diferencia: dif1435, monto: 4_000_000_000 }),
+    ]);
+    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ desactualizada: true, porExplicar: 120_895_928.4 });
+    expect(resumen).toMatchObject({ marcadas: 1, desactualizadas: 1, montoPorExplicar: 120_895_928.4 });
+  });
+
+  it("lo que falta por debajo de la tolerancia de la cédula ya no impide cerrar", () => {
+    const { filas } = anotarCruceConMarcas(cruce(), [
+      marca({ cuenta4: "1435", numero: 2, diferencia: dif1435, monto: dif1435 - 1_500 }),
+    ], { toleranciaMarca: 2_000 });
+    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ desactualizada: false, porExplicar: 1_500 });
+  });
+
+  it("una marca anterior, sin monto, explica toda la diferencia que congeló", () => {
+    expect(montoDeMarca(marca({ cuenta4: "1435", diferencia: 77 }))).toBe(77);
+    expect(montoDeMarca(marca({ cuenta4: "1435", diferencia: 77, monto: 10 }))).toBe(10);
+    expect(montoDeMarca(marca({ cuenta4: "1435", diferencia: 77, monto: 0 }))).toBe(0);
+  });
+
+  it("observaciones: una entrada por marca, aunque compartan renglón", () => {
+    const { filas } = anotarCruceConMarcas(cruce(), [
+      marca({ cuenta4: "1435", numero: 6, diferencia: dif1435, monto: 1 }),
+      marca({ cuenta4: "1435", numero: 2, diferencia: dif1435, monto: 2 }),
+    ]);
+    expect(observacionesDeMarcas(filas).map((o) => [o.marca.numero, o.fila.cuenta4])).toEqual([[2, "1435"], [6, "1435"]]);
+  });
+
+  it("control de deducciones: entre todas tienen que cubrir la diferencia al centavo", () => {
+    const fila = { cuentaCliente: "237005", nombre: "Libranzas", cuentasBalance: ["237005"], contable: -500, modulo: -800, diferencia: 300, cuadra: false, conceptos: [] };
+    const dos = (montos: number[]) =>
+      anotarControlConMarcas([fila], montos.map((monto, i) => marca({ dimension: "control", cuenta4: "", clave: "237005", numero: i + 1, diferencia: 300, monto })));
+    expect(dos([200, 100]).filas[0]).toMatchObject({ explicado: 300, desactualizada: false });
+    expect(dos([200, 99.98]).filas[0]).toMatchObject({ desactualizada: true, porExplicar: 0.02 });
+  });
+});
+
+describe("leerMontoMarca", () => {
+  it("lee el formato colombiano, con o sin signo pesos, y el punto decimal cuando no hay coma", () => {
+    expect(leerMontoMarca("-40.251.565,88")).toBe(-40_251_565.88);
+    expect(leerMontoMarca("$ 1.234")).toBe(1_234);
+    expect(leerMontoMarca("(1.234,5)")).toBe(-1_234.5);
+    expect(leerMontoMarca("-1234.5")).toBe(-1_234.5);
+    expect(leerMontoMarca("1.234.567")).toBe(1_234_567);
+    expect(leerMontoMarca("0")).toBe(0);
+  });
+
+  it("rechaza lo que no es un número", () => {
+    expect(leerMontoMarca("")).toBeNull();
+    expect(leerMontoMarca("abc")).toBeNull();
+    expect(leerMontoMarca("1,2,3")).toBeNull();
+  });
+
+  it("textoMontoMarca escribe lo que leerMontoMarca vuelve a leer", () => {
+    for (const v of [-40_251_565.88, 0, 1_234.5, 999_999_999.99]) expect(leerMontoMarca(textoMontoMarca(v))).toBe(v);
+  });
+});
+
 describe("observacionesDeMarcas", () => {
   it("lista solo las filas marcadas, ordenadas por número", () => {
     const { filas } = anotarCruceConMarcas(cruce(), [
@@ -302,7 +380,7 @@ describe("observacionesDeMarcas", () => {
       marca({ cuenta4: "1405", numero: 3, diferencia: -988_836_804.4 }),
     ]);
 
-    expect(observacionesDeMarcas(filas).map((f) => f.marca?.numero)).toEqual([3, 7]);
+    expect(observacionesDeMarcas(filas).map((o) => [o.marca.numero, o.fila.cuenta4])).toEqual([[3, "1405"], [7, "1435"]]);
   });
 
   it("deja fuera las filas sin marca", () => {
@@ -395,7 +473,7 @@ describe("marcas del cruce por tercero", () => {
       [marcaTercero("900000001", 6_000, 4), marca({ cuenta4: "1305", numero: 1 })],
       { umbralDescuadre: 2_000 },
     );
-    const porClave = Object.fromEntries(filas.map((f) => [f.clave, [f.admiteMarca, f.requiereMarca, f.marca?.numero ?? null, f.desactualizada]]));
+    const porClave = Object.fromEntries(filas.map((f) => [f.clave, [f.admiteMarca, f.requiereMarca, f.marcas[0]?.numero ?? null, f.desactualizada]]));
     expect(porClave).toEqual({
       "900000001": [true, true, 4, false], // diferencia de 6.000, marcada
       "900000002": [true, false, null, false], // 100: bajo el umbral
@@ -403,17 +481,31 @@ describe("marcas del cruce por tercero", () => {
       "900000004": [false, false, null, false], // cuadra
       "900000005": [true, true, null, false], // solo en el auxiliar por 3.000
     });
-    expect(resumen).toEqual({ conDiferencia: 2, marcadas: 1, pendientes: 1, desactualizadas: 0, montoPendiente: -3_000, bajoUmbral: 2 });
+    expect(resumen).toEqual({ conDiferencia: 2, marcadas: 1, pendientes: 1, desactualizadas: 0, montoPendiente: -3_000, montoPorExplicar: 0, bajoUmbral: 2 });
   });
 
-  it("marca desactualizada cuando la diferencia del tercero cambió", () => {
-    const { resumen } = anotarCruceTerceroConMarcas(cruceTercero.filas, [marcaTercero("900000001", 5_000, 4)], { umbralDescuadre: 2_000 });
-    expect(resumen).toMatchObject({ marcadas: 1, desactualizadas: 1 });
+  it("queda por explicar cuando lo que falta del tercero alcanza el umbral; por debajo, no", () => {
+    const falta = anotarCruceTerceroConMarcas(cruceTercero.filas, [marcaTercero("900000001", 3_000, 4)], { umbralDescuadre: 2_000 });
+    expect(falta.resumen).toMatchObject({ marcadas: 1, desactualizadas: 1, montoPorExplicar: 3_000 });
+    const casi = anotarCruceTerceroConMarcas(cruceTercero.filas, [marcaTercero("900000001", 5_000, 4)], { umbralDescuadre: 2_000 });
+    expect(casi.resumen).toMatchObject({ marcadas: 1, desactualizadas: 0 });
+  });
+
+  it("varias marcas en un tercero suman lo que explican", () => {
+    const { filas, resumen } = anotarCruceTerceroConMarcas(
+      cruceTercero.filas,
+      [{ ...marcaTercero("900000001", 6_000, 8), monto: 3_500 }, { ...marcaTercero("900000001", 6_000, 4), monto: 2_500 }],
+      { umbralDescuadre: 2_000 },
+    );
+    const tercero = filas.find((f) => f.clave === "900000001")!;
+    expect(tercero.marcas.map((m) => m.numero)).toEqual([4, 8]);
+    expect(tercero).toMatchObject({ explicado: 6_000, porExplicar: 0, desactualizada: false });
+    expect(resumen).toMatchObject({ marcadas: 1, desactualizadas: 0 });
   });
 
   it("la cédula contable no toma las marcas de tercero, aunque coincida el texto", () => {
     const { filas } = anotarCruceConMarcas(cruce(), [marca({ dimension: "tercero", clave: "1435", cuenta4: "1435", numero: 9 })]);
-    expect(filas.every((f) => f.marca === null)).toBe(true);
+    expect(filas.every((f) => f.marcas.length === 0)).toBe(true);
   });
 
   it("ancla del hilo de un tercero", () => {

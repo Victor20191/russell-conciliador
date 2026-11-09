@@ -13,14 +13,28 @@ import {
   anclaObservacionMarca,
   etiquetaMarca,
   intercalarObservaciones,
+  leerMontoMarca,
+  montoDeMarca,
+  textoMontoMarca,
   MAX_NOTA_MARCA,
   MAX_REFERENCIA_ANEXO,
   type FilaCruceTerceroMarcada,
+  type MarcaCruce,
+  type ObservacionDeMarca,
 } from "@/lib/modulos/marcas-cruce";
-import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
+import {
+  CampoMontoMarca,
+  EditorSoportesMarca,
+  InsigniaMarca,
+  InsigniasMarcasRenglon,
+  ListaSoportesMarca,
+  ReferenciaMarca,
+  type ReferenciaMarcaVm,
+} from "./soportes-marca";
 
-// Marcas de auditoría del cruce por tercero: la misma gramática de la cédula contable —el
-// número en la tabla y el detalle al pie— con un tercero en lugar de una cuenta.
+// Marcas de auditoría del cruce por tercero: la misma gramática de la cédula contable —los números
+// en la tabla y el detalle al pie— con un tercero en lugar de una cuenta. Un tercero puede llevar
+// varias marcas; cada una explica su monto de la diferencia.
 
 /** Cómo se nombra un tercero en la marca, en su hilo y al emparejarlo. */
 export function etiquetaTercero(fila: Pick<FilaCruceTerceroMarcada, "clave" | "nombre" | "sinNit">): string {
@@ -28,7 +42,7 @@ export function etiquetaTercero(fila: Pick<FilaCruceTerceroMarcada, "clave" | "n
   return fila.nombre ? `${fila.clave} · ${fila.nombre}` : fila.clave;
 }
 
-/** La marca de un tercero en la tabla: número (enlace a su observación) o botón para crearla. */
+/** Las marcas de un tercero en la tabla: sus números (enlaces a las observaciones) y «+» para agregar otra. */
 export function CeldaMarcaTercero({
   fila,
   encabezadoId,
@@ -40,59 +54,28 @@ export function CeldaMarcaTercero({
   encabezadoId: number;
   comentarios: number;
   puedeEditar: boolean;
+  /** Abre el modal para una marca NUEVA en este tercero. */
   onMarcar: () => void;
 }) {
-  const hilo = (
-    <ComentarioAncla
-      tipo="modulos_datos"
-      entityId={encabezadoId}
-      anchor={anclaCruceTercero(fila.clave)}
-      titulo={etiquetaTercero(fila)}
-      count={comentarios}
-    />
-  );
-
-  if (!fila.admiteMarca && !fila.marca) {
-    return <div className="flex items-center justify-center gap-1">{hilo}</div>;
-  }
-
-  if (!fila.marca) {
-    return (
-      <div className="flex items-center justify-center gap-1">
-        {puedeEditar ? (
-          <button
-            type="button"
-            onClick={onMarcar}
-            title={fila.requiereMarca ? "Poner una marca a esta diferencia" : "Diferencia bajo el umbral: la marca es opcional"}
-            className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed px-1 transition hover:border-navy-700 hover:text-navy-700 ${
-              fila.requiereMarca ? "border-warn-500 text-warn-700" : "border-ink-300 text-ink-400"
-            }`}
-          >
-            <Icon name="plus" size={12} />
-          </button>
-        ) : (
-          <span
-            title={fila.requiereMarca ? "Diferencia sin marca" : "Diferencia bajo el umbral"}
-            className={`text-[11.5px] font-semibold ${fila.requiereMarca ? "text-warn-700" : "text-ink-400"}`}
-          >
-            —
-          </span>
-        )}
-        {hilo}
-      </div>
-    );
-  }
-
-  const { marca } = fila;
-  const titulo = fila.desactualizada
-    ? `Marca ${marca.numero} · la diferencia era ${fmtContable(marca.diferencia)} cuando se escribió y hoy es ${fmtContable(fila.diferencia)}. Ver observación al pie.`
-    : `Marca ${marca.numero} · ver la observación al pie`;
   return (
     <div className="flex items-center justify-center gap-1">
-      <a href={`#${anclaObservacionMarca(marca.numero)}`} className="inline-flex">
-        <InsigniaMarca numero={marca.numero} tono={fila.desactualizada ? "warn" : "ok"} titulo={titulo} />
-      </a>
-      {hilo}
+      {(fila.admiteMarca || fila.marcas.length > 0) && (
+        <InsigniasMarcasRenglon
+          renglon={fila}
+          diferencia={fila.diferencia}
+          requiereMarca={fila.requiereMarca}
+          admiteMarca={fila.admiteMarca}
+          puedeEditar={puedeEditar}
+          onAgregar={onMarcar}
+        />
+      )}
+      <ComentarioAncla
+        tipo="modulos_datos"
+        entityId={encabezadoId}
+        anchor={anclaCruceTercero(fila.clave)}
+        titulo={etiquetaTercero(fila)}
+        count={comentarios}
+      />
     </div>
   );
 }
@@ -109,7 +92,7 @@ export function ObservacionesMarcasTercero({
   onEditar,
   onQuitar,
 }: {
-  observaciones: FilaCruceTerceroMarcada[];
+  observaciones: ObservacionDeMarca<FilaCruceTerceroMarcada>[];
   /** Las demás marcas del período (cruce contable, o sin renglón), citadas en su lugar. */
   referencias: ReferenciaMarcaVm[];
   encabezadoId: number;
@@ -118,10 +101,10 @@ export function ObservacionesMarcasTercero({
   ocupado: boolean;
   /** Retirar una marca de TERCERO cuyo renglón ya no aparece (su detalle sigue aquí al pie). */
   onQuitarHuerfana?: (marca: ReferenciaMarcaVm) => void;
-  onEditar: (fila: FilaCruceTerceroMarcada) => void;
-  onQuitar: (fila: FilaCruceTerceroMarcada) => void;
+  onEditar: (observacion: ObservacionDeMarca<FilaCruceTerceroMarcada>) => void;
+  onQuitar: (observacion: ObservacionDeMarca<FilaCruceTerceroMarcada>) => void;
 }) {
-  const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
+  const entradas = intercalarObservaciones(observaciones, (o) => o.marca.numero, referencias);
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
@@ -152,10 +135,9 @@ export function ObservacionesMarcasTercero({
                 />
               );
             }
-            const fila = entrada.item;
-            const marca = fila.marca!;
+            const { fila, marca } = entrada.item;
             return (
-              <li key={fila.clave} id={anclaObservacionMarca(marca.numero)} className="flex scroll-mt-24 gap-3 px-3 py-3">
+              <li key={`marca-${marca.numero}`} id={anclaObservacionMarca(marca.numero)} className="flex scroll-mt-24 gap-3 px-3 py-3">
                 <div className="pt-0.5">
                   <InsigniaMarca numero={marca.numero} tono={fila.desactualizada ? "warn" : "ok"} titulo={`Marca ${marca.numero}`} />
                 </div>
@@ -163,12 +145,15 @@ export function ObservacionesMarcasTercero({
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="min-w-0 break-words text-[12.5px] font-semibold text-ink-800">{etiquetaTercero(fila)}</span>
-                    <span className={`text-[12px] font-semibold tabular-nums ${fila.admiteMarca ? "text-err-700" : "text-ok-700"}`}>
-                      {fmtContable(fila.diferencia)}
+                    <span className="text-[12px] font-semibold tabular-nums text-ink-700" title="Lo que explica esta marca">
+                      Explica {fmtContable(montoDeMarca(marca))}
+                    </span>
+                    <span className={`text-[11.5px] tabular-nums ${fila.admiteMarca ? "text-err-700" : "text-ok-700"}`} title="Diferencia del tercero">
+                      de {fmtContable(fila.diferencia)}
                     </span>
                     {fila.desactualizada && (
-                      <span title={`La diferencia era ${fmtContable(marca.diferencia)} cuando se escribió esta marca.`}>
-                        <Chip label="Revisar" tone="warn" />
+                      <span title={`Las marcas de este tercero explican ${fmtContable(fila.explicado)}: faltan ${fmtContable(fila.porExplicar)}.`}>
+                        <Chip label={`Por explicar ${fmtContable(fila.porExplicar)}`} tone="warn" />
                       </span>
                     )}
                     {!fila.admiteMarca && <Chip label="Ya cuadra" tone="ok" />}
@@ -203,7 +188,7 @@ export function ObservacionesMarcasTercero({
                   <div className="flex shrink-0 items-start gap-1">
                     <button
                       type="button"
-                      onClick={() => onEditar(fila)}
+                      onClick={() => onEditar(entrada.item)}
                       title="Editar la marca"
                       aria-label="Editar la marca"
                       className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
@@ -212,7 +197,7 @@ export function ObservacionesMarcasTercero({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onQuitar(fila)}
+                      onClick={() => onQuitar(entrada.item)}
                       disabled={ocupado}
                       title="Retirar la marca (se lleva sus soportes)"
                       aria-label="Retirar la marca"
@@ -231,31 +216,41 @@ export function ObservacionesMarcasTercero({
   );
 }
 
-/** Modal para poner (o reescribir) la marca de un tercero y adjuntarle soportes. */
+/** Modal para poner una marca nueva a un tercero (o reescribir una suya) y adjuntarle soportes. */
 export function ModalMarcaTercero({
   fila,
+  marca,
   encabezadoId,
   onClose,
   onGuardado,
 }: {
   fila: FilaCruceTerceroMarcada;
+  /** La marca que se edita; null para agregar una nueva al tercero. */
+  marca: MarcaCruce | null;
   encabezadoId: number;
   onClose: () => void;
   onGuardado: () => void;
 }) {
-  const [nota, setNota] = useState(fila.marca?.nota ?? "");
-  const [anexo, setAnexo] = useState(fila.marca?.referenciaAnexo ?? "");
+  // Lo que falta por explicar sin contar esta marca: la diferencia menos lo que explican las demás.
+  const otras = Math.round((fila.explicado - (marca ? montoDeMarca(marca) : 0)) * 100) / 100 + 0;
+  const faltante = Math.round((fila.diferencia - otras) * 100) / 100 + 0;
+  const [nota, setNota] = useState(marca?.nota ?? "");
+  const [anexo, setAnexo] = useState(marca?.referenciaAnexo ?? "");
+  const [montoTexto, setMontoTexto] = useState(textoMontoMarca(marca ? montoDeMarca(marca) : faltante));
   const [nuevos, setNuevos] = useState<File[]>([]);
   const [guardando, startGuardar] = useTransition();
+  const monto = leerMontoMarca(montoTexto);
 
   const guardar = () => {
     const texto = nota.trim();
-    if (!texto || guardando) return;
+    if (!texto || monto == null || guardando) return;
     startGuardar(async () => {
       const datos = new FormData();
       datos.set("encabezadoId", String(encabezadoId));
       datos.set("dimension", "tercero");
       datos.set("clave", fila.clave);
+      if (marca) datos.set("numero", String(marca.numero));
+      datos.set("monto", String(monto));
       datos.set("nota", texto);
       datos.set("referenciaAnexo", anexo.trim());
       // La diferencia la recalcula el servidor sobre el cruce vigente.
@@ -271,9 +266,11 @@ export function ModalMarcaTercero({
     });
   };
 
-  const titulo = fila.marca
-    ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaTercero(fila)}`
-    : `Nueva marca · ${etiquetaTercero(fila)}`;
+  const titulo = marca
+    ? `${etiquetaMarca(marca.numero)} · ${etiquetaTercero(fila)}`
+    : fila.marcas.length > 0
+      ? `Otra marca · ${etiquetaTercero(fila)}`
+      : `Nueva marca · ${etiquetaTercero(fila)}`;
 
   return (
     <Modal
@@ -285,10 +282,10 @@ export function ModalMarcaTercero({
         <button
           type="button"
           onClick={guardar}
-          disabled={!nota.trim() || guardando}
+          disabled={!nota.trim() || monto == null || guardando}
           className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {guardando ? "Guardando…" : fila.marca ? "Guardar cambios" : "Poner marca"}
+          {guardando ? "Guardando…" : marca ? "Guardar cambios" : "Poner marca"}
         </button>
       }
     >
@@ -314,11 +311,7 @@ export function ModalMarcaTercero({
           </p>
         )}
 
-        {fila.desactualizada && fila.marca && (
-          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
-            La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
-          </div>
-        )}
+        <CampoMontoMarca texto={montoTexto} onCambiar={setMontoTexto} faltante={faltante} cifra={fila.diferencia} otras={otras} />
 
         <label className="flex flex-col gap-1">
           <span className="text-[12px] font-semibold text-ink-700">Detalle de la marca</span>
@@ -327,7 +320,7 @@ export function ModalMarcaTercero({
             onChange={(e) => setNota(e.target.value.slice(0, MAX_NOTA_MARCA))}
             rows={5}
             autoFocus
-            placeholder="Explica a qué corresponde la diferencia del tercero y cómo se soporta al corte."
+            placeholder="Explica a qué corresponde este monto de la diferencia del tercero y cómo se soporta al corte."
             className="resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
           />
           <span className="self-end text-[10.5px] text-ink-400">{nota.length}/{MAX_NOTA_MARCA}</span>
@@ -346,10 +339,10 @@ export function ModalMarcaTercero({
           />
         </label>
 
-        <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={fila.marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
+        <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
-          La marca queda numerada en el cruce por tercero y su detalle en observaciones. La numeración es la misma del cruce contable. Se conserva al cargar versiones nuevas de este período.
+          Un tercero puede llevar varias marcas: cada una explica su monto y, para cerrar, entre todas tienen que cubrir la diferencia. La numeración es la misma del cruce contable y se conserva al cargar versiones nuevas de este período.
         </p>
       </div>
     </Modal>

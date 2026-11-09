@@ -3678,16 +3678,18 @@ async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
 }
 
 /**
- * Guarda (o reescribe) la MARCA de una cuenta del cruce contable —o de un tercero del cruce por
- * tercero (`dimension=tercero` + `clave`)— y sube sus soportes.
+ * Guarda una MARCA de una cuenta del cruce contable —o de un tercero del cruce por tercero
+ * (`dimension=tercero` + `clave`), o de una cuenta del control de deducciones— y sube sus soportes.
  *
- * `diferencia` se congela para poder avisar después si el monto cambió. El número se
- * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su
- * lugar en las observaciones.
+ * Un renglón puede llevar varias marcas (9/Nov/2026): sin `numero` se crea una nueva; con
+ * `numero` se reescribe esa. Cada una dice el `monto` que explica, y el renglón queda explicado
+ * cuando la suma cubre su diferencia. `diferencia` congela la del renglón al guardar. El número se
+ * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su lugar en
+ * las observaciones.
  *
- * Con `cuenta4Origen`, PASA una marca cuyo renglón ya no aparece en el cruce (sus cuentas se
- * agruparon de otra forma) al renglón `cuenta4`, que tiene que contener alguna de sus cuentas y
- * no tener marca propia. Conserva número y soportes; nota y no modulares se guardan como siempre.
+ * Con `cuenta4Origen` (y el `numero` de la marca), PASA una marca cuyo renglón ya no aparece en
+ * el cruce (sus cuentas se agruparon de otra forma) al renglón `cuenta4`, que tiene que contener
+ * alguna de sus cuentas. Conserva número y soportes; nota, monto y no modulares se guardan como siempre.
  */
 export async function guardarMarcaCruce(formData: FormData): Promise<ActionState> {
   const encabezadoId = Number(formData.get("encabezadoId"));
@@ -3710,8 +3712,56 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   if (!nota.ok) return { ok: false, message: nota.message };
   const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
   if (!anexo.ok) return { ok: false, message: anexo.message };
+  // Cuánto de la diferencia explica esta marca (con su signo). El formulario lo manda ya como número.
+  const montoCrudo = String(formData.get("monto") ?? "").trim();
+  const montoLeido = Number(montoCrudo);
+  if (!montoCrudo || !Number.isFinite(montoLeido) || Math.abs(montoLeido) >= 1e13) {
+    return { ok: false, message: "Indica el monto que explica esta marca." };
+  }
+  const monto = Math.round(montoLeido * 100) / 100 + 0;
+  // La marca que se reescribe (o se pasa); sin número se crea una nueva en el renglón.
+  const numeroCrudo = String(formData.get("numero") ?? "").trim();
+  const numeroEditado = numeroCrudo ? Number(numeroCrudo) : null;
+  if (numeroEditado != null && (!Number.isSafeInteger(numeroEditado) || numeroEditado <= 0)) return { ok: false, message: "Marca inválida." };
+  if (pasarDesde && numeroEditado == null) return { ok: false, message: "Indica qué marca se quiere pasar." };
 
   const { encabezado } = ctx;
+  const periodoMarca = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
+  const llaveMarca = cuenta4
+    ? { dimension: "cuenta4" as const, cuenta4, clave: null }
+    : { dimension: dimension === "control" ? ("control" as const) : ("tercero" as const), cuenta4: null, clave: clave as string };
+  // Las marcas que ya tiene el renglón y la que se edita: sus exclusiones cuentan para la
+  // diferencia, pero una cuenta (o un concepto) no la puede restar más de una marca.
+  const [delRenglon, existente] = await Promise.all([
+    prisma.marcaCruceModulo.findMany({
+      where: { ...periodoMarca, dimension: llaveMarca.dimension, ...(llaveMarca.dimension === "cuenta4" ? { cuenta4: llaveMarca.cuenta4 } : { clave: llaveMarca.clave }) },
+      select: {
+        id: true,
+        numero: true,
+        noModulares: { select: { cuenta8: true } },
+        clasificadoresNoModulares: { select: { clasificador: true } },
+      },
+    }),
+    numeroEditado != null
+      ? prisma.marcaCruceModulo.findFirst({
+          where: { ...periodoMarca, numero: numeroEditado },
+          select: { id: true, numero: true, dimension: true, cuenta4: true, clave: true, _count: { select: { adjuntos: true } } },
+        })
+      : Promise.resolve(null),
+  ]);
+  if (numeroEditado != null) {
+    // La marca tiene que ser de este renglón o, al pasarla, del renglón que se perdió.
+    const llaveEsperada = llaveMarca.dimension === "cuenta4" ? pasarDesde ?? llaveMarca.cuenta4 : llaveMarca.clave;
+    const llaveExistente = existente ? (existente.dimension === "cuenta4" ? existente.cuenta4 : existente.clave) : null;
+    if (!existente || existente.dimension !== llaveMarca.dimension || llaveExistente !== llaveEsperada) {
+      return { ok: false, message: "Esa marca ya no existe en este renglón. Recarga la pantalla." };
+    }
+  }
+  const otras = delRenglon.filter((m) => m.id !== existente?.id);
+  const restadaPor = new Map<string, number>();
+  for (const m of otras) for (const n of m.noModulares) restadaPor.set(n.cuenta8, m.numero);
+  const conceptoDe = new Map<string, number>();
+  for (const m of otras) for (const c of m.clasificadoresNoModulares) conceptoDe.set(c.clasificador, m.numero);
 
   // Las cuentas no modulares solo existen en la cédula contable.
   let seleccionNoModular: string[] = [];
@@ -3769,23 +3819,36 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       const hijos = cruceVigente.detalleSinCuenta;
       const noModulares = validarClasificadoresNoModulares(seleccionNoModular, hijos);
       if (!noModulares.ok) return { ok: false, message: noModulares.message };
+      const repetido = noModulares.clasificadores.find((c) => conceptoDe.has(c));
+      if (repetido) return { ok: false, message: `«${repetido}» ya lo resta la marca ${conceptoDe.get(repetido)}.` };
       clasificadoresExcluidos = hijos.filter((h) => noModulares.clasificadores.includes(h.clasificador));
-      diferencia = diferenciaAjustadaModulo(filaVigente, hijos, noModulares.clasificadores);
+      // La diferencia del renglón con lo que restan todas sus marcas.
+      diferencia = diferenciaAjustadaModulo(filaVigente, hijos, [...conceptoDe.keys(), ...noModulares.clasificadores]);
     } else {
       const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
       const noModulares = validarNoModulares(seleccionNoModular, hijos);
       if (!noModulares.ok) return { ok: false, message: noModulares.message };
+      const repetida = noModulares.cuentas8.find((c) => restadaPor.has(c));
+      if (repetida) return { ok: false, message: `La cuenta ${repetida} ya la resta la marca ${restadaPor.get(repetida)}.` };
       excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
       // Los conceptos del archivo que alimentan el renglón: lo que se declare no contabilizado
       // tiene que seguir siendo uno de ellos.
       const conceptos = filaVigente.detalleModulo ?? [];
       const noContabilizados = validarClasificadoresNoModulares(seleccionNoContabilizado, conceptos);
       if (!noContabilizados.ok) return { ok: false, message: noContabilizados.message };
+      const repetido = noContabilizados.clasificadores.find((c) => conceptoDe.has(c));
+      if (repetido) return { ok: false, message: `«${repetido}» ya lo resta la marca ${conceptoDe.get(repetido)}.` };
       clasificadoresExcluidos = conceptos.filter((c) => noContabilizados.clasificadores.includes(c.clasificador));
-      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8, totalNoContabilizado(conceptos, noContabilizados.clasificadores));
-      // Activos fijos con el neto dentro de la tolerancia: la marca explica el DETALLE y congela la
-      // diferencia del costo (la misma regla con que la cédula decide si quedó desactualizada).
-      const sinExclusiones = excluidas.length === 0 && clasificadoresExcluidos.length === 0;
+      // La diferencia del renglón con lo que restan todas sus marcas.
+      diferencia = diferenciaAjustada(
+        filaVigente,
+        hijos,
+        [...restadaPor.keys(), ...noModulares.cuentas8],
+        totalNoContabilizado(conceptos, [...conceptoDe.keys(), ...noContabilizados.clasificadores]),
+      );
+      // Activos fijos con el neto dentro de la tolerancia: las marcas explican el DETALLE y la
+      // cifra es la diferencia del costo (la misma regla con que la cédula las compara).
+      const sinExclusiones = restadaPor.size === 0 && conceptoDe.size === 0 && excluidas.length === 0 && clasificadoresExcluidos.length === 0;
       if (marcaPorDetalle({ ...filaVigente, diferencia }, cruceVigente.toleranciaCedula ?? UMBRAL_CEDULA_MODULOS, sinExclusiones)) {
         diferencia = filaVigente.columnas!.costo.diferencia;
       }
@@ -3805,43 +3868,12 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     diferencia = filaTercero.diferencia;
   }
 
-  const llaveMarca = cuenta4
-    ? { dimension: "cuenta4" as const, cuenta4, clave: null }
-    : { dimension: dimension === "control" ? ("control" as const) : ("tercero" as const), cuenta4: null, clave: clave as string };
   const objetivo = cuenta4 === CLAVE_SIN_CUENTA
     ? "saldo sin cuenta"
     : cuenta4 ? `cuenta ${cuenta4}` : dimension === "control" ? `cuenta del cliente ${clave}` : `tercero ${clave}`;
   const cruceDeLaMarca = cuenta4 ? "cruce contable" : dimension === "control" ? "control de deducciones" : "cruce por tercero";
 
   try {
-    const existente = await prisma.marcaCruceModulo.findFirst({
-      where: {
-        clienteId: encabezado.clienteId,
-        moduloCodigo: encabezado.moduloCodigo,
-        periodo: encabezado.periodo,
-        dimension: llaveMarca.dimension,
-        // Al pasar una marca sin renglón, la que se edita es la del renglón que se perdió.
-        ...(llaveMarca.dimension === "cuenta4" ? { cuenta4: pasarDesde ?? llaveMarca.cuenta4 } : { clave: llaveMarca.clave }),
-      },
-      select: { id: true, numero: true, _count: { select: { adjuntos: true } } },
-    });
-    if (pasarDesde) {
-      if (!existente) return { ok: false, message: "Esa marca ya no existe. Recarga la pantalla." };
-      const ocupada = await prisma.marcaCruceModulo.findFirst({
-        where: {
-          clienteId: encabezado.clienteId,
-          moduloCodigo: encabezado.moduloCodigo,
-          periodo: encabezado.periodo,
-          dimension: "cuenta4",
-          cuenta4,
-        },
-        select: { numero: true },
-      });
-      if (ocupada) {
-        return { ok: false, message: `Ese renglón ya tiene la marca ${ocupada.numero}: edítala a ella o retira una de las dos.` };
-      }
-    }
-
     const preparados = await prepararSoportesMarca(soportesDelFormulario(formData), existente?._count.adjuntos ?? 0);
     if (!preparados.ok) return { ok: false, message: preparados.message };
 
@@ -3853,6 +3885,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       nota: nota.nota,
       referenciaAnexo: anexo.referencia,
       diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+      monto: new Prisma.Decimal(monto.toFixed(2)),
       marcadoPor: user?.name ?? null,
       marcadoPorId: ctx.userId,
       marcadoEn: new Date(),
@@ -3926,7 +3959,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
         ? "PASÓ a otro renglón la marca del cruce contable"
         : existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
       objetivo,
-      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? (cuenta4 === CLAVE_SIN_CUENTA ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ` · ${clasificadoresExcluidos.length} concepto(s) no contabilizado(s)`) : ""}`,
+      `${pasarDesde ? ` · antes en ${pasarDesde}` : ""} · marca ${marca.numero} · explica ${monto.toFixed(2)} de ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? (cuenta4 === CLAVE_SIN_CUENTA ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ` · ${clasificadoresExcluidos.length} concepto(s) no contabilizado(s)`) : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
@@ -3977,23 +4010,14 @@ async function persistirSoportesMarca(
   }
 }
 
-/** Retira la marca de una cuenta o de un tercero y sus soportes. Los comentarios del renglón no se tocan. */
-export async function quitarMarcaCruce(input: {
-  encabezadoId: number;
-  cuenta4?: string;
-  /** Clave del tercero, en las marcas del cruce por tercero; cuenta del cliente en las del control. */
-  clave?: string;
-  /** «control»: la marca es del control de deducciones de Nómina (con `clave`). */
-  dimension?: "control";
-}): Promise<ActionState> {
+/**
+ * Retira UNA marca (por su número) y sus soportes. Las demás marcas del renglón y sus comentarios
+ * no se tocan.
+ */
+export async function quitarMarcaCruce(input: { encabezadoId: number; numero: number }): Promise<ActionState> {
   const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
   if (!ctx.ok) return { ok: false, message: ctx.message };
-
-  const porTercero = input.clave != null;
-  const clave = porTercero ? normalizarClaveTercero(input.clave) : null;
-  const cuenta4 = porTercero ? null : cuentaMarcable(String(input.cuenta4 ?? ""));
-  if (porTercero && !clave) return { ok: false, message: "Tercero inválido." };
-  if (!porTercero && !cuenta4) return { ok: false, message: "Cuenta inválida." };
+  if (!Number.isSafeInteger(input.numero) || input.numero <= 0) return { ok: false, message: "Marca inválida." };
 
   const { encabezado } = ctx;
   try {
@@ -4002,11 +4026,17 @@ export async function quitarMarcaCruce(input: {
         clienteId: encabezado.clienteId,
         moduloCodigo: encabezado.moduloCodigo,
         periodo: encabezado.periodo,
-        ...(clave ? { dimension: input.dimension === "control" ? "control" : "tercero", clave } : { dimension: "cuenta4", cuenta4: cuenta4 ?? undefined }),
+        numero: input.numero,
       },
-      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true } } },
+      select: {
+        id: true, numero: true, dimension: true, cuenta4: true, clave: true,
+        adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true } },
+      },
     });
-    if (!marca) return { ok: false, message: "Esa diferencia ya no estaba marcada." };
+    if (!marca) return { ok: false, message: "Esa marca ya no existe." };
+    const clave = marca.dimension === "cuenta4" ? null : marca.clave;
+    const cuenta4 = marca.dimension === "cuenta4" ? marca.cuenta4 : null;
+    const esControl = marca.dimension === "control";
 
     // La BD manda: primero se borra la fila (cascada a los adjuntos) y después los
     // objetos. Al revés, un fallo dejaría registros apuntando a soportes inexistentes.
@@ -4021,10 +4051,10 @@ export async function quitarMarcaCruce(input: {
     await auditarMarcaCruce(
       encabezado,
       clave
-        ? input.dimension === "control" ? "RETIRÓ la marca del control de deducciones" : "RETIRÓ la marca del cruce por tercero"
+        ? esControl ? "RETIRÓ la marca del control de deducciones" : "RETIRÓ la marca del cruce por tercero"
         : "RETIRÓ la marca del cruce contable",
       clave
-        ? input.dimension === "control" ? `cuenta del cliente ${clave}` : `tercero ${clave}`
+        ? esControl ? `cuenta del cliente ${clave}` : `tercero ${clave}`
         : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
       ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`
         + (marca._count.clasificadoresNoModulares

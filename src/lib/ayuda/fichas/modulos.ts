@@ -36,7 +36,7 @@ function motivosNoCierre(d: DescriptorModulo): string {
     esAfi(d) ? "depreciación sin emparejar con su activo (ninguna marca lo resuelve)" : null,
   ].filter(Boolean);
   return [
-    "La ventana de cierre dice qué falta: diferencias sin marca o marcas desactualizadas, comentarios de alertas pendientes en Novedades",
+    "La ventana de cierre dice qué falta: diferencias sin marca o renglones cuyas marcas no cubren la diferencia (con cuánto falta por explicar), comentarios de alertas pendientes en Novedades",
     ...extra,
   ].join(", ") + ".";
 }
@@ -638,20 +638,24 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
               {
                 nombre: "Poner una marca (+)",
                 queHace:
-                  "Documenta la diferencia: detalle obligatorio, referencia al anexo y hasta 5 soportes de 10 MB. Puede dejar fuera cuentas no modulares del balance o conceptos no contabilizados del archivo.",
+                  "Documenta la diferencia: el monto que explica (viene propuesto con lo que falta por explicar), detalle obligatorio, referencia al anexo y hasta 5 soportes de 10 MB. Un renglón puede llevar varias marcas, una por cada causa; el «+» junto a sus números agrega otra. Puede dejar fuera cuentas no modulares del balance o conceptos no contabilizados del archivo; cada cuenta o concepto lo resta una sola marca.",
                 regla: REGLAS.editarModulo,
-                condiciones: ["Por debajo de la tolerancia la marca es opcional.", "No con la conciliación en firme."],
+                condiciones: [
+                  "Por debajo de la tolerancia la marca es opcional.",
+                  "Para cerrar, entre todas las marcas del renglón tienen que cubrir la diferencia: lo que falte por explicar tiene que quedar por debajo de la tolerancia.",
+                  "No con la conciliación en firme.",
+                ],
                 fuente: { archivo: ACCIONES_MODULOS, funcion: "guardarMarcaCruce" },
               },
               {
                 nombre: "Editar la marca · Retirar la marca",
-                queHace: "Cambia la marca o la retira junto con sus soportes. Una marca que perdió su renglón se puede pasar al renglón actual.",
+                queHace: "Cambia una marca (también su monto) o la retira junto con sus soportes; las demás marcas del renglón no se tocan. Una marca que perdió su renglón se puede pasar al renglón actual, aunque ya tenga marcas.",
                 regla: REGLAS.editarModulo,
               },
               {
                 nombre: "Control de deducciones",
                 queHace:
-                  "Los conceptos que van a cuentas de pasivo, activo o ingreso del cliente, comparados con su saldo; toda diferencia necesita marca para cerrar.",
+                  "Los conceptos que van a cuentas de pasivo, activo o ingreso del cliente, comparados con su saldo; toda diferencia necesita marcas que la expliquen al centavo para cerrar. Cada renglón admite varias marcas, cada una con su monto.",
                 regla: REGLAS.editarModulo,
                 aplica: esNomina,
               },
@@ -666,10 +670,10 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
                   "«Cerrar en firme» deja en firme el saldo final y la homologación de las cuentas del módulo en el balance, vuelve de solo lectura el cargue y guarda una copia de lo conciliado.",
                 regla: REGLAS.cerrarConciliacion,
                 condiciones: [
-                  "Toda diferencia desde la tolerancia tiene marca vigente.",
+                  "Toda diferencia desde la tolerancia está explicada por sus marcas: lo que falta queda por debajo de la tolerancia.",
                   "Cada alerta que lo exige tiene su comentario en Novedades.",
-                  ...(porTercero(d) ? ["El cruce por tercero está disponible y sus diferencias tienen marca."] : []),
-                  ...(esNomina(d) ? ["El control de deducciones está marcado."] : []),
+                  ...(porTercero(d) ? ["El cruce por tercero está disponible y sus diferencias están explicadas por sus marcas."] : []),
+                  ...(esNomina(d) ? ["El control de deducciones está explicado por sus marcas."] : []),
                   ...(esAfi(d) ? ["Toda depreciación está emparejada con su activo."] : []),
                 ],
                 fuente: { archivo: ACCIONES_MODULOS, funcion: "cerrarConciliacionModulo" },
@@ -741,7 +745,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
             acciones: [
               {
                 nombre: "Poner una marca (+)",
-                queHace: "Documenta la diferencia de un tercero; desde el umbral de diferencia por tercero es obligatoria para cerrar.",
+                queHace: "Documenta la diferencia de un tercero con el monto que explica; un tercero puede llevar varias marcas. Desde el umbral de diferencia por tercero, para cerrar, entre todas tienen que cubrir la diferencia.",
                 regla: REGLAS.editarModulo,
               },
               {
@@ -792,7 +796,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
       { etiqueta: "Conciliación en firme", significado: "Cerrada: el cargue es de solo lectura hasta que se desbloquee." },
       { etiqueta: "propuesta · sin guardar", significado: "Cuenta sugerida que no cruza hasta guardarse." },
       { etiqueta: "Solo (período)", significado: "Cuenta asignada solo para este período; no queda en la memoria del cliente." },
-      { etiqueta: "Revisar", significado: "La marca quedó desactualizada: el monto cambió desde que se escribió." },
+      { etiqueta: "Por explicar", significado: "Las marcas del renglón no cubren su diferencia (falta monto o la diferencia cambió después de marcar): impide cerrar." },
       { etiqueta: "Dentro de la tolerancia · marca opcional", significado: "Diferencia por debajo de la tolerancia del módulo." },
       { etiqueta: "¿Signo contrario?", significado: "El módulo parece cargado con el signo invertido respecto a la contabilidad. Solo informa." },
     ],

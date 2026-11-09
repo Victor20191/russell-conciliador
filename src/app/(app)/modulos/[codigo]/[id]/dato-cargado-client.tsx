@@ -214,7 +214,15 @@ import {
   ResumenNoModulares,
 } from "../lista-no-modulares";
 import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
-import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
+import {
+  CampoMontoMarca,
+  EditorSoportesMarca,
+  InsigniaMarca,
+  InsigniasMarcasRenglon,
+  ListaSoportesMarca,
+  ReferenciaMarca,
+  type ReferenciaMarcaVm,
+} from "./soportes-marca";
 import { etiquetaTercero } from "./marca-tercero";
 import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
 import { ComentariosAlertasCard } from "./comentarios-alertas";
@@ -242,8 +250,12 @@ import {
   observacionesDeMarcas,
   intercalarObservaciones,
   destinosMarcaSinRenglon,
+  leerMontoMarca,
+  montoDeMarca,
+  textoMontoMarca,
   type MarcaCruce,
   type MarcaPeriodo,
+  type ObservacionDeMarca,
   type FilaControlMarcada,
   type FilaCruceMarcada,
   type HijoModuloSinCuenta,
@@ -2512,8 +2524,9 @@ function CruceContableTab({
   descripcionPorClasificador?: Record<string, string>;
 }) {
   const router = useRouter();
-  // Fila que se está marcando en el modal (null = modal cerrado).
-  const [marcando, setMarcando] = useState<FilaCruceMarcada | null>(null);
+  // Marca que se está escribiendo en el modal: la que se edita, o null para agregar una nueva al
+  // renglón (null en `marcando` = modal cerrado).
+  const [marcando, setMarcando] = useState<{ fila: FilaCruceMarcada; marca: MarcaCruce | null } | null>(null);
   // Marca sin renglón que se pasa a un renglón actual: el editor se abre sobre ese renglón con
   // lo que ya tenía la marca; si sus cuentas quedaron en varios renglones, primero se elige cuál.
   const [pasando, setPasando] = useState<{ origen: MarcaCruce; fila: FilaCruceMarcada } | null>(null);
@@ -2610,6 +2623,9 @@ function CruceContableTab({
   // Renglón del saldo del módulo sin cuenta: sus hijos son clasificadores, no cuentas del cliente.
   const hijosSinCuenta = cruceContable.detalleSinCuenta ?? [];
   const excluidosSinCuenta = new Set(hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador));
+  // «Editar cuentas no modulares» abre la marca que las guarda (o la primera); sin marcas, una nueva.
+  const marcaDeExclusiones = (f: FilaCruceMarcada): MarcaCruce | null =>
+    f.marcas.find((m) => m.noModulares.length > 0 || (m.clasificadoresNoModulares?.length ?? 0) > 0) ?? f.marcas[0] ?? null;
   // Las que exigen marca para cerrar y las que no cuadran pero quedan dentro de la tolerancia.
   const conDiferencia = filasMarcadas.filter((f) => f.requiereMarca).length;
   const dentroTolerancia = filasMarcadas.filter((f) => f.admiteMarca && !f.requiereMarca).length;
@@ -2634,7 +2650,7 @@ function CruceContableTab({
   // Cuentas de la cédula que no movieron por ningún lado. Se muestran —el papel de trabajo tiene
   // que dejar constancia de que se miraron—, pero se pueden esconder. Una con marca nunca se
   // oculta: alguien la explicó y esa explicación no puede desaparecer de la vista.
-  const sinMovimiento = (f: FilaCruceMarcada) => f.contable === 0 && f.inventario === 0 && !f.marca;
+  const sinMovimiento = (f: FilaCruceMarcada) => f.contable === 0 && f.inventario === 0 && f.marcas.length === 0;
   const enCero = filasMarcadas.filter(sinMovimiento).length;
   const filasOrdenadas = ordenarCruceContable(
     filtrarFilasCruce(filasMarcadas, columnasFiltroCedula, filtrosCedula).filter((f) => !ocultarCeros || !sinMovimiento(f)),
@@ -2652,9 +2668,9 @@ function CruceContableTab({
     />
   );
 
-  const quitar = (fila: FilaCruceMarcada) => {
+  const quitar = ({ marca }: ObservacionDeMarca<FilaCruceMarcada>) => {
     startQuitar(async () => {
-      const r = await quitarMarcaCruce({ encabezadoId, cuenta4: fila.cuenta4 });
+      const r = await quitarMarcaCruce({ encabezadoId, numero: marca.numero });
       if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
       else notifyError(r.message ?? "No se pudo retirar la marca.");
       router.refresh();
@@ -2666,18 +2682,18 @@ function CruceContableTab({
   const marcasSinRenglon = cruceContable.marcasSinRenglon ?? [];
   const destinosDe = (llave: string) => destinosMarcaSinRenglon(llave, filasMarcadas);
   const puedePasar = (marca: ReferenciaMarcaVm) =>
-    marca.dimension === "cuenta4" && marcasSinRenglon.some((m) => m.cuenta4 === marca.llave) && destinosDe(marca.llave).length > 0;
+    marca.dimension === "cuenta4" && marcasSinRenglon.some((m) => m.numero === marca.numero) && destinosDe(marca.llave).length > 0;
   const editarHuerfana = (marca: ReferenciaMarcaVm) => {
-    const origen = marcasSinRenglon.find((m) => m.cuenta4 === marca.llave);
+    const origen = marcasSinRenglon.find((m) => m.numero === marca.numero);
     if (!origen) return;
+    // Un renglón con marcas también la recibe: cada marca explica su monto.
     const destinos = destinosDe(marca.llave);
-    const libres = destinos.filter((f) => !f.marca);
-    if (destinos.length === 1 && libres.length === 1) setPasando({ origen, fila: libres[0] });
+    if (destinos.length === 1) setPasando({ origen, fila: destinos[0] });
     else setEligiendoDestino({ origen, destinos });
   };
   const quitarHuerfana = (marca: ReferenciaMarcaVm) => {
     startQuitar(async () => {
-      const r = await quitarMarcaCruce({ encabezadoId, cuenta4: marca.llave });
+      const r = await quitarMarcaCruce({ encabezadoId, numero: marca.numero });
       if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
       else notifyError(r.message ?? "No se pudo retirar la marca.");
       router.refresh();
@@ -2758,7 +2774,8 @@ function CruceContableTab({
               puedeEditar={puedeEditar}
               comentarios={comentarios}
               encabezadoId={encabezadoId}
-              onMarcar={(f) => setMarcando(f)}
+              onMarcar={(f) => setMarcando({ fila: f, marca: null })}
+              onExclusiones={(f) => setMarcando({ fila: f, marca: marcaDeExclusiones(f) })}
               totales={resumen.totales}
             />
           ) : (
@@ -2898,7 +2915,7 @@ function CruceContableTab({
                                 encabezadoId={encabezadoId}
                                 comentarios={comentarios[anclaCruce(f.cuenta4)] ?? 0}
                                 puedeEditar={puedeEditar}
-                                onMarcar={() => setMarcando(f)}
+                                onMarcar={() => setMarcando({ fila: f, marca: null })}
                               />
                             </td>
                           )}
@@ -2922,7 +2939,7 @@ function CruceContableTab({
                                 {puedeEditar && (
                                   <button
                                     type="button"
-                                    onClick={() => setMarcando(f)}
+                                    onClick={() => setMarcando({ fila: f, marca: marcaDeExclusiones(f) })}
                                     className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-ink-600 transition hover:border-navy-700 hover:text-navy-700"
                                   >
                                     <Icon name="edit" size={11} />
@@ -2951,7 +2968,7 @@ function CruceContableTab({
                               {puedeEditar && (
                                 <button
                                   type="button"
-                                  onClick={() => setMarcando(f)}
+                                  onClick={() => setMarcando({ fila: f, marca: marcaDeExclusiones(f) })}
                                   className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-ink-600 transition hover:border-navy-700 hover:text-navy-700"
                                 >
                                   <Icon name="edit" size={11} />
@@ -2967,7 +2984,7 @@ function CruceContableTab({
                                 detalle={f.detalleModulo ?? []}
                                 etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                                 descripcionDe={descripcionDeClasificador}
-                                excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
+                                excluidos={new Set(f.marcas.flatMap((m) => (m.clasificadoresNoModulares ?? []).map((c) => c.clasificador)))}
                               />
                             </div>
                             {excluidas.size > 0 && (
@@ -3038,7 +3055,7 @@ function CruceContableTab({
         onQuitarHuerfana={quitarHuerfana}
         onEditarHuerfana={editarHuerfana}
         puedeEditarHuerfana={puedePasar}
-        onEditar={(fila) => setMarcando(fila)}
+        onEditar={(observacion) => setMarcando(observacion)}
         onQuitar={quitar}
       />
 
@@ -3085,9 +3102,10 @@ function CruceContableTab({
       {marcando && (
         <ModalMarca
           moduloLabel={moduloLabel}
-          fila={marcando}
-          hijos={hijosDe(marcando.cuenta4)}
-          hijosSinCuenta={marcando.cuenta4 === CLAVE_SIN_CUENTA ? hijosSinCuenta : undefined}
+          fila={marcando.fila}
+          marca={marcando.marca}
+          hijos={hijosDe(marcando.fila.cuenta4)}
+          hijosSinCuenta={marcando.fila.cuenta4 === CLAVE_SIN_CUENTA ? hijosSinCuenta : undefined}
           descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
           onClose={() => setMarcando(null)}
@@ -3639,11 +3657,11 @@ function ResumenMarcasBanner({ resumen, tolerancia }: { resumen: ResumenMarcas; 
         </span>
       )}
       {resumen.desactualizadas > 0 && (
-        <span title="La diferencia cambió después de escribir la marca.">
-          Por revisar: <b>{resumen.desactualizadas}</b>
+        <span title="Renglones cuyas marcas no alcanzan a explicar la diferencia: falta monto o la diferencia cambió después de marcar.">
+          Con saldo por explicar: <b>{resumen.desactualizadas}</b>{resumen.montoPorExplicar ? ` (${fmtContable(resumen.montoPorExplicar)})` : ""}
         </span>
       )}
-      {todo && resumen.conDiferencia > 0 && <span>Todas las diferencias que exigen marca están marcadas.</span>}
+      {todo && resumen.conDiferencia > 0 && <span>Todas las diferencias que exigen marca están explicadas.</span>}
       {bajoTolerancia > 0 && (
         <span className="text-ink-500">
           {bajoTolerancia.toLocaleString("es-CO")} dentro de la tolerancia{tolerancia != null ? ` (menos de ${fmtContable(tolerancia)})` : ""}: la marca es opcional y no impide cerrar.
@@ -3679,6 +3697,7 @@ function TablaCedulaActivos({
   comentarios,
   encabezadoId,
   onMarcar,
+  onExclusiones,
   totales,
   toleranciaDetalle,
 }: {
@@ -3696,7 +3715,10 @@ function TablaCedulaActivos({
   puedeEditar: boolean;
   comentarios: Record<string, number>;
   encabezadoId: number;
+  /** Agregar una marca nueva al renglón. */
   onMarcar: (fila: FilaCruceMarcada) => void;
+  /** Editar las cuentas no modulares del renglón (en la marca que las guarda). */
+  onExclusiones: (fila: FilaCruceMarcada) => void;
   totales: ResumenCruceContable["totales"];
   /** Desde qué diferencia del costo o la depreciación (con el neto cuadrado) se exige marca. */
   toleranciaDetalle: number | null;
@@ -3867,7 +3889,7 @@ function TablaCedulaActivos({
                         {puedeEditar && !sinCuenta && (
                           <button
                             type="button"
-                            onClick={() => onMarcar(f)}
+                            onClick={() => onExclusiones(f)}
                             className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-ink-600 transition hover:border-navy-700 hover:text-navy-700"
                           >
                             <Icon name="edit" size={11} />
@@ -3881,7 +3903,7 @@ function TablaCedulaActivos({
                           detalle={f.detalleModulo ?? []}
                           etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                           descripcionDe={descripcionDeClasificador}
-                          excluidos={new Set((f.marca?.clasificadoresNoModulares ?? []).map((c) => c.clasificador))}
+                          excluidos={new Set(f.marcas.flatMap((m) => (m.clasificadoresNoModulares ?? []).map((c) => c.clasificador)))}
                         />
                       </div>
                       <p className="text-[11px] text-ink-500">
@@ -3939,50 +3961,21 @@ function CeldaMarca({
   );
 
   // Cuenta que cuadra y nunca se marcó: nada que explicar.
-  if (!fila.admiteMarca && !fila.marca) {
+  if (!fila.admiteMarca && fila.marcas.length === 0) {
     return <div className="flex items-center justify-center gap-1">{hilo}</div>;
   }
 
-  if (!fila.marca) {
-    // Dentro de la tolerancia de la cédula: se puede marcar, pero no hace falta para cerrar.
-    const opcional = !fila.requiereMarca;
-    return (
-      <div className="flex items-center justify-center gap-1">
-        {puedeEditar ? (
-          <button
-            type="button"
-            onClick={onMarcar}
-            title={opcional ? "Dentro de la tolerancia: la marca es opcional y no impide cerrar" : "Poner una marca a esta diferencia"}
-            className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed px-1 transition hover:border-navy-700 hover:text-navy-700 ${
-              opcional ? "border-ink-200 text-ink-300" : "border-ink-300 text-ink-400"
-            }`}
-          >
-            <Icon name="plus" size={12} />
-          </button>
-        ) : opcional ? (
-          <span title="Dentro de la tolerancia: no exige marca" className="text-[11.5px] font-semibold text-ink-300">
-            —
-          </span>
-        ) : (
-          <span title="Diferencia sin marca" className="text-[11.5px] font-semibold text-warn-700">
-            —
-          </span>
-        )}
-        {hilo}
-      </div>
-    );
-  }
-
-  const { marca } = fila;
-  const titulo = fila.desactualizada
-    ? `Marca ${marca.numero} · la diferencia era ${fmtContable(marca.diferencia)} cuando se escribió y hoy es ${fmtContable(fila.diferencia)}. Ver observación al pie.`
-    : `Marca ${marca.numero} · ver la observación al pie`;
-
+  // Un número por marca y «+» para agregar otra; dentro de la tolerancia la marca es opcional.
   return (
     <div className="flex items-center justify-center gap-1">
-      <a href={`#${anclaObservacionMarca(marca.numero)}`} className="inline-flex">
-        <InsigniaMarca numero={marca.numero} tono={fila.desactualizada ? "warn" : "ok"} titulo={titulo} />
-      </a>
+      <InsigniasMarcasRenglon
+        renglon={fila}
+        diferencia={fila.porExplicar + fila.explicado}
+        requiereMarca={fila.requiereMarca}
+        admiteMarca={fila.admiteMarca}
+        puedeEditar={puedeEditar}
+        onAgregar={onMarcar}
+      />
       {hilo}
     </div>
   );
@@ -4007,7 +4000,7 @@ function ObservacionesMarcas({
   onEditar,
   onQuitar,
 }: {
-  observaciones: FilaCruceMarcada[];
+  observaciones: ObservacionDeMarca<FilaCruceMarcada>[];
   /** Las demás marcas del período (cruce por tercero, o sin renglón), citadas en su lugar. */
   referencias: ReferenciaMarcaVm[];
   encabezadoId: number;
@@ -4024,10 +4017,10 @@ function ObservacionesMarcas({
   /** Pasar una marca sin renglón al renglón que hoy contiene sus cuentas (solo si se puede). */
   onEditarHuerfana?: (marca: ReferenciaMarcaVm) => void;
   puedeEditarHuerfana?: (marca: ReferenciaMarcaVm) => boolean;
-  onEditar: (fila: FilaCruceMarcada) => void;
-  onQuitar: (fila: FilaCruceMarcada) => void;
+  onEditar: (observacion: ObservacionDeMarca<FilaCruceMarcada>) => void;
+  onQuitar: (observacion: ObservacionDeMarca<FilaCruceMarcada>) => void;
 }) {
-  const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
+  const entradas = intercalarObservaciones(observaciones, (o) => o.marca.numero, referencias);
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
@@ -4065,10 +4058,11 @@ function ObservacionesMarcas({
             />
           ) : (
             <ObservacionMarca
-              key={entrada.item.cuenta4}
-              fila={entrada.item}
+              key={`marca-${entrada.item.marca.numero}`}
+              fila={entrada.item.fila}
+              marca={entrada.item.marca}
               encabezadoId={encabezadoId}
-              comentarios={comentarios[anclaCruce(entrada.item.cuenta4)] ?? 0}
+              comentarios={comentarios[anclaCruce(entrada.item.fila.cuenta4)] ?? 0}
               puedeEditar={puedeEditar}
               ocupado={ocupado}
               onEditar={() => onEditar(entrada.item)}
@@ -4084,6 +4078,7 @@ function ObservacionesMarcas({
 /** Una nota al pie: marca, cuenta, detalle, anexo, soportes y quién la escribió. */
 function ObservacionMarca({
   fila,
+  marca,
   encabezadoId,
   comentarios,
   puedeEditar,
@@ -4092,6 +4087,7 @@ function ObservacionMarca({
   onQuitar,
 }: {
   fila: FilaCruceMarcada;
+  marca: MarcaCruce;
   encabezadoId: number;
   comentarios: number;
   puedeEditar: boolean;
@@ -4099,7 +4095,6 @@ function ObservacionMarca({
   onEditar: () => void;
   onQuitar: () => void;
 }) {
-  const marca = fila.marca!;
   return (
     <li id={anclaObservacionMarca(marca.numero)} className="flex gap-3 px-3 py-3 scroll-mt-24">
       <div className="pt-0.5">
@@ -4113,12 +4108,15 @@ function ObservacionMarca({
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-[12.5px] font-semibold text-ink-800">{etiquetaFilaCruce(fila)}</span>
-          <span className={`text-[12px] font-semibold tabular-nums ${fila.cuadra ? "text-ok-700" : "text-err-700"}`}>
-            {fmtContable(fila.diferencia)}
+          <span className="text-[12px] font-semibold tabular-nums text-ink-700" title="Lo que explica esta marca">
+            Explica {fmtContable(montoDeMarca(marca))}
+          </span>
+          <span className={`text-[11.5px] tabular-nums ${fila.cuadra ? "text-ok-700" : "text-err-700"}`} title="Diferencia del renglón">
+            de {fmtContable(fila.porExplicar + fila.explicado)}
           </span>
           {fila.desactualizada && (
-            <span title={`La diferencia era ${fmtContable(marca.diferencia)} cuando se escribió esta marca.`}>
-              <Chip label="Revisar" tone="warn" />
+            <span title={`Las marcas de este renglón explican ${fmtContable(fila.explicado)}: faltan ${fmtContable(fila.porExplicar)}.`}>
+              <Chip label={`Por explicar ${fmtContable(fila.porExplicar)}`} tone="warn" />
             </span>
           )}
           {!fila.admiteMarca && <Chip label="Ya cuadra" tone="ok" />}
@@ -4184,8 +4182,8 @@ function ObservacionMarca({
 }
 
 /**
- * Las cuentas de una marca sin renglón quedaron repartidas en varios renglones (o el único ya tiene
- * su propia marca): se elige a cuál pasa. Un renglón con marca no la recibe.
+ * Las cuentas de una marca sin renglón quedaron repartidas en varios renglones: se elige a cuál
+ * pasa. Un renglón que ya tiene marcas también la recibe (cada una explica su monto).
  */
 function ModalElegirRenglonMarca({
   origen,
@@ -4215,9 +4213,12 @@ function ModalElegirRenglonMarca({
                   <span className="tabular-nums">{fmtContable(f.diferencia)}</span>
                 </div>
               </div>
-              {f.marca ? (
-                <span className="text-[11px] text-ink-500">Ya tiene la {etiquetaMarca(f.marca.numero).toLowerCase()}</span>
-              ) : (
+              <div className="flex items-center gap-2">
+                {f.marcas.length > 0 && (
+                  <span className="text-[11px] text-ink-500">
+                    Ya tiene {f.marcas.length === 1 ? `la ${etiquetaMarca(f.marcas[0].numero).toLowerCase()}` : `${f.marcas.length} marcas`}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => onElegir(f)}
@@ -4225,7 +4226,7 @@ function ModalElegirRenglonMarca({
                 >
                   Pasar aquí
                 </button>
-              )}
+              </div>
             </li>
           ))}
         </ul>
@@ -4234,10 +4235,14 @@ function ModalElegirRenglonMarca({
   );
 }
 
-/** Modal para poner (o reescribir) la marca de una diferencia y adjuntarle soportes. */
+/**
+ * Modal para poner una marca a una diferencia (o reescribir una del renglón), con el monto que
+ * explica, y adjuntarle soportes. Un renglón puede llevar varias marcas.
+ */
 function ModalMarca({
   moduloLabel,
   fila,
+  marca = null,
   origen,
   hijos,
   hijosSinCuenta,
@@ -4248,9 +4253,11 @@ function ModalMarca({
 }: {
   moduloLabel: string;
   fila: FilaCruceMarcada;
+  /** La marca del renglón que se edita; null (o ausente) para agregar una nueva. */
+  marca?: MarcaCruce | null;
   /**
    * Marca cuyo renglón ya no aparece y que se PASA a `fila`: el editor arranca con lo que ya
-   * tenía (nota, anexo, soportes) y al guardar queda anclada a este renglón con su mismo número.
+   * tenía (nota, anexo, monto, soportes) y al guardar queda anclada a este renglón con su mismo número.
    */
   origen?: MarcaCruce;
   hijos: HijoContableCruce[];
@@ -4263,17 +4270,29 @@ function ModalMarca({
   onGuardado: () => void;
 }) {
   const ladoModulo = hijosSinCuenta != null;
-  // La marca que se edita: la del renglón, o la que se está pasando a él.
-  const marcaBase = origen ?? fila.marca;
+  // La marca que se edita: una del renglón, o la que se está pasando a él.
+  const marcaBase = origen ?? marca;
   const [nota, setNota] = useState(marcaBase?.nota ?? "");
   const [anexo, setAnexo] = useState(marcaBase?.referenciaAnexo ?? "");
   const [nuevos, setNuevos] = useState<File[]>([]);
-  // Cuentas marcadas como no modulares: se parte de las que ya están excluidas.
-  const [noModulares, setNoModulares] = useState<Set<string>>(
-    () => new Set(hijosSinCuenta
-      ? hijosSinCuenta.filter((h) => h.noModular).map((h) => h.clasificador)
-      : hijos.filter((h) => h.noModular).map((h) => h.cuenta8)),
-  );
+  // Lo que restan las DEMÁS marcas del renglón: cuenta para la diferencia, pero no se vuelve a
+  // elegir aquí (una cuenta o un concepto lo resta una sola marca).
+  const marcaQueResta = new Map<string, number>();
+  for (const m of fila.marcas) {
+    if (m.numero === marcaBase?.numero) continue;
+    for (const n of m.noModulares) marcaQueResta.set(n.cuenta8, m.numero);
+    for (const c of m.clasificadoresNoModulares ?? []) marcaQueResta.set(c.clasificador, m.numero);
+  }
+  const propiasIniciales = hijosSinCuenta
+    ? (marcaBase?.clasificadoresNoModulares ?? []).map((c) => c.clasificador).filter((c) => hijosSinCuenta.some((h) => h.clasificador === c))
+    : (marcaBase?.noModulares ?? []).map((n) => n.cuenta8).filter((c) => hijos.some((h) => h.cuenta8 === c));
+  // Tachadas por otra marca (también una sin renglón): se listan aparte y siguen restando.
+  const otrasCuentas = hijosSinCuenta ? [] : hijos.filter((h) => h.noModular && !propiasIniciales.includes(h.cuenta8));
+  const otrosSinCuenta = hijosSinCuenta ? hijosSinCuenta.filter((h) => h.noModular && !propiasIniciales.includes(h.clasificador)) : [];
+  const hijosElegibles = hijos.filter((h) => !otrasCuentas.includes(h));
+  const sinCuentaElegibles = hijosSinCuenta?.filter((h) => !otrosSinCuenta.includes(h));
+  // Cuentas marcadas como no modulares por ESTA marca: se parte de las suyas.
+  const [noModulares, setNoModulares] = useState<Set<string>>(() => new Set(propiasIniciales));
   const alternarNoModular = (cuenta8: string) =>
     setNoModulares((previas) => {
       const siguiente = new Set(previas);
@@ -4285,9 +4304,10 @@ function ModalMarca({
     setNoModulares((previas) => conSeleccionMasiva(previas, claves, marcar));
   // Conceptos del archivo que la contabilidad no registra en esta cuenta: bajan el lado del módulo.
   const conceptos = ladoModulo ? [] : fila.detalleModulo ?? [];
-  const [noContabilizados, setNoContabilizados] = useState<Set<string>>(
-    () => new Set((marcaBase?.clasificadoresNoModulares ?? []).map((c) => c.clasificador).filter((c) => conceptos.some((x) => x.clasificador === c))),
-  );
+  const otrosConceptos = conceptos.filter((c) => marcaQueResta.has(c.clasificador));
+  const conceptosElegibles = conceptos.filter((c) => !marcaQueResta.has(c.clasificador));
+  const conceptosIniciales = (marcaBase?.clasificadoresNoModulares ?? []).map((c) => c.clasificador).filter((c) => conceptosElegibles.some((x) => x.clasificador === c));
+  const [noContabilizados, setNoContabilizados] = useState<Set<string>>(() => new Set(conceptosIniciales));
   const alternarNoContabilizado = (clasificador: string) =>
     setNoContabilizados((previos) => {
       const siguiente = new Set(previos);
@@ -4297,25 +4317,42 @@ function ModalMarca({
     });
   const seleccionarTodosNoContabilizados = (claves: readonly string[], marcar: boolean) =>
     setNoContabilizados((previos) => conSeleccionMasiva(previos, claves, marcar));
-  const totalNoContabilizado = conceptos.reduce((suma, c) => (noContabilizados.has(c.clasificador) ? suma + c.total : suma), 0);
-  // Vista previa en vivo: lo que el servidor recalculará al guardar.
-  // Del lado módulo (saldo sin cuenta) lo excluido se resta del módulo: la diferencia SUBE.
+  // Vista previa en vivo: lo que el servidor recalculará al guardar, con lo que restan esta marca
+  // y las demás del renglón. Del lado módulo (saldo sin cuenta) lo excluido se resta del módulo:
+  // la diferencia SUBE.
+  const totalNoContabilizado = conceptos.reduce((suma, c) => (noContabilizados.has(c.clasificador) ? suma + c.total : suma), 0)
+    + otrosConceptos.reduce((suma, c) => suma + c.total, 0);
   const totalNoModular = hijosSinCuenta
-    ? hijosSinCuenta.reduce((suma, h) => (noModulares.has(h.clasificador) ? suma + h.total : suma), 0)
-    : hijos.reduce((suma, h) => (noModulares.has(h.cuenta8) ? suma + h.valor : suma), 0);
+    ? hijosSinCuenta.reduce((suma, h) => (noModulares.has(h.clasificador) ? suma + h.total : suma), 0) + otrosSinCuenta.reduce((suma, h) => suma + h.total, 0)
+    : hijos.reduce((suma, h) => (noModulares.has(h.cuenta8) ? suma + h.valor : suma), 0) + otrasCuentas.reduce((suma, h) => suma + h.valor, 0);
   const efectoNoModular = ladoModulo ? totalNoModular : totalNoContabilizado - totalNoModular;
   const difAjustada = ladoModulo
     ? fila.contable - fila.noModular - (fila.inventario - totalNoModular)
     : fila.contable - totalNoModular - (fila.inventario - totalNoContabilizado);
+  // La cifra que explican las marcas: la de hoy mientras no se cambie lo que se resta (en Activos
+  // fijos puede ser la diferencia del costo); con otra selección, la diferencia ajustada.
+  const mismaSeleccion = (actual: Set<string>, inicial: readonly string[]) => actual.size === inicial.length && inicial.every((c) => actual.has(c));
+  const sinCambiosEnExclusiones = mismaSeleccion(noModulares, propiasIniciales) && mismaSeleccion(noContabilizados, conceptosIniciales);
+  const cifra = Math.round((sinCambiosEnExclusiones ? fila.porExplicar + fila.explicado : difAjustada) * 100) / 100 + 0;
+  const otras = Math.round((fila.explicado - (marca ? montoDeMarca(marca) : 0)) * 100) / 100 + 0;
+  const faltante = Math.round((cifra - otras) * 100) / 100 + 0;
+  // Una marca nueva propone lo que falta (y lo sigue mientras no se toque); al editar, su monto.
+  const montoInicial = marca ? montoDeMarca(marca) : origen?.monto;
+  const [montoTexto, setMontoTexto] = useState(montoInicial != null ? textoMontoMarca(montoInicial) : "");
+  const [montoTocado, setMontoTocado] = useState(montoInicial != null);
+  const textoMonto = montoTocado ? montoTexto : textoMontoMarca(faltante);
+  const monto = leerMontoMarca(textoMonto);
   const [guardando, startGuardar] = useTransition();
   const guardar = () => {
     const texto = nota.trim();
-    if (!texto || guardando) return;
+    if (!texto || monto == null || guardando) return;
     startGuardar(async () => {
       const datos = new FormData();
       datos.set("encabezadoId", String(encabezadoId));
       datos.set("cuenta4", fila.cuenta4);
       if (origen) datos.set("cuenta4Origen", origen.cuenta4);
+      if (marcaBase) datos.set("numero", String(marcaBase.numero));
+      datos.set("monto", String(monto));
       datos.set("nota", texto);
       datos.set("referenciaAnexo", anexo.trim());
       // La diferencia la recalcula el servidor sobre el cruce vigente; esto solo declara
@@ -4336,9 +4373,9 @@ function ModalMarca({
 
   const titulo = origen
     ? `Pasar la ${etiquetaMarca(origen.numero).toLowerCase()} · ${etiquetaFilaCruce(fila)}`
-    : fila.marca
-      ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaFilaCruce(fila)}`
-      : `Nueva marca · ${etiquetaFilaCruce(fila)}`;
+    : marca
+      ? `${etiquetaMarca(marca.numero)} · ${etiquetaFilaCruce(fila)}`
+      : `${fila.marcas.length > 0 ? "Otra marca" : "Nueva marca"} · ${etiquetaFilaCruce(fila)}`;
   // Al pasar la marca, sus cuentas no modulares que no están en este renglón vuelven a contar.
   const noModularesQueSeLiberan = origen
     ? origen.noModulares.filter((n) => !hijos.some((h) => h.cuenta8 === n.cuenta8))
@@ -4358,10 +4395,10 @@ function ModalMarca({
         <button
           type="button"
           onClick={guardar}
-          disabled={!nota.trim() || guardando}
+          disabled={!nota.trim() || monto == null || guardando}
           className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {guardando ? "Guardando…" : origen ? "Pasar la marca" : fila.marca ? "Guardar cambios" : "Poner marca"}
+          {guardando ? "Guardando…" : origen ? "Pasar la marca" : marca ? "Guardar cambios" : "Poner marca"}
         </button>
       }
     >
@@ -4412,7 +4449,7 @@ function ModalMarca({
               Saldos no modulares <span className="font-normal text-ink-400">(no hacen parte de la conciliación: se restan del lado del módulo)</span>
             </span>
             <ListaSinCuentaNoModulares
-              hijos={hijosSinCuenta}
+              hijos={sinCuentaElegibles ?? []}
               seleccion={noModulares}
               onAlternar={alternarNoModular}
               onSeleccionarTodas={seleccionarTodasNoModulares}
@@ -4424,15 +4461,15 @@ function ModalMarca({
               <span className="text-[12px] font-semibold text-ink-700">
                 Cuentas no modulares <span className="font-normal text-ink-400">(están en la contabilidad y no hacen parte de la conciliación: su saldo se resta de Contabilidad)</span>
               </span>
-              <ListaNoModulares hijos={hijos} seleccion={noModulares} onAlternar={alternarNoModular} onSeleccionarTodas={seleccionarTodasNoModulares} />
+              <ListaNoModulares hijos={hijosElegibles} seleccion={noModulares} onAlternar={alternarNoModular} onSeleccionarTodas={seleccionarTodasNoModulares} />
             </div>
-            {conceptos.length > 0 && (
+            {conceptosElegibles.length > 0 && (
               <div className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-semibold text-ink-700">
                   Conceptos no contabilizados <span className="font-normal text-ink-400">(vienen en el archivo y la contabilidad no los registra en esta cuenta: su valor se resta del lado de {moduloLabel.toLocaleLowerCase("es")})</span>
                 </span>
                 <DetalleModuloFila
-                  detalle={conceptos}
+                  detalle={conceptosElegibles}
                   etiqueta={`${ladoModuloCruce(moduloLabel)} (archivos)`}
                   descripcionDe={descripcionDeClasificador}
                   excluidos={noContabilizados}
@@ -4444,11 +4481,27 @@ function ModalMarca({
           </div>
         )}
 
-        {!origen && fila.desactualizada && fila.marca && (
-          <div className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
-            La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
-          </div>
+        {(otrasCuentas.length > 0 || otrosSinCuenta.length > 0 || otrosConceptos.length > 0) && (
+          <p className="text-[11.5px] text-ink-500">
+            <span className="font-semibold text-ink-600">Ya las restan otras marcas:</span>{" "}
+            {[
+              ...otrasCuentas.map((h) => `${h.cuenta8}${h.nombre ? ` ${h.nombre}` : ""}${marcaQueResta.has(h.cuenta8) ? ` (marca ${marcaQueResta.get(h.cuenta8)})` : ""}`),
+              ...otrosSinCuenta.map((h) => `${h.clasificador}${marcaQueResta.has(h.clasificador) ? ` (marca ${marcaQueResta.get(h.clasificador)})` : ""}`),
+              ...otrosConceptos.map((c) => `${c.clasificador} (marca ${marcaQueResta.get(c.clasificador)})`),
+            ].join(" · ")}. Siguen restando; para cambiarlas, edita esa marca.
+          </p>
         )}
+
+        <CampoMontoMarca
+          texto={textoMonto}
+          onCambiar={(texto) => {
+            setMontoTocado(true);
+            setMontoTexto(texto);
+          }}
+          faltante={faltante}
+          cifra={cifra}
+          otras={otras}
+        />
 
         <label className="flex flex-col gap-1">
           <span className="text-[12px] font-semibold text-ink-700">Detalle de la marca</span>
@@ -4480,7 +4533,7 @@ function ModalMarca({
         <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={marcaBase?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
-          La marca queda numerada en la cédula y su detalle en observaciones. La numeración es la misma del cruce por tercero. Se conserva al cargar versiones nuevas de este período.
+          Un renglón puede llevar varias marcas: cada una explica su monto y, para cerrar, entre todas tienen que cubrir la diferencia. Quedan numeradas en la cédula con su detalle en observaciones; la numeración es la misma del cruce por tercero y se conserva al cargar versiones nuevas de este período.
         </p>
       </div>
     </Modal>

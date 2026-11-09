@@ -1,8 +1,8 @@
 /**
  * MARCAS DE AUDITORÍA sobre las diferencias del cruce contable de un módulo.
  *
- * Lógica PURA (sin BD): decide qué filas del cruce admiten marca, les pega la que ya
- * exista, numera lo que falte y resume cuánto queda sin marcar. La persistencia vive en
+ * Lógica PURA (sin BD): decide qué filas del cruce admiten marca, les pega las que ya
+ * existan, numera lo que falte y resume cuánto queda sin marcar o sin explicar. La persistencia vive en
  * `marca_cruce_modulo` y las Server Actions de `modulos-datos.ts`.
  *
  * El modelo es el del papel de trabajo: la cédula (la tabla del cruce) solo lleva la marca
@@ -57,8 +57,13 @@ export type MarcaCruce = {
   nota: string;
   /** Referencia al anexo del papel de trabajo (p. ej. «Anexo A-3»). */
   referenciaAnexo: string | null;
-  /** Diferencia que había cuando se marcó (snapshot). */
+  /** Diferencia del renglón cuando se escribió la marca (snapshot). */
   diferencia: number;
+  /**
+   * Cuánto de la diferencia del renglón explica esta marca, con su signo (9/Nov/2026: un renglón
+   * puede llevar varias). Ausente en las marcas anteriores: explican toda su `diferencia`.
+   */
+  monto?: number;
   marcadoPor: string | null;
   /** Fecha ya formateada para la UI. */
   marcadoEn: string;
@@ -76,20 +81,73 @@ export type MarcaCruce = {
 
 export type ClasificadorNoModular = { clasificador: string; totalAlMarcar: number };
 
+/** Lo que explica una marca: su monto o, en las anteriores al 9/Nov/2026, toda la diferencia que congeló. */
+export function montoDeMarca(marca: Pick<MarcaCruce, "monto" | "diferencia">): number {
+  return marca.monto ?? marca.diferencia;
+}
+
+/** Las marcas de un renglón y cuánto de su cifra explican entre todas. */
+export type MarcasDelRenglon = {
+  /** Por número. Vacío si el renglón no tiene marcas. */
+  marcas: MarcaCruce[];
+  /** Σ de los montos de sus marcas. */
+  explicado: number;
+  /** La cifra del renglón menos lo explicado: lo que todavía falta por explicar. */
+  porExplicar: number;
+  /**
+   * Tiene marcas, pero lo que falta por explicar alcanza la tolerancia del renglón (falta monto o
+   * la diferencia cambió después de marcar). Impide cerrar como una diferencia sin marca.
+   */
+  desactualizada: boolean;
+};
+
+/**
+ * Explica un renglón con sus marcas. Queda explicado cuando lo que falta (la cifra menos la suma de
+ * los montos) es de un centavo o menos, o no alcanza `umbral` (la misma tolerancia con que el
+ * renglón exige marca).
+ */
+export function explicarRenglon(
+  cifra: number,
+  marcas: readonly MarcaCruce[],
+  opciones: { admite: boolean; umbral: number; tolerancia?: number },
+): MarcasDelRenglon {
+  const tolerancia = opciones.tolerancia ?? TOLERANCIA_CRUCE;
+  const ordenadas = [...marcas].sort((a, b) => a.numero - b.numero);
+  const explicado = redondear(ordenadas.reduce((s, m) => s + montoDeMarca(m), 0));
+  const porExplicar = redondear(cifra - explicado);
+  const cubierto = Math.abs(porExplicar) <= tolerancia || (opciones.umbral > 0 && !requiereMarcaPorUmbral(porExplicar, opciones.umbral));
+  return {
+    marcas: ordenadas,
+    explicado,
+    porExplicar,
+    desactualizada: ordenadas.length > 0 && opciones.admite && !cubierto,
+  };
+}
+
+/** Agrupa las marcas por la llave de su renglón. */
+function agruparPorRenglon(marcas: readonly MarcaCruce[], llave: (m: MarcaCruce) => string | null): Map<string, MarcaCruce[]> {
+  const porRenglon = new Map<string, MarcaCruce[]>();
+  for (const m of marcas) {
+    const k = llave(m);
+    if (k == null) continue;
+    const lista = porRenglon.get(k);
+    if (lista) lista.push(m);
+    else porRenglon.set(k, [m]);
+  }
+  return porRenglon;
+}
+
 /** Clasificador del renglón del saldo sin cuenta: lo que se ve al expandirlo. */
 export type HijoModuloSinCuenta = { clasificador: string; total: number; noModular: boolean };
 
-export type FilaCruceMarcada = FilaCruceContable & {
+export type FilaCruceMarcada = FilaCruceContable & MarcasDelRenglon & {
   /** Solo las filas que NO cuadran admiten marca. */
   admiteMarca: boolean;
   /**
    * La diferencia alcanza la tolerancia de la cédula (`cedula_modulos` de `/config/parametros`):
-   * sin marca, impide cerrar. Por debajo la marca es opcional.
+   * sin marcas que la expliquen, impide cerrar. Por debajo la marca es opcional.
    */
   requiereMarca: boolean;
-  marca: MarcaCruce | null;
-  /** Hay marca, pero la diferencia cambió desde que se escribió. */
-  desactualizada: boolean;
 };
 
 export type ResumenMarcas = {
@@ -98,10 +156,12 @@ export type ResumenMarcas = {
   marcadas: number;
   /** Con diferencia y sin marcar. */
   pendientes: number;
-  /** Marcadas cuyo monto cambió desde la observación. */
+  /** Con marcas que no alcanzan a explicar su diferencia (falta monto o la diferencia cambió). */
   desactualizadas: number;
   /** Suma de las diferencias todavía sin marcar. */
   montoPendiente: number;
+  /** Suma de lo que falta por explicar en los renglones con marcas que no alcanzan. */
+  montoPorExplicar?: number;
   /** Diferencias por debajo de la tolerancia (cédula) o del umbral (tercero): no exigen marca. */
   bajoUmbral?: number;
 };
@@ -152,11 +212,12 @@ export function diferenciaQueCongelaLaMarca(
 const marcaSinExclusiones = (m: MarcaCruce) => m.noModulares.length === 0 && (m.clasificadoresNoModulares?.length ?? 0) === 0;
 
 /**
- * Pega a cada fila del cruce su marca (si existe) y resume lo pendiente.
+ * Pega a cada fila del cruce sus marcas y resume lo pendiente. Un renglón puede llevar varias:
+ * queda explicado cuando la suma de sus montos cubre su cifra (`explicarRenglon`).
  *
- * La marca de una cuenta que YA cuadra no se pierde ni estorba: la fila deja de admitir
- * marca y no cuenta como pendiente, pero la observación sigue viajando en la fila para que
- * la pantalla la muestre como antecedente.
+ * Las marcas de una cuenta que YA cuadra no se pierden ni estorban: la fila deja de admitir
+ * marca y no cuenta como pendiente, pero las observaciones siguen viajando en la fila para que
+ * la pantalla las muestre como antecedente.
  *
  * `toleranciaMarca` es la tolerancia de la cédula: una diferencia por debajo admite marca pero
  * no la exige (cuenta en `bajoUmbral`). Desde el monto, inclusive, la exige. Sin ella, toda
@@ -174,22 +235,23 @@ export function anotarCruceConMarcas(
   const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
   const toleranciaMarca = opciones?.toleranciaMarca ?? 0;
   const toleranciaDetalle = opciones?.toleranciaDetalle;
-  const porCuenta = new Map(marcas.filter((m) => (m.dimension ?? "cuenta4") === "cuenta4").map((m) => [m.cuenta4, m]));
+  const porCuenta = agruparPorRenglon(marcas, (m) => ((m.dimension ?? "cuenta4") === "cuenta4" ? m.cuenta4 : null));
 
   const anotadas: FilaCruceMarcada[] = filas.map((fila) => {
-    const marca = porCuenta.get(fila.cuenta4) ?? null;
+    const delRenglon = porCuenta.get(fila.cuenta4) ?? [];
     const admite = admiteMarca(fila, tolerancia);
     const netoExige = !fila.cuadra && requiereMarcaPorUmbral(fila.diferencia, toleranciaMarca);
     const detalleExige = !netoExige && toleranciaDetalle != null && !!fila.columnas
       && detalleDescuadrado(fila, tolerancia)
       && (requiereMarcaPorUmbral(fila.columnas.costo.diferencia, toleranciaDetalle) || requiereMarcaPorUmbral(fila.columnas.depreciacion.diferencia, toleranciaDetalle));
-    const congelada = marca ? diferenciaQueCongelaLaMarca(fila, toleranciaMarca, marcaSinExclusiones(marca)) : 0;
+    // La cifra que explican las marcas: el neto o, en Activos fijos con el neto tolerado y sin
+    // exclusiones, la diferencia del costo (`diferenciaQueCongelaLaMarca`).
+    const cifra = diferenciaQueCongelaLaMarca(fila, toleranciaMarca, delRenglon.every(marcaSinExclusiones));
     return {
       ...fila,
       admiteMarca: admite,
       requiereMarca: admite && (netoExige || detalleExige),
-      marca,
-      desactualizada: marca != null && admite && Math.abs(congelada - marca.diferencia) > tolerancia,
+      ...explicarRenglon(cifra, delRenglon, { admite, umbral: detalleExige ? toleranciaDetalle ?? 0 : toleranciaMarca, tolerancia }),
     };
   });
 
@@ -201,32 +263,39 @@ export function anotarCruceConMarcas(
         return acc;
       }
       acc.conDiferencia += 1;
-      if (fila.marca) {
+      if (fila.marcas.length > 0) {
         acc.marcadas += 1;
-        if (fila.desactualizada) acc.desactualizadas += 1;
+        if (fila.desactualizada) {
+          acc.desactualizadas += 1;
+          acc.montoPorExplicar = redondear((acc.montoPorExplicar ?? 0) + fila.porExplicar);
+        }
       } else {
         acc.pendientes += 1;
         acc.montoPendiente = redondear(acc.montoPendiente + fila.diferencia);
       }
       return acc;
     },
-    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, montoPorExplicar: 0, bajoUmbral: 0 },
   );
 
   return { filas: anotadas, resumen };
 }
 
+/** Una observación al pie: la marca y el renglón del cruce al que apunta. */
+export type ObservacionDeMarca<F> = { fila: F; marca: MarcaCruce };
+
 /**
- * Las marcas del período ordenadas por número, con la fila del cruce a la que apuntan.
- * Es lo que se pinta al pie, en observaciones: la lista numerada que explica la cédula.
+ * Las marcas del período ordenadas por número, con la fila del cruce a la que apuntan (un renglón
+ * con varias marcas aparece una vez por cada una). Es lo que se pinta al pie, en observaciones:
+ * la lista numerada que explica la cédula.
  *
  * Una marca cuya cuenta ya no aparece en el cruce (cambió el mapeo, se recargó el archivo)
  * NO se muestra aquí: sin cifra que explicar, la observación no tiene dónde anclarse.
  */
-export function observacionesDeMarcas(filas: readonly FilaCruceMarcada[]): FilaCruceMarcada[] {
+export function observacionesDeMarcas<F extends { marcas: readonly MarcaCruce[] }>(filas: readonly F[]): ObservacionDeMarca<F>[] {
   return filas
-    .filter((f): f is FilaCruceMarcada & { marca: MarcaCruce } => f.marca != null)
-    .sort((a, b) => a.marca!.numero - b.marca!.numero);
+    .flatMap((fila) => fila.marcas.map((marca) => ({ fila, marca })))
+    .sort((a, b) => a.marca.numero - b.marca.numero);
 }
 
 /**
@@ -241,6 +310,37 @@ export function siguienteNumeroMarca(numerosUsados: readonly number[]): number {
 /** Etiqueta de la marca tal como se lee en el papel de trabajo. */
 export function etiquetaMarca(numero: number): string {
   return `Marca ${numero}`;
+}
+
+/**
+ * Lee el monto de una marca escrito a mano: formato colombiano («-40.251.565,88», con o sin «$»), o
+ * con punto decimal cuando no hay coma y el punto lleva uno o dos decimales («-1234.5»). Paréntesis
+ * o «-» para negativos. null si no es un número.
+ */
+export function leerMontoMarca(texto: string): number | null {
+  let t = String(texto ?? "").replace(/[\s$]/g, "");
+  if (!t) return null;
+  let negativo = false;
+  if (/^\(.*\)$/.test(t)) {
+    negativo = true;
+    t = t.slice(1, -1);
+  }
+  if (t.startsWith("-")) {
+    negativo = !negativo;
+    t = t.slice(1);
+  }
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  // Sin coma, el punto es de miles salvo que lleve uno o dos decimales al final («1234.5»).
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t) || !/^\d+\.\d{1,2}$/.test(t)) t = t.replace(/\./g, "");
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return redondear(negativo ? -n : n);
+}
+
+/** El monto como se escribe en el campo: «-40.251.565,88». */
+export function textoMontoMarca(valor: number): string {
+  return valor.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Ancla del hilo de comentarios de una cuenta del cruce (`cruce:1435`). */
@@ -376,13 +476,11 @@ export function validarReferenciaAnexo(
 // ===== Marcas del cruce POR TERCERO =====
 
 /** Un tercero del cruce con su marca. */
-export type FilaCruceTerceroMarcada = FilaCruceTerceroCartera & {
+export type FilaCruceTerceroMarcada = FilaCruceTerceroCartera & MarcasDelRenglon & {
   /** No cuadra: admite marca, también las diferencias pequeñas que el auditor quiera explicar. */
   admiteMarca: boolean;
-  /** La diferencia alcanza «Diferencia por tercero» de `/config/parametros`: sin marca, impide cerrar. */
+  /** La diferencia alcanza «Diferencia por tercero» de `/config/parametros`: sin marcas que la expliquen, impide cerrar. */
   requiereMarca: boolean;
-  marca: MarcaCruce | null;
-  desactualizada: boolean;
 };
 
 export const MAX_CLAVE_TERCERO = 200;
@@ -409,19 +507,15 @@ export function anotarCruceTerceroConMarcas(
   opciones: { umbralDescuadre: number; tolerancia?: number },
 ): { filas: FilaCruceTerceroMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones.tolerancia ?? TOLERANCIA_CRUCE;
-  const porClave = new Map(
-    marcas.filter((m) => m.dimension === "tercero" && m.clave).map((m) => [m.clave as string, m]),
-  );
+  const porClave = agruparPorRenglon(marcas, (m) => (m.dimension === "tercero" && m.clave ? m.clave : null));
 
   const anotadas: FilaCruceTerceroMarcada[] = filas.map((fila) => {
-    const marca = porClave.get(fila.clave) ?? null;
     const admite = fila.estado !== "cuadra" && fila.estado !== "sin_saldo";
     return {
       ...fila,
       admiteMarca: admite,
       requiereMarca: admite && requiereMarcaPorUmbral(fila.diferencia, opciones.umbralDescuadre),
-      marca,
-      desactualizada: marca != null && admite && Math.abs(fila.diferencia - marca.diferencia) > tolerancia,
+      ...explicarRenglon(fila.diferencia, porClave.get(fila.clave) ?? [], { admite, umbral: opciones.umbralDescuadre, tolerancia }),
     };
   });
 
@@ -433,16 +527,19 @@ export function anotarCruceTerceroConMarcas(
         return acc;
       }
       acc.conDiferencia += 1;
-      if (fila.marca) {
+      if (fila.marcas.length > 0) {
         acc.marcadas += 1;
-        if (fila.desactualizada) acc.desactualizadas += 1;
+        if (fila.desactualizada) {
+          acc.desactualizadas += 1;
+          acc.montoPorExplicar = redondear((acc.montoPorExplicar ?? 0) + fila.porExplicar);
+        }
       } else {
         acc.pendientes += 1;
         acc.montoPendiente = redondear(acc.montoPendiente + fila.diferencia);
       }
       return acc;
     },
-    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, montoPorExplicar: 0, bajoUmbral: 0 },
   );
 
   return { filas: anotadas, resumen };
@@ -450,15 +547,13 @@ export function anotarCruceTerceroConMarcas(
 
 // ===== Marcas del CONTROL DE DEDUCCIONES (Nómina) =====
 
-/** Un renglón del control de deducciones con su marca. */
-export type FilaControlMarcada = FilaControlDeducciones & {
+/** Un renglón del control de deducciones con sus marcas. */
+export type FilaControlMarcada = FilaControlDeducciones & MarcasDelRenglon & {
   /** La diferencia que se concilia: sin la cuenta en el balance, la contabilidad cuenta como cero. */
   diferenciaEfectiva: number;
   admiteMarca: boolean;
   /** Toda diferencia desde 1 centavo exige marca para cerrar (la hoja de alertas). */
   requiereMarca: boolean;
-  marca: MarcaCruce | null;
-  desactualizada: boolean;
 };
 
 /** Diferencia de un renglón del control: sin la cuenta en el balance, todo el valor del módulo. */
@@ -477,34 +572,36 @@ export function anotarControlConMarcas(
   opciones?: { tolerancia?: number },
 ): { filas: FilaControlMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
-  const porClave = new Map(marcas.filter((m) => m.dimension === "control" && m.clave).map((m) => [m.clave as string, m]));
+  const porClave = agruparPorRenglon(marcas, (m) => (m.dimension === "control" && m.clave ? m.clave : null));
   const anotadas: FilaControlMarcada[] = filas.map((fila) => {
     const diferenciaEfectiva = diferenciaControl(fila);
-    const marca = porClave.get(fila.cuentaCliente) ?? null;
     const admite = Math.abs(diferenciaEfectiva) > tolerancia;
     return {
       ...fila,
       diferenciaEfectiva,
       admiteMarca: admite,
       requiereMarca: admite,
-      marca,
-      desactualizada: marca != null && admite && Math.abs(diferenciaEfectiva - marca.diferencia) > tolerancia,
+      // Sin tolerancia parametrizable: lo que falta por explicar tiene que ser de un centavo o menos.
+      ...explicarRenglon(diferenciaEfectiva, porClave.get(fila.cuentaCliente) ?? [], { admite, umbral: 0, tolerancia }),
     };
   });
   const resumen = anotadas.reduce<ResumenMarcas>(
     (acc, fila) => {
       if (!fila.requiereMarca) return acc;
       acc.conDiferencia += 1;
-      if (fila.marca) {
+      if (fila.marcas.length > 0) {
         acc.marcadas += 1;
-        if (fila.desactualizada) acc.desactualizadas += 1;
+        if (fila.desactualizada) {
+          acc.desactualizadas += 1;
+          acc.montoPorExplicar = redondear((acc.montoPorExplicar ?? 0) + fila.porExplicar);
+        }
       } else {
         acc.pendientes += 1;
         acc.montoPendiente = redondear(acc.montoPendiente + fila.diferenciaEfectiva);
       }
       return acc;
     },
-    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, montoPorExplicar: 0, bajoUmbral: 0 },
   );
   return { filas: anotadas, resumen };
 }
@@ -527,6 +624,8 @@ export type MarcaPeriodo = {
   nota: string;
   /** Diferencia cuando se escribió la marca. */
   diferencia: number;
+  /** Lo que explica (`montoDeMarca`). */
+  monto?: number;
   marcadoPor: string | null;
   /** Fecha ya formateada para la UI. */
   marcadoEn: string;
@@ -567,7 +666,8 @@ export function intercalarObservaciones<T, M extends MarcaPeriodo>(
 // La marca se guarda por la CLAVE de su renglón. Si las cuentas se agrupan de otra forma (el
 // Consolidado asigna un concepto a una cuenta más, o una versión nueva trae otros conceptos), la
 // clave del renglón cambia y la marca queda citada sin renglón. Se puede PASAR al renglón que hoy
-// contiene alguna de sus cuentas: conserva número, nota, soportes y cuentas no modulares.
+// contiene alguna de sus cuentas, aunque ya tenga marcas: conserva número, nota, monto, soportes y
+// cuentas no modulares.
 
 /** Renglones del cruce que hoy contienen alguna cuenta de la marca: a los que puede pasar. */
 export function destinosMarcaSinRenglon<F extends { cuenta4: string }>(llave: string, filas: readonly F[]): F[] {

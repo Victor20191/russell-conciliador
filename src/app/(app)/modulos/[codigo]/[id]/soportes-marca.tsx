@@ -7,9 +7,135 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { eliminarSoporteMarca } from "@/app/actions/modulos-datos";
 import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
 import { fmtContable } from "@/lib/format";
-import { anclaObservacionMarca, type AdjuntoMarca, type MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
+import {
+  anclaObservacionMarca,
+  leerMontoMarca,
+  montoDeMarca,
+  textoMontoMarca,
+  type AdjuntoMarca,
+  type MarcaCruce,
+  type MarcaPeriodo,
+  type MarcasDelRenglon,
+} from "@/lib/modulos/marcas-cruce";
 
-// Piezas de las marcas de auditoría que comparten la cédula contable y el cruce por tercero.
+// Piezas de las marcas de auditoría que comparten la cédula contable, el cruce por tercero y el
+// control de deducciones.
+
+/**
+ * Las marcas de un renglón en la tabla: un número por marca (enlace a su observación) y, a quien
+ * puede editar, «+» para agregar otra. Un renglón puede llevar varias: cada una explica su monto.
+ */
+export function InsigniasMarcasRenglon({
+  renglon,
+  diferencia,
+  requiereMarca,
+  admiteMarca,
+  puedeEditar,
+  onAgregar,
+}: {
+  renglon: MarcasDelRenglon;
+  /** La cifra que explican (para el aviso al pasar el mouse). */
+  diferencia: number;
+  requiereMarca: boolean;
+  admiteMarca: boolean;
+  puedeEditar: boolean;
+  onAgregar: () => void;
+}) {
+  const { marcas, desactualizada, porExplicar } = renglon;
+  const tono = desactualizada ? "warn" : "ok";
+  const titulo = (m: MarcaCruce) =>
+    `Marca ${m.numero} · explica ${fmtContable(montoDeMarca(m))}`
+    + (desactualizada ? ` · el renglón tiene ${fmtContable(diferencia)} y faltan ${fmtContable(porExplicar)} por explicar` : "")
+    + " · ver la observación al pie";
+  return (
+    <span className="inline-flex flex-wrap items-center justify-center gap-0.5">
+      {marcas.map((m) => (
+        <a key={m.numero} href={`#${anclaObservacionMarca(m.numero)}`} className="inline-flex">
+          <InsigniaMarca numero={m.numero} tono={tono} titulo={titulo(m)} />
+        </a>
+      ))}
+      {admiteMarca && (puedeEditar ? (
+        <button
+          type="button"
+          onClick={onAgregar}
+          title={marcas.length > 0
+            ? `Agregar otra marca a este renglón${desactualizada ? ` (faltan ${fmtContable(porExplicar)} por explicar)` : ""}`
+            : requiereMarca ? "Poner una marca a esta diferencia" : "Diferencia bajo el umbral: la marca es opcional"}
+          aria-label={marcas.length > 0 ? "Agregar otra marca" : "Poner una marca"}
+          className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed px-1 transition hover:border-navy-700 hover:text-navy-700 ${
+            (marcas.length === 0 && requiereMarca) || desactualizada ? "border-warn-500 text-warn-700" : "border-ink-300 text-ink-400"
+          }`}
+        >
+          <Icon name="plus" size={12} />
+        </button>
+      ) : marcas.length === 0 ? (
+        <span
+          title={requiereMarca ? "Diferencia sin marca" : "Diferencia bajo el umbral"}
+          className={`text-[11.5px] font-semibold ${requiereMarca ? "text-warn-700" : "text-ink-400"}`}
+        >
+          —
+        </span>
+      ) : null)}
+    </span>
+  );
+}
+
+/**
+ * Cuánto explica la marca que se está escribiendo. Viene propuesto con lo que falta por explicar
+ * del renglón; «Usar lo que falta» lo vuelve a poner.
+ */
+export function CampoMontoMarca({
+  texto,
+  onCambiar,
+  faltante,
+  cifra,
+  otras,
+}: {
+  texto: string;
+  onCambiar: (texto: string) => void;
+  /** Lo que falta por explicar sin contar esta marca: la cifra menos lo que explican las demás. */
+  faltante: number;
+  /** La cifra del renglón que explican sus marcas. */
+  cifra: number;
+  /** Lo que explican las demás marcas del renglón. */
+  otras: number;
+}) {
+  const monto = leerMontoMarca(texto);
+  const quedaria = monto == null ? null : Math.round((faltante - monto) * 100) / 100 + 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex flex-col gap-1">
+        <span className="text-[12px] font-semibold text-ink-700">Monto que explica esta marca</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={texto}
+            onChange={(e) => onCambiar(e.target.value)}
+            placeholder="0,00"
+            className={`w-56 rounded-md border px-3 py-2 text-right text-[12.5px] tabular-nums focus:outline-none focus:ring-2 focus:ring-navy-600 ${monto == null ? "border-err-500" : "border-ink-200"}`}
+          />
+          <button
+            type="button"
+            onClick={() => onCambiar(textoMontoMarca(faltante))}
+            className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            Usar lo que falta ({fmtContable(faltante)})
+          </button>
+        </div>
+      </label>
+      <span className="text-[11px] text-ink-500">
+        Cifra del renglón {fmtContable(cifra)}
+        {otras !== 0 ? ` · otras marcas explican ${fmtContable(otras)}` : ""}
+        {quedaria == null
+          ? " · escribe el monto con su signo, p. ej. -1.234.567,89"
+          : Math.abs(quedaria) <= 0.01
+            ? " · con este monto el renglón queda explicado"
+            : ` · con este monto quedan ${fmtContable(quedaria)} por explicar`}
+      </span>
+    </div>
+  );
+}
 
 /** El número de la marca tal como se pinta en la cédula. */
 export function InsigniaMarca({
@@ -213,7 +339,9 @@ export function ReferenciaMarca({
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
           <span className="font-semibold text-ink-700">{referencia.etiqueta}</span>
-          <span className="tabular-nums text-ink-500" title="Diferencia cuando se escribió la marca">{fmtContable(referencia.diferencia)}</span>
+          <span className="tabular-nums text-ink-500" title={`Lo que explica la marca · la diferencia del renglón era ${fmtContable(referencia.diferencia)} cuando se escribió`}>
+            {fmtContable(referencia.monto ?? referencia.diferencia)}
+          </span>
           {destino ? (
             <button type="button" onClick={destino.ir} className="rounded-full border border-ink-200 bg-white px-2 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-50">
               Ver en {destino.etiqueta} →

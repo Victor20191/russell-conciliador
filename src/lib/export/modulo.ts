@@ -11,6 +11,7 @@ import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCa
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import type { ControlDeduccionesNomina, VistaSubcuentaNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import { fechaDeCelda, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { fmtContable } from "@/lib/format";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
 /** `esValor` y `familia`, como en la pantalla: el saldo efectivo y los rangos de vencimiento. */
@@ -251,9 +252,9 @@ function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: strin
 
 /** Cruce por tercero del cargue, tal como lo muestra la pestaña. */
 export type CruceTerceroExportModulo = {
-  /** Con la marca de cada tercero cuando la tiene. */
+  /** Con las marcas de cada tercero cuando las tiene (cada una con lo que explica). */
   resumen: Omit<ResumenCruceTerceroCartera, "filas"> & {
-    filas: (FilaCruceTerceroCartera & { marca?: { numero: number; nota: string } | null })[];
+    filas: (FilaCruceTerceroCartera & { marcas?: readonly { numero: number; nota: string; monto?: number; diferencia: number }[] })[];
   };
   etiquetaClave: string;
   etiquetaNombre: string;
@@ -319,7 +320,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
         f.emparejadoDesde.length > 0 ? `Emparejado con ${f.emparejadoDesde.join(", ")} del auxiliar` : null,
         f.incluyeContable.length > 0 ? `Suma ${f.incluyeContable.join(", ")} de la contabilidad (mismo tercero con otro NIT)` : null,
         f.separadoDe.length > 0 ? `Separado por el auditor de ${f.separadoDe.join(", ")} del auxiliar` : null,
-        f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : null,
+        ...(f.marcas ?? []).map((m) => `Marca ${m.numero} (${fmtContable(m.monto ?? m.diferencia)}): ${m.nota}`),
       ].filter(Boolean).join(" · ") || null,
     });
     for (const k of numericas) row.getCell(k).numFmt = NUM_FMT;

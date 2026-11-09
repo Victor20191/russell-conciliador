@@ -15,6 +15,16 @@
  */
 import { cuentasDeClaveCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import { fmtContable } from "@/lib/format";
+
+/**
+ * Renglones con marcas que no cubren su diferencia: falta monto (un renglón puede llevar varias
+ * marcas y cada una explica el suyo) o la diferencia cambió después de marcar.
+ */
+function motivoPorExplicar(resumen: ResumenMarcas, donde: string): string {
+  const monto = resumen.montoPorExplicar ? `: quedan ${fmtContable(resumen.montoPorExplicar)} por explicar` : "";
+  return `${resumen.desactualizadas} renglón(es)${donde} tienen marcas que no cubren su diferencia${monto}. Ajusta el monto de sus marcas o agrega otra antes de cerrar.`;
+}
 import type { AlertaConComentario } from "@/lib/modulos/comentarios-alertas";
 import type { CedulaModulo } from "@/lib/modulos/cuentas-modulo";
 
@@ -257,7 +267,7 @@ export function evaluarCierreConciliacion(
   if (controlDeducciones && controlDeducciones.desactualizadas > 0) {
     return {
       ok: false,
-      motivo: `${controlDeducciones.desactualizadas} marca(s) del control de deducciones quedaron desactualizadas: la diferencia cambió después de escribirlas. Revísalas antes de cerrar.`,
+      motivo: motivoPorExplicar(controlDeducciones, " del control de deducciones"),
     };
   }
   const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente").map((a) => `«${a.etiqueta}»`);
@@ -299,7 +309,7 @@ function evaluarCruceParaCierre(
     if (resumenMarcas.desactualizadas > 0) {
       return {
         ok: false,
-        motivo: `${resumenMarcas.desactualizadas} marca(s) quedaron desactualizadas: la diferencia cambió después de escribirlas. Revísalas antes de cerrar.`,
+        motivo: motivoPorExplicar(resumenMarcas, ""),
       };
     }
   }
@@ -320,7 +330,7 @@ function evaluarCruceParaCierre(
   if (tercero.resumenMarcas.desactualizadas > 0) {
     return {
       ok: false,
-      motivo: `${tercero.resumenMarcas.desactualizadas} marca(s) del cruce por tercero quedaron desactualizadas: la diferencia cambió después de escribirlas. Revísalas antes de cerrar.`,
+      motivo: motivoPorExplicar(tercero.resumenMarcas, " del cruce por tercero"),
     };
   }
   return { ok: true };
