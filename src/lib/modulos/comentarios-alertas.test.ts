@@ -5,6 +5,7 @@ import { validarActivos } from "./activos/validaciones-activos";
 import {
   alertaCambio,
   alertasActivosQueExigenComentario,
+  alertasNominaQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
@@ -116,6 +117,33 @@ describe("alertasActivosQueExigenComentario (Activos fijos)", () => {
     expect(alertas[1].detalle).toContain("ningún costo de adquisición");
     // Inventarios no las pide.
     expect(alertasActivosQueExigenComentario(INV, v)).toEqual([]);
+  });
+});
+
+describe("alertasNominaQueExigenComentario (Nómina)", () => {
+  const cedulas = [
+    { cedula: "1010", nombres: ["ANA GOMEZ", "ANA PEREZ"], filas: 12 },
+    { cedula: "2020", nombres: ["LUIS", "LUIS ROJAS"], filas: 3 },
+  ];
+
+  it("una sola alerta con las cédulas como referencias y sus filas como huella", () => {
+    const [alerta, ...resto] = alertasNominaQueExigenComentario(MODULOS_IMPORT.NOM, cedulas);
+    expect(resto).toEqual([]);
+    expect(alerta).toMatchObject({ tipo: "cedulas_varios_nombres", etiqueta: "Cédula con varios nombres", referencias: 2, valor: 15, muestraValor: false });
+    expect(esTipoAlertaComentario("cedulas_varios_nombres")).toBe(true);
+  });
+
+  it("sin cédulas repetidas no pide nada, y los demás módulos no la piden", () => {
+    expect(alertasNominaQueExigenComentario(MODULOS_IMPORT.NOM, [])).toEqual([]);
+    expect(alertasNominaQueExigenComentario(INV, cedulas)).toEqual([]);
+  });
+
+  it("si cambian las cédulas o sus filas, el comentario queda por revisar", () => {
+    const [alerta] = alertasNominaQueExigenComentario(MODULOS_IMPORT.NOM, cedulas);
+    const guardado = comentario({ tipo: "cedulas_varios_nombres", referencias: 2, valor: 15 });
+    expect(anotarAlertasConComentarios([alerta], [guardado])[0].estado).toBe("comentada");
+    const [otra] = alertasNominaQueExigenComentario(MODULOS_IMPORT.NOM, cedulas.slice(0, 1));
+    expect(anotarAlertasConComentarios([otra], [guardado])[0].estado).toBe("por_revisar");
   });
 });
 

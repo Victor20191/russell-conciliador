@@ -8,12 +8,14 @@
 // queda «por revisar» y vuelve a impedir el cierre hasta que alguien lo confirme o lo edite.
 //
 // Qué tipos exigen comentario lo declara cada descriptor (`alertasConComentario`): Inventarios
-// (negativos y costo) y Cartera y CxP (las validaciones del auxiliar por tercero).
+// (negativos y costo), Cartera y CxP (las validaciones del auxiliar por tercero), Activos fijos
+// (por activo) y Nómina (cédulas con varios nombres).
 import type { DescriptorModulo } from "./descriptores";
 import { ALERTAS_COSTO, detectarAlertasCosto, detectarNegativos, type FilaValidable, type TipoAlertaCosto } from "./validaciones";
 import type { ValidacionesTercero } from "./cartera/validaciones-tercero";
 import { diasEntre } from "./cartera/fecha-corte";
 import type { ValidacionesActivos } from "./activos/validaciones-activos";
+import type { CedulaConVariosNombres } from "./nomina/validaciones-nomina";
 
 /** Cartera y CxP: validaciones del auxiliar por tercero que exigen comentario. */
 export type TipoAlertaTercero =
@@ -27,8 +29,11 @@ export type TipoAlertaTercero =
 /** Activos fijos: validaciones por activo que exigen comentario. */
 export type TipoAlertaActivos = "activos_negativos" | "falta_costo";
 
+/** Nómina: una cédula con más de un nombre de empleado (9/Nov/2026; antes bloqueaba el borrador). */
+export type TipoAlertaNomina = "cedulas_varios_nombres";
+
 /** Tipos de alerta que pueden exigir comentario. */
-export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto | TipoAlertaTercero | TipoAlertaActivos;
+export type TipoAlertaComentario = "valores_negativos" | TipoAlertaCosto | TipoAlertaTercero | TipoAlertaActivos | TipoAlertaNomina;
 
 export type UnidadAlerta = { uno: string; varios: string };
 const ITEMS: UnidadAlerta = { uno: "ítem", varios: "ítems" };
@@ -46,6 +51,7 @@ const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: Unid
   { tipo: "corte_deducido", etiqueta: "Fecha de corte deducida", unidad: { uno: "fecha", varios: "fechas" }, muestraValor: false },
   { tipo: "activos_negativos", etiqueta: "Activos con costo o neto negativo", unidad: { uno: "activo", varios: "activos" }, muestraValor: true },
   { tipo: "falta_costo", etiqueta: "Depreciación sin costo de adquisición", unidad: { uno: "cargue", varios: "cargues" }, muestraValor: false },
+  { tipo: "cedulas_varios_nombres", etiqueta: "Cédula con varios nombres", unidad: { uno: "cédula", varios: "cédulas" }, muestraValor: false },
 ];
 const POR_TIPO = new Map(DEFINICIONES.map((d) => [d.tipo, d]));
 const ORDEN: TipoAlertaComentario[] = DEFINICIONES.map((d) => d.tipo);
@@ -70,7 +76,8 @@ export type AlertaComentable = {
   /**
    * La otra mitad de la huella del cambio. Costo: Σ del valor total; negativos: Σ de los
    * negativos; documentos y edades: Σ de las diferencias; saldo contrario: Σ de los saldos; fecha
-   * de corte deducida: días entre el corte del cargue y la fecha deducida. Días y rangos: 0.
+   * de corte deducida: días entre el corte del cargue y la fecha deducida; cédulas con varios
+   * nombres: filas del archivo con esas cédulas. Días y rangos: 0.
    */
   valor: number;
   /** Qué se cuenta («documento» / «documentos»). */
@@ -164,6 +171,16 @@ export function alertasActivosQueExigenComentario(descriptor: DescriptorModulo, 
     salida.push(alerta("falta_costo", 1, 0, "El cargue trae la depreciación y ningún costo de adquisición: la cédula compara el neto contra un costo en cero."));
   }
   return ordenar(salida);
+}
+
+/**
+ * Nómina: las cédulas con más de un nombre de empleado (ya filtradas por `filtrarCedulasConVariosNombres`,
+ * las mismas de Novedades). El borrador se aprueba; para cerrar, alguien explica por qué.
+ */
+export function alertasNominaQueExigenComentario(descriptor: DescriptorModulo, cedulas: readonly CedulaConVariosNombres[]): AlertaComentable[] {
+  const tipos = new Set(descriptor.alertasConComentario ?? []);
+  if (!tipos.has("cedulas_varios_nombres") || cedulas.length === 0) return [];
+  return [alerta("cedulas_varios_nombres", cedulas.length, cedulas.reduce((s, c) => s + c.filas, 0))];
 }
 
 /** «3 documentos», «1 tercero». */

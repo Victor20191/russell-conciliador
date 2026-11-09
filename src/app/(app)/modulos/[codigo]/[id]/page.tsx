@@ -391,16 +391,18 @@ export default async function DatoModuloPage({
       })
     : null;
   // Alertas que exigen un comentario por tipo para cerrar la conciliación (Inventarios, Cartera y
-  // CxP), con el comentario del período y si quedó por revisar. El cierre evalúa estas mismas.
-  // Activos fijos: costo o neto negativo por activo, depreciación sin costo y neto del archivo
-  // contra el calculado (costo + adiciones + mejoras + valorización − depreciación − deterioro).
+  // CxP, Activos fijos y Nómina), con el comentario del período y si quedó por revisar. El cierre
+  // evalúa estas mismas. Activos fijos: costo o neto negativo por activo, depreciación sin costo y
+  // neto del archivo contra el calculado (costo + adiciones + mejoras + valorización − depreciación −
+  // deterioro). Nómina: las cédulas con varios nombres de sus Novedades por fila.
   const validacionesActivos = comentaValidacionesActivos(descriptor)
     ? validarActivos(detalles.map((d) => ({ filaNum: d.filaNum, valor: Number(d.valor), imputable: d.imputable, datos: (d.datos ?? {}) as Record<string, unknown> })))
     : null;
+  const novedadesFilaNomina = descriptor.nomina ? await novedadesFilaNominaDelCargue(encabezadoId) : null;
   const alertasComentario = await alertasConComentarioDelCargue(
     descriptor,
     { id: encabezado.id, clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
-    { filas: filasVal, validacionesTercero, validacionesActivos },
+    { filas: filasVal, validacionesTercero, validacionesActivos, cedulasNomina: novedadesFilaNomina?.cedulas },
   );
 
   // Conciliación en firme del (cliente, módulo, período): estado + quién puede
@@ -571,13 +573,13 @@ export default async function DatoModuloPage({
     // Comenta el staff, el senior o el gerente asignados; con la conciliación en firme, nadie.
     puedeComentarAlertas: comentarAuth?.ok === true && !edicion.enFirme,
   };
-  const novedadesVm: NovedadesVm = descriptor.nomina
+  const novedadesVm: NovedadesVm = novedadesFilaNomina
     ? {
         ...novedadesBase,
         // Nómina: netos por fila, conceptos sin cuenta / con varias cuentas, deducciones de control,
         // cédulas con varios nombres y meses del archivo, sobre el mismo consolidado del cruce.
         nomina: validarNominaConNovedades({
-          porFila: await novedadesFilaNominaDelCargue(encabezadoId),
+          porFila: novedadesFilaNomina,
           renglones: cruce.nomina?.renglones ?? consolidadoNomina?.renglones ?? [],
         }),
       }

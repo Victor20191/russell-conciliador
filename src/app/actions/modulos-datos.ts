@@ -191,8 +191,6 @@ import { UMBRAL_CEDULA_MODULOS } from "@/lib/balance/umbrales-alertas";
 import { alertasConComentarioDelCargue, cargarValidacionesTercero } from "@/lib/modulos/comentarios-alertas-servidor";
 import { motivoReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
 import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
-import { motivoCedulasVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
-import { cedulasConVariosNombresDelLote } from "@/lib/modulos/nomina/reporte-con-errores-servidor";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -2292,12 +2290,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const motivoReporte = motivoReporteConErrores(await reporteConErroresDelLote(loteId, fechaCorteDelBorrador(lote.specJson, periodo)));
       if (motivoReporte) return { ok: false, message: motivoReporte };
     }
-    // Nómina: una cédula con más de un nombre de empleado (sin contar tildes, puntuación ni orden de
-    // palabras) también es un reporte con errores.
-    if (descriptor.nomina) {
-      const motivoNomina = motivoCedulasVariosNombres(await cedulasConVariosNombresDelLote(loteId));
-      if (motivoNomina) return { ok: false, message: motivoNomina };
-    }
+    // Nómina: una cédula con más de un nombre de empleado NO impide aprobar (9/Nov/2026): el borrador
+    // la resalta y, para cerrar la conciliación, la alerta «Cédula con varios nombres» exige comentario.
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };

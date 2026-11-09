@@ -876,6 +876,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nivelCruce: 6,
     cedula: { cuentasVisibles: CUENTAS_VISIBLES_NOMINA },
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
+    // Una cédula con más de un nombre de empleado no impide aprobar el borrador: para cerrar, un
+    // comentario que explique por qué (9/Nov/2026, «Alertas-Modulos. Version 2»).
+    alertasConComentario: ["cedulas_varios_nombres"],
     // Un mismo patrón sirve para cargar con o sin separar por centro de costo.
     confirmarAgrupadorEnCarga: true,
     // Con patrón, si el archivo trae el valor total (Sí con su celda, o No), como Inventarios.

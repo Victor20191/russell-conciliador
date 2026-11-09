@@ -3447,9 +3447,13 @@ function NovedadesNominaPanel({ v }: { v: ValidacionesNomina }) {
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cédulas con varios nombres</div>
         {v.cedulas.length === 0 ? <div className={ok}><IconoEnTexto name="check" />Cada cédula aparece con un solo nombre.</div> : (
-          <ul className="flex flex-col gap-1 text-[12px] text-ink-700">
-            {v.cedulas.slice(0, 50).map((c) => <li key={c.cedula}><span className="tabular-nums">{c.cedula}</span>: {c.nombres.join(" / ")} <span className="text-ink-400">({c.filas} filas)</span></li>)}
-          </ul>
+          <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+            <span className="font-semibold"><IconoEnTexto name="warn" />{v.cedulas.length} cédula(s) con más de un nombre de empleado: para cerrar la conciliación, explícalas en el comentario de la alerta «Cédula con varios nombres».</span>
+            <ul className="ml-4 list-disc">
+              {v.cedulas.slice(0, 50).map((c) => <li key={c.cedula}><b className="tabular-nums">{c.cedula}</b>: {c.nombres.join(" / ")} ({c.filas.toLocaleString("es-CO")} filas)</li>)}
+            </ul>
+            {v.cedulas.length > 50 && <span>… y {v.cedulas.length - 50} más.</span>}
+          </div>
         )}
       </Card>
     </>

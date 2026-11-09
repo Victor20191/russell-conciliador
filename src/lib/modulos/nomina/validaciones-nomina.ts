@@ -64,13 +64,6 @@ export function filtrarCedulasConVariosNombres(candidatas: readonly CedulaConVar
   return candidatas.filter((c) => new Set(c.nombres.map(nombreComparableEmpleado).filter(Boolean)).size > 1);
 }
 
-/** Por qué no se puede aprobar el borrador de Nómina; null si ninguna cédula tiene varios nombres. */
-export function motivoCedulasVariosNombres(cedulas: readonly CedulaConVariosNombres[]): string | null {
-  if (cedulas.length === 0) return null;
-  const ejemplo = cedulas[0];
-  return `El reporte tiene errores: ${cedulas.length} cédula(s) con más de un nombre de empleado (p. ej. ${ejemplo.cedula}: ${ejemplo.nombres.slice(0, 3).join(" / ")}). Corrige el archivo en el ERP y vuelve a cargarlo; este borrador no se puede aprobar.`;
-}
-
 const num = (v: unknown): number | null => {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, ""));

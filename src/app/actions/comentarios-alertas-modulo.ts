@@ -13,6 +13,7 @@ import type { ActionState } from "@/lib/definitions";
 import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import {
   alertasActivosQueExigenComentario,
+  alertasNominaQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   contarAlerta,
@@ -24,9 +25,11 @@ import {
 import {
   cargarValidacionesActivos,
   cargarValidacionesTercero,
+  comentaCedulasNomina,
   comentaValidacionesActivos,
   filasValidablesDelCargue,
 } from "@/lib/modulos/comentarios-alertas-servidor";
+import { cedulasConVariosNombresDelCargue } from "@/lib/modulos/nomina/cedulas-varios-nombres-servidor";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { autorizarComentarioAlertaModulo, exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
@@ -41,6 +44,9 @@ const OPERACION = "comentar las alertas del archivo";
 async function alertasActuales(descriptor: DescriptorModulo, encabezadoId: number, tipo: TipoAlertaComentario): Promise<AlertaComentable[]> {
   if (comentaValidacionesActivos(descriptor)) {
     return alertasActivosQueExigenComentario(descriptor, await cargarValidacionesActivos(encabezadoId));
+  }
+  if (comentaCedulasNomina(descriptor)) {
+    return alertasNominaQueExigenComentario(descriptor, await cedulasConVariosNombresDelCargue(encabezadoId));
   }
   if (!descriptor.crucePorTercero.detalleTercero) {
     return alertasQueExigenComentario(descriptor, await filasValidablesDelCargue(encabezadoId));

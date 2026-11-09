@@ -26,9 +26,6 @@ function erroresDelReporte(d: DescriptorModulo): string[] {
   if (porTercero(d)) {
     return ["Sin errores del reporte (un documento repetido por el mismo valor en dos terceros o un vencimiento imposible): se corrigen en el ERP y se vuelve a cargar; omitir filas no los quita."];
   }
-  if (esNomina(d)) {
-    return ["Sin cédulas con varios nombres en el reporte: se corrige en el ERP y se vuelve a cargar; omitir filas no lo quita."];
-  }
   return [];
 }
 
@@ -759,7 +756,9 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
       {
         id: "novedades",
         titulo: "Novedades",
-        proposito: "Las alertas y validaciones del cargue. Algunas alertas exigen un comentario para cerrar la conciliación.",
+        proposito: esNomina(d)
+          ? "Las alertas y validaciones del cargue. «Cédula con varios nombres» (la misma cédula con más de un nombre de empleado) no impide aprobar el borrador, pero exige un comentario para cerrar la conciliación."
+          : "Las alertas y validaciones del cargue. Algunas alertas exigen un comentario para cerrar la conciliación.",
         etapas: [
           {
             titulo: "Comentar alertas",

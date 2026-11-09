@@ -1,7 +1,7 @@
 "use client";
 
 import { hayReporteConErrores, motivoReporteConErrores, type ReporteConErrores } from "@/lib/modulos/cartera/reporte-con-errores";
-import { motivoCedulasVariosNombres, type CedulaConVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
+import type { CedulaConVariosNombres } from "@/lib/modulos/nomina/validaciones-nomina";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -480,7 +480,7 @@ export default function BorradorModuloClient({
   };
 
   // Reporte con errores (Cartera y CxP): no se aprueba; se corrige el archivo y se vuelve a cargar.
-  const motivoReporte = motivoReporteConErrores(reporteConErrores) ?? motivoCedulasVariosNombres(cedulasVariosNombres);
+  const motivoReporte = motivoReporteConErrores(reporteConErrores);
   const confirmar = () => {
     if (asistenciaSinResolver) { notifyError("Hay una lectura pendiente de resolver. Abre «Corregir lectura», revisa su resultado y aplica la propuesta antes de confirmar."); return; }
     if (hayCambios) { notifyError("Guarda o descarta los cambios antes de confirmar."); return; }
@@ -1324,18 +1324,21 @@ export default function BorradorModuloClient({
   );
 }
 
-/** Nómina: cédulas con más de un nombre de empleado; el borrador no se puede aprobar. */
+/**
+ * Nómina: cédulas con más de un nombre de empleado. No impiden aprobar el borrador; para cerrar la
+ * conciliación, la alerta «Cédula con varios nombres» exige un comentario en Novedades.
+ */
 function CedulasVariosNombresAviso({ cedulas }: { cedulas: CedulaConVariosNombres[] }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
-      <span className="font-semibold"><IconoEnTexto name="warn" />El reporte tiene errores: {cedulas.length} cédula(s) con más de un nombre de empleado. Este borrador no se puede aprobar; corrige el archivo en el ERP y vuelve a cargarlo.</span>
+    <div className="flex flex-col gap-1.5 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+      <span className="font-semibold"><IconoEnTexto name="warn" />{cedulas.length} cédula(s) con más de un nombre de empleado. Puedes aprobar el borrador; para cerrar la conciliación habrá que explicarlas con un comentario en Novedades.</span>
       <ul className="ml-4 list-disc">
         {cedulas.slice(0, 8).map((c) => (
-          <li key={c.cedula}>{c.cedula}: {c.nombres.join(" / ")} ({c.filas.toLocaleString("es-CO")} filas)</li>
+          <li key={c.cedula}><b className="tabular-nums">{c.cedula}</b>: {c.nombres.join(" / ")} ({c.filas.toLocaleString("es-CO")} filas)</li>
         ))}
       </ul>
       {cedulas.length > 8 && <span>… y {cedulas.length - 8} más.</span>}
-      <span className="text-[11.5px]">No cuentan las diferencias de tildes, puntuación u orden de palabras. Omitir las filas no quita el bloqueo.</span>
+      <span className="text-[11.5px]">No cuentan las diferencias de tildes, puntuación u orden de palabras.</span>
     </div>
   );
 }

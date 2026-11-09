@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { fechaCorteDelBorrador, reporteConErroresDelLote } from "@/lib/modulos/cartera/reporte-con-errores-servidor";
-import { cedulasConVariosNombresDelLote } from "@/lib/modulos/nomina/reporte-con-errores-servidor";
+import { cedulasConVariosNombresDelLote } from "@/lib/modulos/nomina/cedulas-varios-nombres-servidor";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";

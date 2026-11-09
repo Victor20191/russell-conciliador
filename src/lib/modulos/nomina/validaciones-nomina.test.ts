@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 import {
   filtrarCedulasConVariosNombres,
-  motivoCedulasVariosNombres,
   nombreComparableEmpleado,
   validarNomina,
   validarNominaConNovedades,
 } from "./validaciones-nomina";
 
-describe("cédula con varios nombres (bloquea aprobar el borrador)", () => {
+describe("cédula con varios nombres (exige comentario para cerrar)", () => {
   it("compara sin tildes, puntuación ni orden de palabras", () => {
     expect(nombreComparableEmpleado("PÉREZ GÓMEZ, JOSÉ")).toBe(nombreComparableEmpleado("Jose Perez Gomez"));
     expect(nombreComparableEmpleado("  maría   peña ")).toBe("MARIA PENA");
@@ -21,8 +20,6 @@ describe("cédula con varios nombres (bloquea aprobar el borrador)", () => {
       { cedula: "2", nombres: ["LUIS", "LUIS PÉREZ"], filas: 2 },
     ]);
     expect(cedulas.map((c) => c.cedula)).toEqual(["2"]);
-    expect(motivoCedulasVariosNombres(cedulas)).toContain("1 cédula(s) con más de un nombre");
-    expect(motivoCedulasVariosNombres([])).toBeNull();
   });
 });
 

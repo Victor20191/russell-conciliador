@@ -15,7 +15,7 @@ import { poolLectura } from "./pool-lectura";
 import type { DescriptorModulo } from "./descriptores";
 import type { GrupoNominaAgregado } from "./nomina/consolidado-nomina";
 import { claveConsolidado } from "./nomina/clave-consolidado";
-import { filtrarCedulasConVariosNombres } from "./nomina/validaciones-nomina";
+import { cedulasConVariosNombresDelCargue } from "./nomina/cedulas-varios-nombres-servidor";
 import { expresionSqlClaveNomina, type AgruparPorNomina } from "./nomina/agrupar-por";
 import { SIN_CLASIFICAR } from "./promocion";
 import { filtrarFilasDetalleModulo } from "./filtros-detalle-modulo";
@@ -141,22 +141,8 @@ export async function novedadesFilaNominaDelCargue(encabezadoId: number, toleran
         LIMIT ${MAX_NETOS}`,
       [encabezadoId, tolerancia],
     ),
-    poolLectura().query<{ cedula: string; nombres: string[]; filas: string }>(
-      `SELECT cedula, array_agg(DISTINCT nombre ORDER BY nombre) AS nombres, sum(n)::text AS filas
-         FROM (
-           SELECT regexp_replace(COALESCE(datos->>'cedula', ''), '\\D', '', 'g') AS cedula,
-                  upper(btrim(regexp_replace(COALESCE(datos->>'empleado', ''), '\\s+', ' ', 'g'))) AS nombre,
-                  count(*) AS n
-             FROM modulo_dato_detalle
-            WHERE encabezado_id = $1
-            GROUP BY 1, 2
-         ) q
-        WHERE cedula <> '' AND nombre <> ''
-        GROUP BY cedula
-       HAVING count(*) > 1
-        ORDER BY sum(n) DESC`,
-      [encabezadoId],
-    ),
+    // Las mismas cédulas con que la alerta «Cédula con varios nombres» exige comentario para cerrar.
+    cedulasConVariosNombresDelCargue(encabezadoId),
     poolLectura().query<{ mes: string }>(
       `SELECT DISTINCT datos->>'periodoDesde' AS mes FROM modulo_dato_detalle
         WHERE encabezado_id = $1 AND datos->>'periodoDesde' ~ '^\\d{4}-\\d{2}$' ORDER BY 1`,
@@ -170,9 +156,7 @@ export async function novedadesFilaNominaDelCargue(encabezadoId: number, toleran
       const neto = Number(r.neto);
       return { filaNum: r.fila_num, cedula: r.cedula, devengo, deduccion, neto, esperado: devengo - Math.abs(deduccion) };
     }),
-    // La base agrupa por el nombre en mayúsculas; se descartan las que solo difieren en tildes,
-    // puntuación u orden de palabras (la misma regla que bloquea el borrador).
-    cedulas: filtrarCedulasConVariosNombres(cedulas.rows.map((r) => ({ cedula: r.cedula, nombres: r.nombres, filas: Number(r.filas) }))),
+    cedulas,
     meses: meses.rows.map((r) => r.mes),
   };
 }

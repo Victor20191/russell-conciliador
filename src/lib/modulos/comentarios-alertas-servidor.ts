@@ -14,8 +14,11 @@ import type { ResumenCruceTerceroCartera } from "./cartera/cruce-tercero-cartera
 import { leerFormatosCartera } from "./cartera/tipo-formato";
 import { finDePeriodo } from "./cartera/fecha-corte";
 import { validarActivos, type ValidacionesActivos } from "./activos/validaciones-activos";
+import type { CedulaConVariosNombres } from "./nomina/validaciones-nomina";
+import { cedulasConVariosNombresDelCargue } from "./nomina/cedulas-varios-nombres-servidor";
 import {
   alertasActivosQueExigenComentario,
+  alertasNominaQueExigenComentario,
   alertasQueExigenComentario,
   alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
@@ -66,6 +69,11 @@ export async function cargarValidacionesActivos(encabezadoId: number): Promise<V
 /** ¿El módulo comenta validaciones por activo (Activos fijos)? */
 export function comentaValidacionesActivos(descriptor: DescriptorModulo): boolean {
   return (descriptor.alertasConComentario ?? []).some((t) => t === "activos_negativos" || t === "falta_costo");
+}
+
+/** ¿El módulo comenta las cédulas con varios nombres (Nómina)? */
+export function comentaCedulasNomina(descriptor: DescriptorModulo): boolean {
+  return (descriptor.alertasConComentario ?? []).includes("cedulas_varios_nombres");
 }
 
 /** Lo del encabezado que necesitan las validaciones del auxiliar por tercero. */
@@ -135,12 +143,18 @@ export async function cargarValidacionesTercero(
  * Alertas del cargue que exigen comentario, con el comentario del período y su estado. Vacío en
  * los módulos que no declaran `alertasConComentario`. Inventarios las calcula de sus filas (`filas`
  * evita releer el detalle); Cartera y CxP, de las validaciones del auxiliar por tercero; Activos fijos,
- * de las validaciones por activo.
+ * de las validaciones por activo; Nómina, de las cédulas con varios nombres (`cedulasNomina` evita
+ * repetir la consulta de Novedades).
  */
 export async function alertasConComentarioDelCargue(
   descriptor: DescriptorModulo,
   encabezado: { id: number; clienteId: number; moduloCodigo: string; periodo: string },
-  fuente?: { filas?: FilaValidable[]; validacionesTercero?: ValidacionesTercero | null; validacionesActivos?: ValidacionesActivos | null },
+  fuente?: {
+    filas?: FilaValidable[];
+    validacionesTercero?: ValidacionesTercero | null;
+    validacionesActivos?: ValidacionesActivos | null;
+    cedulasNomina?: readonly CedulaConVariosNombres[];
+  },
 ): Promise<AlertaConComentario[]> {
   if (!descriptor.alertasConComentario?.length) return [];
   let alertas: AlertaComentable[];
@@ -149,6 +163,8 @@ export async function alertasConComentarioDelCargue(
     alertas = alertasTerceroQueExigenComentario(descriptor, fuente.validacionesTercero);
   } else if (comentaValidacionesActivos(descriptor)) {
     alertas = alertasActivosQueExigenComentario(descriptor, fuente?.validacionesActivos ?? (await cargarValidacionesActivos(encabezado.id)));
+  } else if (comentaCedulasNomina(descriptor)) {
+    alertas = alertasNominaQueExigenComentario(descriptor, fuente?.cedulasNomina ?? (await cedulasConVariosNombresDelCargue(encabezado.id)));
   } else {
     alertas = alertasQueExigenComentario(descriptor, fuente?.filas ?? (await filasValidablesDelCargue(encabezado.id)));
   }
