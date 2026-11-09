@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
 import { Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { EncabezadoTablaBalance, CeldasImportesBalance } from "@/components/tabla-columnas-balance";
@@ -27,8 +28,10 @@ const claseBoton = (activo: boolean) => `rounded px-1.5 py-0.5 text-[11px] font-
 /** La misma distribución del balance, con terceros al final de cada cuenta.
  * La interacción es de lectura: expansión, filtros y selección local.
  * `gruposConTerceros`: grupos cuyos terceros guardó la captura (null = todas las cuentas). */
-export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposConTerceros = null }: {
+export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposConTerceros = null, detalleHref }: {
   arbol: NodoVisorTerceros[]; resumen: ResumenComparacionTerceros; fuenteTercero: FuenteTercero; gruposConTerceros?: readonly string[] | null;
+  /** El detalle del balance: la misma fila de pestañas que allá, con esta vista como la activa. */
+  detalleHref: string;
 }) {
   const [q, setQ] = useState("");
   const [clase, setClase] = useState<"todo" | "balance" | "er">("todo");
@@ -75,6 +78,19 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposCo
       <Icon name="warn" size={13} className="mt-0.5 shrink-0" />
       <span><span className="font-semibold">{fmtNum(resumen.sinDetalleObligatorio)} cuenta(s) de {PREFIJOS_TERCERO_OBLIGATORIO.join(", ")} con saldo o movimiento no traen terceros.</span> En esas cuentas el detalle por tercero es obligatorio: usa «Solo con diferencia» para verlas y revisa si el archivo las trae desagregadas.</span>
     </p>}
+    {/* Espejo de las pestañas del balance: «Ver por terceros» es la activa y «Detalle por niveles»
+        lleva de vuelta, resaltada como allá se resalta esta vista. */}
+    <nav aria-label="Vistas del balance" className="mb-3 flex items-center gap-2">
+      <Link
+        href={detalleHref}
+        className="inline-flex items-center gap-1.5 rounded-md border border-navy-300 bg-navy-50 px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 transition hover:border-navy-600"
+      >
+        <Icon name="chev-l" size={13} /> Detalle por niveles
+      </Link>
+      <span aria-current="page" className="inline-flex items-center gap-1.5 rounded-md bg-navy-800 px-3 py-1.5 text-[12.5px] font-medium text-white">
+        <Icon name="users" size={13} /> Ver por terceros
+      </span>
+    </nav>
     <div role="region" aria-label="Detalle del balance por terceros" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-4 py-2.5">
         <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">

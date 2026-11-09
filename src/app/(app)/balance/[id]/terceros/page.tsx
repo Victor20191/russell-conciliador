@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
-import { PageHeader, BackLink, Card, EmptyState } from "@/components/ui";
+import { PageHeader, Card, EmptyState } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { parseId } from "@/lib/ids";
 import { etiquetaApertura } from "@/lib/balance/apertura-balance";
 import { construirComparacionCuentasTerceros, resumirComparacionTerceros } from "@/lib/balance/visor-terceros";
@@ -118,7 +119,15 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
 
   return (
     <div>
-      <div className="mb-3"><BackLink href={`/balance/${id}`} label="Volver al balance" /></div>
+      {/* Volver al detalle tiene que verse tanto como «Ver por terceros» en el balance. */}
+      <div className="mb-3">
+        <Link
+          href={`/balance/${id}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-navy-300 bg-navy-50 px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 transition hover:border-navy-600"
+        >
+          <Icon name="chev-l" size={13} /> Volver al balance
+        </Link>
+      </div>
       <PageHeader
         title="Balance por terceros"
         subtitle={`${balance.nombreCliente} · ${balance.periodo} · versión ${balance.version} · apertura ${etiquetaApertura(balance.aperturaBalance)}`}
@@ -144,6 +153,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
             origen: encabezadoTercero!.origenExtraccion ?? "—",
           }}
           gruposConTerceros={gruposTerceroConservados(encabezadoTercero!.creadoEn)}
+          detalleHref={`/balance/${id}`}
         />
       )}
     </div>
