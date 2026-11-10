@@ -368,46 +368,13 @@ export function conservaDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
 }
 
-/** Antes de esta fecha la captura guardaba los terceros de TODAS las cuentas. */
-const TERCEROS_SOLO_GRUPOS_DESDE = new Date("2026-09-22T00:00:00.000Z");
-/** Hasta este momento también se guardaban los terceros de los ingresos: el 41 desde el 22/Sep y 42 a 45 desde el 2/Nov. */
-const TERCEROS_INGRESOS_HASTA = new Date("2026-11-09T23:15:00.000Z");
-const GRUPOS_INGRESOS = ["41", "42", "43", "44", "45"] as const;
-
 /**
- * Grupos del cliente cuyos terceros guardó una captura, según cuándo se hizo: del 22/Sep al 1/Nov
- * los obligatorios sin el 24 más el 41; del 2/Nov al 9/Nov también 24 y 42 a 45; desde entonces,
- * los de hoy. `null` si es anterior a la regla y guardó todas las cuentas. Sin fecha, la regla de
- * hoy (una carga nueva). `gruposConDetalle` (los grupos que de verdad traen terceros) suma los de
- * ingresos que una captura posterior al corte haya guardado igual: la hizo un servidor todavía sin
- * este cambio.
+ * «13, 21, 22, 23, 24 y 28»: los grupos uno por uno, en orden y sin repetir (así lo leen los
+ * usuarios; un rango «21 a 24» se confundía con todas las cuentas entre esos números).
  */
-export function gruposTerceroConservados(capturadaEn?: Date, gruposConDetalle?: ReadonlySet<string>): readonly string[] | null {
-  if (capturadaEn && capturadaEn < TERCEROS_SOLO_GRUPOS_DESDE) return null;
-  const grupos = new Set<string>(
-    capturadaEn && capturadaEn < TERCEROS_24_CONSERVADOS_DESDE
-      ? [...PREFIJOS_TERCERO_OBLIGATORIO.filter((p) => p !== "24"), "41"]
-      : capturadaEn && capturadaEn < TERCEROS_INGRESOS_HASTA
-        ? [...PREFIJOS_TERCERO_OBLIGATORIO, ...GRUPOS_INGRESOS]
-        : PREFIJOS_TERCERO_CONSERVADOS,
-  );
-  for (const g of GRUPOS_INGRESOS) if (gruposConDetalle?.has(g)) grupos.add(g);
-  return [...grupos].sort((a, b) => Number(a) - Number(b));
-}
-
-/** «13, 21 a 24 y 28»: tres o más grupos seguidos se dicen como rango. */
 export function describirGruposTercero(grupos: readonly string[]): string {
-  const numeros = [...new Set(grupos.map(Number))].sort((a, b) => a - b);
-  const partes: string[] = [];
-  for (let i = 0; i < numeros.length; i++) {
-    let fin = i;
-    while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
-    if (fin - i >= 2) {
-      partes.push(`${numeros[i]} a ${numeros[fin]}`);
-      i = fin;
-    } else partes.push(String(numeros[i]));
-  }
-  return partes.length > 1 ? `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}` : partes.join("");
+  const numeros = [...new Set(grupos.map(Number))].sort((a, b) => a - b).map(String);
+  return numeros.length > 1 ? `${numeros.slice(0, -1).join(", ")} y ${numeros[numeros.length - 1]}` : numeros.join("");
 }
 
 /**

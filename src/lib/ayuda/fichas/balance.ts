@@ -437,7 +437,7 @@ export const FICHA_BALANCE_DIFF: FichaAyuda = {
 export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
   id: "balance.terceros",
   titulo: "Balance por terceros",
-  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es solo de consulta. Solo trae terceros en las cuentas de los grupos 13, 21 a 24 y 28, que son los que se guardan al cargar el balance (un balance cargado antes puede traer también los de otros grupos); un aviso en la pantalla dice cuáles trae.",
+  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es solo de consulta. El sistema solo guarda y muestra los terceros de las cuentas de los grupos 13, 21, 22, 23, 24 y 28; las demás cuentas se ven con su total y aparecen «Sin desagregar», y un aviso arriba lo recuerda. Si el balance se cargó con una regla anterior y trae terceros de otros grupos, el aviso dice cuáles.",
   etapas: [
     {
       titulo: "Buscar y filtrar",

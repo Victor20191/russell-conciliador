@@ -13,7 +13,7 @@ import type { ResumenComparacionTerceros } from "@/lib/balance/visor-terceros";
 import { useSeleccionFilaTabla } from "../../use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ETIQUETAS_IDENTIDAD, estadoIdentidadTercero, type EstadoIdentidadTercero } from "@/lib/balance/identidad-tercero";
-import { PREFIJOS_TERCERO_OBLIGATORIO, describirGruposTercero } from "@/lib/balance/staging-tercero";
+import { PREFIJOS_TERCERO_OBLIGATORIO } from "@/lib/balance/staging-tercero";
 import { ComparacionImportes } from "./comparacion-importes";
 
 export type FuenteTercero = { version: string; archivo: string; filas: number; origen: string };
@@ -27,7 +27,8 @@ const claseBoton = (activo: boolean) => `rounded px-1.5 py-0.5 text-[11px] font-
 
 /** La misma distribución del balance, con terceros al final de cada cuenta.
  * La interacción es de lectura: expansión, filtros y selección local.
- * `gruposConTerceros`: grupos cuyos terceros guardó la captura (null = todas las cuentas). */
+ * `gruposConTerceros`: grupos cuyos terceros guardó la captura (los de hoy y los que trae de una regla
+ * anterior); una cuenta de otro grupo sin desglose lo explica. El aviso general va en la página. */
 export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposConTerceros = null, detalleHref }: {
   arbol: NodoVisorTerceros[]; resumen: ResumenComparacionTerceros; fuenteTercero: FuenteTercero; gruposConTerceros?: readonly string[] | null;
   /** El detalle del balance: la misma fila de pestañas que allá, con esta vista como la activa. */
@@ -70,10 +71,6 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero, gruposCo
       <StatCard label="Incompletas" value={fmtNum(resumen.incompletas)} tone={resumen.incompletas ? "err" : "ok"} />
       <StatCard label="Saldo balance / Σ terceros" value={`${fmt(resumen.saldoBalance)} / ${fmt(resumen.saldoTercero)}`} tone={Math.abs(resumen.saldoBalance - resumen.saldoTercero) > 0.01 ? "warn" : "blue"} valueClassName="text-[14px]" />
     </div>
-    {gruposConTerceros && <p className="mb-4 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
-      <Icon name="info" size={13} className="mt-0.5 shrink-0" />
-      <span><span className="font-semibold">Solo se muestran los terceros de las cuentas de los grupos {describirGruposTercero(gruposConTerceros)}.</span> Son los que se guardan al cargar el balance. Las demás cuentas se muestran con su total y aparecen como «Sin desagregar»: no es un error.</span>
-    </p>}
     {resumen.sinDetalleObligatorio > 0 && <p className="mb-4 flex items-start gap-2 rounded-md border border-warn-300 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
       <Icon name="warn" size={13} className="mt-0.5 shrink-0" />
       <span><span className="font-semibold">{fmtNum(resumen.sinDetalleObligatorio)} cuenta(s) de {PREFIJOS_TERCERO_OBLIGATORIO.join(", ")} con saldo o movimiento no traen terceros.</span> En esas cuentas el detalle por tercero es obligatorio: usa «Solo con diferencia» para verlas y revisa si el archivo las trae desagregadas.</span>

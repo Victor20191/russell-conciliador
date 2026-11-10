@@ -9,7 +9,7 @@ import { construirComparacionCuentasTerceros, resumirComparacionTerceros } from 
 import { construirArbolVisorTerceros } from "@/lib/balance/arbol-visor-terceros";
 import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/balance/identidad-tercero";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
-import { gruposTerceroConservados } from "@/lib/balance/staging-tercero";
+import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import TercerosClient from "./terceros-client";
 import Link from "next/link";
 
@@ -117,6 +117,13 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     nombre2: new Map(subgrupos.map((s) => [s.grupo, s.nombreGrupo])),
   });
 
+  // Grupos de la captura con terceros de verdad (la fila propia de cada cuenta no trae NIT ni nombre)
+  // que la regla de hoy no guarda: los guardó una regla anterior (antes del 22/Sep, todas las cuentas;
+  // del 22/Sep al 9/Nov, también los ingresos).
+  const otrosGruposConTerceros = [...new Set(
+    filasTerceroRaw.filter((f) => f.nitTercero || f.nombreTercero).map((f) => f.cuenta8.replace(/\D/g, "").slice(0, 2)),
+  )].filter((g) => g.length === 2 && !PREFIJOS_TERCERO_CONSERVADOS.includes(g)).sort((a, b) => Number(a) - Number(b));
+
   return (
     <div>
       {/* Volver al detalle tiene que verse tanto como «Ver por terceros» en el balance. */}
@@ -132,6 +139,27 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         title="Balance por terceros"
         subtitle={`${balance.nombreCliente} · ${balance.periodo} · versión ${balance.version} · apertura ${etiquetaApertura(balance.aperturaBalance)}`}
       />
+
+      {/* Siempre a la vista: sin él, una cuenta «Sin desagregar» parece un error del sistema. Si la
+          captura es de una regla anterior y trae terceros de otros grupos, se dice cuáles. */}
+      <div role="note" className="mb-4 flex items-start gap-3 rounded-lg border border-navy-300 bg-navy-50 px-4 py-3">
+        <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-800 text-white">
+          <Icon name="users" size={15} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-semibold text-navy-800">
+            El sistema solo guarda y muestra los terceros de las cuentas de los grupos {describirGruposTercero(PREFIJOS_TERCERO_CONSERVADOS)}.
+          </p>
+          <p className="mt-0.5 text-[12.5px] text-ink-700">
+            Las demás cuentas se ven con su total y aparecen como «Sin desagregar»: no es un error.
+          </p>
+          {otrosGruposConTerceros.length > 0 && (
+            <p className="mt-1 text-[11.5px] text-ink-500">
+              Este balance se cargó con una regla anterior y también trae terceros de los grupos {describirGruposTercero(otrosGruposConTerceros)}.
+            </p>
+          )}
+        </div>
+      </div>
 
       <p className="mb-4 text-[12px] text-ink-500">
         La comparación de saldos finales con los demás balances de la misma fecha de corte está en{" "}
@@ -152,11 +180,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
             filas: encabezadoTercero!.filasTotales,
             origen: encabezadoTercero!.origenExtraccion ?? "—",
           }}
-          gruposConTerceros={gruposTerceroConservados(
-            encabezadoTercero!.creadoEn,
-            // Grupos con terceros de verdad (no la fila propia de la cuenta, que no trae NIT ni nombre).
-            new Set(filasTerceroRaw.filter((f) => f.nitTercero || f.nombreTercero).map((f) => f.cuenta8.replace(/\D/g, "").slice(0, 2))),
-          )}
+          gruposConTerceros={[...PREFIJOS_TERCERO_CONSERVADOS, ...otrosGruposConTerceros]}
           detalleHref={`/balance/${id}`}
         />
       )}

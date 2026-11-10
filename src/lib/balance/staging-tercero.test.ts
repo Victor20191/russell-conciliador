@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, describirGruposTercero, gruposTerceroConservados, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, exigeDetalleTercero, filasEfectivasTercero, PREFIJOS_TERCERO_CONSERVADOS, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, describirGruposTercero, esTotalDeCuentaComoTercero, evaluarCoberturaTercero, exigeDetalleTercero, filasEfectivasTercero, PREFIJOS_TERCERO_CONSERVADOS, prepararCapturaTercero, repiteTotalDeCuenta, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -397,37 +397,13 @@ describe("prepararCapturaTercero — el total de la cuenta leído como tercero n
   });
 });
 
-describe("gruposTerceroConservados / describirGruposTercero", () => {
-  it("una carga nueva guarda los terceros de 13, 21 a 24 y 28", () => {
-    const grupos = gruposTerceroConservados();
-    expect(grupos).toEqual(PREFIJOS_TERCERO_CONSERVADOS);
-    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 24 y 28");
-    expect(gruposTerceroConservados(new Date("2026-11-10T12:00:00Z"))).toEqual(["13", "21", "22", "23", "24", "28"]);
+describe("describirGruposTercero", () => {
+  it("nombra los grupos que se guardan uno por uno, sin rangos", () => {
+    expect(describirGruposTercero(PREFIJOS_TERCERO_CONSERVADOS)).toBe("13, 21, 22, 23, 24 y 28");
   });
 
-  it("una captura del 2 al 9 de noviembre también guardó 41 a 45", () => {
-    const grupos = gruposTerceroConservados(new Date("2026-11-05T12:00:00Z"));
-    expect(grupos).toEqual(["13", "21", "22", "23", "24", "28", "41", "42", "43", "44", "45"]);
-    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 24, 28 y 41 a 45");
-  });
-
-  it("una captura posterior que igual trae terceros de ingresos (servidor sin el cambio) los nombra", () => {
-    expect(gruposTerceroConservados(new Date("2026-11-12T12:00:00Z"), new Set(["13", "41", "42"]))).toEqual(["13", "21", "22", "23", "24", "28", "41", "42"]);
-    // Otros grupos con filas (la fila propia de cada cuenta) no se suman.
-    expect(gruposTerceroConservados(new Date("2026-11-12T12:00:00Z"), new Set(["11", "51"]))).toEqual(["13", "21", "22", "23", "24", "28"]);
-  });
-
-  it("una captura de octubre aún no guardaba el 24 ni 42 a 45", () => {
-    const grupos = gruposTerceroConservados(new Date("2026-10-15T12:00:00Z"));
-    expect(grupos).toEqual(["13", "21", "22", "23", "28", "41"]);
-    expect(describirGruposTercero(grupos!)).toBe("13, 21 a 23, 28 y 41");
-  });
-
-  it("antes del 22/Sep se guardaban todas las cuentas", () => {
-    expect(gruposTerceroConservados(new Date("2026-09-10T12:00:00Z"))).toBeNull();
-  });
-
-  it("dos grupos seguidos no se dicen como rango", () => {
+  it("ordena, quita repetidos y une el último con «y»", () => {
+    expect(describirGruposTercero(["45", "41", "42", "41"])).toBe("41, 42 y 45");
     expect(describirGruposTercero(["13", "14"])).toBe("13 y 14");
     expect(describirGruposTercero(["41"])).toBe("41");
   });
