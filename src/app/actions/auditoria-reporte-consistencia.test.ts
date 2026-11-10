@@ -62,7 +62,8 @@ describe("consistencia de generación del reporte", () => {
   test("actualizar consulta actividad y guarda una plantilla factual con revisión anterior", async () => {
     const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
     expect(result).toMatchObject({ ok: true, desdeCache: false });
-    expect(mocks.eventos).toHaveBeenCalledTimes(1);
+    // Dos lecturas de la bitácora: la del reporte y la del uso comparable (sin cuentas de prueba).
+    expect(mocks.eventos).toHaveBeenCalledTimes(2);
     // El documento se arma entero en código: ninguna generación llama a la IA.
     expect(mocks.ia).not.toHaveBeenCalled();
     expect(mocks.guardar).toHaveBeenCalledWith(expect.objectContaining({
@@ -222,6 +223,42 @@ describe("usuarios activos", () => {
     const guardado = mocks.guardar.mock.calls[0][0];
     expect(guardado.report.html).not.toContain("usuarios-activos");
     expect("usuariosActivos" in guardado.fuente.uso).toBe(false);
+  });
+});
+
+describe("comparativo sin cuentas de prueba", () => {
+  const cuentas = [
+    { id: 1, name: "Ana Real", email: "ana@rbcol.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
+    { id: 3, name: "Russell 1", email: "russell1@russellbedford.com.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
+  ];
+  const evento = (user: string) => ({
+    user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7, createdAt: new Date("2026-09-03T10:00:00Z"),
+  });
+
+  beforeEach(() => {
+    mocks.usuarios.mockImplementation(async (args?: { where?: { id?: unknown } }) => (args?.where?.id ? [] : cuentas));
+    mocks.eventos.mockResolvedValue([evento("Ana Real"), evento("Ana Real"), evento("Ana Real"), evento("Russell 1"), evento("Russell 1")]);
+  });
+
+  test("el reporte deja como está su detalle y guarda aparte las cifras comparables, sin cuentas de prueba", async () => {
+    await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    const { fuente } = mocks.guardar.mock.calls[0][0];
+    // El resto del reporte (detalle por usuario, top) conserva a las cuentas de prueba.
+    expect(fuente.uso).toMatchObject({ totalAcciones: 5, totalUsuarios: 2 });
+    // Lo que se compara no las trae, y se guarda para que el siguiente reporte compare contra esto.
+    expect(fuente.usoComparable).toMatchObject({ totalAcciones: 3, totalUsuarios: 1 });
+    expect(fuente.usoComparable.detalleUsuarios.map((u: { usuario: string }) => u.usuario)).toEqual(["Ana Real"]);
+  });
+
+  test("si no se pudo medir el uso comparable el reporte sale igual, sin comparativo", async () => {
+    mocks.eventos.mockResolvedValueOnce([evento("Ana Real")]); // la lectura principal
+    mocks.eventos.mockRejectedValue(new Error("BD no disponible")); // la del uso comparable
+    const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    expect(result).toMatchObject({ ok: true, desdeCache: false });
+    const guardado = mocks.guardar.mock.calls[0][0];
+    expect(guardado.fuente.usoComparable).toBeNull();
+    expect(guardado.fuente.comparativo).toBeNull();
+    expect(guardado.report.html).not.toContain('id="comparativo"');
   });
 });
 

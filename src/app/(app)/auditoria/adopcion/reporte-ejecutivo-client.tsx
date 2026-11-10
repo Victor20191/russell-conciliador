@@ -36,6 +36,12 @@ import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparati
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import type { TicketsAtendidosVista } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import type { UsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos";
+import {
+  consecuenciaTraslape,
+  describirTraslape,
+  detectarTraslapes,
+  TITULO_TRASLAPE,
+} from "@/lib/auditoria/reporte-ejecutivo/traslape";
 import { TarjetaUsuariosActivos } from "./usuarios-activos-tarjeta";
 
 export type VersionOpcion = {
@@ -288,6 +294,9 @@ export function ReporteEjecutivoClient({
   const [envioPendiente, setEnvioPendiente] = useState(false);
   const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
   const [canalUsado, setCanalUsado] = useState<CanalEnvio>("correo");
+
+  // Reportes ya generados con los que se traslapa el período elegido (solo avisa).
+  const traslapes = useMemo(() => detectarTraslapes({ desde, hasta, generados }), [desde, hasta, generados]);
 
   const cambiosSeleccionados = useMemo(
     () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
@@ -843,6 +852,20 @@ export function ReporteEjecutivoClient({
                 />
               </label>
             </div>
+            {traslapes.length > 0 && (
+              <div
+                role="status"
+                className="mt-2 rounded-md border border-warn-200 bg-warn-100 px-3 py-2.5 text-[12px] text-warn-700"
+              >
+                <p className="font-semibold">{TITULO_TRASLAPE}</p>
+                <ul className="mt-1 list-disc pl-4">
+                  {traslapes.map((t) => (
+                    <li key={t.id}>{describirTraslape(t)}</li>
+                  ))}
+                </ul>
+                <p className="mt-1">{consecuenciaTraslape(traslapes.length)}</p>
+              </div>
+            )}
             {notaPeriodo && desde === defaultDesde && hasta === defaultHasta && (
               <p className="mt-1.5 text-[11.5px] text-ink-500">{notaPeriodo}</p>
             )}

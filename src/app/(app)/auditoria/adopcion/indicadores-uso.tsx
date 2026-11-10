@@ -5,6 +5,7 @@ import { Card } from "@/components/ui";
 import { fmt, fmtNum } from "@/lib/format";
 import {
   alertasComparativo,
+  NOTA_SIN_CUENTAS_DE_PRUEBA,
   soloFecha,
   type ComparativoUso,
   type VariacionUso,
@@ -245,6 +246,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
           <p className="mt-0.5 text-[11.5px] text-ink-500">
             {origen} vs. actual ({c.actual.desde} → {c.actual.hasta})
           </p>
+          <p className="mt-0.5 text-[11.5px] text-ink-500">{NOTA_SIN_CUENTAS_DE_PRUEBA}</p>
         </div>
       </div>
 
@@ -261,6 +263,11 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
           <div className="min-w-0">
             <p className="text-[13px] font-semibold">{alerta.titulo}</p>
             <p className="mt-0.5 text-[11.5px] opacity-80">{alerta.mensaje}</p>
+            {alerta.avisos.map((aviso) => (
+              <p key={aviso} className="mt-1 text-[11.5px] opacity-80">
+                {aviso}
+              </p>
+            ))}
           </div>
         </div>
       ))}

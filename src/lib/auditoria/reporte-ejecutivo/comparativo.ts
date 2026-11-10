@@ -13,6 +13,13 @@
 //  2. **Usuarios y clientes no se suman entre períodos.** `totalUsuarios` es un
 //     conteo de distintos: su variación se lee como «cuántos operaron», nunca
 //     como un acumulado.
+//  3. **Una base pequeña exagera cualquier porcentaje.** Pasar de 4 a 565
+//     operaciones no es «+14 000 %»: es que antes casi no se usaba. Cuando la base
+//     previa es pequeña el titular dice las cifras y avisa; y cuando una sola
+//     persona hace más de la mitad del uso, también se dice.
+//
+// Las dos listas que se comparan vienen SIN las cuentas de prueba ni genéricas
+// (`usuariosDelComparativo`); de eso se encarga `comparativo-servidor.ts`.
 import type { ConteoNombrado, ResumenUsoFactual } from "./metricas";
 
 export type DireccionVariacion = "subio" | "bajo" | "igual";
@@ -78,6 +85,24 @@ export type CambioUsuarios = {
   continuaron: number;
 };
 
+/** Aclaración que acompaña al bloque, en la pantalla y en el documento. */
+export const NOTA_SIN_CUENTAS_DE_PRUEBA =
+  "Este comparativo se hace sin las cuentas de prueba ni las genéricas del equipo, en los dos períodos.";
+
+/**
+ * Umbrales de «base pequeña» (período PREVIO). Con menos de 100 operaciones, 5 de
+ * ellas —una sola sesión de trabajo— ya pesan el 5 % que el propio comparativo
+ * considera material (`UMBRAL_ALERTA_USO_PCT`), así que el porcentaje mide el
+ * azar de un día y no una tendencia. Con menos de 3 personas, que una sola entre
+ * o salga mueve el conteo un 33 % o más, y las operaciones son las de una o dos
+ * personas, no las del equipo. Basta que se cumpla UNA de las dos condiciones.
+ */
+export const UMBRAL_BASE_PEQUENA_OPERACIONES = 100;
+export const UMBRAL_BASE_PEQUENA_PERSONAS = 3;
+
+/** Una persona «concentra» el uso cuando hace más de la mitad de las operaciones. */
+export const UMBRAL_CONCENTRACION_PCT = 50;
+
 const DIA_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -133,6 +158,10 @@ function promedioPorUsuario(r: ResumenUsoFactual): number {
 const formatoNumero = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 });
 /** Número en formato colombiano (coma decimal), para los textos de la alerta. */
 const num = (n: number): string => formatoNumero.format(n);
+const formatoUnDecimal = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 });
+/** Promedios diarios: con un decimal se lee «0,3 → 47,1», no «0,29 → 47,08». */
+const decimal1 = (n: number): string => formatoUnDecimal.format(n);
+const plural = (n: number, singular: string, plural: string): string => `${num(n)} ${n === 1 ? singular : plural}`;
 
 /** Una variación. `previo` en cero deja `variacionPct` en null: no hay base sobre la cual crecer. */
 export function variacion(etiqueta: string, actual: number, previo: number): VariacionUso {
@@ -220,15 +249,95 @@ export function compararUso(params: {
   };
 }
 
+/* ===== Lectura honesta: base pequeña y concentración ===== */
+
+const OPERACIONES = "Operaciones registradas";
+const PERSONAS = "Usuarios que operaron";
+
+/** Una de las filas de totales, por su etiqueta (el orden no es contrato). */
+function totalDe(c: ComparativoUso, etiqueta: string): VariacionUso {
+  return c.totales.find((t) => t.etiqueta === etiqueta) ?? c.totales[0];
+}
+
+/**
+ * ¿Es tan pequeña la base de operaciones del período previo que un porcentaje
+ * exageraría la variación? Ver los umbrales arriba. Se mide sobre las cifras ya
+ * SIN cuentas de prueba: con ellas, la base parecía sólida y era una sola cuenta.
+ */
+export function baseOperacionesPequena(c: ComparativoUso): boolean {
+  return (
+    totalDe(c, OPERACIONES).previo < UMBRAL_BASE_PEQUENA_OPERACIONES ||
+    totalDe(c, PERSONAS).previo < UMBRAL_BASE_PEQUENA_PERSONAS
+  );
+}
+
+/** ¿Operaron tan pocas personas en el período previo que un porcentaje de personas engaña? */
+export function basePersonasPequena(c: ComparativoUso): boolean {
+  return totalDe(c, PERSONAS).previo < UMBRAL_BASE_PEQUENA_PERSONAS;
+}
+
+export type ConcentracionOperaciones = {
+  /** La persona que más operó en el período ACTUAL, tal como aparece en la bitácora. */
+  persona: string;
+  operaciones: number;
+  /** Entero: «85» para el 85,3 %. */
+  porcentaje: number;
+};
+
+/**
+ * La persona que concentra más de la mitad de las operaciones del período actual,
+ * o null. El total de operaciones y las de cada persona salen del propio
+ * comparativo (`porUsuario` va ordenado por operaciones actuales).
+ */
+export function concentracionOperaciones(c: ComparativoUso): ConcentracionOperaciones | null {
+  const total = totalDe(c, OPERACIONES).actual;
+  const mayor = c.porUsuario[0];
+  if (!mayor || total <= 0 || mayor.actual <= 0) return null;
+  const pct = (mayor.actual / total) * 100;
+  if (pct <= UMBRAL_CONCENTRACION_PCT) return null;
+  return { persona: mayor.etiqueta, operaciones: mayor.actual, porcentaje: Math.round(pct) };
+}
+
+/** «El 85 % de las operaciones lo hizo una sola persona: …», o null si no hay concentración. */
+export function textoConcentracion(c: ComparativoUso): string | null {
+  const k = concentracionOperaciones(c);
+  return k ? `El ${num(k.porcentaje)} % de las operaciones lo hizo una sola persona: ${k.persona}.` : null;
+}
+
+/** «de 4 a 565 operaciones (0,3 → 47,1 por día)»: las cifras que reemplazan al porcentaje. */
+export function cifrasOperaciones(c: ComparativoUso): string {
+  const ops = totalDe(c, OPERACIONES);
+  return `de ${num(ops.previo)} a ${num(ops.actual)} operaciones (${decimal1(c.promedioDiario.previo)} → ${decimal1(c.promedioDiario.actual)} por día)`;
+}
+
+/** Avisos que acompañan a la alerta de operaciones: base pequeña y concentración. */
+function avisosOperaciones(c: ComparativoUso): string[] {
+  const avisos: string[] = [];
+  if (baseOperacionesPequena(c)) {
+    const ops = totalDe(c, OPERACIONES).previo;
+    const personas = totalDe(c, PERSONAS).previo;
+    avisos.push(
+      `La base anterior es pequeña (${plural(ops, "operación", "operaciones")} y ${plural(personas, "persona", "personas")}): un porcentaje exageraría la variación, por eso se muestran las cifras.`,
+    );
+  }
+  const concentracion = textoConcentracion(c);
+  if (concentracion) avisos.push(concentracion);
+  return avisos;
+}
+
 /**
  * Frase de titular para la UI y el documento. Se apoya en el promedio diario
- * cuando los períodos no miden lo mismo, que es cuando el total absoluto miente.
+ * cuando los períodos no miden lo mismo, que es cuando el total absoluto miente;
+ * y con una base previa pequeña dice las cifras en vez del porcentaje.
  */
 export function titularComparativo(c: ComparativoUso): string {
   const medida = c.comparable ? c.totales[0] : c.promedioDiario;
   const que = c.comparable ? "las operaciones" : "las operaciones por día";
   const desde = c.base === "reporte_anterior" ? "frente al reporte anterior" : "frente al período anterior";
   if (medida.direccion === "igual") return `El uso se mantuvo igual ${desde}.`;
+  if (baseOperacionesPequena(c)) {
+    return `El uso ${medida.direccion === "subio" ? "subió" : "bajó"}: ${cifrasOperaciones(c)} ${desde}.`;
+  }
   const verbo = medida.direccion === "subio" ? "subieron" : "bajaron";
   const pct = medida.variacionPct == null ? null : Math.abs(medida.variacionPct);
   const magnitud = pct == null ? `${num(Math.abs(medida.diferencia))} ${que}` : `${num(pct)} %`;
@@ -247,6 +356,12 @@ export type AlertaUso = {
   titulo: string;
   /** Frase explicativa con la magnitud y el período de referencia. */
   mensaje: string;
+  /**
+   * Líneas de contexto, una por aviso: la base previa es pequeña (y por eso no
+   * hay porcentaje) o una sola persona concentra el uso. Vacía si no hay nada
+   * que advertir.
+   */
+  avisos: string[];
   /** La medida en la que se apoya la alerta (total o promedio diario). */
   medida: VariacionUso;
 };
@@ -261,12 +376,16 @@ export const UMBRAL_ALERTA_USO_PCT = 5;
 /**
  * Alerta de uso para el tablero y el documento. Cuando los períodos no miden lo
  * mismo se apoya en el PROMEDIO DIARIO, que es la única comparación honesta ahí.
+ * Con una base previa pequeña el titular lleva las cifras y no el porcentaje.
  */
 export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso {
   const medida = c.comparable ? c.totales[0] : c.promedioDiario;
   const referencia = c.base === "reporte_anterior" ? "al reporte anterior" : "al período anterior";
   const ventana = `${c.previo.desde} – ${c.previo.hasta}`;
   const pct = medida.variacionPct;
+  const pequena = baseOperacionesPequena(c);
+  const cifras = cifrasOperaciones(c);
+  const avisos = avisosOperaciones(c);
   const magnitud = pct == null
     ? `${num(Math.abs(medida.diferencia))} ${c.comparable ? "operaciones" : "operaciones por día"}`
     : `${num(Math.abs(pct))} %`;
@@ -276,7 +395,10 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
       clave: "operaciones",
       nivel: "estable",
       titulo: "El uso se mantuvo estable",
-      mensaje: `La variación frente ${referencia} (${ventana}) es de ${magnitud}, por debajo del umbral de ${num(umbralPct)} % que se considera relevante.`,
+      mensaje: pequena
+        ? `Las operaciones pasaron ${cifras} frente ${referencia} (${ventana}), una variación por debajo del umbral de ${num(umbralPct)} % que se considera relevante.`
+        : `La variación frente ${referencia} (${ventana}) es de ${magnitud}, por debajo del umbral de ${num(umbralPct)} % que se considera relevante.`,
+      avisos,
       medida,
     };
   }
@@ -284,8 +406,13 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
     return {
       clave: "operaciones",
       nivel: "baja",
-      titulo: `El uso bajó ${magnitud}`,
-      mensaje: `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} cayeron ${magnitud} frente ${referencia} (${ventana}). Conviene revisar con el equipo qué cambió en el período antes de concluir.`,
+      titulo: pequena ? `El uso bajó: ${cifras}` : `El uso bajó ${magnitud}`,
+      mensaje: `${
+        pequena
+          ? `Frente ${referencia} (${ventana}), medido en cifras y no en porcentaje.`
+          : `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} cayeron ${magnitud} frente ${referencia} (${ventana}).`
+      } Conviene revisar con el equipo qué cambió en el período antes de concluir.`,
+      avisos,
       medida,
     };
   }
@@ -293,8 +420,11 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
     return {
       clave: "operaciones",
       nivel: "alza",
-      titulo: `El uso subió ${magnitud}`,
-      mensaje: `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} crecieron ${magnitud} frente ${referencia} (${ventana}).`,
+      titulo: pequena ? `El uso subió: ${cifras}` : `El uso subió ${magnitud}`,
+      mensaje: pequena
+        ? `Frente ${referencia} (${ventana}), medido en cifras y no en porcentaje.`
+        : `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} crecieron ${magnitud} frente ${referencia} (${ventana}).`,
+      avisos,
       medida,
     };
   }
@@ -303,6 +433,7 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
     nivel: "estable",
     titulo: "El uso se mantuvo estable",
     mensaje: `No hubo variación frente ${referencia} (${ventana}).`,
+    avisos,
     medida,
   };
 }
@@ -313,23 +444,30 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
  * mientras la mitad del equipo dejó de entrar, y eso no es más adopción.
  *
  * Como es un conteo de personas, no se normaliza por días: se compara tal cual.
+ * Con menos de 3 personas en el período previo no hay porcentaje: «de 1 a 4» dice
+ * más que «+300 %».
  */
 export function alertaUsuarios(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso {
-  const medida = c.totales.find((t) => t.etiqueta === "Usuarios que operaron") ?? c.totales[1];
+  const medida = totalDe(c, PERSONAS);
   const referencia = c.base === "reporte_anterior" ? "al reporte anterior" : "al período anterior";
   const cuantos = `${num(medida.previo)} a ${num(medida.actual)}`;
   const pct = medida.variacionPct;
+  const pequena = basePersonasPequena(c);
   const magnitud = pct == null ? `${num(Math.abs(medida.diferencia))}` : `${num(Math.abs(pct))} %`;
   const rotacion = c.usuarios.nuevos.length > 0 || c.usuarios.salieron.length > 0
     ? ` Entraron ${c.usuarios.nuevos.length} y dejaron de operar ${c.usuarios.salieron.length}.`
     : "";
+  const avisos = pequena
+    ? [`En el período anterior ${medida.previo === 1 ? "operó" : "operaron"} ${plural(medida.previo, "persona", "personas")}: un porcentaje exageraría la variación, por eso se muestran las cifras.`]
+    : [];
 
   if (medida.direccion === "igual" || (pct != null && Math.abs(pct) < umbralPct)) {
     return {
       clave: "usuarios",
       nivel: "estable",
-      titulo: `Operaron ${num(medida.actual)} usuarios, igual que antes`,
+      titulo: medida.actual === 1 ? "Operó 1 usuario, igual que antes" : `Operaron ${num(medida.actual)} usuarios, igual que antes`,
       mensaje: `La cantidad de personas que operó la plataforma se mantuvo (de ${cuantos}) frente ${referencia}.${rotacion}`,
+      avisos: [],
       medida,
     };
   }
@@ -337,16 +475,18 @@ export function alertaUsuarios(c: ComparativoUso, umbralPct: number = UMBRAL_ALE
     return {
       clave: "usuarios",
       nivel: "baja",
-      titulo: `Operaron ${magnitud} menos usuarios`,
+      titulo: pequena ? `Operaron menos usuarios: de ${cuantos}` : `Operaron ${magnitud} menos usuarios`,
       mensaje: `Pasaron de ${cuantos} personas operando la plataforma frente ${referencia}.${rotacion} Menos gente usando la herramienta merece revisarse aunque el volumen de operaciones no baje.`,
+      avisos,
       medida,
     };
   }
   return {
     clave: "usuarios",
     nivel: "alza",
-    titulo: `Operaron ${magnitud} más usuarios`,
+    titulo: pequena ? `Operaron más usuarios: de ${cuantos}` : `Operaron ${magnitud} más usuarios`,
     mensaje: `Pasaron de ${cuantos} personas operando la plataforma frente ${referencia}.${rotacion}`,
+    avisos,
     medida,
   };
 }

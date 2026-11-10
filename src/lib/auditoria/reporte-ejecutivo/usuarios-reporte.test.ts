@@ -5,6 +5,7 @@ import {
   esCuentaInterna,
   nombresDelReporte,
   normalizarNombre,
+  usuariosDelComparativo,
   usuariosDelReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 
@@ -100,5 +101,20 @@ describe("cuentas de prueba o genéricas", () => {
     // Las cuentas de prueba siguen dentro del reporte: la exclusión es solo del indicador.
     expect(usuariosDelReporte(usuarios).map((u) => u.name)).toContain("Administrador Russell");
     expect(nombresDelReporte(usuarios)).toContain("Administrador Russell");
+  });
+});
+
+describe("cuentas del comparativo de uso", () => {
+  it("son las del reporte sin las de prueba ni las genéricas", () => {
+    // «Administrador Russell» sale; los nombres sin «Pruebas» (aquí, como eran antes) se quedan.
+    expect(usuariosDelComparativo(usuarios).map((u) => u.name)).toEqual(["Camilo Perez Rojo", "YULI ATEHORTUA GIRALDO"]);
+    expect(usuariosDelComparativo([...usuarios, { name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" }]).map((u) => u.name)).not.toContain(
+      "Camilo Perez Rojo Pruebas",
+    );
+  });
+
+  it("conservan sus demás campos (el id sirve para acotar las visitas)", () => {
+    const [persona] = usuariosDelComparativo([{ id: 9, name: "Ana Real", email: "ana@rbcol.co" }]);
+    expect(persona).toEqual({ id: 9, name: "Ana Real", email: "ana@rbcol.co" });
   });
 });

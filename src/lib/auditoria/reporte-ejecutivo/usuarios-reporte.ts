@@ -43,8 +43,9 @@ export function normalizarNombre(nombre: string | null | undefined): string {
  *   - es «Administrador Russell».
  *
  * «Prueba» se busca al inicio de una palabra, para que no atrape a quien tenga
- * un apellido que simplemente contenga esas letras. Solo la usa el indicador de
- * usuarios activos: el resto del reporte no excluye estas cuentas.
+ * un apellido que simplemente contenga esas letras. Solo la usan el indicador de
+ * usuarios activos y el comparativo de uso: el resto del reporte (detalle por
+ * usuario, top, familias) no excluye estas cuentas.
  */
 export function esCuentaDePrueba(nombre: string | null | undefined): boolean {
   const n = normalizarNombre(nombre);
@@ -53,8 +54,18 @@ export function esCuentaDePrueba(nombre: string | null | undefined): boolean {
 }
 
 /** Las cuentas cuyo uso SÍ se reporta (todas menos las internas). */
-export function usuariosDelReporte(usuarios: readonly UsuarioPlataforma[]): UsuarioPlataforma[] {
+export function usuariosDelReporte<T extends UsuarioPlataforma>(usuarios: readonly T[]): T[] {
   return usuarios.filter((u) => !esCuentaInterna(u.email));
+}
+
+/**
+ * Las cuentas cuyo uso entra en el COMPARATIVO («¿Subió o bajó el uso?»): las del
+ * reporte, sin las de prueba ni las genéricas. Con ellas dentro, una sola cuenta de
+ * pruebas llegó a ser el 89 % de las operaciones del período previo, y el
+ * comparativo anunciaba una subida del 674 % que era solo ese ruido.
+ */
+export function usuariosDelComparativo<T extends UsuarioPlataforma>(usuarios: readonly T[]): T[] {
+  return usuariosDelReporte(usuarios).filter((u) => !esCuentaDePrueba(u.name));
 }
 
 /**

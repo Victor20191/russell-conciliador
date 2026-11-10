@@ -23,7 +23,7 @@ import {
   filtrarNavegacionesPublicadas,
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
-import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
@@ -444,16 +444,26 @@ export async function generarReporteEjecutivoUso(
       usuariosActivos,
     });
 
-    // Comparativo contra el último reporte generado (o el período anterior).
-    const comparativo = await construirComparativoUso({
-      usoActual: uso,
+    // Comparativo contra el último reporte generado (o el período anterior). Los dos
+    // lados se miden sin cuentas de prueba ni genéricas; el del período actual se
+    // guarda con el reporte (`fuente.usoComparable`) para que el siguiente compare
+    // contra exactamente estas cifras.
+    const usoComparable = await construirUsoComparable({
       desde: rango.desde,
       hasta: rango.hasta,
+      corte,
       filtro,
-      usuariosRegistrados,
       nombresClientes,
-      correosUsuarios,
     });
+    const comparativo = usoComparable
+      ? await construirComparativoUso({
+          usoComparableActual: usoComparable,
+          desde: rango.desde,
+          hasta: rango.hasta,
+          filtro,
+          nombresClientes,
+        })
+      : null;
 
     // Costos de IA del período, contra el mismo tramo anterior que el uso.
     const costos = await construirCostosIAReporte({
@@ -509,7 +519,7 @@ export async function generarReporteEjecutivoUso(
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
       versionIdsIncluidos, corte: corte.toISOString(),
-      fuente: { uso, adopcion, novedades, comparativo, costos, tickets }, userId: user?.id ?? null,
+      fuente: { uso, usoComparable, adopcion, novedades, comparativo, costos, tickets }, userId: user?.id ?? null,
     });
     signal?.throwIfAborted();
     await logAudit({
@@ -637,15 +647,21 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       cambios: soloFuncionalidadesNuevas(planos),
       conteosPorFamilia: conteosPorFamiliaCanon(eventos, nombresDelReporte(usuarios)),
     });
-    const comparativo = await construirComparativoUso({
-      usoActual: uso,
+    const usoComparable = await construirUsoComparable({
       desde: rango.desde,
       hasta: rango.hasta,
       filtro,
-      usuariosRegistrados: nombresDelReporte(usuarios),
       nombresClientes,
-      correosUsuarios: correosDelReporte(usuarios),
     });
+    const comparativo = usoComparable
+      ? await construirComparativoUso({
+          usoComparableActual: usoComparable,
+          desde: rango.desde,
+          hasta: rango.hasta,
+          filtro,
+          nombresClientes,
+        })
+      : null;
 
     const costos = await construirCostosIAReporte({
       desde: rango.desde,

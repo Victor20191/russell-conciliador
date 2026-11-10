@@ -3,13 +3,20 @@ import {
   alertaComparativo,
   alertaUsuarios,
   alertasComparativo,
+  baseOperacionesPequena,
+  basePersonasPequena,
   compararUso,
+  concentracionOperaciones,
   diasDePeriodo,
+  NOTA_SIN_CUENTAS_DE_PRUEBA,
+  textoConcentracion,
+  titularComparativo,
   variacion,
   soloFecha,
   UMBRAL_ALERTA_USO_PCT,
 } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
-import type { ResumenUsoFactual } from "@/lib/auditoria/reporte-ejecutivo/metricas";
+import { calcularResumenUso, type ResumenUsoFactual } from "@/lib/auditoria/reporte-ejecutivo/metricas";
+import { usuariosDelComparativo } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 
 function resumen(p: Partial<ResumenUsoFactual> & { periodoDesde: string; periodoHasta: string }): ResumenUsoFactual {
   return {
@@ -241,5 +248,220 @@ describe("cuántos usuarios operaron", () => {
     const igual = compararUso({ actual: ahora, previo: { ...ahora, periodoDesde: "2026-08-01T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z" }, base: "reporte_anterior" });
     expect(igual.usuarios).toMatchObject({ nuevos: [], salieron: [], continuaron: 2 });
     expect(alertaUsuarios(igual).nivel).toBe("estable");
+  });
+});
+
+/**
+ * Caso real: el reporte del 30-oct → 10-nov contra el del 14 → 27-oct. Con las
+ * cuentas de prueba dentro anunciaba «El uso subió 674,33 %» y «Operaron 75 % más
+ * usuarios: de 4 a 7»; sin ellas, el equipo pasó de 4 a 565 operaciones.
+ */
+describe("comparativo sin cuentas de prueba, base pequeña y concentración", () => {
+  const cuentas = [
+    { name: "LUISA FERNANDA CHAVARRIA CARMONA", email: "luisachavarria@rbcol.co" },
+    { name: "SINDY KATERINE ECHEVERRI RAMÍREZ", email: "katerineecheverri@rbcol.co" },
+    { name: "YULI ALEJANDRA VILLA HIGUITA", email: "alejandravilla@rbcol.co" },
+    { name: "DARWIN GUZMAN MENA", email: "darwinguzman@rbcol.co" },
+    { name: "ERICA MARIA VERGARA SALAZAR", email: "ericavergara@rbcol.co" },
+    { name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" },
+    { name: "YULI ATEHORTUA GIRALDO Pruebas", email: "russell@russellbedford.com.co" },
+    { name: "Administrador Russell", email: "admin@russellbedford.co" },
+    { name: "Russell 3", email: "russell3@russellbedford.com.co" },
+    { name: "Victor Rivera", email: "admin@xentria.co" },
+  ];
+  const eventosDe = (user: string, n: number, dia: string) =>
+    Array.from({ length: n }, () => ({
+      user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: `${dia}T15:00:00Z`,
+    }));
+  const resumir = (periodo: { desde: string; hasta: string }, conteos: Array<[string, number]>, sinPrueba: boolean) => {
+    const permitidas = sinPrueba ? usuariosDelComparativo(cuentas) : cuentas.filter((c) => !c.email.endsWith("@xentria.co"));
+    return calcularResumenUso({
+      eventos: conteos.flatMap(([user, n]) => eventosDe(user, n, periodo.desde.slice(0, 10))),
+      periodoDesde: periodo.desde,
+      periodoHasta: periodo.hasta,
+      usuariosRegistrados: permitidas.map((c) => c.name),
+    });
+  };
+  const ventanaActual = { desde: "2026-10-30T00:00:00.000Z", hasta: "2026-11-10T23:59:59.999Z" }; // 12 días
+  const ventanaPrevia = { desde: "2026-10-14T00:00:00.000Z", hasta: "2026-10-27T23:59:59.999Z" }; // 14 días
+  const conteosActual: Array<[string, number]> = [
+    ["LUISA FERNANDA CHAVARRIA CARMONA", 482],
+    ["YULI ATEHORTUA GIRALDO Pruebas", 134],
+    ["Camilo Perez Rojo Pruebas", 122],
+    ["SINDY KATERINE ECHEVERRI RAMÍREZ", 53],
+    ["YULI ALEJANDRA VILLA HIGUITA", 27],
+    ["DARWIN GUZMAN MENA", 3],
+    ["Administrador Russell", 2],
+  ];
+  const conteosPrevio: Array<[string, number]> = [
+    ["Camilo Perez Rojo Pruebas", 110],
+    ["Administrador Russell", 9],
+    ["ERICA MARIA VERGARA SALAZAR", 4],
+    ["Russell 3", 1],
+  ];
+
+  const sin = compararUso({
+    actual: resumir(ventanaActual, conteosActual, true),
+    previo: resumir(ventanaPrevia, conteosPrevio, true),
+    base: "reporte_anterior",
+  });
+  const con = compararUso({
+    actual: resumir(ventanaActual, conteosActual, false),
+    previo: resumir(ventanaPrevia, conteosPrevio, false),
+    base: "reporte_anterior",
+  });
+
+  it("con las cuentas de prueba reproduce el titular engañoso: base de 124 operaciones, casi todas de una cuenta", () => {
+    expect(con.totales[0]).toMatchObject({ previo: 124, actual: 823 });
+    expect(con.totales[1]).toMatchObject({ previo: 4, actual: 7 });
+    expect(con.promedioDiario.variacionPct).toBeGreaterThan(600);
+  });
+
+  it("sin ellas las cifras de control son 565 operaciones y 4 personas contra 4 operaciones y 1 persona", () => {
+    expect(sin.totales[0]).toMatchObject({ etiqueta: "Operaciones registradas", previo: 4, actual: 565 });
+    expect(sin.totales[1]).toMatchObject({ etiqueta: "Usuarios que operaron", previo: 1, actual: 4 });
+    expect(sin.usuarios.nuevos).toEqual([
+      "DARWIN GUZMAN MENA",
+      "LUISA FERNANDA CHAVARRIA CARMONA",
+      "SINDY KATERINE ECHEVERRI RAMÍREZ",
+      "YULI ALEJANDRA VILLA HIGUITA",
+    ]);
+    expect(sin.usuarios.salieron).toEqual(["ERICA MARIA VERGARA SALAZAR"]);
+    expect(sin.porUsuario.map((u) => [u.etiqueta, u.actual])).toEqual([
+      ["LUISA FERNANDA CHAVARRIA CARMONA", 482],
+      ["SINDY KATERINE ECHEVERRI RAMÍREZ", 53],
+      ["YULI ALEJANDRA VILLA HIGUITA", 27],
+      ["DARWIN GUZMAN MENA", 3],
+      ["ERICA MARIA VERGARA SALAZAR", 0],
+    ]);
+    // 12 días contra 14: no son comparables en total, y el promedio diario es 47,1 contra 0,3.
+    expect(sin.comparable).toBe(false);
+    expect(sin.promedioDiario).toMatchObject({ previo: 0.29, actual: 47.08 });
+  });
+
+  it("la base previa es pequeña y el titular dice las cifras, no el porcentaje", () => {
+    expect(baseOperacionesPequena(sin)).toBe(true);
+    const a = alertaComparativo(sin);
+    expect(a.nivel).toBe("alza");
+    expect(a.titulo).toBe("El uso subió: de 4 a 565 operaciones (0,3 → 47,1 por día)");
+    expect(a.titulo).not.toContain("%");
+    expect(a.mensaje).toContain("reporte anterior");
+    expect(a.avisos[0]).toBe(
+      "La base anterior es pequeña (4 operaciones y 1 persona): un porcentaje exageraría la variación, por eso se muestran las cifras.",
+    );
+  });
+
+  it("dice cuando una sola persona concentra más de la mitad de las operaciones", () => {
+    expect(concentracionOperaciones(sin)).toEqual({
+      persona: "LUISA FERNANDA CHAVARRIA CARMONA",
+      operaciones: 482,
+      porcentaje: 85,
+    });
+    expect(textoConcentracion(sin)).toBe("El 85 % de las operaciones lo hizo una sola persona: LUISA FERNANDA CHAVARRIA CARMONA.");
+    expect(alertaComparativo(sin).avisos).toContain(textoConcentracion(sin));
+  });
+
+  it("la alerta de personas también habla en cifras: de 1 a 4, no «300 % más»", () => {
+    expect(basePersonasPequena(sin)).toBe(true);
+    const u = alertaUsuarios(sin);
+    expect(u.nivel).toBe("alza");
+    expect(u.titulo).toBe("Operaron más usuarios: de 1 a 4");
+    expect(u.titulo).not.toContain("%");
+    expect(u.avisos).toEqual([
+      "En el período anterior operó 1 persona: un porcentaje exageraría la variación, por eso se muestran las cifras.",
+    ]);
+    expect(u.mensaje).toContain("Entraron 4 y dejaron de operar 1");
+  });
+
+  it("el titular suelto sigue la misma lectura honesta", () => {
+    expect(titularComparativo(sin)).toBe(
+      "El uso subió: de 4 a 565 operaciones (0,3 → 47,1 por día) frente al reporte anterior.",
+    );
+  });
+
+  it("la frase fija aclara que se compara sin cuentas de prueba ni genéricas", () => {
+    expect(NOTA_SIN_CUENTAS_DE_PRUEBA).toContain("sin las cuentas de prueba ni las genéricas");
+  });
+
+  describe("umbrales de base pequeña", () => {
+    const con = (ops: number, personas: number) => {
+      const nombres = Array.from({ length: personas }, (_, i) => `Persona ${i + 1}`);
+      const previo = calcularResumenUso({
+        eventos: nombres.flatMap((n, i) => eventosDe(n, i === 0 ? ops - (personas - 1) : 1, "2026-09-02")),
+        periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-30T23:59:59Z",
+      });
+      const actual = calcularResumenUso({
+        eventos: Array.from({ length: 5 }, (_, i) => eventosDe(`Persona ${i + 1}`, 400, "2026-10-02")).flat(),
+        periodoDesde: "2026-10-01T00:00:00Z", periodoHasta: "2026-10-30T23:59:59Z",
+      });
+      return compararUso({ actual, previo, base: "reporte_anterior" });
+    };
+
+    it("menos de 100 operaciones o menos de 3 personas es base pequeña; 100 y 3 ya no", () => {
+      expect(baseOperacionesPequena(con(99, 5))).toBe(true);
+      expect(baseOperacionesPequena(con(100, 5))).toBe(false);
+      expect(baseOperacionesPequena(con(500, 2))).toBe(true);
+      expect(baseOperacionesPequena(con(500, 3))).toBe(false);
+      expect(basePersonasPequena(con(500, 2))).toBe(true);
+      expect(basePersonasPequena(con(99, 3))).toBe(false);
+    });
+
+    it("con una base sólida el titular conserva el porcentaje y no agrega el aviso de base", () => {
+      const a = alertaComparativo(con(500, 5));
+      expect(a.titulo).toBe("El uso subió 300 %");
+      expect(a.avisos.some((x) => x.includes("base anterior"))).toBe(false);
+      expect(alertaUsuarios(con(500, 5)).avisos).toEqual([]);
+    });
+
+    it("una base pequeña que no cambia se lee estable, también en cifras", () => {
+      const previo = resumen({ periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-30T23:59:59Z", totalAcciones: 50, totalUsuarios: 2 });
+      const igual = resumen({ periodoDesde: "2026-10-01T00:00:00Z", periodoHasta: "2026-10-30T23:59:59Z", totalAcciones: 51, totalUsuarios: 2 });
+      const a = alertaComparativo(compararUso({ actual: igual, previo, base: "reporte_anterior" }));
+      expect(a.nivel).toBe("estable");
+      expect(a.titulo).toBe("El uso se mantuvo estable");
+      expect(a.mensaje).toContain("de 50 a 51 operaciones");
+      expect(a.mensaje).toContain(`${UMBRAL_ALERTA_USO_PCT} %`);
+    });
+
+    it("una caída desde una base pequeña también dice las cifras", () => {
+      const previo = resumen({ periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-30T23:59:59Z", totalAcciones: 80, totalUsuarios: 2 });
+      const hoy = resumen({ periodoDesde: "2026-10-01T00:00:00Z", periodoHasta: "2026-10-30T23:59:59Z", totalAcciones: 20, totalUsuarios: 1 });
+      const c = compararUso({ actual: hoy, previo, base: "periodo_anterior" });
+      expect(alertaComparativo(c).titulo).toBe("El uso bajó: de 80 a 20 operaciones (2,7 → 0,7 por día)");
+      expect(alertaUsuarios(c).titulo).toBe("Operaron menos usuarios: de 2 a 1");
+    });
+
+    it("sin operaciones previas dice «de 0 a N» en vez de inventar un porcentaje", () => {
+      const previo = resumen({ periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-30T23:59:59Z" });
+      const hoy = resumen({ periodoDesde: "2026-10-01T00:00:00Z", periodoHasta: "2026-10-30T23:59:59Z", totalAcciones: 30, totalUsuarios: 2 });
+      const c = compararUso({ actual: hoy, previo, base: "periodo_anterior" });
+      expect(alertaComparativo(c).titulo).toBe("El uso subió: de 0 a 30 operaciones (0 → 1 por día)");
+      expect(alertaComparativo(c).avisos[0]).toContain("0 operaciones y 0 personas");
+    });
+  });
+
+  describe("concentración", () => {
+    const reparto = (conteos: Array<[string, number]>) =>
+      compararUso({
+        actual: calcularResumenUso({
+          eventos: conteos.flatMap(([n, k]) => eventosDe(n, k, "2026-10-02")),
+          periodoDesde: "2026-10-01T00:00:00Z", periodoHasta: "2026-10-30T23:59:59Z",
+        }),
+        previo: resumen({ periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-30T23:59:59Z", totalAcciones: 300, totalUsuarios: 5 }),
+        base: "reporte_anterior",
+      });
+
+    it("exactamente la mitad no es concentración; un poco más, sí", () => {
+      expect(concentracionOperaciones(reparto([["A", 50], ["B", 50]]))).toBeNull();
+      expect(concentracionOperaciones(reparto([["A", 51], ["B", 49]]))).toMatchObject({ persona: "A", porcentaje: 51 });
+    });
+
+    it("una sola persona operando es el 100 %", () => {
+      expect(textoConcentracion(reparto([["Ana", 40]]))).toBe("El 100 % de las operaciones lo hizo una sola persona: Ana.");
+    });
+
+    it("sin operaciones no hay nada que decir", () => {
+      expect(concentracionOperaciones(reparto([]))).toBeNull();
+    });
   });
 });

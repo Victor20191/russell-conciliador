@@ -22,7 +22,7 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
-import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
 import { vistaTicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
@@ -170,16 +170,12 @@ export default async function ReportesEjecutivosPage() {
     usuariosActivos,
   });
 
-  // ¿Subió o bajó el uso frente al último reporte generado?
-  const comparativo = await construirComparativoUso({
-    usoActual: uso,
-    desde,
-    hasta,
-    filtro,
-    usuariosRegistrados,
-    nombresClientes,
-    correosUsuarios,
-  });
+  // ¿Subió o bajó el uso frente al último reporte generado? Los dos lados se miden
+  // sin cuentas de prueba ni genéricas (ver `comparativo-servidor.ts`).
+  const usoComparable = await construirUsoComparable({ desde, hasta, filtro, nombresClientes });
+  const comparativo = usoComparable
+    ? await construirComparativoUso({ usoComparableActual: usoComparable, desde, hasta, filtro, nombresClientes })
+    : null;
 
   // Cuánto costó la IA en la misma ventana, contra el mismo tramo anterior.
   const costos = await construirCostosIAReporte({

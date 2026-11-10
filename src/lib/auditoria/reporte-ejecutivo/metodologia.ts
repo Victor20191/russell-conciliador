@@ -12,7 +12,12 @@
 //
 // 1 — cifras originales (incluían a los actores sin cuenta y al equipo de Xentria).
 // 2 — solo cuentas existentes de la plataforma; sin `@xentria.co` (20/Sep/2026).
-export const METODOLOGIA_USO_VIGENTE = 2;
+// 3 — el comparativo se hace sin cuentas de prueba ni genéricas y la instantánea
+//     guarda esas cifras en `fuente.usoComparable`. Las de la metodología 2 traían
+//     esas cuentas dentro (una sola llegó a ser el 89 % de un período previo): su
+//     ventana se conserva pero el comparativo las recalcula en vivo. El reporte ya
+//     generado no cambia; solo cambia contra qué cifras se compara el siguiente.
+export const METODOLOGIA_USO_VIGENTE = 3;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

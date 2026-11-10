@@ -3,7 +3,14 @@ import { esFuncionalidadNueva, type ResumenAdopcion } from "./adopcion";
 import { MODULOS_PLATAFORMA } from "@/lib/rbac/modulos-plataforma";
 import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
-import { alertasComparativo, soloFecha, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
+import {
+  alertasComparativo,
+  NOTA_SIN_CUENTAS_DE_PRUEBA,
+  soloFecha,
+  type AlertaUso,
+  type ComparativoUso,
+  type VariacionUso,
+} from "./comparativo";
 import { hayConsumoIA, type CostosIA } from "./costos-ia";
 import {
   desgloseTicketsAtendidos,
@@ -221,7 +228,9 @@ function encabezadosComparativo(c: ComparativoUso): string {
 }
 
 function bannerAlerta(a: AlertaUso): string {
-  return `<div style="${ESTILO_ALERTA[a.nivel]};padding:12px 14px;margin:12px 0;border-radius:4px"><strong style="display:block;font-size:15px">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong><span style="font-size:12px">${escapeHtml(a.mensaje)}</span></div>`;
+  // Los avisos (base pequeña, concentración en una persona) van cada uno en su línea.
+  const avisos = a.avisos.map((aviso) => `<span style="display:block;font-size:12px;margin-top:4px">${escapeHtml(aviso)}</span>`).join("");
+  return `<div style="${ESTILO_ALERTA[a.nivel]};padding:12px 14px;margin:12px 0;border-radius:4px"><strong style="display:block;font-size:15px">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong><span style="font-size:12px">${escapeHtml(a.mensaje)}</span>${avisos}</div>`;
 }
 
 /** Quién entró y quién dejó de operar: el total de usuarios puede tapar una rotación completa. */
@@ -273,7 +282,7 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const familias = c.porFamilia.slice(0, 8).map((v) => filaVariacion(v)).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}
-<p>Comparación del período actual (${escapeHtml(c.actual.desde)} – ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
+<p>Comparación del período actual (${escapeHtml(c.actual.desde)} – ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p><p class="nota">${escapeHtml(NOTA_SIN_CUENTAS_DE_PRUEBA)}</p>${aviso}
 <table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map((v) => filaVariacion(v)).join("")}</tbody></table>
 <h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
 ${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map((v) => filaVariacion(v)).join("")}</tbody></table>` : ""}

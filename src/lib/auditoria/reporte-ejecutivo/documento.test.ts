@@ -194,6 +194,45 @@ describe("sección de comparativo", () => {
   });
 });
 
+describe("lectura honesta del comparativo en el documento", () => {
+  const diezOperaciones = calcularResumenUso({
+    eventos: Array.from({ length: 10 }, (_, i) => ({
+      user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7,
+      createdAt: `2026-09-0${(i % 7) + 1}T10:00:00Z`,
+    })),
+    periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-07T23:59:59Z",
+  });
+  const unaOperacion = calcularResumenUso({
+    eventos: [{ user: "Beto", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7, createdAt: "2026-08-28T10:00:00Z" }],
+    periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z",
+  });
+  const sube = compararUso({ actual: diezOperaciones, previo: unaOperacion, base: "reporte_anterior" });
+
+  test("con una base previa pequeña el titular lleva las cifras, no el porcentaje, y avisa", () => {
+    const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: sube }).html;
+    const seccion = html.slice(html.indexOf('id="comparativo"'), html.indexOf('id="indicadores"'));
+    expect(seccion).toContain("El uso subió: de 1 a 10 operaciones (0,1 → 1,4 por día)");
+    expect(seccion).toContain("La base anterior es pequeña (1 operación y 1 persona): un porcentaje exageraría la variación, por eso se muestran las cifras.");
+    // Una persona antes y una ahora: la cantidad de personas no cambió.
+    expect(seccion).toContain("Operó 1 usuario, igual que antes");
+  });
+
+  test("dice cuando una sola persona concentra el uso y lo resume en «Lo más importante»", () => {
+    const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: sube }).html;
+    expect(html).toContain("El 100 % de las operaciones lo hizo una sola persona: Ana.");
+    const resumen = html.slice(html.indexOf('id="lo-mas-importante"'), html.indexOf('id="decisiones"'));
+    expect(resumen).toContain("El uso subió: de 1 a 10 operaciones (0,1 → 1,4 por día)");
+    expect(resumen).not.toContain("900 %");
+  });
+
+  test("aclara que el comparativo se hace sin cuentas de prueba ni genéricas", () => {
+    const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: sube }).html;
+    expect(html).toContain("Este comparativo se hace sin las cuentas de prueba ni las genéricas del equipo, en los dos períodos.");
+    // Sin comparativo no hay nota que dar.
+    expect(construirDocumentoConsistente(contexto).html).not.toContain("cuentas de prueba");
+  });
+});
+
 describe("colores del comparativo", () => {
   const usoPrevioAlto = calcularResumenUso({
     eventos: Array.from({ length: 10 }, (_, i) => ({
