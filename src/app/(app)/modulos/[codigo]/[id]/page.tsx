@@ -538,6 +538,7 @@ export default async function DatoModuloPage({
     balanceTercero: cruceTercero?.balanceTercero ?? null,
     resumen: cruceTercero?.resumen ?? null,
     resumenMarcas: cruceTercero?.resumenMarcas ?? null,
+    relaciones: cruceTercero?.relaciones ?? [],
     emparejamientos: cruceTercero?.emparejamientos ?? [],
     umbralDescuadre: cruceTercero?.umbralDescuadre ?? 0,
     parametros: descriptor.crucePorTercero.detalleTercero

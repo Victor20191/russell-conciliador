@@ -1531,6 +1531,7 @@ model MarcaCruceModulo {
   adjuntos                  AdjuntoMarcaCruce[]
   noModulares               CuentaNoModularCruce[]
   clasificadoresNoModulares ClasificadorNoModularCruce[]
+  relacionTerceros          RelacionMarcaTercero?
 
   @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
   @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
@@ -1575,6 +1576,42 @@ model EmparejamientoTerceroModulo {
 /// Soporte de una marca de auditoría (el anexo digital: PDF, Excel, CSV o imagen).
 /// El binario vive en el almacenamiento de objetos; la BD solo guarda la clave.
 /// FK dura a la marca: retirar la marca se lleva sus soportes.
+/// Terceros del cruce por tercero RELACIONADOS con una marca existente del período (9/Nov/2026): la
+/// marca —de la cédula contable, del cruce por tercero o del control de deducciones— explica sus
+/// diferencias, y la relación guarda cuáles, con qué diferencia y un comentario sobre ellos. Una por
+/// marca (relacionar más terceros la amplía); se borra con la marca.
+model RelacionMarcaTercero {
+  id            Int                    @id @default(autoincrement()) @map("id")
+  marcaId       Int                    @unique @map("marca_id")
+  comentario    String?                @map("comentario")
+  creadoPor     String?                @map("creado_por")
+  creadoPorId   Int?                   @map("creado_por_id")
+  creadoEn      DateTime               @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo       @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+  terceros      TerceroRelacionMarca[]
+
+  @@map("relacion_marca_tercero")
+}
+
+/// Un tercero de una relación con su diferencia cuando se relacionó: es lo que explica. Un tercero
+/// está en una sola relación del período (cliente, módulo, período, clave).
+model TerceroRelacionMarca {
+  id           Int                  @id @default(autoincrement()) @map("id")
+  relacionId   Int                  @map("relacion_id")
+  clienteId    Int                  @map("cliente_id")
+  moduloCodigo String               @map("modulo_codigo")
+  periodo      String               @map("periodo")
+  clave        String               @map("clave")
+  nombre       String?              @map("nombre")
+  diferencia   Decimal              @map("diferencia") @db.Decimal(18, 2)
+  relacion     RelacionMarcaTercero @relation(fields: [relacionId], references: [id], onDelete: Cascade)
+
+  @@unique([clienteId, moduloCodigo, periodo, clave], map: "tercero_relacion_marca_unico")
+  @@index([relacionId], map: "tercero_relacion_marca_relacion_idx")
+  @@map("tercero_relacion_marca")
+}
+
 model AdjuntoMarcaCruce {
   id            Int              @id @default(autoincrement()) @map("id")
   marcaId       Int              @map("marca_id")

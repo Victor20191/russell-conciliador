@@ -256,6 +256,7 @@ import {
   type MarcaCruce,
   type MarcaPeriodo,
   type ObservacionDeMarca,
+  type RelacionMarcaTercerosVm,
   type FilaControlMarcada,
   type FilaCruceMarcada,
   type HijoModuloSinCuenta,
@@ -812,7 +813,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} columnasVisibles={columnasVisiblesDetalle} totalFilas={totalFilasDetalle} clasificadorEtiqueta={clasificadorEtiqueta} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab onIrConsolidado={() => irATab("consolidado")} moduloCodigo={moduloCodigo} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
+        <CruceContableTab relacionesTerceros={cruceTercero.relaciones ?? []} onIrTerceros={() => irATab("cruceTercero")} onIrConsolidado={() => irATab("consolidado")} moduloCodigo={moduloCodigo} moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} descripcionPorClasificador={descripcionPorClasificador} />
       ) : tab === "subcuenta" && cruceContable.nomina?.vistaSubcuenta ? (
         <VistaSubcuentaNominaCard vista={cruceContable.nomina.vistaSubcuenta} moduloLabel={moduloLabel} />
       ) : tab === "cruceTercero" ? (
@@ -2509,9 +2510,15 @@ function CruceContableTab({
   comentarios,
   puedeEditar,
   descripcionPorClasificador = {},
+  relacionesTerceros = [],
+  onIrTerceros,
 }: {
   /** Lleva a la pestaña Consolidado (para asignar cuenta al saldo sin cuenta). */
   onIrConsolidado?: () => void;
+  /** Terceros del cruce por tercero relacionados con marcas de esta cédula (se citan en su observación). */
+  relacionesTerceros?: RelacionMarcaTercerosVm[];
+  /** Lleva a la pestaña «Cruce por tercero». */
+  onIrTerceros?: () => void;
   moduloCodigo: string;
   moduloLabel: string;
   nivelCruce: NivelCruce;
@@ -3057,6 +3064,8 @@ function CruceContableTab({
         puedeEditarHuerfana={puedePasar}
         onEditar={(observacion) => setMarcando(observacion)}
         onQuitar={quitar}
+        relacionesTerceros={relacionesTerceros}
+        onIrTerceros={onIrTerceros}
       />
 
       {cruceContable.nomina?.control && (cruceContable.controlMarcado?.length ?? 0) > 0 && (
@@ -3999,6 +4008,8 @@ function ObservacionesMarcas({
   puedeEditarHuerfana,
   onEditar,
   onQuitar,
+  relacionesTerceros = [],
+  onIrTerceros,
 }: {
   observaciones: ObservacionDeMarca<FilaCruceMarcada>[];
   /** Las demás marcas del período (cruce por tercero, o sin renglón), citadas en su lugar. */
@@ -4019,6 +4030,8 @@ function ObservacionesMarcas({
   puedeEditarHuerfana?: (marca: ReferenciaMarcaVm) => boolean;
   onEditar: (observacion: ObservacionDeMarca<FilaCruceMarcada>) => void;
   onQuitar: (observacion: ObservacionDeMarca<FilaCruceMarcada>) => void;
+  relacionesTerceros?: RelacionMarcaTercerosVm[];
+  onIrTerceros?: () => void;
 }) {
   const entradas = intercalarObservaciones(observaciones, (o) => o.marca.numero, referencias);
   return (
@@ -4067,6 +4080,8 @@ function ObservacionesMarcas({
               ocupado={ocupado}
               onEditar={() => onEditar(entrada.item)}
               onQuitar={() => onQuitar(entrada.item)}
+              relacion={relacionesTerceros.find((r) => r.numero === entrada.item.marca.numero) ?? null}
+              onIrTerceros={onIrTerceros}
             />
           ))}
         </ol>
@@ -4085,6 +4100,8 @@ function ObservacionMarca({
   ocupado,
   onEditar,
   onQuitar,
+  relacion = null,
+  onIrTerceros,
 }: {
   fila: FilaCruceMarcada;
   marca: MarcaCruce;
@@ -4094,6 +4111,9 @@ function ObservacionMarca({
   ocupado: boolean;
   onEditar: () => void;
   onQuitar: () => void;
+  /** Terceros del cruce por tercero relacionados con esta marca. */
+  relacion?: RelacionMarcaTercerosVm | null;
+  onIrTerceros?: () => void;
 }) {
   return (
     <li id={anclaObservacionMarca(marca.numero)} className="flex gap-3 px-3 py-3 scroll-mt-24">
@@ -4126,6 +4146,18 @@ function ObservacionMarca({
         <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>
 
         <ResumenNoModulares cuentas={marca.noModulares} />
+        {relacion && (
+          <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-ink-600">
+            <Icon name="link" size={11} className="text-navy-700" />
+            Relacionada con <b>{relacion.terceros.length === 1 ? "1 tercero" : `${relacion.terceros.length} terceros`}</b> del cruce por tercero (Σ{" "}
+            <b className="tabular-nums">{fmtContable(relacion.suma)}</b>).
+            {onIrTerceros && (
+              <button type="button" onClick={onIrTerceros} className="font-semibold text-blue-700 hover:underline">
+                Ver en Cruce por tercero →
+              </button>
+            )}
+          </p>
+        )}
         <ResumenClasificadoresNoModulares
           clasificadores={marca.clasificadoresNoModulares ?? []}
           sinCuenta={fila.cuenta4 === CLAVE_SIN_CUENTA}

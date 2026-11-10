@@ -109,18 +109,24 @@ export type MarcasDelRenglon = {
 export function explicarRenglon(
   cifra: number,
   marcas: readonly MarcaCruce[],
-  opciones: { admite: boolean; umbral: number; tolerancia?: number },
+  opciones: {
+    admite: boolean;
+    umbral: number;
+    tolerancia?: number;
+    /** Lo que explica algo distinto de sus marcas (un tercero relacionado con una marca: su diferencia). */
+    aparte?: number | null;
+  },
 ): MarcasDelRenglon {
   const tolerancia = opciones.tolerancia ?? TOLERANCIA_CRUCE;
   const ordenadas = [...marcas].sort((a, b) => a.numero - b.numero);
-  const explicado = redondear(ordenadas.reduce((s, m) => s + montoDeMarca(m), 0));
+  const explicado = redondear(ordenadas.reduce((s, m) => s + montoDeMarca(m), 0) + (opciones.aparte ?? 0));
   const porExplicar = redondear(cifra - explicado);
   const cubierto = Math.abs(porExplicar) <= tolerancia || (opciones.umbral > 0 && !requiereMarcaPorUmbral(porExplicar, opciones.umbral));
   return {
     marcas: ordenadas,
     explicado,
     porExplicar,
-    desactualizada: ordenadas.length > 0 && opciones.admite && !cubierto,
+    desactualizada: (ordenadas.length > 0 || opciones.aparte != null) && opciones.admite && !cubierto,
   };
 }
 
@@ -481,7 +487,41 @@ export type FilaCruceTerceroMarcada = FilaCruceTerceroCartera & MarcasDelRenglon
   admiteMarca: boolean;
   /** La diferencia alcanza «Diferencia por tercero» de `/config/parametros`: sin marcas que la expliquen, impide cerrar. */
   requiereMarca: boolean;
+  /** Relacionado con una marca existente del período: la explica por la diferencia que tenía al relacionarlo. */
+  relacion: RelacionTerceroMarca | null;
 };
+
+/**
+ * Un tercero relacionado con una marca existente del período (9/Nov/2026): la marca ② de la cédula
+ * puede explicar la suma de las diferencias de varios NIT. Se seleccionan, se relacionan con ella y
+ * cada uno queda explicado por la diferencia que tenía al relacionarlo.
+ */
+export type RelacionTerceroMarca = {
+  /** Número de la marca (de cualquier pestaña: cédula, cruce por tercero o control). */
+  numero: number;
+  clave: string;
+  /** Diferencia del tercero cuando se relacionó: lo que explica. */
+  diferencia: number;
+};
+
+/** Una relación de una marca con sus terceros, como la ven las pantallas. */
+export type RelacionMarcaTercerosVm = {
+  /** Número de la marca relacionada. */
+  numero: number;
+  comentario: string | null;
+  creadoPor: string | null;
+  /** Fecha de la última modificación, ya formateada. */
+  actualizadoEn: string;
+  /** Por clave; cada uno con la diferencia que tenía al relacionarlo. */
+  terceros: { clave: string; nombre: string | null; diferencia: number }[];
+  /** Σ de las diferencias de sus terceros al relacionarlos. */
+  suma: number;
+};
+
+/** ¿Se puede seleccionar el tercero para relacionarlo con una marca? Con diferencia, sin marcas propias y sin otra relación. */
+export function terceroRelacionable(fila: Pick<FilaCruceTerceroMarcada, "admiteMarca" | "marcas" | "relacion">): boolean {
+  return fila.admiteMarca && fila.marcas.length === 0 && fila.relacion == null;
+}
 
 export const MAX_CLAVE_TERCERO = 200;
 
@@ -504,18 +544,31 @@ export function anclaCruceTercero(clave: string): string {
 export function anotarCruceTerceroConMarcas(
   filas: readonly FilaCruceTerceroCartera[],
   marcas: readonly MarcaCruce[],
-  opciones: { umbralDescuadre: number; tolerancia?: number },
+  opciones: {
+    umbralDescuadre: number;
+    tolerancia?: number;
+    /** Terceros relacionados con una marca existente: cuentan como explicados por su diferencia al relacionarlos. */
+    relaciones?: readonly RelacionTerceroMarca[];
+  },
 ): { filas: FilaCruceTerceroMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones.tolerancia ?? TOLERANCIA_CRUCE;
   const porClave = agruparPorRenglon(marcas, (m) => (m.dimension === "tercero" && m.clave ? m.clave : null));
+  const relacionDe = new Map((opciones.relaciones ?? []).map((r) => [r.clave, r]));
 
   const anotadas: FilaCruceTerceroMarcada[] = filas.map((fila) => {
     const admite = fila.estado !== "cuadra" && fila.estado !== "sin_saldo";
+    const relacion = relacionDe.get(fila.clave) ?? null;
     return {
       ...fila,
       admiteMarca: admite,
       requiereMarca: admite && requiereMarcaPorUmbral(fila.diferencia, opciones.umbralDescuadre),
-      ...explicarRenglon(fila.diferencia, porClave.get(fila.clave) ?? [], { admite, umbral: opciones.umbralDescuadre, tolerancia }),
+      relacion,
+      ...explicarRenglon(fila.diferencia, porClave.get(fila.clave) ?? [], {
+        admite,
+        umbral: opciones.umbralDescuadre,
+        tolerancia,
+        aparte: relacion?.diferencia ?? null,
+      }),
     };
   });
 
@@ -527,7 +580,7 @@ export function anotarCruceTerceroConMarcas(
         return acc;
       }
       acc.conDiferencia += 1;
-      if (fila.marcas.length > 0) {
+      if (fila.marcas.length > 0 || fila.relacion) {
         acc.marcadas += 1;
         if (fila.desactualizada) {
           acc.desactualizadas += 1;

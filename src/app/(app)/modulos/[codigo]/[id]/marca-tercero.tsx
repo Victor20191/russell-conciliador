@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
@@ -21,7 +21,9 @@ import {
   type FilaCruceTerceroMarcada,
   type MarcaCruce,
   type ObservacionDeMarca,
+  type RelacionMarcaTercerosVm,
 } from "@/lib/modulos/marcas-cruce";
+import { BloqueRelacionTerceros, InsigniaRelacionTercero } from "./relacion-marca-terceros";
 import {
   CampoMontoMarca,
   EditorSoportesMarca,
@@ -59,7 +61,8 @@ export function CeldaMarcaTercero({
 }) {
   return (
     <div className="flex items-center justify-center gap-1">
-      {(fila.admiteMarca || fila.marcas.length > 0) && (
+      {/* Relacionado con una marca existente: la explica ella; no lleva marcas propias. */}
+      {fila.relacion ? <InsigniaRelacionTercero fila={fila} /> : (fila.admiteMarca || fila.marcas.length > 0) && (
         <InsigniasMarcasRenglon
           renglon={fila}
           diferencia={fila.diferencia}
@@ -91,6 +94,9 @@ export function ObservacionesMarcasTercero({
   onQuitarHuerfana,
   onEditar,
   onQuitar,
+  relaciones = [],
+  onQuitarTerceroRelacion,
+  onDeshacerRelacion,
 }: {
   observaciones: ObservacionDeMarca<FilaCruceTerceroMarcada>[];
   /** Las demás marcas del período (cruce contable, o sin renglón), citadas en su lugar. */
@@ -103,8 +109,26 @@ export function ObservacionesMarcasTercero({
   onQuitarHuerfana?: (marca: ReferenciaMarcaVm) => void;
   onEditar: (observacion: ObservacionDeMarca<FilaCruceTerceroMarcada>) => void;
   onQuitar: (observacion: ObservacionDeMarca<FilaCruceTerceroMarcada>) => void;
+  /** Terceros relacionados con cada marca: van debajo de ella. */
+  relaciones?: RelacionMarcaTercerosVm[];
+  onQuitarTerceroRelacion?: (numero: number, clave: string) => void;
+  onDeshacerRelacion?: (numero: number) => void;
 }) {
   const entradas = intercalarObservaciones(observaciones, (o) => o.marca.numero, referencias);
+  const relacionDe = new Map(relaciones.map((r) => [r.numero, r]));
+  const bloqueRelacion = (numero: number) => {
+    const relacion = relacionDe.get(numero);
+    if (!relacion) return null;
+    return (
+      <BloqueRelacionTerceros
+        relacion={relacion}
+        puedeEditar={puedeEditar && !!onQuitarTerceroRelacion}
+        ocupado={ocupado}
+        onQuitarTercero={(clave) => onQuitarTerceroRelacion?.(numero, clave)}
+        onDeshacer={() => onDeshacerRelacion?.(numero)}
+      />
+    );
+  };
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-ink-100 px-3 py-2">
@@ -127,17 +151,20 @@ export function ObservacionesMarcasTercero({
             if (entrada.tipo === "referencia") {
               const huerfanaPropia = puedeEditar && onQuitarHuerfana && !entrada.marca.destino && entrada.marca.dimension === "tercero";
               return (
-                <ReferenciaMarca
-                  key={`ref-${entrada.numero}`}
-                  referencia={entrada.marca}
-                  ocupado={ocupado}
-                  onQuitar={huerfanaPropia ? () => onQuitarHuerfana!(entrada.marca) : undefined}
-                />
+                <Fragment key={`ref-${entrada.numero}`}>
+                  <ReferenciaMarca
+                    referencia={entrada.marca}
+                    ocupado={ocupado}
+                    onQuitar={huerfanaPropia ? () => onQuitarHuerfana!(entrada.marca) : undefined}
+                  />
+                  {bloqueRelacion(entrada.numero)}
+                </Fragment>
               );
             }
             const { fila, marca } = entrada.item;
             return (
-              <li key={`marca-${marca.numero}`} id={anclaObservacionMarca(marca.numero)} className="flex scroll-mt-24 gap-3 px-3 py-3">
+              <Fragment key={`marca-${marca.numero}`}>
+              <li id={anclaObservacionMarca(marca.numero)} className="flex scroll-mt-24 gap-3 px-3 py-3">
                 <div className="pt-0.5">
                   <InsigniaMarca numero={marca.numero} tono={fila.desactualizada ? "warn" : "ok"} titulo={`Marca ${marca.numero}`} />
                 </div>
@@ -208,6 +235,8 @@ export function ObservacionesMarcasTercero({
                   </div>
                 )}
               </li>
+              {bloqueRelacion(marca.numero)}
+              </Fragment>
             );
           })}
         </ol>

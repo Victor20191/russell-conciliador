@@ -749,6 +749,17 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
                 regla: REGLAS.editarModulo,
               },
               {
+                nombre: "Relacionar con una marca",
+                queHace:
+                  "Con las casillas se seleccionan varios terceros con diferencia (la del encabezado toma los de la lista) y la barra de abajo muestra la suma. «Relacionar con una marca» los asocia a una marca existente del período —por ejemplo la de la cédula contable que explica esa misma diferencia—, compara la suma con lo que explica la marca y guarda un comentario sobre ellos. Cada tercero queda explicado por la diferencia que tenía al relacionarlo y lleva el número de la marca; si la diferencia cambia, queda por explicar. Al pie, debajo de la marca, se puede quitar un tercero o deshacer la relación.",
+                regla: REGLAS.editarModulo,
+                condiciones: [
+                  "Solo terceros con diferencia, sin marcas propias y sin otra relación.",
+                  "No con la conciliación en firme.",
+                ],
+                fuente: { archivo: ACCIONES_MODULOS, funcion: "relacionarTercerosConMarca" },
+              },
+              {
                 nombre: "Cuentas en este cruce",
                 queHace: "Muestra qué cuentas entran al cruce y qué queda fuera.",
                 regla: REGLAS.verModulo,

@@ -22,6 +22,7 @@ import {
   montoDeMarca,
   normalizarCuenta4,
   observacionesDeMarcas,
+  terceroRelacionable,
   textoMontoMarca,
   siguienteNumeroMarca,
   validarNoModulares,
@@ -489,6 +490,38 @@ describe("marcas del cruce por tercero", () => {
     expect(falta.resumen).toMatchObject({ marcadas: 1, desactualizadas: 1, montoPorExplicar: 3_000 });
     const casi = anotarCruceTerceroConMarcas(cruceTercero.filas, [marcaTercero("900000001", 5_000, 4)], { umbralDescuadre: 2_000 });
     expect(casi.resumen).toMatchObject({ marcadas: 1, desactualizadas: 0 });
+  });
+
+  it("un tercero relacionado con una marca de la cédula queda explicado por su diferencia al relacionarlo", () => {
+    const relaciones = [
+      { numero: 2, clave: "900000001", diferencia: 6_000 },
+      { numero: 2, clave: "900000005", diferencia: -3_000 },
+    ];
+    const { filas, resumen } = anotarCruceTerceroConMarcas(cruceTercero.filas, [], { umbralDescuadre: 2_000, relaciones });
+    const uno = filas.find((f) => f.clave === "900000001")!;
+    expect(uno).toMatchObject({ relacion: { numero: 2 }, explicado: 6_000, porExplicar: 0, desactualizada: false });
+    expect(uno.marcas).toEqual([]);
+    expect(resumen).toMatchObject({ conDiferencia: 2, marcadas: 2, pendientes: 0, desactualizadas: 0 });
+    // Si la diferencia cambió desde la relación más allá del umbral, queda por explicar.
+    const cambio = anotarCruceTerceroConMarcas(cruceTercero.filas, [], { umbralDescuadre: 2_000, relaciones: [{ numero: 2, clave: "900000001", diferencia: 3_000 }] });
+    expect(cambio.filas.find((f) => f.clave === "900000001")).toMatchObject({ desactualizada: true, porExplicar: 3_000 });
+    expect(cambio.resumen).toMatchObject({ marcadas: 1, desactualizadas: 1, pendientes: 1 });
+  });
+
+  it("solo se seleccionan para relacionar los terceros con diferencia, sin marcas propias ni otra relación", () => {
+    const { filas } = anotarCruceTerceroConMarcas(
+      cruceTercero.filas,
+      [marcaTercero("900000002", 100, 7)],
+      { umbralDescuadre: 2_000, relaciones: [{ numero: 2, clave: "900000001", diferencia: 6_000 }] },
+    );
+    const por = Object.fromEntries(filas.map((f) => [f.clave, terceroRelacionable(f)]));
+    expect(por).toMatchObject({
+      "900000001": false, // ya relacionado
+      "900000002": false, // tiene su propia marca
+      "900000003": true,
+      "900000004": false, // cuadra
+      "900000005": true,
+    });
   });
 
   it("varias marcas en un tercero suman lo que explican", () => {

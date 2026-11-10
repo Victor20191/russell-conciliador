@@ -40,6 +40,8 @@ import {
   anotarCruceTerceroConMarcas,
   type FilaCruceTerceroMarcada,
   type MarcaCruce,
+  type RelacionMarcaTercerosVm,
+  type RelacionTerceroMarca,
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -136,6 +138,8 @@ export type ResultadoCruceTerceroModulo = {
   moduloNoAtribuido: number;
   /** Qué cuentas se tienen en cuenta en el cruce y qué queda fuera; solo con `conAlcance`. */
   alcance: AlcanceCruceTercero | null;
+  /** Terceros relacionados con marcas existentes del período, agrupados por marca. */
+  relaciones: RelacionMarcaTercerosVm[];
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
@@ -166,6 +170,7 @@ const resultado = (
   moduloDerivadoDelDetalle: false,
   moduloNoAtribuido: 0,
   alcance: null,
+  relaciones: [],
 });
 
 /**
@@ -198,6 +203,49 @@ async function emparejamientosDelPeriodo(clienteId: number, moduloCodigo: string
     creadoPor: f.creadoPor,
     creadoEn: fmtDateTime(f.creadoEn),
   }));
+}
+
+/**
+ * Terceros relacionados con una marca existente del período (9/Nov/2026): los que la marca explica,
+ * cada uno con su diferencia al relacionarlo, y las relaciones agrupadas por marca para la pantalla.
+ */
+export async function relacionesTerceroDelPeriodo(
+  clienteId: number,
+  moduloCodigo: string,
+  periodo: string,
+): Promise<{ porTercero: RelacionTerceroMarca[]; relaciones: RelacionMarcaTercerosVm[] }> {
+  const filas = await prisma.terceroRelacionMarca.findMany({
+    where: { clienteId, moduloCodigo, periodo },
+    orderBy: { clave: "asc" },
+    select: {
+      clave: true,
+      nombre: true,
+      diferencia: true,
+      relacion: { select: { comentario: true, creadoPor: true, updatedAt: true, marca: { select: { numero: true } } } },
+    },
+  });
+  const porNumero = new Map<number, RelacionMarcaTercerosVm>();
+  const porTercero: RelacionTerceroMarca[] = [];
+  for (const f of filas) {
+    const numero = f.relacion.marca.numero;
+    const diferencia = Number(f.diferencia);
+    porTercero.push({ numero, clave: f.clave, diferencia });
+    let relacion = porNumero.get(numero);
+    if (!relacion) {
+      relacion = {
+        numero,
+        comentario: f.relacion.comentario,
+        creadoPor: f.relacion.creadoPor,
+        actualizadoEn: fmtDateTime(f.relacion.updatedAt),
+        terceros: [],
+        suma: 0,
+      };
+      porNumero.set(numero, relacion);
+    }
+    relacion.terceros.push({ clave: f.clave, nombre: f.nombre, diferencia });
+    relacion.suma = redondear(relacion.suma + diferencia);
+  }
+  return { porTercero, relaciones: [...porNumero.values()].sort((a, b) => a.numero - b.numero) };
 }
 
 /** Marcas de auditoría por tercero del período, con sus soportes. */
@@ -263,7 +311,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const adicionales = [...cedula.adicionales];
   const delPeriodo = (russell: string) => esCuentaDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4)) || cedula.adicionales.has(russell.slice(0, 6));
 
-  const [crudas, emparejamientos, marcas, umbralDiferencia, noModularesRows] = await Promise.all([
+  const [crudas, emparejamientos, marcas, relaciones, umbralDiferencia, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: {
         encabezadoId: balanceTercero.id,
@@ -281,6 +329,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     }),
     emparejamientosDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     marcasTerceroDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
+    relacionesTerceroDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     // «Diferencia por tercero» de /config/parametros, o la congelada en el cierre del período.
     // Sin valor (una caché vieja sin la clave) rige el de fábrica: nunca «ninguna diferencia exige marca».
     insumos.umbralDescuadre != null
@@ -414,7 +463,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       .filter((e) => e.tipo === "union_contable")
       .map((e) => ({ claveContable: e.claveModulo, claveDestino: e.claveBalance })),
   });
-  const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbralDiferencia });
+  const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbralDiferencia, relaciones: relaciones.porTercero });
 
   let alcance: AlcanceCruceTercero | null = null;
   if (insumos.conAlcance) {
@@ -442,6 +491,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     balanceTercero: ref,
     resumen: { ...cruce, filas: anotado.filas },
     resumenMarcas: anotado.resumen,
+    relaciones: relaciones.relaciones,
     emparejamientos,
     umbralDescuadre: umbralDiferencia,
     contableExcluidoFilas,

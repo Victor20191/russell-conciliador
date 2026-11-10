@@ -4072,6 +4072,167 @@ export async function quitarMarcaCruce(input: { encabezadoId: number; numero: nu
   }
 }
 
+// ===== Terceros relacionados con una marca existente (9/Nov/2026) =====
+// La marca ② de la cédula puede explicar la suma de las diferencias de varios NIT del cruce por
+// tercero. En vez de marcar cada uno, se seleccionan y se relacionan con ella: cada tercero queda
+// explicado por la diferencia que tenía al relacionarlo, y la relación lleva un comentario sobre ellos.
+
+const pesos = (v: number) => v.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Relaciona terceros del cruce por tercero con una marca existente del período (de cualquier
+ * pestaña). Una relación por marca: relacionar más terceros la amplía, y relacionar de nuevo uno que
+ * ya estaba renueva la diferencia que explica. Cada tercero tiene que tener diferencia, no tener
+ * marcas propias ni estar relacionado con otra marca.
+ */
+export async function relacionarTercerosConMarca(input: {
+  encabezadoId: number;
+  numero: number;
+  claves: string[];
+  /** Comentario sobre los terceros seleccionados; vacío lo deja sin comentario. */
+  comentario?: string;
+}): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  if (!Number.isSafeInteger(input.numero) || input.numero <= 0) return { ok: false, message: "Marca inválida." };
+  if (!Array.isArray(input.claves) || input.claves.length === 0) return { ok: false, message: "Selecciona al menos un tercero." };
+  if (input.claves.length > 5_000) return { ok: false, message: "Son demasiados terceros para una sola relación." };
+  const claves: string[] = [];
+  for (const cruda of input.claves) {
+    const clave = normalizarClaveTercero(cruda);
+    if (!clave) return { ok: false, message: "Tercero inválido." };
+    if (!claves.includes(clave)) claves.push(clave);
+  }
+  const comentario = String(input.comentario ?? "").trim();
+  if (comentario.length > MAX_NOTA_MARCA) return { ok: false, message: `El comentario no puede superar ${MAX_NOTA_MARCA} caracteres.` };
+
+  const { encabezado } = ctx;
+  const periodoMarca = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
+  try {
+    const marca = await prisma.marcaCruceModulo.findFirst({
+      where: { ...periodoMarca, numero: input.numero },
+      select: { id: true, numero: true },
+    });
+    if (!marca) return { ok: false, message: "Esa marca ya no existe. Recarga la pantalla." };
+
+    // Las diferencias se toman del cruce VIGENTE, no del formulario: entre seleccionar y guardar pudo
+    // recargarse el módulo o emparejarse un tercero.
+    const insumos = await cargarInsumosCruceModulo(encabezado.id);
+    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
+    const tercero = await cruceTerceroDeCargue(insumos, await construirCruceContableModulo(insumos));
+    if (!tercero?.resumen) return { ok: false, message: tercero?.mensaje ?? "El cruce por tercero no está disponible en este momento." };
+    const porClave = new Map(tercero.resumen.filas.map((f) => [f.clave, f]));
+    const seleccion: { clave: string; nombre: string | null; diferencia: number }[] = [];
+    for (const clave of claves) {
+      const fila = porClave.get(clave);
+      if (!fila) return { ok: false, message: `El tercero ${clave} ya no aparece en el cruce. Recarga la pantalla.` };
+      if (!fila.admiteMarca) return { ok: false, message: `El tercero ${clave} ya no tiene diferencia.` };
+      if (fila.marcas.length > 0) {
+        return { ok: false, message: `El tercero ${clave} tiene su propia marca ${fila.marcas.map((m) => m.numero).join(", ")}: no se relaciona con otra.` };
+      }
+      if (fila.relacion && fila.relacion.numero !== marca.numero) {
+        return { ok: false, message: `El tercero ${clave} ya está relacionado con la marca ${fila.relacion.numero}.` };
+      }
+      seleccion.push({ clave, nombre: fila.nombre ?? null, diferencia: fila.diferencia });
+    }
+
+    const user = await getCurrentUser();
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      const relacion = await tx.relacionMarcaTercero.upsert({
+        where: { marcaId: marca.id },
+        create: { marcaId: marca.id, comentario: comentario || null, creadoPor: user?.name ?? null, creadoPorId: ctx.userId },
+        update: { comentario: comentario || null },
+        select: { id: true },
+      });
+      // Relacionar de nuevo un tercero renueva la diferencia que explica.
+      await tx.terceroRelacionMarca.deleteMany({ where: { relacionId: relacion.id, clave: { in: claves } } });
+      await tx.terceroRelacionMarca.createMany({
+        data: seleccion.map((s) => ({
+          relacionId: relacion.id,
+          ...periodoMarca,
+          clave: s.clave,
+          nombre: s.nombre,
+          diferencia: new Prisma.Decimal(s.diferencia.toFixed(2)),
+        })),
+      });
+      return tx.terceroRelacionMarca.count({ where: { relacionId: relacion.id } });
+    });
+
+    const suma = Math.round(seleccion.reduce((s, t) => s + t.diferencia, 0) * 100) / 100 + 0;
+    await auditarMarcaCruce(
+      encabezado,
+      "RELACIONÓ terceros con una marca del cruce",
+      `marca ${marca.numero}`,
+      ` · ${seleccion.length} tercero(s) · Σ ${suma.toFixed(2)} · la relación tiene ${resultado} · ${seleccion.slice(0, 20).map((s) => s.clave).join(", ")}${seleccion.length > 20 ? "…" : ""}`,
+    );
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return {
+      ok: true,
+      message: `${seleccion.length === 1 ? "1 tercero relacionado" : `${seleccion.length} terceros relacionados`} con la marca ${marca.numero} (Σ $ ${pesos(suma)}).`,
+    };
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: ctx.encabezado.nombreCliente });
+    if (enFirme) return enFirme;
+    return { ok: false, message: mensajeErrorBD("relacionarTercerosConMarca", e) };
+  }
+}
+
+/**
+ * Quita UN tercero de la relación de una marca, o la relación completa (sin `clave`). La marca y sus
+ * demás terceros no se tocan; el tercero vuelve a pedir su propia explicación.
+ */
+export async function quitarRelacionTerceros(input: { encabezadoId: number; numero: number; clave?: string }): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  if (!Number.isSafeInteger(input.numero) || input.numero <= 0) return { ok: false, message: "Marca inválida." };
+  const clave = input.clave != null ? normalizarClaveTercero(input.clave) : null;
+  if (input.clave != null && !clave) return { ok: false, message: "Tercero inválido." };
+
+  const { encabezado } = ctx;
+  try {
+    const relacion = await prisma.relacionMarcaTercero.findFirst({
+      where: { marca: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, numero: input.numero } },
+      select: { id: true, _count: { select: { terceros: true } } },
+    });
+    if (!relacion) return { ok: false, message: "Esa marca ya no tiene terceros relacionados." };
+
+    const quedan = await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      if (clave) {
+        const borrados = await tx.terceroRelacionMarca.deleteMany({ where: { relacionId: relacion.id, clave } });
+        if (borrados.count === 0) return null;
+        const restantes = await tx.terceroRelacionMarca.count({ where: { relacionId: relacion.id } });
+        // Sin terceros, la relación no tiene qué explicar.
+        if (restantes === 0) await tx.relacionMarcaTercero.delete({ where: { id: relacion.id } });
+        return restantes;
+      }
+      await tx.relacionMarcaTercero.delete({ where: { id: relacion.id } });
+      return 0;
+    });
+    if (quedan == null) return { ok: false, message: "Ese tercero ya no estaba relacionado con la marca." };
+
+    await auditarMarcaCruce(
+      encabezado,
+      clave ? "QUITÓ un tercero de la relación con una marca del cruce" : "DESHIZO la relación de terceros con una marca del cruce",
+      `marca ${input.numero}`,
+      clave ? ` · tercero ${clave} · quedan ${quedan}` : ` · ${relacion._count.terceros} tercero(s)`,
+    );
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return {
+      ok: true,
+      message: clave
+        ? `Tercero ${clave} quitado de la relación con la marca ${input.numero}.`
+        : `Relación de la marca ${input.numero} deshecha.`,
+    };
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
+    return { ok: false, message: mensajeErrorBD("quitarRelacionTerceros", e) };
+  }
+}
+
 /** Elimina UN soporte de una marca, sin tocar la observación. */
 export async function eliminarSoporteMarca(input: {
   encabezadoId: number;

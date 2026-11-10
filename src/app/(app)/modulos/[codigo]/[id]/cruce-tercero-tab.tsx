@@ -7,21 +7,25 @@ import { Card, Chip } from "@/components/ui";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
-import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
+import { quitarEmparejamientoTercero, quitarMarcaCruce, quitarRelacionTerceros, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
 import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import { coincidenciaTercero, type CoincidenciaTercero } from "@/lib/modulos/cartera/coincidencia-tercero";
 import {
   anclaCruceTercero,
+  montoDeMarca,
   observacionesDeMarcas,
+  terceroRelacionable,
   type FilaCruceTerceroMarcada,
   type MarcaCruce,
   type ObservacionDeMarca,
+  type RelacionMarcaTercerosVm,
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
 import { MenuAccionesFila, type AccionMenuFila } from "@/components/menu-acciones-fila";
-import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
+import { CeldaMarcaTercero, etiquetaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
+import { BarraSeleccionTerceros, ModalRelacionarMarca, type MarcaParaRelacionar } from "./relacion-marca-terceros";
 import type { ReferenciaMarcaVm } from "./soportes-marca";
 import { ModalEmparejarTercero } from "./emparejar-tercero";
 import { ModalValidarCoherencia } from "./validar-coherencia-tercero";
@@ -59,6 +63,8 @@ export type CruceTerceroVm = {
   resumen: ResumenCruceTerceroMarcado | null;
   /** Diferencias que exigen marca para cerrar, y cuántas la tienen. */
   resumenMarcas: ResumenMarcas | null;
+  /** Terceros relacionados con marcas existentes del período, por marca. */
+  relaciones?: RelacionMarcaTercerosVm[];
   emparejamientos: EmparejamientoTerceroVm[];
   /** Umbral de descuadre desde el que una diferencia exige marca. */
   umbralDescuadre: number;
@@ -198,7 +204,7 @@ function cumpleFiltro(fila: FilaCruceTerceroMarcada, filtro: Filtro): boolean {
   if (filtro === "por_dv") return fila.claveModuloPorDv != null;
   if (filtro === "por_nucleo") return fila.claveModuloPorNucleo != null;
   if (filtro === "sugeridos") return fila.sugerencia != null;
-  if (filtro === "pendientes") return fila.requiereMarca && (fila.marcas.length === 0 || fila.desactualizada);
+  if (filtro === "pendientes") return fila.requiereMarca && ((fila.marcas.length === 0 && !fila.relacion) || fila.desactualizada);
   return fila.estado === filtro;
 }
 
@@ -249,6 +255,9 @@ export function CruceTerceroTab({
   const [verSinSaldo, setVerSinSaldo] = useState(false);
   // Marca que se está escribiendo: la del tercero que se edita, o null para agregar una nueva.
   const [marcando, setMarcando] = useState<{ fila: FilaCruceTerceroMarcada; marca: MarcaCruce | null } | null>(null);
+  // Terceros seleccionados para relacionarlos con una marca existente (por clave).
+  const [seleccion, setSeleccion] = useState<Set<string>>(() => new Set());
+  const [relacionando, setRelacionando] = useState(false);
   // Tercero suelto que se está emparejando y, si se abrió desde el renglón con diferencia, su destino.
   const [emparejando, setEmparejando] = useState<{ fila: FilaCruceTerceroMarcada; destino: string | null } | null>(null);
   // Orden por columna elegido en el encabezado (null = el del sistema: diferencias primero).
@@ -316,6 +325,27 @@ export function CruceTerceroTab({
   );
   const cantidadSinSaldo = useMemo(() => (resumen?.filas ?? []).filter((f) => f.estado === "sin_saldo").length, [resumen]);
   const observaciones = useMemo(() => observacionesDeMarcas(resumen?.filas ?? []), [resumen]);
+  const relaciones = cruceTercero.relaciones ?? [];
+  // Las marcas del período con que se pueden relacionar terceros: las de las demás pestañas y las
+  // propias de este cruce, una vez cada número.
+  const marcasParaRelacionar = useMemo(() => {
+    const porNumero = new Map<number, MarcaParaRelacionar>();
+    for (const r of referenciasMarcas) porNumero.set(r.numero, { numero: r.numero, etiqueta: r.etiqueta, nota: r.nota, monto: r.monto ?? r.diferencia });
+    for (const o of observaciones) porNumero.set(o.marca.numero, { numero: o.marca.numero, etiqueta: etiquetaTercero(o.fila), nota: o.marca.nota, monto: montoDeMarca(o.marca) });
+    return [...porNumero.values()].sort((a, b) => a.numero - b.numero);
+  }, [referenciasMarcas, observaciones]);
+  const seleccionados = useMemo(
+    () => (resumen?.filas ?? []).filter((f) => seleccion.has(f.clave) && terceroRelacionable(f)),
+    [resumen, seleccion],
+  );
+  const sumaSeleccion = Math.round(seleccionados.reduce((s, f) => s + f.diferencia, 0) * 100) / 100 + 0;
+  const alternarSeleccion = (clave: string) =>
+    setSeleccion((previa) => {
+      const siguiente = new Set(previa);
+      if (siguiente.has(clave)) siguiente.delete(clave);
+      else siguiente.add(clave);
+      return siguiente;
+    });
   const candidatosBalance = useMemo(
     () => (resumen?.filas ?? []).filter((f) => Object.keys(f.contable.porCuenta).length > 0),
     [resumen],
@@ -337,6 +367,15 @@ export function CruceTerceroTab({
   );
   const filaPorClave = useMemo(() => new Map((resumen?.filas ?? []).map((f) => [f.clave, f])), [resumen]);
 
+  // Un tercero fuera de la relación con una marca, o la relación completa.
+  const quitarRelacion = (numero: number, clave?: string) => {
+    startAccion(async () => {
+      const r = await quitarRelacionTerceros({ encabezadoId, numero, clave });
+      if (r.ok) notifySuccess(r.message ?? "Relación actualizada.");
+      else notifyError(r.message ?? "No se pudo quitar la relación.");
+      router.refresh();
+    });
+  };
   const quitarMarca = ({ marca }: ObservacionDeMarca<FilaCruceTerceroMarcada>) => {
     startAccion(async () => {
       const r = await quitarMarcaCruce({ encabezadoId, numero: marca.numero });
@@ -513,7 +552,10 @@ export function CruceTerceroTab({
   const fuera = resumen.contableFueraDelModulo;
   const sinTercero = resumen.contableSinTercero;
   const contableGrupo = totales.contable + fuera.total + sinTercero.total;
-  const columnas = 7 + (mostrarCuentas ? cuentas.length : 0);
+  // Con permiso de editar, la primera columna es la casilla para seleccionar terceros.
+  const columnas = 7 + (mostrarCuentas ? cuentas.length : 0) + (puedeEditar ? 1 : 0);
+  const relacionablesVisibles = filtradas.filter(terceroRelacionable);
+  const todosSeleccionados = relacionablesVisibles.length > 0 && relacionablesVisibles.every((f) => seleccion.has(f.clave));
   const encabezado = (label: string, columna: ColumnaCruceTercero, alineacion: "left" | "right" = "left", title?: string) => (
     <HeaderOrdenable
       label={label}
@@ -664,6 +706,26 @@ export function CruceTerceroTab({
           <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
+                {puedeEditar && (
+                  <th className="w-px px-2 py-2">
+                    <input
+                      type="checkbox"
+                      checked={todosSeleccionados}
+                      disabled={relacionablesVisibles.length === 0}
+                      onChange={() =>
+                        setSeleccion((previa) => {
+                          const siguiente = new Set(previa);
+                          for (const f of relacionablesVisibles) {
+                            if (todosSeleccionados) siguiente.delete(f.clave);
+                            else siguiente.add(f.clave);
+                          }
+                          return siguiente;
+                        })}
+                      title="Seleccionar los terceros con diferencia de la lista, para relacionarlos con una marca"
+                      aria-label="Seleccionar todos los terceros con diferencia"
+                    />
+                  </th>
+                )}
                 <th className="px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaClave, "clave")}</th>
                 <th className="min-w-[10rem] px-3 py-2 font-semibold">{encabezado(cruceTercero.etiquetaNombre, "nombre")}</th>
                 {mostrarCuentas && cuentas.map((c) => (
@@ -700,6 +762,18 @@ export function CruceTerceroTab({
                     destacada === f.clave ? "bg-blue-100" : ""
                   } ${f.estado === "sin_saldo" ? "text-ink-400" : ""}`}
                 >
+                  {puedeEditar && (
+                    <td className="px-2 py-2 align-middle">
+                      {terceroRelacionable(f) && (
+                        <input
+                          type="checkbox"
+                          checked={seleccion.has(f.clave)}
+                          onChange={() => alternarSeleccion(f.clave)}
+                          aria-label={`Seleccionar ${etiquetaTercero(f)}`}
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
                   <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
                   {mostrarCuentas && cuentas.map((c) => (
@@ -799,7 +873,7 @@ export function CruceTerceroTab({
             {resumen.filas.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-                  <td className="px-3 py-2" colSpan={2}>Totales</td>
+                  <td className="px-3 py-2" colSpan={puedeEditar ? 3 : 2}>Totales</td>
                   {mostrarCuentas && cuentas.map((c) => <td key={c} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.porCuenta[c] ?? 0)}</td>)}
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.contable)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.modulo)}</td>
@@ -810,6 +884,15 @@ export function CruceTerceroTab({
             )}
           </table>
         </div>
+        {seleccionados.length > 0 && (
+          <BarraSeleccionTerceros
+            cantidad={seleccionados.length}
+            suma={sumaSeleccion}
+            ocupado={ocupado}
+            onRelacionar={() => setRelacionando(true)}
+            onLimpiar={() => setSeleccion(new Set())}
+          />
+        )}
         {filtradas.length > limite && (
           <div className="shrink-0 border-t border-ink-100 px-3 py-2 text-center">
             <button type="button" onClick={() => setLimite((l) => l + PAGINA)} className="text-[12.5px] font-semibold text-blue-700 hover:underline">
@@ -830,6 +913,9 @@ export function CruceTerceroTab({
           onQuitarHuerfana={quitarMarcaHuerfana}
           onEditar={(observacion) => setMarcando(observacion)}
           onQuitar={quitarMarca}
+          relaciones={relaciones}
+          onQuitarTerceroRelacion={(numero, clave) => quitarRelacion(numero, clave)}
+          onDeshacerRelacion={(numero) => quitarRelacion(numero)}
         />
       )}
 
@@ -879,6 +965,20 @@ export function CruceTerceroTab({
         )}
       </div>
 
+      {relacionando && seleccionados.length > 0 && (
+        <ModalRelacionarMarca
+          terceros={seleccionados}
+          marcas={marcasParaRelacionar}
+          relaciones={relaciones}
+          encabezadoId={encabezadoId}
+          onClose={() => setRelacionando(false)}
+          onGuardado={() => {
+            setRelacionando(false);
+            setSeleccion(new Set());
+            router.refresh();
+          }}
+        />
+      )}
       {marcando && (
         <ModalMarcaTercero
           fila={marcando.fila}
