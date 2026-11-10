@@ -34,6 +34,7 @@ import {
   correosDelReporte,
   nombresDelReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
+import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import {
   ReporteEjecutivoClient,
   type KpisIniciales,
@@ -74,7 +75,7 @@ export default async function ReportesEjecutivosPage() {
   const defaultHasta = periodoSugerido.hasta;
   const periodoTablero = `${aYYYYMMDD(desde)} → ${aYYYYMMDD(hasta)}`;
 
-  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados] = await Promise.all([
+  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados, usuariosActivos] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -127,6 +128,8 @@ export default async function ReportesEjecutivosPage() {
     modulosPublicadosParaTodos(),
     listarEnviosReporteEjecutivo(50),
     listarReportesGenerados(50),
+    // «Usuarios activos: X de Y» de la misma ventana del tablero (null si no se pudo medir).
+    construirUsuariosActivos({ desde, hasta }),
   ]);
 
   // Alcance del tablero y del reporte: solo módulos publicados para todos los
@@ -164,6 +167,7 @@ export default async function ReportesEjecutivosPage() {
     nombresClientes,
     correosUsuarios,
     usuariosRegistrados,
+    usuariosActivos,
   });
 
   // ¿Subió o bajó el uso frente al último reporte generado?
@@ -248,6 +252,7 @@ export default async function ReportesEjecutivosPage() {
     tickets,
     totalAcciones: uso.totalAcciones,
     totalUsuarios: uso.totalUsuarios,
+    usuariosActivos: uso.usuariosActivos ?? null,
     totalClientes: uso.totalClientes,
     usadas: adopcion.usadas,
     sinEvidencia: adopcion.sinEvidencia,

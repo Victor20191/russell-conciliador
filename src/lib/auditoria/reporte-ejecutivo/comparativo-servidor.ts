@@ -17,6 +17,7 @@ import { compararUso, type ComparativoUso } from "./comparativo";
 import { filtrarEventosPublicados, filtrarNavegacionesPublicadas, type FiltroPublicacion } from "./alcance";
 import { calcularResumenUso, clasificarFamilia, type EventoAuditoria, type ResumenUsoFactual } from "./metricas";
 import { metodologiaAlDia } from "./metodologia";
+import { leerUsuariosActivos } from "./usuarios-activos";
 
 /** Tope de eventos del período de respaldo (el actual tiene el suyo en cada llamador). */
 const MAX_EVENTOS_PREVIOS = 25_000;
@@ -47,6 +48,8 @@ function leerUsoDeInstantanea(metadatos: unknown): ResumenUsoFactual | null {
     navegacionesPorFamilia: candidato.navegacionesPorFamilia ?? [],
     primeraAccion: candidato.primeraAccion ?? null,
     ultimaAccion: candidato.ultimaAccion ?? null,
+    // Las instantáneas anteriores al indicador de usuarios activos no lo traen.
+    usuariosActivos: leerUsuariosActivos(candidato.usuariosActivos) ?? undefined,
   } as ResumenUsoFactual;
 }
 

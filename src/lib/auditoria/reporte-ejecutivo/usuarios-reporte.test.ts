@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   correosDelReporte,
+  esCuentaDePrueba,
   esCuentaInterna,
   nombresDelReporte,
+  normalizarNombre,
   usuariosDelReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 
@@ -43,5 +45,60 @@ describe("usuarios del reporte", () => {
     const correos = correosDelReporte(usuarios);
     expect(correos.has("Luisa Martinez")).toBe(false);
     expect(correos.get("Camilo Perez Rojo")).toBe("russell4@rbcol.co");
+  });
+});
+
+describe("nombres comparables", () => {
+  it("no distingue mayúsculas, acentos ni espacios dobles", () => {
+    expect(normalizarNombre("  WENDY  MENA   MORENO ")).toBe("wendy mena moreno");
+    expect(normalizarNombre("JOSÉ DAVID MONTOYA")).toBe(normalizarNombre("José David Montoya"));
+    expect(normalizarNombre(null)).toBe("");
+  });
+});
+
+describe("cuentas de prueba o genéricas", () => {
+  it("reconoce las seis cuentas conocidas del equipo", () => {
+    for (const nombre of [
+      "YULI ATEHORTUA GIRALDO Pruebas",
+      "Camilo Perez Rojo Pruebas",
+      "Russell 1",
+      "Russell 2",
+      "Russell 3",
+      "Administrador Russell",
+    ]) {
+      expect(esCuentaDePrueba(nombre), nombre).toBe(true);
+    }
+  });
+
+  it("«prueba» y «pruebas» valen sin importar mayúsculas ni acentos", () => {
+    expect(esCuentaDePrueba("Usuario de PRUEBA")).toBe(true);
+    expect(esCuentaDePrueba("usuario pruebas")).toBe(true);
+    expect(esCuentaDePrueba("Prueba 3")).toBe(true);
+    expect(esCuentaDePrueba("PRUÉBAS Contabilidad")).toBe(true);
+  });
+
+  it("«Russell <número>» y «Administrador Russell» solo valen exactos", () => {
+    expect(esCuentaDePrueba("RUSSELL 12")).toBe(true);
+    expect(esCuentaDePrueba("  russell   7 ")).toBe(true);
+    expect(esCuentaDePrueba("administrador russell")).toBe(true);
+    // Una persona real cuyo nombre solo contiene esas palabras NO es una cuenta de prueba.
+    expect(esCuentaDePrueba("Russell")).toBe(false);
+    expect(esCuentaDePrueba("Russell Gómez")).toBe(false);
+    expect(esCuentaDePrueba("Russell 1 Gómez")).toBe(false);
+    expect(esCuentaDePrueba("Administrador Russell Bedford")).toBe(false);
+    expect(esCuentaDePrueba("Administrador")).toBe(false);
+  });
+
+  it("no se confunde con nombres de personas, ni siquiera con letras parecidas", () => {
+    expect(esCuentaDePrueba("LUISA FERNANDA CHAVARRIA CARMONA")).toBe(false);
+    expect(esCuentaDePrueba("Comprueba Pérez")).toBe(false);
+    expect(esCuentaDePrueba("")).toBe(false);
+    expect(esCuentaDePrueba(undefined)).toBe(false);
+  });
+
+  it("no cambia a quién cuenta el resto del reporte como usuario", () => {
+    // Las cuentas de prueba siguen dentro del reporte: la exclusión es solo del indicador.
+    expect(usuariosDelReporte(usuarios).map((u) => u.name)).toContain("Administrador Russell");
+    expect(nombresDelReporte(usuarios)).toContain("Administrador Russell");
   });
 });

@@ -41,6 +41,53 @@ describe("documento consistente", () => {
     expect(a.html).toContain('id="rd-graficos-uso"');
   });
 
+  describe("usuarios activos", () => {
+    const usoConIndicador = { ...uso, usuariosActivos: { total: 68, activos: 4, porcentaje: 5.9, nuncaIngresaron: 59 } };
+
+    test("sin el indicador (instantáneas antiguas) el documento no trae la sección ni la viñeta", () => {
+      const html = construirDocumentoConsistente(contexto).html;
+      expect(html).not.toContain('id="usuarios-activos"');
+      expect(html).not.toContain("Usuarios activos");
+      expect(html).not.toContain("Nunca han ingresado");
+    });
+
+    test("con el indicador, lo dice en «Lo más importante» y en su propia sección", () => {
+      const html = construirDocumentoConsistente({ ...contexto, uso: usoConIndicador }).html;
+      const resumen = html.slice(html.indexOf('id="lo-mas-importante"'), html.indexOf('id="decisiones"'));
+      expect(resumen).toContain("Usuarios activos: <strong>4 de 68 (5,9 %)</strong>. Nunca han ingresado: 59.");
+
+      const seccion = html.slice(html.indexOf('id="usuarios-activos"'), html.indexOf('id="indicadores"'));
+      expect(seccion).toContain("<h2>¿Cuántas personas usan la plataforma?</h2>");
+      expect(seccion).toContain("<strong>Usuarios activos: 4 de 68 (5,9 %)</strong>");
+      expect(seccion).toContain("Nunca han ingresado: 59");
+      expect(seccion).toContain("Se cuenta como activo a quien entró, navegó o hizo alguna operación en el período");
+      expect(seccion).toContain("cuentas habilitadas del equipo, sin las de Xentria ni las de prueba");
+      // Barra en el trazo de «Uso en gráficos»: el correo la convierte en tabla.
+      expect(seccion).toContain("width:6%");
+    });
+
+    test("la sección va después de «Decisiones» y antes del comparativo y de los indicadores", () => {
+      const html = construirDocumentoConsistente({
+        ...contexto,
+        uso: usoConIndicador,
+        comparativo: compararUso({ actual: usoConIndicador, previo: { ...usoConIndicador, totalAcciones: 5 }, base: "periodo_anterior" }),
+      }).html;
+      const posiciones = ["decisiones", "usuarios-activos", "comparativo", "indicadores"].map((id) => html.indexOf(`id="${id}"`));
+      expect(posiciones.every((p) => p >= 0)).toBe(true);
+      expect(posiciones).toEqual([...posiciones].sort((a, b) => a - b));
+    });
+
+    test("con cero cuentas que medir no hay porcentaje ni división por cero", () => {
+      const html = construirDocumentoConsistente({
+        ...contexto,
+        uso: { ...uso, usuariosActivos: { total: 0, activos: 0, porcentaje: null, nuncaIngresaron: 0 } },
+      }).html;
+      expect(html).toContain("Usuarios activos: 0 de 0");
+      expect(html).not.toContain("NaN");
+      expect(html).toContain("width:0%");
+    });
+  });
+
   test("sin avances nuevos lo dice y no mide adopción sobre lo ya comunicado", () => {
     const html = construirDocumentoConsistente({ ...contexto, novedades: [] }).html;
     expect(html).toContain(SIN_AVANCES_NUEVOS);

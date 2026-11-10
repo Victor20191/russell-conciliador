@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(), leer: vi.fn(), guardar: vi.fn(), ia: vi.fn(), audit: vi.fn(),
   envios: vi.fn(), eventos: vi.fn(), conexiones: vi.fn(), versiones: vi.fn(), clientes: vi.fn(), usuarios: vi.fn(), tickets: vi.fn(),
+  acciones: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ default: {
   $transaction: (operacion: (tx: unknown) => Promise<unknown>) => operacion({
     auditEntry: { findMany: mocks.eventos }, accessLog: { groupBy: mocks.conexiones },
     platformVersion: { findMany: mocks.versiones }, client: { findMany: mocks.clientes }, user: { findMany: mocks.usuarios },
   }),
-  auditEntry: { findMany: mocks.eventos }, accessLog: { groupBy: mocks.conexiones },
+  auditEntry: { findMany: mocks.eventos, groupBy: mocks.acciones }, accessLog: { groupBy: mocks.conexiones },
   platformVersion: { findMany: mocks.versiones }, client: { findMany: mocks.clientes }, user: { findMany: mocks.usuarios },
   supportTicket: { findMany: mocks.tickets },
   envioReporteEjecutivo: { findMany: mocks.envios },
@@ -40,6 +41,7 @@ beforeEach(() => {
   mocks.versiones.mockResolvedValue([]);
   mocks.clientes.mockResolvedValue([]);
   mocks.usuarios.mockResolvedValue([]);
+  mocks.acciones.mockResolvedValue([]);
   mocks.ia.mockResolvedValue({ text: "{}" });
 });
 
@@ -155,6 +157,73 @@ describe("consistencia de generación del reporte", () => {
   });
 });
 
+
+describe("usuarios activos", () => {
+  const cuenta = (id: number, name: string, email: string, extra: Record<string, unknown> = {}) =>
+    ({ id, name, email, active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z"), ...extra });
+  const ultimo = (userId: number, createdAt = "2026-09-03T10:00:00Z") => ({ userId, _max: { createdAt: new Date(createdAt) } });
+  const cuentas = [
+    cuenta(1, "Ana Real", "ana@rbcol.co"),
+    cuenta(2, "Beto Real", "beto@rbcol.co"),
+    cuenta(3, "Russell 1", "russell1@russellbedford.com.co"), // de prueba: fuera del total
+    cuenta(4, "Luisa", "luisa@xentria.co"), // de Xentria: fuera del total
+  ];
+
+  beforeEach(() => {
+    mocks.usuarios.mockImplementation(async (args?: { where?: { id?: unknown } }) => (args?.where?.id ? [] : cuentas));
+    // Un mismo mock sirve a las cuatro lecturas de accesos; se distinguen por cómo se agrupan.
+    mocks.conexiones.mockImplementation(async (args: { by: string[]; where: { createdAt?: unknown } }) => {
+      if (args.by[0] !== "userId") return [];
+      return args.where.createdAt ? [ultimo(1), ultimo(3)] : [ultimo(1), ultimo(3), ultimo(4)];
+    });
+  });
+
+  test("el documento y la fuente guardada llevan «Usuarios activos: X de Y» de las cuentas del equipo", async () => {
+    await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    const guardado = mocks.guardar.mock.calls[0][0];
+    expect(guardado.fuente.uso.usuariosActivos).toEqual({ total: 2, activos: 1, porcentaje: 50, nuncaIngresaron: 1 });
+    expect(guardado.report.html).toContain('id="usuarios-activos"');
+    expect(guardado.report.html).toContain("Usuarios activos: 1 de 2 (50 %)");
+    expect(guardado.report.html).toContain("Nunca han ingresado: 1");
+  });
+
+  test("lee accesos por userId (ingreso o navegación) y acciones sin contar la generación del reporte", async () => {
+    await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    expect(mocks.conexiones).toHaveBeenCalledWith(expect.objectContaining({
+      by: ["userId"],
+      where: expect.objectContaining({ kind: { in: ["ingreso", "navegacion"] }, createdAt: expect.anything() }),
+    }));
+    expect(mocks.acciones).toHaveBeenCalledWith(expect.objectContaining({
+      by: ["user"],
+      where: expect.objectContaining({ action: { not: "GENERÓ REPORTE IA" } }),
+    }));
+  });
+
+  test("un acceso anterior a la creación de la cuenta (id reutilizado) no la vuelve activa ni «con ingreso»", async () => {
+    mocks.conexiones.mockImplementation(async (args: { by: string[] }) =>
+      args.by[0] === "userId" ? [ultimo(2, "2026-05-01T10:00:00Z")] : []);
+    await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    expect(mocks.guardar.mock.calls[0][0].fuente.uso.usuariosActivos).toEqual({
+      total: 2, activos: 0, porcentaje: 0, nuncaIngresaron: 2,
+    });
+  });
+
+  test("una acción de la bitácora basta para estar activo", async () => {
+    mocks.conexiones.mockImplementation(async () => []);
+    mocks.acciones.mockResolvedValue([{ user: "Beto Real", _max: { createdAt: new Date("2026-09-03T10:00:00Z") } }]);
+    await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    expect(mocks.guardar.mock.calls[0][0].fuente.uso.usuariosActivos).toMatchObject({ total: 2, activos: 1 });
+  });
+
+  test("si no se pudo medir el reporte sale igual, sin la sección ni una cifra inventada", async () => {
+    mocks.acciones.mockRejectedValue(new Error("BD no disponible"));
+    const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+    expect(result).toMatchObject({ ok: true, desdeCache: false });
+    const guardado = mocks.guardar.mock.calls[0][0];
+    expect(guardado.report.html).not.toContain("usuarios-activos");
+    expect("usuariosActivos" in guardado.fuente.uso).toBe(false);
+  });
+});
 
 describe("acceso al historial de envíos de reportes", () => {
   test("deniega la consulta directa sin el permiso de reporte ejecutivo", async () => {

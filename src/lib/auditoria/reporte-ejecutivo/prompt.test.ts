@@ -118,6 +118,22 @@ describe("construirPromptReporteEjecutivo", () => {
     expect(prompt).not.toContain("INTRO NARRATIVA");
   });
 
+  test("recibe los usuarios activos como dato factual y no deja que el modelo los calcule", () => {
+    const conIndicador = {
+      ...uso,
+      usuariosActivos: { total: 68, activos: 4, porcentaje: 5.9, nuncaIngresaron: 59 },
+    };
+    const prompt = construirPromptReporteEjecutivo({ uso: conIndicador, adopcion, novedades });
+
+    expect(prompt).toContain('"usuariosActivos":{"total":68,"activos":4,"porcentaje":5.9,"nuncaIngresaron":59}');
+    expect(prompt).toContain("«Usuarios activos: X de Y (Z %)»");
+    expect(prompt).toContain("«Nunca han ingresado: N»");
+    expect(prompt).toContain("no lo confundas con `totalUsuarios`");
+    expect(prompt).toContain("sin las de Xentria ni las de prueba");
+    // Una base sin el indicador (instantánea antigua) no lo inventa.
+    expect(construirPromptReporteEjecutivo({ uso, adopcion, novedades })).not.toContain('"usuariosActivos"');
+  });
+
   test("incluye la base factual sin alterar sus valores", () => {
     const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
 

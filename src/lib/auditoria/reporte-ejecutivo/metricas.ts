@@ -1,5 +1,6 @@
 // Agregaciones puras de la bitácora de auditoría para el reporte ejecutivo de
 // uso y adopción. Sin BD ni IA: recibe filas y produce la base factual.
+import type { UsuariosActivos } from "./usuarios-activos";
 
 export type FamiliaProceso =
   | "balance"
@@ -119,6 +120,12 @@ export type ResumenUsoFactual = {
   topClientes: ConteoCliente[];
   serieDiaria: SerieDia[];
   evidencia: EvidenciaAccion[];
+  /**
+   * «Usuarios activos: X de Y» sobre las cuentas del equipo. Opcional: las
+   * instantáneas guardadas antes de este indicador no lo traen, y tampoco lo
+   * lleva el resumen si no se pudo medir.
+   */
+  usuariosActivos?: UsuariosActivos;
 };
 
 const PREFIJOS_BALANCE = [
@@ -364,6 +371,12 @@ export function calcularResumenUso(params: {
    * el histórico. Sin este parámetro no se filtra nada (compatibilidad).
    */
   usuariosRegistrados?: Iterable<string> | null;
+  /**
+   * Indicador de usuarios activos, ya calculado por `calcularUsuariosActivos`
+   * (mide cuentas, no eventos: no se deriva de las filas de este resumen). Se
+   * incluye tal cual en el resultado cuando viene.
+   */
+  usuariosActivos?: UsuariosActivos | null;
   maxTopAcciones?: number;
   maxTopUsuarios?: number;
   maxTopClientes?: number;
@@ -572,6 +585,7 @@ export function calcularResumenUso(params: {
     topClientes,
     serieDiaria,
     evidencia,
+    ...(params.usuariosActivos ? { usuariosActivos: params.usuariosActivos } : {}),
   };
 }
 

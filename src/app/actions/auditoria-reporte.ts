@@ -29,6 +29,7 @@ import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
 import type { TicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
+import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
@@ -424,6 +425,10 @@ export async function generarReporteEjecutivoUso(
     // y las cuentas internas de Xentria (ver `usuarios-reporte.ts`).
     const correosUsuarios = correosDelReporte(usuarios);
     const usuariosRegistrados = nombresDelReporte(usuarios);
+    // «Usuarios activos: X de Y»: cuentas del equipo que usaron la plataforma en
+    // el período (null si no se pudo medir: el documento omite el indicador).
+    const usuariosActivos = await construirUsuariosActivos({ desde: rango.desde, hasta: corte });
+    signal?.throwIfAborted();
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
@@ -436,6 +441,7 @@ export async function generarReporteEjecutivoUso(
       nombresClientes,
       correosUsuarios,
       usuariosRegistrados,
+      usuariosActivos,
     });
 
     // Comparativo contra el último reporte generado (o el período anterior).
@@ -624,6 +630,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       nombresClientes,
       correosUsuarios: correosDelReporte(usuarios),
       usuariosRegistrados: nombresDelReporte(usuarios),
+      usuariosActivos: await construirUsuariosActivos({ desde: rango.desde, hasta: rango.hasta }),
     });
     const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({

@@ -366,3 +366,30 @@ describe("solo usuarios creados en la app", () => {
     expect(conteosPorFamiliaCanon(eventosCanon, ["Ana"]).balance).toBe(1);
   });
 });
+
+describe("calcularResumenUso: usuarios activos", () => {
+  const params = {
+    eventos: [],
+    periodoDesde: "2026-08-01T00:00:00.000Z",
+    periodoHasta: "2026-08-31T23:59:59.999Z",
+  };
+
+  test("lleva el indicador tal cual al resumen cuando viene", () => {
+    const usuariosActivos = { total: 68, activos: 4, porcentaje: 5.9, nuncaIngresaron: 59 };
+    expect(calcularResumenUso({ ...params, usuariosActivos }).usuariosActivos).toEqual(usuariosActivos);
+  });
+
+  test("sin el indicador (o si no se pudo medir) el resumen no trae el campo", () => {
+    expect("usuariosActivos" in calcularResumenUso(params)).toBe(false);
+    expect("usuariosActivos" in calcularResumenUso({ ...params, usuariosActivos: null })).toBe(false);
+  });
+
+  test("no cambia ninguna otra cifra del resumen", () => {
+    const sin = calcularResumenUso(params);
+    const con = calcularResumenUso({
+      ...params,
+      usuariosActivos: { total: 1, activos: 1, porcentaje: 100, nuncaIngresaron: 0 },
+    });
+    expect({ ...con, usuariosActivos: undefined }).toEqual(sin);
+  });
+});

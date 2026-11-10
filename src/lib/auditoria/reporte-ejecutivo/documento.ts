@@ -12,6 +12,13 @@ import {
   type TicketsAtendidos,
 } from "./tickets-atendidos";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
+import {
+  NOTA_USUARIOS_ACTIVOS,
+  textoFraccionUsuariosActivos,
+  textoNuncaIngresaron,
+  textoUsuariosActivos,
+  type UsuariosActivos,
+} from "./usuarios-activos";
 import type { ReporteEjecutivoUso } from "./reportes";
 import { aFecha, fechaColombiaISO } from "@/lib/fecha-hora";
 import { FUENTE_PANTALLA, MIND_MAGENTA, NEUTRO, SEA_GREEN, SPACE_BLUE } from "@/lib/marca/paleta";
@@ -231,6 +238,25 @@ function detalleUsuarios(c: ComparativoUso): string {
 }
 
 /**
+ * Sección «¿Cuántas personas usan la plataforma?»: cuántas cuentas del equipo
+ * tuvieron actividad en el período frente al total de cuentas habilitadas. Ausente
+ * (instantáneas anteriores al indicador, o si no se pudo medir) la sección no
+ * existe: no se afirma una cifra que no se calculó.
+ */
+function seccionUsuariosActivos(usuariosActivos?: UsuariosActivos | null): string {
+  if (!usuariosActivos) return "";
+  const { total, activos } = usuariosActivos;
+  // Mismo trazo que las barras de «Uso en gráficos» (el correo las convierte en tabla).
+  const ancho = total > 0 && activos > 0 ? Math.max(2, Math.round((activos / total) * 100)) : 0;
+  return `<section id="usuarios-activos"><h2>¿Cuántas personas usan la plataforma?</h2>
+<p><strong>${escapeHtml(textoUsuariosActivos(usuariosActivos))}</strong></p>
+<div style="height:8px;border-radius:999px;background:${NEUTRO.k10};overflow:hidden"><div style="height:100%;width:${ancho}%;border-radius:999px;background:${SPACE_BLUE[100]}"></div></div>
+<p>${escapeHtml(textoNuncaIngresaron(usuariosActivos))}</p>
+<p class="nota">${escapeHtml(NOTA_USUARIOS_ACTIVOS)}</p></section>
+`;
+}
+
+/**
  * Sección «¿Subió o bajó el uso?»: alerta visible arriba y el detalle debajo.
  * Todo se calcula en código; la IA no interviene en estas cifras.
  */
@@ -363,9 +389,9 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     html: forzarTipografiaMarca(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
 @page{size:letter;margin:25mm 30mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:${NEUTRO.k90};font:13px/1.55 ${FUENTE_PANTALLA}}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid ${SPACE_BLUE[100]};padding-bottom:16px;margin-bottom:24px}h1,h2{color:${SPACE_BLUE[100]}}h1{font-size:28px;font-weight:300;margin:0 0 8px}h2{font-size:20px;font-weight:400;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid ${NEUTRO.k20};overflow-wrap:anywhere;font-variant-numeric:tabular-nums}th{background:${SPACE_BLUE[20]};color:${SPACE_BLUE[100]}}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:${NEUTRO.k75};font-size:11px}footer{margin-top:24px;padding-top:10px}.rb-franja{margin-top:12px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
 </style></head><body><main><header>${logoHtml({ ancho: 180 })}<h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} – ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
-<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${resumenTickets}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
+<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li>${uso.usuariosActivos ? `<li>Usuarios activos: <strong>${escapeHtml(textoFraccionUsuariosActivos(uso.usuariosActivos))}</strong>. ${escapeHtml(textoNuncaIngresaron(uso.usuariosActivos))}.</li>` : ""}<li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${resumenTickets}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
-${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
+${seccionUsuariosActivos(uso.usuariosActivos)}${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
 ${seccionesAvances(nuevas, mejoras)}${seccionTicketsAtendidos(tickets)}
 <section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer>${franjaHtml(4)}</main></body></html>`),
   };

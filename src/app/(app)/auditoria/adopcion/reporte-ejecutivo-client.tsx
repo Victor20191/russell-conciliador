@@ -35,6 +35,8 @@ import {
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import type { TicketsAtendidosVista } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
+import type { UsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos";
+import { TarjetaUsuariosActivos } from "./usuarios-activos-tarjeta";
 
 export type VersionOpcion = {
   id: number;
@@ -53,7 +55,10 @@ export type KpisIniciales = {
   /** Tickets atendidos en el período; null cuando no se pudieron leer. */
   tickets?: TicketsAtendidosVista | null;
   totalAcciones: number;
+  /** Personas con acciones auditadas en el período (no es «usuarios activos»). */
   totalUsuarios: number;
+  /** «Usuarios activos: X de Y»; null cuando no se pudo medir. */
+  usuariosActivos?: UsuariosActivos | null;
   totalClientes: number;
   usadas: number;
   sinEvidencia: number;
@@ -512,7 +517,7 @@ export function ReporteEjecutivoClient({
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Acciones en el período" value={fmtNum(kpis.totalAcciones)} tone="ink" />
-        <StatCard label="Usuarios activos" value={fmtNum(kpis.totalUsuarios)} tone="blue" />
+        <StatCard label="Usuarios con operaciones" value={fmtNum(kpis.totalUsuarios)} tone="blue" />
         <StatCard
           label="Actividad relacionada con nuevas funcionalidades"
           value={adopcionLabel}
@@ -529,6 +534,11 @@ export function ReporteEjecutivoClient({
           tone="ink"
           hint={`${kpis.totalVersionesPublicadas} versiones`}
         />
+        {kpis.usuariosActivos && (
+          <div className="col-span-2 lg:col-span-4">
+            <TarjetaUsuariosActivos indicador={kpis.usuariosActivos} />
+          </div>
+        )}
       </div>
 
       {/* Indicadores permanentes: siempre visibles en la plataforma (sin depender del reporte IA). */}

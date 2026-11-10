@@ -22,6 +22,36 @@ export function esCuentaInterna(correo: string | null | undefined): boolean {
   return correoEsDelDominio(correo, DOMINIO_XENTRIA);
 }
 
+/**
+ * Nombre para comparar sin depender de mayúsculas, acentos ni espacios dobles
+ * («WENDY  MENA MORENO» y «Wendy Mena Moreno» son la misma persona).
+ */
+export function normalizarNombre(nombre: string | null | undefined): string {
+  return (nombre ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * ¿Es una cuenta de prueba o genérica del equipo (no una persona)? Se identifica
+ * por el NOMBRE —no hay un campo que las marque— con tres formas:
+ *   - lleva «prueba» o «pruebas» (p. ej. «Camilo Perez Rojo Pruebas»);
+ *   - es «Russell <número>» (las cuentas compartidas «Russell 1», «Russell 2»…);
+ *   - es «Administrador Russell».
+ *
+ * «Prueba» se busca al inicio de una palabra, para que no atrape a quien tenga
+ * un apellido que simplemente contenga esas letras. Solo la usa el indicador de
+ * usuarios activos: el resto del reporte no excluye estas cuentas.
+ */
+export function esCuentaDePrueba(nombre: string | null | undefined): boolean {
+  const n = normalizarNombre(nombre);
+  if (!n) return false;
+  return /\bpruebas?/.test(n) || /^russell \d+$/.test(n) || n === "administrador russell";
+}
+
 /** Las cuentas cuyo uso SÍ se reporta (todas menos las internas). */
 export function usuariosDelReporte(usuarios: readonly UsuarioPlataforma[]): UsuarioPlataforma[] {
   return usuarios.filter((u) => !esCuentaInterna(u.email));
