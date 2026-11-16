@@ -14,7 +14,7 @@ import { leerCalendarioCompletoConIA } from "@/lib/impuestos/calendario-lectura-
 import { cuentasDeMapeo } from "@/lib/impuestos/mapeo-dian";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 
-// Impuestos · DIAN, configuración global: Mapeos DIAN (350 y 300) y calendario tributario. Todos consultan con
+// Impuestos · DIAN, configuración global: Mapeo cuentas DIAN (350 y 300) y calendario tributario. Todos consultan con
 // `impuestos:ver`; editan Gerente, Socio y administradores con `impuestos:configurar`. No es dato
 // de un cliente, así que no lleva alcance por cartera (como el plan Russell).
 const PERMISO = "impuestos:configurar";
@@ -57,7 +57,7 @@ export async function guardarCuentaMapeoDian(_prev: ActionState, formData: FormD
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "EDITÓ MAPEO DIAN",
-      entity: `Mapeos DIAN · F${formulario} · ${fila.etiqueta}`,
+      entity: `Mapeo cuentas DIAN · F${formulario} · ${fila.etiqueta}`,
       detail: `Renglones ${[fila.renglonPj, fila.renglonPn].filter((r) => r != null).join(" + ")}: cuenta Russell ${fila.cuentaRussell ?? "sin cuenta"} → ${cuenta ?? "sin cuenta"}`,
     });
     revalidatePath(RUTA_MAPEOS);
@@ -79,7 +79,7 @@ export async function cambiarRestaTerceroDian(_prev: ActionState, formData: Form
   try {
     // Una fila puede llevar varias cuentas («420505+421005»): se busca la cuenta dentro de cada una.
     const filas = await prisma.mapeoRenglonDian.findMany({ where: { cuentaRussell: { contains: cuenta } }, select: { cuentaRussell: true } });
-    if (!filas.some((f) => cuentasDeMapeo(f).includes(cuenta))) return { ok: false, message: `La cuenta ${cuenta} no está en Mapeos DIAN.` };
+    if (!filas.some((f) => cuentasDeMapeo(f).includes(cuenta))) return { ok: false, message: `La cuenta ${cuenta} no está en Mapeo cuentas DIAN.` };
     const user = await getCurrentUser();
     await prisma.cuentaRussellDian.upsert({
       where: { cuentaRussell: cuenta },
@@ -89,7 +89,7 @@ export async function cambiarRestaTerceroDian(_prev: ActionState, formData: Form
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "EDITÓ MAPEO DIAN",
-      entity: `Mapeos DIAN · cuenta ${cuenta}`,
+      entity: `Mapeo cuentas DIAN · cuenta ${cuenta}`,
       detail: restar ? "Resta el saldo de los terceros DIAN" : "No resta el saldo de los terceros DIAN",
     });
     revalidatePath(RUTA_MAPEOS);
@@ -112,7 +112,7 @@ export async function agregarTerceroDian(_prev: ActionState, formData: FormData)
     if (existe) return { ok: false, message: `El NIT ${nit} ya está en la lista.` };
     const user = await getCurrentUser();
     await prisma.terceroDian.create({ data: { nit, etiqueta, creadoPor: user?.name ?? null } });
-    await logAudit({ user: user?.name ?? "Sistema", action: "AGREGÓ NIT DE LA DIAN", entity: `Mapeos DIAN · NIT ${nit}`, detail: etiqueta });
+    await logAudit({ user: user?.name ?? "Sistema", action: "AGREGÓ NIT DE LA DIAN", entity: `Mapeo cuentas DIAN · NIT ${nit}`, detail: etiqueta });
     revalidatePath(RUTA_MAPEOS);
     return { ok: true, message: "NIT agregado." };
   } catch (e) {
@@ -133,7 +133,7 @@ export async function quitarTerceroDian(_prev: ActionState, formData: FormData):
     if (total <= 1) return { ok: false, message: "La lista necesita al menos un NIT de la DIAN." };
     const user = await getCurrentUser();
     await prisma.terceroDian.delete({ where: { id } });
-    await logAudit({ user: user?.name ?? "Sistema", action: "QUITÓ NIT DE LA DIAN", entity: `Mapeos DIAN · NIT ${tercero.nit}`, detail: tercero.etiqueta });
+    await logAudit({ user: user?.name ?? "Sistema", action: "QUITÓ NIT DE LA DIAN", entity: `Mapeo cuentas DIAN · NIT ${tercero.nit}`, detail: tercero.etiqueta });
     revalidatePath(RUTA_MAPEOS);
     return { ok: true, message: "NIT quitado." };
   } catch (e) {

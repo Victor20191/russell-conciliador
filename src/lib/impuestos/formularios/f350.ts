@@ -7,7 +7,7 @@ import type { DefinicionFormulario, PersonaRenglon, RenglonDian } from "./defini
  * (docs/impuestos/retencion-fuente). Las bases (29 a 41, 55, 56, 59 a 67, 77 a 92, 109,
  * 110 y 113 a 120) no se guardan ni se concilian; tampoco los nombres, la seccional ni las
  * firmas. El pago total (980) se guarda como importe INFORMATIVO: no lo suma ningún total, no
- * tiene concepto en «Mapeos DIAN» (no entra al cruce) y Pagos efectuados mide lo pagado con
+ * tiene concepto en «Mapeo cuentas DIAN» (no entra al cruce) y Pagos efectuados mide lo pagado con
  * los recibos 490.
  */
 

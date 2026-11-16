@@ -408,7 +408,7 @@ export const ActualizarUmbralSchema = z.object({
     .refine((n) => n <= 1_000_000_000, { error: "El monto no puede superar $1.000.000.000." }),
 });
 
-// ---- Impuestos · DIAN: Mapeos DIAN y calendario tributario ----
+// ---- Impuestos · DIAN: Mapeo cuentas DIAN y calendario tributario ----
 // Cuenta Russell de un concepto del 350 o del 300: una o varias de 6 dígitos (separadas con «+»,
 // coma o punto y coma), o vacía para dejarlo sin cuenta. Varias quedan ordenadas y unidas con «+».
 export const CuentaMapeoDianSchema = z.object({

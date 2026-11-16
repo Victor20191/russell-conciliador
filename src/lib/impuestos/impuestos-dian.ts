@@ -86,6 +86,13 @@ export type ImpuestoDian = {
     /** Prefijos de las cuentas del cliente que se avisan si quedaron homologadas fuera del impuesto. */
     prefijosCliente: readonly string[];
     /**
+     * Cuentas Russell que quedan EN FIRME enteras al cerrar (subgrupos de 4 o cuentas de 6), como
+     * Cartera deja en firme toda la 13: también las que el cruce no concilia (la 236599 de pagos).
+     * Las demás cuentas del cruce (las de ingresos de IVA) quedan en firme una por una. Ver
+     * `alcanceCierreImpuesto`; se muestran en Filtros de cuentas.
+     */
+    gruposEnFirme: readonly string[];
+    /**
      * Cómo se usa el signo «−» del mapeo. Retención: resta en lo declarado (129 y 133, que corrigen su
      * total). IVA: la fila se compara en positivo y resta en el subtotal de su sección (42 y 80).
      */
@@ -135,6 +142,7 @@ export const RETENCION: ImpuestoDian = {
     ],
     prefijosTercero: ["2365", "2367"],
     prefijosCliente: ["2365", "2367"],
+    gruposEnFirme: ["2365", "2367"],
     signoEnSubtotal: false,
     conTotalGeneral: true,
     signoPorNaturaleza: false,
@@ -194,6 +202,7 @@ export const IVA: ImpuestoDian = {
     ],
     prefijosTercero: ["2408", "135517"],
     prefijosCliente: ["2408"],
+    gruposEnFirme: ["2408", "135517"],
     signoEnSubtotal: true,
     conTotalGeneral: false,
     signoPorNaturaleza: true,
@@ -213,6 +222,18 @@ export function impuestoPorSlug(slug: string | null | undefined): ImpuestoDian |
 /** El impuesto cuyo formulario de declaración es este código («350» → Retención, «300» → IVA). */
 export function impuestoPorDeclaracion(codigo: string | null | undefined): ImpuestoDian | null {
   return IMPUESTOS.find((i) => i.declaracion.codigo === codigo) ?? null;
+}
+
+/**
+ * Lo que deja en firme el cierre de una revisión (`cuentas_russell_6` del cierre): los grupos del
+ * impuesto enteros (`gruposEnFirme`) y cada cuenta del cruce que no cae en ellos (las de ingresos de
+ * IVA). Subgrupos de 4 dígitos y cuentas de 6, sin repetir y en orden.
+ */
+export function alcanceCierreImpuesto(impuesto: Pick<ImpuestoDian, "cruce">, cuentasDelCruce: readonly string[]): string[] {
+  const grupos = impuesto.cruce.gruposEnFirme.map((c) => c.replace(/\D/g, ""));
+  const cubierta = (cuenta: string) => grupos.some((g) => cuenta.startsWith(g));
+  const sueltas = cuentasDelCruce.map((c) => c.replace(/\D/g, "")).filter((c) => (c.length === 4 || c.length === 6) && !cubierta(c));
+  return [...new Set([...grupos, ...sueltas])].sort();
 }
 
 /** El concepto del 490 que corresponde a la periodicidad (solo IVA; Retención admite los tres). */

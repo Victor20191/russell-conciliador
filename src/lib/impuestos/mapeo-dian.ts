@@ -2,12 +2,12 @@ import { nucleoNit } from "@/lib/nit";
 import { CONCEPTOS_RETENCION_F350 } from "./formularios/f350";
 
 /**
- * Mapeos DIAN · formulario 350 → cuenta Russell (puro).
+ * Mapeo cuentas DIAN · formulario 350 → cuenta Russell (puro).
  *
  * Cada concepto del 350 suma sus dos columnas (Honorarios = 42 + 95) y se cruza contra el
  * saldo final de una cuenta Russell de 6 dígitos. El mapeo es GLOBAL (vale para todos los
  * clientes, como el plan Russell); lo editan Gerente, Socio y administradores en
- * «Mapeos DIAN». Valores de fábrica: pestaña «F350-Mapeo Russell» del levantamiento.
+ * «Mapeo cuentas DIAN». Valores de fábrica: pestaña «F350-Mapeo Russell» del levantamiento.
  */
 
 export type SignoMapeo = "+" | "-";
@@ -86,7 +86,7 @@ export const MAPEO_F350_FABRICA: readonly FilaMapeoDian[] = [
 ].map((fila, i) => ({ ...fila, orden: (i + 1) * 10 }));
 
 /** Cuentas Russell en las que NO se resta el tercero DIAN: sus movimientos con la DIAN son la
- *  autorretención misma. Cualquier otra cuenta lo resta salvo que «Mapeos DIAN» diga otra cosa. */
+ *  autorretención misma. Cualquier otra cuenta lo resta salvo que «Mapeo cuentas DIAN» diga otra cosa. */
 export const CUENTAS_SIN_RESTA_DIAN_FABRICA: readonly string[] = ["236575"];
 
 export type TerceroDian = { nit: string; etiqueta: string };
@@ -133,7 +133,7 @@ export function cuentasDeMapeo(fila: Pick<FilaMapeoDian, "cuentaRussell">): stri
 }
 
 /**
- * Valida la cuenta Russell escrita en «Mapeos DIAN»: vacío (sin cuenta) o una o varias cuentas de
+ * Valida la cuenta Russell escrita en «Mapeo cuentas DIAN»: vacío (sin cuenta) o una o varias cuentas de
  * 6 dígitos separadas con «+», coma o punto y coma (los espacios se ignoran). Varias se guardan
  * ordenadas y unidas con «+».
  */

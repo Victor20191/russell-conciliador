@@ -19,7 +19,7 @@ import { cargarRevision, type RevisionVista } from "@/lib/impuestos/retencion/re
 import { resultadosEnVivo } from "@/lib/impuestos/retencion/resultados-servidor";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { construirCopiaRetencion } from "@/lib/impuestos/retencion/copia-cierre";
-import { CLAVE_MARCA_SALDO_INICIAL, cuentasDeFilaCruce, prefijosRetencion } from "@/lib/impuestos/retencion/cruce";
+import { CLAVE_MARCA_SALDO_INICIAL, cuentasDeFilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { cuentasBloqueoDelModulo, ESTADO_CIERRE_DESBLOQUEADO, ESTADO_CIERRE_FIRME, validarJustificacionDesbloqueo } from "@/lib/conciliacion/cuentas-bloqueo";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
@@ -31,7 +31,7 @@ import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { CONTROLES_QUE_RECHAZAN, controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type CodigoFormulario, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import { leerFormularioDianConIA } from "@/lib/impuestos/retencion/lectura-servidor";
 import { claveObjetoFormulario, MAX_BYTES_FORMULARIO, type ResultadoImportacion, type ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
-import { impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { alcanceCierreImpuesto, impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { mesesCorteValidos, validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 
 // Impuestos · DIAN: revisiones de Retención en la fuente (350 + 490) e IVA (300 + 490). El impuesto
@@ -40,7 +40,6 @@ import { mesesCorteValidos, validarPeriodicidad } from "@/lib/impuestos/periodic
 // importes leídos: además `impuestos:editar`; descartar un formulario ya confirmado o una revisión:
 // `impuestos:eliminar`. Nada de esto se permite con la revisión en firme. Cada consulta de
 // formularios filtra por el impuesto: el 490 lo comparten los dos.
-const PREFIJOS_RETENCION = prefijosRetencion();
 
 const primerError = (issues: { message: string }[]) => issues[0]?.message ?? "Datos inválidos.";
 /** El mes del corte («Septiembre»). */
@@ -761,12 +760,14 @@ async function firmaParaCierre(db: Pick<typeof prisma, "formularioDianCargado" |
 /**
  * «Cerrar en firme» (senior o gerente asignado, `conciliaciones:cerrar`): exige lo que dice
  * `evaluarCierreRetencion` (cada período resuelto, nada por confirmar, el cruce disponible y marcas
- * en las diferencias que las piden). Bloquea el saldo final y la homologación de las cuentas del
- * cliente homologadas a las cuentas Russell del cruce, en el balance del corte; deja la revisión de
- * solo lectura y guarda la copia congelada (con el `slug` del impuesto como tipo). Usa
+ * en las diferencias que las piden). Bloquea el saldo final y la homologación, en el balance del
+ * corte, de las cuentas del cliente homologadas a lo que deja en firme el impuesto
+ * (`alcanceCierreImpuesto`): sus grupos enteros —Retención 2365 y 2367; IVA 2408 y 135517—, como
+ * Cartera deja en firme toda la 13, y las demás cuentas del cruce una por una (las de ingresos 41 y
+ * 42 de IVA, que el módulo de Ingresos puede tener bloqueadas por su propio cierre). Deja la revisión
+ * de solo lectura y guarda la copia congelada (con el `slug` del impuesto como tipo). Usa
  * `conciliacion_modulo_cierre` con el código del impuesto (RET o IVA) y el id de la revisión en
- * `modulo_dato_encabezado_id`. IVA bloquea también las cuentas de ingresos (41 y 42) del cruce,
- * que el módulo de Ingresos puede tener bloqueadas por su propio cierre.
+ * `modulo_dato_encabezado_id`.
  */
 export async function cerrarRevisionImpuesto(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const revisionId = Number(formData.get("revisionId"));
@@ -796,11 +797,12 @@ export async function cerrarRevisionImpuesto(_prev: ActionState, formData: FormD
       return { ok: false, message: `El balance del cruce cambió: ahora es el ${balance.descripcion}. Recarga la página y revisa el cruce antes de cerrar.` };
     }
     // Cada cuenta Russell del cruce (una fila de varias cuentas, como el renglón 40 de IVA, aporta todas).
-    const cuentasRussell6 = [...new Set(cruce.resultado.grupos.flatMap((g) => g.filas).flatMap(cuentasDeFilaCruce))].sort();
-    // Retención guarda sus prefijos de siempre; IVA, los de 4 dígitos de sus cuentas (2408, 1355, 41xx, 42xx).
-    const cuentasRussell = imp.clave === RETENCION.clave
-      ? PREFIJOS_RETENCION
-      : [...new Set((cuentasRussell6.length > 0 ? cuentasRussell6 : imp.cruce.prefijosTercero).map((c) => c.slice(0, 4)))].sort();
+    const cuentasDelCruce = [...new Set(cruce.resultado.grupos.flatMap((g) => g.filas).flatMap(cuentasDeFilaCruce))];
+    // Lo que queda en firme: los grupos del impuesto enteros (también la 236599 de pagos, que el
+    // cruce no concilia) y las demás cuentas del cruce. Va en `cuentas_russell_6`, que manda en el
+    // bloqueo; `cuentas_russell` guarda sus subgrupos de 4 dígitos.
+    const cuentasRussell6 = alcanceCierreImpuesto(imp, cuentasDelCruce);
+    const cuentasRussell = [...new Set(cuentasRussell6.map((c) => c.slice(0, 4)))].sort();
     const copia = construirCopiaRetencion({
       tipo: imp.slug === "iva" ? "iva" : "retencion", tomadaEn: new Date(), periodos: vista.periodos, cruce, oportunidad: resultados.oportunidad, pagos: resultados.pagos,
     });
@@ -901,7 +903,7 @@ export async function cerrarRevisionImpuesto(_prev: ActionState, formData: FormD
       user: actor,
       action: `CERRÓ ${imp.nombre.toUpperCase()} (EN FIRME)`,
       entity: `${imp.nombre} · ${vista.nombreCliente} · ${vista.anio} corte ${etiquetaMes(vista.mesCorte)}`,
-      detail: `Revisión #${vista.id} · balance #${balance.id} ${balance.descripcion} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${cuentasRussell6.join(", ")} · copia congelada ${copia.huella.slice(0, 12)}`,
+      detail: `Revisión #${vista.id} · balance #${balance.id} ${balance.descripcion} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · en firme: cuentas Russell ${cuentasRussell6.join(", ")} · copia congelada ${copia.huella.slice(0, 12)}`,
       clientId: vista.clienteId,
     });
     revalidatePath(`${rutaDe(imp)}/${vista.id}`);

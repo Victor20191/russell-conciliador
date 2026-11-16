@@ -6,7 +6,7 @@ import { impuestoPorDeclaracion } from "./impuestos-dian";
 import { CLAVES_CALENDARIO, type VencimientoDian } from "./calendario";
 
 /**
- * Lecturas de la configuración de Impuestos · DIAN (Mapeos DIAN y calendario tributario).
+ * Lecturas de la configuración de Impuestos · DIAN (Mapeo cuentas DIAN y calendario tributario).
  * Sin caché: son tablas pequeñas y la pantalla tiene que mostrar lo último que se guardó.
  */
 

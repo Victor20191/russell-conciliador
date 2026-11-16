@@ -3,10 +3,12 @@ import { BackLink, Card, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { getCatalogoPrevalidadorVista } from "@/lib/parametros/prevalidador";
-import { getCuentasConciliacionVista, getParesDepreciacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
+import { getCatalogoPrevalidador, getCatalogoPrevalidadorVista } from "@/lib/parametros/prevalidador";
+import { descriptorVigente, getCuentasConciliacionVista, getParesDepreciacionVista, getSubgruposConciliacionVista } from "@/lib/parametros/cuentas-conciliacion";
 import { PREVALIDADOR_MODULOS_ORDEN } from "@/lib/balance/prevalidador/catalogo";
-import { prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { cedulaModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { alcanceDelCierre } from "@/lib/conciliacion/cuentas-bloqueo";
+import QuedanEnFirme from "../../quedan-en-firme";
 import PrevalidadorConfigClient from "../prevalidador-client";
 import CuentasConciliacionPanel, { type ModuloCuentasVm } from "../cuentas-conciliacion-panel";
 import SubgruposConciliacionPanel from "../subgrupos-conciliacion-panel";
@@ -49,7 +51,7 @@ export default async function PrevalidadorModuloPage({
   const config = configuracionModulo(codigo);
   // Activos fijos: las parejas activo → depreciación y los dos planes que las nombran.
   const conPares = config.subgruposAbiertos.length > 0;
-  const [catalogo, modulos, cuentas, plan6, subgrupos, plan4, pares, plan4Pares, plan6Pares] = await Promise.all([
+  const [catalogo, modulos, cuentas, plan6, subgrupos, plan4, pares, plan4Pares, plan6Pares, vigente, catalogoActivo] = await Promise.all([
     getCatalogoPrevalidadorVista(),
     prisma.module.findMany({
       where: { code: { in: [...PREVALIDADOR_MODULOS_ORDEN] } },
@@ -65,9 +67,14 @@ export default async function PrevalidadorModuloPage({
     conPares ? getParesDepreciacionVista(codigo) : Promise.resolve([]),
     conPares ? cargarPlan4() : Promise.resolve([]),
     conPares ? cargarPlan6() : Promise.resolve([]),
+    // «Quedan en firme al cerrar»: lo mismo que calcula el cierre (`alcanceDelCierre`) con lo que el
+    // módulo tiene configurado hoy y las reglas activas del prevalidador.
+    descriptorVigente(codigo),
+    getCatalogoPrevalidador(),
   ]);
   const modulo = modulos.find((m) => m.code === codigo);
   if (!modulo) notFound();
+  const enFirme = vigente ? alcanceDelCierre(cedulaModulo(vigente, prefijosCuentaModulo(codigo, catalogoActivo)), { filas: [] }) : [];
   // Módulos que concilian a 6 dígitos, en el orden del informe: el editor permite mover una cuenta.
   const modulosCuentas: ModuloCuentasVm[] = PREVALIDADOR_MODULOS_ORDEN.flatMap((code) => {
     const m = modulos.find((x) => x.code === code);
@@ -131,6 +138,21 @@ export default async function PrevalidadorModuloPage({
             />
           </>
         )}
+
+        <QuedanEnFirme
+          sigla={modulo.code}
+          codigos={enFirme}
+          explicacion={
+            <>
+              Al cerrar en firme la conciliación de {modulo.name} quedan bloqueados, en el balance del corte, el saldo final y la
+              homologación de las cuentas del cliente homologadas a estas cuentas Russell: los prefijos del prevalidador y las
+              cuentas que concilia el módulo, configurados arriba. También las que se asignen en el Consolidado solo para ese
+              período. Un balance nuevo que termine en el mismo mes no puede cambiarlas ni traer otra cuenta con saldo homologada a
+              ellas.
+            </>
+          }
+          nota="Un cambio arriba rige para los cierres siguientes: una conciliación en firme conserva lo que tenía al cerrar."
+        />
       </div>
     </div>
   );

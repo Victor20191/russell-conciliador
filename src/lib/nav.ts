@@ -130,8 +130,6 @@ export const configSecciones: NavSeccion[] = [
       // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
       // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
       { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "wallet", permiso: "modulos_datos:ver", modulo: "modulos_datos" },
-      // Impuestos · DIAN: concepto del formulario 350 → cuenta Russell, global para todos los clientes.
-      { label: "Mapeos DIAN", href: "/config/mapeos-dian", icon: "file-check", permiso: "impuestos:ver", modulo: "impuestos" },
     ],
   },
   {
@@ -170,6 +168,10 @@ export const configSecciones: NavSeccion[] = [
           })),
         ],
       },
+      // Impuestos · DIAN: renglón de los formularios 350 y 300 → cuenta Russell, global para todos los
+      // clientes; es el «Filtros de cuentas» de Retención en la fuente e IVA (16/Nov/2026, pedido del
+      // usuario: va justo debajo). Antes se llamaba «Mapeos DIAN» y vivía en Catálogos contables.
+      { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", icon: "file-check", permiso: "impuestos:ver", modulo: "impuestos" },
       { label: "Parámetros de alertas", href: "/config/parametros", icon: "sliders", permiso: "parametros:ver", permisoAlterno: "parametros:administrar", modulo: "parametros" },
       // Impuestos · DIAN: fechas límite por período y último dígito del NIT (se importa cada año).
       { label: "Calendario tributario", href: "/config/calendario-tributario", icon: "calendar", permiso: "impuestos:ver", modulo: "impuestos" },

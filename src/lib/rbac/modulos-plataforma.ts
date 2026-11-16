@@ -105,7 +105,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
   {
     // Reemplaza al prototipo «dian» (31/Oct/2026). Nace EN DESARROLLO: sin fila en la BD rige este
     // valor, así que solo lo ve el Superadministrador hasta que lo publique. Oculta las tres entradas
-    // del menú: Retención en la fuente, Mapeos DIAN y Calendario tributario.
+    // del menú: Retención en la fuente, Mapeo cuentas DIAN y Calendario tributario.
     key: "impuestos",
     label: "Impuestos DIAN",
     description: "Retención en la fuente (formularios 350 y 490) e IVA (formularios 300 y 490) contra el balance del corte.",

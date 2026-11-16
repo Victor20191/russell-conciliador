@@ -64,7 +64,7 @@ export const REGLAS = {
   verParametros: [via("parametros:ver", "ninguno"), via("parametros:administrar", "ninguno")],
   administrarParametros: [via("parametros:administrar", "ninguno")],
 
-  // ----- Impuestos · DIAN (Mapeos DIAN y calendario tributario: globales) -----
+  // ----- Impuestos · DIAN (Mapeo cuentas DIAN y calendario tributario: globales) -----
   verImpuestos: [via("impuestos:ver", "ninguno")],
   /** Revisiones de Retención en la fuente: las de la cartera. */
   verRevisionImpuestos: [via("impuestos:ver", "lectura")],

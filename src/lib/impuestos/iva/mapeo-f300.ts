@@ -3,7 +3,7 @@ import { SECCIONES_MAPEO_F300 } from "../impuestos-dian";
 import type { FilaMapeoDian } from "../mapeo-dian";
 
 /**
- * Mapeos DIAN · formulario 300 (IVA) → cuenta Russell, valores de fábrica (pestaña «F300-Mapeo
+ * Mapeo cuentas DIAN · formulario 300 (IVA) → cuenta Russell, valores de fábrica (pestaña «F300-Mapeo
  * Russell» del levantamiento). Un concepto por renglón (el 300 no tiene columnas por persona). Las
  * devoluciones en ventas (42) y el ajuste de descontables (80) restan en el subtotal de su sección;
  * el saldo a favor anterior (84) y las sanciones (87) no tienen cuenta ni entran al cruce. El 40

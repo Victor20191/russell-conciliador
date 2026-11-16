@@ -4,7 +4,7 @@ import Link from "next/link";
 
 /**
  * Una pestaña: botón (cambia la vista en la misma pantalla) o enlace (`href`, cuando la pestaña
- * carga otros datos del servidor, como las de Mapeos DIAN). Va dentro de un contenedor con
+ * carga otros datos del servidor, como las de Mapeo cuentas DIAN). Va dentro de un contenedor con
  * `role="tablist"`. `conteo` muestra un número a la derecha.
  */
 export function Pestana({

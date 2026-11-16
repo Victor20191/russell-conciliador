@@ -23,6 +23,7 @@ export function fichaFiltrosCuentas(d: DescriptorModulo): FichaAyuda {
     antesDeEmpezar: [
       "Los cambios rigen de inmediato en los cargues abiertos; una conciliación en firme conserva lo que tenía al cerrar.",
       "Un balance con el prevalidador aprobado conserva el catálogo con que se aprobó; para aplicarle el nuevo, se revoca y se aprueba otra vez.",
+      "Al final, «Quedan en firme al cerrar» lista lo que bloquea el cierre en firme del módulo en el balance del corte: los prefijos del prevalidador y las cuentas que concilia, más las que se asignen en el Consolidado solo para un período. Un grupo entero cubre todas sus cuentas.",
     ],
     etapas: [
       {

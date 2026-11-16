@@ -142,6 +142,16 @@ export function alcanceDelCierre(
 }
 
 /**
+ * Un alcance para mostrarlo («Quedan en firme al cerrar» en Filtros de cuentas y Mapeo cuentas DIAN):
+ * sin las cuentas que ya cubre un grupo o subgrupo más corto de la misma lista (la 130505 si está la
+ * 13), en orden de código.
+ */
+export function alcanceSinRepetidos(codigos: readonly string[]): string[] {
+  const limpios = [...new Set(codigos.map((c) => String(c).replace(/\D/g, "")).filter((c) => c.length > 0))];
+  return limpios.filter((c) => !limpios.some((otro) => otro.length < c.length && c.startsWith(otro))).sort();
+}
+
+/**
  * Lo que un conjunto de cierres deja en firme: lo que el cierre declara en su alcance explícito
  * (grupos de 2 dígitos, subgrupos de 4 y cuentas de 6) o, en los cierres anteriores a esa
  * distinción, sus cuentas de 4.

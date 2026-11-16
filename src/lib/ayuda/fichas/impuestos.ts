@@ -1,4 +1,4 @@
-// Ayuda en pantalla — fichas de Impuestos · DIAN (Mapeos DIAN y Calendario tributario).
+// Ayuda en pantalla — fichas de Impuestos · DIAN (Mapeo cuentas DIAN y Calendario tributario).
 // Describen la pantalla tal como funciona hoy.
 
 import { REGLAS } from "../reglas";
@@ -8,7 +8,7 @@ const ACCIONES = "src/app/actions";
 
 export const FICHA_MAPEOS_DIAN: FichaAyuda = {
   id: "catalogo.mapeos_dian",
-  titulo: "Mapeos DIAN",
+  titulo: "Mapeo cuentas DIAN",
   proposito:
     "Contra qué cuenta Russell se concilia cada renglón de los formularios de la DIAN y qué terceros son la DIAN. Tiene una pestaña por formulario: Retención en la fuente (350) e IVA (300). Vale para todos los clientes. Todos la consultan; la editan quienes configuran Impuestos.",
   antesDeEmpezar: [
@@ -16,6 +16,7 @@ export const FICHA_MAPEOS_DIAN: FichaAyuda = {
     "En el 300, cada renglón va contra una o varias cuentas Russell. Las de IVA y la de retenciones de IVA (135517) se concilian por tercero; las de ingresos, por el saldo de la cuenta.",
     "Las bases sujetas a retención y las compras del 300 (44 a 57) no se concilian y no aparecen aquí.",
     "Una cuenta Russell solo se puede asignar si existe en el plan Russell; las que faltan se crean en Plan Estándar Russell.",
+    "Al final de cada pestaña, «Quedan en firme al cerrar» lista lo que bloquea el cierre en firme de una revisión de ese impuesto: en Retención, la 2365 y la 2367 enteras; en IVA, la 2408 y la 135517 enteras y sus cuentas de ingresos, una por una.",
   ],
   etapas: [
     {
@@ -143,7 +144,7 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
       respuesta: "La declaración anual de IVA del Régimen Simple se presenta en febrero por el año gravable que terminó. El calendario de 2026 trae el vencimiento del año gravable 2025, y la DIAN lo publica con los dígitos del NIT de a dos (1-2, 3-4…).",
     },
   ],
-  relacionadas: [{ label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" }],
+  relacionadas: [{ label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" }],
 };
 
 export const FICHA_RETENCION_LISTADO: FichaAyuda = {
@@ -181,7 +182,7 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
     { etiqueta: "En firme", significado: "La revisión está cerrada y no se puede cambiar." },
   ],
   relacionadas: [
-    { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
+    { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
     { label: "Parámetros de alertas", href: "/config/parametros", permiso: "parametros:ver" },
   ],
@@ -215,7 +216,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         {
           nombre: "Cerrar en firme",
           queHace:
-            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea el saldo final y la homologación de las cuentas del cliente que entraron al cruce, en el balance del corte.",
+            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea, en el balance del corte, el saldo final y la homologación de las cuentas del cliente homologadas a 2365 y 2367, enteras: también la de pagos de retención (236599), que el cruce no concilia. Se ven en Mapeo cuentas DIAN, pestaña Retención en la fuente.",
           regla: REGLAS.cerrarConciliacion,
           condiciones: [
             "Cada período del corte tiene su 350 confirmado o la causal de que no hubo formulario.",
@@ -368,7 +369,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
       id: "cruce",
       titulo: "Cruce contable",
       proposito:
-        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeos DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Si el balance empieza el 1 de enero, siempre se resta del saldo final el saldo inicial de los demás terceros, sin que nadie lo active: el tercero sin movimiento queda tachado y el que se movió suma solo lo del año. El detalle de lo restado y su marca, obligatoria para cerrar, están en Novedades. Abajo se informan, sin impedir el cierre, las cuentas homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo y las cuentas del cliente en 2365 o 2367 homologadas fuera de retención, cuyo saldo no llega al cruce. Usa un balance cerrado y vigente que termine el último día del mes de corte, con detalle por tercero y con el prevalidador aprobado; si sirven varios, se escoge cuál.",
+        "Lo declarado en los 350 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell de 2365 y 2367, con subtotales de renta (130), IVA (134) y timbre (135) y el total (136). Los conceptos que comparten cuenta van en una fila; la contabilidad va en positivo porque son pasivos. En las cuentas que lo indican en Mapeo cuentas DIAN, el saldo de la DIAN (los pagos registrados en la misma cuenta) se tacha y no suma. Si el balance empieza el 1 de enero, siempre se resta del saldo final el saldo inicial de los demás terceros, sin que nadie lo active: el tercero sin movimiento queda tachado y el que se movió suma solo lo del año. El detalle de lo restado y su marca, obligatoria para cerrar, están en Novedades. Abajo se informan, sin impedir el cierre, las cuentas homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo y las cuentas del cliente en 2365 o 2367 homologadas fuera de retención, cuyo saldo no llega al cruce. Usa un balance cerrado y vigente que termine el último día del mes de corte, con detalle por tercero y con el prevalidador aprobado; si sirven varios, se escoge cuál.",
       etapas: [
         {
           titulo: "Escoger el balance",
@@ -544,7 +545,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   ],
   relacionadas: [
     { label: "Retención en la fuente", href: "/impuestos/retencion", permiso: "impuestos:ver" },
-    { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
+    { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
     { label: "Parámetros de alertas", href: "/config/parametros", permiso: "parametros:ver" },
   ],
@@ -586,7 +587,7 @@ export const FICHA_IVA_LISTADO: FichaAyuda = {
     { etiqueta: "En firme", significado: "La revisión está cerrada y no se puede cambiar." },
   ],
   relacionadas: [
-    { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
+    { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
   ],
 };
@@ -620,7 +621,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
         {
           nombre: "Cerrar en firme",
           queHace:
-            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea el saldo final y la homologación de las cuentas del cliente que entraron al cruce, en el balance del corte: las de IVA, la de retención de IVA y las de ingresos. Las cuentas de ingresos pueden quedar bloqueadas también por el cierre del módulo de Ingresos.",
+            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea, en el balance del corte, el saldo final y la homologación de las cuentas del cliente homologadas a 2408 y 135517, enteras, y a las cuentas de ingresos de su mapeo, una por una. Las cuentas de ingresos pueden quedar bloqueadas también por el cierre del módulo de Ingresos. Se ven en Mapeo cuentas DIAN, pestaña IVA.",
           regla: REGLAS.cerrarConciliacion,
           condiciones: [
             "Cada período del corte tiene su 300 confirmado o la causal de que no hubo formulario.",
@@ -937,7 +938,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
   ],
   relacionadas: [
     { label: "IVA", href: "/impuestos/iva", permiso: "impuestos:ver" },
-    { label: "Mapeos DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
+    { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
   ],
 };
