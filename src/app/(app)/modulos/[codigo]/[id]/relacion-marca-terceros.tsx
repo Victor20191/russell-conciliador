@@ -5,7 +5,6 @@
 // relacionan con ella y se deja un comentario sobre ellos; cada uno queda explicado por la diferencia
 // que tenía al relacionarlo. Aquí viven la barra de la selección, el modal y el bloque al pie.
 import { useState, useTransition } from "react";
-import { Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
@@ -240,7 +239,14 @@ export function BloqueRelacionTerceros({
           <span className="font-semibold text-ink-800">
             {relacion.terceros.length === 1 ? "1 tercero relacionado" : `${relacion.terceros.length} terceros relacionados`} con la marca {relacion.numero}
           </span>
-          <Chip label={`Σ ${fmtContable(relacion.suma)}`} tone="blue" />
+          {/* La suma es la cifra que se compara con la marca: más grande que el resto del bloque. */}
+          <span
+            title="Suma de las diferencias de los terceros cuando se relacionaron"
+            className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2.5 py-0.5 text-[14px] font-bold tabular-nums text-navy-800"
+          >
+            <span className="text-[12px] font-semibold text-blue-700">Σ</span>
+            {fmtContable(relacion.suma)}
+          </span>
           <button type="button" onClick={() => setAbierta((v) => !v)} className="text-[11.5px] font-semibold text-blue-700 hover:underline">
             {abierta ? "Ocultar terceros" : "Ver terceros"}
           </button>
