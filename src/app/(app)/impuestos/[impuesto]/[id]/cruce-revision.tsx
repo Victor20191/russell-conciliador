@@ -321,7 +321,8 @@ function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila:
 }
 
 function EstadoFila({ fila }: { fila: FilaCruce }) {
-  if (fila.nivel === "cero") return <Chip label="Cuadra" tone="ok" />;
+  // Solo se señalan las diferencias: el renglón que cuadra no lleva etiqueta.
+  if (fila.nivel === "cero") return null;
   if (fila.nivel === "informativa") return <Chip label="Informativa" tone="ink" />;
   if (fila.marca?.vigente) return <Chip label="Marcada" tone="blue" />;
   return <Chip label={fila.marca ? "Marca desactualizada" : "Exige marca"} tone="warn" />;

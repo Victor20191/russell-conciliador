@@ -700,7 +700,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
             acciones: [
               {
                 nombre: "Subcuenta (›)",
-                queHace: "Despliega las cuentas del cliente y los conceptos de cada subcuenta. Estados: Cuadra, Diferencia, Solo contabilidad, Solo nómina.",
+                queHace: "Despliega las cuentas del cliente y los conceptos de cada subcuenta. Estados: Diferencia, Solo contabilidad, Solo nómina; la subcuenta que cuadra no lleva etiqueta.",
                 regla: REGLAS.verModulo,
               },
             ],
@@ -710,7 +710,8 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
       {
         id: "cruceTercero",
         titulo: "Cruce por tercero",
-        proposito: "Compara el saldo de cada tercero en el balance contra el auxiliar del módulo. Es obligatorio para cerrar la conciliación.",
+        proposito:
+          "Compara el saldo de cada tercero en el balance contra el auxiliar del módulo. Es obligatorio para cerrar la conciliación. La columna «Saldos» señala solo las diferencias: un círculo magenta con «!» si el tercero está en los dos lados con saldos distintos, o «Solo en el módulo» / «Solo en contabilidad». «Cruce del NIT» dice si encontró su pareja del otro lado: queda vacía con el NIT exacto; si el tercero está en un solo lado ofrece «Emparejar…», y muestra «Sin NIT», el candidato o la unión que hizo el sistema con su confianza.",
         aplica: porTercero,
         etapas: [
           {
@@ -724,7 +725,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
               },
               {
                 nombre: "Emparejar…",
-                queHace: "Une un tercero del auxiliar con uno del balance, para este período o para todos.",
+                queHace: "Une un tercero del auxiliar con uno del balance, para este período o para todos. Se abre desde «Emparejar…» en «Cruce del NIT» de un tercero que está en un solo lado, o desde su menú «…».",
                 regla: REGLAS.editarModulo,
               },
               {

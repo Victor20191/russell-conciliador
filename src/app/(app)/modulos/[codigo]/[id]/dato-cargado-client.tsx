@@ -3293,7 +3293,10 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
           <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
           <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${soloVisible ? "text-ink-500" : `font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}`}>{fmtContable(f.diferencia)}</td>
           <td className="px-3 py-2">
-            {soloVisible ? <Chip label="Solo visible" tone="ink" /> : <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "cuadra" ? "ok" : f.estado === "descuadre" ? "err" : "warn"} />}
+            {/* Solo se señalan las diferencias: la subcuenta que cuadra no lleva etiqueta. */}
+            {soloVisible
+              ? <Chip label="Solo visible" tone="ink" />
+              : f.estado !== "cuadra" && <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "descuadre" ? "err" : "warn"} />}
           </td>
         </tr>
         {abierta && (

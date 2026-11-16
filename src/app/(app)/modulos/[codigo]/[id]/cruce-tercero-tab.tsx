@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
@@ -553,7 +554,7 @@ export function CruceTerceroTab({
   const sinTercero = resumen.contableSinTercero;
   const contableGrupo = totales.contable + fuera.total + sinTercero.total;
   // Con permiso de editar, la primera columna es la casilla para seleccionar terceros.
-  const columnas = 7 + (mostrarCuentas ? cuentas.length : 0) + (puedeEditar ? 1 : 0);
+  const columnas = 8 + (mostrarCuentas ? cuentas.length : 0) + (puedeEditar ? 1 : 0);
   const relacionablesVisibles = filtradas.filter(terceroRelacionable);
   const todosSeleccionados = relacionablesVisibles.length > 0 && relacionablesVisibles.every((f) => seleccion.has(f.clave));
   const encabezado = (label: string, columna: ColumnaCruceTercero, alineacion: "left" | "right" = "left", title?: string) => (
@@ -739,7 +740,8 @@ export function CruceTerceroTab({
                 <th className="px-3 py-2 text-right font-semibold">
                   {encabezado("Diferencia", "diferencia", "right", "Ordena por el tamaño de la diferencia, sin importar el signo. Tercer clic: vuelve al orden del sistema.")}
                 </th>
-                <th className="px-3 py-2 font-semibold">Estado</th>
+                <th className="px-3 py-2 font-semibold" title="Diferencia de saldos (!) o el lado que tiene saldo">Saldos</th>
+                <th className="px-3 py-2 font-semibold" title="Si el tercero encontró su pareja del otro lado">Cruce del NIT</th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
             </thead>
@@ -751,8 +753,6 @@ export function CruceTerceroTab({
               )}
               {filtradas.slice(0, limite).map((f) => {
                 const coincidencia = coincidencias.get(f.clave) ?? null;
-                // Una fila que ya cuadra al 100 % no necesita el % de coincidencia: es ruido visual.
-                const mostrarPorcentaje = !(f.estado === "cuadra" && coincidencia?.porcentaje === 100);
                 return (
                 <tr
                   key={f.clave}
@@ -787,15 +787,36 @@ export function CruceTerceroTab({
                     )}
                   </td>
                   <td className={`whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums ${Math.abs(f.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</td>
+                  {/* «Saldos»: solo las diferencias llevan algo. Los dos lados con saldo distinto, el ícono de alerta;
+                      saldo en un solo lado, la etiqueta que dice cuál; el que cuadra, nada. */}
+                  <td className="whitespace-nowrap px-3 py-2">
+                    {f.estado === "descuadre" ? (
+                      <span
+                        title="Diferencia de saldos: el tercero está en la contabilidad y en el auxiliar, con saldos distintos"
+                        aria-label="Diferencia de saldos"
+                        className="inline-flex text-err-700"
+                      >
+                        {/* Magenta: el color de error de la marca (no hay rojo en la paleta). */}
+                        <Icon name="alerta" size={20} />
+                      </span>
+                    ) : f.estado !== "cuadra" ? (
+                      <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
+                    ) : null}
+                  </td>
+                  {/* «Cruce del NIT»: si el tercero encontró su pareja del otro lado. Vacío con el NIT exacto. */}
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1">
-                      {/* nowrap: el distintivo, el % y el menú van juntos; sin él la tabla le daba a la
-                          columna el ancho del distintivo partido y el grupo invadía «Marca». */}
                       <div className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
-                        {f.estado !== "solo_contable" && (
-                          <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
+                        {coincidencia?.tipo === "candidato" && <PorcentajeCoincidencia coincidencia={coincidencia} onIrATercero={irATercero} />}
+                        {puedeEditar && (f.estado === "solo_modulo" || f.estado === "solo_contable") && (
+                          <button
+                            type="button"
+                            onClick={() => setEmparejando({ fila: f, destino: null })}
+                            className="text-[11.5px] font-semibold text-blue-700 hover:underline"
+                          >
+                            Emparejar…
+                          </button>
                         )}
-                        <PorcentajeCoincidencia coincidencia={mostrarPorcentaje ? coincidencia : null} onIrATercero={irATercero} />
                         {puedeEditar && (
                           <MenuAccionesFila
                             id={f.clave}
@@ -805,9 +826,15 @@ export function CruceTerceroTab({
                         )}
                       </div>
                       {f.sinNit && <Chip label="Sin NIT" tone="ink" />}
+                      {/* Unión que hizo el sistema solo: su confianza de que es el mismo tercero. */}
                       {f.claveModuloPorDv && (
                         <span title={`Unido con ${f.claveModuloPorDv} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`}>
-                          <Chip label="Por DV" tone="warn" />
+                          <Chip label={`Unido por DV${coincidencia ? ` · ${coincidencia.identidad} %` : ""}`} tone="blue" />
+                        </span>
+                      )}
+                      {f.claveModuloPorNucleo && (
+                        <span title={`Unido con ${f.claveModuloPorNucleo} del auxiliar por el núcleo del NIT. Si no es el mismo tercero, sepáralos.`}>
+                          <Chip label={`Unido por núcleo${coincidencia ? ` · ${coincidencia.identidad} %` : ""}`} tone="blue" />
                         </span>
                       )}
                       {f.separadoDe.map((claveModulo) => {
@@ -878,7 +905,7 @@ export function CruceTerceroTab({
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.contable)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.modulo)}</td>
                   <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totales.diferencia)}</td>
-                  <td className="px-3 py-2" colSpan={2} />
+                  <td className="px-3 py-2" colSpan={3} />
                 </tr>
               </tfoot>
             )}
