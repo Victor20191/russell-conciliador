@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransit
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
+import { AvisoMarcas, avisoDesdeResumenMarcas, IconoDiferencia, RanuraDiferencia } from "@/components/diferencias";
 import { Icon, IconoEnTexto } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable } from "@/lib/format";
@@ -2799,7 +2800,7 @@ function CruceContableTab({
                   {encabezado("No modular", "noModular", "right", "Lo que no hace parte de la conciliación: cuentas del cliente no modulares (se restan de Contabilidad) y conceptos del archivo no contabilizados (se restan del módulo). Ordena por el tamaño de su efecto.")}
                 </th>
                 <th className="px-3 py-2 text-right font-semibold">
-                  {encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}
+                  <span className="inline-flex items-center justify-end gap-1.5">{encabezado("Dif. ajustada", "diferencia", "right", "Diferencia después de restar las cuentas no modulares: es la que se concilia. Ordena por su tamaño, sin importar el signo.")}<RanuraDiferencia /></span>
                 </th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
@@ -2846,7 +2847,7 @@ function CruceContableTab({
                       return (
                         <tr
                           key={renglon.cuenta}
-                          className={`${primero ? "border-t border-ink-100" : ""} ${f.estado === "descuadre" ? "bg-err-100" : ""}`}
+                          className={primero ? "border-t border-ink-100" : undefined}
                         >
                           <td className={`px-3 py-2 font-medium text-ink-800 ${agrupada ? "border-l-2 border-l-blue-300" : ""}`}>
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -2912,6 +2913,7 @@ function CruceContableTab({
                                 {f.estado === "solo_inventario" && !sinCuenta && <Chip label="Sin contabilidad" tone="warn" />}
                                 {signoContrarioDe.has(f.cuenta4) && <ChipSignoContrario fila={signoContrarioDe.get(f.cuenta4)!} />}
                                 <span className={`whitespace-nowrap tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                                <RanuraDiferencia visible={f.estado === "descuadre"} exigeMarca={f.requiereMarca} />
                               </div>
                             </td>
                           )}
@@ -3022,7 +3024,7 @@ function CruceContableTab({
                       </td>
                     );
                   })()}
-                  <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
+                  <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}><span className="inline-flex items-center justify-end gap-1.5">{fmtContable(resumen.totales.diferencia)}<RanuraDiferencia /></span></td>
                   <td className="px-3 py-2" />
                 </tr>
               </tfoot>
@@ -3280,7 +3282,7 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
     const abierta = abiertas.has(f.subcuenta);
     return (
       <Fragment key={f.subcuenta}>
-        <tr className={`border-t border-ink-100 ${!soloVisible && f.estado === "descuadre" ? "bg-err-100" : ""}`}>
+        <tr className="border-t border-ink-100">
           <td className="px-3 py-2 font-medium text-ink-800">
             <div className="flex items-center gap-1.5">
               <button type="button" onClick={() => alternar(f.subcuenta)} aria-expanded={abierta} className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700" title="Ver cuentas y conceptos">
@@ -3293,10 +3295,12 @@ function VistaSubcuentaNominaCard({ vista, moduloLabel }: { vista: NonNullable<R
           <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
           <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${soloVisible ? "text-ink-500" : `font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}`}>{fmtContable(f.diferencia)}</td>
           <td className="px-3 py-2">
-            {/* Solo se señalan las diferencias: la subcuenta que cuadra no lleva etiqueta. */}
+            {/* Solo se señalan las diferencias: el «!» la diferencia de saldos; la subcuenta que cuadra no lleva etiqueta. */}
             {soloVisible
               ? <Chip label="Solo visible" tone="ink" />
-              : f.estado !== "cuadra" && <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone={f.estado === "descuadre" ? "err" : "warn"} />}
+              : f.estado === "descuadre"
+                ? <IconoDiferencia titulo="Diferencia entre la contabilidad y la nómina en esta subcuenta" />
+                : f.estado !== "cuadra" && <Chip label={ETIQUETA_ESTADO_SUB[f.estado] ?? f.estado} tone="warn" />}
           </td>
         </tr>
         {abierta && (
@@ -3649,38 +3653,9 @@ function ConciliacionEnFirmePanel({
   );
 }
 
+/** El aviso de marcas de la cédula: el mismo de todos los cruces (módulos e impuestos). */
 function ResumenMarcasBanner({ resumen, tolerancia }: { resumen: ResumenMarcas; tolerancia: number | null }) {
-  const todo = resumen.pendientes === 0 && resumen.desactualizadas === 0;
-  const bajoTolerancia = resumen.bajoUmbral ?? 0;
-  // Con tolerancia en cero toda diferencia exige marca: no hace falta nombrar el monto.
-  const desde = tolerancia != null && tolerancia > 0 ? ` desde ${fmtContable(tolerancia)}` : "";
-  return (
-    <div
-      className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
-        todo ? "border-ok-500 bg-ok-100 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"
-      }`}
-    >
-      <span className="font-semibold">
-        {resumen.marcadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia" : "diferencias"}{desde} con marca
-      </span>
-      {resumen.pendientes > 0 && (
-        <span>
-          Sin marcar: <b>{resumen.pendientes}</b> ({fmtContable(resumen.montoPendiente)})
-        </span>
-      )}
-      {resumen.desactualizadas > 0 && (
-        <span title="Renglones cuyas marcas no alcanzan a explicar la diferencia: falta monto o la diferencia cambió después de marcar.">
-          Con saldo por explicar: <b>{resumen.desactualizadas}</b>{resumen.montoPorExplicar ? ` (${fmtContable(resumen.montoPorExplicar)})` : ""}
-        </span>
-      )}
-      {todo && resumen.conDiferencia > 0 && <span>Todas las diferencias que exigen marca están explicadas.</span>}
-      {bajoTolerancia > 0 && (
-        <span className="text-ink-500">
-          {bajoTolerancia.toLocaleString("es-CO")} dentro de la tolerancia{tolerancia != null ? ` (menos de ${fmtContable(tolerancia)})` : ""}: la marca es opcional y no impide cerrar.
-        </span>
-      )}
-    </div>
-  );
+  return <AvisoMarcas resumen={avisoDesdeResumenMarcas(resumen)} desde={tolerancia} />;
 }
 
 /** La marca de una fila de la cédula: número (enlace a su observación) o botón para crearla. */
@@ -3769,7 +3744,7 @@ function TablaCedulaActivos({
             Saldo según {ladoModuloCruce(moduloLabel).toLocaleLowerCase("es")}
           </th>
           <th rowSpan={2} className="px-3 py-2 text-right align-bottom font-semibold">
-            {encabezado("Diferencia", "diferencia", "right", "Diferencia del NETO después de restar lo no modular: es la que se concilia y la que exige marca. Ordena por su tamaño, sin importar el signo.")}
+            <span className="inline-flex items-center justify-end gap-1.5">{encabezado("Diferencia", "diferencia", "right", "Diferencia del NETO después de restar lo no modular: es la que se concilia y la que exige marca. Ordena por su tamaño, sin importar el signo.")}<RanuraDiferencia /></span>
           </th>
           <th rowSpan={2} className="w-px px-3 py-2 text-center align-bottom font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">
             Marca
@@ -3813,7 +3788,7 @@ function TablaCedulaActivos({
           const reclasificacion = hayReclasificacionEntreColumnas(f);
           return (
             <Fragment key={f.cuenta4}>
-              <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100" : ""}`}>
+              <tr className="border-t border-ink-100">
                 <td className="px-3 py-2 font-medium text-ink-800">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {hijos.length > 0 || (f.detalleModulo?.length ?? 0) > 0 ? (
@@ -3880,6 +3855,7 @@ function TablaCedulaActivos({
                       </span>
                     )}
                     <span className={`whitespace-nowrap tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                    <RanuraDiferencia visible={f.estado === "descuadre"} exigeMarca={f.requiereMarca} />
                   </div>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-center align-middle">
@@ -3940,7 +3916,7 @@ function TablaCedulaActivos({
             <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesColumnas.costo.inventario)}</td>
             <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totalesColumnas.depreciacion.inventario)}</td>
             <td className="whitespace-nowrap border-r border-ink-200 px-3 py-2 text-right tabular-nums">{fmtContable(totales.inventario)}</td>
-            <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(totales.diferencia)}</td>
+            <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${Math.abs(totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}><span className="inline-flex items-center justify-end gap-1.5">{fmtContable(totales.diferencia)}<RanuraDiferencia /></span></td>
             <td className="px-3 py-2" />
           </tr>
         </tfoot>

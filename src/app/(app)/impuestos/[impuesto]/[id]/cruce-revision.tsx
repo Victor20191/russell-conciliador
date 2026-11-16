@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { AvisoMarcas, avisoDesdeFilas, IconoDiferencia } from "@/components/diferencias";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
@@ -141,18 +142,14 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
         <ResumenSaldoInicial saldoInicial={saldoInicial} />
       </Card>
 
+      {/* El mismo aviso de todos los cruces (módulos e impuestos): lo que exige marca para cerrar. */}
+      <AvisoMarcas resumen={avisoDesdeFilas(filas, (f) => f.nivel === "informativa")} desde={umbral} siempre />
+
       {/* Región propia (no `<Card>`): en pantalla completa ocupa el viewport y solo la tabla scrollea. */}
       <div role="region" aria-label={`Cruce contable de ${impuesto.nombre}`} {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-white px-4 py-2.5">
           <ConmutadorCeros ocultar={ocultarCeros} onCambio={setOcultarCeros} />
-          <div className="flex flex-wrap items-center gap-2">
-            {resultado.pendientesMarca > 0 ? (
-              <Chip label={`${resultado.pendientesMarca} ${resultado.pendientesMarca === 1 ? "diferencia exige" : "diferencias exigen"} marca`} tone="warn" />
-            ) : (
-              <Chip label="Sin diferencias pendientes de marca" tone="ok" />
-            )}
-            <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantalla} />
-          </div>
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantalla} />
         </div>
         <div className={claseScrollTabla(pantallaCompleta, null)}>
         <table className="w-full min-w-[1100px] table-fixed text-[12.5px]">
@@ -320,12 +317,15 @@ function FilaTabla({ fila, abierta, onAlternar, puedeEditar, onMarcar }: { fila:
   );
 }
 
+/**
+ * Estado del renglón: solo se señalan las diferencias, con el mismo «!» de todos los cruces —magenta
+ * si exige marca, gris si es informativa (por debajo del umbral)—. Que exija marca lo dice el aviso
+ * de arriba; si la tiene, la columna Marca. El renglón que cuadra no lleva nada.
+ */
 function EstadoFila({ fila }: { fila: FilaCruce }) {
-  // Solo se señalan las diferencias: el renglón que cuadra no lleva etiqueta.
   if (fila.nivel === "cero") return null;
-  if (fila.nivel === "informativa") return <Chip label="Informativa" tone="ink" />;
-  if (fila.marca?.vigente) return <Chip label="Marcada" tone="blue" />;
-  return <Chip label={fila.marca ? "Marca desactualizada" : "Exige marca"} tone="warn" />;
+  if (fila.nivel === "informativa") return <IconoDiferencia exigeMarca={false} titulo="Diferencia informativa: por debajo del umbral, la marca es opcional (la DIAN redondea cada renglón a miles)" />;
+  return <IconoDiferencia />;
 }
 
 function FilaSubtotal({ etiqueta, subtotal, total = false }: { etiqueta: string; subtotal: SubtotalCruce; total?: boolean }) {

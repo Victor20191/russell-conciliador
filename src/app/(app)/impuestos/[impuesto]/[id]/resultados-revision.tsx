@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useActionState, useEffect, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { AvisoMarcas, avisoDesdeFilas, IconoDiferencia } from "@/components/diferencias";
 import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
@@ -262,6 +263,8 @@ export function VistaPagos({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12px] text-ink-500">{explicacionPagos(impuesto)}</Card>
+      {/* El mismo aviso de todos los cruces (módulos e impuestos): lo que exige marca para cerrar. */}
+      <AvisoMarcas resumen={avisoDesdeFilas(resultado.filas)} siempre />
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
           <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
@@ -387,7 +390,12 @@ function FilaPago({ f, impuesto, etiqueta, abierta, onAlternar, puedeEditar, onM
           </>
         )}
         <td className={`${FONDO_RESULTADO} px-2 py-1.5`}>
-          <Chip label={f.estado === "diferencia" && f.marca?.vigente ? "Marcada" : etiquetaPago(f.estado, codigo)} tone={f.estado === "completo" ? "ok" : f.estado === "diferencia" ? (f.marca?.vigente ? "blue" : "warn") : f.estado === "falta_350" ? "err" : "ink"} />
+          {/* La diferencia en el pago lleva el mismo «!» de todos los cruces; si tiene marca, lo dice la columna Marca. */}
+          {f.estado === "diferencia" ? (
+            <IconoDiferencia titulo="Diferencia en el pago: exige marca para cerrar" />
+          ) : (
+            <Chip label={etiquetaPago(f.estado, codigo)} tone={f.estado === "completo" ? "ok" : f.estado === "falta_350" ? "err" : "ink"} />
+          )}
         </td>
         <td className={`${FONDO_RESULTADO} whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700`}>
           {conceptosSinRecibo(f).map((d) => (

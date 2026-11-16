@@ -7,8 +7,9 @@
 // puede llevar varias marcas: cada una explica su monto y entre todas tienen que cubrir la diferencia.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Chip } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { AvisoMarcas, avisoDesdeResumenMarcas, RanuraDiferencia } from "@/components/diferencias";
 import { Modal } from "@/components/modal";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { fmtContable } from "@/lib/format";
@@ -70,17 +71,13 @@ export function ControlDeduccionesCard({
   return (
     <Card className="scroll-mt-24 p-0">
       <div id={ANCLA_CONTROL_DEDUCCIONES} className="border-b border-ink-100 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-[12.5px] font-semibold text-ink-800">Control de deducciones</div>
-          {resumen && resumen.conDiferencia > 0 && (
-            <Chip
-              label={resumen.desactualizadas > 0
-                ? `${resumen.marcadas} de ${resumen.conDiferencia} con marca · ${resumen.desactualizadas} con saldo por explicar`
-                : `${resumen.marcadas} de ${resumen.conDiferencia} con marca`}
-              tone={resumen.pendientes === 0 && resumen.desactualizadas === 0 ? "ok" : "warn"}
-            />
-          )}
-        </div>
+        <div className="text-[12.5px] font-semibold text-ink-800">Control de deducciones</div>
+        {/* El mismo aviso de todos los cruces (módulos e impuestos): lo que exige marca para cerrar. */}
+        {resumen && resumen.conDiferencia > 0 && (
+          <div className="my-1.5">
+            <AvisoMarcas resumen={avisoDesdeResumenMarcas(resumen)} />
+          </div>
+        )}
         <p className="text-[11px] text-ink-500">
           Conceptos cuya cuenta del cliente es de pasivo, activo o ingreso (libranzas, retención, embargos, préstamos, intereses): la Σ de {moduloLabel.toLocaleLowerCase("es")} contra el saldo final de esa cuenta en el balance. No suma al gasto, pero <b>toda diferencia exige marca para cerrar</b>; una cuenta que no está en el balance se compara contra cero.
         </p>
@@ -93,7 +90,7 @@ export function ControlDeduccionesCard({
               <th className="px-3 py-2 font-semibold">Conceptos</th>
               <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
               <th className="px-3 py-2 text-right font-semibold">{ladoModulo}</th>
-              <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+              <th className="px-3 py-2 text-right font-semibold"><span className="inline-flex items-center justify-end gap-1.5">Diferencia<RanuraDiferencia /></span></th>
               <th className="px-3 py-2 text-center font-semibold">Marca</th>
             </tr>
           </thead>
@@ -107,7 +104,12 @@ export function ControlDeduccionesCard({
                 <td className="px-3 py-2 text-[11.5px] text-ink-600">{f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · ")}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{f.contable == null ? <span className="text-ink-300" title="La cuenta no está en el balance: se compara contra cero.">0,00</span> : fmtContable(f.contable)}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.admiteMarca ? "text-err-700" : "text-ok-700"}`}>{fmtContable(f.diferenciaEfectiva)}</td>
+                <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${f.admiteMarca ? "text-err-700" : "text-ok-700"}`}>
+                  <span className="inline-flex items-center justify-end gap-1.5">
+                    {fmtContable(f.diferenciaEfectiva)}
+                    <RanuraDiferencia visible={f.admiteMarca} exigeMarca={f.requiereMarca} />
+                  </span>
+                </td>
                 <td className="px-3 py-2">
                   <CeldaMarcaControl
                     fila={f}
@@ -127,7 +129,7 @@ export function ControlDeduccionesCard({
               <td className="px-3 py-2" colSpan={2}>Totales</td>
               <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.contable)}</td>
               <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.modulo)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtContable(totales.diferencia)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums"><span className="inline-flex items-center justify-end gap-1.5">{fmtContable(totales.diferencia)}<RanuraDiferencia /></span></td>
               <td />
             </tr>
           </tfoot>

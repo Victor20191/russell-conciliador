@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
-import { Icon } from "@/components/icons";
+import { AvisoMarcas, avisoDesdeResumenMarcas, IconoDiferencia } from "@/components/diferencias";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
@@ -593,29 +593,8 @@ export function CruceTerceroTab({
         <ParametrosCargue parametros={cruceTercero.parametros} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
       )}
 
-      {resumenMarcas && (resumenMarcas.conDiferencia > 0 || (resumenMarcas.bajoUmbral ?? 0) > 0) && (
-        <div
-          className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
-            porMarcar === 0 ? "border-ok-500 bg-ok-100 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"
-          }`}
-        >
-          <span className="font-semibold">
-            {resumenMarcas.marcadas} de {resumenMarcas.conDiferencia} {resumenMarcas.conDiferencia === 1 ? "diferencia" : "diferencias"} desde {fmtContable(cruceTercero.umbralDescuadre)} con marca
-          </span>
-          {resumenMarcas.pendientes > 0 && (
-            <span>Sin marcar: <b>{resumenMarcas.pendientes}</b> ({fmtContable(resumenMarcas.montoPendiente)})</span>
-          )}
-          {resumenMarcas.desactualizadas > 0 && (
-            <span title="Terceros cuyas marcas no alcanzan a explicar la diferencia: falta monto o la diferencia cambió después de marcar.">
-              Con saldo por explicar: <b>{resumenMarcas.desactualizadas}</b>
-              {resumenMarcas.montoPorExplicar ? ` (${fmtContable(resumenMarcas.montoPorExplicar)})` : ""}
-            </span>
-          )}
-          {(resumenMarcas.bajoUmbral ?? 0) > 0 && (
-            <span className="text-ink-500">{contar(resumenMarcas.bajoUmbral ?? 0)} por debajo de {fmtContable(cruceTercero.umbralDescuadre)}: la marca es opcional.</span>
-          )}
-        </div>
-      )}
+      {/* El mismo aviso de todos los cruces (módulos e impuestos): lo que exige marca para cerrar. */}
+      {resumenMarcas && <AvisoMarcas resumen={avisoDesdeResumenMarcas(resumenMarcas)} desde={cruceTercero.umbralDescuadre} />}
 
       {cruceTercero.alcance && (
         <AlcanceCuentasTercero
@@ -791,14 +770,10 @@ export function CruceTerceroTab({
                       saldo en un solo lado, la etiqueta que dice cuál; el que cuadra, nada. */}
                   <td className="whitespace-nowrap px-3 py-2">
                     {f.estado === "descuadre" ? (
-                      <span
-                        title="Diferencia de saldos: el tercero está en la contabilidad y en el auxiliar, con saldos distintos"
-                        aria-label="Diferencia de saldos"
-                        className="inline-flex text-err-700"
-                      >
-                        {/* Magenta: el color de error de la marca (no hay rojo en la paleta). */}
-                        <Icon name="alerta" size={20} />
-                      </span>
+                      <IconoDiferencia
+                        exigeMarca={f.requiereMarca}
+                        titulo={`Diferencia de saldos: el tercero está en la contabilidad y en el auxiliar, con saldos distintos. ${f.requiereMarca ? "Exige marca para cerrar." : "Por debajo del umbral: la marca es opcional."}`}
+                      />
                     ) : f.estado !== "cuadra" ? (
                       <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
                     ) : null}

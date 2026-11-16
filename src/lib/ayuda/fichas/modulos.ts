@@ -590,7 +590,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
         id: "cruce",
         titulo: "Cruce contable",
         proposito:
-          "Compara lo que suma el módulo en cada cuenta contra el saldo final del balance cerrado. Cada diferencia desde la tolerancia necesita una marca para poder cerrar.",
+          "Compara lo que suma el módulo en cada cuenta contra el saldo final del balance cerrado. Cada diferencia desde la tolerancia necesita una marca para poder cerrar. El renglón con diferencia lleva un «!» a la derecha de la diferencia ajustada: magenta si exige marca, gris si queda por debajo de la tolerancia y la marca es opcional; arriba, un aviso dice cuántas diferencias exigen marca para cerrar, cuántas la tienen y cuánto falta; queda en verde cuando no falta ninguna.",
         etapas: [
           {
             titulo: "Escoger el balance",
@@ -655,7 +655,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
               {
                 nombre: "Control de deducciones",
                 queHace:
-                  "Los conceptos que van a cuentas de pasivo, activo o ingreso del cliente, comparados con su saldo; toda diferencia necesita marcas que la expliquen al centavo para cerrar. Cada renglón admite varias marcas, cada una con su monto.",
+                  "Los conceptos que van a cuentas de pasivo, activo o ingreso del cliente, comparados con su saldo; toda diferencia necesita marcas que la expliquen al centavo para cerrar. Cada renglón admite varias marcas, cada una con su monto. La diferencia lleva el «!» y el aviso de la tarjeta dice cuántas exigen marca y cuántas la tienen.",
                 regla: REGLAS.editarModulo,
                 aplica: esNomina,
               },
@@ -700,7 +700,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
             acciones: [
               {
                 nombre: "Subcuenta (›)",
-                queHace: "Despliega las cuentas del cliente y los conceptos de cada subcuenta. Estados: Diferencia, Solo contabilidad, Solo nómina; la subcuenta que cuadra no lleva etiqueta.",
+                queHace: "Despliega las cuentas del cliente y los conceptos de cada subcuenta. Estados: «!» si hay diferencia, Solo contabilidad, Solo nómina; la subcuenta que cuadra no lleva etiqueta.",
                 regla: REGLAS.verModulo,
               },
             ],
@@ -711,7 +711,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
         id: "cruceTercero",
         titulo: "Cruce por tercero",
         proposito:
-          "Compara el saldo de cada tercero en el balance contra el auxiliar del módulo. Es obligatorio para cerrar la conciliación. La columna «Saldos» señala solo las diferencias: un círculo magenta con «!» si el tercero está en los dos lados con saldos distintos, o «Solo en el módulo» / «Solo en contabilidad». «Cruce del NIT» dice si encontró su pareja del otro lado: queda vacía con el NIT exacto; si el tercero está en un solo lado ofrece «Emparejar…», y muestra «Sin NIT», el candidato o la unión que hizo el sistema con su confianza.",
+          "Compara el saldo de cada tercero en el balance contra el auxiliar del módulo. Es obligatorio para cerrar la conciliación. Arriba, el mismo aviso de la cédula dice cuántas diferencias exigen marca para cerrar. La columna «Saldos» señala solo las diferencias: un «!» si el tercero está en los dos lados con saldos distintos (magenta si exige marca, gris si queda por debajo del umbral), o «Solo en el módulo» / «Solo en contabilidad». «Cruce del NIT» dice si encontró su pareja del otro lado: queda vacía con el NIT exacto; si el tercero está en un solo lado ofrece «Emparejar…», y muestra «Sin NIT», el candidato o la unión que hizo el sistema con su confianza.",
         aplica: porTercero,
         etapas: [
           {
