@@ -574,6 +574,7 @@ export default async function DatoModuloPage({
     activos: validacionesActivos,
     // Comenta el staff, el senior o el gerente asignados; con la conciliación en firme, nadie.
     puedeComentarAlertas: comentarAuth?.ok === true && !edicion.enFirme,
+    puedeAprobarAlertas: cerrarAuth.ok && !edicion.enFirme,
   };
   const novedadesVm: NovedadesVm = novedadesFilaNomina
     ? {

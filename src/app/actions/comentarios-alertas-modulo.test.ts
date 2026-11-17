@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   autorizar: vi.fn(),
+  cerrar: vi.fn(),
   exigirAbierto: vi.fn(),
   encabezado: vi.fn(),
   detalle: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("@/lib/audit", () => ({ logAudit: m.auditoria }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: (_c: string, e: unknown) => (e instanceof Error ? e.message : String(e)) }));
 vi.mock("@/lib/conciliacion/verificar-bloqueo", () => ({
   autorizarComentarioAlertaModulo: m.autorizar,
+  autorizarCierreConciliacion: m.cerrar,
   exigirPeriodoAbierto: m.exigirAbierto,
   respuestaPeriodoEnFirme: vi.fn(async () => null),
 }));
@@ -84,6 +86,25 @@ describe("guardarComentarioAlerta", () => {
     const r = await guardarComentarioAlerta({ encabezadoId: 74, tipo: "dias_vs_corte", comentario: COMENTARIO });
     expect(r).toEqual({ ok: true, message: "Comentario guardado." });
     expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ tipo: "dias_vs_corte", referencias: 1, valor: 0 }) }));
+  });
+
+  it("el vencimiento imposible lo aprueba solo el senior o gerente asignado (quien puede cerrar)", async () => {
+    m.encabezado.mockResolvedValue({ ...ENCABEZADO, moduloCodigo: "CXP", fechaCorte: null, nivelSaldo: "documento", formatosCartera: null });
+    m.detalle.mockResolvedValue([
+      { filaNum: 4, valor: 50_000, imputable: true, nitCanonico: "900000001", nivel: "documento", datos: { nit: "900000001", nombre: "PROVEEDOR", documento: "FV-9", vencimiento: "1899-12-31" } },
+    ]);
+    m.cerrar.mockResolvedValueOnce({ ok: false, message: "Solo el senior o gerente asignado al cliente puede hacer esto." });
+    expect(await guardarComentarioAlerta({ encabezadoId: 74, tipo: "vencimiento_imposible", comentario: COMENTARIO }))
+      .toEqual({ ok: false, message: "Solo el senior o gerente asignado al cliente puede aprobar esta alerta." });
+    expect(m.cerrar).toHaveBeenCalledWith("conciliaciones:cerrar", 5);
+    expect(m.upsert).not.toHaveBeenCalled();
+
+    m.cerrar.mockResolvedValueOnce({ ok: true, userId: 9, role: "senior" });
+    const r = await guardarComentarioAlerta({ encabezadoId: 74, tipo: "vencimiento_imposible", comentario: COMENTARIO });
+    expect(r).toEqual({ ok: true, message: "Alerta aprobada." });
+    expect(m.autorizar).not.toHaveBeenCalled();
+    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ tipo: "vencimiento_imposible", referencias: 1, comentadoPorId: 9 }) }));
+    expect(m.auditoria).toHaveBeenCalledWith(expect.objectContaining({ action: "APROBÓ ALERTA" }));
   });
 
   it("un módulo que no exige comentarios no los acepta", async () => {

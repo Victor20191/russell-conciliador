@@ -417,6 +417,8 @@ export type NovedadesVm = {
   comentariosAlertas?: AlertaConComentario[];
   /** Staff, senior o gerente asignados, con la conciliación abierta. */
   puedeComentarAlertas?: boolean;
+  /** Senior o gerente asignado (quien puede cerrar): aprueba las alertas que lo exigen. */
+  puedeAprobarAlertas?: boolean;
   /** Activos fijos: validaciones por activo (negativos, neto del archivo vs calculado, lados). */
   activos?: ValidacionesActivos | null;
 };
@@ -4561,6 +4563,7 @@ function NovedadesTab({ novedades, titulo, encabezadoId }: { novedades: Novedade
           alertas={novedades.comentariosAlertas}
           encabezadoId={encabezadoId}
           puedeComentar={novedades.puedeComentarAlertas === true}
+          puedeAprobar={novedades.puedeAprobarAlertas === true}
         />
       )}
       {novedades.validacionArchivo && (

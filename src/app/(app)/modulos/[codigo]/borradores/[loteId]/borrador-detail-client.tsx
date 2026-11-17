@@ -830,6 +830,9 @@ export default function BorradorModuloClient({
         )}
 
         {reporteConErrores && hayReporteConErrores(reporteConErrores) && <ReporteConErroresAviso reporte={reporteConErrores} />}
+        {reporteConErrores && reporteConErrores.vencimientosImposibles.cantidad > 0 && (
+          <VencimientosImposiblesAviso v={reporteConErrores.vencimientosImposibles} />
+        )}
         {cedulasVariosNombres.length > 0 && <CedulasVariosNombresAviso cedulas={cedulasVariosNombres} />}
 
         {verificaciones.length > 0 && (
@@ -1343,9 +1346,9 @@ function CedulasVariosNombresAviso({ cedulas }: { cedulas: CedulaConVariosNombre
   );
 }
 
-/** Cartera y CxP: el reporte del ERP salió con errores; el borrador no se puede aprobar. */
+/** Cartera y CxP: el reporte del ERP salió con documentos repetidos entre terceros; el borrador no se puede aprobar. */
 function ReporteConErroresAviso({ reporte }: { reporte: ReporteConErrores }) {
-  const { documentosRepetidos: d, vencimientosImposibles: v } = reporte;
+  const d = reporte.documentosRepetidos;
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
       <span className="font-semibold"><IconoEnTexto name="warn" />El reporte tiene errores: este borrador no se puede aprobar. Corrige el archivo en el ERP y vuelve a cargarlo.</span>
@@ -1362,13 +1365,29 @@ function ReporteConErroresAviso({ reporte }: { reporte: ReporteConErrores }) {
           {d.cantidad > 5 && <span>… y {d.cantidad - 5} más.</span>}
         </div>
       )}
-      {v.cantidad > 0 && (
-        <div>
-          <span className="font-semibold">{v.cantidad} vencimiento(s) imposible(s)</span> (antes de 1990 o más de 30 años después del corte):{" "}
-          {v.filas.slice(0, 8).map((f) => `fila ${f.filaNum} (${f.vencimiento})`).join(", ")}{v.cantidad > 8 ? "…" : ""}.
-        </div>
-      )}
       <span className="text-[11.5px]">Omitir las filas no quita el bloqueo: el reporte tiene que salir bien del ERP.</span>
+    </div>
+  );
+}
+
+/**
+ * Cartera y CxP: documentos con un vencimiento imposible (antes de 1990 o más de 30 años después del
+ * corte). No impide aprobar el borrador: para cerrar la conciliación, un senior o gerente asignado al
+ * cliente lo aprueba con su comentario en Novedades.
+ */
+function VencimientosImposiblesAviso({ v }: { v: ReporteConErrores["vencimientosImposibles"] }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+      <span className="font-semibold">
+        <IconoEnTexto name="warn" />
+        {v.cantidad.toLocaleString("es-CO")} {v.cantidad === 1 ? "documento tiene" : "documentos tienen"} un vencimiento imposible (antes de 1990 o más de 30 años después del corte)
+      </span>
+      <span>
+        {v.filas.slice(0, 8).map((f) => `fila ${f.filaNum} (${f.vencimiento})`).join(", ")}{v.cantidad > 8 ? "…" : ""}.
+      </span>
+      <span className="text-[11.5px]">
+        No impide aprobar el borrador. Para cerrar la conciliación, el senior o gerente asignado al cliente tiene que aprobarlo con un comentario en Novedades.
+      </span>
     </div>
   );
 }

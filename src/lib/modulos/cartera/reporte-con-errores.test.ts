@@ -27,7 +27,7 @@ describe("reporte con errores (Cartera y CxP)", () => {
     expect(r.documentosRepetidos.cantidad).toBe(0);
   });
 
-  it("un vencimiento antes de 1990 o más de 30 años después del corte bloquea", () => {
+  it("un vencimiento antes de 1990 o más de 30 años después del corte se cuenta, pero no bloquea el borrador", () => {
     const r = reporteConErroresCartera([
       fila(2, { nit: "900000001", documento: "FV-1", vencimiento: "1899-12-31" }),
       fila(3, { nit: "900000001", documento: "FV-2", vencimiento: "2056-01-01" }),
@@ -36,7 +36,9 @@ describe("reporte con errores (Cartera y CxP)", () => {
     ], "2025-12-31");
     expect(r.vencimientosImposibles.cantidad).toBe(2);
     expect(r.vencimientosImposibles.filas.map((f) => f.filaNum)).toEqual([2, 3]);
-    expect(motivoReporteConErrores(r)).toContain("fila 2: 1899-12-31");
+    // Lo aprueba un senior o gerente del cliente con su comentario para cerrar; el borrador se aprueba.
+    expect(hayReporteConErrores(r)).toBe(false);
+    expect(motivoReporteConErrores(r)).toBeNull();
   });
 
   it("sin fecha de corte no se juzgan los vencimientos; sin errores no hay motivo", () => {

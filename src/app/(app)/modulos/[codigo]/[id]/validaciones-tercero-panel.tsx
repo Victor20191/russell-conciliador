@@ -108,6 +108,7 @@ export function ValidacionesTerceroPanel({ validaciones, sinBalanceTerceros = fa
               <div className="mb-1 text-[12.5px] font-semibold text-warn-700">
                 {vencimientosAtipicos.cantidad.toLocaleString("es-CO")} {vencimientosAtipicos.cantidad === 1 ? "documento tiene" : "documentos tienen"} una fecha de vencimiento imposible
               </div>
+              <p className="mb-1 text-[11.5px] text-ink-500">Antes de 1990 o más de 30 años después del corte. Para cerrar la conciliación, el senior o gerente asignado al cliente lo aprueba con un comentario.</p>
               <ul className="flex flex-col gap-0.5 text-[12px] text-ink-700">
                 {vencimientosAtipicos.filas.map((f) => (
                   <li key={f.filaNum}>Fila {f.filaNum} · {f.tercero}{f.documento ? ` · ${f.documento}` : ""}: vence el {fechaLegible(f.vencimiento)}.</li>

@@ -219,6 +219,10 @@ describe("evaluarCierreConciliacion", () => {
     const porRevisar = evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Costo unitario 1", estado: "por_revisar" }]);
     expect(porRevisar).toMatchObject({ ok: false, motivo: expect.stringContaining("quedó por revisar") });
     expect(evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Costo unitario 1", estado: "comentada" }])).toEqual({ ok: true });
+    // El vencimiento imposible pide la aprobación del senior, y lo dice así.
+    const aprobacion = evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Vencimiento imposible", estado: "pendiente", aprobacionSenior: true }]);
+    expect(aprobacion).toMatchObject({ ok: false, motivo: expect.stringContaining("Falta la aprobación del Senior de la alerta «Vencimiento imposible»") });
+    expect(evaluarCierreConciliacion(cruce, resumen, null, [{ etiqueta: "Vencimiento imposible", estado: "comentada", aprobacionSenior: true }])).toEqual({ ok: true });
     // Primero se explica lo del cruce: una diferencia sin marca se reporta antes que los comentarios.
     const descuadre = construirCruceContable({
       contablePorCuenta: { "1435": 100 },

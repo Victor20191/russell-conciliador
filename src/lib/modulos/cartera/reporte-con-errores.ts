@@ -1,10 +1,11 @@
 // REPORTE CON ERRORES (Cartera y CxP, 17/Oct/2026) — puro, sin BD.
 //
-// Dos validaciones del auxiliar dicen que el reporte del ERP salió mal y bloquean APROBAR EL
-// BORRADOR, sin excepción: el mismo documento por el mismo valor bajo dos terceros distintos, y un
-// vencimiento imposible (antes de 1990 o más de 30 años después del corte). La única salida es
-// corregir el archivo y volver a cargarlo: se evalúan sobre TODAS las filas que el archivo trae como
-// documentos, también las omitidas o reclasificadas a mano en el borrador.
+// El mismo documento por el mismo valor bajo dos terceros distintos dice que el reporte del ERP salió
+// mal y bloquea APROBAR EL BORRADOR, sin excepción: la única salida es corregir el archivo y volver a
+// cargarlo. Se evalúa sobre TODAS las filas que el archivo trae como documentos, también las omitidas
+// o reclasificadas a mano en el borrador. El vencimiento imposible (antes de 1990 o más de 30 años
+// después del corte) se cuenta aquí para avisarlo en el borrador, pero NO bloquea: para cerrar la
+// conciliación lo aprueba un senior o gerente del cliente con su comentario (Novedades).
 import { normalizarTerceroCartera } from "./tercero-cartera";
 import {
   documentosRepetidosEntreTerceros,
@@ -40,22 +41,16 @@ export function reporteConErroresCartera(filas: readonly FilaReporteBorrador[], 
   };
 }
 
+/** ¿El reporte tiene errores que bloquean aprobar el borrador? Solo los documentos repetidos entre terceros. */
 export function hayReporteConErrores(r: ReporteConErrores | null | undefined): boolean {
-  return !!r && (r.documentosRepetidos.cantidad > 0 || r.vencimientosImposibles.cantidad > 0);
+  return !!r && r.documentosRepetidos.cantidad > 0;
 }
 
 /** Por qué no se puede aprobar el borrador; null si el reporte no tiene errores. */
 export function motivoReporteConErrores(r: ReporteConErrores | null | undefined): string | null {
   if (!r || !hayReporteConErrores(r)) return null;
-  const partes: string[] = [];
-  const { documentosRepetidos: d, vencimientosImposibles: v } = r;
-  if (d.cantidad > 0) {
-    const ejemplo = d.grupos[0];
-    partes.push(`${d.cantidad} documento(s) repetido(s) por el mismo valor en terceros distintos${ejemplo ? ` (p. ej. ${ejemplo.documento} en ${ejemplo.terceros.length} terceros)` : ""}`);
-  }
-  if (v.cantidad > 0) {
-    const ejemplo = v.filas[0];
-    partes.push(`${v.cantidad} vencimiento(s) imposible(s)${ejemplo ? ` (p. ej. fila ${ejemplo.filaNum}: ${ejemplo.vencimiento})` : ""}`);
-  }
-  return `El reporte tiene errores: ${partes.join(" y ")}. Corrige el archivo en el ERP y vuelve a cargarlo; este borrador no se puede aprobar.`;
+  const d = r.documentosRepetidos;
+  const ejemplo = d.grupos[0];
+  const parte = `${d.cantidad} documento(s) repetido(s) por el mismo valor en terceros distintos${ejemplo ? ` (p. ej. ${ejemplo.documento} en ${ejemplo.terceros.length} terceros)` : ""}`;
+  return `El reporte tiene errores: ${parte}. Corrige el archivo en el ERP y vuelve a cargarlo; este borrador no se puede aprobar.`;
 }

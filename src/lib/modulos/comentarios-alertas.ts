@@ -24,7 +24,8 @@ export type TipoAlertaTercero =
   | "saldo_contrario_tercero"
   | "dias_vs_corte"
   | "edad_vs_corte"
-  | "corte_deducido";
+  | "corte_deducido"
+  | "vencimiento_imposible";
 
 /** Activos fijos: validaciones por activo que exigen comentario. */
 export type TipoAlertaActivos = "activos_negativos" | "falta_costo";
@@ -39,8 +40,12 @@ export type UnidadAlerta = { uno: string; varios: string };
 const ITEMS: UnidadAlerta = { uno: "ítem", varios: "ítems" };
 const DOCUMENTOS: UnidadAlerta = { uno: "documento", varios: "documentos" };
 
-/** Nombre, unidad de lo que se cuenta y si el valor se lee como pesos. En el orden de presentación. */
-const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: UnidadAlerta; muestraValor: boolean }[] = [
+/**
+ * Nombre, unidad de lo que se cuenta y si el valor se lee como pesos. En el orden de presentación.
+ * `aprobacionSenior`: el comentario es la APROBACIÓN de un senior o gerente asignado al cliente (los
+ * que pueden cerrar la conciliación); nadie más puede escribirlo.
+ */
+const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: UnidadAlerta; muestraValor: boolean; aprobacionSenior?: boolean }[] = [
   { tipo: "valores_negativos", etiqueta: "Valores negativos", unidad: ITEMS, muestraValor: false },
   ...ALERTAS_COSTO.map((a) => ({ tipo: a.tipo, etiqueta: a.etiqueta, unidad: { uno: "referencia", varios: "referencias" }, muestraValor: true })),
   { tipo: "documentos_vs_cliente", etiqueta: "Documentos vs. total del cliente", unidad: { uno: "tercero", varios: "terceros" }, muestraValor: true },
@@ -49,6 +54,7 @@ const DEFINICIONES: { tipo: TipoAlertaComentario; etiqueta: string; unidad: Unid
   { tipo: "dias_vs_corte", etiqueta: "Días vencidos vs. corte", unidad: DOCUMENTOS, muestraValor: false },
   { tipo: "edad_vs_corte", etiqueta: "Rango de edad vs. corte", unidad: DOCUMENTOS, muestraValor: false },
   { tipo: "corte_deducido", etiqueta: "Fecha de corte deducida", unidad: { uno: "fecha", varios: "fechas" }, muestraValor: false },
+  { tipo: "vencimiento_imposible", etiqueta: "Vencimiento imposible", unidad: DOCUMENTOS, muestraValor: false, aprobacionSenior: true },
   { tipo: "activos_negativos", etiqueta: "Activos con costo o neto negativo", unidad: { uno: "activo", varios: "activos" }, muestraValor: true },
   { tipo: "falta_costo", etiqueta: "Depreciación sin costo de adquisición", unidad: { uno: "cargue", varios: "cargues" }, muestraValor: false },
   { tipo: "cedulas_varios_nombres", etiqueta: "Cédula con varios nombres", unidad: { uno: "cédula", varios: "cédulas" }, muestraValor: false },
@@ -65,6 +71,11 @@ export function esTipoAlertaComentario(valor: unknown): valor is TipoAlertaComen
 
 export function etiquetaAlertaComentario(tipo: TipoAlertaComentario): string {
   return POR_TIPO.get(tipo)!.etiqueta;
+}
+
+/** ¿El comentario de este tipo es la aprobación de un senior o gerente del cliente? */
+export function exigeAprobacionSenior(tipo: TipoAlertaComentario): boolean {
+  return POR_TIPO.get(tipo)?.aprobacionSenior === true;
 }
 
 /** Una alerta presente en el cargue: cuántas referencias la tienen y su valor (la huella del cambio). */
@@ -86,6 +97,8 @@ export type AlertaComentable = {
   muestraValor: boolean;
   /** Texto que reemplaza el conteo cuando lo dice mejor (la fecha de corte deducida). */
   detalle?: string;
+  /** El comentario lo escribe, como aprobación, un senior o gerente asignado al cliente. */
+  aprobacionSenior?: boolean;
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
@@ -100,6 +113,7 @@ function alerta(tipo: TipoAlertaComentario, referencias: number, valor: number, 
     unidad: def.unidad,
     muestraValor: def.muestraValor,
     ...(detalle ? { detalle } : {}),
+    ...(def.aprobacionSenior ? { aprobacionSenior: true } : {}),
   };
 }
 
@@ -128,8 +142,9 @@ export function alertasQueExigenComentario(descriptor: DescriptorModulo, filas: 
 
 /**
  * Cartera y CxP: las validaciones del auxiliar por tercero (las mismas de Novedades) que exigen
- * comentario y están presentes. La posible colisión de clave sigue solo informando, y el documento
- * repetido y el vencimiento imposible no se comentan: bloquean aprobar el borrador.
+ * comentario y están presentes. La posible colisión de clave sigue solo informando y el documento
+ * repetido no se comenta: bloquea aprobar el borrador. El vencimiento imposible no bloquea: su
+ * comentario es la aprobación de un senior o gerente del cliente.
  */
 export function alertasTerceroQueExigenComentario(descriptor: DescriptorModulo, v: ValidacionesTercero): AlertaComentable[] {
   const tipos = new Set(descriptor.alertasConComentario ?? []);
@@ -146,6 +161,9 @@ export function alertasTerceroQueExigenComentario(descriptor: DescriptorModulo, 
   }
   if (tipos.has("dias_vs_corte") && v.diasVsCorte.cantidad > 0) salida.push(alerta("dias_vs_corte", v.diasVsCorte.cantidad, 0));
   if (tipos.has("edad_vs_corte") && v.edadVsCorte.cantidad > 0) salida.push(alerta("edad_vs_corte", v.edadVsCorte.cantidad, 0));
+  if (tipos.has("vencimiento_imposible") && (v.vencimientosAtipicos?.cantidad ?? 0) > 0) {
+    salida.push(alerta("vencimiento_imposible", v.vencimientosAtipicos.cantidad, 0, `${contarAlerta(v.vencimientosAtipicos.cantidad, DOCUMENTOS)} con vencimiento antes de 1990 o más de 30 años después del corte.`));
+  }
   if (tipos.has("corte_deducido") && v.corte.fecha && v.corte.deducido) {
     salida.push(alerta(
       "corte_deducido",

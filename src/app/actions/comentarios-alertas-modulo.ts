@@ -2,7 +2,9 @@
 
 // Comentario de una ALERTA del archivo que lo exige para cerrar la conciliación del módulo
 // (`src/lib/modulos/comentarios-alertas.ts`). Uno por tipo de alerta y período: guardarlo de nuevo
-// lo reemplaza y vuelve a congelar cómo está hoy la alerta (así se confirma uno «por revisar»).
+// lo reemplaza y vuelve a congelar cómo está hoy la alerta (así se confirma uno «por revisar»). En
+// las alertas con `aprobacionSenior` (el vencimiento imposible de Cartera y CxP) el comentario es la
+// aprobación: solo lo escribe quien puede cerrar la conciliación (senior o gerente asignado).
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
@@ -18,6 +20,7 @@ import {
   alertasTerceroQueExigenComentario,
   contarAlerta,
   esTipoAlertaComentario,
+  exigeAprobacionSenior,
   validarComentarioAlerta,
   type AlertaComentable,
   type TipoAlertaComentario,
@@ -32,7 +35,7 @@ import {
 import { cedulasConVariosNombresDelCargue } from "@/lib/modulos/nomina/cedulas-varios-nombres-servidor";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
-import { autorizarComentarioAlertaModulo, exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
+import { autorizarCierreConciliacion, autorizarComentarioAlertaModulo, exigirPeriodoAbierto, respuestaPeriodoEnFirme } from "@/lib/conciliacion/verificar-bloqueo";
 
 const OPERACION = "comentar las alertas del archivo";
 
@@ -71,8 +74,13 @@ export async function guardarComentarioAlerta(input: { encabezadoId: number; tip
   });
   if (!encabezado) return { ok: false, message: "El cargue ya no existe." };
 
-  const authz = await autorizarComentarioAlertaModulo(encabezado.clienteId);
-  if (!authz.ok) return { ok: false, message: authz.message };
+  const aprobacion = exigeAprobacionSenior(tipo);
+  const authz = aprobacion
+    ? await autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId)
+    : await autorizarComentarioAlertaModulo(encabezado.clienteId);
+  if (!authz.ok) {
+    return { ok: false, message: aprobacion ? "Solo el senior o gerente asignado al cliente puede aprobar esta alerta." : authz.message };
+  }
 
   const validado = validarComentarioAlerta(input.comentario);
   if (!validado.ok) return { ok: false, message: validado.message };
@@ -113,13 +121,14 @@ export async function guardarComentarioAlerta(input: { encabezadoId: number; tip
 
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: previo ? "EDITÓ COMENTARIO DE ALERTA" : "COMENTÓ ALERTA",
+      action: aprobacion ? (previo ? "EDITÓ APROBACIÓN DE ALERTA" : "APROBÓ ALERTA") : previo ? "EDITÓ COMENTARIO DE ALERTA" : "COMENTÓ ALERTA",
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · «${alerta.etiqueta}» (${alerta.detalle ?? contarAlerta(alerta.referencias, alerta.unidad)}${alerta.muestraValor ? `, ${fmt(alerta.valor)}` : ""})`
         + (previo && previo.comentario !== validado.texto ? ` · antes: «${previo.comentario}»` : ""),
       clientId: encabezado.clienteId,
     });
     revalidatePath(`/modulos/${encabezado.moduloCodigo.toLowerCase()}/${encabezado.id}`);
+    if (aprobacion) return { ok: true, message: previo ? "Aprobación actualizada." : "Alerta aprobada." };
     return { ok: true, message: previo ? "Comentario actualizado." : "Comentario guardado." };
   } catch (e) {
     const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });

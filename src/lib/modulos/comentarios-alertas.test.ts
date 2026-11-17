@@ -10,6 +10,7 @@ import {
   alertasTerceroQueExigenComentario,
   anotarAlertasConComentarios,
   esTipoAlertaComentario,
+  exigeAprobacionSenior,
   validarComentarioAlerta,
   type ComentarioAlerta,
 } from "./comentarios-alertas";
@@ -65,7 +66,7 @@ describe("alertasTerceroQueExigenComentario (Cartera y CxP)", () => {
       filas: [
         // Edades que no suman el total (diferencia 100) y días que no corresponden al corte.
         filaCxp(10, { nit: "900000001", nombre: "PROVEEDOR UNO", documento: "FV-1", vencimiento: "2025-11-30", diasVencidos: 5, total: 1_000, _edades: { "1 - 30": 900 } }, 1_000),
-        // Vencimiento imposible: bloquea el borrador, no se comenta.
+        // Vencimiento imposible: no bloquea; su comentario es la aprobación del senior.
         filaCxp(11, { nit: "900000002", nombre: "PROVEEDOR DOS", documento: "FV-2", vencimiento: "1899-12-31" }, 500),
       ],
       cruce: null,
@@ -78,6 +79,10 @@ describe("alertasTerceroQueExigenComentario (Cartera y CxP)", () => {
     expect(tipos).toContain("dias_vs_corte");
     expect(tipos).not.toContain("documentos_vs_cliente");
     expect(alertas.find((a) => a.tipo === "dias_vs_corte")).toMatchObject({ referencias: 1, valor: 0, muestraValor: false, unidad: { uno: "documento" } });
+    expect(alertas.find((a) => a.tipo === "dias_vs_corte")?.aprobacionSenior).toBeUndefined();
+    expect(alertas.find((a) => a.tipo === "vencimiento_imposible")).toMatchObject({ referencias: 1, valor: 0, aprobacionSenior: true, etiqueta: "Vencimiento imposible" });
+    expect(exigeAprobacionSenior("vencimiento_imposible")).toBe(true);
+    expect(exigeAprobacionSenior("dias_vs_corte")).toBe(false);
     if (v.edadesVsTotal.cantidad > 0) {
       expect(alertas.find((a) => a.tipo === "edades_vs_total")).toMatchObject({ referencias: v.edadesVsTotal.cantidad, valor: v.edadesVsTotal.suma });
     }

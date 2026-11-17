@@ -3,7 +3,8 @@
 // Tarjeta de Novedades con las alertas del archivo que exigen comentario para cerrar la
 // conciliación (Inventarios: valores negativos y las tres alertas de costo). Un comentario por
 // tipo de alerta; si la alerta cambió desde que se escribió, queda «por revisar» y se confirma
-// volviéndolo a guardar.
+// volviéndolo a guardar. Las alertas con `aprobacionSenior` (el vencimiento imposible) solo las
+// comenta, como aprobación, un senior o gerente asignado al cliente: quien puede cerrar.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
@@ -26,6 +27,15 @@ const CHIP: Record<EstadoComentarioAlerta, { label: string; tone: "ok" | "warn" 
   comentada: { label: "Comentada", tone: "ok" },
 };
 
+/** Los mismos estados cuando el comentario es la aprobación del senior. */
+const CHIP_APROBACION: Record<EstadoComentarioAlerta, { label: string; tone: "ok" | "warn" | "err" }> = {
+  pendiente: { label: "Falta aprobación del Senior", tone: "err" },
+  por_revisar: { label: "Aprobación por revisar", tone: "warn" },
+  comentada: { label: "Aprobada", tone: "ok" },
+};
+
+const chipDe = (a: Pick<AlertaConComentario, "estado" | "aprobacionSenior">) => (a.aprobacionSenior ? CHIP_APROBACION : CHIP)[a.estado];
+
 /** «3 documentos · $ 1.200» o el detalle propio de la alerta (la fecha de corte deducida). */
 function cifras(a: Pick<AlertaConComentario, "referencias" | "valor" | "unidad" | "muestraValor">): string {
   return `${contarAlerta(a.referencias, a.unidad)}${a.muestraValor && a.valor !== 0 ? ` · ${fmtContable(a.valor)}` : ""}`;
@@ -35,20 +45,25 @@ export function ComentariosAlertasCard({
   alertas,
   encabezadoId,
   puedeComentar,
+  puedeAprobar = false,
 }: {
   alertas: AlertaConComentario[];
   encabezadoId: number;
   puedeComentar: boolean;
+  /** Senior o gerente asignado (quien puede cerrar): escribe las aprobaciones. */
+  puedeAprobar?: boolean;
 }) {
   const [editando, setEditando] = useState<AlertaConComentario | null>(null);
   if (alertas.length === 0) return null;
   const faltan = alertas.filter((a) => a.estado !== "comentada").length;
+  const hayAprobaciones = alertas.some((a) => a.aprobacionSenior);
 
   return (
     <Card className="p-4">
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Alertas que exigen comentario para cerrar</div>
       <p className="mb-3 text-[12px] text-ink-500">
         Cada tipo de alerta del cargue necesita un comentario de al menos {MIN_COMENTARIO_ALERTA} caracteres para poder cerrar la conciliación.
+        {hayAprobaciones && " Las que piden aprobación del Senior solo las aprueba, con su comentario, un senior o gerente asignado al cliente."}
         {faltan > 0
           ? <> Faltan <b className="text-err-700">{faltan}</b>.</>
           : <span className="text-ok-700"> Todas están comentadas.</span>}
@@ -60,23 +75,27 @@ export function ComentariosAlertasCard({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12.5px] font-semibold text-ink-800">{a.etiqueta}</span>
                 <span className="text-[12px] text-ink-500">{a.detalle ?? cifras(a)}</span>
-                <Chip label={CHIP[a.estado].label} tone={CHIP[a.estado].tone} />
+                <Chip label={chipDe(a).label} tone={chipDe(a).tone} />
               </div>
-              {puedeComentar && (
+              {(a.aprobacionSenior ? puedeAprobar : puedeComentar) ? (
                 <button
                   type="button"
                   onClick={() => setEditando(a)}
                   className="rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-700 hover:bg-ink-50"
                 >
-                  {a.estado === "pendiente" ? "Comentar" : a.estado === "por_revisar" ? "Revisar" : "Editar"}
+                  {a.estado === "pendiente" ? (a.aprobacionSenior ? "Aprobar" : "Comentar") : a.estado === "por_revisar" ? "Revisar" : "Editar"}
                 </button>
+              ) : (
+                a.aprobacionSenior && a.estado !== "comentada" && (
+                  <span className="text-[11.5px] text-ink-500">La aprueba el senior o gerente asignado al cliente.</span>
+                )
               )}
             </div>
             {a.comentario && (
               <>
                 <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{a.comentario.comentario}</p>
                 <p className="text-[11px] text-ink-400">
-                  {a.comentario.comentadoPor ?? "—"} · {a.comentario.comentadoEn}
+                  {a.aprobacionSenior ? "Aprobada por " : ""}{a.comentario.comentadoPor ?? "—"} · {a.comentario.comentadoEn}
                   {a.estado === "por_revisar" && (
                     <span className="text-warn-700">
                       {" "}· cuando se escribió: {cifras({ ...a, referencias: a.comentario.referencias, valor: a.comentario.valor })}; hoy: {cifras(a)}
@@ -128,7 +147,7 @@ function ModalComentarioAlerta({
     <Modal
       open
       onClose={onClose}
-      title={`Comentario · ${alerta.etiqueta}`}
+      title={`${alerta.aprobacionSenior ? "Aprobación" : "Comentario"} · ${alerta.etiqueta}`}
       footer={
         <button
           type="button"
@@ -136,14 +155,19 @@ function ModalComentarioAlerta({
           disabled={!valido || guardando}
           className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : alerta.estado === "por_revisar" ? "Confirmar comentario" : "Guardar comentario"}
+          {guardando
+            ? <EstadoProcesando>Guardando</EstadoProcesando>
+            : alerta.aprobacionSenior
+              ? (alerta.estado === "por_revisar" ? "Confirmar aprobación" : alerta.estado === "pendiente" ? "Aprobar" : "Guardar aprobación")
+              : alerta.estado === "por_revisar" ? "Confirmar comentario" : "Guardar comentario"}
         </button>
       }
     >
       <div className="flex flex-col gap-2">
         <p className="text-[12px] text-ink-600">
-          {alerta.detalle ?? <>Hoy la alerta tiene {cifras(alerta)}.</>} El comentario queda para todo el período y se guarda con
+          {alerta.detalle ?? <>Hoy la alerta tiene {cifras(alerta)}.</>} {alerta.aprobacionSenior ? "La aprobación" : "El comentario"} queda para todo el período y se guarda con
           estas cifras: si una versión nueva las cambia, quedará por revisar.
+          {alerta.aprobacionSenior && " Con ella el senior deja constancia de que revisó estas fechas y que el reporte se puede conciliar así."}
         </p>
         {alerta.estado === "por_revisar" && alerta.comentario && (
           <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
@@ -156,7 +180,7 @@ function ModalComentarioAlerta({
           rows={5}
           maxLength={MAX_COMENTARIO_ALERTA}
           aria-label={`Comentario de la alerta ${alerta.etiqueta}`}
-          placeholder="Explica por qué se presenta la alerta y qué se verificó."
+          placeholder={alerta.aprobacionSenior ? "Explica por qué se aprueba: qué se verificó de estas fechas." : "Explica por qué se presenta la alerta y qué se verificó."}
           className="w-full rounded-md border border-ink-200 px-3 py-2 text-[12.5px] text-ink-800 outline-none focus:border-blue-400"
         />
         <span className={`text-right text-[11px] ${largo < MIN_COMENTARIO_ALERTA ? "text-err-700" : "text-ink-400"}`}>

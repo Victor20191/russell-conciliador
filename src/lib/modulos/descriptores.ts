@@ -482,8 +482,8 @@ export function nivelCruceModulo(descriptor: Pick<DescriptorModulo, "nivelCruce"
  */
 /**
  * Cartera y CxP: validaciones del auxiliar por tercero que exigen un comentario por tipo para cerrar
- * la conciliación. El documento repetido entre terceros y el vencimiento imposible no van aquí:
- * bloquean aprobar el borrador.
+ * la conciliación. El documento repetido entre terceros no va aquí: bloquea aprobar el borrador. El
+ * vencimiento imposible sí: su comentario es la aprobación de un senior o gerente del cliente.
  */
 const ALERTAS_TERCERO_CON_COMENTARIO: TipoAlertaComentario[] = [
   "documentos_vs_cliente",
@@ -492,6 +492,8 @@ const ALERTAS_TERCERO_CON_COMENTARIO: TipoAlertaComentario[] = [
   "dias_vs_corte",
   "edad_vs_corte",
   "corte_deducido",
+  // No bloquea: para cerrar, un senior o gerente del cliente lo aprueba con su comentario.
+  "vencimiento_imposible",
 ];
 
 export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {

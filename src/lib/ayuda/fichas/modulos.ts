@@ -24,7 +24,10 @@ function requisitoBalance(d: DescriptorModulo): string {
 
 function erroresDelReporte(d: DescriptorModulo): string[] {
   if (porTercero(d)) {
-    return ["Sin errores del reporte (un documento repetido por el mismo valor en dos terceros o un vencimiento imposible): se corrigen en el ERP y se vuelve a cargar; omitir filas no los quita."];
+    return [
+      "Sin documentos repetidos por el mismo valor en dos terceros: se corrigen en el ERP y se vuelve a cargar; omitir filas no los quita.",
+      "Un vencimiento imposible (antes de 1990 o más de 30 años después del corte) no impide aprobar: se avisa y, para cerrar la conciliación, lo aprueba con un comentario el senior o gerente asignado al cliente.",
+    ];
   }
   return [];
 }
@@ -672,6 +675,7 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
                 condiciones: [
                   "Toda diferencia desde la tolerancia está explicada por sus marcas: lo que falta queda por debajo de la tolerancia.",
                   "Cada alerta que lo exige tiene su comentario en Novedades.",
+                  ...(porTercero(d) ? ["Un «Vencimiento imposible» tiene la aprobación, con comentario, del senior o gerente asignado al cliente."] : []),
                   ...(porTercero(d) ? ["El cruce por tercero está disponible y sus diferencias están explicadas por sus marcas."] : []),
                   ...(esNomina(d) ? ["El control de deducciones está explicado por sus marcas."] : []),
                   ...(esAfi(d) ? ["Toda depreciación está emparejada con su activo."] : []),
@@ -774,7 +778,9 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
         titulo: "Novedades",
         proposito: esNomina(d)
           ? "Las alertas y validaciones del cargue. «Cédula con varios nombres» (la misma cédula con más de un nombre de empleado) no impide aprobar el borrador, pero exige un comentario para cerrar la conciliación."
-          : "Las alertas y validaciones del cargue. Algunas alertas exigen un comentario para cerrar la conciliación.",
+          : porTercero(d)
+            ? "Las alertas y validaciones del cargue. Algunas alertas exigen un comentario para cerrar la conciliación. «Vencimiento imposible» (antes de 1990 o más de 30 años después del corte) exige además que ese comentario lo escriba, como aprobación, el senior o gerente asignado al cliente."
+            : "Las alertas y validaciones del cargue. Algunas alertas exigen un comentario para cerrar la conciliación.",
         etapas: [
           {
             titulo: "Comentar alertas",
@@ -786,6 +792,15 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
                 regla: REGLAS.comentarAlertaModulo,
                 condiciones: ["No con la conciliación en firme."],
                 fuente: { archivo: "src/lib/conciliacion/verificar-bloqueo.ts", funcion: "autorizarComentarioAlertaModulo" },
+              },
+              {
+                nombre: "Aprobar (Vencimiento imposible)",
+                queHace:
+                  "El comentario de «Vencimiento imposible» es la aprobación del senior: deja constancia de que revisó esas fechas y que el reporte se puede conciliar así. Si la alerta cambia después, la aprobación queda «Por revisar».",
+                regla: REGLAS.cerrarConciliacion,
+                aplica: porTercero,
+                condiciones: ["Solo el senior o gerente asignado al cliente (quien puede cerrar la conciliación).", "De 10 a 2.000 caracteres.", "No con la conciliación en firme."],
+                fuente: { archivo: "src/lib/conciliacion/verificar-bloqueo.ts", funcion: "autorizarCierreConciliacion" },
               },
             ],
           },

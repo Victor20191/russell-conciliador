@@ -256,7 +256,7 @@ export function evaluarCierreConciliacion(
   cruce: Pick<ResumenCruceContable, "filas"> | null,
   resumenMarcas: ResumenMarcas | null,
   tercero?: CierreCruceTercero | null,
-  alertas?: readonly Pick<AlertaConComentario, "etiqueta" | "estado">[] | null,
+  alertas?: readonly (Pick<AlertaConComentario, "etiqueta" | "estado"> & Partial<Pick<AlertaConComentario, "aprobacionSenior">>)[] | null,
   /**
    * Bloqueos que ninguna marca destraba (Activos fijos: depreciación sin pareja). Se corrigen en la
    * configuración o en el archivo, así que se informan antes que lo demás.
@@ -280,11 +280,19 @@ export function evaluarCierreConciliacion(
       motivo: motivoPorExplicar(controlDeducciones, " del control de deducciones"),
     };
   }
-  const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente").map((a) => `«${a.etiqueta}»`);
+  // Las que piden aprobación del senior se nombran aparte: solo él (o el gerente) puede escribirla.
+  const aprobaciones = (alertas ?? []).filter((a) => a.estado === "pendiente" && a.aprobacionSenior).map((a) => `«${a.etiqueta}»`);
+  const pendientes = (alertas ?? []).filter((a) => a.estado === "pendiente" && !a.aprobacionSenior).map((a) => `«${a.etiqueta}»`);
   if (pendientes.length > 0) {
     return {
       ok: false,
       motivo: `Falta el comentario de ${pendientes.length === 1 ? "la alerta" : `${pendientes.length} alertas`} ${pendientes.join(", ")}. Escríbelo en la pestaña Novedades antes de cerrar la conciliación.`,
+    };
+  }
+  if (aprobaciones.length > 0) {
+    return {
+      ok: false,
+      motivo: `Falta la aprobación del Senior de ${aprobaciones.length === 1 ? "la alerta" : `${aprobaciones.length} alertas`} ${aprobaciones.join(", ")}. El senior o gerente asignado al cliente la aprueba con un comentario en la pestaña Novedades antes de cerrar la conciliación.`,
     };
   }
   const porRevisar = (alertas ?? []).filter((a) => a.estado === "por_revisar").map((a) => `«${a.etiqueta}»`);
