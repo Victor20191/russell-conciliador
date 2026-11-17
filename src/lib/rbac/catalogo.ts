@@ -174,7 +174,10 @@ export const PERMISOS: Permiso[] = [
   { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: OPERATIVO_Y_ADMIN },
   { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: OPERATIVO_Y_ADMIN },
   { code: "balance:eliminar", module: "balance", action: "eliminar", label: "Eliminar balances y perfiles de carga", roles: SOLO_ADMIN },
-  { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: STAFF_Y_SENIOR },
+  // Legado: ningún gate lo usa y no se concede (17/Nov/2026). Senior y Staff solo VEN el Plan Estándar
+  // y Mapeo cuentas cliente (`mapeo:ver`); homologar en Mapeo cuentas cliente es `balance:revisar`
+  // (el senior en sus clientes asignados y los administradores).
+  { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: [] },
   { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: STAFF_Y_SENIOR },
   { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: STAFF_Y_SENIOR },
   { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: STAFF_Y_SENIOR },
