@@ -11,6 +11,7 @@ import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
 import { guardarNiveles, type CambioNivel } from "@/app/actions/permisos";
 import { NIVEL_META, type Nivel, type NivelTone } from "@/lib/rbac/niveles";
+import type { AyudaFilaMatriz } from "@/lib/rbac/ayuda-matriz";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 
 export type RoleCol = { id: number; code: string; name: string };
@@ -19,6 +20,8 @@ export type ModuloRow = {
   label: string;
   depth: 0 | 1;
   niveles: Nivel[]; // opciones disponibles del dropdown
+  /** Qué abarca el renglón (pantallas, qué da cada nivel, nota). */
+  ayuda?: AyudaFilaMatriz;
 };
 export type GrupoMatriz = { titulo: string; filas: ModuloRow[] };
 
@@ -391,6 +394,8 @@ function FilaModulo({
   extra?: React.ReactNode;
 }) {
   const hijo = fila.depth === 1;
+  const [verAyuda, setVerAyuda] = useState(false);
+  const ayuda = fila.ayuda;
   return (
     <>
       <tr className="border-b border-ink-100 hover:bg-ink-50/40">
@@ -408,6 +413,18 @@ function FilaModulo({
               !hijo && <span className="inline-block w-[19px]" />
             )}
             <span className={hijo ? "text-ink-600" : "font-medium text-ink-800"}>{fila.label}</span>
+            {ayuda && (
+              <button
+                type="button"
+                onClick={() => setVerAyuda((v) => !v)}
+                aria-expanded={verAyuda}
+                aria-label={`Qué abarca ${fila.label}`}
+                title={ayuda.pantallas.length > 0 ? `Abarca: ${ayuda.pantallas.join(" · ")}. Clic para ver el detalle.` : "Qué abarca: clic para ver el detalle."}
+                className={`rounded p-0.5 transition hover:bg-ink-100 hover:text-navy-700 ${verAyuda ? "text-navy-700" : "text-ink-400"}`}
+              >
+                <Icon name="info" size={14} />
+              </button>
+            )}
           </div>
         </td>
         {roles.map((r) => (
@@ -422,8 +439,40 @@ function FilaModulo({
           </td>
         ))}
       </tr>
+      {ayuda && verAyuda && <AyudaFila ayuda={ayuda} cols={roles.length + 1} />}
       {extra}
     </>
+  );
+}
+
+/** Qué abarca un renglón de la matriz: pantallas del menú, qué da cada nivel y la nota. */
+function AyudaFila({ ayuda, cols }: { ayuda: AyudaFilaMatriz; cols: number }) {
+  return (
+    <tr className="border-b border-ink-100 bg-blue-50/60">
+      <td colSpan={cols} className="px-4 py-2.5">
+        {/* Pegado a la izquierda: con la tabla desplazada de lado, la ayuda sigue a la vista. */}
+        <div className="sticky left-4 flex max-w-[min(860px,80vw)] flex-col gap-1.5 pl-6 text-[12px] text-ink-700">
+          {ayuda.pantallas.length > 0 && (
+            <p>
+              <span className="font-semibold text-navy-800">Abarca: </span>
+              {ayuda.pantallas.join(" · ")}
+            </p>
+          )}
+          {ayuda.niveles.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[11.5px] text-ink-500">Cada nivel incluye lo de los anteriores:</span>
+              {ayuda.niveles.map((n) => (
+                <div key={n.nivel} className="flex flex-wrap items-start gap-2">
+                  <span className="w-[104px] shrink-0"><NivelBadge nivel={n.nivel} /></span>
+                  <span className="min-w-0 flex-1 pt-0.5">{n.permisos.join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {ayuda.nota && <p className="text-ink-600">{ayuda.nota}</p>}
+        </div>
+      </td>
+    </tr>
   );
 }
 

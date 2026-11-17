@@ -3,6 +3,8 @@ import { requirePermiso } from "@/lib/rbac";
 import { verifySession } from "@/lib/dal";
 import { ROLES_MATRIZ } from "@/lib/rbac/catalogo";
 import { puedeEditarRolMatriz, puedeGestionarPermisoMatriz } from "@/lib/rbac/politica-matriz";
+import { ayudaFilaMatriz } from "@/lib/rbac/ayuda-matriz";
+import { configNav, workNav } from "@/lib/nav";
 import {
   ARBOL_MODULOS,
   nivelActual,
@@ -32,15 +34,15 @@ export default async function PermisosPage() {
     }),
     prisma.permission.findMany({
       where: { active: true },
-      select: { id: true, code: true, module: true, action: true },
+      select: { id: true, code: true, module: true, action: true, label: true },
     }),
     prisma.rolePermission.findMany({ select: { roleId: true, permissionId: true } }),
   ]);
 
   const roleCols: RoleCol[] = roles.map((r) => ({ id: r.id, code: r.code, name: r.name }));
 
-  // Permisos por módulo.
-  const porModulo = new Map<string, PermisoLite[]>();
+  // Permisos por módulo (con su etiqueta, para la ayuda de cada renglón).
+  const porModulo = new Map<string, (PermisoLite & { label: string | null })[]>();
   for (const p of permisos) {
     if (!puedeGestionarPermisoMatriz(session.role, p.code)) continue;
     const arr = porModulo.get(p.module) ?? [];
@@ -72,7 +74,8 @@ export default async function PermisosPage() {
       valores[k] = nivelActual(perms, granted);
       if (esNivelParcial(perms, granted)) parciales[k] = true;
     }
-    return { module, label, depth, niveles };
+    // Qué abarca el renglón: pantallas del menú, qué da cada nivel y una nota donde hace falta.
+    return { module, label, depth, niveles, ayuda: ayudaFilaMatriz(module, perms, [...workNav, ...configNav]) };
   };
 
   for (const g of ARBOL_MODULOS) {
