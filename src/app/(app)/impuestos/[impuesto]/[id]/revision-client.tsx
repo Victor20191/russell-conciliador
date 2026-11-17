@@ -389,8 +389,8 @@ function ListaPorConfirmar({ revisionId, impuesto, etq, formularios, puedeConfir
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Por confirmar ({formularios.length})</h2>
-      <Card className="divide-y divide-ink-100 p-0">
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-ink-50 px-4 py-2 text-[12.5px]">
+      <Card className="overflow-x-auto p-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-4 py-2 text-[12.5px]">
           {seleccionable && (
             <label className="flex items-center gap-2 font-semibold text-ink-700">
               <input
@@ -414,37 +414,63 @@ function ListaPorConfirmar({ revisionId, impuesto, etq, formularios, puedeConfir
             )}
           </div>
         </div>
-        {formularios.map((f) => {
-          const pendientes = f.controles.filter((c) => c.bloquea && !c.ok).length;
-          return (
-            <div key={f.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[12.5px]">
-              {puedeConfirmar && (
-                <input
-                  type="checkbox"
-                  aria-label={`Seleccionar F${f.formulario} ${etq(f.periodo)} ${f.numero}`}
-                  title={pendientes ? "Tiene controles por corregir: ábrelo con «Revisar»." : undefined}
-                  disabled={pendientes > 0}
-                  checked={pendientes === 0 && marcados.has(f.id)}
-                  onChange={() => alternar(f.id)}
-                />
-              )}
-              <span className="font-semibold text-navy-800">F{f.formulario} · {etq(f.periodo)}</span>
-              <span className="tabular-nums text-ink-600">{f.numero}</span>
-              {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
-              {f.codigoCorreccion === 1 && <Chip label="Corrección" tone="warn" />}
-              {pendientes ? (
-                <span className="text-err-700">{pendientes} por corregir</span>
-              ) : (
-                <span className="inline-flex items-center gap-1 font-semibold text-ok-700">
-                  <Icon name="check" size={13} stroke={2.4} />
-                  Cuadrado
-                </span>
-              )}
-              <span className="text-[11.5px] text-ink-400">{f.nombreArchivo}</span>
-              <button type="button" onClick={() => onAbrir(f.id)} className={`ml-auto ${BOTON_SECUNDARIO}`}>Revisar</button>
-            </div>
-          );
-        })}
+        {/* Columnas fijas: el estado de los controles («Cuadrado» o «N por corregir») queda alineado de una fila a otra. */}
+        <table className="w-full min-w-[860px] text-[12.5px]">
+          <thead>
+            <tr className="border-b border-ink-100 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+              {puedeConfirmar && <th className="w-10 px-4 py-2" aria-label="Seleccionar" />}
+              <th className={`${puedeConfirmar ? "pl-0" : "pl-4"} pr-3 py-2`}>Formulario</th>
+              <th className="px-3 py-2">Número</th>
+              <th className="px-3 py-2">Concepto</th>
+              <th className="px-3 py-2">Controles</th>
+              <th className="px-3 py-2">Archivo</th>
+              <th className="px-4 py-2" aria-label="Acciones" />
+            </tr>
+          </thead>
+          <tbody>
+            {formularios.map((f) => {
+              const pendientes = f.controles.filter((c) => c.bloquea && !c.ok).length;
+              return (
+                <tr key={f.id} className="border-b border-ink-100 last:border-0">
+                  {puedeConfirmar && (
+                    <td className="w-10 px-4 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Seleccionar F${f.formulario} ${etq(f.periodo)} ${f.numero}`}
+                        title={pendientes ? "Tiene controles por corregir: ábrelo con «Revisar»." : undefined}
+                        disabled={pendientes > 0}
+                        checked={pendientes === 0 && marcados.has(f.id)}
+                        onChange={() => alternar(f.id)}
+                      />
+                    </td>
+                  )}
+                  <td className={`${puedeConfirmar ? "pl-0" : "pl-4"} whitespace-nowrap pr-3 py-2 font-semibold text-navy-800`}>F{f.formulario} · {etq(f.periodo)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-ink-600">{f.numero}</td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <span className="inline-flex gap-1.5">
+                      {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
+                      {f.codigoCorreccion === 1 && <Chip label={impuesto.declaracion.correccion ? "Ajuste" : "Corrección"} tone="warn" />}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    {pendientes ? (
+                      <span className="font-semibold text-err-700">{pendientes} por corregir</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-semibold text-ok-700">
+                        <Icon name="check" size={13} stroke={2.4} />
+                        Cuadrado
+                      </span>
+                    )}
+                  </td>
+                  <td className="max-w-[260px] truncate px-3 py-2 text-[11.5px] text-ink-400" title={f.nombreArchivo}>{f.nombreArchivo}</td>
+                  <td className="whitespace-nowrap px-4 py-2 text-right">
+                    <button type="button" onClick={() => onAbrir(f.id)} className={BOTON_SECUNDARIO}>Revisar</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </Card>
       {viendoControles && <ControlesModal impuestoClave={impuesto.clave} onClose={() => setViendoControles(false)} />}
       {preguntando && (
