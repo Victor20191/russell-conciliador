@@ -176,6 +176,18 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
         { nombre: "Estado: Todos · En proceso · En firme", queHace: "Filtra las revisiones por su estado y muestra cuántas hay de cada uno.", regla: REGLAS.verImpuestos },
       ],
     },
+    {
+      titulo: "Administrar",
+      acciones: [
+        {
+          nombre: "Eliminar revisión",
+          queHace: "La papelera de la fila elimina la revisión, después de confirmarlo. Los formularios del cliente y el año se conservan porque los usan las otras revisiones; la eliminación queda en la bitácora.",
+          regla: REGLAS.eliminarImpuestos,
+          condiciones: ["La revisión no está en firme.", "Solo aparece en las revisiones de los clientes a tu cargo."],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "eliminarRevisionImpuesto" },
+        },
+      ],
+    },
   ],
   estados: [
     { etiqueta: "En proceso", significado: "La revisión se puede trabajar: importar, confirmar y registrar meses sin formulario." },
@@ -581,6 +593,18 @@ export const FICHA_IVA_LISTADO: FichaAyuda = {
         { nombre: "Estado: Todos · En proceso · En firme", queHace: "Filtra las revisiones por su estado y muestra cuántas hay de cada uno.", regla: REGLAS.verImpuestos },
       ],
     },
+    {
+      titulo: "Administrar",
+      acciones: [
+        {
+          nombre: "Eliminar revisión",
+          queHace: "La papelera de la fila elimina la revisión, después de confirmarlo. Los formularios del cliente y el año se conservan porque los usan las otras revisiones; la eliminación queda en la bitácora.",
+          regla: REGLAS.eliminarImpuestos,
+          condiciones: ["La revisión no está en firme.", "Solo aparece en las revisiones de los clientes a tu cargo."],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "eliminarRevisionImpuesto" },
+        },
+      ],
+    },
   ],
   estados: [
     { etiqueta: "En proceso", significado: "La revisión se puede trabajar: importar, confirmar y registrar períodos sin formulario." },
@@ -975,6 +999,18 @@ export const FICHA_RST_LISTADO: FichaAyuda = {
       acciones: [
         { nombre: "Buscar por cliente, NIT o año", queHace: "Deja en la lista las revisiones que coinciden. El NIT se encuentra con o sin dígito de verificación.", regla: REGLAS.verImpuestos },
         { nombre: "Estado: Todos · En proceso · En firme", queHace: "Filtra las revisiones por su estado y muestra cuántas hay de cada uno.", regla: REGLAS.verImpuestos },
+      ],
+    },
+    {
+      titulo: "Administrar",
+      acciones: [
+        {
+          nombre: "Eliminar revisión",
+          queHace: "La papelera de la fila elimina la revisión, después de confirmarlo. Los formularios del cliente y el año se conservan porque los usan las otras revisiones; la eliminación queda en la bitácora.",
+          regla: REGLAS.eliminarImpuestos,
+          condiciones: ["La revisión no está en firme.", "Solo aparece en las revisiones de los clientes a tu cargo."],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "eliminarRevisionImpuesto" },
+        },
       ],
     },
   ],

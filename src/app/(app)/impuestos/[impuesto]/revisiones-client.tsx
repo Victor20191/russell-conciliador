@@ -9,7 +9,9 @@ import { Modal } from "@/components/modal";
 import { SelectBuscable } from "@/components/select-buscable";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
-import { crearRevisionImpuesto } from "@/app/actions/impuestos-revisiones";
+import { crearRevisionImpuesto, eliminarRevisionImpuesto } from "@/app/actions/impuestos-revisiones";
+import { Icon } from "@/components/icons";
+import type { ActionState } from "@/lib/definitions";
 import { BuscadorListado, FiltroEstadoListado } from "@/app/(app)/modulos/[codigo]/listado-compartido";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { impuestoPorClave, nombreCorte, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
@@ -35,12 +37,15 @@ export default function RevisionesClient({
   revisiones,
   clientes,
   puedeCrear,
+  eliminables,
   anioActual,
 }: {
   impuestoClave: ClaveImpuesto;
   revisiones: RevisionResumen[];
   clientes: ClienteRevision[];
   puedeCrear: boolean;
+  /** Las revisiones que quien consulta puede eliminar (permiso, alcance de escritura y sin firme). */
+  eliminables: number[];
   anioActual: number;
 }) {
   const impuesto = impuestoPorClave(impuestoClave) ?? RETENCION;
@@ -51,6 +56,8 @@ export default function RevisionesClient({
   const visibles = useMemo(() => filtrarRevisiones(revisiones, busqueda, estado), [revisiones, busqueda, estado]);
   const clientesVisibles = new Set(visibles.map((r) => r.clienteId)).size;
   const hayRevisiones = revisiones.length > 0;
+  const puedeEliminarAlguna = eliminables.length > 0;
+  const [eliminando, setEliminando] = useState<RevisionResumen | null>(null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -89,6 +96,7 @@ export default function RevisionesClient({
                 <th className="px-3 py-2 text-right">Formularios del año</th>
                 <th className="px-3 py-2">Estado</th>
                 <th className="px-3 py-2">Creada</th>
+                {puedeEliminarAlguna && <th className="w-12 px-3 py-2"><span className="sr-only">Acciones</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -105,6 +113,21 @@ export default function RevisionesClient({
                   </td>
                   <td className="px-3 py-2"><Chip label={etiquetaEstadoRevision(estadoRevision(r))} tone={estadoRevision(r) === "en_firme" ? "ok" : "blue"} /></td>
                   <td className="px-3 py-2 text-[11.5px] text-ink-500">{fmtDateTime(r.creadoEn)}{r.creadoPor ? ` · ${r.creadoPor}` : ""}</td>
+                  {puedeEliminarAlguna && (
+                    <td className="px-3 py-2 text-right">
+                      {eliminables.includes(r.id) && (
+                        <button
+                          type="button"
+                          onClick={() => setEliminando(r)}
+                          title="Eliminar revisión"
+                          aria-label={`Eliminar la revisión de ${r.nombreCliente} ${r.anio}`}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-err-200 text-err-600 transition hover:bg-err-50 hover:text-err-700"
+                        >
+                          <Icon name="trash" size={15} />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -112,7 +135,43 @@ export default function RevisionesClient({
         )}
       </Card>
       {abierto && <NuevaRevisionModal impuesto={impuesto} clientes={clientes} anioActual={anioActual} onClose={() => setAbierto(false)} />}
+      {eliminando && <EliminarRevisionModal impuesto={impuesto} revision={eliminando} onClose={() => setEliminando(null)} />}
     </div>
+  );
+}
+
+/** Confirma la eliminación de una revisión desde la lista. Los formularios del cliente y el año se conservan. */
+function EliminarRevisionModal({ impuesto, revision, onClose }: { impuesto: ImpuestoDian; revision: RevisionResumen; onClose: () => void }) {
+  const router = useRouter();
+  const [state, action, eliminando] = useActionState<ActionState, FormData>(eliminarRevisionImpuesto, {});
+  useEffect(() => {
+    notifyActionState(state, { success: "Revisión eliminada.", error: "No se pudo eliminar la revisión." });
+    if (state.ok) {
+      onClose();
+      router.refresh();
+    }
+  }, [state, onClose, router]);
+  return (
+    <Modal open onClose={onClose} title="Eliminar revisión" size="md" footer={
+      <button
+        type="submit"
+        form="eliminar-revision"
+        disabled={eliminando}
+        className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-err-400 disabled:opacity-60"
+      >
+        {eliminando ? <EstadoProcesando>Eliminando</EstadoProcesando> : <><Icon name="trash" size={14} /> Sí, eliminar</>}
+      </button>
+    }>
+      <form id="eliminar-revision" action={action} className="flex flex-col gap-2 text-[12.5px] text-ink-700">
+        <input type="hidden" name="id" value={revision.id} />
+        <p>
+          Se elimina la revisión de {impuesto.nombre} de <span className="font-semibold text-ink-900">{revision.nombreCliente}</span>, {revision.anio}, corte {etiquetaCorte(impuesto, revision.mesCorte).toLowerCase()}.
+        </p>
+        <p className="text-ink-500">
+          Los formularios del cliente y el año se conservan, porque los usan las otras revisiones del año. La eliminación queda en la bitácora.
+        </p>
+      </form>
+    </Modal>
   );
 }
 
