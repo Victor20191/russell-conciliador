@@ -108,7 +108,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     // del menú: Retención en la fuente, Mapeo cuentas DIAN y Calendario tributario.
     key: "impuestos",
     label: "Impuestos DIAN",
-    description: "Retención en la fuente (formularios 350 y 490) e IVA (formularios 300 y 490) contra el balance del corte.",
+    description: "Retención en la fuente (formularios 350 y 490) e IVA (formularios 300 y 490) contra el balance del corte, y los anticipos bimestrales del Régimen Simple (recibos 2593 y 490 concepto 27).",
     group: "Trabajo",
     icon: "tax",
     order: 60,

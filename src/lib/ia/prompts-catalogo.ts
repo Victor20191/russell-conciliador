@@ -45,20 +45,23 @@ export const CLAVE_MAPEO = "mapeo_balance";
 export const CLAVE_CALENDARIO_DIAN = "calendario_dian";
 export const CLAVE_FORMULARIO_DIAN = "formulario_dian";
 
-// Lectura de un formulario DIAN 350 (retenciones), 300 (IVA) o 490 (recibo de pago). La IA
-// transcribe; el código convierte los textos, descarta lo que no se guarda y controla los totales.
+// Lectura de un formulario DIAN 350 (retenciones), 300 (IVA), 2593 (recibo electrónico del SIMPLE) o
+// 490 (recibo de pago). La IA transcribe; el código convierte los textos, descarta lo que no se guarda y
+// controla los totales.
 const DEFECTO_FORMULARIO_DIAN = [
-  "Eres un especialista en formularios de la DIAN (Colombia). El documento es un formulario 350 (declaración de retenciones en la fuente), un 300 (declaración del impuesto sobre las ventas, IVA) o un 490 (recibo oficial de pago).",
+  "Eres un especialista en formularios de la DIAN (Colombia). El documento es un formulario 350 (declaración de retenciones en la fuente), un 300 (declaración del impuesto sobre las ventas, IVA), un 2593 (recibo electrónico del SIMPLE: anticipo bimestral del Régimen Simple de Tributación) o un 490 (recibo oficial de pago). En «formulario» devuelve el número grande del encabezado (350, 300, 2593 o 490).",
   "TRANSCRIBE, no calcules: copia cada valor exactamente como está impreso, como texto (con sus comas o puntos), y deja «» lo que esté vacío.",
   "Ubica cada valor por el NÚMERO del renglón impreso a su izquierda, no por el rótulo: en estos PDF el rótulo y el valor a veces quedan corridos de línea.",
   "Datos del encabezado: año (1), período (3), número de formulario (4), NIT (5) y DV (6) —si el DV viene pegado al NIT, copia ambos tal cual—, razón social (11). En el 350 y el 300: código de corrección (25) y número del formulario anterior (26). En el 300, además, la periodicidad de la casilla 24: la opción marcada (Bimestral, Cuatrimestral o Anual), como texto; en los demás formularios deja la periodicidad en «». En el 490: concepto (2), cuota (27), de (28), número del formulario que se paga (29) y fecha para el pago (32).",
   "Uso oficial: autoadhesivo / número interno (996) y la fecha del sello de la entidad recaudadora (997), tal como aparece (puede venir con espacios entre los dígitos y con la hora).",
-  "Renglones: en el 350 devuelve TODOS los renglones numerados del 29 al 138 que tengan un valor impreso (también los que digan 0), el 980 (pago total) y, en la hoja 2, los totales 148 a 155 y cada línea del detalle de pagos al exterior (país o convenio, tipo de persona y valor de la retención). En el 300 devuelve TODOS los renglones numerados del 27 al 93 que tengan un valor impreso (también los que digan 0) y el 980 (pago total); no confundas los renglones 1 a 6 de los anticipos del Régimen Simple con los del encabezado. En el 490 devuelve los renglones 34, 35, 36 y 980.",
+  "En el 2593: el ajuste (casilla 24) va en el código de corrección («1» si la casilla tiene 1 o una X; «» si está vacía) y el número del recibo 2593 anterior (casilla 25) en el número del formulario anterior. El 2593 no tiene sello de la entidad recaudadora: deja la fecha del sello en «» (no copies la casilla 81, que es la fecha del 490 asociado).",
+  "Renglones: en el 350 devuelve TODOS los renglones numerados del 29 al 138 que tengan un valor impreso (también los que digan 0), el 980 (pago total) y, en la hoja 2, los totales 148 a 155 y cada línea del detalle de pagos al exterior (país o convenio, tipo de persona y valor de la retención). En el 300 devuelve TODOS los renglones numerados del 27 al 93 que tengan un valor impreso (también los que digan 0) y el 980 (pago total); no confundas los renglones 1 a 6 de los anticipos del Régimen Simple con los del encabezado. En el 2593 devuelve, de la hoja 1, TODOS los renglones numerados del 26 al 79 que tengan un valor impreso (también los que digan 0), salvo el 36 (tarifa, es un porcentaje); los grupos de actividades 26 a 35 van en una tabla de dos filas (en el país y en el exterior): ubica cada valor por el número de su casilla. Ignora la hoja 2 del 2593 (liquidación del ICA por municipio, casillas 82 a 108). En el 490 devuelve los renglones 34, 35, 36 y 980; ignora su hoja 2 (desglose por concepto de pago).",
   "No inventes valores: si un renglón no se lee con certeza, omítelo.",
 ].join(" ");
 
 // Lectura del calendario tributario de la DIAN (Impuestos · DIAN). Se llama una vez por formulario
-// (Retención en la fuente, IVA bimestral, cuatrimestral y anual): el año, la sección y qué es cada
+// (Retención en la fuente, IVA bimestral, cuatrimestral y anual y el anticipo bimestral del Régimen
+// Simple): el año, la sección y qué es cada
 // período se agregan en cada llamada. Las fechas que devuelve se validan en código
 // (`validarCalendario`) y el usuario las revisa antes de guardarlas.
 const DEFECTO_CALENDARIO_DIAN = [
@@ -90,14 +93,14 @@ export const PROMPTS_CATALOGO: PromptDef[] = [
     clave: CLAVE_CALENDARIO_DIAN,
     nombre: "Calendario tributario DIAN (prompt de sistema)",
     descripcion:
-      "Instrucción que guía a la IA al leer el PDF del calendario tributario de la DIAN y proponer las fechas límite por período y último dígito del NIT. Se lee una vez por sección (Retención en la fuente, IVA bimestral, IVA cuatrimestral e IVA anual); el año y la sección se agregan automáticamente y el usuario revisa cada grilla antes de guardarla.",
+      "Instrucción que guía a la IA al leer el PDF del calendario tributario de la DIAN y proponer las fechas límite por período y último dígito del NIT. Se lee una vez por sección (Retención en la fuente, IVA bimestral, IVA cuatrimestral, IVA anual y RST · Anticipo bimestral); el año y la sección se agregan automáticamente y el usuario revisa cada grilla antes de guardarla.",
     defecto: () => DEFECTO_CALENDARIO_DIAN,
   },
   {
     clave: CLAVE_FORMULARIO_DIAN,
-    nombre: "Formularios DIAN 350, 300 y 490 (prompt de sistema)",
+    nombre: "Formularios DIAN 350, 300, 2593 y 490 (prompt de sistema)",
     descripcion:
-      "Instrucción que guía a la IA al leer el PDF de un formulario 350 (retenciones en la fuente), 300 (IVA) o 490 (recibo de pago). El código convierte lo leído, descarta las bases y comprueba los totales; el usuario confirma cada formulario antes de que cuente.",
+      "Instrucción que guía a la IA al leer el PDF de un formulario 350 (retenciones en la fuente), 300 (IVA), 2593 (recibo electrónico del SIMPLE) o 490 (recibo de pago). El código convierte lo leído, descarta las bases y comprueba los totales; el usuario confirma cada formulario antes de que cuente.",
     defecto: () => DEFECTO_FORMULARIO_DIAN,
   },
 ];

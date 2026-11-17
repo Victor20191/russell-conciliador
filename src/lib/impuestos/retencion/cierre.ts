@@ -23,13 +23,15 @@ export type EvaluacionCierreRetencion = { pendientes: PendienteCierre[]; avisos:
 const pesos = (n: number) => `${n < 0 ? "-" : ""}$ ${Math.abs(n).toLocaleString("es-CO", { maximumFractionDigits: 2 })}`;
 
 export function evaluarCierreRetencion(e: {
-  /** El formulario de la declaración (350 o 300); sin él, 350. */
+  /** El formulario de la declaración (350, 300 o 2593); sin él, 350. */
   codigo?: string;
   periodos: readonly PeriodoRevision[];
   cruce: CruceRetencionVista;
   pagos: ResultadoPagos;
   oportunidad: readonly FilaOportunidad[];
   etiquetaPeriodo: (periodo: number) => string;
+  /** El impuesto todavía no tiene cruce contable (el anticipo del Régimen Simple): no es un pendiente. */
+  sinCruce?: boolean;
 }): EvaluacionCierreRetencion {
   const pendientes: PendienteCierre[] = [];
   const avisos: string[] = [];
@@ -49,7 +51,7 @@ export function evaluarCierreRetencion(e: {
   }
 
   if (e.cruce.estado !== "listo") {
-    pendientes.push({ tipo: "cruce", texto: `Cruce contable: ${e.cruce.mensaje}` });
+    if (!e.sinCruce) pendientes.push({ tipo: "cruce", texto: `Cruce contable: ${e.cruce.mensaje}` });
   } else {
     for (const f of e.cruce.resultado.grupos.flatMap((g) => g.filas)) {
       if (!f.requiereMarca || f.marca?.vigente) continue;

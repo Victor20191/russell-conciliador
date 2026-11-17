@@ -32,6 +32,7 @@ const CRUMB_LABELS: Record<string, string> = {
   impuestos: "Impuestos · DIAN",
   retencion: "Retención en la fuente",
   iva: "IVA",
+  rst: "Anticipos bimestrales (RST)",
   "mapeos-dian": "Mapeo cuentas DIAN",
   "calendario-tributario": "Calendario tributario",
   auditoria: "Auditoría",

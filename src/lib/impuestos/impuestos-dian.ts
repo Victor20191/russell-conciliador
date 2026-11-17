@@ -1,4 +1,5 @@
 import type { DefinicionFormulario } from "./formularios/definicion";
+import { F2593, RENGLON_TOTAL_F2593 } from "./formularios/f2593";
 import { F300, RENGLONES_PAGO_F300 } from "./formularios/f300";
 import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "./formularios/f350";
 import { NOMBRES_MES, type FormularioCalendario } from "./calendario";
@@ -8,14 +9,14 @@ import { TABS_REVISION_IMPUESTO, type TabRevisionImpuesto } from "./pestanas-rev
 /**
  * Impuestos · DIAN: un descriptor por impuesto (puro, se puede importar desde el cliente).
  *
- * Retención en la fuente e IVA comparten el motor (`src/lib/impuestos/retencion/`, las acciones y
- * las pantallas): todo lo que cambia entre uno y otro —formulario de declaración, conceptos del 490,
- * renglones que se pagan, periodicidad, calendario, secciones del cruce— sale de aquí. A los
- * componentes del cliente viaja la `clave` (el descriptor tiene funciones) y cada uno lo resuelve con
- * `impuestoPorClave`.
+ * Retención en la fuente, IVA y los anticipos bimestrales del Régimen Simple (RST) comparten el motor
+ * (`src/lib/impuestos/retencion/`, las acciones y las pantallas): todo lo que cambia entre uno y otro
+ * —formulario de declaración, conceptos del 490, renglones que se pagan, periodicidad, calendario,
+ * secciones del cruce— sale de aquí. A los componentes del cliente viaja la `clave` (el descriptor
+ * tiene funciones) y cada uno lo resuelve con `impuestoPorClave`.
  */
 
-export type ClaveImpuesto = "RET" | "IVA";
+export type ClaveImpuesto = "RET" | "IVA" | "RST";
 
 export type ConceptoPagoImpuesto = {
   /** Renglón 2 del 490. */
@@ -41,21 +42,37 @@ export type GrupoCruceImpuesto = {
 export type ImpuestoDian = {
   clave: ClaveImpuesto;
   /** Segmento de la ruta (`/impuestos/<slug>`), de la llave del PDF y tipo de la copia congelada. */
-  slug: "retencion" | "iva";
+  slug: "retencion" | "iva" | "rst";
   nombre: string;
-  /** En la bitácora: «CREÓ REVISIÓN DE RETENCIÓN» / «CREÓ REVISIÓN DE IVA». */
+  /** En la bitácora: «CREÓ REVISIÓN DE RETENCIÓN» / «CREÓ REVISIÓN DE IVA» / «CREÓ REVISIÓN DE RST». */
   nombreCorto: string;
-  /** Clave en `formularios_dian` (la periodicidad de la ficha del cliente). */
-  claveFormularioCliente: "RETEFUENTE" | "IVA";
+  /**
+   * Clave en `formularios_dian` (la periodicidad de la ficha del cliente). RST no tiene: es siempre
+   * bimestral y lo habilita la marca «Régimen Simple de Tributación» del cliente.
+   */
+  claveFormularioCliente: "RETEFUENTE" | "IVA" | null;
+  /** Solo aplica a clientes con «Régimen Simple de Tributación» en Sí (RST). */
+  requiereRegimenSimple: boolean;
   declaracion: DefinicionFormulario;
   conceptosPago: readonly ConceptoPagoImpuesto[];
   /**
    * Cuándo se espera un 490: por concepto, si el 350 declara el renglón que paga (Retención); o una
-   * sola vez, si el total a pagar (88) del 300 es mayor que cero (IVA).
+   * sola vez, si el total a pagar del formulario (88 del 300, 76 a 79 del 2593) es mayor que cero.
    */
   pagoEsperadoPorTotal: boolean;
-  /** Renglones de la declaración que se comparan en Pagos efectuados, y cómo se llaman en sus columnas. */
-  renglones: { impuesto: number; sanciones: number; total: number };
+  /**
+   * RST: un ajuste del 2593 descuenta lo ya pagado (casillas 55, 63, 73 y 103), así que sus valores a
+   * pagar traen solo lo adicional. Lo que debe pagar el período suma los `componentesPago` de la
+   * vigente y de cada recibo anterior de la cadena que tiene su 490.
+   */
+  pagoSumaCadena: boolean;
+  /**
+   * Renglones de la declaración que se comparan en Pagos efectuados. Sin `sanciones`, la declaración no
+   * liquida sanciones (el 2593): la sanción pagada en el 490 se muestra aparte y no entra a la diferencia.
+   */
+  renglones: { impuesto: number; sanciones: number; total: number } | { impuesto: number; total: number };
+  /** Los renglones que suman el total a pagar (76 a 79 del 2593), con su nombre corto para Pagos efectuados. */
+  componentesPago?: readonly { renglon: number; etiqueta: string }[];
   etiquetasPago: { impuesto: string; sanciones: string; total: string };
   /**
    * Las columnas de pago de Oportunidad: Retención mide aparte el 61 y el 62; IVA, el recibo del concepto
@@ -64,6 +81,8 @@ export type ImpuestoDian = {
   columnasPago: readonly { id: string; conceptos: readonly string[]; titulo: string; subtitulo?: string; corta: string }[];
   /** Las pestañas de la revisión que ya están disponibles para el impuesto. */
   pestanas: readonly TabRevisionImpuesto[];
+  /** La revisión se puede cerrar en firme (RST todavía no: llega con su cruce contable). */
+  cierreEnFirme: boolean;
   textos: {
     /** El total que se muestra de cada período en «Formularios por período». */
     totalPeriodo: { etiqueta: string; renglon: number };
@@ -85,6 +104,12 @@ export type ImpuestoDian = {
   /** El calendario que mide la oportunidad de un año: IVA anual vence en febrero del año siguiente. */
   calendario: (periodicidad: string, anio: number) => { formulario: FormularioCalendario; anio: number } | null;
   cruce: {
+    /**
+     * El cruce contable se calcula. RST todavía no: faltan las cuentas Russell con que se compara, y la
+     * pestaña dice que está en construcción (`mensajeNoDisponible`).
+     */
+    disponible: boolean;
+    mensajeNoDisponible?: string;
     grupos: readonly GrupoCruceImpuesto[];
     /** Prefijos de cuentas Russell que se leen por tercero del balance. */
     prefijosTercero: readonly string[];
@@ -114,6 +139,7 @@ export const RETENCION: ImpuestoDian = {
   nombre: "Retención en la fuente",
   nombreCorto: "Retención",
   claveFormularioCliente: "RETEFUENTE",
+  requiereRegimenSimple: false,
   declaracion: F350,
   conceptosPago: [
     { concepto: "61", renglonPagado: RENGLON_PAGADO_POR_CONCEPTO_490["61"] },
@@ -121,6 +147,7 @@ export const RETENCION: ImpuestoDian = {
     { concepto: "63", renglonPagado: RENGLON_PAGADO_POR_CONCEPTO_490["63"] },
   ],
   pagoEsperadoPorTotal: false,
+  pagoSumaCadena: false,
   renglones: { impuesto: 136, sanciones: 137, total: 138 },
   etiquetasPago: { impuesto: "Retenciones", sanciones: "Sanciones", total: "Total" },
   columnasPago: [
@@ -128,6 +155,7 @@ export const RETENCION: ImpuestoDian = {
     { id: "62", conceptos: ["62"], titulo: "Pago · Formulario 490 · Concepto 62", subtitulo: "(ReteIVA)", corta: "62" },
   ],
   pestanas: TABS_REVISION_IMPUESTO,
+  cierreEnFirme: true,
   textos: {
     totalPeriodo: { etiqueta: "Total retenciones", renglon: 136 },
     subtituloLista: "Revisión acumulada de los formularios 350 (declaración) y 490 (pago) de cada cliente a un corte: el precierre, generalmente a septiembre, y el cierre a diciembre.",
@@ -141,6 +169,7 @@ export const RETENCION: ImpuestoDian = {
   precierreConMes: false,
   calendario: (periodicidad, anio) => (periodicidad === "Mensual" ? { formulario: "RETEFUENTE", anio } : null),
   cruce: {
+    disponible: true,
     grupos: [
       { grupo: "renta", etiqueta: "Retenciones a título de renta (130)", secciones: ["Retenciones a título de renta", "Pagos al exterior", "Autorretenciones"], porTercero: true, renglonTotal: 130 },
       { grupo: "iva", etiqueta: "Retenciones a título de IVA (134)", secciones: ["Retenciones a título de IVA"], porTercero: true, renglonTotal: 134 },
@@ -170,6 +199,7 @@ export const IVA: ImpuestoDian = {
   nombre: "IVA",
   nombreCorto: "IVA",
   claveFormularioCliente: "IVA",
+  requiereRegimenSimple: false,
   declaracion: F300,
   conceptosPago: [
     { concepto: "05", renglonPagado: RENGLONES_PAGO_F300.impuesto, periodicidad: "Bimestral" },
@@ -177,10 +207,12 @@ export const IVA: ImpuestoDian = {
     { concepto: "58", renglonPagado: RENGLONES_PAGO_F300.impuesto, periodicidad: "Anual" },
   ],
   pagoEsperadoPorTotal: true,
+  pagoSumaCadena: false,
   renglones: { ...RENGLONES_PAGO_F300 },
   etiquetasPago: { impuesto: "Saldo a pagar por impuesto", sanciones: "Sanciones", total: "Total saldo a pagar" },
   columnasPago: [{ id: "490", conceptos: ["05", "57", "58"], titulo: "Pago · Formulario 490", corta: "490" }],
   pestanas: TABS_REVISION_IMPUESTO,
+  cierreEnFirme: true,
   textos: {
     totalPeriodo: { etiqueta: "Total saldo a pagar", renglon: 88 },
     subtituloLista: "Revisión acumulada de los formularios 300 (declaración de IVA) y 490 (pago) de cada cliente a un corte: el precierre, en el mes que se elija, y el cierre a diciembre. La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente.",
@@ -201,6 +233,7 @@ export const IVA: ImpuestoDian = {
           ? { formulario: "IVA_ANUAL", anio: anio + 1 }
           : null,
   cruce: {
+    disponible: true,
     grupos: [
       { grupo: "generado", etiqueta: "Impuesto generado (67)", secciones: [SECCIONES_MAPEO_F300.generado], porTercero: true, renglonTotal: 67 },
       { grupo: "descontable", etiqueta: "Impuesto descontable (81)", secciones: [SECCIONES_MAPEO_F300.descontable], porTercero: true, renglonTotal: 81 },
@@ -216,7 +249,62 @@ export const IVA: ImpuestoDian = {
   },
 };
 
-export const IMPUESTOS: readonly ImpuestoDian[] = [RETENCION, IVA];
+/**
+ * Anticipos bimestrales del Régimen Simple de Tributación: el recibo electrónico 2593 y su 490
+ * concepto 27, que paga 76 + 77 + 78 + 79. Siempre bimestral; solo para clientes con «Régimen Simple
+ * de Tributación» en Sí. Oportunidad mide el pago (el 2593 no trae sello de presentación). Sin cruce
+ * contable (faltan las cuentas Russell) ni cierre en firme, por ahora.
+ */
+export const RST: ImpuestoDian = {
+  clave: "RST",
+  slug: "rst",
+  nombre: "Anticipos bimestrales (RST)",
+  nombreCorto: "RST",
+  claveFormularioCliente: null,
+  requiereRegimenSimple: true,
+  declaracion: F2593,
+  conceptosPago: [{ concepto: "27", renglonPagado: RENGLON_TOTAL_F2593, periodicidad: "Bimestral" }],
+  pagoEsperadoPorTotal: true,
+  pagoSumaCadena: true,
+  renglones: { impuesto: RENGLON_TOTAL_F2593, total: RENGLON_TOTAL_F2593 },
+  componentesPago: [
+    { renglon: 76, etiqueta: "ICA" },
+    { renglon: 77, etiqueta: "Anticipo SIMPLE" },
+    { renglon: 78, etiqueta: "Impuesto al consumo" },
+    { renglon: 79, etiqueta: "IVA" },
+  ],
+  etiquetasPago: { impuesto: "Valores a pagar", sanciones: "Sanciones", total: "Total valores a pagar" },
+  columnasPago: [{ id: "490", conceptos: ["27"], titulo: "Pago · Formulario 490 · Concepto 27", corta: "490" }],
+  // El cruce contable aparece «en construcción» hasta que existan las cuentas Russell.
+  pestanas: TABS_REVISION_IMPUESTO,
+  cierreEnFirme: false,
+  textos: {
+    totalPeriodo: { etiqueta: "Total valores a pagar", renglon: RENGLON_TOTAL_F2593 },
+    subtituloLista:
+      "Revisión acumulada de los recibos electrónicos 2593 (anticipo bimestral del Régimen Simple de Tributación) y sus 490 concepto 27 de cada cliente a un corte: el precierre, en el bimestre que se elija, y el cierre a diciembre. Solo para clientes del Régimen Simple.",
+    subtituloRevision: "Importa los PDF de los recibos 2593 y de los 490 concepto 27 del año hasta el corte, revisa lo que leyó la IA y confírmalo. Un formulario solo cuenta cuando está confirmado.",
+    explicacionCausal: "Un bimestre sin anticipo que liquidar no es un error.",
+    ejemploCausal: "Ej.: el cliente entró al Régimen Simple en el bimestre siguiente.",
+  },
+  columnasPersona: false,
+  periodicidades: ["Bimestral"],
+  cortesAtajo: [{ mes: 12, etiqueta: "Cierre · diciembre" }],
+  precierreConMes: true,
+  calendario: (periodicidad, anio) => (periodicidad === "Bimestral" ? { formulario: "RST_ANTICIPO", anio } : null),
+  cruce: {
+    disponible: false,
+    mensajeNoDisponible: "En construcción: faltan las cuentas Russell con las que se compara cada valor del recibo 2593.",
+    grupos: [],
+    prefijosTercero: [],
+    prefijosCliente: [],
+    gruposEnFirme: [],
+    signoEnSubtotal: false,
+    conTotalGeneral: false,
+    signoPorNaturaleza: false,
+  },
+};
+
+export const IMPUESTOS: readonly ImpuestoDian[] = [RETENCION, IVA, RST];
 
 export function impuestoPorClave(clave: string | null | undefined): ImpuestoDian | null {
   return IMPUESTOS.find((i) => i.clave === clave) ?? null;
@@ -237,7 +325,7 @@ export function nombreCorte(impuesto: ImpuestoDian, mes: number): string | null 
   return null;
 }
 
-/** El impuesto cuyo formulario de declaración es este código («350» → Retención, «300» → IVA). */
+/** El impuesto cuyo formulario de declaración es este código («350» → Retención, «300» → IVA, «2593» → RST). */
 export function impuestoPorDeclaracion(codigo: string | null | undefined): ImpuestoDian | null {
   return IMPUESTOS.find((i) => i.declaracion.codigo === codigo) ?? null;
 }
@@ -253,6 +341,14 @@ export function alcanceCierreImpuesto(impuesto: Pick<ImpuestoDian, "cruce">, cue
   const sueltas = cuentasDelCruce.map((c) => c.replace(/\D/g, "")).filter((c) => (c.length === 4 || c.length === 6) && !cubierta(c));
   return [...new Set([...grupos, ...sueltas])].sort();
 }
+
+/** El renglón de sanciones de la declaración; null si no liquida sanciones (el 2593). */
+export function renglonSanciones(impuesto: Pick<ImpuestoDian, "renglones">): number | null {
+  return "sanciones" in impuesto.renglones ? impuesto.renglones.sanciones : null;
+}
+
+/** ¿Oportunidad mide la presentación de la declaración? No en el 2593, que no trae sello: solo el pago. */
+export const midePresentacion = (impuesto: Pick<ImpuestoDian, "declaracion">): boolean => !impuesto.declaracion.sinSello;
 
 /** El concepto del 490 que corresponde a la periodicidad (solo IVA; Retención admite los tres). */
 export function conceptosPagoDe(impuesto: ImpuestoDian, periodicidad?: string | null): readonly ConceptoPagoImpuesto[] {

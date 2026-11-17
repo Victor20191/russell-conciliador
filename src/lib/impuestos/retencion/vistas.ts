@@ -1,4 +1,4 @@
-import { calcularTotal, esImporte, renglonDe, type DefinicionFormulario } from "../formularios/definicion";
+import { calcularTotal, renglonDe, renglonesVisibles, type DefinicionFormulario } from "../formularios/definicion";
 import { CONCEPTOS_RETENCION_F350 } from "../formularios/f350";
 import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
 import { etiquetaPeriodo } from "../periodicidad";
@@ -8,8 +8,10 @@ import type { PeriodoRevision } from "./periodos-revision";
  * Vistas de una revisión de Impuestos · DIAN (puro).
  *
  * «Por meses» o «Por períodos» (Vista 1): cada renglón de la declaración por período y el bloque de
- * pagos del 490. En Retención (350) los conceptos van por persona jurídica y natural; en IVA (300)
- * cada renglón tiene un solo valor. «Acumulado» (Vista 2): la suma de los períodos hasta el corte.
+ * pagos del 490. En Retención (350) los conceptos van por persona jurídica y natural; en IVA (300) y
+ * en el anticipo del Régimen Simple (2593) cada renglón tiene un solo valor; el 2593 suma además su
+ * total de valores a pagar (76 a 79), que no viene impreso. «Acumulado» (Vista 2): la suma de los
+ * períodos hasta el corte.
  * Los valores salen de la declaración VIGENTE de cada período (la última corrección) y los totales
  * se RECALCULAN con la definición del formulario, nunca se copian de otra celda.
  */
@@ -40,7 +42,13 @@ export type FilaVista = {
   /** Σ por persona (en los conceptos). */
   totalPj: number;
   totalPn: number;
+  /** Cómo se nombra el renglón cuando no es una casilla del formulario («76 a 79»). */
+  rotulo?: string;
 };
+
+/** El renglón de la fila en la columna «Renglón»: el de cada persona, su número o su rótulo. */
+export const renglonDeFila = (f: Pick<FilaVista, "tipo" | "renglonPj" | "renglonPn" | "rotulo">): string =>
+  f.tipo === "concepto" ? [f.renglonPj, f.renglonPn].map((r) => r ?? "—").join(" · ") : (f.rotulo ?? String(f.renglonPj));
 
 export type FilaPago = { clave: string; etiqueta: string; meses: (number | null)[]; total: number };
 
@@ -102,8 +110,9 @@ export function vistasRevision(periodos: readonly PeriodoRevision[], impuestoCla
       });
     }
   }
-  // Los renglones de un solo valor: en el 350, del 129 al 138 y el 980; en el 300, todos los que se guardan con importe.
-  const unicos = impuesto.columnasPersona ? [...RENGLONES_UNICOS_350] : def.renglones.filter((r) => r.guardar && esImporte(r)).map((r) => r.renglon);
+  // Los renglones de un solo valor: en el 350, del 129 al 138 y el 980; en el 300 y el 2593, todos los que
+  // se guardan con importe y, en el 2593, el total calculado de los valores a pagar.
+  const unicos = impuesto.columnasPersona ? [...RENGLONES_UNICOS_350] : renglonesVisibles(def);
   for (const r of unicos) filas.push(filaUnica(def, r, periodos.length, valoresMes));
 
   const fila = (clave: string, etiqueta: string, valorMes: (p: PeriodoRevision) => number): FilaPago => {
@@ -125,22 +134,25 @@ export function vistasRevision(periodos: readonly PeriodoRevision[], impuestoCla
 /** Un renglón de un solo valor por período; los totales se recalculan con la definición. */
 function filaUnica(def: DefinicionFormulario, r: number, periodos: number, valoresMes: (Map<number, number> | null)[]): FilaVista {
   const d = renglonDe(def, r)!;
+  // Los totales impresos y los calculados (76 a 79 del 2593) se recalculan con la definición.
+  const recalculado = d.tipo === "total" || d.tipo === "calculado";
   const porMes = Array.from({ length: periodos }, (_, i) => {
     const valores = valoresMes[i];
-    const v = !valores ? null : d.tipo === "total" ? calcularTotal(def, r, valores) : (valores.get(r) ?? 0);
+    const v = !valores ? null : recalculado ? calcularTotal(def, r, valores) : (valores.get(r) ?? 0);
     return { pj: null, pn: null, valor: v };
   });
   return {
     clave: d.concepto,
     seccion: d.seccion,
     etiqueta: d.etiqueta,
-    tipo: d.tipo === "total" ? "total" : "unico",
+    tipo: recalculado ? "total" : "unico",
     renglonPj: r,
     renglonPn: null,
     meses: porMes,
     total: suma(porMes.map((m) => m.valor)),
     totalPj: 0,
     totalPn: 0,
+    ...(d.rotulo ? { rotulo: d.rotulo } : {}),
   };
 }
 

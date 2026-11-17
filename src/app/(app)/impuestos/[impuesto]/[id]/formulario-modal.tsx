@@ -8,7 +8,7 @@ import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import { confirmarFormularioDian, descartarFormularioDian } from "@/app/actions/impuestos-revisiones";
 import type { ActionState } from "@/lib/definitions";
-import { esImporte } from "@/lib/impuestos/formularios/definicion";
+import { calcularTotal, casillasCorreccion, esImporte, reglaNumero } from "@/lib/impuestos/formularios/definicion";
 import { etiquetaConceptoPago, F490 } from "@/lib/impuestos/formularios/f490";
 import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "@/lib/impuestos/impuestos-dian";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
@@ -88,8 +88,18 @@ export function FormularioModal({
   const avisos = controles.filter((c) => !c.bloquea && !c.ok);
   const correctos = controles.filter((c) => c.ok).length;
 
-  const renglones = def.renglones.filter((r) => r.guardar && esImporte(r));
-  const visibles = renglones.filter((r) => mostrarTodos || r.tipo === "total" || (valores[r.renglon] ?? "") !== "" || f.leido.valores[r.renglon] != null);
+  // Los renglones con importe que se guardan y los calculados (en el 2593, el total de 76 a 79), que se ven y no se editan.
+  const renglones = def.renglones.filter((r) => (r.guardar && esImporte(r)) || r.tipo === "calculado");
+  const mapaNumericos = new Map(Object.entries(numericos).map(([r, v]) => [Number(r), v]));
+  const valoresCalculados = Object.fromEntries(
+    def.renglones.filter((r) => r.tipo === "calculado").map((r) => [r.renglon, calcularTotal(def, r.renglon, mapaNumericos)]),
+  ) as Record<number, number>;
+  const visibles = renglones.filter((r) => mostrarTodos || r.tipo === "total" || r.tipo === "calculado" || (valores[r.renglon] ?? "") !== "" || f.leido.valores[r.renglon] != null);
+  // Corrección (350 y 300: renglones 25 y 26) o ajuste (2593: casillas 24 y 25); largo de los números.
+  const correccion = casillasCorreccion(impuesto.declaracion);
+  const esAjuste = impuesto.declaracion.correccion != null;
+  const digitosDeclaracion = reglaNumero(impuesto.declaracion).digitos;
+  const conSello = !(esDeclaracion && impuesto.declaracion.sinSello);
   // Secciones en el orden del formulario (tramos seguidos): el total de renta va después de lo que suma.
   const secciones = visibles.reduce<{ seccion: string; renglones: typeof visibles }[]>((grupos, r) => {
     const ultimo = grupos[grupos.length - 1];
@@ -174,10 +184,14 @@ export function FormularioModal({
         {f.corregidoAMano.length > 0 && <p className="text-[11.5px] text-ink-500">Corregidos a mano al confirmar: renglones {f.corregidoAMano.join(", ")}.</p>}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1">
-            <span className="font-semibold text-ink-700">{f.formulario === "490" ? "Fecha de pago" : "Fecha de presentación"} (renglón 997)</span>
-            <input type="date" value={fechaSello} disabled={!editable} onChange={(e) => setFechaSello(e.target.value)} className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 disabled:bg-ink-50" />
-          </label>
+          {conSello ? (
+            <label className="flex flex-col gap-1">
+              <span className="font-semibold text-ink-700">{f.formulario === "490" ? "Fecha de pago" : "Fecha de presentación"} (renglón 997)</span>
+              <input type="date" value={fechaSello} disabled={!editable} onChange={(e) => setFechaSello(e.target.value)} className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 disabled:bg-ink-50" />
+            </label>
+          ) : (
+            <p className="text-[11.5px] text-ink-500">El recibo {codigo} no tiene sello de presentación: la fecha que cuenta es la del pago, en el recibo 490.</p>
+          )}
           {esDeclaracion ? (
             <div className="flex flex-col gap-1">
               {f.formulario === "300" && (
@@ -188,10 +202,17 @@ export function FormularioModal({
               )}
               <label className="flex items-center gap-2 font-semibold text-ink-700">
                 <input type="checkbox" checked={esCorreccion} disabled={!editable} onChange={(e) => setEsCorreccion(e.target.checked)} />
-                Es una corrección (renglón 25 = 1)
+                {esAjuste ? `Es un ajuste (casilla ${correccion.codigo})` : `Es una corrección (renglón ${correccion.codigo} = 1)`}
               </label>
               {esCorreccion && (
-                <input value={numeroAnterior} disabled={!editable} onChange={(e) => setNumeroAnterior(e.target.value.replace(/\D/g, "").slice(0, 13))} placeholder="Formulario que corrige (renglón 26)" aria-label="Número del formulario anterior" className="h-9 w-56 rounded-md border border-ink-200 bg-white px-2 tabular-nums disabled:bg-ink-50" />
+                <input
+                  value={numeroAnterior}
+                  disabled={!editable}
+                  onChange={(e) => setNumeroAnterior(e.target.value.replace(/\D/g, "").slice(0, digitosDeclaracion))}
+                  placeholder={esAjuste ? `Recibo ${codigo} que ajusta (casilla ${correccion.anterior})` : `Formulario que corrige (renglón ${correccion.anterior})`}
+                  aria-label="Número del formulario anterior"
+                  className="h-9 w-56 rounded-md border border-ink-200 bg-white px-2 tabular-nums disabled:bg-ink-50"
+                />
               )}
             </div>
           ) : (
@@ -206,7 +227,7 @@ export function FormularioModal({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="font-semibold text-ink-700">{codigo} que paga (renglón 29)</span>
-                <input value={numeroPagado} disabled={!editable} onChange={(e) => setNumeroPagado(e.target.value.replace(/\D/g, "").slice(0, 13))} aria-label="Número del formulario que se paga" className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 tabular-nums disabled:bg-ink-50" />
+                <input value={numeroPagado} disabled={!editable} onChange={(e) => setNumeroPagado(e.target.value.replace(/\D/g, "").slice(0, digitosDeclaracion))} aria-label="Número del formulario que se paga" className="h-9 w-44 rounded-md border border-ink-200 bg-white px-2 tabular-nums disabled:bg-ink-50" />
               </label>
             </div>
           )}
@@ -228,6 +249,7 @@ export function FormularioModal({
                   seccion={g.seccion}
                   renglones={g.renglones}
                   valores={valores}
+                  calculados={valoresCalculados}
                   leidos={f.leido.valores}
                   editable={editable && puedeEditar}
                   onCambio={(r, v) => setValores((prev) => ({ ...prev, [r]: v }))}
@@ -245,13 +267,16 @@ function SeccionValores({
   seccion,
   renglones,
   valores,
+  calculados,
   leidos,
   editable,
   onCambio,
 }: {
   seccion: string;
-  renglones: { renglon: number; etiqueta: string; persona: "juridica" | "natural" | "unica"; tipo: string }[];
+  renglones: { renglon: number; etiqueta: string; persona: "juridica" | "natural" | "unica"; tipo: string; rotulo?: string }[];
   valores: Record<number, string>;
+  /** Los renglones calculados (no se editan): su valor sale de los demás. */
+  calculados: Record<number, number>;
   leidos: Record<number, number>;
   editable: boolean;
   onCambio: (renglon: number, valor: string) => void;
@@ -262,6 +287,15 @@ function SeccionValores({
         <td colSpan={3} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{seccion}</td>
       </tr>
       {renglones.map((r) => {
+        if (r.tipo === "calculado") {
+          return (
+            <tr key={r.renglon} className="border-t border-ink-100 bg-ink-50/60 font-semibold">
+              <td className="w-14 whitespace-nowrap px-3 py-1 text-right tabular-nums text-ink-500">{r.rotulo ?? r.renglon}</td>
+              <td className="px-2 py-1 text-ink-800">{r.etiqueta}</td>
+              <td className="w-48 px-3 py-1 text-right tabular-nums">${(calculados[r.renglon] ?? 0).toLocaleString("es-CO")}</td>
+            </tr>
+          );
+        }
         const valor = valores[r.renglon] ?? "";
         const cambiado = (leidos[r.renglon] ?? null) !== (valor === "" ? null : Number(valor));
         return (

@@ -202,21 +202,30 @@ export async function cargarRevisiones(clientIds: number[] | null, impuesto: Cla
 
 /**
  * Un cliente para «Nueva revisión». `periodicidad` es la de su ficha para el formulario del impuesto
- * (null si no la tiene o no es válida: IVA la pide al crear la revisión).
+ * (null si no la tiene o no es válida: IVA la pide al crear la revisión). `regimenSimple`: la marca
+ * «Régimen Simple de Tributación» de su ficha (RST pide confirmarla si está en No).
  */
-export type ClienteRevision = { id: number; nombre: string; nit: string; periodicidad: string | null };
+export type ClienteRevision = { id: number; nombre: string; nit: string; periodicidad: string | null; regimenSimple: boolean };
 
 /** Clientes para «Nueva revisión» (los de alcance de escritura), con su periodicidad del impuesto. */
 export async function clientesParaRevision(clientIds: number[] | null, impuesto: ClaveImpuesto = "RET"): Promise<ClienteRevision[]> {
   const imp = impuestoPorClave(impuesto) ?? RETENCION;
-  const opciones = opcionesPeriodicidad(imp.claveFormularioCliente) as readonly string[];
+  const clave = imp.claveFormularioCliente;
+  const opciones = clave ? (opcionesPeriodicidad(clave) as readonly string[]) : [];
   const clientes = await prisma.client.findMany({
     where: clientIds ? { id: { in: clientIds } } : {},
     orderBy: { name: "asc" },
-    select: { id: true, name: true, nit: true, dianForms: { where: { form: { key: imp.claveFormularioCliente } }, select: { periodicidad: true } } },
+    select: {
+      id: true,
+      name: true,
+      nit: true,
+      regimenSimple: true,
+      // RST no tiene formato DIAN en la ficha: su periodicidad es siempre bimestral.
+      dianForms: { where: clave ? { form: { key: clave } } : { id: -1 }, select: { periodicidad: true } },
+    },
   });
   return clientes.map((c) => {
     const propia = c.dianForms[0]?.periodicidad ?? null;
-    return { id: c.id, nombre: c.name, nit: c.nit, periodicidad: propia && opciones.includes(propia) ? propia : null };
+    return { id: c.id, nombre: c.name, nit: c.nit, periodicidad: propia && opciones.includes(propia) ? propia : null, regimenSimple: c.regimenSimple };
   });
 }

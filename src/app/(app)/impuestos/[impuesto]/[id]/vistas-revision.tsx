@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { BotonPantallaCompleta, CLASE_TARJETA, claseScrollTabla, propsRegionPantallaCompleta, usePantallaCompletaTabla } from "@/components/tabla-pantalla-completa";
-import { faltaDeclaracion, filaConValores, unidadPlural, vistaConPersonas, type FilaPago, type FilaVista, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
+import { faltaDeclaracion, filaConValores, renglonDeFila, unidadPlural, vistaConPersonas, type FilaPago, type FilaVista, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
 
 const miles = (n: number | null) => (n == null ? "" : Math.round(n).toLocaleString("es-CO"));
 const CELDA = "px-2 py-1 text-right tabular-nums whitespace-nowrap";
@@ -34,7 +34,7 @@ function tramos<T extends { seccion: string }>(filas: readonly T[]): { seccion: 
   }, []);
 }
 
-const renglones = (f: FilaVista) => (f.tipo === "concepto" ? [f.renglonPj, f.renglonPn].map((r) => r ?? "—").join(" · ") : String(f.renglonPj));
+const renglones = renglonDeFila;
 
 /**
  * Vista 1 · Por meses (Retención) o Por períodos (IVA): cada renglón por período y el bloque de pagos
@@ -222,7 +222,7 @@ function TramoAcumulado({ seccion, filas, personas }: { seccion: string; filas: 
               <td className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPn ?? "—"}</td>
             </>
           ) : (
-            <td colSpan={personas ? 2 : 1} className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPj}</td>
+            <td colSpan={personas ? 2 : 1} className="whitespace-nowrap px-3 py-1 text-center tabular-nums text-ink-500">{renglonDeFila(f)}</td>
           )}
           <td className={CELDA}>{miles(f.total)}</td>
         </tr>

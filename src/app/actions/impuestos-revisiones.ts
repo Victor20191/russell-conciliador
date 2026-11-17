@@ -35,8 +35,8 @@ import { MAX_BYTES_PDF_FORMULARIO, motivoRechazoArchivo, tipoArchivoFormulario }
 import { alcanceCierreImpuesto, impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { mesesCorteValidos, validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 
-// Impuestos · DIAN: revisiones de Retención en la fuente (350 + 490) e IVA (300 + 490). El impuesto
-// sale de la revisión (al crearla, del formulario). Cargar, confirmar y registrar causales:
+// Impuestos · DIAN: revisiones de Retención en la fuente (350 + 490), IVA (300 + 490) y anticipos del
+// Régimen Simple (2593 + 490 concepto 27). El impuesto sale de la revisión (al crearla, del formulario). Cargar, confirmar y registrar causales:
 // `impuestos:cargar` + alcance de ESCRITURA sobre el cliente (staff o senior asignado); corregir
 // importes leídos: además `impuestos:editar`; descartar un formulario ya confirmado o una revisión:
 // `impuestos:eliminar`. Nada de esto se permite con la revisión en firme. Cada consulta de
@@ -68,13 +68,14 @@ type PeriodicidadRevision =
  * o, si no la tiene, la que se eligió en «Nueva revisión» (y se guarda en la ficha).
  */
 async function periodicidadDeLaRevision(imp: ImpuestoDian, clienteId: number, elegida: string): Promise<PeriodicidadRevision> {
-  if (imp.periodicidades.length === 1) return { ok: true, valor: imp.periodicidades[0], guardarEnFicha: null };
-  const formato = await prisma.dianForm.findUnique({ where: { key: imp.claveFormularioCliente }, select: { id: true } });
-  if (!formato) return { ok: false, message: `El formato ${imp.claveFormularioCliente} no está en el catálogo de formatos DIAN.` };
+  const clave = imp.claveFormularioCliente;
+  if (imp.periodicidades.length === 1 || !clave) return { ok: true, valor: imp.periodicidades[0], guardarEnFicha: null };
+  const formato = await prisma.dianForm.findUnique({ where: { key: clave }, select: { id: true } });
+  if (!formato) return { ok: false, message: `El formato ${clave} no está en el catálogo de formatos DIAN.` };
   const ficha = await prisma.clientDianForm.findUnique({ where: { clientId_formId: { clientId: clienteId, formId: formato.id } }, select: { periodicidad: true } });
   const propia = ficha?.periodicidad ?? null;
   if (propia && (imp.periodicidades as readonly string[]).includes(propia)) return { ok: true, valor: propia, guardarEnFicha: null };
-  const validada = validarPeriodicidad(imp.claveFormularioCliente, elegida);
+  const validada = validarPeriodicidad(clave, elegida);
   if (!validada.ok) return { ok: false, message: validada.message };
   if (!validada.periodicidad) return { ok: false, message: `El cliente no tiene periodicidad de ${imp.nombre} en su ficha: elígela.` };
   return { ok: true, valor: validada.periodicidad, guardarEnFicha: { formId: formato.id } };
@@ -82,8 +83,11 @@ async function periodicidadDeLaRevision(imp: ImpuestoDian, clienteId: number, el
 
 /**
  * «Nueva revisión»: impuesto, cliente, año y corte. Retención en la fuente es siempre mensual. IVA
- * toma la periodicidad de la ficha del cliente; si no la tiene, la pide y la guarda en la ficha. El
- * corte tiene que cerrar un período de la periodicidad. Si ya existe, devuelve la existente.
+ * toma la periodicidad de la ficha del cliente; si no la tiene, la pide y la guarda en la ficha. Los
+ * anticipos del Régimen Simple (RST) son siempre bimestrales y solo aplican a clientes con «Régimen
+ * Simple de Tributación» en Sí: si la ficha dice No, quien crea la revisión confirma que el cliente sí
+ * pertenece al régimen y la ficha queda en Sí. El corte tiene que cerrar un período de la periodicidad.
+ * Si ya existe, devuelve la existente.
  */
 export async function crearRevisionImpuesto(_prev: ResultadoRevision, formData: FormData): Promise<ResultadoRevision> {
   const parsed = RevisionImpuestoSchema.safeParse({
@@ -92,6 +96,7 @@ export async function crearRevisionImpuesto(_prev: ResultadoRevision, formData: 
     anio: formData.get("anio"),
     mesCorte: formData.get("mesCorte"),
     periodicidad: formData.get("periodicidad") ?? "",
+    confirmaRegimenSimple: formData.get("confirmaRegimenSimple") ?? "",
   });
   if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
   const { clienteId, anio, mesCorte } = parsed.data;
@@ -100,10 +105,15 @@ export async function crearRevisionImpuesto(_prev: ResultadoRevision, formData: 
   if (!authz.ok) return { ok: false, message: authz.message };
 
   try {
-    const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true, nit: true, code: true } });
+    const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true, nit: true, code: true, regimenSimple: true } });
     if (!cliente) return { ok: false, message: "El cliente no existe." };
     const existente = await prisma.revisionImpuesto.findUnique({ where: { clienteId_impuesto_anio_mesCorte: { clienteId, impuesto: imp.clave, anio, mesCorte } }, select: { id: true } });
     if (existente) return { ok: true, id: existente.id, message: "La revisión ya existía." };
+    // RST: un cliente sin la marca del Régimen Simple solo entra si quien crea la revisión confirma que sí lo es.
+    const marcarRegimenSimple = imp.requiereRegimenSimple && !cliente.regimenSimple;
+    if (marcarRegimenSimple && parsed.data.confirmaRegimenSimple !== "1") {
+      return { ok: false, message: `${cliente.name} no tiene la marca «Régimen Simple de Tributación»: confirma que el cliente pertenece al régimen para crear la revisión.` };
+    }
 
     const periodicidad = await periodicidadDeLaRevision(imp, clienteId, parsed.data.periodicidad);
     if (!periodicidad.ok) return { ok: false, message: periodicidad.message };
@@ -113,6 +123,8 @@ export async function crearRevisionImpuesto(_prev: ResultadoRevision, formData: 
 
     const user = await getCurrentUser();
     const revision = await prisma.$transaction(async (tx) => {
+      // La confirmación del Régimen Simple queda en la ficha del cliente (RST).
+      if (marcarRegimenSimple) await tx.client.update({ where: { id: clienteId }, data: { regimenSimple: true } });
       // La periodicidad que se pidió en «Nueva revisión» queda en la ficha del cliente.
       if (periodicidad.guardarEnFicha) {
         await tx.clientDianForm.upsert({
@@ -136,6 +148,16 @@ export async function crearRevisionImpuesto(_prev: ResultadoRevision, formData: 
         },
       });
     });
+    if (marcarRegimenSimple) {
+      revalidatePath("/config/clientes");
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: "MARCÓ RÉGIMEN SIMPLE DEL CLIENTE",
+        entity: `Cliente · ${cliente.name}`,
+        detail: `Régimen Simple de Tributación: No → Sí, confirmado al crear la revisión de ${imp.nombre} ${anio}`,
+        clientId: clienteId,
+      });
+    }
     if (periodicidad.guardarEnFicha) {
       await logAudit({
         user: user?.name ?? "Sistema",
@@ -333,7 +355,8 @@ async function confirmarFila(revision: RevisionEscritura, fila: FormularioDianCa
       where: { id: fila.id },
       data: {
         estado: "confirmado",
-        fechaSello: fechaCalendarioPrisma(final.fechaSello as string),
+        // El recibo 2593 no trae sello: se confirma sin fecha. En los demás, los controles la exigen.
+        fechaSello: final.fechaSello ? fechaCalendarioPrisma(final.fechaSello) : null,
         codigoCorreccion: final.codigoCorreccion,
         numeroAnterior: final.numeroAnterior,
         concepto: final.concepto,
@@ -382,7 +405,7 @@ export async function confirmarFormularioDian(_prev: ActionState, formData: Form
 
     const valores = Object.fromEntries(Object.entries(p.valores).map(([r, v]) => [Number(r), v]));
     const motivo = await confirmarFila(revision, fila, {
-      fechaSello: p.fechaSello,
+      fechaSello: p.fechaSello || null,
       codigoCorreccion: p.codigoCorreccion === "1" ? 1 : null,
       numeroAnterior: p.numeroAnterior || null,
       concepto: p.concepto || null,
@@ -631,6 +654,11 @@ type ObjetivoMarca = { ok: true; dimension: "cuenta4" | "control"; diferencia: n
 
 /** Qué se marca con la clave: la fila del cruce, el mes de pagos, el mes de oportunidad o el saldo inicial restado, con su cifra de hoy. */
 async function objetivoDeMarca(vista: RevisionVista, clave: string): Promise<ObjetivoMarca> {
+  // Sin cruce (el anticipo del Régimen Simple) solo se marcan los períodos de pagos y de oportunidad.
+  const imp = impuestoDe(vista.impuesto);
+  if (!imp.cruce.disponible && !clave.startsWith("pago:") && !clave.startsWith("oportunidad:")) {
+    return { ok: false, message: imp.cruce.mensajeNoDisponible ?? "El cruce contable de este impuesto todavía no está disponible." };
+  }
   if (clave === CLAVE_MARCA_SALDO_INICIAL) {
     const cruce = await cargarCruceRetencion(vista);
     if (cruce.estado !== "listo") return { ok: false, message: cruce.mensaje };
@@ -708,6 +736,7 @@ export async function escogerBalanceImpuesto(_prev: ActionState, formData: FormD
   const acceso = await revisionConAlcance(revisionId, "impuestos:editar");
   if (!acceso.ok) return { ok: false, message: acceso.message };
   const { revision, impuesto: imp } = acceso;
+  if (!imp.cruce.disponible) return { ok: false, message: imp.cruce.mensajeNoDisponible ?? "El cruce contable de este impuesto todavía no está disponible." };
 
   try {
     const { candidatos, vigentes } = await cargarCandidatosBalanceCruce(revision.clienteId, true);
@@ -784,6 +813,7 @@ export async function cerrarRevisionImpuesto(_prev: ActionState, formData: FormD
     const imp = impuestoDe(vista.impuesto);
     const authz = await autorizarCierreConciliacion("conciliaciones:cerrar", vista.clienteId);
     if (!authz.ok) return { ok: false, message: authz.message };
+    if (!imp.cierreEnFirme) return { ok: false, message: `El cierre en firme de ${imp.nombre} todavía no está disponible: llega con el cruce contable.` };
     if (vista.estado === "en_firme") return { ok: true, message: "La revisión ya estaba en firme." };
 
     const firma = await firmaParaCierre(prisma, vista);
@@ -934,6 +964,7 @@ export async function desbloquearRevisionImpuesto(_prev: ActionState, formData: 
     const imp = impuestoDe(revision.impuesto);
     const authz = await autorizarCierreConciliacion("conciliaciones:desbloquear", revision.clienteId);
     if (!authz.ok) return { ok: false, message: authz.message };
+    if (!imp.cierreEnFirme) return { ok: false, message: `${imp.nombre} todavía no se cierra en firme: no hay nada que desbloquear.` };
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
 

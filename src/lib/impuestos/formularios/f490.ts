@@ -7,7 +7,8 @@ import type { DefinicionFormulario, RenglonDian } from "./definicion";
  * «Formulario 490». En la retención en la fuente el concepto (renglón 2) es 61 (renta y
  * autorretenciones, paga el 130 del 350), 62 (reteIVA, paga el 134) o 63 (timbre, paga el 135). En
  * el IVA es 05 (bimestral), 57 (cuatrimestral) o 58 (anual), según la periodicidad del 300, y paga
- * el 86. El valor del impuesto va en el 36, y puede venir sanción (34) e intereses de mora (35).
+ * el 86. En el anticipo bimestral del Régimen Simple es 27 y paga los valores a pagar del 2593 (76 a
+ * 79). El valor del impuesto va en el 36, y puede venir sanción (34) e intereses de mora (35).
  */
 
 const r = (renglon: number, etiqueta: string, seccion: string, tipo: RenglonDian["tipo"], guardar: boolean, terminos?: RenglonDian["terminos"]): RenglonDian => ({
@@ -30,6 +31,9 @@ export type ConceptoPagoIva = (typeof CONCEPTOS_PAGO_IVA)[number];
 /** El concepto del 490 de IVA según la periodicidad del 300. */
 export const CONCEPTO_490_IVA_POR_PERIODICIDAD: Readonly<Record<string, ConceptoPagoIva>> = { Bimestral: "05", Cuatrimestral: "57", Anual: "58" };
 
+/** Anticipo bimestral del Régimen Simple: el 490 que genera el recibo 2593 (paga 76 + 77 + 78 + 79). */
+export const CONCEPTOS_PAGO_RST = ["27"] as const;
+
 const NOMBRE_CONCEPTO_PAGO: Readonly<Record<string, string>> = {
   "61": "Retenciones de renta",
   "62": "ReteIVA",
@@ -37,6 +41,7 @@ const NOMBRE_CONCEPTO_PAGO: Readonly<Record<string, string>> = {
   "05": "IVA bimestral",
   "57": "IVA cuatrimestral",
   "58": "IVA anual",
+  "27": "Anticipo bimestral SIMPLE",
 };
 
 /** «Retenciones de renta (Concepto 61)»: el nombre del concepto de pago con su número. */

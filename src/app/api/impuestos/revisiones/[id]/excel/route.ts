@@ -72,7 +72,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       })),
       resultados,
     );
-    const nombre = `${impuesto.clave === "IVA" ? "IVA" : "Retencion"} ${revision.nombreCliente} ${revision.anio}-${String(revision.mesCorte).padStart(2, "0")}.xlsx`;
+    const prefijo = { RET: "Retencion", IVA: "IVA", RST: "Anticipos RST" }[impuesto.clave];
+    const nombre = `${prefijo} ${revision.nombreCliente} ${revision.anio}-${String(revision.mesCorte).padStart(2, "0")}.xlsx`;
     return new Response(cuerpoBinario(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

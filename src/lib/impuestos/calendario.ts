@@ -24,9 +24,17 @@ type DefCalendario = {
   digitosPorPares: boolean;
   /** Qué sección del PDF leer y qué es cada período: va en el mensaje a la IA. */
   instruccionPdf: string;
+  /**
+   * Hasta cuántos meses después del período se considera normal el vencimiento (más tarde, avisa). Sin
+   * él, dos. El anticipo del Régimen Simple del primer bimestre vence en mayo: tres.
+   */
+  mesesHolgura?: number;
 };
 
-/** Formularios con calendario: Retención en la fuente (mensual) e IVA (bimestral, cuatrimestral y anual). */
+/**
+ * Formularios con calendario: Retención en la fuente (mensual), IVA (bimestral, cuatrimestral y anual)
+ * y el anticipo bimestral del Régimen Simple de Tributación (recibo 2593).
+ */
 export const FORMULARIOS_CALENDARIO = {
   RETEFUENTE: {
     etiqueta: "Retención en la fuente",
@@ -67,6 +75,17 @@ export const FORMULARIOS_CALENDARIO = {
     digitosPorPares: true,
     instruccionPdf:
       "Sección: «RST», columna «Consolidada de IVA» (declaración anual del IVA de los responsables del Régimen Simple de Tributación). Un solo período (1): el año gravable ANTERIOR al del calendario; su vencimiento cae en febrero del año del calendario. La tabla agrupa los dígitos de a dos (1-2, 3-4, 5-6, 7-8, 9-0): devuelve una fila por cada dígito, con la fecha de su par.",
+  },
+  RST_ANTICIPO: {
+    etiqueta: "RST · Anticipo bimestral",
+    periodos: 6,
+    mesesPorPeriodo: 2,
+    etiquetaPeriodo: (p: number) => etiquetaPeriodo("Bimestral", p),
+    desfaseAnio: 0,
+    digitosPorPares: false,
+    mesesHolgura: 3,
+    instruccionPdf:
+      "Sección: «RST - Anticipo bimestral» (declaración y pago del anticipo bimestral del Régimen Simple de Tributación). Seis períodos: 1 = enero-febrero, 2 = marzo-abril, 3 = mayo-junio, 4 = julio-agosto, 5 = septiembre-octubre y 6 = noviembre-diciembre, que vence en enero del año siguiente. Cada fila de la tabla dice arriba a la derecha el bimestre que cubre y a la izquierda el mes en que vence. No la confundas con «IVA - Bimestral» ni con la sección «RST» de la declaración anual (consolidada).",
   },
 } as const satisfies Record<string, DefCalendario>;
 
@@ -150,11 +169,13 @@ export type ResultadoCalendario = { errores: string[]; avisos: string[] };
 /**
  * Valida una grilla completa antes de guardarla. Errores (impiden guardar): faltan o sobran
  * casillas, fechas inválidas o anteriores al cierre del período. Avisos (se guardan, pero se
- * muestran): fechas más de dos meses después del período, que no crecen con el dígito o, en los
- * formularios por pares, un par con fechas distintas.
+ * muestran): fechas más de dos meses después del período (tres en el anticipo del Régimen Simple), que
+ * no crecen con el dígito o, en los formularios por pares, un par con fechas distintas.
  */
 export function validarCalendario(anio: number, formulario: FormularioCalendario, filas: readonly VencimientoDian[]): ResultadoCalendario {
   const def: DefCalendario = FORMULARIOS_CALENDARIO[formulario];
+  const holgura = def.mesesHolgura ?? 2;
+  const textoHolgura = holgura === 2 ? "dos" : holgura === 3 ? "tres" : String(holgura);
   const errores: string[] = [];
   const avisos: string[] = [];
   const porCasilla = new Map<string, VencimientoDian[]>();
@@ -169,7 +190,7 @@ export function validarCalendario(anio: number, formulario: FormularioCalendario
   for (let periodo = 1; periodo <= def.periodos; periodo++) {
     const nombre = def.etiquetaPeriodo(periodo, anio);
     const fin = finDelPeriodo(anio + def.desfaseAnio, periodo, def.mesesPorPeriodo);
-    const limite = sumarMeses(fin, 2);
+    const limite = sumarMeses(fin, holgura);
     let anterior: string | null = null;
     for (const digito of ORDEN_DIGITOS) {
       const casillas = porCasilla.get(`${periodo}:${digito}`) ?? [];
@@ -178,7 +199,7 @@ export function validarCalendario(anio: number, formulario: FormularioCalendario
       const { fecha } = casillas[0];
       if (!esFechaIso(fecha)) { errores.push(`${nombre}, dígito ${digito}: «${fecha}» no es una fecha válida.`); continue; }
       if (fecha <= fin) errores.push(`${nombre}, dígito ${digito}: vence el ${fecha}, antes de terminar el período.`);
-      else if (fecha > limite) avisos.push(`${nombre}, dígito ${digito}: vence el ${fecha}, más de dos meses después del período.`);
+      else if (fecha > limite) avisos.push(`${nombre}, dígito ${digito}: vence el ${fecha}, más de ${textoHolgura} meses después del período.`);
       if (anterior && fecha < anterior) avisos.push(`${nombre}: la fecha del dígito ${digito} es anterior a la del dígito que lo precede.`);
       anterior = fecha;
     }
@@ -215,7 +236,8 @@ export type PropuestaCalendario = { anio: number; formulario: FormularioCalendar
 
 /**
  * Respuesta de «Importar desde el PDF de la DIAN»: una propuesta por formulario (Retención en la
- * fuente e IVA bimestral, cuatrimestral y anual) que el usuario revisa antes de guardar.
+ * fuente, IVA bimestral, cuatrimestral y anual y el anticipo bimestral del Régimen Simple) que el
+ * usuario revisa antes de guardar.
  */
 export type ResultadoLecturaCalendario = {
   ok?: boolean;

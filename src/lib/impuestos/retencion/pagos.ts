@@ -1,8 +1,8 @@
 import { calcularTotal } from "../formularios/definicion";
-import { impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
+import { impuestoPorClave, renglonSanciones, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
 import type { MarcaCruceRetencion } from "./cruce";
 import { claveMarcaPeriodo } from "./oportunidad";
-import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./periodos-revision";
+import { recibosSin350, valoresAPagar, type PeriodoRevision, type ReciboDeOtro350 } from "./periodos-revision";
 
 /**
  * Pagos efectuados de Retención en la fuente (puro): por período, lo que declara el 350 VIGENTE
@@ -20,6 +20,11 @@ import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./per
  * (sanciones) y el 88 (total saldo a pagar), recalculados con su piso en cero, contra el 36 y el 34 de
  * los 490 del concepto de la periodicidad. Los nombres de los campos (`retenciones`, `sanciones`) son
  * los de Retención: en IVA, `retenciones` es el 86.
+ *
+ * Los anticipos del Régimen Simple (RST): lo que se debe pagar es 76 + 77 + 78 + 79 del recibo 2593
+ * (con un ajuste, sumando los recibos de la cadena que ya tienen su 490) y se compara con el 36 de los
+ * 490 concepto 27. El 2593 no liquida sanciones: la sanción (34) y los intereses (35) del 490 se
+ * muestran aparte y no entran a la diferencia ni al total pagado.
  */
 
 export type EstadoPago = "completo" | "diferencia" | "sin_formulario" | "falta_350";
@@ -54,13 +59,19 @@ export type FilaPagos = {
   recibosDeOtro350?: ReciboDeOtro350[];
   /** Números de los 490 confirmados de un mes sin 350: lo que pagaron es toda la diferencia. Las copias antiguas no lo traen. */
   recibosSin350?: string[];
+  /** RST: los valores a pagar del 2593 que suman lo declarado (76 ICA, 77 anticipo, 78 consumo, 79 IVA). */
+  componentes?: ComponentePago[];
   requiereMarca: boolean;
   marca: (MarcaCruceRetencion & { vigente: boolean }) | null;
 };
 
+export type ComponentePago = { renglon: number; valor: number };
+
 export type ResultadoPagos = {
   filas: FilaPagos[];
   total: Pick<FilaPagos, "retenciones" | "sanciones" | "totalDeclarado" | "impuestoPagado" | "sancionPagada" | "intereses" | "totalPagado" | "diferencia">;
+  /** RST: la suma de cada valor a pagar de los períodos. */
+  totalComponentes?: ComponentePago[];
   pendientesMarca: number;
 };
 
@@ -82,7 +93,11 @@ const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centa
 export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; periodos: readonly PeriodoRevision[]; marcas: readonly (MarcaCruceRetencion & { clave: string })[] }): ResultadoPagos {
   const impuesto = impuestoPorClave(e.impuesto) ?? RETENCION;
   const def = impuesto.declaracion;
-  const { impuesto: rImpuesto, sanciones: rSanciones, total: rTotal } = impuesto.renglones;
+  const { impuesto: rImpuesto, total: rTotal } = impuesto.renglones;
+  const rSanciones = renglonSanciones(impuesto);
+  // Sin renglón de sanciones (el 2593), la sanción pagada no se compara: se muestra aparte.
+  const conSanciones = rSanciones != null;
+  const componentesPago = impuesto.componentesPago?.map((c) => c.renglon) ?? null;
   const marcas = new Map(e.marcas.map((m) => [m.clave, m]));
   const filas = e.periodos.map((p): FilaPagos => {
     const clave = claveMarcaPeriodo("pago", e.anio, p.periodo);
@@ -93,19 +108,21 @@ export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; perio
       const sin350 = recibosSin350(p).map((f) => f.numero);
       const impuestoPagado = sumar(p.pagos.map((x) => x.impuesto));
       const sancionPagada = sumar(p.pagos.map((x) => x.sancion));
-      const totalPagado = sumar([impuestoPagado, sancionPagada]);
+      const totalPagado = conSanciones ? sumar([impuestoPagado, sancionPagada]) : impuestoPagado;
       const requiereMarca = sin350.length > 0;
       return {
         periodo: p.periodo, clave, estado: p.causal ? "sin_formulario" : "falta_350",
         retenciones: 0, sanciones: 0, totalDeclarado: 0, impuestoPagado, sancionPagada, intereses: sumar(p.pagos.map((x) => x.intereses)), totalPagado,
         diferencia: totalPagado, desglose: [], recibosSin350: sin350, requiereMarca,
+        ...(componentesPago ? { componentes: componentesPago.map((renglon) => ({ renglon, valor: 0 })) } : {}),
         marca: marcaGuardada ? { ...marcaGuardada, vigente: requiereMarca && centavos(marcaGuardada.diferencia) === centavos(totalPagado) } : null,
       };
     }
-    // Los totales se recalculan con la definición del formulario, como en las vistas.
-    const valores = new Map(Object.entries(vigente.valores).map(([r, v]) => [Number(r), v]));
+    // Los totales se recalculan con la definición del formulario, como en las vistas. En RST, los valores
+    // a pagar suman además los recibos de la cadena que ya tienen su 490 (un ajuste trae solo lo adicional).
+    const valores = valoresAPagar(impuesto, p.cadena, p.pagos.flatMap((x) => x.formularios)) ?? new Map<number, number>();
     const retenciones = calcularTotal(def, rImpuesto, valores);
-    const sanciones = valores.get(rSanciones) ?? 0;
+    const sanciones = rSanciones == null ? 0 : (valores.get(rSanciones) ?? 0);
     // Un renglón del desglose por concepto de pago del período (61, 62 y 63 en Retención; el de la periodicidad en IVA).
     const desglose = p.pagos.map(({ concepto, renglon }): DesglosePago => {
       const pago = p.pagos.find((x) => x.concepto === concepto);
@@ -116,7 +133,7 @@ export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; perio
     const impuestoPagado = sumar(p.pagos.map((x) => x.impuesto));
     const sancionPagada = sumar(p.pagos.map((x) => x.sancion));
     const intereses = sumar(p.pagos.map((x) => x.intereses));
-    const diferencia = sumar([impuestoPagado, -retenciones, sancionPagada, -sanciones]);
+    const diferencia = conSanciones ? sumar([impuestoPagado, -retenciones, sancionPagada, -sanciones]) : sumar([impuestoPagado, -retenciones]);
     const hayDiferencia = centavos(diferencia) !== 0;
     const recibosDeOtro350 = p.recibosDeOtro350 ?? [];
     // Un 490 que el 350 obliga a pagar y no está no impide cerrar, pero exige la marca del mes
@@ -125,8 +142,9 @@ export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; perio
     return {
       periodo: p.periodo, clave, estado: hayDiferencia ? "diferencia" : "completo",
       retenciones, sanciones, totalDeclarado: calcularTotal(def, rTotal, valores),
-      impuestoPagado, sancionPagada, intereses, totalPagado: sumar([impuestoPagado, sancionPagada]), diferencia,
+      impuestoPagado, sancionPagada, intereses, totalPagado: conSanciones ? sumar([impuestoPagado, sancionPagada]) : impuestoPagado, diferencia,
       desglose, recibosDeOtro350, requiereMarca,
+      ...(componentesPago ? { componentes: componentesPago.map((renglon) => ({ renglon, valor: valores.get(renglon) ?? 0 })) } : {}),
       marca: marcaGuardada ? { ...marcaGuardada, vigente: centavos(marcaGuardada.diferencia) === centavos(diferencia) } : null,
     };
   });
@@ -137,6 +155,9 @@ export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; perio
       retenciones: total("retenciones"), sanciones: total("sanciones"), totalDeclarado: total("totalDeclarado"), impuestoPagado: total("impuestoPagado"),
       sancionPagada: total("sancionPagada"), intereses: total("intereses"), totalPagado: total("totalPagado"), diferencia: total("diferencia"),
     },
+    ...(componentesPago
+      ? { totalComponentes: componentesPago.map((renglon) => ({ renglon, valor: sumar(filas.map((f) => f.componentes?.find((c) => c.renglon === renglon)?.valor ?? 0)) })) }
+      : {}),
     pendientesMarca: filas.filter((f) => f.requiereMarca && !f.marca?.vigente).length,
   };
 }

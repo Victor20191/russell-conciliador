@@ -1,5 +1,5 @@
 import { fechaVencimiento, type VencimientoDian } from "../calendario";
-import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
+import { impuestoPorClave, midePresentacion, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
 import type { MarcaCruceRetencion } from "./cruce";
 import type { Formulario490, PeriodoRevision } from "./periodos-revision";
 
@@ -18,6 +18,9 @@ import type { Formulario490, PeriodoRevision } from "./periodos-revision";
  * siguiente), la presentación del 300 original y una sola columna de pago, la del último 490 del
  * concepto de la periodicidad (05, 57 o 58). Las columnas de pago van en `pagos`; Retención
  * conserva además `pago61` y `pago62`.
+ *
+ * El anticipo del Régimen Simple (2593) no tiene sello de presentación: solo se mide el pago (el 997
+ * del último 490 concepto 27) y la presentación queda «No aplica», sin marca.
  */
 
 export type EstadoOportunidad =
@@ -29,7 +32,8 @@ export type EstadoOportunidad =
   | "sin_fecha"
   | "sin_calendario"
   | "sin_pago"
-  | "nada_que_pagar";
+  | "nada_que_pagar"
+  | "no_aplica";
 
 export const ETIQUETA_OPORTUNIDAD: Readonly<Record<EstadoOportunidad, string>> = {
   oportuno: "Oportuno",
@@ -41,6 +45,7 @@ export const ETIQUETA_OPORTUNIDAD: Readonly<Record<EstadoOportunidad, string>> =
   sin_calendario: "Sin calendario",
   sin_pago: "Sin pago",
   nada_que_pagar: "Sin valor a pagar",
+  no_aplica: "No aplica",
 };
 
 /** La etiqueta del estado con el formulario de la declaración del impuesto («Falta el 300» en IVA). */
@@ -152,10 +157,14 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
     }
 
     const { original } = p.cadena;
-    const presentacion = original
-      ? comparar(original.fechaPresentacion, vencimiento)
-      : { estado: "falta_original" as const, dias: null };
-    const admiteMarca = original == null;
+    const conPresentacion = midePresentacion(impuesto);
+    const presentacion = !conPresentacion
+      ? { estado: "no_aplica" as const, dias: null }
+      : original
+        ? comparar(original.fechaPresentacion, vencimiento)
+        : { estado: "falta_original" as const, dias: null };
+    // Sin presentación que medir (el 2593), la falta del original no pide marca en Oportunidad.
+    const admiteMarca = conPresentacion && original == null;
     const pagos = impuesto.columnasPago.map((c) => ({ id: c.id, pago: medirPago(p, c.conceptos, vencimiento) }));
     return {
       periodo: p.periodo,
@@ -163,7 +172,7 @@ export function oportunidadRevision(e: EntradaOportunidad): FilaOportunidad[] {
       numero350: original?.numero ?? null,
       autoadhesivo350: original?.autoadhesivo ?? null,
       vencimiento,
-      presentacion: original?.fechaPresentacion ?? null,
+      presentacion: conPresentacion ? (original?.fechaPresentacion ?? null) : null,
       estadoPresentacion: presentacion.estado,
       diasPresentacion: presentacion.dias,
       ...(esRetencion ? { pago61: pagos.find((x) => x.id === "61")?.pago, pago62: pagos.find((x) => x.id === "62")?.pago } : {}),

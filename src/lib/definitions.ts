@@ -5,6 +5,7 @@ import { esUrlHttp } from "@/lib/soporte-estados";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { motivoFechaFutura } from "@/lib/fecha-cargue";
+import { CLAVES_CALENDARIO, type FormularioCalendario } from "@/lib/impuestos/calendario";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -452,7 +453,7 @@ export const TerceroDianSchema = z.object({
 // de fondo (casillas, fechas después del período) la hace `validarCalendario`.
 export const CalendarioDianSchema = z.object({
   anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
-  formulario: z.enum(["RETEFUENTE", "IVA_BIMESTRAL", "IVA_CUATRIMESTRAL", "IVA_ANUAL"], { error: "Formulario sin calendario." }),
+  formulario: z.enum(CLAVES_CALENDARIO as [FormularioCalendario, ...FormularioCalendario[]], { error: "Formulario sin calendario." }),
   filas: z
     .string()
     .transform((s, ctx) => {
@@ -476,11 +477,14 @@ export const CalendarioDianSchema = z.object({
     ),
 });
 
-// ---- Impuestos · DIAN (Retención en la fuente e IVA): revisiones y formularios ----
+// ---- Impuestos · DIAN (Retención en la fuente, IVA y anticipos del Régimen Simple): revisiones y formularios ----
 // `periodicidad` solo se usa en IVA cuando la ficha del cliente no la tiene (la valida la acción).
+// `confirmaRegimenSimple` = «1»: quien crea una revisión de RST confirma que el cliente pertenece al
+// Régimen Simple aunque su ficha diga No (la acción lo marca en Sí).
 export const RevisionImpuestoSchema = z.object({
-  impuesto: z.enum(["RET", "IVA"], { error: "Impuesto inválido." }),
+  impuesto: z.enum(["RET", "IVA", "RST"], { error: "Impuesto inválido." }),
   periodicidad: z.string().trim().max(20).default(""),
+  confirmaRegimenSimple: z.enum(["", "1"], { error: "Confirmación inválida." }).default(""),
   clienteId: z.coerce.number().int().positive({ error: "Elige el cliente." }),
   anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
   mesCorte: z.coerce.number().int().min(1, { error: "Elige el corte." }).max(12, { error: "Elige el corte." }),
@@ -494,7 +498,7 @@ const numeroFormularioOpcional = z
   .string()
   .trim()
   .transform((s) => s.replace(/\D/g, ""))
-  .refine((s) => s === "" || /^\d{13}$/.test(s), { error: "El número de formulario tiene 13 dígitos." });
+  .refine((s) => s === "" || /^\d{13,14}$/.test(s), { error: "El número de formulario tiene 13 dígitos (14 el recibo 2593)." });
 // Confirmación de un formulario leído: los importes (renglón → pesos) viajan como JSON y se
 // recontrolan en el servidor con `controlesLectura`.
 export const ConfirmarFormulariosDianSchema = z.object({
@@ -508,10 +512,11 @@ export const ConfirmarFormulariosDianSchema = z.object({
 export const ConfirmarFormularioDianSchema = z.object({
   id: z.coerce.number().int().positive({ error: "Formulario inválido." }),
   revisionId: z.coerce.number().int().positive({ error: "Revisión inválida." }),
-  fechaSello: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Escribe la fecha del sello (renglón 997)." }),
+  // Vacía solo en el recibo 2593, que no trae sello: los controles la exigen en los demás.
+  fechaSello: z.string().trim().regex(/^(\d{4}-\d{2}-\d{2})?$/, { error: "Escribe la fecha del sello (renglón 997)." }).default(""),
   codigoCorreccion: z.enum(["", "1"], { error: "Código de corrección inválido." }).default(""),
   numeroAnterior: numeroFormularioOpcional.default(""),
-  concepto: z.enum(["", "61", "62", "63", "05", "57", "58"], { error: "Concepto de pago inválido." }).default(""),
+  concepto: z.enum(["", "61", "62", "63", "05", "57", "58", "27"], { error: "Concepto de pago inválido." }).default(""),
   numeroPagado: numeroFormularioOpcional.default(""),
   valores: z
     .string()

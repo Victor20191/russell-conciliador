@@ -20,6 +20,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { etiquetaConceptoPago } from "@/lib/impuestos/formularios/f490";
+import { renglonDe, rotuloRenglon, valorRenglon, type DefinicionFormulario } from "@/lib/impuestos/formularios/definicion";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
 import {
   avisoFaltaOriginal,
@@ -108,7 +109,7 @@ export default function RevisionClient({
           </div>
           {puedeEliminar && <EliminarRevision id={revision.id} slug={impuesto.slug} />}
         </div>
-        {hay("novedades") && <div className="mt-3">
+        {hay("novedades") && impuesto.cierreEnFirme && <div className="mt-3">
           <BarraCierre
             impuestoClave={impuesto.clave}
             revisionId={revision.id}
@@ -144,7 +145,7 @@ export default function RevisionClient({
 
       {tab === "meses" && <VistaPorMeses vista={vista} onAbrir={setAbierto} />}
       {tab === "acumulado" && <VistaAcumulada vista={vista} />}
-      {tab === "cruce" && <CruceRevision cruce={resultados.cruce} revisionId={revision.id} puedeEditar={puedeEditar} />}
+      {tab === "cruce" && <CruceRevision cruce={resultados.cruce} revisionId={revision.id} puedeEditar={puedeEditar} enConstruccion={!impuesto.cruce.disponible} />}
       {tab === "oportunidad" && (
         <VistaOportunidad impuestoClave={impuesto.clave} filas={resultados.oportunidad} calendario={resultados.calendario} anio={revision.anio} etiquetaPeriodo={etiquetaPeriodo} revisionId={revision.id} puedeEditar={puedeEditar} />
       )}
@@ -218,6 +219,9 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   );
 }
 
+/** «el 130» o, para un renglón calculado, «los renglones 76 a 79». */
+const elRenglon = (def: DefinicionFormulario, r: number) => (renglonDe(def, r)?.rotulo ? `los renglones ${rotuloRenglon(def, r)}` : `el ${r}`);
+
 function FilaPeriodo({
   p,
   impuesto,
@@ -240,8 +244,12 @@ function FilaPeriodo({
   const { vigente, cadena, faltaOriginal } = p.cadena;
   // La columna de pagos muestra lo que hay (confirmado o por confirmar); lo que falta va en Alertas.
   const lineasPago = p.pagos.filter((x) => x.formularios.length > 0 || x.porConfirmar > 0);
-  const codigo = impuesto.declaracion.codigo;
+  const def = impuesto.declaracion;
+  const codigo = def.codigo;
   const total = impuesto.textos.totalPeriodo;
+  // El 2593 no tiene sello de presentación y su corrección se llama «ajuste».
+  const conSello = !def.sinSello;
+  const esAjuste = def.correccion != null;
   return (
     <tr className="border-b border-ink-100 align-top last:border-0">
       <td className="px-3 py-2 font-semibold text-navy-800">{etq(p.periodo)}</td>
@@ -251,17 +259,17 @@ function FilaPeriodo({
           <div className="flex flex-col gap-0.5">
             <span>
               <button type="button" onClick={() => onAbrir(vigente.id)} className={ENLACE}>{vigente.numero}</button>
-              <span className="ml-1.5 text-[11.5px] text-ink-500">presentado {vigente.fechaPresentacion ?? "—"}</span>
+              {conSello && <span className="ml-1.5 text-[11.5px] text-ink-500">presentado {vigente.fechaPresentacion ?? "—"}</span>}
             </span>
             {cadena.length > 1 && (
               <span className="text-[11.5px] text-ink-500">
-                Corrige a {cadena.slice(0, -1).map((f, i) => (
-                  <span key={f.id}>{i > 0 && " → "}<button type="button" onClick={() => onAbrir(f.id)} className={ENLACE}>{f.numero}</button> ({porId.get(f.id)?.fechaSello ?? "—"})</span>
+                {esAjuste ? "Ajusta a" : "Corrige a"} {cadena.slice(0, -1).map((f, i) => (
+                  <span key={f.id}>{i > 0 && " → "}<button type="button" onClick={() => onAbrir(f.id)} className={ENLACE}>{f.numero}</button>{conSello ? ` (${porId.get(f.id)?.fechaSello ?? "—"})` : ""}</span>
                 ))}
               </span>
             )}
-            {faltaOriginal && <span className="text-[11.5px] text-warn-700">Corrección del {faltaOriginal}, que no está cargado</span>}
-            <span className="text-[11.5px] text-ink-500">{total.etiqueta} ({total.renglon}): {fmt(vigente.valores[total.renglon] ?? 0)}</span>
+            {faltaOriginal && <span className="text-[11.5px] text-warn-700">{esAjuste ? "Ajuste" : "Corrección"} del {faltaOriginal}, que no está cargado</span>}
+            <span className="text-[11.5px] text-ink-500">{total.etiqueta} ({rotuloRenglon(def, total.renglon)}): {fmt(valorRenglon(def, total.renglon, new Map(Object.entries(vigente.valores).map(([r, v]) => [Number(r), v]))))}</span>
             {p.porConfirmar350 > 0 && <span className="text-[11.5px] text-warn-700">Hay otro {codigo} por confirmar</span>}
           </div>
         ) : p.causal ? (
@@ -276,7 +284,7 @@ function FilaPeriodo({
             <span key={x.concepto} className="text-[12px]">
               <span className="inline-block min-w-[14.5rem] font-semibold text-ink-700">{etiquetaConceptoPago(x.concepto)}</span>
               {x.formularios.length === 0 ? (
-                <span className="ml-1.5 text-warn-700">por confirmar{x.esperado ? ` (paga el ${x.renglon}: ${fmt(x.declarado)})` : ""}</span>
+                <span className="ml-1.5 text-warn-700">por confirmar{x.esperado ? ` (paga ${elRenglon(def, x.renglon)}: ${fmt(x.declarado)})` : ""}</span>
               ) : (
                 <span className="ml-1.5 text-ink-600">
                   {x.formularios.map((f, i) => (
@@ -294,7 +302,7 @@ function FilaPeriodo({
       </td>
       <td className="px-3 py-2">
         <div className="flex flex-col items-start gap-1.5">
-          <AlertasPeriodo p={p} codigo={codigo} />
+          <AlertasPeriodo p={p} def={def} />
           {puedeCargar && !vigente && (p.causal ? <QuitarCausal revisionId={revisionId} periodo={p.periodo} /> : (
             <button type="button" onClick={() => onCausal(p.periodo)} className={BOTON_SECUNDARIO}>No hubo formulario</button>
           ))}
@@ -311,12 +319,13 @@ type AlertaPeriodo = { clave: string; texto: string; detalle: string; tono: "err
  * pide para cerrar (cargar el original o una marca, y en qué pestaña). Mismos textos que la columna
  * Alerta de Pagos efectuados.
  */
-function AlertasPeriodo({ p, codigo }: { p: PeriodoRevision; codigo: string }) {
+function AlertasPeriodo({ p, def }: { p: PeriodoRevision; def: DefinicionFormulario }) {
+  const codigo = def.codigo;
   const sin350 = recibosSin350(p).map((f) => f.numero);
   const alertas: AlertaPeriodo[] = [
     ...p.pagos
       .filter((x) => x.esperado && x.formularios.length === 0 && x.porConfirmar === 0)
-      .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}. Sin el recibo no se bloquea el cierre, pero el mes exige una marca en Pagos efectuados que diga por qué no se tiene.`, tono: "err", nota: "exige marca en Pagos" })),
+      .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga ${elRenglon(def, x.renglon)}: ${fmt(x.declarado)}. Sin el recibo no se bloquea el cierre, pero ${codigo === "350" ? "el mes" : "el período"} exige una marca en Pagos efectuados que diga por qué no se tiene.`, tono: "err", nota: "exige marca en Pagos" })),
     ...(p.cadena.faltaOriginal
       ? [{ clave: "original", texto: `Falta el ${codigo} original`, detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", nota: "hay que cargarlo para cerrar" } satisfies AlertaPeriodo]
       : []),

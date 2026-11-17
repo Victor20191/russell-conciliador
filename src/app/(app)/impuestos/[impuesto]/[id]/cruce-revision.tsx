@@ -75,7 +75,13 @@ const fecha = (iso: string) => {
   return `${d}/${m}/${a}`;
 };
 
-export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: CruceRetencionPantalla; revisionId: number; puedeEditar: boolean }) {
+export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion = false }: {
+  cruce: CruceRetencionPantalla;
+  revisionId: number;
+  puedeEditar: boolean;
+  /** El impuesto todavía no tiene cruce (el anticipo del Régimen Simple: faltan las cuentas Russell). */
+  enConstruccion?: boolean;
+}) {
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
   const [marcando, setMarcando] = useState<string | null>(null);
   const [ocultarCeros, setOcultarCeros] = useState(false);
@@ -94,6 +100,19 @@ export function CruceRevision({ cruce, revisionId, puedeEditar }: { cruce: Cruce
       }}
     />
   );
+
+  if (enConstruccion && cruce.estado !== "listo") {
+    return (
+      <Card className="flex items-start gap-3 p-4 text-[12.5px]">
+        <Icon name="info" size={16} className="mt-0.5 shrink-0 text-blue-700" />
+        <div className="flex flex-col gap-1">
+          <span className="font-semibold text-navy-800">Cruce contable en construcción</span>
+          <span className="text-ink-600">{cruce.mensaje}</span>
+          <span className="text-[11.5px] text-ink-400">Mientras tanto, la revisión mide la oportunidad y los pagos efectuados. El cierre en firme llegará con el cruce.</span>
+        </div>
+      </Card>
+    );
+  }
 
   if (cruce.estado !== "listo") {
     return (

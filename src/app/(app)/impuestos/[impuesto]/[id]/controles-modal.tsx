@@ -1,6 +1,8 @@
 "use client";
 
 import { Modal } from "@/components/modal";
+import type { TerminoTotal } from "@/lib/impuestos/formularios/definicion";
+import { F2593 } from "@/lib/impuestos/formularios/f2593";
 import type { ClaveImpuesto } from "@/lib/impuestos/impuestos-dian";
 
 // Consulta: qué revisa el sistema para decir «Cuadrado» o «N por corregir».
@@ -12,9 +14,20 @@ type Contenido = {
   codigo: string;
   enLosDos: readonly string[];
   totales: readonly (readonly [string, string])[];
+  /** Las fórmulas de la declaración solo avisan (el 2593): se puede confirmar aunque no cuadren. */
+  totalesAvisan?: boolean;
   soloDeclaracion: readonly string[];
   solo490: readonly string[];
 };
+
+/** «26 a 35» o «49 + 54 − 50 − 51», a partir de los términos de una fórmula. */
+function formula(terminos: readonly TerminoTotal[], pisoCero?: boolean): string {
+  const seguidos = terminos.length > 2 && terminos.every(([r, s], i) => s === 1 && (i === 0 || r === terminos[i - 1][0] + 1));
+  const texto = seguidos
+    ? `${terminos[0][0]} a ${terminos[terminos.length - 1][0]}`
+    : terminos.map(([r, s], i) => `${i === 0 ? (s < 0 ? "−" : "") : s < 0 ? " − " : " + "}${r}`).join("");
+  return pisoCero ? `${texto}, o cero si da negativo` : texto;
+}
 
 const RETENCION: Contenido = {
   codigo: "350",
@@ -76,6 +89,32 @@ const IVA: Contenido = {
   ],
 };
 
+// Las fórmulas salen de la definición del 2593 para no desfasarse de los avisos.
+const RST: Contenido = {
+  codigo: "2593",
+  enLosDos: [
+    "Se reconoce si es 2593 o 490. Un 350 o un 300, o un 490 de Retención en la fuente o de IVA, no se cargan aquí: se rechazan sin guardarlos.",
+    "El número del 2593 tiene 14 dígitos y empieza por 2593; el del 490, 13 dígitos y empieza por 49.",
+    "El NIT es el del cliente de la revisión.",
+    "El año es el de la revisión.",
+    "El período (bimestre) está entre 1 y 6.",
+    "El 490 trae la fecha del sello de la entidad recaudadora (renglón 997). El 2593 no tiene sello: no se le pide fecha.",
+  ],
+  totales: (F2593.validaciones ?? []).map((v) => [String(v.contra), formula(v.terminos, v.pisoCero)] as const),
+  totalesAvisan: true,
+  soloDeclaracion: [
+    "Si es un ajuste (casilla 24), trae un número válido del recibo que ajusta (casilla 25).",
+    "El total de los valores a pagar (76 + 77 + 78 + 79) lo calcula el sistema: es lo que se compara con lo pagado en el 490 concepto 27.",
+  ],
+  solo490: [
+    "El concepto es 27 (anticipo bimestral SIMPLE).",
+    "Trae un número válido del 2593 que paga (renglón 29).",
+    "El total da exacto: 980 = 34 + 35 + 36.",
+  ],
+};
+
+const CONTENIDO: Readonly<Record<ClaveImpuesto, Contenido>> = { RET: RETENCION, IVA, RST };
+
 function Lista({ items }: { items: readonly string[] }) {
   return (
     <ul className="list-disc space-y-0.5 pl-4">
@@ -85,7 +124,7 @@ function Lista({ items }: { items: readonly string[] }) {
 }
 
 export function ControlesModal({ impuestoClave, onClose }: { impuestoClave: ClaveImpuesto; onClose: () => void }) {
-  const c = impuestoClave === "IVA" ? IVA : RETENCION;
+  const c = CONTENIDO[impuestoClave] ?? RETENCION;
   return (
     <Modal open onClose={onClose} title="Qué revisa el sistema" size="xl">
       <div className="flex flex-col gap-4 text-[12.5px] text-ink-700">
@@ -96,7 +135,11 @@ export function ControlesModal({ impuestoClave, onClose }: { impuestoClave: Clav
 
         <section>
           <h3 className={TITULO}>Solo en el {c.codigo}</h3>
-          <p className="mb-1.5">Los totales dan exacto, al peso, con sus renglones:</p>
+          <p className="mb-1.5">
+            {c.totalesAvisan
+              ? "Las fórmulas del recibo se comparan al peso con sus renglones. Como el recibo lo genera la DIAN, si una no cuadra solo se avisa: se puede confirmar."
+              : "Los totales dan exacto, al peso, con sus renglones:"}
+          </p>
           <div className="overflow-hidden rounded-md border border-ink-150">
             <table className="w-full">
               <thead className="bg-ink-50 text-left font-semibold text-ink-500">

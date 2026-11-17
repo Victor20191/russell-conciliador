@@ -23,6 +23,8 @@ export type FichaId =
   | "impuestos.retencion_revision"
   | "impuestos.iva"
   | "impuestos.iva_revision"
+  | "impuestos.rst"
+  | "impuestos.rst_revision"
   | "equipo.clientes"
   | "equipo.usuarios"
   | "equipo.estructura"
@@ -69,10 +71,12 @@ export function resolverAyuda(pathname: string): AyudaResuelta | null {
     const modulo = s[2] ? descriptorModulo(s[2].toUpperCase())?.codigo : "ING";
     return modulo ? { fichaId: "parametros.filtros_cuentas", modulo } : null;
   }
-  // Impuestos · DIAN (Retención en la fuente e IVA): la lista de revisiones y una revisión.
-  if (s[0] === "impuestos" && (s[1] === "retencion" || s[1] === "iva")) {
-    if (s.length === 2) return { fichaId: s[1] === "iva" ? "impuestos.iva" : "impuestos.retencion" };
-    if (s.length === 3 && ENTERO.test(s[2]!)) return { fichaId: s[1] === "iva" ? "impuestos.iva_revision" : "impuestos.retencion_revision" };
+  // Impuestos · DIAN (Retención en la fuente, IVA y anticipos del Régimen Simple): la lista de revisiones y una revisión.
+  if (s[0] === "impuestos" && (s[1] === "retencion" || s[1] === "iva" || s[1] === "rst")) {
+    if (s.length === 2) return { fichaId: s[1] === "iva" ? "impuestos.iva" : s[1] === "rst" ? "impuestos.rst" : "impuestos.retencion" };
+    if (s.length === 3 && ENTERO.test(s[2]!)) {
+      return { fichaId: s[1] === "iva" ? "impuestos.iva_revision" : s[1] === "rst" ? "impuestos.rst_revision" : "impuestos.retencion_revision" };
+    }
   }
   // El detalle de una novedad es la misma Mesa de ayuda.
   if (s[0] === "reportes" && s.length === 2 && ENTERO.test(s[1]!)) return { fichaId: "soporte.mesa_ayuda" };

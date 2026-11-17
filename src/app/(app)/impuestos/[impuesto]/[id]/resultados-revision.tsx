@@ -15,7 +15,8 @@ import type { ActionState } from "@/lib/definitions";
 import { MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 import { etiquetaOportunidad, pagosDeFila, type EstadoOportunidad, type FilaOportunidad, type PagoOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, etiquetaPago, type FilaPagos, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
-import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { impuestoPorClave, midePresentacion, renglonSanciones, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { rotuloRenglon } from "@/lib/impuestos/formularios/definicion";
 import { esFormularioCalendario, FORMULARIOS_CALENDARIO } from "@/lib/impuestos/calendario";
 import { avisoReciboDeOtro350, avisoRecibosSin350 } from "@/lib/impuestos/retencion/periodos-revision";
 import type { EvaluacionCierreRetencion, TipoPendiente } from "@/lib/impuestos/retencion/cierre";
@@ -39,7 +40,7 @@ const FONDO_RESULTADO = "";
 const ENCABEZADO_GRUPO = "bg-ink-50 px-3 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-600";
 const fecha = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 const TONO_OPORTUNIDAD: Record<EstadoOportunidad, "ok" | "warn" | "err" | "ink"> = {
-  oportuno: "ok", extemporaneo: "err", sin_formulario: "ink", falta_350: "err", falta_original: "warn", sin_fecha: "warn", sin_calendario: "warn", sin_pago: "err", nada_que_pagar: "ink",
+  oportuno: "ok", extemporaneo: "err", sin_formulario: "ink", falta_350: "err", falta_original: "warn", sin_fecha: "warn", sin_calendario: "warn", sin_pago: "err", nada_que_pagar: "ink", no_aplica: "ink",
 };
 
 function EstadoOportunidadChip({ estado, dias, codigo }: { estado: EstadoOportunidad; dias: number | null; codigo: string }) {
@@ -111,6 +112,9 @@ function ObservacionesMarcas({ filas, etiqueta, puedeEditar, onEditar, slug }: {
 
 /** Qué mide la oportunidad, con el formulario y los conceptos del impuesto. */
 function explicacionOportunidad(impuesto: ImpuestoDian): string {
+  if (!midePresentacion(impuesto)) {
+    return `Vencimiento según el calendario tributario «RST · Anticipo bimestral» del año, el bimestre y el último dígito del NIT (sin el dígito de verificación). El recibo ${impuesto.declaracion.codigo} no tiene sello de presentación: se mide el pago, con la fecha del sello (renglón 997) del último recibo 490 concepto 27 del bimestre. Si los valores a pagar del ${impuesto.declaracion.codigo} (76 a 79) suman cero, dice «Sin valor a pagar»; si suman más y no hay recibo, «Sin pago». Igual o antes del vencimiento es «Oportuno».`;
+  }
   if (impuesto.clave === RETENCION.clave) {
     return "Vencimiento según el calendario tributario del año, el período y el último dígito del NIT (sin el dígito de verificación). La presentación es la del 350 ORIGINAL (renglón 997 del primero de la cadena, no de la corrección). El pago se mide por concepto: el 61 (renta) y, cuando el 350 declara reteIVA (renglón 134), el 62; en cada uno cuenta el último recibo 490. Igual o antes del vencimiento es «Oportuno».";
   }
@@ -138,6 +142,8 @@ export function VistaOportunidad({
 }) {
   const impuesto = impuestoPorClave(impuestoClave) ?? RETENCION;
   const codigo = impuesto.declaracion.codigo;
+  // El 2593 no tiene sello de presentación: solo se mide el pago y no hay marcas de oportunidad.
+  const conPresentacion = midePresentacion(impuesto);
   const [marcando, setMarcando] = useState<string | null>(null);
   const fila = filas.find((f) => f.clave === marcando) ?? null;
   const anioCalendario = calendario.anio ?? anio;
@@ -163,19 +169,19 @@ export function VistaOportunidad({
         )}
       </Card>
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[1100px] text-[12.5px]">
+        <table className={`w-full ${conPresentacion ? "min-w-[1100px]" : "min-w-[760px]"} text-[12.5px]`}>
           <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
             <tr>
               <th className="w-32 px-3 py-2">Período</th>
               <th className="w-44 px-3 py-2">Fecha de vencimiento</th>
-              <th className={`${INICIO_SECCION} px-3 py-2`}>Presentación · Formulario {codigo}</th>
+              {conPresentacion && <th className={`${INICIO_SECCION} px-3 py-2`}>Presentación · Formulario {codigo}</th>}
               {impuesto.columnasPago.map((c) => (
                 <th key={c.id} className={`${INICIO_SECCION} px-3 py-2`}>
                   {c.titulo}
                   {c.subtitulo && <span className="block text-[11.5px] font-normal">{c.subtitulo}</span>}
                 </th>
               ))}
-              <th className={`${INICIO_SECCION} w-24 px-3 py-2 text-center`}>Marca</th>
+              {conPresentacion && <th className={`${INICIO_SECCION} w-24 px-3 py-2 text-center`}>Marca</th>}
             </tr>
           </thead>
           <tbody>
@@ -183,18 +189,22 @@ export function VistaOportunidad({
               <tr key={f.periodo} className="border-b border-ink-100 align-top last:border-0">
                 <td className="px-3 py-2 font-semibold text-navy-800">{etiquetaPeriodo(f.periodo)}</td>
                 <td className="px-3 py-2 tabular-nums">{fecha(f.vencimiento)}</td>
-                <td className={`${INICIO_SECCION} px-3 py-2`}>
-                  <FechaConEstado fecha={f.presentacion} estado={f.estadoPresentacion} dias={f.diasPresentacion} codigo={codigo} />
-                  <Soporte formulario={codigo} numero={f.numero350} autoadhesivo={f.autoadhesivo350} />
-                </td>
+                {conPresentacion && (
+                  <td className={`${INICIO_SECCION} px-3 py-2`}>
+                    <FechaConEstado fecha={f.presentacion} estado={f.estadoPresentacion} dias={f.diasPresentacion} codigo={codigo} />
+                    <Soporte formulario={codigo} numero={f.numero350} autoadhesivo={f.autoadhesivo350} />
+                  </td>
+                )}
                 {pagosDeFila(f, impuesto).map(({ id, pago }) => (
                   <td key={id} className={`${INICIO_SECCION} px-3 py-2`}>
                     <CeldaPago pago={pago} codigo={codigo} />
                   </td>
                 ))}
-                <td className={`${INICIO_SECCION} px-3 py-2 text-center`}>
-                  <CeldaMarca marca={f.marca} requiereMarca={false} admiteMarca={f.admiteMarca} puedeEditar={puedeEditar} ancla={`marca-${impuesto.slug}-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />
-                </td>
+                {conPresentacion && (
+                  <td className={`${INICIO_SECCION} px-3 py-2 text-center`}>
+                    <CeldaMarca marca={f.marca} requiereMarca={false} admiteMarca={f.admiteMarca} puedeEditar={puedeEditar} ancla={`marca-${impuesto.slug}-${f.marca?.numero ?? ""}`} onMarcar={() => setMarcando(f.clave)} />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -231,7 +241,11 @@ function explicacionPagos(impuesto: ImpuestoDian): string {
     return "Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar: su falta no impide cerrar, pero el período exige una marca que diga por qué no se tiene.";
   }
   const { codigo } = impuesto.declaracion;
-  const { impuesto: rImp, sanciones: rSan, total: rTot } = impuesto.renglones;
+  const { impuesto: rImp, total: rTot } = impuesto.renglones;
+  const rSan = renglonSanciones(impuesto);
+  if (rSan == null) {
+    return `Por bimestre, los valores a pagar del ${codigo} vigente (76 ICA + 77 anticipo SIMPLE + 78 impuesto al consumo + 79 IVA; con un ajuste, también los del recibo ajustado que ya tenía su 490) contra el impuesto pagado (36) de los recibos 490 concepto 27. Diferencia = impuesto pagado − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso: toda diferencia exige marca, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta exige una marca que diga por qué no se tiene.`;
+  }
   return `Por período, el ${codigo} vigente contra los recibos 490 de su cadena: el saldo a pagar por impuesto (${rImp}) contra el impuesto pagado (36) y las sanciones (${rSan}) contra la sanción pagada (34). Diferencia = Total pagado antes de intereses − Total saldo a pagar (${rTot}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora (35) van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta no impide cerrar, pero el período exige una marca que diga por qué no se tiene.`;
 }
 
@@ -265,6 +279,9 @@ export function VistaPagos({
       <Card className="p-4 text-[12px] text-ink-500">{explicacionPagos(impuesto)}</Card>
       {/* El mismo aviso de todos los cruces (módulos e impuestos): lo que exige marca para cerrar. */}
       <AvisoMarcas resumen={avisoDesdeFilas(resultado.filas)} siempre />
+      {renglonSanciones(impuesto) == null ? (
+        <TablaPagosComponentes resultado={resultado} impuesto={impuesto} etiquetaPeriodo={etiquetaPeriodo} puedeEditar={puedeEditar} onMarcar={setMarcando} />
+      ) : (
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-[12.5px]">
           <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
@@ -279,9 +296,9 @@ export function VistaPagos({
               <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
             </tr>
             <tr>
-              <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>{etiquetasPago.impuesto} ({renglones.impuesto})</th>
-              <th className="px-2 py-2 text-right">{etiquetasPago.sanciones} ({renglones.sanciones})</th>
-              <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>{etiquetasPago.total} ({renglones.total})</th>
+              <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>{etiquetasPago.impuesto} ({rotuloRenglon(impuesto.declaracion, renglones.impuesto)})</th>
+              <th className="px-2 py-2 text-right">{etiquetasPago.sanciones}{renglonSanciones(impuesto) != null ? ` (${renglonSanciones(impuesto)})` : ""}</th>
+              <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>{etiquetasPago.total} ({rotuloRenglon(impuesto.declaracion, renglones.total)})</th>
               <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>Impuesto pagado</th>
               <th className="px-2 py-2 text-right">Sanción pagada</th>
               <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>Total pagado antes de intereses</th>
@@ -311,6 +328,7 @@ export function VistaPagos({
           </tbody>
         </table>
       </Card>
+      )}
       <ObservacionesMarcas
         slug={impuesto.slug}
         etiqueta="marcas de pagos"
@@ -332,12 +350,16 @@ export function VistaPagos({
               {(fila.recibosSin350 ?? []).length > 0 ? (
                 <span className="block">{avisoRecibosSin350(fila.recibosSin350 ?? [], codigo)} Pagaron <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.totalPagado)}</span>.</span>
               ) : fila.diferencia !== 0 && (
-                <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>
+                renglonSanciones(impuesto) == null ? (
+                  <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (impuesto pagado {fmt(fila.impuestoPagado)} − valores a pagar {fmt(fila.retenciones)}).</span>
+                ) : (
+                  <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>
+                )
               )}
               {(fila.recibosDeOtro350 ?? []).map((r) => <span key={r.numero} className="block">{avisoReciboDeOtro350(r, codigo)}</span>)}
               {conceptosSinRecibo(fila).map((d) => (
                 <span key={d.concepto} className="block">
-                  {alertaSinRecibo(d)}: paga el renglón {d.renglon} por <span className="font-semibold tabular-nums text-ink-800">{fmt(d.declarado)}</span>. Explica por qué no se tiene el recibo.
+                  {alertaSinRecibo(d)}: paga el renglón {rotuloRenglon(impuesto.declaracion, d.renglon)} por <span className="font-semibold tabular-nums text-ink-800">{fmt(d.declarado)}</span>. Explica por qué no se tiene el recibo.
                 </span>
               ))}
             </>
@@ -456,6 +478,119 @@ function FilaPago({ f, impuesto, etiqueta, abierta, onAlternar, puedeEditar, onM
   );
 }
 
+/**
+ * Pagos efectuados de una declaración sin renglón de sanciones (el 2593 del Régimen Simple): sus valores a
+ * pagar (76 a 79) y su total contra el impuesto pagado (36) de los 490; la sanción (34) y los intereses
+ * (35) van aparte, como informativos.
+ */
+function TablaPagosComponentes({ resultado, impuesto, etiquetaPeriodo, puedeEditar, onMarcar }: {
+  resultado: ResultadoPagos;
+  impuesto: ImpuestoDian;
+  etiquetaPeriodo: (p: number) => string;
+  puedeEditar: boolean;
+  onMarcar: (clave: string) => void;
+}) {
+  const def = impuesto.declaracion;
+  const codigo = def.codigo;
+  const componentes = impuesto.componentesPago ?? [];
+  const concepto = impuesto.conceptosPago.map((c) => c.concepto).join(" o ");
+  const valorDe = (lista: readonly { renglon: number; valor: number }[] | undefined, renglon: number) => lista?.find((c) => c.renglon === renglon)?.valor ?? 0;
+  const t = resultado.total;
+  return (
+    <Card className="overflow-x-auto p-0">
+      <table className="w-full min-w-[1100px] text-[12.5px]">
+        <thead className="border-b border-ink-150 bg-ink-50 text-left font-semibold text-ink-500">
+          <tr>
+            <th rowSpan={2} className="px-2 py-2 align-bottom">Período</th>
+            <th colSpan={componentes.length + 1} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valores a pagar · Formulario {codigo}</th>
+            <th className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor pagado · 490 concepto {concepto}</th>
+            <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Resultado · Valores a pagar vs impuesto pagado</th>
+            <th colSpan={2} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Informativo · No se comparan</th>
+            <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
+          </tr>
+          <tr>
+            {componentes.map((c, i) => (
+              <th key={c.renglon} className={`${i === 0 ? INICIO_SECCION : ""} px-2 py-2 text-right`}>{c.etiqueta} ({c.renglon})</th>
+            ))}
+            <th className={`${TOTAL_SECCION} px-2 py-2 text-right`}>{impuesto.etiquetasPago.total} ({rotuloRenglon(def, impuesto.renglones.total)})</th>
+            <th className={`${INICIO_SECCION} px-2 py-2 text-right`}>Impuesto pagado (36)</th>
+            <th className={`${BORDE_RESULTADO} px-2 py-2 text-right`}>Diferencia</th>
+            <th className="px-2 py-2">Estado</th>
+            <th className="px-2 py-2">Alerta</th>
+            <th className={`${BORDE_RESULTADO} whitespace-nowrap px-2 py-2 text-right`}>Sanción pagada (34)</th>
+            <th className="whitespace-nowrap px-2 py-2 text-right">Intereses pagados (35)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {resultado.filas.map((f) => {
+            const conFormulario = f.estado === "completo" || f.estado === "diferencia";
+            const sin350 = f.recibosSin350 ?? [];
+            const conPagos = conFormulario || sin350.length > 0;
+            return (
+              <tr key={f.periodo} className="border-b border-ink-100 align-top">
+                <td className="px-2 py-1.5 font-semibold text-navy-800">{etiquetaPeriodo(f.periodo)}</td>
+                {conFormulario ? (
+                  <>
+                    {componentes.map((c, i) => <td key={c.renglon} className={`${NUM} ${i === 0 ? INICIO_SECCION : ""}`}>{fmt(valorDe(f.componentes, c.renglon))}</td>)}
+                    <td className={`${NUM} ${TOTAL_SECCION}`}>{fmt(f.totalDeclarado)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td colSpan={componentes.length} className={INICIO_SECCION} />
+                    <td className={`${NUM} ${TOTAL_SECCION} text-ink-400`}>—</td>
+                  </>
+                )}
+                <td className={`${NUM} ${INICIO_SECCION} ${conPagos ? "" : "text-ink-400"}`}>{conPagos ? fmt(f.impuestoPagado) : "—"}</td>
+                <td className={`${NUM} ${BORDE_RESULTADO} ${conPagos ? `font-semibold ${f.diferencia === 0 ? "text-ok-700" : "text-err-700"}` : "text-ink-400"}`}>{conPagos ? fmt(f.diferencia) : "—"}</td>
+                <td className="px-2 py-1.5">
+                  {f.estado === "diferencia" ? (
+                    <IconoDiferencia titulo="Diferencia en el pago: exige marca" />
+                  ) : (
+                    <Chip label={etiquetaPago(f.estado, codigo)} tone={f.estado === "completo" ? "ok" : f.estado === "falta_350" ? "err" : "ink"} />
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700">
+                  {conceptosSinRecibo(f).map((d) => (
+                    <div key={d.concepto} title={`Paga los renglones ${rotuloRenglon(def, d.renglon)}: ${fmt(d.declarado)}. Exige marca: por qué no se tiene el recibo.`}>{alertaSinRecibo(d)}</div>
+                  ))}
+                  {(f.recibosDeOtro350 ?? []).map((r) => (
+                    <div key={r.numero} title={avisoReciboDeOtro350(r, codigo)}>{alertaReciboDeOtro350(r, codigo)}</div>
+                  ))}
+                  {sin350.length > 0 && <div title={avisoRecibosSin350(sin350, codigo)}>{alertaRecibosSin350(sin350, codigo)}</div>}
+                </td>
+                <td className={`${NUM} ${BORDE_RESULTADO} ${conPagos ? "" : "text-ink-400"}`}>{conPagos ? fmt(f.sancionPagada) : "—"}</td>
+                <td className={`${NUM} ${conPagos ? "" : "text-ink-400"}`}>{conPagos ? fmt(f.intereses) : "—"}</td>
+                <td className={`${INICIO_SECCION} px-2 py-1.5 text-center`}>
+                  <CeldaMarca
+                    marca={f.marca}
+                    requiereMarca={f.requiereMarca}
+                    admiteMarca={f.requiereMarca}
+                    puedeEditar={puedeEditar}
+                    ancla={`marca-${impuesto.slug}-${f.marca?.numero ?? ""}`}
+                    tituloDesactualizada={f.marca ? `Marca ${f.marca.numero} · la diferencia era ${fmt(f.marca.diferencia)} y hoy es ${fmt(f.diferencia)}` : undefined}
+                    onMarcar={() => onMarcar(f.clave)}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
+            <td className="px-2 py-1.5">Total</td>
+            {componentes.map((c, i) => <td key={c.renglon} className={`${NUM} ${i === 0 ? INICIO_SECCION : ""}`}>{fmt(valorDe(resultado.totalComponentes, c.renglon))}</td>)}
+            <td className={NUM}>{fmt(t.totalDeclarado)}</td>
+            <td className={`${NUM} ${INICIO_SECCION}`}>{fmt(t.impuestoPagado)}</td>
+            <td className={`${NUM} ${BORDE_RESULTADO} font-semibold`}>{fmt(t.diferencia)}</td>
+            <td colSpan={2} />
+            <td className={`${NUM} ${BORDE_RESULTADO}`}>{fmt(t.sancionPagada)}</td>
+            <td className={NUM}>{fmt(t.intereses)}</td>
+            <td className={INICIO_SECCION} />
+          </tr>
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 const TITULO_SALDOS_RESTADOS = "Saldos restados: NITs con saldo inicial a enero";
 
 const ETIQUETA_PENDIENTE: Record<TipoPendiente, { titulo: string; tab: TabRevisionRetencion }> = {
@@ -489,11 +624,14 @@ export function VistaNovedades({
   return (
     <div className="flex flex-col gap-3">
       <Card className="p-4 text-[12.5px]">
-        <h3 className="text-[12.5px] font-semibold text-navy-800">Para cerrar en firme</h3>
+        <h3 className="text-[12.5px] font-semibold text-navy-800">{impuesto.cierreEnFirme ? "Para cerrar en firme" : "Pendientes"}</h3>
+        {!impuesto.cierreEnFirme && (
+          <p className="mt-1 text-[11.5px] text-ink-500">El cierre en firme de {impuesto.nombre} llegará con el cruce contable. Mientras tanto, esto es lo que falta resolver en la revisión.</p>
+        )}
         {enFirme ? (
           <p className="mt-1 text-ink-500">La revisión está en firme.</p>
         ) : evaluacion.pendientes.length === 0 ? (
-          <p className="mt-1 text-ok-700">No falta nada: el senior o el gerente asignado puede cerrarla en firme.</p>
+          <p className="mt-1 text-ok-700">{impuesto.cierreEnFirme ? "No falta nada: el senior o el gerente asignado puede cerrarla en firme." : "No falta nada."}</p>
         ) : (
           <div className="mt-2 flex flex-col gap-3">
             {tipos.map((t) => (

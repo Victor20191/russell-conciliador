@@ -10,7 +10,7 @@
  * no arrastrar errores de coma flotante.
  */
 
-export type CodigoFormularioDian = "300" | "350" | "490";
+export type CodigoFormularioDian = "300" | "350" | "490" | "2593";
 
 /** Persona del renglón: las dos columnas del 350 o un solo valor. */
 export type PersonaRenglon = "juridica" | "natural" | "unica";
@@ -22,8 +22,10 @@ export type PersonaRenglon = "juridica" | "natural" | "unica";
  * - `base`: base sujeta a retención (no se guarda ni se concilia).
  * - `total`: se recalcula con `terminos` y se compara con lo impreso.
  * - `dato`: encabezado, firmas o uso oficial (se guarda solo si `guardar`).
+ * - `calculado`: no viene impreso ni se lee ni se guarda; se calcula con `terminos` y se muestra
+ *   (en el 2593, el total de los valores a pagar, 76 a 79, que paga el 490). No tiene control.
  */
-export type TipoRenglon = "valor" | "informativo" | "base" | "total" | "dato";
+export type TipoRenglon = "valor" | "informativo" | "base" | "total" | "dato" | "calculado";
 
 /** ¿El renglón lleva un importe en pesos (no un dato del encabezado ni una base)? */
 export const esImporte = (r: Pick<RenglonDian, "tipo">): boolean => r.tipo === "valor" || r.tipo === "informativo" || r.tipo === "total";
@@ -47,23 +49,58 @@ export type RenglonDian = {
    * cero cuando el total saldo a pagar, 88, tiene valor).
    */
   ceroSi?: number;
+  /** Cómo se nombra el renglón en las tablas cuando no es una casilla del formulario («76 a 79»). */
+  rotulo?: string;
 };
 
 /**
  * Cuadre entre renglones que el formulario pide pero no es un total impreso (en el 300,
- * 90 + 91 + 92 = 89). No bloquea la confirmación: avisa.
+ * 90 + 91 + 92 = 89). No bloquea la confirmación: avisa. Con `pisoCero`, la suma se toma en cero si
+ * da negativo (los «resultado positivo de…» del 2593).
  */
-export type ValidacionFormulario = { clave: string; etiqueta: string; terminos: readonly TerminoTotal[]; contra: number };
+export type ValidacionFormulario = { clave: string; etiqueta: string; terminos: readonly TerminoTotal[]; contra: number; pisoCero?: boolean };
 
 export type DefinicionFormulario = {
   codigo: CodigoFormularioDian;
   nombre: string;
   renglones: readonly RenglonDian[];
   validaciones?: readonly ValidacionFormulario[];
+  /** Cómo es su número (renglón 4). Sin él: los dos primeros dígitos del código y 13 dígitos (350, 300, 490). */
+  numero?: { prefijo: string; digitos: number };
+  /** Casillas de la corrección: código (1 = corrección) y número del formulario que corrige. Sin él, 25 y 26. */
+  correccion?: { codigo: number; anterior: number };
+  /** La declaración no trae sello con la fecha de presentación (el 2593): la fecha no se exige. */
+  sinSello?: boolean;
 };
 
 export function renglonDe(def: DefinicionFormulario, renglon: number): RenglonDian | undefined {
   return def.renglones.find((r) => r.renglon === renglon);
+}
+
+/** Prefijo y cantidad de dígitos del número de un formulario (350 → 35 y 13; 2593 → 2593 y 14). */
+export function reglaNumero(def: Pick<DefinicionFormulario, "codigo" | "numero">): { prefijo: string; digitos: number } {
+  return def.numero ?? { prefijo: def.codigo.slice(0, 2), digitos: 13 };
+}
+
+/** ¿El número tiene la forma de un formulario de esta definición (solo dígitos, su prefijo y su largo)? */
+export function numeroFormularioValido(def: Pick<DefinicionFormulario, "codigo" | "numero">, numero: string | null | undefined): boolean {
+  const { prefijo, digitos } = reglaNumero(def);
+  return numero != null && numero.length === digitos && /^\d+$/.test(numero) && numero.startsWith(prefijo);
+}
+
+/** Casillas de la corrección (25 y 26 en el 350 y el 300; 24 y 25 en el 2593). */
+export function casillasCorreccion(def: Pick<DefinicionFormulario, "correccion">): { codigo: number; anterior: number } {
+  return def.correccion ?? { codigo: 25, anterior: 26 };
+}
+
+/** Cómo se nombra un renglón en una tabla: su número o el rótulo del calculado («76 a 79»). */
+export function rotuloRenglon(def: DefinicionFormulario, renglon: number): string {
+  return renglonDe(def, renglon)?.rotulo ?? String(renglon);
+}
+
+/** Renglones que muestran las vistas: los que se guardan con importe y los calculados. */
+export function renglonesVisibles(def: DefinicionFormulario): number[] {
+  return def.renglones.filter((r) => (r.guardar && esImporte(r)) || r.tipo === "calculado").map((r) => r.renglon);
 }
 
 /** Renglones que se guardan (todo lo demás se descarta al leer). */
@@ -122,13 +159,22 @@ export function calcularTotal(def: DefinicionFormulario, renglon: number, valore
   return centavos / 100;
 }
 
+/**
+ * El valor de un renglón tal como se guardó; el de un renglón `calculado` (que no se guarda) sale de
+ * su fórmula. Los demás totales no se recalculan aquí: para eso está `calcularTotal`.
+ */
+export function valorRenglon(def: DefinicionFormulario, renglon: number, valores: ReadonlyMap<number, number>): number {
+  return renglonDe(def, renglon)?.tipo === "calculado" ? calcularTotal(def, renglon, valores) : (valores.get(renglon) ?? 0);
+}
+
 export type ControlValidacion = { clave: string; etiqueta: string; calculado: number; contra: number; renglonContra: number; cuadra: boolean };
 
 /** Las validaciones del formulario (cuadres que avisan) con los valores leídos. */
 export function controlarValidaciones(def: DefinicionFormulario, valores: ReadonlyMap<number, number>): ControlValidacion[] {
   const valor = (r: number) => aCentavos(valores.get(r) ?? 0);
   return (def.validaciones ?? []).map((v) => {
-    const calculado = v.terminos.reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
+    const suma = v.terminos.reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
+    const calculado = v.pisoCero ? Math.max(0, suma) : suma;
     const contra = valor(v.contra);
     return { clave: v.clave, etiqueta: v.etiqueta, calculado: calculado / 100, contra: contra / 100, renglonContra: v.contra, cuadra: calculado === contra };
   });

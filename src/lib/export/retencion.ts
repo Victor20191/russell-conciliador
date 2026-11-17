@@ -4,11 +4,12 @@
 // La marca la aplica `escribirLibroMarca`.
 
 import ExcelJS from "exceljs";
-import { unidadPlural, vistaConPersonas, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
+import { renglonDeFila, unidadPlural, vistaConPersonas, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
 import { alcanceSaldoInicial, cuentasDeFilaCruce, etiquetaFilaCruce, impuestoDelCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type DetalleSaldoInicialRestado, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { etiquetaOportunidad, pagosDeFila, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, etiquetaPago, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
-import { IMPUESTOS, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { IMPUESTOS, midePresentacion, renglonSanciones, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { rotuloRenglon } from "@/lib/impuestos/formularios/definicion";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 
@@ -86,7 +87,7 @@ function hojaPorMeses(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vist
     filaSeccion(ws, t.seccion, columnas);
     for (const f of t.filas) {
       const valores = f.tipo === "concepto" ? f.meses.flatMap((m) => [m.pj, m.pn]) : f.meses.flatMap((m) => (personas ? [m.valor, null] : [m.valor]));
-      const renglon = f.tipo === "concepto" ? [f.renglonPj, f.renglonPn].map((r) => r ?? "—").join(" · ") : String(f.renglonPj);
+      const renglon = renglonDeFila(f);
       const fila = ws.addRow([f.etiqueta, renglon, ...valores, f.total]);
       if (f.tipo !== "concepto") unirMeses(fila.number);
       if (f.tipo === "total") fila.font = { bold: true };
@@ -120,7 +121,7 @@ function hojaAcumulado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vis
     filaSeccion(ws, t.seccion, columnas);
     for (const f of t.filas) {
       const fila = ws.addRow(
-        f.tipo === "concepto" ? [f.etiqueta, f.renglonPj ?? "—", f.renglonPn ?? "—", f.total] : personas ? [f.etiqueta, f.renglonPj, "", f.total] : [f.etiqueta, f.renglonPj, f.total],
+        f.tipo === "concepto" ? [f.etiqueta, f.renglonPj ?? "—", f.renglonPn ?? "—", f.total] : personas ? [f.etiqueta, f.renglonPj, "", f.total] : [f.etiqueta, f.rotulo ?? f.renglonPj, f.total],
       );
       if (f.tipo === "total") fila.font = { bold: true };
     }
@@ -138,7 +139,8 @@ function hojaAcumulado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vis
 function hojaFormularios(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, formularios: readonly FormularioExcel[], codigo: string): void {
   const ws = wb.addWorksheet("Formularios");
   encabezadoLibro(ws, meta, "formularios cargados");
-  estiloEncabezado(ws.addRow(["Período", "Formulario", "Número", "Estado", "Corrige a", "Concepto", `${codigo} que paga`, "Fecha del sello (997)", "Autoadhesivo (996)", "Corregidos a mano"]));
+  // El 2593 se «ajusta» (casillas 24 y 25) y no tiene sello: su fecha va vacía.
+  estiloEncabezado(ws.addRow(["Período", "Formulario", "Número", "Estado", codigo === "2593" ? "Ajusta a" : "Corrige a", "Concepto", `${codigo} que paga`, "Fecha del sello (997)", "Autoadhesivo (996)", "Corregidos a mano"]));
   for (const f of formularios) {
     ws.addRow([f.periodo, f.formulario, f.numero, f.estado, f.correccionDe ?? "", f.concepto ?? "", f.numeroPagado ?? "", f.fecha ?? "", f.autoadhesivo ?? "", f.corregidoAMano]);
   }
@@ -251,38 +253,46 @@ function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: r
   const impuesto = impuestoDeMeta(meta);
   const codigo = impuesto.declaracion.codigo;
   const columnas = impuesto.columnasPago.map((c) => c.corta);
+  // El 2593 no tiene sello de presentación: sin sus columnas ni la marca.
+  const conPresentacion = midePresentacion(impuesto);
   const ws = wb.addWorksheet("Oportunidad");
   encabezadoLibro(ws, meta, "indicador de oportunidad");
   ws.addRow([
-    impuesto.clave === RETENCION.clave
-      ? "Vencimiento por el último dígito del NIT sin el DV; presentación del 350 original; pago del último 490 del concepto 61 (renta) y del 62 (reteIVA)."
-      : `Vencimiento por el último dígito del NIT sin el DV según el calendario de la periodicidad (el de la declaración anual es el del año siguiente); presentación del ${codigo} original; pago del último 490 del concepto de la periodicidad.`,
+    !conPresentacion
+      ? `Vencimiento por el último dígito del NIT sin el DV según el calendario «RST · Anticipo bimestral»; el ${codigo} no tiene sello de presentación: se mide el pago del último 490 concepto 27.`
+      : impuesto.clave === RETENCION.clave
+        ? "Vencimiento por el último dígito del NIT sin el DV; presentación del 350 original; pago del último 490 del concepto 61 (renta) y del 62 (reteIVA)."
+        : `Vencimiento por el último dígito del NIT sin el DV según el calendario de la periodicidad (el de la declaración anual es el del año siguiente); presentación del ${codigo} original; pago del último 490 del concepto de la periodicidad.`,
   ]).font = { color: { argb: EXCEL.textoSecundario } };
   // Recibo 61 · Autoadhesivo 61 · Recibo 62 · … (Retención) o Recibo 490 · Autoadhesivo 490 (IVA).
   const recibo = (c: string) => (c === "490" ? "490" : c);
+  const si = <T,>(condicion: boolean, valores: T[]): T[] => (condicion ? valores : []);
   estiloEncabezado(ws.addRow([
-    "Período", `${codigo} (original)`, `Autoadhesivo ${codigo}`,
+    "Período", ...si(conPresentacion, [`${codigo} (original)`, `Autoadhesivo ${codigo}`]),
     ...columnas.flatMap((c) => [`Recibo ${recibo(c)}`, `Autoadhesivo ${recibo(c)}`]),
-    "Fecha de vencimiento", "Fecha de presentación",
+    "Fecha de vencimiento", ...si(conPresentacion, ["Fecha de presentación"]),
     ...columnas.map((c) => `Fecha de pago ${recibo(c)}`),
-    "Estado presentación",
+    ...si(conPresentacion, ["Estado presentación"]),
     ...columnas.map((c) => `Estado pago ${recibo(c)}`),
-    "Marca",
+    ...si(conPresentacion, ["Marca"]),
   ]));
   const estado = (e: FilaOportunidad["estadoPresentacion"], dias: number | null) => `${etiquetaOportunidad(e, codigo)}${dias ? ` (${dias} día(s))` : ""}`;
   for (const f of filas) {
     const pagos = pagosDeFila(f, impuesto).map((p) => p.pago);
     ws.addRow([
-      etiquetaPeriodoRevision(meta.periodicidad, f.periodo), f.numero350 ?? "", f.autoadhesivo350 ?? "",
+      etiquetaPeriodoRevision(meta.periodicidad, f.periodo), ...si(conPresentacion, [f.numero350 ?? "", f.autoadhesivo350 ?? ""]),
       ...pagos.flatMap((p) => [p.numero ?? "", p.autoadhesivo ?? ""]),
-      fechaExcel(f.vencimiento), fechaExcel(f.presentacion),
+      fechaExcel(f.vencimiento), ...si(conPresentacion, [fechaExcel(f.presentacion)]),
       ...pagos.map((p) => fechaExcel(p.fecha)),
-      estado(f.estadoPresentacion, f.diasPresentacion),
+      ...si(conPresentacion, [estado(f.estadoPresentacion, f.diasPresentacion)]),
       ...pagos.map((p) => estado(p.estado, p.dias)),
-      f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : "",
+      ...si(conPresentacion, [f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : ""]),
     ]);
   }
-  const anchos = [12, 16, 18, ...columnas.flatMap(() => [16, 18]), 21, 22, ...columnas.map(() => 16), 22, ...columnas.map(() => 22), 50];
+  const anchos = [
+    12, ...si(conPresentacion, [16, 18]), ...columnas.flatMap(() => [16, 18]), 21, ...si(conPresentacion, [22]),
+    ...columnas.map(() => 16), ...si(conPresentacion, [22]), ...columnas.map(() => 22), ...si(conPresentacion, [50]),
+  ];
   anchos.forEach((w, i) => (ws.getColumn(i + 1).width = w));
 }
 
@@ -293,15 +303,25 @@ function hojaOportunidad(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, filas: r
  */
 function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: ResultadoPagos): void {
   const impuesto = impuestoDeMeta(meta);
+  if (renglonSanciones(impuesto) == null) {
+    hojaPagosComponentes(wb, meta, pagos, impuesto);
+    return;
+  }
   const codigo = impuesto.declaracion.codigo;
   const { renglones: r, etiquetasPago: e } = impuesto;
+  const def = impuesto.declaracion;
+  const rSan = renglonSanciones(impuesto);
   const conDesglose = impuesto.clave === RETENCION.clave;
   const conceptos = conDesglose ? impuesto.conceptosPago : [];
   const ws = wb.addWorksheet("Pagos efectuados");
   encabezadoLibro(ws, meta, "pagos efectuados");
-  ws.addRow([`Diferencia = Total pagado antes de intereses − ${e.total} (${r.total}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso.`]).font = { color: { argb: EXCEL.textoSecundario } };
+  ws.addRow([
+    rSan == null
+      ? `Diferencia = Impuesto pagado (36) − ${e.total} (${rotuloRenglon(def, r.total)}): positiva si se pagó de más y negativa si se pagó de menos; la sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso.`
+      : `Diferencia = Total pagado antes de intereses − ${e.total} (${r.total}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso.`,
+  ]).font = { color: { argb: EXCEL.textoSecundario } };
   estiloEncabezado(ws.addRow([
-    "Período", `${e.impuesto} (${r.impuesto})`, `${e.sanciones} (${r.sanciones})`, `${e.total} (${r.total})`, "Impuesto pagado (36)", "Sanción pagada (34)", "Total pagado antes de intereses", "Diferencia", "Estado",
+    "Período", `${e.impuesto} (${rotuloRenglon(def, r.impuesto)})`, rSan == null ? e.sanciones : `${e.sanciones} (${rSan})`, `${e.total} (${rotuloRenglon(def, r.total)})`, "Impuesto pagado (36)", "Sanción pagada (34)", "Total pagado antes de intereses", "Diferencia", "Estado",
     ...conceptos.map((c) => `${c.concepto} vs ${c.renglonPagado}`), "Alerta", "Intereses pagados (35)", "Marca",
   ]));
   for (const f of pagos.filas) {
@@ -322,6 +342,44 @@ function hojaPagos(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: Resulta
   const colIntereses = colAlerta + 1;
   [12, 17, 15, 17, 18, 17, 17, 15, 20, ...conceptos.map(() => 14), 26, 20, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   for (let c = 2; c <= colIntereses; c++) if (c !== colEstado && c !== colAlerta) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
+}
+
+/**
+ * «Pagos efectuados» de una declaración sin sanciones (el 2593 del Régimen Simple): los valores a pagar
+ * (76 a 79) y su total contra el impuesto pagado (36); la sanción (34) y los intereses (35), aparte.
+ */
+function hojaPagosComponentes(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pagos: ResultadoPagos, impuesto: ImpuestoDian): void {
+  const def = impuesto.declaracion;
+  const codigo = def.codigo;
+  const componentes = impuesto.componentesPago ?? [];
+  const valorDe = (lista: readonly { renglon: number; valor: number }[] | undefined, renglon: number) => lista?.find((c) => c.renglon === renglon)?.valor ?? 0;
+  const ws = wb.addWorksheet("Pagos efectuados");
+  encabezadoLibro(ws, meta, "pagos efectuados");
+  ws.addRow([
+    `Diferencia = Impuesto pagado (36) − ${impuesto.etiquetasPago.total} (${rotuloRenglon(def, impuesto.renglones.total)}): positiva si se pagó de más y negativa si se pagó de menos; la sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso.`,
+  ]).font = { color: { argb: EXCEL.textoSecundario } };
+  estiloEncabezado(ws.addRow([
+    "Período", ...componentes.map((c) => `${c.etiqueta} (${c.renglon})`), `${impuesto.etiquetasPago.total} (${rotuloRenglon(def, impuesto.renglones.total)})`,
+    "Impuesto pagado (36)", "Diferencia", "Estado", "Alerta", "Sanción pagada (34)", "Intereses pagados (35)", "Marca",
+  ]));
+  for (const f of pagos.filas) {
+    ws.addRow([
+      etiquetaPeriodoRevision(meta.periodicidad, f.periodo), ...componentes.map((c) => valorDe(f.componentes, c.renglon)), f.totalDeclarado,
+      f.impuestoPagado, f.diferencia, etiquetaPago(f.estado, codigo),
+      [
+        ...conceptosSinRecibo(f).map(alertaSinRecibo), ...(f.recibosDeOtro350 ?? []).map((x) => alertaReciboDeOtro350(x, codigo)),
+        ...((f.recibosSin350 ?? []).length > 0 ? [alertaRecibosSin350(f.recibosSin350 ?? [], codigo)] : []),
+      ].join(" · "),
+      f.sancionPagada, f.intereses,
+      f.marca ? `Marca ${f.marca.numero}${f.marca.vigente ? "" : " (desactualizada)"}: ${f.marca.nota}` : f.requiereMarca ? "Sin marca" : "",
+    ]);
+  }
+  const t = pagos.total;
+  ws.addRow(["Total", ...componentes.map((c) => valorDe(pagos.totalComponentes, c.renglon)), t.totalDeclarado, t.impuestoPagado, t.diferencia, null, null, t.sancionPagada, t.intereses]).font = { bold: true };
+  const colEstado = 2 + componentes.length + 3;
+  const colAlerta = colEstado + 1;
+  [12, ...componentes.map(() => 17), 20, 18, 15, 20, 26, 18, 20, 50].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  for (let c = 2; c <= colAlerta + 2; c++) if (c !== colEstado && c !== colAlerta) ws.getColumn(c).numFmt = PESOS_CENTAVOS;
 }
 
 /** Hoja «Saldos restados»: los NITs con saldo inicial a enero a los que el cruce les resta ese saldo inicial, cuenta por cuenta, con su marca. */
@@ -346,7 +404,8 @@ export function libroRetencion(meta: MetaRevisionExcel, vista: VistaRevision, fo
   // Con periodicidad anual hay un solo período: el acumulado sería igual.
   if (meta.periodicidad !== "Anual") hojaAcumulado(wb, meta, vista);
   hojaFormularios(wb, meta, formularios, vista.codigo ?? "350");
-  if (resultados) hojaCruce(wb, meta, resultados.cruce);
+  // Sin cruce disponible (el anticipo del Régimen Simple, por ahora) no hay hoja de cruce.
+  if (resultados && impuestoDeMeta(meta).cruce.disponible) hojaCruce(wb, meta, resultados.cruce);
   if (resultados?.oportunidad) hojaOportunidad(wb, meta, resultados.oportunidad);
   if (resultados?.pagos) hojaPagos(wb, meta, resultados.pagos);
   if (resultados?.saldoInicialRestado) hojaSaldoInicialRestado(wb, meta, resultados.saldoInicialRestado);

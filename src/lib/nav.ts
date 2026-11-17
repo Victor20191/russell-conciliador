@@ -76,7 +76,8 @@ export const workNav: NavItem[] = [
     })),
   },
   {
-    // Impuestos · DIAN: un submódulo por impuesto (Retención en la fuente e IVA; ICA después).
+    // Impuestos · DIAN: un submódulo por impuesto (Retención en la fuente, IVA y anticipos del Régimen
+    // Simple; ICA después).
     label: "Impuestos · DIAN",
     href: "/impuestos/retencion",
     icon: "tax",
@@ -85,6 +86,7 @@ export const workNav: NavItem[] = [
     children: [
       { label: "Retención en la fuente", href: "/impuestos/retencion", permiso: "impuestos:ver", modulo: "impuestos" },
       { label: "IVA", href: "/impuestos/iva", permiso: "impuestos:ver", modulo: "impuestos" },
+      { label: "Anticipos bimestrales (RST)", href: "/impuestos/rst", permiso: "impuestos:ver", modulo: "impuestos" },
     ],
   },
   {

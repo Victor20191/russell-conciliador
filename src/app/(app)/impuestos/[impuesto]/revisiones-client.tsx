@@ -126,6 +126,8 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const [tipoCorte, setTipoCorte] = useState<"" | "precierre" | "cierre">("");
   const [mesPrecierre, setMesPrecierre] = useState("");
   const [periodicidadElegida, setPeriodicidadElegida] = useState("");
+  // RST: un cliente sin la marca del Régimen Simple se confirma aquí (y su ficha queda en Sí).
+  const [confirmaRegimen, setConfirmaRegimen] = useState(false);
   useEffect(() => {
     notifyActionState(state, { success: state.message ?? "Revisión creada.", error: "No se pudo crear la revisión." });
     if (state.ok && state.id) router.push(`/impuestos/${impuesto.slug}/${state.id}`);
@@ -146,11 +148,14 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const tipo = tipoCorte === "precierre" && periodicidad && mesesPrecierre.length === 0 ? "" : tipoCorte;
   const corteIva = tipo === "cierre" ? "12" : tipo === "precierre" && mesesPrecierre.includes(Number(mesPrecierre)) ? mesPrecierre : "";
   const corteFinal = impuesto.precierreConMes ? corteIva : corte;
+  const pideConfirmarRegimen = impuesto.requiereRegimenSimple && cliente != null && !cliente.regimenSimple;
+  // En RST, primero los clientes con la marca del Régimen Simple (en orden alfabético, como llegan).
+  const opcionesClientes = impuesto.requiereRegimenSimple ? [...clientes].sort((a, b) => Number(b.regimenSimple) - Number(a.regimenSimple)) : clientes;
 
   const anios = [anioActual, anioActual - 1, anioActual - 2];
   return (
     <Modal open onClose={onClose} title={`Nueva revisión de ${impuesto.nombre}`} size="xl" footer={
-      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad || !corteFinal} className={BOTON_PRIMARIO}>
+      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad || !corteFinal || (pideConfirmarRegimen && !confirmaRegimen)} className={BOTON_PRIMARIO}>
         {creando ? <EstadoProcesando>Creando</EstadoProcesando> : "Crear revisión"}
       </button>
     }>
@@ -160,12 +165,34 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
         <label className="flex flex-col gap-1">
           <span className="font-semibold text-ink-700">Cliente</span>
           <SelectBuscable
-            opciones={clientes.map((c) => ({ value: String(c.id), label: c.nombre, sublabel: `NIT ${c.nit}` }))}
+            opciones={opcionesClientes.map((c) => ({
+              value: String(c.id),
+              label: c.nombre,
+              sublabel: impuesto.requiereRegimenSimple ? `NIT ${c.nit} · ${c.regimenSimple ? "Régimen Simple" : "Sin la marca de Régimen Simple"}` : `NIT ${c.nit}`,
+            }))}
             value={clienteId}
-            onChange={setClienteId}
+            onChange={(v) => {
+              setClienteId(v);
+              setConfirmaRegimen(false);
+            }}
             placeholder="Busca el cliente"
           />
         </label>
+        {impuesto.requiereRegimenSimple && cliente && (
+          cliente.regimenSimple ? (
+            <p className="text-ink-600">El cliente tiene la marca <span className="font-semibold text-ink-800">Régimen Simple de Tributación</span> en su ficha. Los anticipos son siempre bimestrales.</p>
+          ) : (
+            <div className="flex flex-col gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+              <span>
+                <span className="font-semibold">{cliente.nombre}</span> tiene «Régimen Simple de Tributación» en No en su ficha. Los anticipos bimestrales solo aplican a los clientes del Régimen Simple.
+              </span>
+              <label className="flex items-start gap-2 text-ink-800">
+                <input type="checkbox" name="confirmaRegimenSimple" value="1" checked={confirmaRegimen} onChange={(e) => setConfirmaRegimen(e.target.checked)} className="mt-0.5" />
+                <span>Confirmo que este cliente pertenece al Régimen Simple de Tributación. Su ficha quedará en Sí.</span>
+              </label>
+            </div>
+          )
+        )}
         {!unica && cliente && (
           deLaFicha ? (
             <p className="text-ink-600">Periodicidad de {impuesto.nombre} en la ficha del cliente: <span className="font-semibold text-ink-800">{deLaFicha}</span>.</p>

@@ -33,8 +33,8 @@ export default async function RevisionImpuestoPage({ params }: { params: Promise
   const enFirme = revision.estado === "en_firme";
   // El cruce, la oportunidad, los pagos y el cierre solo se calculan si el impuesto ya tiene esas pestañas.
   const conResultados = impuesto.pestanas.includes("cruce");
-  // El cierre en firme llega con Novedades (en IVA, la fase 5).
-  const conCierre = impuesto.pestanas.includes("novedades");
+  // El cierre en firme llega con Novedades (en IVA, la fase 5); el anticipo del Régimen Simple aún no se cierra.
+  const conCierre = impuesto.pestanas.includes("novedades") && impuesto.cierreEnFirme;
   const [resultados, puedeCerrar, puedeDesbloquear] = await Promise.all([
     conResultados ? resultadosDeLaRevision(revision) : resultadosVacios(revision),
     enProceso && conCierre ? autorizarCierreConciliacion("conciliaciones:cerrar", revision.clienteId).then((r) => r.ok) : false,

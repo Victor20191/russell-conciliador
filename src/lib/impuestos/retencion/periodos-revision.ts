@@ -1,6 +1,6 @@
 import { etiquetaPeriodo, periodosEsperados } from "../periodicidad";
-import { calcularTotal } from "../formularios/definicion";
-import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
+import { calcularTotal, valorRenglon } from "../formularios/definicion";
+import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
 
 /**
  * Estado de cada período de una revisión de Impuestos · DIAN (puro): qué declaración rige (el 350 en
@@ -14,7 +14,9 @@ import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from
  *
  * Pagos esperados: en Retención, un 490 por cada concepto (61, 62, 63) cuyo renglón declara valor
  * (130, 134, 135); en IVA, un 490 del concepto de la periodicidad (05, 57 o 58) si el total a pagar
- * (88, recalculado) es mayor que cero.
+ * (88, recalculado) es mayor que cero; en los anticipos del Régimen Simple, un 490 concepto 27 si los
+ * valores a pagar del 2593 (76 a 79) suman más de cero. El ajuste de un 2593 (casillas 24 y 25) se
+ * trata como una corrección.
  */
 
 export type Formulario350 = {
@@ -109,6 +111,32 @@ export type EstadoPeriodo =
   | "falta_original"
   | "faltan_pagos";
 
+const centavos = (n: number) => Math.round(n * 100);
+
+/**
+ * Los valores con que se mide lo que debe pagar el período: los de la declaración vigente. En RST
+ * (`pagoSumaCadena`) un ajuste del 2593 descuenta lo ya pagado y sus valores a pagar traen solo lo
+ * adicional: los `componentesPago` (76 a 79) suman también cada recibo anterior de la cadena que tiene
+ * un 490 que lo paga. Un recibo anterior sin pago no suma: el ajuste lo reemplazó entero (sin «pagos
+ * anteriores»). null si el período no tiene declaración.
+ */
+export function valoresAPagar(
+  impuesto: Pick<ImpuestoDian, "pagoSumaCadena" | "componentesPago">,
+  cadena: Pick<CadenaPeriodo, "vigente" | "cadena">,
+  recibos: readonly Pick<Formulario490, "numeroPagado">[],
+): Map<number, number> | null {
+  const vigente = cadena.vigente;
+  if (!vigente) return null;
+  const valores = new Map(Object.entries(vigente.valores).map(([r, v]) => [Number(r), v]));
+  if (!impuesto.pagoSumaCadena) return valores;
+  const pagados = new Set(recibos.map((r) => r.numeroPagado).filter((n): n is string => n != null));
+  for (const f of cadena.cadena) {
+    if (f.numero === vigente.numero || !pagados.has(f.numero)) continue;
+    for (const { renglon: r } of impuesto.componentesPago ?? []) valores.set(r, (centavos(valores.get(r) ?? 0) + centavos(f.valores[r] ?? 0)) / 100);
+  }
+  return valores;
+}
+
 /** Recibo cuyo renglón 29 cita un 350 que no es de la cadena del período. */
 export type ReciboDeOtro350 = { numero: string; numeroPagado: string };
 
@@ -175,12 +203,12 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
     const del490 = e.formularios490.filter((f) => f.periodo === periodo);
     const avisos: string[] = [];
 
-    // IVA espera un 490 si el total a pagar (88, recalculado) es mayor que cero; Retención, uno por
-    // cada concepto cuyo renglón declara valor.
-    const valoresVigente = cadena.vigente ? new Map(Object.entries(cadena.vigente.valores).map(([r, v]) => [Number(r), v])) : null;
+    // IVA espera un 490 si el total a pagar (88, recalculado) es mayor que cero; RST, si 76 a 79 suman más
+    // de cero; Retención, uno por cada concepto cuyo renglón declara valor.
+    const valoresVigente = valoresAPagar(impuesto, cadena, del490);
     const totalAPagar = valoresVigente ? calcularTotal(impuesto.declaracion, impuesto.renglones.total, valoresVigente) : 0;
     const pagos: PagoConcepto[] = conceptos.map(({ concepto, renglonPagado: renglon }) => {
-      const declarado = cadena.vigente?.valores[renglon] ?? 0;
+      const declarado = valoresVigente ? valorRenglon(impuesto.declaracion, renglon, valoresVigente) : 0;
       const formularios = del490.filter((f) => f.concepto === concepto);
       const suma = (r: number) => formularios.reduce((s, f) => s + (f.valores[r] ?? 0), 0);
       const esperado = impuesto.pagoEsperadoPorTotal ? totalAPagar > 0 : declarado > 0;

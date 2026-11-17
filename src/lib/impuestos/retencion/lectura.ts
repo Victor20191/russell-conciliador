@@ -1,6 +1,7 @@
 import { dvValido, nucleoNit } from "@/lib/nit";
 import { esFechaIso } from "../calendario";
-import { controlarTotales, controlarValidaciones, renglonesConImporte } from "../formularios/definicion";
+import { casillasCorreccion, controlarTotales, controlarValidaciones, numeroFormularioValido, reglaNumero, renglonesConImporte } from "../formularios/definicion";
+import { F2593 } from "../formularios/f2593";
 import { F300 } from "../formularios/f300";
 import { F350 } from "../formularios/f350";
 import { F490 } from "../formularios/f490";
@@ -8,14 +9,16 @@ import { conceptosPagoDe, impuestoPorClave, IMPUESTOS, RETENCION, type ClaveImpu
 import { mesesPorPeriodo, type Periodicidad } from "../periodicidad";
 
 /**
- * Lectura de un formulario DIAN (350, 300 o 490) que devolvió la IA: normalización y controles (puro).
+ * Lectura de un formulario DIAN (350, 300, 2593 o 490) que devolvió la IA: normalización y controles (puro).
  *
  * La IA devuelve todo como TEXTO (los valores, sin convertir) y aquí se convierte: los PDF de la
  * DIAN traen el NIT pegado al DV («9014276595»), fechas espaciadas («2 0 2 6 -0 3 -1 9») o con hora
  * («2026-03-19 / 03:08:44 PM»), y valores con comas. Los controles deciden si la lectura se puede
  * confirmar: un control que «bloquea» tiene que pasar (el usuario corrige el valor a mano). Los
  * controles dependen del impuesto de la revisión: Retención en la fuente espera el 350 y los 490 de
- * los conceptos 61, 62 y 63; IVA, el 300 y el 490 del concepto de su periodicidad (05, 57 o 58).
+ * los conceptos 61, 62 y 63; IVA, el 300 y el 490 del concepto de su periodicidad (05, 57 o 58); los
+ * anticipos del Régimen Simple, el recibo 2593 (14 dígitos, sin sello de presentación) y el 490
+ * concepto 27.
  */
 
 export type LecturaCruda = {
@@ -41,7 +44,7 @@ export type LecturaCruda = {
   exterior: { pais: string; tipoPersona: string; valorRetencion: string }[];
 };
 
-export type CodigoFormulario = "350" | "300" | "490";
+export type CodigoFormulario = "350" | "300" | "490" | "2593";
 
 export type LecturaFormulario = {
   formulario: CodigoFormulario | null;
@@ -51,13 +54,13 @@ export type LecturaFormulario = {
   nit: string | null;
   dv: string | null;
   razonSocial: string | null;
-  /** Renglón 24 del 300 (Bimestral, Cuatrimestral o Anual); null en el 350 y el 490. */
+  /** Renglón 24 del 300 (Bimestral, Cuatrimestral o Anual); null en los demás. */
   periodicidad: Periodicidad | null;
-  /** Renglón 25 del 350 o del 300: 1 = corrección. */
+  /** Renglón 25 del 350 o del 300, o el ajuste (24) del 2593: 1 = corrección. */
   codigoCorreccion: number | null;
-  /** Renglón 26 del 350 o del 300: el formulario que corrige. */
+  /** Renglón 26 del 350 o del 300, o el 25 del 2593: el formulario que corrige. */
   numeroAnterior: string | null;
-  /** Renglón 2 del 490: 61, 62 o 63 (Retención); 05, 57 o 58 (IVA). */
+  /** Renglón 2 del 490: 61, 62 o 63 (Retención); 05, 57 o 58 (IVA); 27 (anticipo del Régimen Simple). */
   concepto: string | null;
   /** Renglón 29 del 490: la declaración que se paga. */
   numeroPagado: string | null;
@@ -66,7 +69,7 @@ export type LecturaFormulario = {
   fechaLimitePago: string | null;
   /** Renglón 996. */
   autoadhesivo: string | null;
-  /** Renglón 997: fecha de presentación (350 o 300) o de pago (490), AAAA-MM-DD. */
+  /** Renglón 997: fecha de presentación (350 o 300) o de pago (490), AAAA-MM-DD. El 2593 no la trae. */
   fechaSello: string | null;
   /** Importes en pesos de los renglones que se guardan (sin los ceros que no vinieron). */
   valores: Record<number, number>;
@@ -132,21 +135,30 @@ const entero = (s: string | null | undefined) => {
   return d === "" ? null : Number(d);
 };
 
-/** El formulario que dice la lectura: 350, 300 o 490 (se mira primero el 350, que no contiene «300»). */
+/**
+ * El formulario que dice la lectura: 2593, 350, 300 o 490 (se mira primero el 2593 y luego el 350,
+ * que no contiene «300»).
+ */
 function codigoDe(texto: string): CodigoFormulario | null {
+  if (texto.includes("2593")) return "2593";
   if (texto.includes("350")) return "350";
   if (texto.includes("300")) return "300";
   if (texto.includes("490")) return "490";
   return null;
 }
 
-const DEFINICIONES = { "350": F350, "300": F300, "490": F490 } as const;
+const DEFINICIONES = { "350": F350, "300": F300, "490": F490, "2593": F2593 } as const;
+
+/** ¿El código es el de una declaración (350, 300 o 2593) y no un recibo de pago? */
+const esDeclaracion = (codigo: string | null) => codigo != null && IMPUESTOS.some((i) => i.declaracion.codigo === codigo);
 
 /** Convierte la lectura cruda de la IA. Descarta los renglones que no se guardan (bases, compras, firmas). */
 export function normalizarLectura(cruda: LecturaCruda): LecturaFormulario {
   const formulario = codigoDe(cruda.formulario);
   const def = DEFINICIONES[formulario ?? "350"];
-  const declaracion = formulario === "350" || formulario === "300";
+  const declaracion = esDeclaracion(formulario);
+  // El ajuste del 2593 (casilla 24) la DIAN lo escribe como «1»; si se leyó como una marca («X»), también es ajuste.
+  const codigoCorreccion = declaracion ? (entero(cruda.codigoCorreccion) ?? (formulario === "2593" && /x/i.test(cruda.codigoCorreccion) ? 1 : null)) : null;
   const conImporte = new Set(renglonesConImporte(def));
   const valores: Record<number, number> = {};
   for (const r of cruda.renglones) {
@@ -170,7 +182,7 @@ export function normalizarLectura(cruda: LecturaCruda): LecturaFormulario {
     dv,
     razonSocial: vacioANull(cruda.razonSocial),
     periodicidad: formulario === "300" ? normalizarPeriodicidad(cruda.periodicidad) : null,
-    codigoCorreccion: declaracion ? entero(cruda.codigoCorreccion) : null,
+    codigoCorreccion,
     numeroAnterior: declaracion && anterior !== "" ? anterior : null,
     concepto: formulario === "490" && concepto !== "" ? concepto : null,
     numeroPagado: formulario === "490" && pagado !== "" ? pagado : null,
@@ -178,7 +190,8 @@ export function normalizarLectura(cruda: LecturaCruda): LecturaFormulario {
     deCuotas: formulario === "490" ? entero(cruda.deCuotas) : null,
     fechaLimitePago: formulario === "490" ? normalizarFecha(cruda.fechaLimitePago) : null,
     autoadhesivo: soloDigitos(cruda.autoadhesivo) || null,
-    fechaSello: normalizarFecha(cruda.fechaSello),
+    // El 2593 no trae sello: una fecha que la IA tome de otra casilla (la 81) no cuenta como presentación.
+    fechaSello: def.sinSello ? null : normalizarFecha(cruda.fechaSello),
     valores,
     exterior:
       formulario === "350"
@@ -203,10 +216,9 @@ export type ControlLectura = {
  */
 export type ContextoLectura = { nitCliente: string; anio: number; mesCorte: number; impuesto?: ClaveImpuesto; periodicidad?: string };
 
-const NUMERO_FORMULARIO = /^\d{13}$/;
-
-/** Prefijo del número de un formulario: los dos primeros dígitos de su código (35, 30, 49). */
-const prefijoNumero = (codigo: string) => codigo.slice(0, 2);
+/** ¿Tiene el largo del número de un formulario de la definición (13 dígitos; 14 el 2593)? */
+const largoDeNumero = (def: Parameters<typeof reglaNumero>[0], numero: string | null) =>
+  numero != null && /^\d+$/.test(numero) && numero.length === reglaNumero(def).digitos;
 
 /** El impuesto al que pertenece un concepto del 490, o null si no es de ninguno. */
 function impuestoDelConcepto(concepto: string | null): ImpuestoDian | null {
@@ -232,10 +244,9 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
         ? `Formulario ${l.formulario}`
         : `No se reconoce si es un formulario ${codigo} o 490.`,
   );
-  const prefijo = prefijoNumero(l.formulario === "490" ? "490" : codigo);
   agregar(
     "numero",
-    l.numero != null && NUMERO_FORMULARIO.test(l.numero) && l.numero.startsWith(prefijo),
+    numeroFormularioValido(l.formulario === "490" ? F490 : impuesto.declaracion, l.numero),
     l.numero ? `Número de formulario ${l.numero}` : "Falta el número del formulario (renglón 4).",
   );
   const nucleoCliente = nucleoNit(ctx.nitCliente);
@@ -260,11 +271,14 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
   if (periodoValido && (l.periodo as number) * meses > ctx.mesCorte) {
     agregar("corte", false, `El período ${l.periodo} es posterior al corte de esta revisión: se guarda para el año, pero aquí no cuenta.`, false);
   }
-  agregar(
-    "fecha",
-    l.fechaSello != null,
-    l.fechaSello ? `${l.formulario === "490" ? "Pagado" : "Presentado"} el ${l.fechaSello}` : `Falta la fecha del sello de la entidad recaudadora (renglón 997).`,
-  );
+  // El recibo 2593 no trae sello de presentación: su fecha es la del pago, que trae el 490.
+  if (!(l.formulario === codigo && impuesto.declaracion.sinSello)) {
+    agregar(
+      "fecha",
+      l.fechaSello != null,
+      l.fechaSello ? `${l.formulario === "490" ? "Pagado" : "Presentado"} el ${l.fechaSello}` : `Falta la fecha del sello de la entidad recaudadora (renglón 997).`,
+    );
+  }
 
   if (l.formulario === codigo) {
     if (l.formulario === "300") {
@@ -281,8 +295,18 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
       }
     }
     if (l.codigoCorreccion === 1) {
-      const ok = l.numeroAnterior != null && NUMERO_FORMULARIO.test(l.numeroAnterior);
-      agregar("correccion", ok, ok ? `Corrige al formulario ${l.numeroAnterior}` : "Es una corrección (renglón 25 = 1) pero falta el formulario que corrige (renglón 26).");
+      const ok = largoDeNumero(impuesto.declaracion, l.numeroAnterior);
+      const casillas = casillasCorreccion(impuesto.declaracion);
+      const esAjuste = impuesto.declaracion.correccion != null;
+      agregar(
+        "correccion",
+        ok,
+        ok
+          ? `${esAjuste ? "Ajusta al recibo" : "Corrige al formulario"} ${l.numeroAnterior}`
+          : esAjuste
+            ? `Es un ajuste (renglón ${casillas.codigo}) pero falta el recibo que ajusta (renglón ${casillas.anterior}).`
+            : `Es una corrección (renglón ${casillas.codigo} = 1) pero falta el formulario que corrige (renglón ${casillas.anterior}).`,
+      );
     }
     const valores = mapaValores(l.valores);
     for (const c of controlarTotales(impuesto.declaracion, valores)) {
@@ -309,7 +333,7 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
             : `El concepto ${concepto} no corresponde a la periodicidad ${periodicidad.toLowerCase()} (se espera ${propios.join(" o ")}).`,
       );
     }
-    const pagado = l.numeroPagado != null && NUMERO_FORMULARIO.test(l.numeroPagado) && l.numeroPagado.startsWith(prefijoNumero(codigo));
+    const pagado = numeroFormularioValido(impuesto.declaracion, l.numeroPagado);
     agregar("pagado", pagado, pagado ? `Paga el formulario ${l.numeroPagado}` : `Falta el formulario ${codigo} que se paga (renglón 29).`);
     for (const c of controlarTotales(F490, mapaValores(l.valores))) {
       agregar(`total_${c.renglon}`, c.cuadra, c.cuadra ? `Renglón ${c.renglon} cuadra` : `El renglón ${c.renglon} dice ${fmtPesos(c.impreso)} y 34 + 35 + 36 suman ${fmtPesos(c.calculado)}.`);

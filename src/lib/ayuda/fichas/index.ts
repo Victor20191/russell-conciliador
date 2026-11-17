@@ -22,7 +22,16 @@ import { FICHA_CONCEPTOS_NOMINA, FICHA_MAPEO_CLIENTE, FICHA_PLAN_RUSSELL } from 
 import { FICHA_CLIENTES, FICHA_ESTRUCTURA, FICHA_PERFIL, FICHA_USUARIOS } from "./clientes-equipo";
 import { FICHA_PARAMETROS_ALERTAS, fichaFiltrosCuentas } from "./parametrizacion";
 import { FICHA_MESA_AYUDA } from "./mesa-ayuda";
-import { FICHA_CALENDARIO_TRIBUTARIO, FICHA_IVA_LISTADO, FICHA_IVA_REVISION, FICHA_MAPEOS_DIAN, FICHA_RETENCION_LISTADO, FICHA_RETENCION_REVISION } from "./impuestos";
+import {
+  FICHA_CALENDARIO_TRIBUTARIO,
+  FICHA_IVA_LISTADO,
+  FICHA_IVA_REVISION,
+  FICHA_MAPEOS_DIAN,
+  FICHA_RETENCION_LISTADO,
+  FICHA_RETENCION_REVISION,
+  FICHA_RST_LISTADO,
+  FICHA_RST_REVISION,
+} from "./impuestos";
 
 /** Permiso del enlace «Reportar a Mesa de ayuda» del pie del panel. */
 export const PERMISO_MESA_AYUDA = "soporte:ver";
@@ -43,6 +52,8 @@ const FICHAS_FIJAS: Partial<Record<FichaId, FichaAyuda>> = {
   "impuestos.retencion_revision": FICHA_RETENCION_REVISION,
   "impuestos.iva": FICHA_IVA_LISTADO,
   "impuestos.iva_revision": FICHA_IVA_REVISION,
+  "impuestos.rst": FICHA_RST_LISTADO,
+  "impuestos.rst_revision": FICHA_RST_REVISION,
   "equipo.clientes": FICHA_CLIENTES,
   "equipo.usuarios": FICHA_USUARIOS,
   "equipo.estructura": FICHA_ESTRUCTURA,

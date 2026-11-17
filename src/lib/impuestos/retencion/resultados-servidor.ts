@@ -77,8 +77,15 @@ export async function resultadosEnVivo(revision: RevisionVista): Promise<Omit<Re
   const impuesto = impuestoDe(revision);
   // Retención mensual lee RETEFUENTE del año; IVA, el de su periodicidad (el anual, el del año siguiente).
   const destino = impuesto.calendario(revision.periodicidad, revision.anio);
+  // Sin cruce disponible (el anticipo del Régimen Simple) no se lee el balance: la pestaña dice que está en construcción.
+  const sinCruce: CruceRetencionVista = {
+    estado: "bloqueado",
+    mensaje: impuesto.cruce.mensajeNoDisponible ?? "El cruce contable de este impuesto todavía no está disponible.",
+    balance: null,
+    umbral: 0,
+  };
   const [cruceSinMarca, marcas, filasCalendario] = await Promise.all([
-    cargarCruceRetencion(revision),
+    impuesto.cruce.disponible ? cargarCruceRetencion(revision) : Promise.resolve(sinCruce),
     marcasDeControl(revision),
     destino ? cargarCalendarioDian(destino.anio, destino.formulario).then((r) => r.calendario.filas) : Promise.resolve([]),
   ]);
@@ -90,6 +97,7 @@ export async function resultadosEnVivo(revision: RevisionVista): Promise<Omit<Re
   const pagos = pagosRevision({ impuesto: impuesto.clave, anio: revision.anio, periodos: revision.periodos, marcas });
   const evaluacion = evaluarCierreRetencion({
     codigo: impuesto.declaracion.codigo, periodos: revision.periodos, cruce, pagos, oportunidad, etiquetaPeriodo: (p) => etiquetaPeriodoRevision(revision.periodicidad, p),
+    ...(impuesto.cruce.disponible ? {} : { sinCruce: true }),
   });
   return {
     periodos: revision.periodos, cruce, oportunidad, pagos, saldoInicialRestado: detalleSaldoInicialRestado(cruce), evaluacion,

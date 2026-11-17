@@ -87,11 +87,11 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
   id: "parametros.calendario_tributario",
   titulo: "Calendario tributario",
   proposito:
-    "Las fechas límite de la DIAN para presentar y pagar la Retención en la fuente y el IVA (bimestral, cuatrimestral y anual), por período y último dígito del NIT. Con ellas se mide si cada formulario se presentó y se pagó a tiempo. Se carga una vez por año.",
+    "Las fechas límite de la DIAN para presentar y pagar la Retención en la fuente, el IVA (bimestral, cuatrimestral y anual) y el anticipo bimestral del Régimen Simple de Tributación, por período y último dígito del NIT. Con ellas se mide si cada formulario se presentó y se pagó a tiempo. Se carga una vez por año.",
   antesDeEmpezar: [
     "La fecha depende del último dígito del NIT sin el dígito de verificación: en un NIT de 9 dígitos, el noveno.",
     "Sin el calendario de un año, la oportunidad de ese año no se puede calcular.",
-    "Cada formulario tiene su pestaña: Retención en la fuente, IVA bimestral, IVA cuatrimestral e IVA anual. La pestaña dice si está cargado, sin cargar o con una propuesta sin guardar.",
+    "Cada formulario tiene su pestaña: Retención en la fuente, IVA bimestral, IVA cuatrimestral, IVA anual y RST · Anticipo bimestral. La pestaña dice si está cargado, sin cargar o con una propuesta sin guardar.",
   ],
   etapas: [
     {
@@ -100,7 +100,7 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
         {
           nombre: "Importar desde el PDF de la DIAN",
           queHace:
-            "La IA lee del mismo PDF las secciones de Retención en la fuente, IVA bimestral, IVA cuatrimestral y la declaración anual consolidada de IVA del Régimen Simple, y propone una grilla por formulario. No se guarda nada hasta revisar y guardar cada una. Si una sección no se pudo leer, el aviso la nombra. Mientras lee, la pantalla avisa si intentas salir o recargar, porque se perdería la lectura.",
+            "La IA lee del mismo PDF las secciones de Retención en la fuente, IVA bimestral, IVA cuatrimestral, la declaración anual consolidada de IVA del Régimen Simple y el anticipo bimestral del Régimen Simple (RST · Anticipo bimestral), y propone una grilla por formulario. No se guarda nada hasta revisar y guardar cada una. Si una sección no se pudo leer, el aviso la nombra. Mientras lee, la pantalla avisa si intentas salir o recargar, porque se perdería la lectura.",
           regla: REGLAS.configurarImpuestos,
           condiciones: ["Un PDF de hasta 15 MB.", "La lectura con IA tiene que estar disponible."],
           fuente: { archivo: `${ACCIONES}/impuestos-configuracion.ts`, funcion: "leerCalendarioPdf" },
@@ -132,12 +132,12 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
   ],
   estados: [
     { etiqueta: "Para guardar falta corregir", significado: "Faltan fechas, hay casillas repetidas o una fecha cae antes de terminar su período." },
-    { etiqueta: "Avisos", significado: "Fechas más de dos meses después del período, que no crecen con el dígito, dos dígitos del mismo par con fechas distintas en el IVA anual o un documento de otro año. Se puede guardar, pero conviene revisarlas." },
+    { etiqueta: "Avisos", significado: "Fechas más de dos meses después del período (tres en el anticipo del Régimen Simple, cuyo primer bimestre vence en mayo), que no crecen con el dígito, dos dígitos del mismo par con fechas distintas en el IVA anual o un documento de otro año. Se puede guardar, pero conviene revisarlas." },
   ],
   preguntas: [
     {
       pregunta: "¿Por qué el último período vence en enero?",
-      respuesta: "Cada período se declara después de terminar: la retención de diciembre y el IVA de noviembre-diciembre o de septiembre-diciembre se presentan en enero del año que sigue.",
+      respuesta: "Cada período se declara después de terminar: la retención de diciembre, el IVA de noviembre-diciembre o de septiembre-diciembre y el anticipo del Régimen Simple de noviembre-diciembre se presentan en enero del año que sigue.",
     },
     {
       pregunta: "¿Por qué el IVA anual del calendario de un año es del año anterior?",
@@ -266,7 +266,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           regla: REGLAS.cargarImpuestos,
           condiciones: [
             "PDF de hasta 10 MB o imagen de hasta 5 MB. Una foto HEIC del iPhone se rechaza: hay que guardarla como JPG o PNG.",
-            "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de IVA (un 300, o un 490 de los conceptos 05, 57 o 58).",
+            "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de otro impuesto: de IVA (un 300, o un 490 de los conceptos 05, 57 o 58) o del anticipo del Régimen Simple (un 2593, o un 490 del concepto 27).",
             "La revisión no está en firme.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "importarFormularioDian" },
@@ -671,7 +671,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
               regla: REGLAS.cargarImpuestos,
               condiciones: [
                 "PDF de hasta 10 MB o imagen de hasta 5 MB. Una foto HEIC del iPhone se rechaza: hay que guardarla como JPG o PNG.",
-                "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de Retención en la fuente (un 350, o un 490 de los conceptos 61, 62 o 63).",
+                "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de otro impuesto: de Retención en la fuente (un 350, o un 490 de los conceptos 61, 62 o 63) o del anticipo del Régimen Simple (un 2593, o un 490 del concepto 27).",
                 "La revisión no está en firme.",
               ],
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "importarFormularioDian" },
@@ -939,6 +939,272 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
   relacionadas: [
     { label: "IVA", href: "/impuestos/iva", permiso: "impuestos:ver" },
     { label: "Mapeo cuentas DIAN", href: "/config/mapeos-dian", permiso: "impuestos:ver" },
+    { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
+  ],
+};
+
+export const FICHA_RST_LISTADO: FichaAyuda = {
+  id: "impuestos.rst",
+  titulo: "Anticipos bimestrales (RST)",
+  proposito:
+    "Las revisiones de los anticipos bimestrales del Régimen Simple de Tributación: cada una revisa, acumulado a un corte, los recibos electrónicos 2593 y sus recibos de pago 490 concepto 27 del año. El corte es un precierre, en el bimestre que se elija, o el cierre a diciembre.",
+  antesDeEmpezar: [
+    "Solo aplica a los clientes con «Régimen Simple de Tributación» en Sí en su ficha.",
+    "Los anticipos son siempre bimestrales.",
+    "Se ven las revisiones de los clientes de tu cartera.",
+    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los bimestres hasta el precierre.",
+  ],
+  etapas: [
+    {
+      titulo: "Empezar",
+      acciones: [
+        {
+          nombre: "Nueva revisión",
+          queHace:
+            "Abre la revisión de un cliente para un año y un corte: «Precierre» con su mes (febrero, abril, junio, agosto u octubre) o «Cierre · diciembre». La lista muestra primero los clientes con la marca del Régimen Simple. Si la revisión ya existe, la abre.",
+          regla: REGLAS.cargarImpuestos,
+          condiciones: [
+            "Si el cliente tiene «Régimen Simple de Tributación» en No, hay que confirmar que sí pertenece al régimen: al crear la revisión su ficha queda en Sí y el cambio queda en la auditoría.",
+          ],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "crearRevisionImpuesto" },
+        },
+      ],
+    },
+    {
+      titulo: "Consultar",
+      acciones: [
+        { nombre: "Buscar por cliente, NIT o año", queHace: "Deja en la lista las revisiones que coinciden. El NIT se encuentra con o sin dígito de verificación.", regla: REGLAS.verImpuestos },
+        { nombre: "Estado: Todos · En proceso · En firme", queHace: "Filtra las revisiones por su estado y muestra cuántas hay de cada uno.", regla: REGLAS.verImpuestos },
+      ],
+    },
+  ],
+  estados: [{ etiqueta: "En proceso", significado: "La revisión se puede trabajar: importar, confirmar y registrar bimestres sin formulario." }],
+  relacionadas: [
+    { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
+    { label: "Clientes", href: "/config/clientes", permiso: "clientes:ver" },
+  ],
+};
+
+export const FICHA_RST_REVISION: FichaAyuda = {
+  id: "impuestos.rst_revision",
+  titulo: "Revisión de anticipos bimestrales (RST)",
+  proposito:
+    "Los recibos electrónicos 2593 y los recibos de pago 490 concepto 27 de un cliente del Régimen Simple y un año hasta el corte: se importan los PDF (o una imagen de cada formulario), la IA los lee y cada uno se revisa y confirma. La tabla dice, por bimestre, qué 2593 rige, si es un ajuste, cuánto suman sus valores a pagar (76 + 77 + 78 + 79) y qué recibos 490 hay; la columna Alertas reúne lo que hay que resolver en el bimestre. La oportunidad mide el pago contra el calendario «RST · Anticipo bimestral» y los pagos efectuados comparan los valores a pagar con lo pagado. El cruce contable está en construcción y, por eso, la revisión todavía no se cierra en firme.",
+  antesDeEmpezar: [
+    "Un formulario solo cuenta cuando está confirmado.",
+    "Un bimestre puede tener varios 2593: un ajuste (casilla 24) ajusta al recibo de la casilla 25. Los valores salen del último de la cadena.",
+    "Lo que se paga con el 490 concepto 27 es la suma de los valores a pagar del 2593: ICA (76), anticipo SIMPLE (77), impuesto al consumo (78) e IVA (79). Si suman más de cero, se espera un recibo 490.",
+    "El 2593 no trae sello de presentación: la fecha que cuenta es la del pago, en el 490.",
+    "La hoja 2 del 2593 (liquidación del ICA por municipio) no se lee: su total ya está en los renglones 43 y 76.",
+  ],
+  etapas: [
+    {
+      titulo: "Exportar",
+      acciones: [
+        {
+          nombre: "Exportar a Excel",
+          queHace: "Descarga la revisión en un libro con la vista por períodos, el acumulado, los formularios cargados, la oportunidad y los pagos efectuados. No lleva hoja de cruce contable mientras esté en construcción.",
+          regla: REGLAS.verRevisionImpuestos,
+          fuente: { archivo: "src/app/api/impuestos/revisiones/[id]/excel/route.ts", funcion: "GET" },
+        },
+      ],
+    },
+    {
+      titulo: "Administrar",
+      acciones: [
+        {
+          nombre: "Eliminar revisión",
+          queHace: "Elimina la revisión. Los formularios del año se conservan porque los usan las otras revisiones.",
+          regla: REGLAS.eliminarImpuestos,
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "eliminarRevisionImpuesto" },
+        },
+      ],
+    },
+  ],
+  pestanas: [
+    {
+      id: "formularios",
+      titulo: "Formularios",
+      proposito: "Importar los PDF o las imágenes, confirmar lo que leyó la IA y ver, por bimestre, qué 2593 rige, qué recibos hay y, en la columna Alertas, qué falta.",
+      etapas: [
+        {
+          titulo: "Importar",
+          acciones: [
+            {
+              nombre: "Importar formularios",
+              queHace:
+                "Lee con IA uno o varios PDF de la DIAN o imágenes de los formularios (foto o escaneo en JPG, PNG, WEBP o GIF), guarda el original y deja cada formulario por confirmar. Los controles revisan NIT, año, bimestre, número (el 2593 tiene 14 dígitos y empieza por 2593) y, en el 490, el concepto 27, el 2593 que paga y su total.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: [
+                "PDF de hasta 10 MB o imagen de hasta 5 MB. Una foto HEIC del iPhone se rechaza: hay que guardarla como JPG o PNG.",
+                "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el bimestre, o uno de otro impuesto: un 350 o un 300, o un 490 de otros conceptos (61, 62, 63, 05, 57 o 58).",
+                "La revisión no está en firme.",
+              ],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "importarFormularioDian" },
+            },
+          ],
+        },
+        {
+          titulo: "Revisar y confirmar",
+          acciones: [
+            {
+              nombre: "Confirmar formulario",
+              queHace:
+                "Confirma lo leído: en el 2593, si es un ajuste y a cuál ajusta, y los valores (con el total de 76 a 79 calculado); en el 490, la fecha del sello (renglón 997), el concepto, el 2593 que paga y los valores.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: [
+                "Todos los controles en rojo están corregidos: el NIT, el año y el bimestre son los de la revisión y, en el 490, 34 + 35 + 36 dan el 980.",
+                "Las fórmulas del 2593 (por ejemplo, 77 = 56, 78 = 64 y 79 = 74) solo avisan si no cuadran.",
+              ],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "confirmarFormularioDian" },
+            },
+            {
+              nombre: "¿Qué revisa el sistema?",
+              queHace: "Recuerda qué revisa el sistema en el 2593 y en el 490 para decir «Cuadrado» (con un check) o «N por corregir».",
+              regla: REGLAS.verRevisionImpuestos,
+            },
+            {
+              nombre: "Confirmar seleccionados",
+              queHace: "Confirma de una vez los formularios marcados, tal como los leyó la IA, sin abrirlos uno por uno. Cada uno queda en la auditoría.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: ["Solo se pueden marcar los que dicen «Cuadrado»; los que dicen «por corregir» se corrigen en «Revisar»."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "confirmarFormulariosDian" },
+            },
+            {
+              nombre: "Corregir un valor",
+              queHace: "Cambia un importe que la IA leyó mal antes de confirmar. Queda constancia de los renglones corregidos a mano.",
+              regla: REGLAS.editarImpuestos,
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "confirmarFormularioDian" },
+            },
+            {
+              nombre: "Descartar (por confirmar)",
+              queHace: "Saca un formulario por confirmar; el original se conserva.",
+              regla: REGLAS.cargarImpuestos,
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormularioDian" },
+            },
+            {
+              nombre: "Descartar (confirmado)",
+              queHace: "Saca un formulario ya confirmado: deja de contar en todas las revisiones de anticipos de ese año.",
+              regla: REGLAS.eliminarImpuestos,
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormularioDian" },
+            },
+          ],
+        },
+        {
+          titulo: "Bimestres sin formulario",
+          acciones: [
+            {
+              nombre: "No hubo formulario",
+              queHace: "Confirma que en ese bimestre no hubo 2593 y registra la causal, que es obligatoria.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: ["El bimestre no tiene un 2593 confirmado."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "registrarPeriodoSinFormulario" },
+            },
+            {
+              nombre: "Quitar causal",
+              queHace: "Vuelve a esperar el 2593 del bimestre.",
+              regla: REGLAS.cargarImpuestos,
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "quitarPeriodoSinFormulario" },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "meses",
+      titulo: "Por períodos",
+      proposito:
+        "Cada renglón guardado del 2593 por bimestre: ingresos por grupo, liquidación del anticipo, valor a pagar o excedente, impuesto al consumo, IVA y los valores a pagar con su total (76 a 79), y debajo los pagos de los recibos 490. Los valores son los del 2593 vigente de cada bimestre (el último ajuste) y el total se calcula con los renglones del recibo.",
+      etapas: [
+        {
+          titulo: "Consultar",
+          acciones: [
+            { nombre: "Número del formulario", queHace: "Abre el 2593 del bimestre con sus valores y el original (PDF o imagen).", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Ocultar los renglones en cero", queHace: "Deja solo los renglones con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Pantalla completa", queHace: "Abre la tabla en toda la pantalla, con los títulos y los renglones fijos al desplazarse. Se sale con el mismo botón o con Esc.", regla: REGLAS.verRevisionImpuestos },
+          ],
+        },
+      ],
+    },
+    {
+      id: "acumulado",
+      titulo: "Acumulado",
+      proposito: "La suma de los bimestres hasta el corte, renglón por renglón, y lo pagado con los recibos 490. Avisa si faltan bimestres con 2593.",
+      etapas: [
+        {
+          titulo: "Consultar",
+          acciones: [{ nombre: "Ocultar los renglones en cero", queHace: "Deja solo los renglones con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos }],
+        },
+      ],
+    },
+    {
+      id: "cruce",
+      titulo: "Cruce contable",
+      proposito: "En construcción: todavía no están las cuentas Russell con las que se compara cada valor del recibo 2593. Por eso la revisión no lee el balance ni se puede cerrar en firme.",
+      etapas: [],
+    },
+    {
+      id: "oportunidad",
+      titulo: "Oportunidad",
+      proposito:
+        "Por bimestre, la fecha límite del calendario tributario «RST · Anticipo bimestral» del año, según el bimestre y el último dígito del NIT sin el dígito de verificación, contra la fecha de pago: el sello (renglón 997) del último recibo 490 concepto 27. El 2593 no tiene sello de presentación, así que no se mide. Igual o antes del vencimiento es «Oportuno»; después, «Extemporáneo» con los días de atraso. Si los valores a pagar (76 a 79) suman cero, dice «Sin valor a pagar»; si suman más y no hay recibo, «Sin pago». Un bimestre sin formulario o sin calendario lo dice así.",
+      etapas: [],
+    },
+    {
+      id: "pagos",
+      titulo: "Pagos efectuados",
+      proposito:
+        "Por bimestre, los valores a pagar del 2593 vigente (76 ICA, 77 anticipo SIMPLE, 78 impuesto al consumo y 79 IVA) y su total contra el impuesto pagado (36) de los recibos 490 concepto 27. Si hubo un ajuste, el total suma también los valores a pagar del recibo ajustado que ya tenía su 490, porque el ajuste trae solo lo adicional. Diferencia = impuesto pagado − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte, como informativos. Se compara al peso. La columna Alerta dice qué recibo 490 falta, si un recibo paga un 2593 de otro bimestre o si hay recibos 490 en un bimestre sin 2593.",
+      etapas: [
+        {
+          titulo: "Documentar",
+          acciones: [
+            {
+              nombre: "Marcar una diferencia en el pago",
+              queHace: "Explica la diferencia del bimestre, por qué un recibo paga un 2593 de otro bimestre, por qué hay recibos 490 en un bimestre sin 2593 o por qué falta el recibo. La marca guarda la cifra: si la diferencia cambia, queda desactualizada.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["El bimestre tiene diferencia en el pago, un recibo de otro 2593, recibos 490 sin 2593 o le falta el recibo 490 de sus valores a pagar."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "guardarMarcaImpuesto" },
+            },
+            {
+              nombre: "Quitar marca",
+              queHace: "Retira la marca del bimestre; si sigue la diferencia, vuelve a pedirla.",
+              regla: REGLAS.marcarImpuestos,
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "quitarMarcaImpuesto" },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "novedades",
+      titulo: "Novedades",
+      proposito:
+        "Lo que falta resolver en la revisión, agrupado por pestaña (formularios y pagos; el ajuste sin su 2593 original va en formularios) con un acceso a cada una, y los avisos (por ejemplo, un 2593 fuera de la cadena de ajustes). El cierre en firme llegará con el cruce contable.",
+      etapas: [
+        {
+          titulo: "Consultar",
+          acciones: [{ nombre: "Ir", queHace: "Abre la pestaña donde se resuelve el pendiente.", regla: REGLAS.verRevisionImpuestos }],
+        },
+      ],
+    },
+  ],
+  estados: [
+    { etiqueta: "Completo", significado: "El bimestre tiene su 2593 confirmado y, si los valores a pagar suman más de cero, su recibo 490 concepto 27." },
+    { etiqueta: "Por confirmar", significado: "Hay formularios del bimestre leídos y sin confirmar." },
+    { etiqueta: "Falta el 2593", significado: "No se ha cargado el recibo del bimestre ni registrado que no hubo." },
+    { etiqueta: "Sin formulario", significado: "Se registró que en el bimestre no hubo 2593, con su causal." },
+    { etiqueta: "Falta el original", significado: "Llegó un ajuste sin el 2593 que ajusta." },
+    { etiqueta: "Faltan pagos", significado: "Los valores a pagar del 2593 suman más de cero y no hay recibo 490 concepto 27." },
+  ],
+  preguntas: [
+    {
+      pregunta: "¿Por qué la revisión no muestra la fecha de presentación del 2593?",
+      respuesta: "El recibo electrónico 2593 no tiene sello de la entidad recaudadora. La fecha que cuenta es la del pago, en el sello (997) del 490 concepto 27.",
+    },
+  ],
+  relacionadas: [
+    { label: "Anticipos bimestrales (RST)", href: "/impuestos/rst", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
   ],
 };
