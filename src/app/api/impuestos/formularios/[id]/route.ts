@@ -6,13 +6,14 @@ import { authorizePermiso } from "@/lib/rbac";
 import { registrarError } from "@/lib/errores";
 import { contentDispositionSeguro, cuerpoBinario } from "@/lib/modulos/respuesta-archivo";
 import { obtenerObjeto } from "@/lib/storage/objetos";
+import { tipoArchivoFormulario } from "@/lib/impuestos/retencion/archivo-formulario";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RUTA_LOG = "GET /api/impuestos/formularios/[id]";
 
-/** PDF original de un formulario DIAN cargado (Impuestos · Retención en la fuente). */
+/** Original de un formulario DIAN cargado (Retención en la fuente o IVA): el PDF o la imagen. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getCurrentUser();
   if (!actor) return new Response("No autorizado", { status: 401 });
@@ -44,7 +45,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
     return new Response(cuerpoBinario(objeto.cuerpo), {
       headers: {
-        "Content-Type": "application/pdf",
+        // El tipo sale de los bytes del original (PDF o imagen), no del nombre.
+        "Content-Type": tipoArchivoFormulario(objeto.cuerpo)?.mime ?? "application/octet-stream",
         "Content-Length": String(objeto.cuerpo.byteLength),
         "Content-Disposition": contentDispositionSeguro(f.nombreArchivo),
         ...CABECERAS_ARCHIVO_PRIVADO,

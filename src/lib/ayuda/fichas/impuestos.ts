@@ -192,7 +192,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
   id: "impuestos.retencion_revision",
   titulo: "Revisión de Retención en la fuente",
   proposito:
-    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué recibos 490 hay (confirmados o por confirmar); la columna Alertas reúne lo que hay que resolver en el mes (un recibo 490 que falta, el 350 original que falta, un 350 fuera de la cadena, un recibo de otro 350 o recibos 490 sin 350), con el detalle al pasar el mouse, y dice cuáles exigen marca y en qué pestaña; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
+    "Los formularios 350 y 490 de un cliente y un año hasta el corte: se importan los PDF (o una imagen de cada formulario), la IA los lee y cada uno se revisa y confirma. La tabla dice, por período, qué 350 rige, si es una corrección y qué recibos 490 hay (confirmados o por confirmar); la columna Alertas reúne lo que hay que resolver en el mes (un recibo 490 que falta, el 350 original que falta, un 350 fuera de la cadena, un recibo de otro 350 o recibos 490 sin 350), con el detalle al pasar el mouse, y dice cuáles exigen marca y en qué pestaña; el cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 350: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -254,7 +254,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     {
       id: "formularios",
       titulo: "Formularios",
-      proposito: "Importar los PDF, confirmar lo que leyó la IA y ver, por período, qué 350 rige, qué recibos hay y, en la columna Alertas, qué falta.",
+      proposito: "Importar los PDF o las imágenes, confirmar lo que leyó la IA y ver, por período, qué 350 rige, qué recibos hay y, en la columna Alertas, qué falta.",
       etapas: [
     {
       titulo: "Importar",
@@ -262,10 +262,10 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         {
           nombre: "Importar formularios",
           queHace:
-            "Lee con IA uno o varios PDF de la DIAN, guarda el original y deja cada formulario por confirmar. Los controles revisan NIT, año, período, número y los totales del formulario.",
+            "Lee con IA uno o varios PDF de la DIAN o imágenes de los formularios (foto o escaneo en JPG, PNG, WEBP o GIF), guarda el original y deja cada formulario por confirmar. Los controles revisan NIT, año, período, número y los totales del formulario.",
           regla: REGLAS.cargarImpuestos,
           condiciones: [
-            "PDF de hasta 10 MB.",
+            "PDF de hasta 10 MB o imagen de hasta 5 MB. Una foto HEIC del iPhone se rechaza: hay que guardarla como JPG o PNG.",
             "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de IVA (un 300, o un 490 de los conceptos 05, 57 o 58).",
             "La revisión no está en firme.",
           ],
@@ -347,7 +347,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
         {
           titulo: "Consultar",
           acciones: [
-            { nombre: "Número del formulario", queHace: "Abre el 350 del mes con sus valores y el PDF.", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Número del formulario", queHace: "Abre el 350 del mes con sus valores y el original (PDF o imagen).", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Ocultar los renglones en cero", queHace: "Deja solo los conceptos con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Pantalla completa", queHace: "Abre la tabla en toda la pantalla, con los títulos y los conceptos fijos al desplazarse. Se sale con el mismo botón o con Esc.", regla: REGLAS.verRevisionImpuestos },
           ],
@@ -596,7 +596,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
   id: "impuestos.iva_revision",
   titulo: "Revisión de IVA",
   proposito:
-    "Los formularios 300 y 490 de un cliente y un año hasta el corte: se importan los PDF, la IA los lee y cada uno se revisa y confirma. La tabla dice, por período (bimestre, cuatrimestre o año), qué 300 rige, si es una corrección y qué recibos 490 hay; la columna Alertas reúne lo que hay que resolver en el período. El cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN de la periodicidad y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
+    "Los formularios 300 y 490 de un cliente y un año hasta el corte: se importan los PDF (o una imagen de cada formulario), la IA los lee y cada uno se revisa y confirma. La tabla dice, por período (bimestre, cuatrimestre o año), qué 300 rige, si es una corrección y qué recibos 490 hay; la columna Alertas reúne lo que hay que resolver en el período. El cruce contable compara lo declarado con el balance del corte, la oportunidad mide las fechas contra el calendario DIAN de la periodicidad y los pagos efectuados comparan lo declarado con los recibos. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un período puede tener varios 300: una corrección (renglón 25 = 1) corrige al del renglón 26. Los valores salen de la última corrección y la oportunidad, del original.",
@@ -659,7 +659,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
     {
       id: "formularios",
       titulo: "Formularios",
-      proposito: "Importar los PDF, confirmar lo que leyó la IA y ver, por período, qué 300 rige, qué recibos hay y, en la columna Alertas, qué falta.",
+      proposito: "Importar los PDF o las imágenes, confirmar lo que leyó la IA y ver, por período, qué 300 rige, qué recibos hay y, en la columna Alertas, qué falta.",
       etapas: [
         {
           titulo: "Importar",
@@ -667,10 +667,10 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
             {
               nombre: "Importar formularios",
               queHace:
-                "Lee con IA uno o varios PDF de la DIAN, guarda el original y deja cada formulario por confirmar. Los controles revisan NIT, año, período, periodicidad, número y los totales del formulario.",
+                "Lee con IA uno o varios PDF de la DIAN o imágenes de los formularios (foto o escaneo en JPG, PNG, WEBP o GIF), guarda el original y deja cada formulario por confirmar. Los controles revisan NIT, año, período, periodicidad, número y los totales del formulario.",
               regla: REGLAS.cargarImpuestos,
               condiciones: [
-                "PDF de hasta 10 MB.",
+                "PDF de hasta 10 MB o imagen de hasta 5 MB. Una foto HEIC del iPhone se rechaza: hay que guardarla como JPG o PNG.",
                 "Se rechaza un formulario de otro cliente u otro año, uno ya cargado, uno al que no se le lee el número o el período, o uno de Retención en la fuente (un 350, o un 490 de los conceptos 61, 62 o 63).",
                 "La revisión no está en firme.",
               ],
@@ -754,7 +754,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
         {
           titulo: "Consultar",
           acciones: [
-            { nombre: "Número del formulario", queHace: "Abre el 300 del período con sus valores y el PDF.", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Número del formulario", queHace: "Abre el 300 del período con sus valores y el original (PDF o imagen).", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Ocultar los renglones en cero", queHace: "Deja solo los renglones con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Pantalla completa", queHace: "Abre la tabla en toda la pantalla, con los títulos y los renglones fijos al desplazarse. Se sale con el mismo botón o con Esc.", regla: REGLAS.verRevisionImpuestos },
           ],

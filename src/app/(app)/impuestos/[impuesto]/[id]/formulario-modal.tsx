@@ -145,7 +145,7 @@ export function FormularioModal({
           <span className="tabular-nums font-semibold text-navy-800">N.º {f.numero}</span>
           <Chip label={f.estado === "confirmado" ? "Confirmado" : "Por confirmar"} tone={f.estado === "confirmado" ? "ok" : "warn"} />
           {f.tieneArchivo ? (
-            <a href={`/api/impuestos/formularios/${f.id}`} target="_blank" rel="noopener" className="text-[12px] font-semibold text-blue-700 hover:underline">Ver PDF</a>
+            <a href={`/api/impuestos/formularios/${f.id}`} target="_blank" rel="noopener" className="text-[12px] font-semibold text-blue-700 hover:underline">Ver original</a>
           ) : (
             <span className="text-[11.5px] text-ink-400">El original no se guardó</span>
           )}

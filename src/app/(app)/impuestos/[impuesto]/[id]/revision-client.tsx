@@ -42,6 +42,7 @@ import { CruceRevision } from "./cruce-revision";
 import { BarraCierre, VistaNovedades, VistaOportunidad, VistaPagos } from "./resultados-revision";
 import type { ResultadosPantalla } from "@/lib/impuestos/retencion/resultados-servidor";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import { ACEPTA_ARCHIVO_FORMULARIO } from "@/lib/impuestos/retencion/archivo-formulario";
 import type { TabRevisionRetencion } from "./tabs";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
@@ -511,16 +512,16 @@ function Importador({ revisionId, codigo, onTerminar }: { revisionId: number; co
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-[14px] font-semibold text-navy-800">Importar formularios</h2>
-          <p className="mt-0.5 text-[12px] text-ink-500">PDF de los formularios {codigo} y 490 tal como salen de la DIAN; puedes elegir varios a la vez. La IA los lee y quedan por confirmar.</p>
+          <p className="mt-0.5 text-[12px] text-ink-500">PDF de los formularios {codigo} y 490 tal como salen de la DIAN, o una imagen de cada uno (JPG, PNG, WEBP o GIF); puedes elegir varios a la vez. La IA los lee y quedan por confirmar.</p>
         </div>
         <input
           ref={entrada}
           type="file"
-          accept="application/pdf,.pdf"
+          accept={ACEPTA_ARCHIVO_FORMULARIO}
           multiple
           disabled={trabajando}
           onChange={(e) => importar(Array.from(e.target.files ?? []))}
-          aria-label={`PDF de formularios ${codigo} y 490`}
+          aria-label={`PDF o imágenes de formularios ${codigo} y 490`}
           className="max-w-[280px] text-[12px] text-ink-600 file:mr-2 file:rounded-md file:border-0 file:bg-navy-700 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-white"
         />
       </div>

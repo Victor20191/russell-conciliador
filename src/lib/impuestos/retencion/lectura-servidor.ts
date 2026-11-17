@@ -6,10 +6,12 @@ import { MODELO_EXTRACCION_RAPIDA } from "@/lib/ia/modelos";
 import { getPromptContenido } from "@/lib/ia/prompts";
 import { CLAVE_FORMULARIO_DIAN } from "@/lib/ia/prompts-catalogo";
 import type { UsoIA } from "@/lib/ia/uso";
+import type { TipoArchivoFormulario } from "./archivo-formulario";
 import { controlesLectura, lecturaConErrores, normalizarLectura, type ContextoLectura, type ControlLectura, type LecturaCruda, type LecturaFormulario } from "./lectura";
 
 /**
- * Lectura de un formulario DIAN (350, 300 o 490) con Claude: primero el modelo rápido y, si algún
+ * Lectura de un formulario DIAN (350, 300 o 490) con Claude, desde el PDF o desde una imagen (foto o
+ * escaneo): primero el modelo rápido y, si algún
  * control que bloquea falla, una segunda lectura con el más capaz (la cascada del balance). Se
  * queda con la lectura que menos controles bloqueantes falla. No guarda nada.
  */
@@ -38,8 +40,19 @@ const LecturaFormularioSchema = z.object({
 
 const MAX_TOKENS_FORMULARIO = 8000;
 
-async function leerUnaVez(pdfBase64: string, modelo: string, system: string): Promise<{ cruda: LecturaCruda; uso: UsoIA }> {
+/** El archivo que se lee: el PDF va como documento y la imagen como imagen. */
+export type ArchivoLectura = { base64: string; mime: TipoArchivoFormulario["mime"] };
+
+async function leerUnaVez(archivo: ArchivoLectura, modelo: string, system: string): Promise<{ cruda: LecturaCruda; uso: UsoIA }> {
   const client = await getAnthropic();
+  const original =
+    archivo.mime === "application/pdf"
+      ? ({ type: "document", source: { type: "base64", media_type: "application/pdf", data: archivo.base64 } } as const)
+      : ({ type: "image", source: { type: "base64", media_type: archivo.mime, data: archivo.base64 } } as const);
+  const pedido =
+    archivo.mime === "application/pdf"
+      ? "Transcribe el formulario en el esquema pedido."
+      : "Transcribe el formulario de la imagen (foto o escaneo) en el esquema pedido. Si un valor no se lee con claridad, déjalo vacío en vez de suponerlo.";
   const r = await conReintentoSinTemperatura(
     (ajustes) =>
       client.messages.parse({
@@ -51,8 +64,8 @@ async function leerUnaVez(pdfBase64: string, modelo: string, system: string): Pr
           {
             role: "user",
             content: [
-              { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
-              { type: "text", text: "Transcribe el formulario en el esquema pedido." },
+              original,
+              { type: "text", text: pedido },
             ],
           },
         ],
@@ -72,18 +85,18 @@ export type ResultadoLecturaIA = {
   usos: UsoIA[];
 };
 
-export async function leerFormularioDianConIA(pdfBase64: string, ctx: ContextoLectura): Promise<ResultadoLecturaIA> {
+export async function leerFormularioDianConIA(archivo: ArchivoLectura, ctx: ContextoLectura): Promise<ResultadoLecturaIA> {
   const system = await getPromptContenido(CLAVE_FORMULARIO_DIAN);
   const usos: UsoIA[] = [];
   const evaluar = (cruda: LecturaCruda) => {
     const lectura = normalizarLectura(cruda);
     return { lectura, controles: controlesLectura(lectura, ctx) };
   };
-  const primera = await leerUnaVez(pdfBase64, MODELO_EXTRACCION_RAPIDA, system);
+  const primera = await leerUnaVez(archivo, MODELO_EXTRACCION_RAPIDA, system);
   usos.push(primera.uso);
   let mejor = { cruda: primera.cruda, modelo: MODELO_EXTRACCION_RAPIDA, ...evaluar(primera.cruda) };
   if (lecturaConErrores(mejor.controles) && MODELO_EXTRACCION !== MODELO_EXTRACCION_RAPIDA) {
-    const segunda = await leerUnaVez(pdfBase64, MODELO_EXTRACCION, system);
+    const segunda = await leerUnaVez(archivo, MODELO_EXTRACCION, system);
     usos.push(segunda.uso);
     const evaluada = { cruda: segunda.cruda, modelo: MODELO_EXTRACCION, ...evaluar(segunda.cruda) };
     const fallas = (c: ControlLectura[]) => c.filter((x) => x.bloquea && !x.ok).length;

@@ -30,7 +30,8 @@ import { balancesQueSirvenCruce, describirBalanceCruce } from "@/lib/modulos/com
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { CONTROLES_QUE_RECHAZAN, controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type CodigoFormulario, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import { leerFormularioDianConIA } from "@/lib/impuestos/retencion/lectura-servidor";
-import { claveObjetoFormulario, MAX_BYTES_FORMULARIO, type ResultadoImportacion, type ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
+import { claveObjetoFormulario, type ResultadoImportacion, type ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
+import { MAX_BYTES_PDF_FORMULARIO, motivoRechazoArchivo, tipoArchivoFormulario } from "@/lib/impuestos/retencion/archivo-formulario";
 import { alcanceCierreImpuesto, impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { mesesCorteValidos, validarPeriodicidad } from "@/lib/impuestos/periodicidad";
 
@@ -180,7 +181,8 @@ function columnasLectura(l: LecturaFormulario) {
 const filasRenglones = (valores: Record<number, number>) => Object.entries(valores).map(([renglon, valor]) => ({ renglon: Number(renglon), valor }));
 
 /**
- * Importa UN PDF (la pantalla manda los archivos de a uno): guarda el original, lo lee con IA,
+ * Importa UN archivo (la pantalla los manda de a uno): el PDF de la DIAN o una imagen (JPG, PNG,
+ * WEBP o GIF) del formulario. Guarda el original, lo lee con IA,
  * lo controla y lo deja «por confirmar». Rechaza (sin guardar) un formulario de otro cliente u
  * otro año, uno ya cargado o uno al que no se le pudo leer el número o el período.
  */
@@ -191,10 +193,13 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
   if (!acceso.ok) return { ok: false, message: acceso.message };
   const { revision, impuesto: imp } = acceso;
   const archivo = formData.get("archivo");
-  if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Elige un PDF." };
-  if (archivo.size > MAX_BYTES_FORMULARIO) return { ok: false, message: `${archivo.name}: supera 10 MB.` };
+  if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Elige un PDF o una imagen del formulario." };
+  // Antes de leerlo: ningún tipo admitido pasa de 10 MB.
+  if (archivo.size > MAX_BYTES_PDF_FORMULARIO) return { ok: false, message: `${archivo.name}: supera 10 MB.` };
   const bytes = Buffer.from(await archivo.arrayBuffer());
-  if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") return { ok: false, message: `${archivo.name}: no es un PDF.` };
+  const rechazo = motivoRechazoArchivo(bytes);
+  if (rechazo) return { ok: false, message: `${archivo.name}: ${rechazo}` };
+  const tipo = tipoArchivoFormulario(bytes)!;
   const huella = createHash("sha256").update(bytes).digest("hex");
 
   try {
@@ -207,7 +212,7 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
 
     const user = await getCurrentUser();
     const ctx = { nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte, impuesto: imp.clave, periodicidad: revision.periodicidad };
-    const leida = await leerFormularioDianConIA(bytes.toString("base64"), ctx);
+    const leida = await leerFormularioDianConIA({ base64: bytes.toString("base64"), mime: tipo.mime }, ctx);
     await registrarConsumoIA(leida.usos, {
       clienteId: revision.clienteId,
       usuarioId: user?.id ?? null,
@@ -230,8 +235,8 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
 
     let claveObjeto: string | null = null;
     if (almacenamientoDisponible()) {
-      claveObjeto = claveObjetoFormulario(revision.clienteId, revision.anio, huella, imp.slug);
-      await subirObjeto({ key: claveObjeto, cuerpo: bytes, contentType: "application/pdf" });
+      claveObjeto = claveObjetoFormulario(revision.clienteId, revision.anio, huella, imp.slug, tipo.extension);
+      await subirObjeto({ key: claveObjeto, cuerpo: bytes, contentType: tipo.mime });
     }
     const datos = {
       impuesto: imp.clave,
@@ -269,7 +274,7 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
       user: user?.name ?? "Sistema",
       action: "IMPORTÓ FORMULARIO DIAN",
       entity: `${imp.nombre} · ${revision.nombreCliente} · F${lectura.formulario} ${numero}`,
-      detail: `${periodoDe(revision, lectura.periodo as number)} ${lectura.anio} · ${archivo.name} · leído con ${leida.modelo}${pendientes ? ` · ${pendientes} control(es) por corregir` : ""}${claveObjeto ? "" : " · sin original (almacén no disponible)"}`,
+      detail: `${periodoDe(revision, lectura.periodo as number)} ${lectura.anio} · ${archivo.name}${tipo.esImagen ? ` (imagen ${tipo.nombre})` : ""} · leído con ${leida.modelo}${pendientes ? ` · ${pendientes} control(es) por corregir` : ""}${claveObjeto ? "" : " · sin original (almacén no disponible)"}`,
       clientId: revision.clienteId,
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);

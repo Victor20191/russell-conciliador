@@ -17,9 +17,6 @@ export const ESTADOS_FORMULARIO = ["por_confirmar", "confirmado", "descartado"] 
 export type EstadoFormulario = (typeof ESTADOS_FORMULARIO)[number];
 
 /** Llave del original en el almacén de objetos: `impuestos/<retencion|iva>/<cliente>/<año>/<huella>.pdf`. */
-export function claveObjetoFormulario(clienteId: number, anio: number, huella: string, slugImpuesto = "retencion"): string {
-  return `impuestos/${slugImpuesto}/${clienteId}/${anio}/${huella}.pdf`;
+export function claveObjetoFormulario(clienteId: number, anio: number, huella: string, slugImpuesto = "retencion", extension = "pdf"): string {
+  return `impuestos/${slugImpuesto}/${clienteId}/${anio}/${huella}.${extension}`;
 }
-
-/** Tamaño máximo de un PDF de formulario (los de la DIAN pesan menos de 200 KB). */
-export const MAX_BYTES_FORMULARIO = 10 * 1024 * 1024;
