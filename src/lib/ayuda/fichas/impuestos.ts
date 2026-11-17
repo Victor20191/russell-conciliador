@@ -555,11 +555,11 @@ export const FICHA_IVA_LISTADO: FichaAyuda = {
   id: "impuestos.iva",
   titulo: "IVA",
   proposito:
-    "Las revisiones de IVA de los clientes: cada una revisa, acumulado a un corte, los formularios 300 (declaración) y 490 (pago) del año. El precorte suele ser a agosto y el cierre a diciembre.",
+    "Las revisiones de IVA de los clientes: cada una revisa, acumulado a un corte, los formularios 300 (declaración) y 490 (pago) del año. El corte es un precierre, en el mes que se elija, o el cierre a diciembre.",
   antesDeEmpezar: [
     "Se ven las revisiones de los clientes de tu cartera.",
     "La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente y es la misma todo el año.",
-    "Los formularios son del cliente y el año: el precorte y el cierre del mismo año comparten los de enero a agosto.",
+    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los períodos hasta el precierre.",
   ],
   etapas: [
     {

@@ -12,7 +12,7 @@ import { notifyActionState } from "@/lib/client-notifications";
 import { crearRevisionImpuesto } from "@/app/actions/impuestos-revisiones";
 import { BuscadorListado, FiltroEstadoListado } from "@/app/(app)/modulos/[codigo]/listado-compartido";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
-import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { impuestoPorClave, nombreCorte, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { mesesCorteValidos } from "@/lib/impuestos/periodicidad";
 import {
   contarRevisionesPorEstado,
@@ -27,9 +27,8 @@ import type { ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 
-/** «Precierre · septiembre», «Precorte · agosto», «Cierre · diciembre» o «Corte · marzo». */
-const etiquetaCorte = (imp: ImpuestoDian, mes: number) =>
-  imp.cortesAtajo.find((c) => c.mes === mes)?.etiqueta ?? `Corte · ${NOMBRES_MES[mes - 1]?.toLowerCase()}`;
+/** «Precierre · septiembre», «Precierre · agosto», «Cierre · diciembre» o «Corte · marzo». */
+const etiquetaCorte = (imp: ImpuestoDian, mes: number) => nombreCorte(imp, mes) ?? `Corte · ${NOMBRES_MES[mes - 1]?.toLowerCase()}`;
 
 export default function RevisionesClient({
   impuestoClave,
@@ -123,6 +122,9 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const [clienteId, setClienteId] = useState("");
   const [anio, setAnio] = useState(String(anioActual));
   const [mesCorte, setMesCorte] = useState(String(impuesto.cortesAtajo[0]?.mes ?? 12));
+  // IVA: «Precierre» (con su mes) o «Cierre · diciembre»; sin elegir, no se crea.
+  const [tipoCorte, setTipoCorte] = useState<"" | "precierre" | "cierre">("");
+  const [mesPrecierre, setMesPrecierre] = useState("");
   const [periodicidadElegida, setPeriodicidadElegida] = useState("");
   useEffect(() => {
     notifyActionState(state, { success: state.message ?? "Revisión creada.", error: "No se pudo crear la revisión." });
@@ -139,11 +141,16 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const validos = periodicidad ? mesesCorteValidos(periodicidad) : [];
   const corte = validos.length === 0 || validos.includes(Number(mesCorte)) ? mesCorte : String(validos[validos.length - 1]);
   const atajos = impuesto.cortesAtajo.filter((c) => validos.length === 0 || validos.includes(c.mes));
+  // Meses de precierre: los que cierran un período antes de diciembre (con periodicidad anual, ninguno).
+  const mesesPrecierre = validos.filter((m) => m < 12);
+  const tipo = tipoCorte === "precierre" && periodicidad && mesesPrecierre.length === 0 ? "" : tipoCorte;
+  const corteIva = tipo === "cierre" ? "12" : tipo === "precierre" && mesesPrecierre.includes(Number(mesPrecierre)) ? mesPrecierre : "";
+  const corteFinal = impuesto.precierreConMes ? corteIva : corte;
 
   const anios = [anioActual, anioActual - 1, anioActual - 2];
   return (
     <Modal open onClose={onClose} title={`Nueva revisión de ${impuesto.nombre}`} size="xl" footer={
-      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad} className={BOTON_PRIMARIO}>
+      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad || !corteFinal} className={BOTON_PRIMARIO}>
         {creando ? <EstadoProcesando>Creando</EstadoProcesando> : "Crear revisión"}
       </button>
     }>
@@ -185,6 +192,44 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
               {anios.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </label>
+          {impuesto.precierreConMes ? (
+            <fieldset className="flex flex-col gap-1">
+              <legend className="mb-1 font-semibold text-ink-700">¿A qué corte se revisa?</legend>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className={`flex items-center gap-1.5 ${periodicidad && mesesPrecierre.length === 0 ? "text-ink-400" : ""}`}>
+                  <input
+                    type="radio"
+                    name="tipoCorte"
+                    checked={tipo === "precierre"}
+                    disabled={!!periodicidad && mesesPrecierre.length === 0}
+                    onChange={() => setTipoCorte("precierre")}
+                  />
+                  Precierre
+                </label>
+                {tipo === "precierre" && (
+                  <select
+                    value={mesPrecierre}
+                    onChange={(e) => setMesPrecierre(e.target.value)}
+                    aria-label="Mes del precierre"
+                    autoFocus
+                    className="h-8 rounded-md border border-ink-200 bg-white px-2"
+                  >
+                    <option value="">Elige el mes del precierre</option>
+                    {(periodicidad ? mesesPrecierre : [...Array(11).keys()].map((i) => i + 1)).map((m) => (
+                      <option key={m} value={m} disabled={!periodicidad}>{NOMBRES_MES[m - 1]}</option>
+                    ))}
+                  </select>
+                )}
+                <label className="flex items-center gap-1.5">
+                  <input type="radio" name="tipoCorte" checked={tipo === "cierre"} onChange={() => setTipoCorte("cierre")} />
+                  Cierre · diciembre
+                </label>
+              </div>
+              {pidePeriodicidad && !periodicidad && <span className="text-[11.5px] text-ink-500">Elige la periodicidad: el precierre tiene que cerrar uno de sus períodos.</span>}
+              {periodicidad && mesesPrecierre.length === 0 && <span className="text-[11.5px] text-ink-500">Con periodicidad {periodicidad.toLowerCase()} solo hay cierre a diciembre.</span>}
+              <input type="hidden" name="mesCorte" value={corteIva} />
+            </fieldset>
+          ) : (
           <fieldset className="flex flex-col gap-1">
             <legend className="mb-1 font-semibold text-ink-700">¿A qué corte se revisa?</legend>
             <div className="flex flex-wrap items-center gap-3">
@@ -204,6 +249,7 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
             {pidePeriodicidad && !periodicidad && <span className="text-[11.5px] text-ink-500">Elige la periodicidad: el corte tiene que cerrar uno de sus períodos.</span>}
             <input type="hidden" name="mesCorte" value={corte} />
           </fieldset>
+          )}
         </div>
       </form>
     </Modal>

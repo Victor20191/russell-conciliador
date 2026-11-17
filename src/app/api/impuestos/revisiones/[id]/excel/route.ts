@@ -7,7 +7,7 @@ import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { cargarRevision } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
-import { impuestoPorClave, RETENCION } from "@/lib/impuestos/impuestos-dian";
+import { impuestoPorClave, nombreCorte, RETENCION } from "@/lib/impuestos/impuestos-dian";
 import { cargarResultadosRevision } from "@/lib/impuestos/retencion/resultados-servidor";
 import type { ResultadosExcel } from "@/lib/export/retencion";
 import { excelRetencion } from "@/lib/export/retencion";
@@ -53,8 +53,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           }
         : { cruce: { estado: "bloqueado", mensaje: "No fue posible calcular el cruce contable.", balance: null, umbral: 0 } };
     const periodos = calculados?.periodos ?? revision.periodos;
-    const atajo = impuesto.cortesAtajo.find((c) => c.mes === revision.mesCorte);
-    const corte = `${mes(revision.mesCorte).toLowerCase()}${atajo ? ` (${atajo.etiqueta.split(" · ")[0].toLowerCase()})` : ""}`;
+    const nombreDelCorte = nombreCorte(impuesto, revision.mesCorte);
+    const corte = `${mes(revision.mesCorte).toLowerCase()}${nombreDelCorte ? ` (${nombreDelCorte.split(" · ")[0].toLowerCase()})` : ""}`;
     const buffer = await excelRetencion(
       { impuesto: impuesto.nombre, cliente: revision.nombreCliente, nit: revision.nitCliente, anio: revision.anio, corte, periodicidad: revision.periodicidad },
       vistasRevision(periodos, revision.impuesto, revision.periodicidad),

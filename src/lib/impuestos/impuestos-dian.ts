@@ -1,7 +1,7 @@
 import type { DefinicionFormulario } from "./formularios/definicion";
 import { F300, RENGLONES_PAGO_F300 } from "./formularios/f300";
 import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "./formularios/f350";
-import type { FormularioCalendario } from "./calendario";
+import { NOMBRES_MES, type FormularioCalendario } from "./calendario";
 import type { Periodicidad } from "./periodicidad";
 import { TABS_REVISION_IMPUESTO, type TabRevisionImpuesto } from "./pestanas-revision";
 
@@ -77,6 +77,11 @@ export type ImpuestoDian = {
   columnasPersona: boolean;
   periodicidades: readonly Periodicidad[];
   cortesAtajo: readonly { mes: number; etiqueta: string }[];
+  /**
+   * IVA: el corte es «Precierre» en el mes que se elija (uno que cierre período) o «Cierre · diciembre».
+   * Retención: atajos fijos más «Otro mes».
+   */
+  precierreConMes: boolean;
   /** El calendario que mide la oportunidad de un año: IVA anual vence en febrero del año siguiente. */
   calendario: (periodicidad: string, anio: number) => { formulario: FormularioCalendario; anio: number } | null;
   cruce: {
@@ -133,6 +138,7 @@ export const RETENCION: ImpuestoDian = {
   columnasPersona: true,
   periodicidades: ["Mensual"],
   cortesAtajo: [{ mes: 9, etiqueta: "Precierre · septiembre" }, { mes: 12, etiqueta: "Cierre · diciembre" }],
+  precierreConMes: false,
   calendario: (periodicidad, anio) => (periodicidad === "Mensual" ? { formulario: "RETEFUENTE", anio } : null),
   cruce: {
     grupos: [
@@ -177,14 +183,15 @@ export const IVA: ImpuestoDian = {
   pestanas: TABS_REVISION_IMPUESTO,
   textos: {
     totalPeriodo: { etiqueta: "Total saldo a pagar", renglon: 88 },
-    subtituloLista: "Revisión acumulada de los formularios 300 (declaración de IVA) y 490 (pago) de cada cliente a un corte: el precorte, generalmente a agosto, y el cierre a diciembre. La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente.",
+    subtituloLista: "Revisión acumulada de los formularios 300 (declaración de IVA) y 490 (pago) de cada cliente a un corte: el precierre, en el mes que se elija, y el cierre a diciembre. La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente.",
     subtituloRevision: "Importa los PDF de los formularios 300 y 490 del año hasta el corte, revisa lo que leyó la IA y confírmalo. Un formulario solo cuenta cuando está confirmado.",
     explicacionCausal: "Un período sin operaciones que declarar no es un error.",
     ejemploCausal: "Ej.: en el bimestre no hubo operaciones gravadas ni ingresos.",
   },
   columnasPersona: false,
   periodicidades: ["Bimestral", "Cuatrimestral", "Anual"],
-  cortesAtajo: [{ mes: 8, etiqueta: "Precorte · agosto" }, { mes: 12, etiqueta: "Cierre · diciembre" }],
+  cortesAtajo: [{ mes: 12, etiqueta: "Cierre · diciembre" }],
+  precierreConMes: true,
   calendario: (periodicidad, anio) =>
     periodicidad === "Bimestral"
       ? { formulario: "IVA_BIMESTRAL", anio }
@@ -217,6 +224,17 @@ export function impuestoPorClave(clave: string | null | undefined): ImpuestoDian
 
 export function impuestoPorSlug(slug: string | null | undefined): ImpuestoDian | null {
   return IMPUESTOS.find((i) => i.slug === slug) ?? null;
+}
+
+/**
+ * Cómo se nombra el corte de una revisión: el atajo («Precierre · septiembre», «Cierre · diciembre»),
+ * «Precierre · agosto» en IVA (cualquier mes antes de diciembre) o null si es otro mes sin nombre.
+ */
+export function nombreCorte(impuesto: ImpuestoDian, mes: number): string | null {
+  const atajo = impuesto.cortesAtajo.find((c) => c.mes === mes);
+  if (atajo) return atajo.etiqueta;
+  if (impuesto.precierreConMes && mes >= 1 && mes < 12) return `Precierre · ${NOMBRES_MES[mes - 1].toLowerCase()}`;
+  return null;
 }
 
 /** El impuesto cuyo formulario de declaración es este código («350» → Retención, «300» → IVA). */

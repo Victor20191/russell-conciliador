@@ -31,7 +31,7 @@ import {
   type EstadoPeriodo,
   type PeriodoRevision,
 } from "@/lib/impuestos/retencion/periodos-revision";
-import { impuestoPorClave, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { impuestoPorClave, nombreCorte, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { alertaRecibosSin350, alertaSinRecibo } from "@/lib/impuestos/retencion/pagos";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
@@ -84,7 +84,7 @@ export default function RevisionClient({
   const contexto = { revisionId: revision.id, nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte, impuesto: impuesto.clave, periodicidad: revision.periodicidad };
   // Con periodicidad anual hay un solo período: el acumulado sería igual a la vista por períodos.
   const hay = (t: TabRevisionRetencion) => impuesto.pestanas.includes(t) && !(t === "acumulado" && revision.periodicidad === "Anual");
-  const atajoCorte = impuesto.cortesAtajo.find((c) => c.mes === revision.mesCorte);
+  const nombreDelCorte = nombreCorte(impuesto, revision.mesCorte);
   const porId = new Map(revision.formularios.map((f) => [f.id, f]));
   const [tab, setTab] = useState<TabRevisionRetencion>("formularios");
   useAnunciarPestanaAyuda(tab);
@@ -101,7 +101,7 @@ export default function RevisionClient({
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <Dato etiqueta="NIT" valor={revision.nitCliente} />
             <Dato etiqueta="Año" valor={String(revision.anio)} />
-            <Dato etiqueta="Corte" valor={`${mes(revision.mesCorte)}${atajoCorte ? ` · ${atajoCorte.etiqueta.split(" · ")[0].toLowerCase()}` : ""}`} />
+            <Dato etiqueta="Corte" valor={`${mes(revision.mesCorte)}${nombreDelCorte ? ` · ${nombreDelCorte.split(" · ")[0].toLowerCase()}` : ""}`} />
             <Dato etiqueta="Periodicidad" valor={revision.periodicidad} />
             <Dato etiqueta="Estado" valor={revision.estado === "en_firme" ? "En firme" : "En proceso"} />
           </div>
