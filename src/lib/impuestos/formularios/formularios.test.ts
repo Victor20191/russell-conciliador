@@ -154,18 +154,20 @@ describe("formulario 300 como dato", () => {
     expect(calcularTotal(F300, 89, new Map([[87, 200_000]]))).toBe(0);
   });
 
-  it("con saldo a pagar, el 84 y el 85 ya se descontaron en el 88: el 89 resta el 82 y queda en cero", () => {
+  it("con saldo a pagar (88 con valor) el 89 es cero; con el 88 en cero, el 89 es 83 + 84 + 85 − 87", () => {
     // Un 300 real (bimestre 1 de 2026): saldo a pagar con retención de IVA de 502.000.
     const conSaldoAPagar = new Map<number, number>([
       [67, 445_771_000], [81, 156_398_000], [82, 289_373_000], [83, 0], [84, 0], [85, 502_000], [86, 288_871_000], [87, 0], [88, 288_871_000], [89, 0],
     ]);
     const liquidacion = controlarTotales(F300, conSaldoAPagar).filter((c) => c.renglon >= 82 && c.renglon <= 89);
     expect(liquidacion.every((c) => c.cuadra), JSON.stringify(liquidacion.filter((c) => !c.cuadra))).toBe(true);
-    expect(renglonDe(F300, 89)?.terminos).toEqual([[83, 1], [84, 1], [85, 1], [82, -1], [87, -1]]);
-    // Retenciones mayores que el saldo a pagar: el 88 queda en cero y el excedente pasa al 89.
-    const retencionesDeMas = new Map<number, number>([[82, 1_000_000], [85, 1_500_000]]);
+    expect(renglonDe(F300, 89)).toMatchObject({ terminos: [[83, 1], [84, 1], [85, 1], [87, -1]], ceroSi: 88 });
+    // Con el 88 en cero, la fórmula impresa sin restar el 82.
+    const retencionesDeMas = new Map<number, number>([[82, 1_000_000], [85, 1_500_000], [88, 0]]);
     expect(calcularTotal(F300, 88, retencionesDeMas)).toBe(0);
-    expect(calcularTotal(F300, 89, retencionesDeMas)).toBe(500_000);
+    expect(calcularTotal(F300, 89, retencionesDeMas)).toBe(1_500_000);
+    // Si el 88 tiene valor, el 89 es cero aunque 83 + 84 + 85 − 87 sea positivo.
+    expect(calcularTotal(F300, 89, new Map([[83, 0], [84, 300_000], [85, 200_000], [88, 1_000_000]]))).toBe(0);
   });
 
   it("el 81 resta el ajuste (80) y el 43 resta las devoluciones (42)", () => {

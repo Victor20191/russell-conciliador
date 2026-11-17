@@ -42,6 +42,11 @@ export type RenglonDian = {
   terminos?: readonly TerminoTotal[];
   /** Total que la DIAN escribe en cero si da negativo (82, 83, 86, 88 y 89 del 300). */
   pisoCero?: boolean;
+  /**
+   * Renglón que, si tiene valor, deja este total en cero sin sumar sus términos (en el 300, el 89 es
+   * cero cuando el total saldo a pagar, 88, tiene valor).
+   */
+  ceroSi?: number;
 };
 
 /**
@@ -76,7 +81,8 @@ export function aCentavos(valor: number): number {
 }
 
 /** Σ con signo de los términos, en centavos; con piso cero si el renglón lo pide. */
-function sumaTerminos(r: Pick<RenglonDian, "terminos" | "pisoCero">, valor: (renglon: number) => number): number {
+function sumaTerminos(r: Pick<RenglonDian, "terminos" | "pisoCero" | "ceroSi">, valor: (renglon: number) => number): number {
+  if (r.ceroSi != null && valor(r.ceroSi) !== 0) return 0;
   const suma = (r.terminos ?? []).reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
   return r.pisoCero ? Math.max(0, suma) : suma;
 }

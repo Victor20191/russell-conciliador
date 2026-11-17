@@ -61,7 +61,7 @@ const IVA: Contenido = {
     ["83", "81 − 67, o cero si da negativo"],
     ["86", "82 − 84 − 85, o cero si da negativo"],
     ["88", "82 − 84 − 85 + 87, o cero si da negativo"],
-    ["89", "83 + 84 + 85 − 82 − 87, o cero si da negativo (con saldo a pagar, el 84 y el 85 ya se descontaron)"],
+    ["89", "83 + 84 + 85 − 87, o cero si da negativo; si el 88 tiene valor (saldo a pagar), el 89 es cero"],
     ["93", "89 − 90"],
   ],
   soloDeclaracion: [

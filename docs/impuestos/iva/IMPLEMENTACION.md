@@ -66,3 +66,9 @@ Cómo va quedando construido el submódulo, fase por fase. El diseño aprobado e
 - El 89 es ahora 83 + 84 + 85 − 82 − 87, con piso cero (`formularios/f300.ts`). Con saldo a favor el 82 es cero y da lo mismo que antes; con saldo a pagar da cero; si las retenciones superan el saldo a pagar, el 88 queda en cero y el excedente pasa al 89. Las vistas por período y el acumulado usan la misma fórmula. «¿Qué revisa el sistema?» lo explica.
 - Prueba en `formularios.test.ts` con los valores de ese formulario. Los formularios por confirmar no hay que volver a importarlos: el control se recalcula al abrirlos y al confirmar.
 - **Falta del 490 (16/Nov/2026):** un período con saldo a pagar (88) y sin su 490 no impide cerrar, pero exige la marca de Pagos efectuados que diga por qué no se tiene. Ver «Falta de un 490 → marca, no bloqueo» en `docs/impuestos/retencion-fuente/IMPLEMENTACION.md`.
+
+## Regla del total saldo a favor (89) (16/Nov/2026)
+
+- Decisión del usuario: el 89 es 83 + 84 + 85 − 87 (piso cero) solo cuando el total saldo a pagar (88) es cero; si el 88 tiene valor, el 89 es cero. Reemplaza la fórmula del 9/Nov/2026 (83 + 84 + 85 − 82 − 87).
+- Las dos dan lo mismo salvo cuando hay saldo a pagar del período (82) pero el 84 y el 85 lo cubren (88 en cero): antes el 89 era el excedente (84 + 85 − 82); ahora es 83 + 84 + 85 − 87 completo.
+- `RenglonDian.ceroSi` (definicion.ts): un total queda en cero si el renglón indicado tiene valor; lo usa el 89 con el 88 leído. Aplica al confirmar y en las vistas por período.

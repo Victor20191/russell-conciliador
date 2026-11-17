@@ -8,7 +8,8 @@ import type { DefinicionFormulario, RenglonDian, TerminoTotal } from "./definici
  * 89), el control de saldos (90 a 93), el pago total (980, informativo) y los datos que piden la
  * corrección y la oportunidad. Las compras (44 a 57) no se guardan ni se concilian; tampoco los
  * nombres, la seccional, los anticipos del Régimen Simple ni las firmas. Los saldos 82, 83, 86, 88 y
- * 89 se escriben en cero si dan negativo (`pisoCero`).
+ * 89 se escriben en cero si dan negativo (`pisoCero`). El 89 es 83 + 84 + 85 − 87 solo cuando el total
+ * saldo a pagar (88) es cero; si el 88 tiene valor, el 89 es cero (`ceroSi`).
  */
 
 const GENERALES = "Datos generales";
@@ -133,9 +134,9 @@ export const F300: DefinicionFormulario = {
     total(86, "saldo_pagar_impuesto", "Saldo a pagar por impuesto (82 − 84 − 85)", LIQUIDACION, [[82, 1], [84, -1], [85, -1]], true),
     valor(87, "sanciones", "Sanciones", LIQUIDACION),
     total(88, "total_saldo_pagar", "Total saldo a pagar (82 − 84 − 85 + 87)", LIQUIDACION, [[82, 1], [84, -1], [85, -1], [87, 1]], true),
-    // La DIAN imprime «83 + 84 + 85 − 87», pero con saldo a pagar el 84 y el 85 ya se restaron en el 86 y el 88:
-    // el 89 resta también el 82 para que el 88 y el 89 no tengan valor a la vez.
-    total(89, "total_saldo_favor", "Total saldo a favor (83 + 84 + 85 − 82 − 87)", LIQUIDACION, [[83, 1], [84, 1], [85, 1], [82, -1], [87, -1]], true),
+    // Regla del usuario (16/Nov/2026): 83 + 84 + 85 − 87 solo cuando el 88 es cero; con saldo a pagar (88 con
+    // valor) el 84 y el 85 ya se descontaron en el 88 y el 89 es cero. Así el 88 y el 89 no tienen valor a la vez.
+    { ...total(89, "total_saldo_favor", "Total saldo a favor (83 + 84 + 85 − 87; cero si el 88 tiene valor)", LIQUIDACION, [[83, 1], [84, 1], [85, 1], [87, -1]], true), ceroSi: 88 },
     valor(90, "favor_devolucion", "Saldo a favor susceptible de devolución y/o compensación por el presente período", CONTROL),
     valor(91, "favor_imputar_devolucion", "Saldo a favor susceptible de ser devuelto y/o compensado a imputar en el período siguiente", CONTROL),
     valor(92, "favor_sin_derecho", "Saldo a favor sin derecho a devolución y/o compensación susceptible de ser imputado en el siguiente período", CONTROL),
