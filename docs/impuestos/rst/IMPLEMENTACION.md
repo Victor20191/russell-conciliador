@@ -29,3 +29,12 @@ Cómo va quedando construido el submódulo, fase por fase. El diseño aprobado e
 - **Ayuda:** la ficha de la revisión de RST tiene las siete pestañas y «Exportar a Excel».
 - **Pruebas:** `src/lib/impuestos/rst/rst-resultados.test.ts` (vistas, oportunidad oportuna y extemporánea, pagos con sus componentes, pendientes sin cruce y encabezados del Excel). Retención e IVA conservan sus pruebas sin cambios.
 - **Pendiente:** cruce contable y cierre en firme cuando existan las cuentas Russell; release minor («Impuestos · Anticipos bimestrales (RST)») cuando el usuario la pida.
+
+## Hoja 2 del 2593: ICA por municipio (17/Nov/2026, sin commit)
+
+- **Se lee y se guarda.** La instrucción de fábrica `formulario_dian` ya no ignora la hoja 2: pide, por cada página, el departamento (82) y el municipio (83) con sus códigos, los renglones 84 a 90 y 95 a 106, las actividades gravadas (CIIU 91, ingresos 92, tarifa por mil 93 con decimales e impuesto 94) y las marcas 107 y 108. El esquema de la IA trae el arreglo `ica`.
+- **Sin migración.** La hoja 2 queda en la lectura guardada (`lectura_json`) y `normalizarLectura` la convierte en `LecturaFormulario.ica` (`MunicipioIca[]`), igual que la hoja 1; así viaja a la importación, a «Revisar», a la confirmación y al Excel. No se corrige a mano: si algún día se corrige, tendrá su propia columna.
+- **Controles** (`src/lib/impuestos/rst/ica-municipios.ts`, solo avisan): Σ104 = 76, Σ99 = 43 y, si hay ganancias ocasionales, Σ106 = 37; por municipio, 90 = 84 − 85 − 86 − 87 − 88 − 89, 94 = 92 × 93 / 1000 (hasta $500 de redondeo a miles), 95 = Σ94, 97, 99, 101, 104 y 105 con piso cero; y un aviso si el 2593 no trae hoja 2 (los importados antes de este cambio: hay que volver a importarlos para tenerla).
+- **Pantalla y Excel:** sección «Hoja 2 · ICA por municipio» en «Revisar» (una tarjeta por municipio con base gravable, actividades y valores a pagar) y hoja «ICA por municipio» en el Excel (una fila por municipio y, debajo, las actividades).
+- **Pruebas:** `rst/rst-ica.test.ts`; el recibo real de `rst-cargue.test.ts` lleva su hoja 2.
+- Si en `prompts_ia` hay una versión editada de `formulario_dian`, manda sobre la de fábrica y la IA seguiría sin leer la hoja 2: hay que restaurar la de fábrica o agregarle el párrafo de la hoja 2.

@@ -995,7 +995,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
     "Un bimestre puede tener varios 2593: un ajuste (casilla 24) ajusta al recibo de la casilla 25. Los valores salen del último de la cadena.",
     "Lo que se paga con el 490 concepto 27 es la suma de los valores a pagar del 2593: ICA (76), anticipo SIMPLE (77), impuesto al consumo (78) e IVA (79). Si suman más de cero, se espera un recibo 490.",
     "El 2593 no trae sello de presentación: la fecha que cuenta es la del pago, en el 490.",
-    "La hoja 2 del 2593 (liquidación del ICA por municipio) no se lee: su total ya está en los renglones 43 y 76.",
+    "La hoja 2 del 2593 (liquidación del ICA por municipio) se lee y se guarda: una página por municipio, con su base gravable, sus actividades gravadas (CIIU, ingresos, tarifa por mil e impuesto) y sus valores a pagar. Se ve en «Revisar», no se corrige a mano y va en la hoja «ICA por municipio» del Excel. Un 2593 importado antes de que se leyera no la trae: para tenerla hay que volver a importarlo.",
   ],
   etapas: [
     {
@@ -1003,7 +1003,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
       acciones: [
         {
           nombre: "Exportar a Excel",
-          queHace: "Descarga la revisión en un libro con la vista por períodos, el acumulado, los formularios cargados, la oportunidad y los pagos efectuados. No lleva hoja de cruce contable mientras esté en construcción.",
+          queHace: "Descarga la revisión en un libro con la vista por períodos, el acumulado, los formularios cargados, el ICA por municipio de la hoja 2 de cada 2593 (con sus actividades), la oportunidad y los pagos efectuados. No lleva hoja de cruce contable mientras esté en construcción.",
           regla: REGLAS.verRevisionImpuestos,
           fuente: { archivo: "src/app/api/impuestos/revisiones/[id]/excel/route.ts", funcion: "GET" },
         },
@@ -1055,6 +1055,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
               condiciones: [
                 "Todos los controles en rojo están corregidos: el NIT, el año y el bimestre son los de la revisión y, en el 490, 34 + 35 + 36 dan el 980.",
                 "Las fórmulas del 2593 (por ejemplo, 77 = 56, 78 = 64 y 79 = 74) solo avisan si no cuadran.",
+                "La hoja 2 también solo avisa: que la suma de los 104 de los municipios sea el 76, la de los 99 el 43 y la de los 106 el 37; en cada municipio, sus fórmulas (90, 94 = 92 × 93 / 1000, 95, 97, 99, 101, 104 y 105); y que el recibo traiga la hoja 2.",
               ],
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "confirmarFormularioDian" },
             },
@@ -1119,7 +1120,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
         {
           titulo: "Consultar",
           acciones: [
-            { nombre: "Número del formulario", queHace: "Abre el 2593 del bimestre con sus valores y el original (PDF o imagen).", regla: REGLAS.verRevisionImpuestos },
+            { nombre: "Número del formulario", queHace: "Abre el 2593 del bimestre con sus valores, su hoja 2 (ICA por municipio) y el original (PDF o imagen).", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Ocultar los renglones en cero", queHace: "Deja solo los renglones con valor; los totales siempre se ven.", regla: REGLAS.verRevisionImpuestos },
             { nombre: "Pantalla completa", queHace: "Abre la tabla en toda la pantalla, con los títulos y los renglones fijos al desplazarse. Se sale con el mismo botón o con Esc.", regla: REGLAS.verRevisionImpuestos },
           ],

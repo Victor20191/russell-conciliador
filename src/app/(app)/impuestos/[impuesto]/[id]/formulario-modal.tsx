@@ -14,6 +14,7 @@ import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { controlesLectura, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
 import type { FormularioVista } from "@/lib/impuestos/retencion/revision-servidor";
+import { ETIQUETAS_ICA, fallasMunicipioIca, nombreMunicipioIca, RENGLONES_ICA, type MunicipioIca } from "@/lib/impuestos/rst/ica-municipios";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
@@ -258,8 +259,100 @@ export function FormularioModal({
             </tbody>
           </table>
         </div>
+        {f.formulario === "2593" && <HojaIca municipios={f.leido.ica ?? []} />}
       </div>
     </Modal>
+  );
+}
+
+const pesosIca = (n: number | undefined) => (n == null ? "—" : `${Math.round(n).toLocaleString("es-CO")}`);
+const BASE_ICA = [84, 85, 86, 87, 88, 89, 90];
+const VALORES_ICA = RENGLONES_ICA.filter((r) => r >= 95);
+
+/**
+ * Hoja 2 del 2593: el ICA por municipio, tal como lo leyó la IA (no se corrige a mano). Sus controles
+ * van con los demás, arriba; aquí cada municipio dice si sus fórmulas cuadran.
+ */
+function HojaIca({ municipios }: { municipios: readonly MunicipioIca[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-semibold text-ink-700">Hoja 2 · ICA por municipio</span>
+        <span className="text-[11.5px] text-ink-500">Tal como la leyó la IA; si algo no coincide con el original, los avisos de arriba lo dicen.</span>
+      </div>
+      {municipios.length === 0 ? (
+        <p className="rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-[12px] text-warn-700">
+          No se leyó la hoja 2. Si el recibo la trae, vuelve a importarlo para guardarla.
+        </p>
+      ) : (
+        municipios.map((m, i) => <MunicipioIcaTarjeta key={i} municipio={m} indice={i} />)
+      )}
+    </div>
+  );
+}
+
+function MunicipioIcaTarjeta({ municipio: m, indice }: { municipio: MunicipioIca; indice: number }) {
+  const fallas = fallasMunicipioIca(m);
+  const fila = (r: number) => (
+    <tr key={r} className={`border-t border-ink-100 ${[90, 95, 97, 99, 101, 104, 105].includes(r) ? "bg-ink-50/60 font-semibold" : ""}`}>
+      <td className="w-14 px-3 py-1 text-right tabular-nums text-ink-500">{r}</td>
+      <td className="px-2 py-1 text-ink-800">{ETIQUETAS_ICA[r]}</td>
+      <td className="w-48 px-3 py-1 text-right tabular-nums">{pesosIca(m.valores[r])}</td>
+    </tr>
+  );
+  return (
+    <div className="overflow-hidden rounded-md border border-ink-150 text-[12.5px]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-150 bg-ink-50 px-3 py-2">
+        <span className="font-semibold text-navy-800">{nombreMunicipioIca(m, indice)}</span>
+        <span className="text-[11.5px] text-ink-500">
+          {[m.codigoDepartamento && `Depto. ${m.codigoDepartamento}`, m.codigoMunicipio && `Mpio. ${m.codigoMunicipio}`, m.pagina != null && `página ${m.pagina}`].filter(Boolean).join(" · ")}
+        </span>
+        <span className="ml-auto">
+          <Chip label={fallas.length === 0 ? "Cuadra" : `${fallas.length} por revisar`} tone={fallas.length === 0 ? "ok" : "warn"} />
+        </span>
+      </div>
+      <table className="w-full">
+        <tbody>
+          <tr className="bg-ink-50"><td colSpan={3} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Base gravable</td></tr>
+          {BASE_ICA.map(fila)}
+        </tbody>
+      </table>
+      <table className="w-full border-t border-ink-150">
+        <thead>
+          <tr className="bg-ink-50 text-left text-[11.5px] font-semibold text-navy-800">
+            <th className="px-3 py-1.5">Actividades gravadas · CIIU (91)</th>
+            <th className="px-3 py-1.5 text-right">Ingresos gravados (92)</th>
+            <th className="px-3 py-1.5 text-right">Tarifa por mil (93)</th>
+            <th className="px-3 py-1.5 text-right">Impuesto (94)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {m.actividades.length === 0 ? (
+            <tr className="border-t border-ink-100"><td colSpan={4} className="px-3 py-1.5 text-ink-400">Sin actividades leídas.</td></tr>
+          ) : (
+            m.actividades.map((a, j) => (
+              <tr key={j} className="border-t border-ink-100">
+                <td className="px-3 py-1 tabular-nums text-ink-800">{a.ciiu ?? "—"}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{pesosIca(a.ingresosGravados)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{a.tarifaPorMil == null ? "—" : a.tarifaPorMil.toLocaleString("es-CO")}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{pesosIca(a.impuesto)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      <table className="w-full border-t border-ink-150">
+        <tbody>
+          <tr className="bg-ink-50"><td colSpan={3} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">Valores a pagar ICA</td></tr>
+          {VALORES_ICA.map(fila)}
+        </tbody>
+      </table>
+      {m.origenTarifa && (
+        <p className="border-t border-ink-100 px-3 py-1.5 text-[11.5px] text-ink-500">
+          Tarifa {m.origenTarifa === "municipio" ? "reportada por el municipio o distrito (107)" : "informada por el contribuyente (108)"}.
+        </p>
+      )}
+    </div>
   );
 }
 

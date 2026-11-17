@@ -69,6 +69,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         fecha: f.fechaSello,
         autoadhesivo: f.autoadhesivo,
         corregidoAMano: f.corregidoAMano.join(", "),
+        ica: f.formulario === "2593" ? f.leido.ica : undefined,
       })),
       resultados,
     );

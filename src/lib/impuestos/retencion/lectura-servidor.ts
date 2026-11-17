@@ -36,6 +36,20 @@ const LecturaFormularioSchema = z.object({
   fechaSello: z.string(),
   renglones: z.array(z.object({ renglon: z.number().int(), valor: z.string() })),
   exterior: z.array(z.object({ pais: z.string(), tipoPersona: z.string(), valorRetencion: z.string() })),
+  // Hoja 2 del 2593: una entrada por municipio (vacía en los demás formularios).
+  ica: z.array(
+    z.object({
+      pagina: z.string(),
+      departamento: z.string(),
+      codigoDepartamento: z.string(),
+      municipio: z.string(),
+      codigoMunicipio: z.string(),
+      renglones: z.array(z.object({ renglon: z.number().int(), valor: z.string() })),
+      actividades: z.array(z.object({ ciiu: z.string(), ingresosGravados: z.string(), tarifaPorMil: z.string(), impuesto: z.string() })),
+      tarifaDelMunicipio: z.string(),
+      tarifaDelContribuyente: z.string(),
+    }),
+  ),
 });
 
 const MAX_TOKENS_FORMULARIO = 8000;

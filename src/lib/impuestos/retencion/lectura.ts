@@ -7,6 +7,7 @@ import { F350 } from "../formularios/f350";
 import { F490 } from "../formularios/f490";
 import { conceptosPagoDe, impuestoPorClave, IMPUESTOS, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
 import { mesesPorPeriodo, type Periodicidad } from "../periodicidad";
+import { aTarifaPorMil, controlesIca, RENGLONES_ICA, type IcaMunicipioCrudo, type MunicipioIca } from "../rst/ica-municipios";
 
 /**
  * Lectura de un formulario DIAN (350, 300, 2593 o 490) que devolvió la IA: normalización y controles (puro).
@@ -42,6 +43,8 @@ export type LecturaCruda = {
   fechaSello: string;
   renglones: { renglon: number; valor: string }[];
   exterior: { pais: string; tipoPersona: string; valorRetencion: string }[];
+  /** Solo el 2593: la hoja 2, una entrada por municipio. Las lecturas guardadas antes no la traen. */
+  ica?: IcaMunicipioCrudo[];
 };
 
 export type CodigoFormulario = "350" | "300" | "490" | "2593";
@@ -74,6 +77,8 @@ export type LecturaFormulario = {
   /** Importes en pesos de los renglones que se guardan (sin los ceros que no vinieron). */
   valores: Record<number, number>;
   exterior: { pais: string; tipoPersona: string; valorRetencion: number }[];
+  /** Hoja 2 del 2593 (ICA por municipio); vacía en los demás formularios. */
+  ica: MunicipioIca[];
 };
 
 const soloDigitos = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
@@ -152,6 +157,36 @@ const DEFINICIONES = { "350": F350, "300": F300, "490": F490, "2593": F2593 } as
 /** ¿El código es el de una declaración (350, 300 o 2593) y no un recibo de pago? */
 const esDeclaracion = (codigo: string | null) => codigo != null && IMPUESTOS.some((i) => i.declaracion.codigo === codigo);
 
+const MARCADA = (texto: string | null | undefined) => /x|s[ií]|1/i.test((texto ?? "").trim());
+const CON_IMPORTE_ICA = new Set(RENGLONES_ICA);
+
+/** La hoja 2 del 2593 leída por la IA → municipios con importes en pesos; descarta las páginas vacías. */
+export function normalizarIca(crudo: readonly IcaMunicipioCrudo[] | undefined): MunicipioIca[] {
+  return (crudo ?? [])
+    .map((m): MunicipioIca => {
+      const valores: Record<number, number> = {};
+      for (const r of m.renglones ?? []) {
+        if (!CON_IMPORTE_ICA.has(r.renglon)) continue;
+        const v = aPesos(r.valor);
+        if (v != null) valores[r.renglon] = v;
+      }
+      const actividades = (m.actividades ?? [])
+        .map((a) => ({ ciiu: vacioANull(soloDigitos(a.ciiu)), ingresosGravados: aPesos(a.ingresosGravados) ?? 0, tarifaPorMil: aTarifaPorMil(a.tarifaPorMil), impuesto: aPesos(a.impuesto) ?? 0 }))
+        .filter((a) => a.ciiu != null || a.ingresosGravados !== 0 || a.impuesto !== 0);
+      return {
+        pagina: entero(m.pagina),
+        departamento: vacioANull(m.departamento),
+        codigoDepartamento: soloDigitos(m.codigoDepartamento) || null,
+        municipio: vacioANull(m.municipio),
+        codigoMunicipio: soloDigitos(m.codigoMunicipio) || null,
+        valores,
+        actividades,
+        origenTarifa: MARCADA(m.tarifaDelMunicipio) ? "municipio" : MARCADA(m.tarifaDelContribuyente) ? "contribuyente" : null,
+      };
+    })
+    .filter((m) => m.municipio != null || m.codigoMunicipio != null || Object.keys(m.valores).length > 0 || m.actividades.length > 0);
+}
+
 /** Convierte la lectura cruda de la IA. Descarta los renglones que no se guardan (bases, compras, firmas). */
 export function normalizarLectura(cruda: LecturaCruda): LecturaFormulario {
   const formulario = codigoDe(cruda.formulario);
@@ -199,6 +234,7 @@ export function normalizarLectura(cruda: LecturaCruda): LecturaFormulario {
             .map((e) => ({ pais: e.pais.trim(), tipoPersona: e.tipoPersona.trim(), valorRetencion: aPesos(e.valorRetencion) ?? 0 }))
             .filter((e) => e.valorRetencion > 0 || e.pais !== "")
         : [],
+    ica: formulario === "2593" ? normalizarIca(cruda.ica) : [],
   };
 }
 
@@ -315,6 +351,8 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
     for (const v of controlarValidaciones(impuesto.declaracion, valores)) {
       agregar(v.clave, v.cuadra, v.cuadra ? `${v.etiqueta}: cuadra` : `${v.etiqueta}: suman ${fmtPesos(v.calculado)} y el ${v.renglonContra} dice ${fmtPesos(v.contra)}.`, false);
     }
+    // Hoja 2 del 2593 (ICA por municipio): sus fórmulas y su amarre con la hoja 1 avisan sin bloquear.
+    if (l.formulario === "2593") for (const c of controlesIca(l.valores, l.ica ?? [])) agregar(c.clave, c.ok, c.mensaje, false);
   }
   if (l.formulario === "490") {
     const concepto = l.concepto ?? "";

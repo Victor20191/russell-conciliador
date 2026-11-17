@@ -12,6 +12,7 @@ import { IMPUESTOS, midePresentacion, renglonSanciones, RETENCION, type Impuesto
 import { rotuloRenglon } from "@/lib/impuestos/formularios/definicion";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
+import { ETIQUETAS_ICA, fallasMunicipioIca, nombreMunicipioIca, RENGLONES_ICA, type MunicipioIca } from "@/lib/impuestos/rst/ica-municipios";
 
 const PESOS = "#,##0";
 
@@ -36,6 +37,8 @@ export type FormularioExcel = {
   fecha: string | null;
   autoadhesivo: string | null;
   corregidoAMano: string;
+  /** Solo el 2593: la hoja 2 (ICA por municipio) que leyó la IA. */
+  ica?: readonly MunicipioIca[];
 };
 
 function encabezadoLibro(ws: ExcelJS.Worksheet, meta: MetaRevisionExcel, titulo: string): void {
@@ -145,6 +148,48 @@ function hojaFormularios(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, formular
     ws.addRow([f.periodo, f.formulario, f.numero, f.estado, f.correccionDe ?? "", f.concepto ?? "", f.numeroPagado ?? "", f.fecha ?? "", f.autoadhesivo ?? "", f.corregidoAMano]);
   }
   [codigo === "350" ? 12 : 30, 11, 16, 14, 16, 10, 16, 20, 20, 20].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+}
+
+/**
+ * Hoja «ICA por municipio» (anticipos del Régimen Simple): una fila por municipio de la hoja 2 de cada
+ * 2593 con sus casillas y, debajo, sus actividades gravadas (CIIU, ingresos, tarifa e impuesto).
+ */
+function hojaIcaMunicipios(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, formularios: readonly FormularioExcel[]): void {
+  const conIca = formularios.filter((f) => f.formulario === "2593");
+  if (conIca.length === 0) return;
+  const ws = wb.addWorksheet("ICA por municipio");
+  encabezadoLibro(ws, meta, "hoja 2 del 2593: ICA por municipio");
+  const columnas = 8 + RENGLONES_ICA.length;
+  estiloEncabezado(ws.addRow(["Período", "Recibo 2593", "Estado", "Municipio", "Cód. depto.", "Cód. municipio", "Página", "Fórmulas", ...RENGLONES_ICA.map((r) => `${r} · ${ETIQUETAS_ICA[r]}`)]));
+  for (const f of conIca) {
+    const municipios = f.ica ?? [];
+    if (municipios.length === 0) {
+      ws.addRow([f.periodo, f.numero, f.estado, "No se leyó la hoja 2"]);
+      continue;
+    }
+    municipios.forEach((m, i) => {
+      const fallas = fallasMunicipioIca(m);
+      ws.addRow([
+        f.periodo, f.numero, f.estado, nombreMunicipioIca(m, i), m.codigoDepartamento ?? "", m.codigoMunicipio ?? "", m.pagina ?? "",
+        fallas.length === 0 ? "Cuadran" : fallas.join("; "),
+        ...RENGLONES_ICA.map((r) => m.valores[r] ?? null),
+      ]);
+    });
+  }
+  ws.addRow([]);
+  filaSeccion(ws, "Actividades gravadas por municipio", 8);
+  estiloEncabezado(ws.addRow(["Período", "Recibo 2593", "Municipio", "CIIU (91)", "Ingresos gravados (92)", "Tarifa por mil (93)", "Impuesto (94)"]));
+  for (const f of conIca) {
+    (f.ica ?? []).forEach((m, i) => {
+      for (const a of m.actividades) {
+        const fila = ws.addRow([f.periodo, f.numero, nombreMunicipioIca(m, i), a.ciiu ?? "", a.ingresosGravados, a.tarifaPorMil, a.impuesto]);
+        fila.getCell(5).numFmt = PESOS;
+        fila.getCell(7).numFmt = PESOS;
+      }
+    });
+  }
+  [30, 16, 14, 28, 12, 14, 9, 40, ...RENGLONES_ICA.map(() => 18)].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  for (let c = 9; c <= columnas; c++) ws.getColumn(c).numFmt = PESOS;
 }
 
 const PESOS_CENTAVOS = "#,##0.00";
@@ -404,6 +449,7 @@ export function libroRetencion(meta: MetaRevisionExcel, vista: VistaRevision, fo
   // Con periodicidad anual hay un solo período: el acumulado sería igual.
   if (meta.periodicidad !== "Anual") hojaAcumulado(wb, meta, vista);
   hojaFormularios(wb, meta, formularios, vista.codigo ?? "350");
+  hojaIcaMunicipios(wb, meta, formularios);
   // Sin cruce disponible (el anticipo del Régimen Simple, por ahora) no hay hoja de cruce.
   if (resultados && impuestoDeMeta(meta).cruce.disponible) hojaCruce(wb, meta, resultados.cruce);
   if (resultados?.oportunidad) hojaOportunidad(wb, meta, resultados.oportunidad);

@@ -48,9 +48,16 @@ function cruda2593(cambios: Partial<LecturaCruda> = {}): LecturaCruda {
       { renglon: 71, valor: "140,202,000" }, { renglon: 72, valor: "0" }, { renglon: 73, valor: "0" }, { renglon: 74, valor: "140,202,000" },
       { renglon: 75, valor: "0" }, { renglon: 76, valor: "10,005,000" }, { renglon: 77, valor: "28,033,000" }, { renglon: 78, valor: "0" },
       { renglon: 79, valor: "140,202,000" },
-      { renglon: 90, valor: "870,016,000" }, // hoja 2 (ICA por municipio): no se guarda
+      { renglon: 90, valor: "870,016,000" }, // de la hoja 2: entre los renglones de la hoja 1 no se guarda
     ],
     exterior: [],
+    // La hoja 2 del mismo recibo: un municipio, con el ICA del 43 y el 76.
+    ica: [{
+      pagina: "1", departamento: "ANTIOQUIA", codigoDepartamento: "05", municipio: "MEDELLIN", codigoMunicipio: "001",
+      renglones: [84, 90].map((renglon) => ({ renglon, valor: "870,016,000" })).concat([95, 97, 99, 101, 104].map((renglon) => ({ renglon, valor: "10,005,000" }))),
+      actividades: [{ ciiu: "4659", ingresosGravados: "870,016,000", tarifaPorMil: "11,5", impuesto: "10,005,000" }],
+      tarifaDelMunicipio: "X", tarifaDelContribuyente: "",
+    }],
     ...cambios,
   };
 }
