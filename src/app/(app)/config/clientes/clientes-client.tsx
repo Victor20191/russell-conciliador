@@ -75,6 +75,8 @@ export type ClientRow = {
   balanceTercerosNota: string | null;
   balanceTercerosPor: string | null;
   balanceTercerosEn: string | null;
+  /** Régimen Simple de Tributación (por defecto No). */
+  regimenSimple: boolean;
   /** Qué puede editar quien ve la lista (19/Oct/2026): la ficha completa (Gerente/Socio en su
    *  cartera, administradores), solo los datos operativos (Staff/Senior asignados) o nada. */
   edicion: NivelEdicionCliente;
@@ -247,6 +249,14 @@ export default function ClientesClient({
                       >
                         <Icon name="warn" size={11} className="text-warn-600" />
                         Excepción · Sin terceros
+                      </span>
+                    )}
+                    {c.regimenSimple && (
+                      <span
+                        title="Cliente del Régimen Simple de Tributación"
+                        className="mt-1 flex w-fit items-center whitespace-nowrap rounded-full bg-blue-50 px-2 py-0.5 text-[10.5px] font-semibold text-navy-700"
+                      >
+                        Régimen Simple
                       </span>
                     )}
                   </button>
@@ -715,7 +725,7 @@ function ClientModal({
       <form id="client-form" action={formAction} className="flex flex-col gap-3">
         {nivel === "operativo" && (
           <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-ink-700">
-            Puedes cambiar el sector, los aplicativos y los módulos del cliente. Los datos del
+            Puedes cambiar el sector, el Régimen Simple, los aplicativos y los módulos del cliente. Los datos del
             cliente y sus responsables los cambian el gerente, el socio o un administrador.
           </p>
         )}
@@ -774,7 +784,7 @@ function ClientModal({
           </CField>
         </div>
         </fieldset>
-        <fieldset disabled={!puedeGuardar} className="flex min-w-0 gap-3">
+        <fieldset disabled={!puedeGuardar} className="flex min-w-0 flex-col gap-2.5">
           <CField label="Sector" error={state?.errors?.sectorId}>
             <select
               name="sectorId"
@@ -785,6 +795,16 @@ function ClientModal({
               {sectors.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
+            </select>
+          </CField>
+          <CField label="Régimen Simple de Tributación" error={state?.errors?.regimenSimple}>
+            <select
+              name="regimenSimple"
+              defaultValue={client?.regimenSimple ? "si" : "no"}
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-500"
+            >
+              <option value="no">No</option>
+              <option value="si">Sí</option>
             </select>
           </CField>
         </fieldset>

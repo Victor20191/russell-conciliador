@@ -23,6 +23,8 @@ export type FilaClienteExport = {
   erpName: string | null;
   erpsPorProceso?: Partial<Record<CodigoProcesoErp, string | null>>;
   sectorName: string | null;
+  /** Régimen Simple de Tributación (sin dato = No). */
+  regimenSimple?: boolean;
   socio: string | null;
   gerente: string | null;
   senior: string | null;
@@ -56,12 +58,13 @@ const FIJAS = [
   "Tipo",
   ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
+  "Régimen Simple",
   "Socio (firma)",
   "Gerente (valida)",
   "Senior (revisa)",
   "Staff (ejecuta)",
 ];
-const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 24, 24, 24, 38];
+const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 16, 24, 24, 24, 38];
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -212,6 +215,7 @@ export async function crearExportacionClientes(
         erpDeProceso(c, proceso.codigo) ?? "Pendiente / sin definir",
       ),
       c.sectorName ?? "Sin sector",
+      c.regimenSimple ? "Sí" : "No",
       c.socio ?? "—",
       c.gerente ?? "—",
       c.senior ?? "—",
@@ -237,6 +241,8 @@ export async function crearExportacionClientes(
   ws.autoFilter = { from: "A1", to: `${columnaLetra(totalColumnas)}1` };
 
   // Estilos por celda en el cuerpo: zebra, bordes, alineación y color de estado.
+  const colStaff = FIJAS.indexOf("Staff (ejecuta)") + 1;
+  const colRegimen = FIJAS.indexOf("Régimen Simple") + 1;
   for (let i = 0; i < clientes.length; i++) {
     const c = clientes[i];
     const fila = i + 2; // fila 1 = encabezado
@@ -247,8 +253,8 @@ export async function crearExportacionClientes(
       cell.border = BORDE;
       cell.alignment = {
         vertical: "middle",
-        wrapText: col === 2 || col === 10, // razón social y staff
-        horizontal: col === 1 || col === 4 ? "center" : col >= primeraColModulo ? "center" : "left",
+        wrapText: col === 2 || col === colStaff, // razón social y staff
+        horizontal: col === 1 || col === 4 || col === colRegimen ? "center" : col >= primeraColModulo ? "center" : "left",
       };
       if (col >= primeraColModulo && col < primeraColDian) {
         cell.fill = relleno(estadoModulo(c, modulos[col - primeraColModulo].id).color);

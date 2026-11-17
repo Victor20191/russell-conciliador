@@ -354,6 +354,7 @@ export async function createClient(
       tipo: formData.get("tipo"),
       erpId: syncErpsPorProceso ? erpContable : formData.get("erpId"),
       sectorId: formData.get("sectorId"),
+      regimenSimple: formData.get("regimenSimple"),
       socioId: formData.get("socioId"),
     });
     if (!parsed.success) {
@@ -470,7 +471,7 @@ export async function createClient(
       user: user?.name ?? "Sistema",
       action: "CREÓ CLIENTE",
       entity: data.code,
-      detail: `${data.name} · ${data.nit} · tipo ${data.tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}${periodicidadesDian.resumen}` : ""}`,
+      detail: `${data.name} · ${data.nit} · tipo ${data.tipo} · Régimen Simple: ${data.regimenSimple ? "Sí" : "No"} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}${periodicidadesDian.resumen}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -528,11 +529,14 @@ export async function updateClient(
     const operativos = ClientOperativoSchema.safeParse({
       erpId: erpFormulario,
       sectorId: formData.get("sectorId"),
+      regimenSimple: formData.get("regimenSimple"),
     });
     if (!operativos.success) {
       return { ok: false, errors: z.flattenError(operativos.error).fieldErrors };
     }
-    const { erpId, sectorId } = operativos.data;
+    // Sin el campo en el formulario, el Régimen Simple se conserva como está.
+    const { erpId, sectorId, regimenSimple } = operativos.data;
+    const cambioRegimen = regimenSimple !== undefined && regimenSimple !== current.regimenSimple;
 
     let ficha: { name: string; nit: string; tipo: "A" | "B" | "C"; socioId: number } | null = null;
     if (fichaCompleta) {
@@ -623,7 +627,10 @@ export async function updateClient(
     await prisma.$transaction(async (tx) => {
       // erpId/sectorId con `?? null` para poder DEJARLOS vacíos (opcionales):
       // undefined no actualizaría la columna; null la limpia explícitamente.
-      await tx.client.update({ where: { id }, data: { ...(ficha ?? {}), erpId: erpId ?? null, sectorId: sectorId ?? null } });
+      await tx.client.update({
+        where: { id },
+        data: { ...(ficha ?? {}), erpId: erpId ?? null, sectorId: sectorId ?? null, ...(regimenSimple !== undefined ? { regimenSimple } : {}) },
+      });
 
       if (erpsValidados?.ok) {
         // Por campo: se retiran los aplicativos que ya no están y se agregan los nuevos; los que
@@ -718,7 +725,7 @@ export async function updateClient(
       entity: current.code,
       detail: `${ficha && responsablesFicha
         ? `${ficha.name} · ${ficha.nit} · tipo ${ficha.tipo} · socio ${responsablesFicha.socio} · staff ${responsablesFicha.nombres.staffs.join(", ")} / senior ${responsablesFicha.nombres.senior} / gerente ${responsablesFicha.nombres.gerente}`
-        : `${current.name} · solo datos operativos`}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}${resumenPeriodicidad}` : ""}`,
+        : `${current.name} · solo datos operativos`}${cambioRegimen ? ` · Régimen Simple: ${current.regimenSimple ? "Sí" : "No"} → ${regimenSimple ? "Sí" : "No"}` : ""}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}${resumenPeriodicidad}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

@@ -11,7 +11,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
   proposito:
     "Los clientes de la firma con su tipo, aplicativos, módulos y responsables. Todos los consultan; cada quien edita según su papel en el cliente.",
   antesDeEmpezar: [
-    "Hay dos niveles de edición: los datos operativos (sector, aplicativos, módulos y DIAN) y la ficha completa (razón social, NIT, tipo, socio y responsables).",
+    "Hay dos niveles de edición: los datos operativos (sector, Régimen Simple de Tributación, aplicativos, módulos y DIAN) y la ficha completa (razón social, NIT, tipo, socio y responsables).",
     "Un cliente que no está en tu cartera se abre solo para consultar.",
   ],
   etapas: [
@@ -33,8 +33,11 @@ export const FICHA_CLIENTES: FichaAyuda = {
         {
           nombre: "Datos operativos",
           queHace:
-            "Sector, aplicativos por proceso (Contabilidad, Nómina, Inventarios y Activos fijos; varios por proceso), módulos del cliente y DIAN con sus formatos y, en IVA, su periodicidad de presentación (Retención en la fuente es siempre mensual). Se guarda con «Guardar».",
+            "Sector, Régimen Simple de Tributación (Sí o No), aplicativos por proceso (Contabilidad, Nómina, Inventarios y Activos fijos; varios por proceso), módulos del cliente y DIAN con sus formatos y, en IVA, su periodicidad de presentación (Retención en la fuente es siempre mensual). Se guarda con «Guardar».",
           regla: REGLAS.editarClienteOperativo,
+          condiciones: [
+            "El Régimen Simple de Tributación viene en No para todos los clientes, también los nuevos y los importados desde Excel; quien lo marca en Sí lo deja en la auditoría.",
+          ],
           fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "updateClient" },
         },
         {
@@ -98,6 +101,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
   ],
   estados: [
     { etiqueta: "A · B · C", significado: "Tipo de cliente." },
+    { etiqueta: "Régimen Simple", significado: "Marca en la lista del cliente del Régimen Simple de Tributación." },
     { etiqueta: "Sin ERP contable", significado: "El cliente no tiene aplicativo de contabilidad: su balance no se puede cargar hasta asignarlo." },
     { etiqueta: "Pendiente · N/A", significado: "Estado de cada módulo del cliente: activo y por parametrizar, o no aplica." },
   ],

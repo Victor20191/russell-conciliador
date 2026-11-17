@@ -78,6 +78,7 @@ export async function GET() {
         erpName: c.erp?.name ?? null,
         erpsPorProceso,
         sectorName: c.sector?.name ?? null,
+        regimenSimple: c.regimenSimple,
         // El Socio NO se asigna en asignaciones_cliente: vive en Client.socioId.
         socio: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
         gerente: r.gerente,

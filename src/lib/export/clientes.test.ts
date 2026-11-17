@@ -25,6 +25,7 @@ const CLIENTES: FilaClienteExport[] = [
     tipo: "A",
     erpName: "SIESA",
     sectorName: "Comercio",
+    regimenSimple: true,
     socio: "Socio Uno",
     gerente: "Gerente Uno",
     senior: "Senior Uno",
@@ -75,6 +76,7 @@ test("exporta una hoja Clientes con encabezados, estado de módulos y DIAN", asy
     "Tipo",
     "ERP · CONT · Contabilidad",
     "ERP · NOM · Nómina",
+    "Régimen Simple",
     "Socio (firma)",
     "Staff (ejecuta)",
     "Inventarios",
@@ -98,8 +100,10 @@ test("exporta una hoja Clientes con encabezados, estado de módulos y DIAN", asy
   expect(cel(2, "DIAN · IVA (F-300)")).toBe("Sí");
   expect(cel(2, "DIAN · Retención en la fuente (F-350)")).toBe("No");
   expect(cel(2, "Staff (ejecuta)")).toBe("Staff Dos; Staff Uno");
+  expect(cel(2, "Régimen Simple")).toBe("Sí");
 
-  // Cliente B (fila 3): sin ERP, módulo pendiente, sin socio.
+  // Cliente B (fila 3): sin ERP, módulo pendiente, sin socio; sin dato de Régimen Simple = No.
+  expect(cel(3, "Régimen Simple")).toBe("No");
   expect(cel(3, "ERP · CONT · Contabilidad")).toBe("Pendiente / sin definir");
   expect(cel(3, "Cartera")).toBe("Pendiente");
   expect(cel(3, "Inventarios")).toBe("No activo");

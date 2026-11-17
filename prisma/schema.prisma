@@ -227,6 +227,9 @@ model Client {
   balanceTercerosNota String?        @map("balance_terceros_nota") // visto bueno del último cambio
   balanceTercerosPor  Int?           @map("balance_terceros_por") // FK lógica a User.id de quien lo cambió
   balanceTercerosEn   DateTime?      @map("balance_terceros_en") @db.Timestamptz(3)
+  /// Régimen Simple de Tributación (Sí/No). Por defecto No; es dato operativo del cliente: lo
+  /// cambia quien guarda el sector (`clientes:editar` en su cartera).
+  regimenSimple   Boolean            @default(false) @map("regimen_simple_tributacion")
   modules         ClientModule[]
   dianForms       ClientDianForm[]
   reconciliations Reconciliation[]

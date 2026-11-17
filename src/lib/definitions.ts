@@ -201,6 +201,15 @@ export const ClientSchema = z.object({
     (v) => (v === "" || v == null ? undefined : v),
     z.coerce.number().int().positive().optional(),
   ),
+  // Régimen Simple de Tributación: «si» | «no» del formulario. Sin valor queda sin cambio al
+  // editar y en No al crear (el valor por defecto de la columna).
+  regimenSimple: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z
+      .enum(["si", "no"], { error: "Indica si el cliente es del Régimen Simple de Tributación (Sí o No)." })
+      .transform((v) => v === "si")
+      .optional(),
+  ),
   // Socio responsable (informativo): la consistencia (Socio activo) se valida
   // contra la BD en la Server Action. No otorga alcance de lectura: el Socio
   // sigue derivando su acceso por jerarquía (derivarAsignacionesSocio).
@@ -212,7 +221,7 @@ export const ClientSchema = z.object({
 
 // Datos OPERATIVOS del cliente: lo único que guarda quien edita sin la ficha completa
 // (`clientes:editar` sin `clientes:configurar`, p. ej. Staff y Senior asignados).
-export const ClientOperativoSchema = ClientSchema.pick({ erpId: true, sectorId: true });
+export const ClientOperativoSchema = ClientSchema.pick({ erpId: true, sectorId: true, regimenSimple: true });
 
 // Responsables del cliente (asignación directa al crear/editar): uno o varios
 // Staff ejecutan, el Senior revisa y el Gerente valida. La consistencia (roles

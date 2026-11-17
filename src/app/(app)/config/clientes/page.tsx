@@ -143,6 +143,7 @@ export default async function ClientesPage() {
       balanceTercerosNota: c.balanceTercerosNota,
       balanceTercerosPor: c.balanceTercerosPor != null ? (nombrePorId.get(c.balanceTercerosPor) ?? null) : null,
       balanceTercerosEn: c.balanceTercerosEn?.toISOString() ?? null,
+      regimenSimple: c.regimenSimple,
       edicion: edicionDe(c.id),
     };
   });
