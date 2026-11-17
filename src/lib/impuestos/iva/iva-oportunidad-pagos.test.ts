@@ -98,6 +98,22 @@ describe("cierre en firme de IVA", () => {
     expect(evaluacion.pendientes.some((p) => p.tipo === "pagos" && p.texto.startsWith(etq(2)))).toBe(true);
   });
 
+  it("un período con saldo a pagar y sin su 490 no bloquea: exige la marca que diga por qué no se tiene", () => {
+    const sin490 = periodosRevision({
+      impuesto: "IVA", periodicidad: "Bimestral", mesCorte: 2, porConfirmar: [], causales: [], formularios490: [],
+      formularios350: [f300(1, 1, "2026-03-12", { 59: 1_500_000, 67: 1_500_000, 72: 500_000, 77: 500_000, 81: 500_000, 82: 1_000_000, 86: 1_000_000, 88: 1_000_000 })],
+    });
+    const evaluar = (marcas: Parameters<typeof pagosRevision>[0]["marcas"]) => evaluarCierreRetencion({
+      codigo: "300", periodos: sin490, cruce: SIN_BALANCE, oportunidad: [], etiquetaPeriodo: etq,
+      pagos: pagosRevision({ impuesto: "IVA", anio: 2026, periodos: sin490, marcas }),
+    }).pendientes.filter((p) => p.tipo !== "cruce");
+    expect(evaluar([])).toEqual([
+      { tipo: "pagos", texto: `${etq(1)}: diferencia en el pago de -$ 1.000.000; falta el 490 concepto 05 (la marca explica por qué no se tiene) sin marca.` },
+    ]);
+    const marca = { clave: "pago:2026-01", numero: 1, nota: "El cliente no ha entregado el recibo.", referenciaAnexo: null, diferencia: -1_000_000, marcadoPor: null, marcadoEn: "2026-11-16T00:00:00.000Z" };
+    expect(evaluar([marca])).toEqual([]);
+  });
+
   it("la copia congelada lleva el tipo «iva» y no se lee como una de Retención", () => {
     const periodos = bimestral();
     const copia = construirCopiaRetencion({

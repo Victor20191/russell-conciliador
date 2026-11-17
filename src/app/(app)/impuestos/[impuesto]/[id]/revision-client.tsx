@@ -315,7 +315,7 @@ function AlertasPeriodo({ p, codigo }: { p: PeriodoRevision; codigo: string }) {
   const alertas: AlertaPeriodo[] = [
     ...p.pagos
       .filter((x) => x.esperado && x.formularios.length === 0 && x.porConfirmar === 0)
-      .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}`, tono: "err" })),
+      .map((x): AlertaPeriodo => ({ clave: `falta-${x.concepto}`, texto: alertaSinRecibo(x), detalle: `Paga el renglón ${x.renglon}: ${fmt(x.declarado)}. Sin el recibo no se bloquea el cierre, pero el mes exige una marca en Pagos efectuados que diga por qué no se tiene.`, tono: "err", nota: "exige marca en Pagos" })),
     ...(p.cadena.faltaOriginal
       ? [{ clave: "original", texto: `Falta el ${codigo} original`, detalle: avisoFaltaOriginal(p.cadena.faltaOriginal), tono: "err", nota: "hay que cargarlo para cerrar" } satisfies AlertaPeriodo]
       : []),

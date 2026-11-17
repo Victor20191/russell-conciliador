@@ -228,11 +228,11 @@ export function VistaOportunidad({
 /** Qué compara Pagos efectuados, con los renglones y conceptos del impuesto. */
 function explicacionPagos(impuesto: ImpuestoDian): string {
   if (impuesto.clave === RETENCION.clave) {
-    return "Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar.";
+    return "Por período, el 350 vigente contra los recibos 490 de su cadena. Diferencia = Total pagado antes de intereses − Total (138): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un 350 de otro período. Despliega un período para ver qué falta por concepto (el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135). La columna Alerta dice qué recibo 490 falta adjuntar: su falta no impide cerrar, pero el período exige una marca que diga por qué no se tiene.";
   }
   const { codigo } = impuesto.declaracion;
   const { impuesto: rImp, sanciones: rSan, total: rTot } = impuesto.renglones;
-  return `Por período, el ${codigo} vigente contra los recibos 490 de su cadena: el saldo a pagar por impuesto (${rImp}) contra el impuesto pagado (36) y las sanciones (${rSan}) contra la sanción pagada (34). Diferencia = Total pagado antes de intereses − Total saldo a pagar (${rTot}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora (35) van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar.`;
+  return `Por período, el ${codigo} vigente contra los recibos 490 de su cadena: el saldo a pagar por impuesto (${rImp}) contra el impuesto pagado (36) y las sanciones (${rSan}) contra la sanción pagada (34). Diferencia = Total pagado antes de intereses − Total saldo a pagar (${rTot}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora (35) van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta no impide cerrar, pero el período exige una marca que diga por qué no se tiene.`;
 }
 
 export function VistaPagos({
@@ -335,6 +335,11 @@ export function VistaPagos({
                 <span className="block">Diferencia en el pago: <span className="font-semibold tabular-nums text-ink-800">{fmt(fila.diferencia)}</span> (pagado {fmt(fila.impuestoPagado + fila.sancionPagada)} − declarado {fmt(fila.retenciones + fila.sanciones)}).</span>
               )}
               {(fila.recibosDeOtro350 ?? []).map((r) => <span key={r.numero} className="block">{avisoReciboDeOtro350(r, codigo)}</span>)}
+              {conceptosSinRecibo(fila).map((d) => (
+                <span key={d.concepto} className="block">
+                  {alertaSinRecibo(d)}: paga el renglón {d.renglon} por <span className="font-semibold tabular-nums text-ink-800">{fmt(d.declarado)}</span>. Explica por qué no se tiene el recibo.
+                </span>
+              ))}
             </>
           }
           onClose={() => setMarcando(null)}
@@ -399,7 +404,7 @@ function FilaPago({ f, impuesto, etiqueta, abierta, onAlternar, puedeEditar, onM
         </td>
         <td className={`${FONDO_RESULTADO} whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold leading-5 text-err-700`}>
           {conceptosSinRecibo(f).map((d) => (
-            <div key={d.concepto} title={`Paga el renglón ${d.renglon}: ${fmt(d.declarado)}`}>{alertaSinRecibo(d)}</div>
+            <div key={d.concepto} title={`Paga el renglón ${d.renglon}: ${fmt(d.declarado)}. Exige marca: por qué no se tiene el recibo.`}>{alertaSinRecibo(d)}</div>
           ))}
           {(f.recibosDeOtro350 ?? []).map((r) => (
             <div key={r.numero} title={avisoReciboDeOtro350(r, codigo)}>{alertaReciboDeOtro350(r, codigo)}</div>

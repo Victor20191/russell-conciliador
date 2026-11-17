@@ -1,6 +1,6 @@
 import { alcanceSaldoInicial, etiquetaFilaCruce, type CruceRetencionVista } from "./cruce";
 import type { FilaOportunidad } from "./oportunidad";
-import type { ResultadoPagos } from "./pagos";
+import { conceptosSinRecibo, type ResultadoPagos } from "./pagos";
 import type { PeriodoRevision } from "./periodos-revision";
 
 /**
@@ -9,8 +9,9 @@ import type { PeriodoRevision } from "./periodos-revision";
  * (una marca no lo reemplaza), ningún formulario por confirmar en esos períodos, el cruce contable
  * disponible y marca en cada fila desde el umbral, marca en lo restado como saldo inicial (si se
  * restó), y marca en cada mes con «Diferencia en el pago», con un recibo que paga un 350 de otro
- * período o con recibos 490 sin 350 (también con la causal de que no hubo formulario). Los avisos no
- * impiden cerrar.
+ * período, con recibos 490 sin 350 (también con la causal de que no hubo formulario) o al que le falta
+ * un 490 que el 350 obliga a pagar: la falta del recibo no bloquea, pero la marca dice por qué no se
+ * tiene. Los avisos no impiden cerrar.
  */
 
 export type TipoPendiente = "formularios" | "cruce" | "pagos" | "saldo_inicial";
@@ -79,6 +80,7 @@ export function evaluarCierreRetencion(e: {
         ? [`${elPeriodo} no tiene ${codigo} y tiene ${sin350.length === 1 ? "un recibo 490" : `${sin350.length} recibos 490`} por ${pesos(f.totalPagado)}`]
         : f.diferencia !== 0 ? [`diferencia en el pago de ${pesos(f.diferencia)}`] : []),
       ...(f.recibosDeOtro350 ?? []).map((r) => `el recibo ${r.numero} paga el formulario ${r.numeroPagado}, que no es un ${codigo} de este período`),
+      ...conceptosSinRecibo(f).map((d) => `falta el 490 concepto ${d.concepto} (la marca explica por qué no se tiene)`),
     ];
     pendientes.push({
       tipo: "pagos",

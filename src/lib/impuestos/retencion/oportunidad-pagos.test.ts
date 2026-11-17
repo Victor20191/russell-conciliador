@@ -135,6 +135,36 @@ describe("oportunidad, pagos efectuados y cierre (casos del levantamiento, corte
     });
   });
 
+  describe("un 490 que el 350 obliga a pagar y no está", () => {
+    const sinBalance = { estado: "sin_balance" as const, mensaje: "Sin balance.", balance: null, umbral: 6_000 };
+    const pendientesPagos = (p: typeof periodos, marcas: Parameters<typeof pagosRevision>[0]["marcas"], mes: number) =>
+      evaluarCierreRetencion({ periodos: p, cruce: sinBalance, pagos: pagosRevision({ anio: 2026, periodos: p, marcas }), oportunidad: [], etiquetaPeriodo: etq })
+        .pendientes.filter((x) => x.texto.startsWith(`Período ${mes}:`));
+
+    it("no bloquea: pide la marca del mes, que explica por qué no se tiene el recibo (febrero, sin el 62)", () => {
+      const febrero = pendientesPagos(periodos, [], 2);
+      expect(febrero.map((x) => x.tipo)).toEqual(["pagos"]);
+      expect(febrero[0].texto).toBe("Período 2: diferencia en el pago de -$ 2.556.000; falta el 490 concepto 62 (la marca explica por qué no se tiene) sin marca.");
+      expect(pendientesPagos(periodos, [marcar("pago:2026-02", -2_556_000)], 2)).toEqual([]);
+    });
+
+    it("exige la marca aunque otro recibo cubra la cifra y la diferencia dé cero (agosto sin el 62, con el 61 por el total)", () => {
+      const recibo62 = F490_2026.find((f) => f.periodo === 8 && f.concepto === "62")!;
+      const pagado62 = recibo62.valores[36] ?? 0;
+      const sin62 = periodosRevision({
+        periodicidad: "Mensual", mesCorte: 8, formularios350: F350_2026, porConfirmar: [], causales: [],
+        formularios490: F490_2026
+          .filter((f) => f !== recibo62)
+          .map((f) => (f.periodo === 8 && f.concepto === "61" ? { ...f, valores: { ...f.valores, 36: (f.valores[36] ?? 0) + pagado62, 980: (f.valores[980] ?? 0) + pagado62 } } : f)),
+      });
+      const agosto = pagosRevision({ anio: 2026, periodos: sin62, marcas: [] }).filas[7];
+      expect(agosto).toMatchObject({ estado: "completo", diferencia: 0, requiereMarca: true });
+      expect(conceptosSinRecibo(agosto).map((d) => d.concepto)).toEqual(["62"]);
+      expect(pendientesPagos(sin62, [], 8).map((x) => x.texto)).toEqual(["Período 8: falta el 490 concepto 62 (la marca explica por qué no se tiene) sin marca."]);
+      expect(pendientesPagos(sin62, [marcar("pago:2026-08", 0)], 8)).toEqual([]);
+    });
+  });
+
   describe("recibos 490 de un mes sin 350", () => {
     // Marzo sin su 350, con el recibo del 61 confirmado.
     const sinMarzo = (causales: { periodo: number; causal: string }[]) => periodosRevision({

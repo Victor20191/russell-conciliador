@@ -11,7 +11,8 @@ import { recibosSin350, type PeriodoRevision, type ReciboDeOtro350 } from "./per
  * Diferencia = total pagado − 138 = (Σ36 − 136) + (Σ34 − 137): positiva si se pagó de más y
  * negativa si se pagó de menos. El total pagado no lleva los intereses de mora: van aparte y no se
  * comparan. Se compara al peso (sin umbral); una diferencia exige marca para cerrar, y también un
- * recibo que paga un 350 de otro período. Un mes sin 350 con recibos 490 confirmados muestra lo
+ * recibo que paga un 350 de otro período y un 490 que el 350 obliga a pagar y no está (la marca
+ * explica por qué no se tiene; no impide cerrar). Un mes sin 350 con recibos 490 confirmados muestra lo
  * pagado como diferencia y exige marca. El desglose por concepto (pagado − declarado) dice qué
  * falta: el 61 contra el 130, el 62 contra el 134 y el 63 contra el 135.
  *
@@ -118,7 +119,9 @@ export function pagosRevision(e: { impuesto?: ClaveImpuesto; anio: number; perio
     const diferencia = sumar([impuestoPagado, -retenciones, sancionPagada, -sanciones]);
     const hayDiferencia = centavos(diferencia) !== 0;
     const recibosDeOtro350 = p.recibosDeOtro350 ?? [];
-    const requiereMarca = hayDiferencia || recibosDeOtro350.length > 0;
+    // Un 490 que el 350 obliga a pagar y no está no impide cerrar, pero exige la marca del mes
+    // (por qué no se tiene), aunque otro recibo cubra la cifra y la diferencia dé cero.
+    const requiereMarca = hayDiferencia || recibosDeOtro350.length > 0 || conceptosSinRecibo({ desglose }).length > 0;
     return {
       periodo: p.periodo, clave, estado: hayDiferencia ? "diferencia" : "completo",
       retenciones, sanciones, totalDeclarado: calcularTotal(def, rTotal, valores),

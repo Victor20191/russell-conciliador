@@ -224,7 +224,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
             "Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» de Novedades tiene marca y el total no cambió desde que se marcó.",
             "Si llegó una corrección, su 350 original también está cargado: una marca no lo reemplaza.",
-            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período o con recibos 490 sin 350 tiene marca.",
+            "Cada mes con diferencia en el pago, con un recibo que paga un 350 de otro período, con recibos 490 sin 350 o sin un recibo 490 que el 350 obliga a pagar tiene marca. La falta del recibo no impide cerrar: la marca dice por qué no se tiene.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "cerrarRevisionImpuesto" },
         },
@@ -471,7 +471,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
               nombre: "Marcar una diferencia en el pago",
               queHace: "Explica la diferencia del mes, por qué un recibo paga un 350 de otro período o por qué hay recibos 490 en un mes sin 350. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
-              condiciones: ["El mes tiene diferencia en el pago, un recibo que paga un 350 de otro período o recibos 490 sin 350 (aunque se haya registrado que no hubo formulario).", "La revisión no está en firme."],
+              condiciones: ["El mes tiene diferencia en el pago, un recibo que paga un 350 de otro período, recibos 490 sin 350 (aunque se haya registrado que no hubo formulario) o le falta un recibo 490 que el 350 obliga a pagar.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "guardarMarcaImpuesto" },
             },
             {
@@ -516,7 +516,7 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     { etiqueta: "Falta el 350", significado: "No hay un 350 confirmado ni una causal de mes sin formulario." },
     { etiqueta: "Sin formulario", significado: "Se registró que en el período no hubo 350, con su causal." },
     { etiqueta: "Falta el original", significado: "Llegó una corrección sin el formulario que corrige: sin el original no se mide la oportunidad de presentación y la revisión no se puede cerrar en firme." },
-    { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y su recibo 490 no está cargado." },
+    { etiqueta: "Faltan pagos", significado: "El 350 declara un valor (renta, reteIVA o timbre) y su recibo 490 no está cargado. No impide cerrar, pero el mes exige una marca en Pagos efectuados que diga por qué no se tiene." },
     { etiqueta: "En firme", significado: "La revisión se cerró: es de solo lectura, sus resultados salen de la copia congelada y las cuentas del cruce quedan bloqueadas en el balance del corte." },
   ],
   preguntas: [
@@ -629,7 +629,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
             "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
             "Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» de Novedades tiene marca y el total no cambió desde que se marcó.",
             "Si llegó una corrección, su 300 original también está cargado: una marca no lo reemplaza.",
-            "Cada período con diferencia en el pago, con un recibo que paga un 300 de otro período o con recibos 490 sin 300 tiene marca.",
+            "Cada período con diferencia en el pago, con un recibo que paga un 300 de otro período, con recibos 490 sin 300 o sin el recibo 490 de su saldo a pagar tiene marca. La falta del recibo no impide cerrar: la marca dice por qué no se tiene.",
           ],
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "cerrarRevisionImpuesto" },
         },
@@ -874,7 +874,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
               nombre: "Marcar una diferencia en el pago",
               queHace: "Explica la diferencia del período, por qué un recibo paga un 300 de otro período o por qué hay recibos 490 en un período sin 300. La marca guarda la cifra: si la diferencia cambia, queda desactualizada. Es obligatoria para cerrar.",
               regla: REGLAS.marcarImpuestos,
-              condiciones: ["El período tiene diferencia en el pago, un recibo que paga un 300 de otro período o recibos 490 sin 300.", "La revisión no está en firme."],
+              condiciones: ["El período tiene diferencia en el pago, un recibo que paga un 300 de otro período, recibos 490 sin 300 o le falta el recibo 490 de su saldo a pagar.", "La revisión no está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "guardarMarcaImpuesto" },
             },
             {
@@ -919,7 +919,7 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
     { etiqueta: "Falta el 300", significado: "No se ha cargado la declaración del período ni registrado que no hubo." },
     { etiqueta: "Sin formulario", significado: "Se registró que en el período no hubo 300, con su causal." },
     { etiqueta: "Falta el original", significado: "Llegó una corrección sin el 300 que corrige." },
-    { etiqueta: "Faltan pagos", significado: "El 300 tiene total saldo a pagar (88) y no hay recibo 490." },
+    { etiqueta: "Faltan pagos", significado: "El 300 tiene total saldo a pagar (88) y no hay recibo 490. No impide cerrar, pero el período exige una marca en Pagos efectuados que diga por qué no se tiene." },
     { etiqueta: "En firme", significado: "La revisión se cerró: es de solo lectura, sus resultados salen de la copia congelada y las cuentas del cruce quedan bloqueadas en el balance del corte." },
   ],
   preguntas: [
