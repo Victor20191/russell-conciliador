@@ -328,6 +328,14 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
           condiciones: ["Ninguna revisión de ese año está en firme."],
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormularioDian" },
         },
+        {
+          nombre: "Descartar formularios…",
+          queHace:
+            "Saca de una vez los formularios elegidos (confirmados y por confirmar) para volver a importarlos. Dice qué revisiones del año los comparten y pide confirmar. Los originales se conservan y cada descarte queda en la bitácora.",
+          regla: REGLAS.cargarImpuestos,
+          condiciones: ["Los confirmados solo los descarta el senior del cliente.", "Ninguna revisión de ese año está en firme, si hay confirmados entre los elegidos.", "Si uno no se puede descartar, no se descarta ninguno."],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormulariosDian" },
+        },
       ],
     },
     {
@@ -747,6 +755,14 @@ export const FICHA_IVA_REVISION: FichaAyuda = {
               condiciones: ["Ninguna revisión de IVA de ese año está en firme."],
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormularioDian" },
             },
+            {
+              nombre: "Descartar formularios…",
+              queHace:
+                "Saca de una vez los formularios elegidos (confirmados y por confirmar) para volver a importarlos. Dice qué revisiones de IVA del año los comparten y pide confirmar. Los originales se conservan y cada descarte queda en la bitácora.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: ["Los confirmados solo los descarta el senior del cliente.", "Ninguna revisión de IVA de ese año está en firme, si hay confirmados entre los elegidos.", "Si uno no se puede descartar, no se descarta ninguno."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormulariosDian" },
+            },
           ],
         },
         {
@@ -1125,6 +1141,14 @@ export const FICHA_RST_REVISION: FichaAyuda = {
               regla: REGLAS.eliminarImpuestos,
               fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormularioDian" },
             },
+            {
+              nombre: "Descartar formularios…",
+              queHace:
+                "Saca de una vez los formularios elegidos (confirmados y por confirmar) para volver a importarlos. Dice qué revisiones de anticipos del año los comparten y pide confirmar. Los originales se conservan y cada descarte queda en la bitácora.",
+              regla: REGLAS.cargarImpuestos,
+              condiciones: ["Los confirmados solo los descarta el senior del cliente.", "Si uno no se puede descartar, no se descarta ninguno."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "descartarFormulariosDian" },
+            },
           ],
         },
         {
@@ -1191,7 +1215,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
       id: "pagos",
       titulo: "Pagos efectuados",
       proposito:
-        "Por bimestre, los valores a pagar del 2593 vigente (76 ICA, 77 anticipo SIMPLE, 78 impuesto al consumo y 79 IVA) y su total contra el impuesto pagado (36) de los recibos 490 concepto 27. Si hubo un ajuste, el total suma también los valores a pagar del recibo ajustado que ya tenía su 490, porque el ajuste trae solo lo adicional. Diferencia = impuesto pagado − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte, como informativos. Se compara al peso. La columna Alerta dice qué recibo 490 falta, si un recibo paga un 2593 de otro bimestre o si hay recibos 490 en un bimestre sin 2593.",
+        "Por bimestre, los valores a pagar del 2593 vigente (76 ICA, 77 anticipo SIMPLE, 78 impuesto al consumo y 79 IVA) y su total contra el impuesto pagado (36) de los recibos 490 concepto 27, antes de sanción e intereses. Si hubo un ajuste, el total suma también los valores a pagar del recibo ajustado que ya tenía su 490, porque el ajuste trae solo lo adicional. Diferencia = impuesto pagado antes de sanción e intereses − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte, como informativos. Se compara al peso. La columna Alerta dice qué recibo 490 falta, si un recibo paga un 2593 de otro bimestre o si hay recibos 490 en un bimestre sin 2593.",
       etapas: [
         {
           titulo: "Documentar",

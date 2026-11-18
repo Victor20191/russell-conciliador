@@ -12,6 +12,7 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import {
   confirmarFormulariosDian,
+  descartarFormulariosDian,
   eliminarRevisionImpuesto,
   importarFormularioDian,
   quitarPeriodoSinFormulario,
@@ -67,6 +68,7 @@ export default function RevisionClient({
   puedeEliminar,
   puedeCerrar,
   puedeDesbloquear,
+  revisionesDelAnio = [],
 }: {
   revision: RevisionVista;
   resultados: ResultadosPantalla;
@@ -75,9 +77,12 @@ export default function RevisionClient({
   puedeEliminar: boolean;
   puedeCerrar: boolean;
   puedeDesbloquear: boolean;
+  /** Las revisiones del cliente, el impuesto y el año: comparten los formularios. */
+  revisionesDelAnio?: RevisionDelAnio[];
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<number | null>(null);
+  const [descartando, setDescartando] = useState(false);
   const [causalDe, setCausalDe] = useState<number | null>(null);
   const formularioAbierto = revision.formularios.find((f) => f.id === abierto) ?? null;
   const porConfirmar = revision.formularios.filter((f) => f.estado === "por_confirmar");
@@ -169,7 +174,15 @@ export default function RevisionClient({
       )}
 
       {tab === "formularios" && <section className="flex flex-col gap-2">
-        <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Formularios por período</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Formularios por período</h2>
+          {puedeCargar && revision.formularios.length > 0 && (
+            <button type="button" onClick={() => setDescartando(true)} className={`inline-flex items-center gap-1.5 bg-white ${BOTON_SECUNDARIO}`}>
+              <Icon name="trash" size={13} />
+              Descartar formularios…
+            </button>
+          )}
+        </div>
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[860px] text-[12.5px]">
             <thead>
@@ -202,6 +215,16 @@ export default function RevisionClient({
         />
       )}
       {causalDe != null && <CausalModal revisionId={revision.id} impuesto={impuesto} etq={etiquetaPeriodo} periodo={causalDe} onClose={() => setCausalDe(null)} />}
+      {descartando && (
+        <DescartarFormulariosModal
+          revision={revision}
+          impuesto={impuesto}
+          etq={etiquetaPeriodo}
+          puedeDescartarConfirmados={puedeEliminar}
+          revisionesDelAnio={revisionesDelAnio}
+          onClose={() => setDescartando(false)}
+        />
+      )}
     </div>
   );
 }
@@ -503,6 +526,155 @@ function ListaPorConfirmar({ revisionId, impuesto, etq, formularios, puedeConfir
         </Modal>
       )}
     </section>
+  );
+}
+
+export type RevisionDelAnio = { id: number; mesCorte: number; estado: string };
+
+/**
+ * «Descartar varios»: elegir de una vez los formularios cargados del año (confirmados y por confirmar)
+ * para sacarlos y volver a importarlos. Un confirmado solo lo descarta quien puede eliminar, y ninguno
+ * si hay una revisión del año en firme. Avisa qué revisiones comparten los formularios.
+ */
+function DescartarFormulariosModal({ revision, impuesto, etq, puedeDescartarConfirmados, revisionesDelAnio, onClose }: {
+  revision: RevisionVista;
+  impuesto: ImpuestoDian;
+  etq: Etiqueta;
+  puedeDescartarConfirmados: boolean;
+  revisionesDelAnio: RevisionDelAnio[];
+  onClose: () => void;
+}) {
+  const [state, action, enviando] = useActionState<ActionState, FormData>(descartarFormulariosDian, {});
+  const [marcados, setMarcados] = useState<ReadonlySet<number>>(new Set());
+  const [preguntando, setPreguntando] = useState(false);
+  // Cerrar va en su propio efecto: el aviso se muestra una sola vez aunque la pantalla se vuelva a dibujar.
+  useEffect(() => {
+    if (state.ok) onClose();
+  }, [state, onClose]);
+  useEffect(() => {
+    notifyActionState(state, { success: state.message ?? "Formularios descartados.", error: "No se pudieron descartar los formularios." });
+  }, [state]);
+
+  const hayEnFirme = revisionesDelAnio.some((r) => r.estado === "en_firme");
+  const motivoBloqueo = (f: FormularioVista): string | null =>
+    f.estado !== "confirmado"
+      ? null
+      : !puedeDescartarConfirmados
+        ? "Un formulario confirmado solo lo descarta el senior del cliente."
+        : hayEnFirme
+          ? "Hay una revisión de este año en firme que usa los formularios confirmados."
+          : null;
+  const elegibles = revision.formularios.filter((f) => motivoBloqueo(f) == null);
+  // Derivados: un formulario que ya no está (se descartó o se confirmó) deja de contar aunque siga marcado.
+  const seleccionados = elegibles.filter((f) => marcados.has(f.id));
+  const todos = elegibles.length > 0 && seleccionados.length === elegibles.length;
+  const confirmadosElegidos = seleccionados.filter((f) => f.estado === "confirmado").length;
+  const cuantos = seleccionados.length === 1 ? "1 formulario" : `${seleccionados.length} formularios`;
+  const nombreRevision = (r: RevisionDelAnio) => `${nombreCorte(impuesto, r.mesCorte) ?? `Corte · ${mes(r.mesCorte).toLowerCase()}`}${r.id === revision.id ? " (esta)" : ""}`;
+  const alternar = (id: number) => setMarcados((prev) => {
+    const sig = new Set(prev);
+    if (sig.has(id)) sig.delete(id);
+    else sig.add(id);
+    return sig;
+  });
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Descartar formularios · ${impuesto.nombre} ${revision.anio}`}
+      size="4xl"
+      footer={
+        preguntando ? (
+          <form action={action} className="flex w-full flex-wrap items-center justify-end gap-2">
+            <input type="hidden" name="revisionId" value={revision.id} />
+            {seleccionados.map((f) => <input key={f.id} type="hidden" name="id" value={f.id} />)}
+            <span className="mr-auto text-[12px] text-ink-600">
+              ¿Descartar {cuantos}{confirmadosElegidos > 0 ? ` (${confirmadosElegidos} ${confirmadosElegidos === 1 ? "confirmado" : "confirmados"})` : ""}?
+            </span>
+            <button type="button" onClick={() => setPreguntando(false)} className={BOTON_SECUNDARIO}>Cancelar</button>
+            <button type="submit" disabled={enviando || seleccionados.length === 0} className="rounded-md border border-err-100 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:opacity-60">
+              {enviando ? <EstadoProcesando>Descartando</EstadoProcesando> : `Sí, descartar ${cuantos}`}
+            </button>
+          </form>
+        ) : (
+          <button type="button" disabled={seleccionados.length === 0} onClick={() => setPreguntando(true)} className={BOTON_PRIMARIO}>
+            Descartar seleccionados ({seleccionados.length})
+          </button>
+        )
+      }
+    >
+      <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
+        <p>
+          Elige los formularios que quieres sacar para volver a importarlos. Los originales se conservan y cada descarte queda en la bitácora. Después
+          importa los PDF nuevos con «Elegir archivos».
+        </p>
+        <p className="rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+          Los formularios son del cliente y del año: dejan de contar en todas las revisiones de {impuesto.nombre} {revision.anio} de este cliente
+          {revisionesDelAnio.length > 0 ? ` (${revisionesDelAnio.map(nombreRevision).join(", ")})` : ""}.
+        </p>
+        <div className="overflow-x-auto rounded-md border border-ink-150">
+          <table className="w-full min-w-[760px] text-[12.5px]">
+            <thead>
+              <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+                <th className="w-10 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="Seleccionar todos"
+                    disabled={elegibles.length === 0}
+                    checked={todos}
+                    ref={(el) => { if (el) el.indeterminate = seleccionados.length > 0 && !todos; }}
+                    onChange={() => setMarcados(todos ? new Set() : new Set(elegibles.map((f) => f.id)))}
+                  />
+                </th>
+                <th className="py-2 pr-3">Formulario</th>
+                <th className="px-3 py-2">Número</th>
+                <th className="px-3 py-2">Concepto</th>
+                <th className="px-3 py-2">Estado</th>
+                <th className="px-3 py-2">Archivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {revision.formularios.map((f) => {
+                const bloqueo = motivoBloqueo(f);
+                return (
+                  <tr key={f.id} className={`border-b border-ink-100 last:border-0 ${bloqueo ? "text-ink-400" : ""}`} title={bloqueo ?? undefined}>
+                    <td className="w-10 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Seleccionar F${f.formulario} ${etq(f.periodo)} ${f.numero}`}
+                        disabled={bloqueo != null}
+                        checked={bloqueo == null && marcados.has(f.id)}
+                        onChange={() => alternar(f.id)}
+                      />
+                    </td>
+                    <td className={`whitespace-nowrap py-2 pr-3 font-semibold ${bloqueo ? "" : "text-navy-800"}`}>F{f.formulario} · {etq(f.periodo)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 tabular-nums">{f.numero}</td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <span className="inline-flex gap-1.5">
+                        {f.formulario === "490" && f.concepto && <Chip label={`Concepto ${f.concepto}`} tone="blue" />}
+                        {f.codigoCorreccion === 1 && <Chip label={impuesto.declaracion.correccion ? "Ajuste" : "Corrección"} tone="warn" />}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <Chip label={f.estado === "confirmado" ? "Confirmado" : "Por confirmar"} tone={f.estado === "confirmado" ? "ok" : "warn"} />
+                    </td>
+                    <td className="max-w-[240px] truncate px-3 py-2 text-[11.5px] text-ink-400" title={f.nombreArchivo}>{f.nombreArchivo}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {elegibles.length < revision.formularios.length && (
+          <p className="text-[11.5px] text-ink-500">
+            {hayEnFirme
+              ? "Los confirmados no se pueden descartar: hay una revisión de este año en firme que los usa."
+              : "Los confirmados solo los descarta el senior del cliente."}
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

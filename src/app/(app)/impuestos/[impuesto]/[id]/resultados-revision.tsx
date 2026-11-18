@@ -244,7 +244,7 @@ function explicacionPagos(impuesto: ImpuestoDian): string {
   const { impuesto: rImp, total: rTot } = impuesto.renglones;
   const rSan = renglonSanciones(impuesto);
   if (rSan == null) {
-    return `Por bimestre, los valores a pagar del ${codigo} vigente (76 ICA + 77 anticipo SIMPLE + 78 impuesto al consumo + 79 IVA; con un ajuste, también los del recibo ajustado que ya tenía su 490) contra el impuesto pagado (36) de los recibos 490 concepto 27. Diferencia = impuesto pagado − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso: toda diferencia exige marca, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta exige una marca que diga por qué no se tiene.`;
+    return `Por bimestre, los valores a pagar del ${codigo} vigente (76 ICA + 77 anticipo SIMPLE + 78 impuesto al consumo + 79 IVA; con un ajuste, también los del recibo ajustado que ya tenía su 490) contra el impuesto pagado (36) de los recibos 490 concepto 27, antes de sanción e intereses. Diferencia = impuesto pagado antes de sanción e intereses − total valores a pagar: positiva si se pagó de más y negativa si se pagó de menos. La sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso: toda diferencia exige marca, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta exige una marca que diga por qué no se tiene.`;
   }
   return `Por período, el ${codigo} vigente contra los recibos 490 de su cadena: el saldo a pagar por impuesto (${rImp}) contra el impuesto pagado (36) y las sanciones (${rSan}) contra la sanción pagada (34). Diferencia = Total pagado antes de intereses − Total saldo a pagar (${rTot}): positiva si se pagó de más y negativa si se pagó de menos; los intereses de mora (35) van aparte y no se comparan. Se compara al peso: toda diferencia exige marca para cerrar, y también un recibo que paga un ${codigo} de otro período. La columna Alerta dice qué recibo 490 falta adjuntar: su falta no impide cerrar, pero el período exige una marca que diga por qué no se tiene.`;
 }
@@ -503,8 +503,8 @@ function TablaPagosComponentes({ resultado, impuesto, etiquetaPeriodo, puedeEdit
           <tr>
             <th rowSpan={2} className="px-2 py-2 align-bottom">Período</th>
             <th colSpan={componentes.length + 1} className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valores a pagar · Formulario {codigo}</th>
-            <th className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor pagado · 490 concepto {concepto}</th>
-            <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Resultado · Valores a pagar vs impuesto pagado</th>
+            <th className={`${INICIO_SECCION} ${ENCABEZADO_GRUPO}`}>Valor pagado antes de sanción e intereses · 490 concepto {concepto}</th>
+            <th colSpan={3} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Resultado · Valores a pagar vs impuesto pagado antes de sanción e intereses</th>
             <th colSpan={2} className={`${BORDE_RESULTADO} ${ENCABEZADO_GRUPO}`}>Informativo · No se comparan</th>
             <th rowSpan={2} className={`${INICIO_SECCION} px-3 py-2 text-center align-bottom`}>Marca</th>
           </tr>

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { registrarError } from "@/lib/errores";
@@ -35,10 +36,16 @@ export default async function RevisionImpuestoPage({ params }: { params: Promise
   const conResultados = impuesto.pestanas.includes("cruce");
   // El cierre en firme llega con Novedades (en IVA, la fase 5); el anticipo del Régimen Simple aún no se cierra.
   const conCierre = impuesto.pestanas.includes("novedades") && impuesto.cierreEnFirme;
-  const [resultados, puedeCerrar, puedeDesbloquear] = await Promise.all([
+  const [resultados, puedeCerrar, puedeDesbloquear, revisionesDelAnio] = await Promise.all([
     conResultados ? resultadosDeLaRevision(revision) : resultadosVacios(revision),
     enProceso && conCierre ? autorizarCierreConciliacion("conciliaciones:cerrar", revision.clienteId).then((r) => r.ok) : false,
     enFirme && conCierre ? autorizarCierreConciliacion("conciliaciones:desbloquear", revision.clienteId).then((r) => r.ok) : false,
+    // Las revisiones que comparten los formularios del año (para «Descartar varios»).
+    prisma.revisionImpuesto.findMany({
+      where: { clienteId: revision.clienteId, impuesto: impuesto.clave, anio: revision.anio },
+      select: { id: true, mesCorte: true, estado: true },
+      orderBy: { mesCorte: "asc" },
+    }),
   ]);
 
   return (
@@ -52,6 +59,7 @@ export default async function RevisionImpuestoPage({ params }: { params: Promise
         puedeEliminar={puedeEliminar}
         puedeCerrar={puedeCerrar}
         puedeDesbloquear={puedeDesbloquear}
+        revisionesDelAnio={revisionesDelAnio}
       />
     </div>
   );

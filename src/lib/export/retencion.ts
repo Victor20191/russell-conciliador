@@ -401,11 +401,11 @@ function hojaPagosComponentes(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, pag
   const ws = wb.addWorksheet("Pagos efectuados");
   encabezadoLibro(ws, meta, "pagos efectuados");
   ws.addRow([
-    `Diferencia = Impuesto pagado (36) − ${impuesto.etiquetasPago.total} (${rotuloRenglon(def, impuesto.renglones.total)}): positiva si se pagó de más y negativa si se pagó de menos; la sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso.`,
+    `Diferencia = Impuesto pagado antes de sanción e intereses (36) − ${impuesto.etiquetasPago.total} (${rotuloRenglon(def, impuesto.renglones.total)}): positiva si se pagó de más y negativa si se pagó de menos; la sanción (34) y los intereses de mora (35) del 490 van aparte y no se comparan. Se compara al peso.`,
   ]).font = { color: { argb: EXCEL.textoSecundario } };
   estiloEncabezado(ws.addRow([
     "Período", ...componentes.map((c) => `${c.etiqueta} (${c.renglon})`), `${impuesto.etiquetasPago.total} (${rotuloRenglon(def, impuesto.renglones.total)})`,
-    "Impuesto pagado (36)", "Diferencia", "Estado", "Alerta", "Sanción pagada (34)", "Intereses pagados (35)", "Marca",
+    "Impuesto pagado antes de sanción e intereses (36)", "Diferencia", "Estado", "Alerta", "Sanción pagada (34)", "Intereses pagados (35)", "Marca",
   ]));
   for (const f of pagos.filas) {
     ws.addRow([

@@ -499,6 +499,56 @@ export async function descartarFormularioDian(_prev: ActionState, formData: Form
   }
 }
 
+/**
+ * «Descartar varios»: saca de una vez los formularios elegidos (confirmados o por confirmar) para volver
+ * a importarlos. Las mismas reglas que al descartar uno: un confirmado exige `impuestos:eliminar` y que
+ * ninguna revisión del año esté en firme. Si uno no se puede, no se descarta ninguno. Los originales se
+ * conservan y cada formulario queda en la bitácora.
+ */
+export async function descartarFormulariosDian(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = ConfirmarFormulariosDianSchema.safeParse({ revisionId: formData.get("revisionId"), ids: formData.getAll("id") });
+  if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
+  const { revisionId, ids } = parsed.data;
+  const acceso = await revisionConAlcance(revisionId, "impuestos:cargar");
+  if (!acceso.ok) return { ok: false, message: acceso.message };
+  const { revision, impuesto: imp } = acceso;
+
+  try {
+    const filas = await prisma.formularioDianCargado.findMany({
+      where: { id: { in: ids }, clienteId: revision.clienteId, impuesto: imp.clave, anio: revision.anio, estado: { not: "descartado" } },
+      select: { id: true, estado: true, formulario: true, numero: true, periodo: true },
+      orderBy: [{ periodo: "asc" }, { formulario: "asc" }, { id: "asc" }],
+    });
+    if (filas.length === 0) return { ok: false, message: "Los formularios elegidos ya no están cargados en esta revisión." };
+    const confirmados = filas.filter((f) => f.estado === "confirmado").length;
+    if (confirmados > 0) {
+      const eliminar = await authorizePermiso("impuestos:eliminar", { clientId: revision.clienteId, modo: "escritura" });
+      if (!eliminar.ok) return { ok: false, message: "Entre los elegidos hay formularios confirmados: solo los descarta el senior del cliente. Quita esos de la selección." };
+      const enFirme = await prisma.revisionImpuesto.count({ where: { clienteId: revision.clienteId, impuesto: imp.clave, anio: revision.anio, estado: "en_firme" } });
+      if (enFirme > 0) return { ok: false, message: "Hay una revisión de este año en firme que usa los formularios confirmados: desbloquéala antes de descartarlos." };
+    }
+    const user = await getCurrentUser();
+    await prisma.formularioDianCargado.updateMany({
+      where: { id: { in: filas.map((f) => f.id) }, estado: { not: "descartado" } },
+      data: { estado: "descartado", descartadoPor: user?.name ?? null, descartadoEn: new Date() },
+    });
+    for (const f of filas) {
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: "DESCARTÓ FORMULARIO DIAN",
+        entity: `${imp.nombre} · ${revision.nombreCliente} · F${f.formulario} ${f.numero}`,
+        detail: `${periodoDe(revision, f.periodo)} ${revision.anio} · estaba ${f.estado === "confirmado" ? "confirmado" : "por confirmar"} · descartado en bloque (${filas.length})`,
+        clientId: revision.clienteId,
+      });
+    }
+    revalidatePath(`${rutaDe(imp)}/${revision.id}`);
+    const cuantos = filas.length === 1 ? "1 formulario descartado" : `${filas.length} formularios descartados`;
+    return { ok: true, message: `${cuantos}. Ya puedes volver a importarlos.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("descartarFormulariosDian", e) };
+  }
+}
+
 /** «No hubo formulario»: registra la causal de un período sin 350. */
 export async function registrarPeriodoSinFormulario(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = PeriodoSinFormularioSchema.safeParse({ revisionId: formData.get("revisionId"), periodo: formData.get("periodo"), causal: formData.get("causal") });

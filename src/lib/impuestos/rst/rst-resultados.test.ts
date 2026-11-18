@@ -136,7 +136,7 @@ describe("Excel de una revisión de RST", () => {
     expect(encabezados(wb, "Oportunidad")).toEqual(["Período", "Recibo 490", "Autoadhesivo 490", "Fecha de vencimiento", "Fecha de pago 490", "Estado pago 490"]);
     expect(encabezados(wb, "Pagos efectuados")).toEqual([
       "Período", "ICA (76)", "Anticipo SIMPLE (77)", "Impuesto al consumo (78)", "IVA (79)", "Total valores a pagar (76 a 79)",
-      "Impuesto pagado (36)", "Diferencia", "Estado", "Alerta", "Sanción pagada (34)", "Intereses pagados (35)", "Marca",
+      "Impuesto pagado antes de sanción e intereses (36)", "Diferencia", "Estado", "Alerta", "Sanción pagada (34)", "Intereses pagados (35)", "Marca",
     ]);
   });
 });
