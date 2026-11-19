@@ -1175,7 +1175,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
       id: "meses",
       titulo: "Por períodos",
       proposito:
-        "Cada renglón guardado del 2593 por bimestre: ingresos por grupo, liquidación del anticipo, valor a pagar o excedente, impuesto al consumo, IVA y los valores a pagar con su total (76 a 79), y debajo los pagos de los recibos 490. Los valores son los del 2593 vigente de cada bimestre (el último ajuste) y el total se calcula con los renglones del recibo.",
+        "Cada renglón guardado del 2593 por bimestre: ingresos por grupo, liquidación del anticipo, valor a pagar o excedente, impuesto al consumo, IVA y los valores a pagar con su total (76 a 79), y debajo los pagos de los recibos 490. Bajo el 76 (ICA municipios o distritos) va, con sangría, el ICA a pagar (104) de cada municipio de la hoja 2. Los valores son los del 2593 vigente de cada bimestre (el último ajuste) y el total se calcula con los renglones del recibo.",
       etapas: [
         {
           titulo: "Consultar",
@@ -1190,7 +1190,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
     {
       id: "acumulado",
       titulo: "Acumulado",
-      proposito: "La suma de los bimestres hasta el corte, renglón por renglón, y lo pagado con los recibos 490. Avisa si faltan bimestres con 2593.",
+      proposito: "La suma de los bimestres hasta el corte, renglón por renglón (con el ICA a pagar de cada municipio de la hoja 2 bajo el 76), y lo pagado con los recibos 490. Avisa si faltan bimestres con 2593.",
       etapas: [
         {
           titulo: "Consultar",

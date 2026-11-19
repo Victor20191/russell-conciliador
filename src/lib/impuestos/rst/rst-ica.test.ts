@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { libroRetencion, type FormularioExcel } from "@/lib/export/retencion";
 import { controlesLectura, normalizarLectura, type LecturaCruda } from "../retencion/lectura";
-import { vistasRevision } from "../retencion/vistas";
+import { periodosRevision, type Formulario350 } from "../retencion/periodos-revision";
+import { renglonDeFila, vistasRevision } from "../retencion/vistas";
 import { aTarifaPorMil, controlesIca, fallasMunicipioIca, type IcaMunicipioCrudo, type MunicipioIca } from "./ica-municipios";
 
 /**
@@ -104,5 +105,39 @@ describe("hoja 2 del 2593: ICA por municipio", () => {
     ws.eachRow((row) => textos.push((row.values as unknown[]).slice(1).map((v) => String(v ?? "")).join("|")));
     expect(textos.some((t) => t.startsWith("Bimestre 01 · Enero-Febrero|25936612172158|Confirmado|MEDELLIN (ANTIOQUIA)|05|001|1|Cuadran|870016000"))).toBe(true);
     expect(textos.some((t) => t === "Bimestre 01 · Enero-Febrero|25936612172158|MEDELLIN (ANTIOQUIA)|4659|870016000|11.5|10005000")).toBe(true);
+  });
+
+  it("«Por períodos» y «Acumulado» llevan, bajo el 76, el ICA a pagar (104) de cada municipio", () => {
+    const bogota: MunicipioIca = { ...medellin, departamento: "BOGOTA D.C.", codigoDepartamento: "11", municipio: "BOGOTA", codigoMunicipio: "001", valores: { ...medellin.valores, 104: 2_000_000 } };
+    const f2593 = (id: number, periodo: number, ica: MunicipioIca[]): Formulario350 & { periodo: number } => ({
+      id, periodo, numero: `2593661217215${id}`, codigoCorreccion: null, numeroAnterior: null, fechaPresentacion: null,
+      valores: { 43: 10_005_000, 76: ica.reduce((t, m) => t + (m.valores[104] ?? 0), 0) }, ica,
+    });
+    // Bimestre 1: Medellín y Bogotá; bimestre 2: solo Medellín; bimestre 3: sin 2593.
+    const periodos = periodosRevision({
+      impuesto: "RST", periodicidad: "Bimestral", mesCorte: 6, porConfirmar: [], causales: [],
+      formularios350: [f2593(1, 1, [medellin, bogota]), f2593(2, 2, [medellin])], formularios490: [],
+    });
+    const vista = vistasRevision(periodos, "RST", "Bimestral");
+    const orden = vista.filas.map((f) => f.clave);
+    const i76 = vista.filas.findIndex((f) => f.renglonPj === 76);
+    const municipios = vista.filas.slice(i76 + 1, i76 + 3);
+    expect(municipios.map((f) => [f.etiqueta, f.detalle, renglonDeFila(f), f.meses.map((m) => m.valor), f.total])).toEqual([
+      ["ICA MEDELLIN (ANTIOQUIA)", true, "104 · hoja 2", [10_005_000, 10_005_000, null], 20_010_000],
+      ["ICA BOGOTA (BOGOTA D.C.)", true, "104 · hoja 2", [2_000_000, 0, null], 2_000_000],
+    ]);
+    expect(vista.filas[i76 + 3].renglonPj).toBe(77);
+    expect(new Set(orden).size).toBe(orden.length);
+    // Sin hoja 2 no hay filas de municipio.
+    const sinHoja = vistasRevision(periodosRevision({ impuesto: "RST", periodicidad: "Bimestral", mesCorte: 2, porConfirmar: [], causales: [], formularios350: [{ ...f2593(1, 1, []), ica: undefined }], formularios490: [] }), "RST", "Bimestral");
+    expect(sinHoja.filas.some((f) => f.detalle)).toBe(false);
+    // El Excel las lleva en «Por períodos» y «Acumulado», con sangría.
+    const wb = libroRetencion({ impuesto: "Anticipos bimestrales (RST)", cliente: "Cliente", nit: "900000008", anio: 2026, corte: "junio", periodicidad: "Bimestral" }, vista, []);
+    for (const hoja of ["Por períodos", "Acumulado"]) {
+      const ws = wb.getWorksheet(hoja)!;
+      const filas: { texto: string; sangria: number | undefined }[] = [];
+      ws.eachRow((row) => filas.push({ texto: String(row.getCell(1).value ?? ""), sangria: row.getCell(1).alignment?.indent }));
+      expect(filas.find((f) => f.texto === "ICA BOGOTA (BOGOTA D.C.)")).toMatchObject({ sangria: 2 });
+    }
   });
 });

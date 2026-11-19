@@ -1,3 +1,4 @@
+import type { MunicipioIca } from "../rst/ica-municipios";
 import { etiquetaPeriodo, periodosEsperados } from "../periodicidad";
 import { calcularTotal, valorRenglon } from "../formularios/definicion";
 import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
@@ -28,6 +29,8 @@ export type Formulario350 = {
   /** Renglón 996 (número del autoadhesivo). */
   autoadhesivo?: string | null;
   valores: Record<number, number>;
+  /** Solo el 2593: la hoja 2 (ICA por municipio) que leyó la IA. */
+  ica?: readonly MunicipioIca[];
 };
 
 export type Formulario490 = {

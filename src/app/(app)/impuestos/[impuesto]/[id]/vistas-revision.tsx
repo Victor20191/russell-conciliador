@@ -119,7 +119,7 @@ function TramoMeses({ seccion, filas, columnas, ancho, completa }: { seccion: st
       </tr>
       {filas.map((f) => (
         <tr key={f.clave} className={`border-t border-ink-100 ${f.tipo === "total" ? "font-semibold" : ""}`}>
-          <td className={`${PRIMERA} ${f.tipo === "total" ? "font-semibold" : ""} ${completa ? "max-w-[420px]" : "max-w-[280px]"} truncate`} title={f.etiqueta}>{f.etiqueta}</td>
+          <td className={`${PRIMERA} ${f.tipo === "total" ? "font-semibold" : ""} ${f.detalle ? "pl-7 text-ink-600" : ""} ${completa ? "max-w-[420px]" : "max-w-[280px]"} truncate`} title={f.etiqueta}>{f.etiqueta}</td>
           <td className="whitespace-nowrap px-2 py-1 text-center tabular-nums text-ink-500">{renglones(f)}</td>
           {f.meses.map((m, i) =>
             f.tipo === "concepto" ? (
@@ -215,7 +215,7 @@ function TramoAcumulado({ seccion, filas, personas }: { seccion: string; filas: 
       </tr>
       {filas.map((f) => (
         <tr key={f.clave} className={`border-t border-ink-100 ${f.tipo === "total" ? "font-semibold" : ""}`}>
-          <td className="px-3 py-1">{f.etiqueta}</td>
+          <td className={f.detalle ? "py-1 pl-7 pr-3 text-ink-600" : "px-3 py-1"}>{f.etiqueta}</td>
           {f.tipo === "concepto" ? (
             <>
               <td className="px-3 py-1 text-center tabular-nums text-ink-500">{f.renglonPj ?? "—"}</td>

@@ -94,6 +94,7 @@ function hojaPorMeses(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vist
       const fila = ws.addRow([f.etiqueta, renglon, ...valores, f.total]);
       if (f.tipo !== "concepto") unirMeses(fila.number);
       if (f.tipo === "total") fila.font = { bold: true };
+      if (f.detalle) sangria(fila);
     }
   }
   filaSeccion(ws, "Pagos · formulario 490", columnas);
@@ -109,6 +110,12 @@ function hojaPorMeses(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vist
     ws.getColumn(c).numFmt = PESOS;
   }
   ws.views = [{ state: "frozen", xSplit: 2, ySplit: ultimoEncabezado }];
+}
+
+/** Sangría de una fila de detalle (el ICA de cada municipio bajo el 76). Estilo copiado: ExcelJS comparte los objetos de estilo. */
+function sangria(fila: ExcelJS.Row): void {
+  const celda = fila.getCell(1);
+  celda.style = { ...celda.style, alignment: { ...(celda.style.alignment ?? {}), indent: 2 } };
 }
 
 function hojaAcumulado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: VistaRevision): void {
@@ -127,6 +134,7 @@ function hojaAcumulado(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, vista: Vis
         f.tipo === "concepto" ? [f.etiqueta, f.renglonPj ?? "—", f.renglonPn ?? "—", f.total] : personas ? [f.etiqueta, f.renglonPj, "", f.total] : [f.etiqueta, f.rotulo ?? f.renglonPj, f.total],
       );
       if (f.tipo === "total") fila.font = { bold: true };
+      if (f.detalle) sangria(fila);
     }
   }
   filaSeccion(ws, "Pagos · formulario 490", columnas);

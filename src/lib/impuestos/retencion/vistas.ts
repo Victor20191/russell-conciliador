@@ -2,6 +2,7 @@ import { calcularTotal, renglonDe, renglonesVisibles, type DefinicionFormulario 
 import { CONCEPTOS_RETENCION_F350 } from "../formularios/f350";
 import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto } from "../impuestos-dian";
 import { etiquetaPeriodo } from "../periodicidad";
+import { nombreMunicipioIca, type MunicipioIca } from "../rst/ica-municipios";
 import type { PeriodoRevision } from "./periodos-revision";
 
 /**
@@ -44,6 +45,8 @@ export type FilaVista = {
   totalPn: number;
   /** Cómo se nombra el renglón cuando no es una casilla del formulario («76 a 79»). */
   rotulo?: string;
+  /** Fila de detalle de la anterior (el ICA de cada municipio bajo el 76 del 2593): va con sangría. */
+  detalle?: boolean;
 };
 
 /** El renglón de la fila en la columna «Renglón»: el de cada persona, su número o su rótulo. */
@@ -113,7 +116,12 @@ export function vistasRevision(periodos: readonly PeriodoRevision[], impuestoCla
   // Los renglones de un solo valor: en el 350, del 129 al 138 y el 980; en el 300 y el 2593, todos los que
   // se guardan con importe y, en el 2593, el total calculado de los valores a pagar.
   const unicos = impuesto.columnasPersona ? [...RENGLONES_UNICOS_350] : renglonesVisibles(def);
-  for (const r of unicos) filas.push(filaUnica(def, r, periodos.length, valoresMes));
+  for (const r of unicos) {
+    const f = filaUnica(def, r, periodos.length, valoresMes);
+    filas.push(f);
+    // En el 2593, bajo el 76 (ICA municipios o distritos), el ICA a pagar (104) de cada municipio de la hoja 2.
+    if (def.codigo === "2593" && r === RENGLON_ICA_A_PAGAR) filas.push(...filasIcaPorMunicipio(periodos, f.seccion));
+  }
 
   const fila = (clave: string, etiqueta: string, valorMes: (p: PeriodoRevision) => number): FilaPago => {
     const porMes = periodos.map((p) => (p.pagos.some((x) => x.formularios.length > 0) ? valorMes(p) : null));
@@ -129,6 +137,50 @@ export function vistasRevision(periodos: readonly PeriodoRevision[], impuestoCla
     fila("total_pagado", "Total pagado", (p) => p.pagos.reduce((s, x) => s + x.sancion + x.intereses + x.impuesto, 0)),
   ];
   return { meses, filas, pagos, conPersonas: impuesto.columnasPersona, codigo: def.codigo, unidad: periodicidad === "Mensual" ? "mes" : "período" };
+}
+
+/** El 76 del 2593 («ICA municipios o distritos») es la suma de los 104 de la hoja 2. */
+const RENGLON_ICA_A_PAGAR = 76;
+/** «Total impuesto a cargo / a pagar» de cada municipio en la hoja 2. */
+const RENGLON_ICA_MUNICIPIO = 104;
+
+/** Llave del municipio: sus códigos DANE o, si no vinieron, su nombre. */
+function llaveMunicipio(m: MunicipioIca, i: number): string {
+  if (m.codigoDepartamento && m.codigoMunicipio) return `${m.codigoDepartamento}${m.codigoMunicipio}`;
+  return nombreMunicipioIca(m, i).toUpperCase();
+}
+
+/**
+ * Una fila por municipio de la hoja 2 de los 2593 vigentes, con su 104 por período: cero si ese bimestre
+ * no lo trae, vacío si no hay 2593. Los municipios van en el orden en que aparecen.
+ */
+function filasIcaPorMunicipio(periodos: readonly PeriodoRevision[], seccion: string): FilaVista[] {
+  const municipios = new Map<string, { nombre: string; porPeriodo: Map<number, number> }>();
+  periodos.forEach((p, i) => {
+    (p.cadena.vigente?.ica ?? []).forEach((m, j) => {
+      const llave = llaveMunicipio(m, j);
+      const actual = municipios.get(llave) ?? { nombre: nombreMunicipioIca(m, j), porPeriodo: new Map<number, number>() };
+      actual.porPeriodo.set(i, (actual.porPeriodo.get(i) ?? 0) + (m.valores[RENGLON_ICA_MUNICIPIO] ?? 0));
+      municipios.set(llave, actual);
+    });
+  });
+  return [...municipios.entries()].map(([llave, m]) => {
+    const porMes = periodos.map((p, i) => ({ pj: null, pn: null, valor: p.cadena.vigente ? (m.porPeriodo.get(i) ?? 0) : null }));
+    return {
+      clave: `ica_municipio_${llave}`,
+      seccion,
+      etiqueta: `ICA ${m.nombre}`,
+      tipo: "unico" as const,
+      renglonPj: RENGLON_ICA_MUNICIPIO,
+      renglonPn: null,
+      meses: porMes,
+      total: suma(porMes.map((x) => x.valor)),
+      totalPj: 0,
+      totalPn: 0,
+      rotulo: `${RENGLON_ICA_MUNICIPIO} · hoja 2`,
+      detalle: true,
+    };
+  });
 }
 
 /** Un renglón de un solo valor por período; los totales se recalculan con la definición. */

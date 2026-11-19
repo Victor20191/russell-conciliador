@@ -125,6 +125,7 @@ export async function cargarRevision(id: number): Promise<RevisionVista | null> 
     mesCorte: r.mesCorte,
     formularios350: confirmados.filter((f) => f.formulario === codigo).map((f) => ({
       id: f.id, periodo: f.periodo, numero: f.numero, codigoCorreccion: f.codigoCorreccion, numeroAnterior: f.numeroAnterior, fechaPresentacion: f.fechaSello, autoadhesivo: f.autoadhesivo, valores: f.valores,
+      ...(f.formulario === "2593" ? { ica: f.leido.ica } : {}),
     })),
     formularios490: confirmados.filter((f) => f.formulario === "490").map((f) => ({
       id: f.id, periodo: f.periodo, numero: f.numero, concepto: f.concepto, numeroPagado: f.numeroPagado, fechaPago: f.fechaSello, autoadhesivo: f.autoadhesivo, valores: f.valores,
