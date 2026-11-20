@@ -889,7 +889,7 @@ export async function cerrarRevisionImpuesto(_prev: ActionState, formData: FormD
     const cuentasRussell6 = alcanceCierreImpuesto(imp, cuentasDelCruce);
     const cuentasRussell = [...new Set(cuentasRussell6.map((c) => c.slice(0, 4)))].sort();
     const copia = construirCopiaRetencion({
-      tipo: imp.slug === "iva" ? "iva" : "retencion", tomadaEn: new Date(), periodos: vista.periodos, cruce, oportunidad: resultados.oportunidad, pagos: resultados.pagos,
+      tipo: imp.slug, tomadaEn: new Date(), periodos: vista.periodos, cruce, oportunidad: resultados.oportunidad, pagos: resultados.pagos,
     });
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";

@@ -222,9 +222,7 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
   }
   const { resultado } = cruce;
   const impuesto = impuestoDelCruce(resultado);
-  const contabilidad = impuesto.cruce.signoPorNaturaleza
-    ? "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos, por el saldo de la cuenta; los terceros DIAN de las cuentas que lo indican no suman; 42 y 80 restan en el subtotal."
-    : "Contabilidad = saldo final al corte, en positivo; los terceros DIAN de las cuentas que lo indican no suman.";
+  const contabilidad = impuesto.cruce.textos.contabilidadExcel;
   ws.addRow([`${contabilidad} Diferencias desde ${cruce.umbral.toLocaleString("es-CO")} exigen marca.`]).font = { color: { argb: EXCEL.textoSecundario } };
   if (!cruce.inicioEnero) ws.addRow(["El balance no empieza el 1 de enero: no se mide el saldo inicial de los terceros."]).font = { color: { argb: EXCEL.textoSecundario } };
   if (resultado.saldoInicial?.restado) {
@@ -268,7 +266,7 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
 
   if (resultado.fueraDelMapeo.length > 0) {
     ws.addRow([]);
-    filaSeccion(ws, `Cuentas de ${impuesto.clave === "IVA" ? "IVA" : "retención"} fuera del cruce (no suman)`, 8);
+    filaSeccion(ws, `${impuesto.cruce.textos.fueraDelMapeo.titulo} (no suman)`, 8);
     estiloEncabezado(ws.addRow(["Cuenta Russell", "Cuentas del cliente", "", "", "", "", "Saldo final"]));
     for (const f of resultado.fueraDelMapeo) ws.addRow([f.cuentaRussell, f.cuentas.join(", "), "", "", "", "", f.saldo]);
   }
@@ -276,7 +274,7 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
   const fueraDeRetencion = resultado.fueraDeRetencion ?? [];
   if (fueraDeRetencion.length > 0) {
     ws.addRow([]);
-    filaSeccion(ws, `Cuentas del cliente en ${impuesto.cruce.prefijosCliente.join(" o ")} homologadas fuera de ${impuesto.clave === "IVA" ? "IVA" : "retención"} (no llegan al cruce)`, 8);
+    filaSeccion(ws, `Cuentas del cliente en ${impuesto.cruce.prefijosCliente.join(" o ")} homologadas fuera de ${impuesto.cruce.textos.fueraDe} (no llegan al cruce)`, 8);
     estiloEncabezado(ws.addRow(["Cuenta del cliente", "Nombre", "Homologada a", "Nombre de la cuenta Russell", "", "", "Saldo final"]));
     for (const f of fueraDeRetencion) ws.addRow([f.cuenta, f.nombre ?? "", f.cuentaRussell ?? "Sin homologar", f.nombreRussell ?? "", "", "", f.saldo]);
   }
@@ -458,7 +456,7 @@ export function libroRetencion(meta: MetaRevisionExcel, vista: VistaRevision, fo
   if (meta.periodicidad !== "Anual") hojaAcumulado(wb, meta, vista);
   hojaFormularios(wb, meta, formularios, vista.codigo ?? "350");
   hojaIcaMunicipios(wb, meta, formularios);
-  // Sin cruce disponible (el anticipo del Régimen Simple, por ahora) no hay hoja de cruce.
+  // Sin cruce disponible para el impuesto no hay hoja de cruce.
   if (resultados && impuestoDeMeta(meta).cruce.disponible) hojaCruce(wb, meta, resultados.cruce);
   if (resultados?.oportunidad) hojaOportunidad(wb, meta, resultados.oportunidad);
   if (resultados?.pagos) hojaPagos(wb, meta, resultados.pagos);

@@ -249,6 +249,14 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     impuesto.cruce.grupos[0];
   // Signo del lado contable: Retención, pasivo en positivo; IVA, según la naturaleza de la cuenta Russell.
   const signoDe = (cuentaRussell: string) => (impuesto.cruce.signoPorNaturaleza && e.naturalezas?.get(cuentaRussell) === "D" ? 1 : -1);
+  // Una fila de varias cuentas toma el signo de la mayoría: la de naturaleza contraria resta dentro de
+  // la fila (la 417505, débito, en los ingresos del 39 del 2593). Con cuentas de una sola naturaleza
+  // (el 40 del 300) es el mismo signo de cada cuenta.
+  const signoDeCuentas = (cuentas: readonly string[]): 1 | -1 => {
+    const debito = cuentas.filter((c) => signoDe(c) === 1).length;
+    return debito * 2 > cuentas.length ? 1 : -1;
+  };
+  const signoFila = new Map<string, 1 | -1>();
   const marcas = new Map(e.marcas.map((m) => [m.clave, m]));
   const filas = new Map<string, FilaCruce>();
   // Cada cuenta Russell del mapeo, a la fila que la reúne.
@@ -271,6 +279,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
         cuentasCliente: [], saldoInicial: null, posiblesDian: [], marca: null,
       };
       filas.set(clave, fila);
+      signoFila.set(clave, signoDeCuentas(cuentas));
       for (const c of cuentas) filaDeCuenta.set(c, clave);
     }
     fila.conceptos.push({ concepto: m.concepto, etiqueta: m.etiqueta, renglones: renglonesDeFila(m), signo: m.signo, declarado: declaradoPorConcepto(e.periodos, m, signoEnSubtotal) });
@@ -286,8 +295,8 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
   const fuera = new Map<string, { cuentas: Set<string>; saldo: number }>();
   for (const t of e.filasContables) {
     const russell = t.cuentaRussell;
-    const signo = signoDe(russell);
     const claveFila = filaDeCuenta.get(russell);
+    const signo = claveFila ? (signoFila.get(claveFila) ?? signoDe(russell)) : signoDe(russell);
     if (!claveFila) {
       const f = fuera.get(russell) ?? { cuentas: new Set<string>(), saldo: 0 };
       f.cuentas.add(t.cuentaCliente);
@@ -312,7 +321,7 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     if (!claveFila) continue;
     const cuentas = cuentasDeFila(claveFila);
     const previa = cuentas.get(c.cuentaCliente);
-    const saldo = sumar([previa?.saldo ?? 0, signoDe(c.cuentaRussell) * c.saldoFinal]);
+    const saldo = sumar([previa?.saldo ?? 0, (signoFila.get(claveFila) ?? signoDe(c.cuentaRussell)) * c.saldoFinal]);
     cuentas.set(c.cuentaCliente, { cuenta: c.cuentaCliente, nombre: c.nombreCuenta, saldo, terceros: [], porCuenta: true });
   }
 

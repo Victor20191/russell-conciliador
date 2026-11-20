@@ -16,22 +16,23 @@ import type { ActionState } from "@/lib/definitions";
 import type { CuentaMapeoVista, MapeoDianVista } from "@/lib/impuestos/configuracion-servidor";
 import { renglonDe } from "@/lib/impuestos/formularios/definicion";
 import { F350 } from "@/lib/impuestos/formularios/f350";
+import { IMPUESTOS, impuestoPorDeclaracion, RETENCION } from "@/lib/impuestos/impuestos-dian";
 
 type FilaVista = MapeoDianVista["filas"][number];
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 const BOTON_SECUNDARIO = "rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60";
 
-const PESTANAS = [
-  { formulario: "350", etiqueta: "Retención en la fuente · 350" },
-  { formulario: "300", etiqueta: "IVA · 300" },
-] as const;
+/** Una pestaña por formulario de declaración: 350, 300 y 2593. */
+const PESTANAS = IMPUESTOS.map((i) => ({ formulario: i.declaracion.codigo, etiqueta: i.cruce.textos.mapeo.pestana }));
 
 /** Una o varias cuentas de 6 dígitos separadas con «+», coma o punto y coma (vacío = sin cuenta). */
 const CUENTAS_VALIDAS = /^(\d{6}([+,;]\d{6})*)?$/;
 
 export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoDianVista; puedeEditar: boolean }) {
-  const esIva = vista.formulario === "300";
+  // El 350 tiene dos columnas por concepto (persona jurídica y natural); el 300 y el 2593, un renglón.
+  const porRenglon = vista.formulario !== "350";
+  const textos = (impuestoPorDeclaracion(vista.formulario) ?? RETENCION).cruce.textos.mapeo;
   const secciones = [...new Set(vista.filas.map((f) => f.seccion))];
   const sinPlan = vista.cuentas.filter((c) => c.nombre == null);
   const porTercero = vista.cuentas.filter((c) => c.porTercero);
@@ -54,19 +55,15 @@ export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoD
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">
-          {esIva ? "Renglones del formulario 300" : "Conceptos del formulario 350"}
+          {textos.titulo}
         </h2>
-        <p className="text-[12px] leading-relaxed text-ink-500">
-          {esIva
-            ? "Cada renglón con saldo se compara con el saldo final de su cuenta Russell. Un renglón puede ir contra varias cuentas (sepáralas con +) y varios renglones contra la misma cuenta: en el cruce se agrupan en una fila. Las compras (44 a 57) no se concilian."
-            : "Cada concepto suma sus dos columnas, persona jurídica y natural, y se compara con el saldo final de su cuenta en el balance por terceros."}
-        </p>
+        <p className="text-[12px] leading-relaxed text-ink-500">{textos.explicacion}</p>
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[760px] text-[12.5px]">
             <thead>
               <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-                <th className="px-3 py-2">{esIva ? "Renglón" : "Concepto"}</th>
-                {esIva ? (
+                <th className="px-3 py-2">{porRenglon ? "Renglón" : "Concepto"}</th>
+                {porRenglon ? (
                   <th className="px-3 py-2 text-right">N.º</th>
                 ) : (
                   <>
@@ -74,13 +71,13 @@ export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoD
                     <th className="px-3 py-2 text-right">P. natural</th>
                   </>
                 )}
-                <th className="px-3 py-2">{esIva ? "Cuentas Russell" : "Cuenta Russell"}</th>
+                <th className="px-3 py-2">{porRenglon ? "Cuentas Russell" : "Cuenta Russell"}</th>
               </tr>
             </thead>
             {secciones.map((seccion) => (
               <tbody key={seccion}>
                 <tr className="bg-ink-50/60">
-                  <td colSpan={esIva ? 3 : 4} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{seccion}</td>
+                  <td colSpan={porRenglon ? 3 : 4} className="px-3 py-1.5 text-[11.5px] font-semibold text-navy-800">{seccion}</td>
                 </tr>
                 {vista.filas.filter((f) => f.seccion === seccion).map((f) => (
                   <FilaConcepto key={f.concepto} fila={f} formulario={vista.formulario} puedeEditar={puedeEditar} />
@@ -93,11 +90,7 @@ export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoD
 
       <section className="flex flex-col gap-3">
         <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">Tercero DIAN por cuenta</h2>
-        <p className="text-[12px] leading-relaxed text-ink-500">
-          {esIva
-            ? "Muchos clientes contabilizan los pagos a la DIAN en las mismas cuentas de IVA. En las cuentas marcadas, el saldo de los terceros DIAN se muestra tachado y se resta del saldo que se concilia. Las cuentas de ingresos no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros."
-            : "Muchos clientes contabilizan los pagos a la DIAN en las mismas cuentas de retención. En las cuentas marcadas, el saldo de los terceros DIAN se muestra tachado y se resta del saldo que se concilia. En las autorretenciones no se resta: sus movimientos con la DIAN son la autorretención misma."}
-        </p>
+        <p className="text-[12px] leading-relaxed text-ink-500">{textos.terceroDian}</p>
         <Card className="divide-y divide-ink-100 p-0">
           {porTercero.map((c) => (
             <FilaCuenta key={c.cuenta} cuenta={c} puedeEditar={puedeEditar} />
@@ -108,7 +101,7 @@ export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoD
       <section className="flex flex-col gap-3">
         <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-500">NIT de la DIAN</h2>
         <p className="text-[12px] leading-relaxed text-ink-500">
-          Un tercero es la DIAN si su NIT (sin el dígito de verificación) está en esta lista. Vale para Retención en la fuente y para IVA.
+          Un tercero es la DIAN si su NIT (sin el dígito de verificación) está en esta lista. Vale para Retención en la fuente, IVA y los anticipos del Régimen Simple.
         </p>
         <TercerosDian terceros={vista.terceros} puedeEditar={puedeEditar} />
       </section>
@@ -117,7 +110,8 @@ export default function MapeosDianClient({ vista, puedeEditar }: { vista: MapeoD
 }
 
 function FilaConcepto({ fila, formulario, puedeEditar }: { fila: FilaVista; formulario: string; puedeEditar: boolean }) {
-  const esIva = formulario === "300";
+  // 300 y 2593: un renglón por fila, con una o varias cuentas.
+  const porRenglon = formulario !== "350";
   const [state, action, guardando] = useActionState<ActionState, FormData>(guardarCuentaMapeoDian, {});
   const [cuenta, setCuenta] = useState(fila.cuentaRussell ?? "");
   const [previa, setPrevia] = useState(fila.cuentaRussell ?? "");
@@ -131,7 +125,7 @@ function FilaConcepto({ fila, formulario, puedeEditar }: { fila: FilaVista; form
   }, [state]);
 
   const sucio = cuenta !== (fila.cuentaRussell ?? "");
-  const valida = esIva ? CUENTAS_VALIDAS.test(cuenta.replace(/\s/g, "")) : cuenta === "" || /^\d{6}$/.test(cuenta);
+  const valida = porRenglon ? CUENTAS_VALIDAS.test(cuenta.replace(/\s/g, "")) : cuenta === "" || /^\d{6}$/.test(cuenta);
   const signo = fila.signo === "-" ? "−" : "";
   const varias = fila.cuentasRussell.length > 1;
 
@@ -144,7 +138,7 @@ function FilaConcepto({ fila, formulario, puedeEditar }: { fila: FilaVista; form
           <div className="mt-0.5 text-[11px] text-ink-400">Editado {fmtDateTime(fila.actualizadoEn)}{fila.actualizadoPor ? ` · ${fila.actualizadoPor}` : ""}</div>
         )}
       </td>
-      {esIva ? (
+      {porRenglon ? (
         <td className="px-3 py-2 text-right tabular-nums text-ink-600">{fila.renglonPj != null ? `${signo}${fila.renglonPj}` : "—"}</td>
       ) : fila.renglonPj != null && renglonDe(F350, fila.renglonPj)?.persona === "unica" ? (
         // 129 a 137: un solo valor, de ninguna de las dos personas.
@@ -164,13 +158,13 @@ function FilaConcepto({ fila, formulario, puedeEditar }: { fila: FilaVista; form
             <input type="hidden" name="concepto" value={fila.concepto} />
             <input
               name="cuenta"
-              inputMode={esIva ? "text" : "numeric"}
+              inputMode={porRenglon ? "text" : "numeric"}
               value={cuenta}
-              onChange={(e) => setCuenta(esIva ? e.target.value.replace(/[^\d+,;\s]/g, "") : e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onChange={(e) => setCuenta(porRenglon ? e.target.value.replace(/[^\d+,;\s]/g, "") : e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="Sin cuenta"
               aria-label={`Cuenta Russell de ${fila.etiqueta}`}
-              title={esIva ? "Una o varias cuentas de 6 dígitos; varias se separan con +" : undefined}
-              className={`${varias ? "w-full max-w-[460px]" : esIva ? "w-40" : "w-24"} rounded-md border bg-white px-2 py-1 tabular-nums text-[12.5px] text-ink-800 outline-none focus:border-blue-400 ${valida ? "border-ink-200" : "border-err-500"}`}
+              title={porRenglon ? "Una o varias cuentas de 6 dígitos; varias se separan con +" : undefined}
+              className={`${varias ? "w-full max-w-[460px]" : porRenglon ? "w-40" : "w-24"} rounded-md border bg-white px-2 py-1 tabular-nums text-[12.5px] text-ink-800 outline-none focus:border-blue-400 ${valida ? "border-ink-200" : "border-err-500"}`}
             />
             {!varias && <NombreCuenta fila={fila} />}
             {sucio && (

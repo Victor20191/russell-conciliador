@@ -3,16 +3,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA, type FilaMapeoDian } from "./mapeo-dian";
 import { MAPEO_F300_FABRICA } from "./iva/mapeo-f300";
+import { MAPEO_F2593_FABRICA } from "./rst/mapeo-f2593";
 
 /** Lo que siembran las migraciones, leído del propio SQL: el código y la BD no pueden divergir. */
 const leer = (carpeta: string) => readFileSync(join(process.cwd(), "prisma/migrations", carpeta, "migration.sql"), "utf8");
 const SQL = leer("20261031120000_impuestos_configuracion");
 const SQL_IVA = leer("20261108120000_impuestos_iva");
+const SQL_RST = leer("20261119120000_rst_mapeo_2593");
 
 const texto = (v: string) => (v === "NULL" ? null : v.slice(1, -1).replace(/''/g, "'"));
 const numero = (v: string) => (v === "NULL" ? null : Number(v));
 
-function mapeoSembrado(sql: string, formulario: "350" | "300"): FilaMapeoDian[] {
+function mapeoSembrado(sql: string, formulario: "350" | "300" | "2593"): FilaMapeoDian[] {
   const fila = new RegExp(
     String.raw`\('${formulario}', ('(?:[^']|'')*'), ('(?:[^']|'')*'), ('(?:[^']|'')*'), (NULL|\d+), (NULL|\d+), (NULL|'\d{6}(?:\+\d{6})*'), '([+-])', (true|false), (\d+), CURRENT_TIMESTAMP\)`,
     "g",
@@ -41,7 +43,7 @@ describe("semillas de la migración de Impuestos", () => {
   });
 
   it("las cuentas que no restan la DIAN son las de fábrica", () => {
-    const cuentas = [...SQL.matchAll(/\('(\d{6})', false, CURRENT_TIMESTAMP\)/g)].map((m) => m[1]);
+    const cuentas = [SQL, SQL_RST].flatMap((sql) => [...sql.matchAll(/\('(\d{6})', false, CURRENT_TIMESTAMP\)/g)].map((m) => m[1]));
     expect(cuentas).toEqual([...CUENTAS_SIN_RESTA_DIAN_FABRICA]);
   });
 
@@ -64,5 +66,16 @@ describe("semillas de la migración de IVA", () => {
   it("las revisiones y los formularios que ya existen quedan como Retención en la fuente", () => {
     expect(SQL_IVA).toContain(`ALTER TABLE "revision_impuesto" ADD COLUMN "impuesto" TEXT NOT NULL DEFAULT 'RET';`);
     expect(SQL_IVA).toContain(`ALTER TABLE "formulario_dian_cargado" ADD COLUMN "impuesto" TEXT NOT NULL DEFAULT 'RET';`);
+  });
+});
+
+describe("semillas de la migración del cruce del RST", () => {
+  it("el mapeo del 2593 sembrado es el de fábrica", () => {
+    expect(mapeoSembrado(SQL_RST, "2593")).toEqual([...MAPEO_F2593_FABRICA]);
+  });
+
+  it("solo inserta datos y respeta lo que ya se editó", () => {
+    expect(SQL_RST).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bUPDATE\b/i);
+    expect(SQL_RST.match(/ON CONFLICT \("[a-z_]+"/g)).toHaveLength(2);
   });
 });

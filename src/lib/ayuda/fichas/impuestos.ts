@@ -10,27 +10,28 @@ export const FICHA_MAPEOS_DIAN: FichaAyuda = {
   id: "catalogo.mapeos_dian",
   titulo: "Mapeo cuentas DIAN",
   proposito:
-    "Contra qué cuenta Russell se concilia cada renglón de los formularios de la DIAN y qué terceros son la DIAN. Tiene una pestaña por formulario: Retención en la fuente (350) e IVA (300). Vale para todos los clientes. Todos la consultan; la editan quienes configuran Impuestos.",
+    "Contra qué cuenta Russell se concilia cada renglón de los formularios de la DIAN y qué terceros son la DIAN. Tiene una pestaña por formulario: Retención en la fuente (350), IVA (300) y anticipos del Régimen Simple (2593). Vale para todos los clientes. Todos la consultan; la editan quienes configuran Impuestos.",
   antesDeEmpezar: [
     "En el 350, cada concepto suma sus dos columnas del formulario, persona jurídica y natural (Honorarios = 42 + 95), y se compara con el saldo final de su cuenta Russell en el balance por terceros.",
     "En el 300, cada renglón va contra una o varias cuentas Russell. Las de IVA y la de retenciones de IVA (135517) se concilian por tercero; las de ingresos, por el saldo de la cuenta.",
-    "Las bases sujetas a retención y las compras del 300 (44 a 57) no se concilian y no aparecen aquí.",
+    "En el 2593 solo se concilian cinco casillas: el anticipo (44) contra la 135595, el impuesto al consumo (59) contra la 249505, el IVA generado (66) y los descontables (67) contra las cuentas genéricas de IVA, y los ingresos brutos (39) por el saldo de sus cuentas, donde la 417505 (devoluciones) resta por su naturaleza débito.",
+    "Las bases sujetas a retención, las compras del 300 (44 a 57) y los excedentes y saldos a favor del 2593 no se concilian y no aparecen aquí.",
     "Una cuenta Russell solo se puede asignar si existe en el plan Russell; las que faltan se crean en Plan Estándar Russell.",
-    "Al final de cada pestaña, «Quedan en firme al cerrar» lista lo que bloquea el cierre en firme de una revisión de ese impuesto: en Retención, la 2365 y la 2367 enteras; en IVA, la 2408 y la 135517 enteras y sus cuentas de ingresos, una por una.",
+    "Al final de cada pestaña, «Quedan en firme al cerrar» lista lo que bloquea el cierre en firme de una revisión de ese impuesto: en Retención, la 2365 y la 2367 enteras; en IVA, la 2408 y la 135517 enteras y sus cuentas de ingresos, una por una; en RST, la 135595, la 249505 y la 2408 enteras y las cuentas de ingresos del 39, una por una.",
   ],
   etapas: [
     {
-      titulo: "Conceptos del formulario 350 · Renglones del formulario 300",
+      titulo: "Conceptos del formulario 350 · Renglones del formulario 300 · Casillas del recibo 2593",
       acciones: [
         {
-          nombre: "Retención en la fuente · 350 · IVA · 300",
+          nombre: "Retención en la fuente · 350 · IVA · 300 · RST · 2593",
           queHace: "Cambia de formulario.",
           regla: REGLAS.verImpuestos,
         },
         {
           nombre: "Guardar",
           queHace:
-            "Cambia la cuenta Russell de un concepto o renglón. Vacía, queda sin cuenta: lo declarado no tiene contra qué cruzar. En el 300 se pueden escribir varias cuentas separadas con +; en el cruce suman juntas en una fila.",
+            "Cambia la cuenta Russell de un concepto o renglón. Vacía, queda sin cuenta: lo declarado no tiene contra qué cruzar. En el 300 y en el 2593 se pueden escribir varias cuentas separadas con +; en el cruce suman juntas en una fila.",
           regla: REGLAS.configurarImpuestos,
           condiciones: [
             "Cada cuenta tiene 6 dígitos y existe en el plan Russell.",
@@ -72,9 +73,9 @@ export const FICHA_MAPEOS_DIAN: FichaAyuda = {
     },
   ],
   estados: [
-    { etiqueta: "Resta", significado: "El renglón se resta en su total: retenciones practicadas en exceso o indebidas en el 350; devoluciones en ventas (42) y ajuste de descontables (80) en el 300." },
+    { etiqueta: "Resta", significado: "El renglón se resta en su total: retenciones practicadas en exceso o indebidas en el 350; devoluciones en ventas (42) y ajuste de descontables (80) en el 300; impuestos descontables (67) en el 2593." },
     { etiqueta: "No existe en el plan Russell", significado: "La cuenta todavía no está en el plan: sus conceptos no tienen contra qué cruzar hasta que se cree." },
-    { etiqueta: "Resta el tercero DIAN · No resta el tercero DIAN", significado: "Si el saldo de los terceros DIAN se descuenta en esa cuenta. Las autorretenciones no lo restan: sus movimientos con la DIAN son la autorretención misma." },
+    { etiqueta: "Resta el tercero DIAN · No resta el tercero DIAN", significado: "Si el saldo de los terceros DIAN se descuenta en esa cuenta. Las autorretenciones no lo restan: sus movimientos con la DIAN son la autorretención misma. Tampoco la 135595 del anticipo del Régimen Simple: el anticipo es lo pagado a la DIAN." },
   ],
   relacionadas: [
     { label: "Plan Estándar Russell", href: "/config/mapeo", permiso: "mapeo:ver" },
@@ -1041,12 +1042,14 @@ export const FICHA_RST_REVISION: FichaAyuda = {
   id: "impuestos.rst_revision",
   titulo: "Revisión de anticipos bimestrales (RST)",
   proposito:
-    "Los recibos electrónicos 2593 y los recibos de pago 490 concepto 27 de un cliente del Régimen Simple y un año hasta el corte: se importan los PDF (o una imagen de cada formulario), la IA los lee y cada uno se revisa y confirma. La tabla dice, por bimestre, qué 2593 rige, si es un ajuste, cuánto suman sus valores a pagar (76 + 77 + 78 + 79) y qué recibos 490 hay; la columna Alertas reúne lo que hay que resolver en el bimestre. La oportunidad mide el pago contra el calendario «RST · Anticipo bimestral» y los pagos efectuados comparan los valores a pagar con lo pagado. El cruce contable está en construcción y, por eso, la revisión todavía no se cierra en firme.",
+    "Los recibos electrónicos 2593 y los recibos de pago 490 concepto 27 de un cliente del Régimen Simple y un año hasta el corte: se importan los PDF (o una imagen de cada formulario), la IA los lee y cada uno se revisa y confirma. La tabla dice, por bimestre, qué 2593 rige, si es un ajuste, cuánto suman sus valores a pagar (76 + 77 + 78 + 79) y qué recibos 490 hay; la columna Alertas reúne lo que hay que resolver en el bimestre. La oportunidad mide el pago contra el calendario «RST · Anticipo bimestral» y los pagos efectuados comparan los valores a pagar con lo pagado. El cruce contable compara el anticipo (44), el impuesto al consumo (59), el IVA (66 y 67) y los ingresos brutos (39) con el balance del corte. Al terminar, la revisión se cierra en firme.",
   antesDeEmpezar: [
     "Un formulario solo cuenta cuando está confirmado.",
     "Un bimestre puede tener varios 2593: un ajuste (casilla 24) ajusta al recibo de la casilla 25. Los valores salen del último de la cadena.",
     "Lo que se paga con el 490 concepto 27 es la suma de los valores a pagar del 2593: ICA (76), anticipo SIMPLE (77), impuesto al consumo (78) e IVA (79). Si suman más de cero, se espera un recibo 490.",
     "El 2593 no trae sello de presentación: la fecha que cuenta es la del pago, en el 490.",
+    "Los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) no se cruzan con la contabilidad. El excedente que trae un recibo del bimestre anterior (51, 60 y 69) debe ser el que dejó el recibo de ese bimestre (57, 65 y 75), y los saldos a favor del año anterior (52 y 68) se avisan cuando traen valor. Son avisos: no impiden cerrar.",
+    "En los clientes del Régimen Simple el IVA se homologa a las cuentas genéricas: 240805 y 240815 (generado) y 240810 y 240820 (descontable).",
     "La hoja 2 del 2593 (liquidación del ICA por municipio) se lee y se guarda: una página por municipio, con su base gravable, sus actividades gravadas (CIIU, ingresos, tarifa por mil e impuesto) y sus valores a pagar. Se ve en «Revisar», no se corrige a mano y va en la hoja «ICA por municipio» del Excel. Un 2593 importado antes de que se leyera no la trae: para tenerla hay que volver a importarlo.",
   ],
   etapas: [
@@ -1055,9 +1058,36 @@ export const FICHA_RST_REVISION: FichaAyuda = {
       acciones: [
         {
           nombre: "Exportar a Excel",
-          queHace: "Descarga la revisión en un libro con la vista por períodos, el acumulado, los formularios cargados, el ICA por municipio de la hoja 2 de cada 2593 (con sus actividades), la oportunidad y los pagos efectuados. No lleva hoja de cruce contable mientras esté en construcción.",
+          queHace: "Descarga la revisión en un libro con la vista por períodos, el acumulado, los formularios cargados, el ICA por municipio de la hoja 2 de cada 2593 (con sus actividades), el cruce contable con todos los terceros de cada cuenta y las marcas, la oportunidad y los pagos efectuados. En firme, los resultados son los de la copia congelada.",
           regla: REGLAS.verRevisionImpuestos,
           fuente: { archivo: "src/app/api/impuestos/revisiones/[id]/excel/route.ts", funcion: "GET" },
+        },
+      ],
+    },
+    {
+      titulo: "Cerrar en firme",
+      acciones: [
+        {
+          nombre: "Cerrar en firme",
+          queHace:
+            "Deja la revisión de solo lectura con una copia congelada de sus resultados y bloquea, en el balance del corte, el saldo final y la homologación de las cuentas del cliente homologadas a 135595, 249505 y 2408, enteras, y a las cuentas de ingresos del 39, una por una. La 2408 y las cuentas de ingresos pueden quedar bloqueadas también por el cierre de IVA o del módulo de Ingresos. Se ven en Mapeo cuentas DIAN, pestaña RST.",
+          regla: REGLAS.cerrarConciliacion,
+          condiciones: [
+            "Cada bimestre del corte tiene su 2593 confirmado o la causal de que no hubo formulario.",
+            "Ningún formulario de esos bimestres está por confirmar.",
+            "El cruce contable está disponible y cada diferencia desde el umbral tiene marca.",
+            "Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» de Novedades tiene marca y el total no cambió desde que se marcó.",
+            "Si llegó un ajuste, su 2593 original también está cargado: una marca no lo reemplaza.",
+            "Cada bimestre con diferencia en el pago, con un recibo que paga un 2593 de otro bimestre, con recibos 490 sin 2593 o sin el recibo 490 de sus valores a pagar tiene marca. La falta del recibo no impide cerrar: la marca dice por qué no se tiene.",
+          ],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "cerrarRevisionImpuesto" },
+        },
+        {
+          nombre: "Desbloquear",
+          queHace: "Vuelve a dejar la revisión en proceso y libera las cuentas bloqueadas. La justificación queda en la bitácora.",
+          regla: REGLAS.desbloquearConciliacion,
+          condiciones: ["La revisión está en firme.", "Justificación de al menos 10 caracteres."],
+          fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "desbloquearRevisionImpuesto" },
         },
       ],
     },
@@ -1201,8 +1231,64 @@ export const FICHA_RST_REVISION: FichaAyuda = {
     {
       id: "cruce",
       titulo: "Cruce contable",
-      proposito: "En construcción: todavía no están las cuentas Russell con las que se compara cada valor del recibo 2593. Por eso la revisión no lee el balance ni se puede cerrar en firme.",
-      etapas: [],
+      proposito:
+        "Lo declarado en los 2593 vigentes hasta el corte contra el saldo final del balance del corte, por cuenta Russell, en cuatro secciones sin total general: anticipo SIMPLE (44 contra la 135595), impuesto nacional al consumo (59 contra la 249505), impuesto sobre las ventas (66 contra 240805 + 240815 y 67 contra 240810 + 240820; el 67 resta en el subtotal) e ingresos brutos (39) al final. La contabilidad lleva el signo de la naturaleza de la cuenta en el plan Russell, así que todo queda en positivo. El anticipo, el impuesto al consumo y el IVA se sustentan por tercero: en la 2408 y la 249505 el saldo de la DIAN (el pago del recibo registrado en la misma cuenta) se tacha y no suma; en la 135595 no, porque el anticipo es justamente lo pagado a la DIAN. Si el balance empieza el 1 de enero, se resta del saldo final el saldo inicial de los terceros distintos de la DIAN. Los ingresos se toman por el saldo de la cuenta, sin terceros, y las devoluciones (417505) restan. Los excedentes y saldos a favor no se cruzan: se controlan en Novedades. Abajo se informan, sin impedir el cierre, las otras cuentas de IVA del cliente (homologadas a una 2408 distinta de las genéricas, como 240830) y las cuentas del cliente en 2408 homologadas fuera de IVA. Usa un balance cerrado y vigente que termine el último día del mes de corte, con detalle por tercero y con el prevalidador aprobado; si sirven varios, se escoge cuál. Cada fila con diferencia lleva un «!» en Estado: magenta si exige marca (desde el umbral «Diferencias de impuestos»), gris si es informativa; arriba, un aviso dice cuántas diferencias exigen marca para cerrar, cuántas la tienen y cuánto falta.",
+      etapas: [
+        {
+          titulo: "Escoger el balance",
+          acciones: [
+            {
+              nombre: "Conciliar contra este",
+              queHace:
+                "Cuando sirven varios balances cerrados del corte, lista cada uno con su apertura, su período y su última modificación, y fija contra cuál se concilia la revisión. Mientras nadie escoge, se usa el de modificación más reciente.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["Solo aparece si sirve más de un balance.", "La elección queda en la auditoría.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "escogerBalanceImpuesto" },
+            },
+          ],
+        },
+        {
+          titulo: "Consultar",
+          acciones: [
+            {
+              nombre: "Desplegar una fila",
+              queHace:
+                "Muestra las casillas declaradas que forman la fila y las cuentas del cliente con su saldo. En el anticipo, el impuesto al consumo y el IVA, al desplegar una cuenta se ven sus terceros (NIT, nombre, saldo), con la DIAN tachada donde se resta; las de ingresos dicen «saldo de la cuenta».",
+              regla: REGLAS.verRevisionImpuestos,
+            },
+            {
+              nombre: "Ocultar los renglones en cero",
+              queHace: "Deja solo las filas con valor, con marca o con aviso, y quita la sección que se queda sin filas.",
+              regla: REGLAS.verRevisionImpuestos,
+            },
+            {
+              nombre: "Pantalla completa",
+              queHace: "Abre el cruce en toda la pantalla, con los títulos fijos al desplazarse. Se sale con el mismo botón o con Esc.",
+              regla: REGLAS.verRevisionImpuestos,
+            },
+          ],
+        },
+        {
+          titulo: "Documentar diferencias",
+          acciones: [
+            {
+              nombre: "Marcar una diferencia",
+              queHace:
+                "Explica la diferencia de una fila con una nota y, si se quiere, la referencia del anexo. La marca toma un número del período y guarda la diferencia del momento: si la diferencia cambia, queda desactualizada y la fila vuelve a pedirla. Desde el umbral «Diferencias de impuestos» la marca es obligatoria.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La fila tiene diferencia.", "La explicación tiene al menos 10 caracteres.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "guardarMarcaImpuesto" },
+            },
+            {
+              nombre: "Quitar marca",
+              queHace: "Retira la marca; si la diferencia llega al umbral, la fila vuelve a pedirla.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "quitarMarcaImpuesto" },
+            },
+          ],
+        },
+      ],
     },
     {
       id: "oportunidad",
@@ -1241,11 +1327,23 @@ export const FICHA_RST_REVISION: FichaAyuda = {
       id: "novedades",
       titulo: "Novedades",
       proposito:
-        "Lo que falta resolver en la revisión, agrupado por pestaña (formularios y pagos; el ajuste sin su 2593 original va en formularios) con un acceso a cada una, y los avisos (por ejemplo, un 2593 fuera de la cadena de ajustes). El cierre en firme llegará con el cruce contable.",
+        "Lo que falta para cerrar en firme, agrupado por pestaña (formularios, cruce contable, pagos y saldos restados; el ajuste sin su 2593 original va en formularios) con un acceso a cada una, y los avisos que no impiden cerrar: un 2593 fuera de la cadena de ajustes, un excedente del bimestre anterior (51, 60 o 69) distinto del que dejó el recibo de ese bimestre (57, 65 o 75) y un saldo a favor del año anterior (52 o 68) con valor. Si el cruce resta el saldo inicial, la sección «Saldos restados: NITs con saldo inicial a enero» muestra, NIT por NIT y cuenta por cuenta, lo que se le restó de su saldo final, con el total.",
       etapas: [
         {
           titulo: "Consultar",
           acciones: [{ nombre: "Ir", queHace: "Abre la pestaña donde se resuelve el pendiente.", regla: REGLAS.verRevisionImpuestos }],
+        },
+        {
+          titulo: "Documentar",
+          acciones: [
+            {
+              nombre: "Marcar los saldos restados",
+              queHace: "Explica por qué se les resta a esos NITs el saldo inicial que traían a enero. Es una sola marca para todo lo restado y guarda el total: si cambia, queda desactualizada. Es obligatoria para cerrar.",
+              regla: REGLAS.marcarImpuestos,
+              condiciones: ["El cruce contable resta el saldo inicial.", "La revisión no está en firme."],
+              fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "guardarMarcaImpuesto" },
+            },
+          ],
         },
       ],
     },

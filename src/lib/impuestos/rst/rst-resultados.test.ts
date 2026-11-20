@@ -32,7 +32,8 @@ const B2 = f2593(3, 2, { 28: 870_016_000, 39: 870_016_000, 41: 870_016_000, 42: 
 const periodos = (recibos: (Formulario490 & { periodo: number })[] = [f490(2, 1, B1.numero, "2026-05-20", 178_240_000), f490(4, 2, B2.numero, "2026-06-22", 178_221_000)]) =>
   periodosRevision({ impuesto: "RST", periodicidad: "Bimestral", mesCorte: 4, porConfirmar: [], causales: [], formularios350: [B1, B2], formularios490: recibos });
 
-const EN_CONSTRUCCION = { estado: "bloqueado" as const, mensaje: RST.cruce.mensajeNoDisponible!, balance: null, umbral: 0 };
+// Un cruce que no está listo (sin balance del corte o en construcción).
+const EN_CONSTRUCCION = { estado: "bloqueado" as const, mensaje: "No hay un balance cerrado con corte en abril.", balance: null, umbral: 0 };
 const etq = (p: number) => etiquetaPeriodoRevision("Bimestral", p);
 
 describe("vistas de una revisión de RST", () => {
@@ -130,9 +131,9 @@ describe("Excel de una revisión de RST", () => {
     return fila;
   };
 
-  it("sin hoja de cruce; oportunidad sin presentación; pagos con 76 a 79", () => {
+  it("con hoja de cruce; oportunidad sin presentación; pagos con 76 a 79", () => {
     const wb = hojas();
-    expect(wb.worksheets.map((w) => w.name)).toEqual(["Por períodos", "Acumulado", "Formularios", "Oportunidad", "Pagos efectuados"]);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Por períodos", "Acumulado", "Formularios", "Cruce contable", "Oportunidad", "Pagos efectuados"]);
     expect(encabezados(wb, "Oportunidad")).toEqual(["Período", "Recibo 490", "Autoadhesivo 490", "Fecha de vencimiento", "Fecha de pago 490", "Estado pago 490"]);
     expect(encabezados(wb, "Pagos efectuados")).toEqual([
       "Período", "ICA (76)", "Anticipo SIMPLE (77)", "Impuesto al consumo (78)", "IVA (79)", "Total valores a pagar (76 a 79)",

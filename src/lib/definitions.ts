@@ -422,7 +422,7 @@ export const ActualizarUmbralSchema = z.object({
 // Cuenta Russell de un concepto del 350 o del 300: una o varias de 6 dígitos (separadas con «+»,
 // coma o punto y coma), o vacía para dejarlo sin cuenta. Varias quedan ordenadas y unidas con «+».
 export const CuentaMapeoDianSchema = z.object({
-  formulario: z.enum(["350", "300"], { error: "Formulario inválido." }),
+  formulario: z.enum(["350", "300", "2593"], { error: "Formulario inválido." }),
   concepto: z.string().trim().regex(/^[a-z0-9_]{2,60}$/, { error: "Concepto inválido." }),
   cuenta: z
     .string()

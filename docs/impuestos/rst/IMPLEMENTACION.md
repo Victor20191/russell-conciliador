@@ -28,7 +28,20 @@ Cómo va quedando construido el submódulo, fase por fase. El diseño aprobado e
 - **Excel:** sin hoja de cruce mientras está en construcción; archivo `Anticipos RST <cliente> <año>-<mes>.xlsx`; «Ajusta a» en Formularios.
 - **Ayuda:** la ficha de la revisión de RST tiene las siete pestañas y «Exportar a Excel».
 - **Pruebas:** `src/lib/impuestos/rst/rst-resultados.test.ts` (vistas, oportunidad oportuna y extemporánea, pagos con sus componentes, pendientes sin cruce y encabezados del Excel). Retención e IVA conservan sus pruebas sin cambios.
-- **Pendiente:** cruce contable y cierre en firme cuando existan las cuentas Russell; release minor («Impuestos · Anticipos bimestrales (RST)») cuando el usuario la pida.
+- **Pendiente:** release minor («Impuestos · Anticipos bimestrales (RST)») cuando el usuario la pida. El cruce contable y el cierre en firme llegaron el 19/Nov/2026 (sección siguiente).
+
+## Fase 5 · Cruce contable y cierre en firme (19/Nov/2026, sin commit)
+
+- **Mapeo de fábrica** (`src/lib/impuestos/rst/mapeo-f2593.ts`, `MAPEO_F2593_FABRICA`): 44 → 135595, 59 → 249505, 66 → 240805 + 240815, 67 → 240810 + 240820 (signo «−»: resta en el subtotal del IVA) y 39 → las diecisiete cuentas de `CUENTAS_INGRESOS_F2593` (las de la matriz más 421020, 424515 y 425005, con la 417505). Se siembra en `mapeo_renglon_dian` con la migración `20261119120000_rst_mapeo_2593`, que también agrega la 135595 a `cuenta_russell_dian` sin resta de la DIAN; las dos con `ON CONFLICT DO NOTHING` (solo datos, sin cambio de esquema). `CUENTAS_SIN_RESTA_DIAN_FABRICA` incluye la 135595.
+- **Descriptor `RST`:** `cruce.disponible` y `cierreEnFirme` en verdadero; grupos anticipo (44), consumo (59), IVA (66 − 67, sin renglón total) e ingresos (39, por cuenta); `prefijosTercero` y `gruposEnFirme` = 135595, 2408 y 249505; `prefijosCliente` = 2408; signo por naturaleza y en el subtotal; sin total general. Campo nuevo `cruce.textos` en los tres impuestos (explicación del lado contable en pantalla y en Excel, «fuera del cruce», nota de «Quedan en firme» y la pestaña de Mapeo cuentas DIAN), que reemplaza los textos que la pantalla elegía por clave.
+- **Motor** (`retencion/cruce.ts`): una fila de varias cuentas toma el signo de la naturaleza de la mayoría de sus cuentas, así que la 417505 (débito) resta dentro del 39. Las filas de una sola naturaleza (todas las de Retención e IVA) no cambian.
+- **Controles que no se cruzan** (`periodos-revision.ts`, `controlesEntreRecibos` y `avisosConValor` del descriptor): la 51, la 60 y la 69 de cada bimestre deben ser la 57, la 65 y la 75 del recibo vigente del bimestre anterior (el primer bimestre y el que sigue a uno sin recibo no se comparan); la 52 y la 68 se avisan cuando traen valor. Son avisos del período: salen en Novedades y no impiden cerrar.
+- **Las demás 2408:** las cuentas del cliente homologadas a una 2408 distinta de las genéricas salen en «Otras cuentas de IVA del cliente» (`fueraDelMapeo`), sin sumar, para explicar la diferencia del IVA si se homologaron a las detalladas.
+- **Cierre en firme:** la copia congelada lleva `tipo: "rst"`; deja en firme la 135595, la 249505 y la 2408 enteras y las cuentas de ingresos del 39, una por una (la 2408 y los ingresos también los bloquean IVA e Ingresos).
+- **Mapeo cuentas DIAN:** tercera pestaña «RST · 2593» (`?formulario=2593`); `CuentaMapeoDianSchema` admite el 2593.
+- **Ayuda:** fichas de Mapeo cuentas DIAN y de la revisión de RST (cruce, cierre en firme, Novedades y Excel).
+- **Pruebas:** `rst/rst-cruce.test.ts` (secciones, anticipo sin tachar la DIAN, consumo con la DIAN tachada, IVA contra las genéricas, otras 2408, ingresos con la 417505 restando, umbral, alcance del cierre y controles entre recibos); `impuestos-semillas.test.ts` lee la migración nueva.
+- **Para verlo funcionar** hay que aplicar la migración en la BD (`npm run db:migrate`, con permiso): sin ella el mapeo del 2593 está vacío y el cruce no tiene filas.
 
 ## Hoja 2 del 2593: ICA por municipio (17/Nov/2026, sin commit)
 
@@ -47,4 +60,5 @@ Cómo va quedando construido el submódulo, fase por fase. El diseño aprobado e
 - **Punto 3 (IVA del 2593, decidido el 18/Nov/2026):** sin restricción en la homologación. La 66 se cruza contra 240805 + 240815 y la 67 contra 240810 + 240820, como la matriz; debajo del cruce se listan las demás 2408 del cliente con su saldo (como en el 300), para explicar la diferencia si alguien homologó a las detalladas (240830, 240840…). La ficha de ayuda dirá que en clientes del Régimen Simple el IVA se homologa a las genéricas. En el 300 anual de esos clientes no cambia nada: la 240805 y la 240810 ya salen en «otras cuentas».
 - **Punto 4 (ingresos brutos, 39, decidido el 18/Nov/2026):** a la lista de la matriz se agregan 421020 (Ingreso por diferencia en cambio), 424515 (en el plan «Utilidad en venta de PPE»; el equipo la toma como el ingreso por la venta) y 425005 (Recuperaciones).
 - **Punto 5 (impuesto al consumo, decidido el 18/Nov/2026):** la 249505 se renombró en el plan Russell a «Impuesto nacional al consumo» y solo recibe ese impuesto; el renglón 59 se cruza contra ella, como dice la matriz.
-- **Pendiente:** la 52 y la 68 (saldos a favor del año anterior).
+- **Pagos a la DIAN en las cuentas (decidido el 19/Nov/2026):** en la 2408 y la 249505 el pago del 2593 se registra con la DIAN como tercero; su saldo se muestra tachado y no suma, y con balance desde el 1 de enero se resta el saldo inicial, igual que en Retención e IVA. En la 135595 la DIAN NO se tacha: el anticipo es justamente lo pagado a la DIAN y tacharlo dejaría la cuenta en cero.
+- **52 y 68 (decidido el 19/Nov/2026):** quedan de control, con un aviso que no bloquea cuando traen valor.

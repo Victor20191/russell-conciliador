@@ -15,8 +15,8 @@ Fuentes: `Formulario_2593_2024.pdf` (formulario e instructivo de las dos hojas, 
 3. **Solo clientes del Régimen Simple.** «Nueva revisión» pregunta el cliente; si su ficha dice No, pide confirmar que sí pertenece al régimen y, al confirmar, la ficha queda en Sí (bitácora «MARCÓ RÉGIMEN SIMPLE DEL CLIENTE»).
 4. **Validación central:** 76 (ICA) + 77 (anticipo SIMPLE) + 78 (impuesto al consumo) + 79 (IVA) del 2593 = casilla 36 del 490 concepto 27 (Pagos efectuados; una diferencia exige marca).
 5. **Oportunidad = fecha de pago:** el sello (997) del 490 concepto 27 contra el calendario «RST – Anticipo bimestral». El 2593 no trae sello de presentación.
-6. **Cruce contable en construcción:** faltan las cuentas Russell. La pestaña existe y lo dice.
-7. **Sin cierre en firme** hasta que exista el cruce. Novedades muestra lo pendiente.
+6. **Cruce contable** (decidido el 18 y el 19/Nov/2026): 44 contra 135595, 59 contra 249505, 66 y 67 contra las cuentas genéricas de IVA y 39 contra los ingresos; los excedentes y saldos a favor quedan de control. Detalle en `IMPLEMENTACION.md`.
+7. **Cierre en firme** con el cruce, como Retención e IVA.
 8. Vistas «Por períodos» y «Acumulado», y «Pagos efectuados», como en IVA y Retención.
 
 ## Supuestos sobre los ajustes (del instructivo; no hay recibos de ajuste reales)
@@ -44,4 +44,4 @@ Tercer descriptor `RST` en `src/lib/impuestos/impuestos-dian.ts` sobre el mismo 
 
 ## Fuera de alcance
 
-Cruce contable y mapeo del 2593 (faltan las cuentas Russell), cierre en firme, hoja 2 del 2593 (ICA por municipio), hoja 2 del 490 (desglose por concepto) y la columna del Régimen Simple en «Importar desde Excel» de clientes.
+Hoja 2 del 490 (desglose por concepto) y la columna del Régimen Simple en «Importar desde Excel» de clientes.

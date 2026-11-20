@@ -15,7 +15,7 @@ import type { PeriodoRevision } from "./periodos-revision";
 
 export type CopiaRetencionV1 = {
   /** El `slug` del impuesto: «retencion» o «iva». */
-  tipo: "retencion" | "iva";
+  tipo: "retencion" | "iva" | "rst";
   version: 1;
   tomadaEn: string;
   periodos: PeriodoRevision[];

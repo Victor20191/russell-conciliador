@@ -255,7 +255,7 @@ describe("calendario «RST – Anticipo bimestral» 2026", () => {
 });
 
 describe("descriptor de RST", () => {
-  it("es el tercer impuesto: 2593, bimestral, concepto 27, sin presentación, sin cruce ni cierre por ahora", () => {
+  it("es el tercer impuesto: 2593, bimestral, concepto 27, sin presentación, con cruce y cierre en firme", () => {
     expect(impuestoPorSlug("rst")).toBe(RST);
     expect(impuestoPorDeclaracion("2593")).toBe(RST);
     expect(RST.periodicidades).toEqual(["Bimestral"]);
@@ -264,7 +264,7 @@ describe("descriptor de RST", () => {
     expect(midePresentacion(RST)).toBe(false);
     expect(midePresentacion(IVA)).toBe(true);
     expect(RST.requiereRegimenSimple && RST.claveFormularioCliente === null).toBe(true);
-    expect(RST.cruce.disponible || RST.cierreEnFirme).toBe(false);
+    expect(RST.cruce.disponible && RST.cierreEnFirme).toBe(true);
     expect(nombreCorte(RST, 4)).toBe("Precierre · abril");
     expect(nombreCorte(RST, 12)).toBe("Cierre · diciembre");
   });

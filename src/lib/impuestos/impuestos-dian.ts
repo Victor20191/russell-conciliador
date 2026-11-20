@@ -5,6 +5,7 @@ import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "./formularios/f350";
 import { NOMBRES_MES, type FormularioCalendario } from "./calendario";
 import type { Periodicidad } from "./periodicidad";
 import { TABS_REVISION_IMPUESTO, type TabRevisionImpuesto } from "./pestanas-revision";
+import { SECCIONES_MAPEO_F2593 } from "./rst/mapeo-f2593";
 
 /**
  * Impuestos · DIAN: un descriptor por impuesto (puro, se puede importar desde el cliente).
@@ -79,6 +80,13 @@ export type ImpuestoDian = {
    * de la periodicidad. `corta` nombra la columna en el Excel («Recibo 61», «Recibo 490»).
    */
   columnasPago: readonly { id: string; conceptos: readonly string[]; titulo: string; subtitulo?: string; corta: string }[];
+  /**
+   * Controles entre recibos consecutivos (RST): el renglón de un período debe ser igual al `anterior`
+   * del período anterior (la 51 = la 57 del bimestre anterior). Si no, aviso del período; no bloquea.
+   */
+  controlesEntreRecibos?: readonly { renglon: number; anterior: number; etiqueta: string }[];
+  /** Renglones que no se cruzan y se avisan cuando traen valor (RST: 52 y 68, saldos del año anterior). */
+  avisosConValor?: readonly { renglon: number; texto: string }[];
   /** Las pestañas de la revisión que ya están disponibles para el impuesto. */
   pestanas: readonly TabRevisionImpuesto[];
   /** La revisión se puede cerrar en firme (RST todavía no: llega con su cruce contable). */
@@ -105,8 +113,8 @@ export type ImpuestoDian = {
   calendario: (periodicidad: string, anio: number) => { formulario: FormularioCalendario; anio: number } | null;
   cruce: {
     /**
-     * El cruce contable se calcula. RST todavía no: faltan las cuentas Russell con que se compara, y la
-     * pestaña dice que está en construcción (`mensajeNoDisponible`).
+     * El cruce contable se calcula. Si no, la pestaña dice que está en construcción
+     * (`mensajeNoDisponible`) y no se lee el balance.
      */
     disponible: boolean;
     mensajeNoDisponible?: string;
@@ -128,8 +136,26 @@ export type ImpuestoDian = {
      */
     signoEnSubtotal: boolean;
     conTotalGeneral: boolean;
-    /** El lado contable sigue la naturaleza del plan Russell (C → −saldo, D → +saldo); si no, pasivo en positivo. */
+    /**
+     * El lado contable sigue la naturaleza del plan Russell (C → −saldo, D → +saldo); si no, pasivo en
+     * positivo. Una fila de varias cuentas toma la naturaleza de la mayoría: una cuenta de naturaleza
+     * contraria resta dentro de la fila (la 417505 en el 39 del 2593).
+     */
     signoPorNaturaleza: boolean;
+    textos: {
+      /** Cómo se lee el lado contable, en la pantalla del cruce. */
+      contabilidad: string;
+      /** Lo mismo, corto, para el Excel. */
+      contabilidadExcel: string;
+      /** Las cuentas Russell de los prefijos por tercero que no están en el mapeo. */
+      fueraDelMapeo: { titulo: string; explicacion: string };
+      /** «retención», «IVA»: «homologadas fuera de …». */
+      fueraDe: string;
+      /** Nota de «Quedan en firme al cerrar» en Mapeo cuentas DIAN. */
+      notaEnFirme: string;
+      /** La pestaña del formulario en Mapeo cuentas DIAN. */
+      mapeo: { pestana: string; titulo: string; explicacion: string; terceroDian: string };
+    };
   };
 };
 
@@ -181,6 +207,22 @@ export const RETENCION: ImpuestoDian = {
     signoEnSubtotal: false,
     conTotalGeneral: true,
     signoPorNaturaleza: false,
+    textos: {
+      contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma.",
+      contabilidadExcel: "Contabilidad = saldo final al corte, en positivo; los terceros DIAN de las cuentas que lo indican no suman.",
+      fueraDelMapeo: {
+        titulo: "Cuentas de retención fuera del cruce",
+        explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce.",
+      },
+      fueraDe: "retención",
+      notaEnFirme: "La 2365 y la 2367 quedan enteras, fijas en el sistema: también las cuentas que el cruce no concilia, como la de pagos de retención (236599).",
+      mapeo: {
+        pestana: "Retención en la fuente · 350",
+        titulo: "Conceptos del formulario 350",
+        explicacion: "Cada concepto suma sus dos columnas, persona jurídica y natural, y se compara con el saldo final de su cuenta en el balance por terceros.",
+        terceroDian: "Muchos clientes contabilizan los pagos a la DIAN en las mismas cuentas de retención. En las cuentas marcadas, el saldo de los terceros DIAN se muestra tachado y se resta del saldo que se concilia. En las autorretenciones no se resta: sus movimientos con la DIAN son la autorretención misma.",
+      },
+    },
   },
 };
 
@@ -246,14 +288,31 @@ export const IVA: ImpuestoDian = {
     signoEnSubtotal: true,
     conTotalGeneral: false,
     signoPorNaturaleza: true,
+    textos: {
+      contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el IVA generado y los ingresos (crédito) y el IVA descontable, la retención de IVA y las devoluciones (débito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros. En las cuentas de IVA y de retención de IVA, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma. Las devoluciones (42) y el ajuste de descontables (80) restan en el subtotal de su sección.",
+      contabilidadExcel: "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos, por el saldo de la cuenta; los terceros DIAN de las cuentas que lo indican no suman; 42 y 80 restan en el subtotal.",
+      fueraDelMapeo: {
+        titulo: "Cuentas de IVA fuera del cruce",
+        explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2408 o a la 135517 que no está en el mapeo del 300 (por ejemplo 240899 «IVA saldo a pagar / pagos de IVA»). Se informan y no suman al cruce.",
+      },
+      fueraDe: "IVA",
+      notaEnFirme: "La 2408 y la 135517 quedan enteras, fijas en el sistema; las cuentas de ingresos, una por una: las de los renglones de arriba.",
+      mapeo: {
+        pestana: "IVA · 300",
+        titulo: "Renglones del formulario 300",
+        explicacion: "Cada renglón con saldo se compara con el saldo final de su cuenta Russell. Un renglón puede ir contra varias cuentas (sepáralas con +) y varios renglones contra la misma cuenta: en el cruce se agrupan en una fila. Las compras (44 a 57) no se concilian.",
+        terceroDian: "Muchos clientes contabilizan los pagos a la DIAN en las mismas cuentas de IVA. En las cuentas marcadas, el saldo de los terceros DIAN se muestra tachado y se resta del saldo que se concilia. Las cuentas de ingresos no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros.",
+      },
+    },
   },
 };
 
 /**
  * Anticipos bimestrales del Régimen Simple de Tributación: el recibo electrónico 2593 y su 490
  * concepto 27, que paga 76 + 77 + 78 + 79. Siempre bimestral; solo para clientes con «Régimen Simple
- * de Tributación» en Sí. Oportunidad mide el pago (el 2593 no trae sello de presentación). Sin cruce
- * contable (faltan las cuentas Russell) ni cierre en firme, por ahora.
+ * de Tributación» en Sí. Oportunidad mide el pago (el 2593 no trae sello de presentación). El cruce
+ * contable compara cinco casillas (44, 59, 66, 67 y 39; ver `rst/mapeo-f2593.ts`); los excedentes y
+ * saldos a favor quedan de control: entre recibos y con aviso.
  */
 export const RST: ImpuestoDian = {
   clave: "RST",
@@ -275,9 +334,17 @@ export const RST: ImpuestoDian = {
   ],
   etiquetasPago: { impuesto: "Valores a pagar", sanciones: "Sanciones", total: "Total valores a pagar" },
   columnasPago: [{ id: "490", conceptos: ["27"], titulo: "Pago · Formulario 490 · Concepto 27", corta: "490" }],
-  // El cruce contable aparece «en construcción» hasta que existan las cuentas Russell.
+  controlesEntreRecibos: [
+    { renglon: 51, anterior: 57, etiqueta: "excedente del anticipo SIMPLE" },
+    { renglon: 60, anterior: 65, etiqueta: "excedente del impuesto al consumo" },
+    { renglon: 69, anterior: 75, etiqueta: "excedente de IVA" },
+  ],
+  avisosConValor: [
+    { renglon: 52, texto: "saldo a favor del SIMPLE de la declaración del año anterior" },
+    { renglon: 68, texto: "saldo a favor de la declaración de IVA del año anterior" },
+  ],
   pestanas: TABS_REVISION_IMPUESTO,
-  cierreEnFirme: false,
+  cierreEnFirme: true,
   textos: {
     totalPeriodo: { etiqueta: "Total valores a pagar", renglon: RENGLON_TOTAL_F2593 },
     subtituloLista:
@@ -292,15 +359,35 @@ export const RST: ImpuestoDian = {
   precierreConMes: true,
   calendario: (periodicidad, anio) => (periodicidad === "Bimestral" ? { formulario: "RST_ANTICIPO", anio } : null),
   cruce: {
-    disponible: false,
-    mensajeNoDisponible: "En construcción: faltan las cuentas Russell con las que se compara cada valor del recibo 2593.",
-    grupos: [],
-    prefijosTercero: [],
-    prefijosCliente: [],
-    gruposEnFirme: [],
-    signoEnSubtotal: false,
+    disponible: true,
+    grupos: [
+      { grupo: "anticipo", etiqueta: "Anticipo SIMPLE (44)", secciones: [SECCIONES_MAPEO_F2593.anticipo], porTercero: true, renglonTotal: 44 },
+      { grupo: "consumo", etiqueta: "Impuesto nacional al consumo (59)", secciones: [SECCIONES_MAPEO_F2593.consumo], porTercero: true, renglonTotal: 59 },
+      { grupo: "iva", etiqueta: "Impuesto sobre las ventas (66 − 67)", secciones: [SECCIONES_MAPEO_F2593.iva], porTercero: true, renglonTotal: null },
+      { grupo: "ingresos", etiqueta: "Ingresos brutos (39)", secciones: [SECCIONES_MAPEO_F2593.ingresos], porTercero: false, renglonTotal: 39 },
+    ],
+    prefijosTercero: ["135595", "2408", "249505"],
+    prefijosCliente: ["2408"],
+    gruposEnFirme: ["135595", "2408", "249505"],
+    signoEnSubtotal: true,
     conTotalGeneral: false,
-    signoPorNaturaleza: false,
+    signoPorNaturaleza: true,
+    textos: {
+      contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el anticipo (135595) y el IVA descontable (débito), y el impuesto al consumo, el IVA generado y los ingresos (crédito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros, y las devoluciones (417505) restan. En la 2408 y la 249505, el saldo de la DIAN (el pago del recibo registrado en la misma cuenta) se muestra tachado y no suma; en la 135595 no, porque el anticipo es lo pagado a la DIAN. El 67 resta en el subtotal del IVA. Los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) no se cruzan: se controlan en Novedades.",
+      contabilidadExcel: "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos, por el saldo de la cuenta (la 417505 resta); la DIAN no suma en la 2408 ni en la 249505 (sí en la 135595); el 67 resta en el subtotal del IVA.",
+      fueraDelMapeo: {
+        titulo: "Otras cuentas de IVA del cliente",
+        explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2408 distinta de las genéricas del recibo (240805, 240810, 240815 y 240820), por ejemplo 240830 o 240840. En un cliente del Régimen Simple el IVA se homologa a las genéricas: si su saldo explica la diferencia del IVA, revisa la homologación. Se informan y no suman al cruce.",
+      },
+      fueraDe: "IVA",
+      notaEnFirme: "La 135595, la 249505 y la 2408 quedan enteras, fijas en el sistema; las cuentas de ingresos del 39, una por una.",
+      mapeo: {
+        pestana: "RST · 2593",
+        titulo: "Casillas del recibo 2593",
+        explicacion: "Solo estas casillas se comparan con el saldo final de su cuenta Russell; los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) se controlan entre recibos. Una casilla puede ir contra varias cuentas (sepáralas con +): en el 39, la 417505 (devoluciones) resta por su naturaleza débito. El 67 resta en el subtotal del IVA. En los clientes del Régimen Simple el IVA se homologa a las cuentas genéricas (240805, 240810, 240815 y 240820).",
+        terceroDian: "El pago del recibo 2593 suele quedar en las mismas cuentas con la DIAN como tercero. En las cuentas marcadas (2408 y 249505), su saldo se muestra tachado y no suma. En la 135595 no se resta: el anticipo es justamente lo pagado a la DIAN. Las cuentas de ingresos no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros.",
+      },
+    },
   },
 };
 

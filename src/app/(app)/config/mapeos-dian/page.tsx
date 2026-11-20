@@ -7,7 +7,8 @@ import QuedanEnFirme from "../quedan-en-firme";
 
 /**
  * Mapeo cuentas DIAN (`/config/mapeos-dian`; antes «Mapeos DIAN»): el «Filtros de cuentas» de los
- * impuestos DIAN. Una pestaña por formulario —350 (Retención en la fuente) y 300 (IVA)— con la cuenta
+ * impuestos DIAN. Una pestaña por formulario —350 (Retención en la fuente), 300 (IVA) y 2593 (anticipo
+ * del Régimen Simple)— con la cuenta
  * Russell de cada renglón y, al final, lo que deja en firme el cierre de una revisión de ese impuesto
  * (`alcanceCierreImpuesto`: sus grupos enteros y las demás cuentas del cruce).
  */
@@ -16,14 +17,13 @@ export default async function MapeosDianPage({ searchParams }: { searchParams: P
   // administradores con `impuestos:configurar`.
   await requirePermiso("impuestos:ver");
   const { formulario: pedido } = await searchParams;
-  const formulario = pedido === "300" ? "300" : "350";
+  const formulario = pedido === "300" || pedido === "2593" ? pedido : "350";
   const [vista, puedeEditar] = await Promise.all([
     cargarMapeoDian(formulario),
     authorizePermiso("impuestos:configurar").then((r) => r.ok),
   ]);
   const impuesto = impuestoPorDeclaracion(formulario) ?? RETENCION;
   const cuentasDelCruce = vista.filas.filter((f) => f.enCruce).flatMap((f) => f.cuentasRussell.map((c) => c.cuenta));
-  const esRetencion = impuesto.clave === RETENCION.clave;
 
   return (
     <div>
@@ -43,11 +43,7 @@ export default async function MapeosDianPage({ searchParams }: { searchParams: P
               mes no puede cambiarlas ni traer otra cuenta con saldo homologada a ellas.
             </>
           }
-          nota={
-            esRetencion
-              ? "La 2365 y la 2367 quedan enteras, fijas en el sistema: también las cuentas que el cruce no concilia, como la de pagos de retención (236599)."
-              : "La 2408 y la 135517 quedan enteras, fijas en el sistema; las cuentas de ingresos, una por una: las de los renglones de arriba."
-          }
+          nota={impuesto.cruce.textos.notaEnFirme}
         />
       </div>
     </div>

@@ -192,7 +192,7 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
   const impuesto = impuestoPorClave(e.impuesto) ?? RETENCION;
   const conceptos = conceptosPagoDe(impuesto, e.periodicidad);
   const codigosConcepto = new Set(conceptos.map((c) => c.concepto));
-  return periodosEsperados(e.periodicidad, e.mesCorte).map(({ periodo, mesFin }) => {
+  const periodos = periodosEsperados(e.periodicidad, e.mesCorte).map(({ periodo, mesFin }): PeriodoRevision => {
     const cadena = cadenaCorrecciones(e.formularios350.filter((f) => f.periodo === periodo));
     const causal = e.causales.find((c) => c.periodo === periodo)?.causal ?? null;
     const pendientes = e.porConfirmar.filter((f) => f.periodo === periodo);
@@ -238,6 +238,37 @@ export function periodosRevision(e: EntradaPeriodos): PeriodoRevision[] {
           ? "por_confirmar"
           : "falta_350";
     return { periodo, mesFin, estado, cadena, causal: cadena.vigente ? null : causal, porConfirmar, porConfirmar350, recibosSinConcepto, pagos, pagosFaltantes, recibosDeOtro350, avisos };
+  });
+  agregarControlesDeValores(impuesto, periodos);
+  return periodos;
+}
+
+const pesosAviso = (n: number) => `$ ${n.toLocaleString("es-CO", { maximumFractionDigits: 2 })}`;
+
+/**
+ * Los controles del RST que no se cruzan con la contabilidad, como avisos del período (no bloquean):
+ * cada excedente que el recibo trae del bimestre anterior (51, 60, 69) debe ser el que dejó el recibo
+ * vigente de ese bimestre (57, 65, 75), y los saldos a favor del año anterior (52, 68) se avisan cuando
+ * traen valor, para revisarlos contra la declaración anual. El primer bimestre no tiene anterior en la
+ * revisión: su excedente viene del año pasado y no se compara.
+ */
+function agregarControlesDeValores(impuesto: Pick<ImpuestoDian, "controlesEntreRecibos" | "avisosConValor">, periodos: PeriodoRevision[]): void {
+  periodos.forEach((p, i) => {
+    const vigente = p.cadena.vigente;
+    if (!vigente) return;
+    const anterior = i > 0 && periodos[i - 1].periodo === p.periodo - 1 ? periodos[i - 1].cadena.vigente : null;
+    for (const c of impuesto.controlesEntreRecibos ?? []) {
+      if (!anterior) continue;
+      const actual = vigente.valores[c.renglon] ?? 0;
+      const previo = anterior.valores[c.anterior] ?? 0;
+      if (Math.round(actual * 100) !== Math.round(previo * 100)) {
+        p.avisos.push(`El ${c.renglon} (${c.etiqueta} del bimestre anterior) es ${pesosAviso(actual)} y el ${c.anterior} del recibo del bimestre anterior fue ${pesosAviso(previo)}.`);
+      }
+    }
+    for (const a of impuesto.avisosConValor ?? []) {
+      const valor = vigente.valores[a.renglon] ?? 0;
+      if (valor !== 0) p.avisos.push(`El ${a.renglon} trae ${pesosAviso(valor)} de ${a.texto}: no se cruza con la contabilidad; revísalo contra esa declaración.`);
+    }
   });
 }
 

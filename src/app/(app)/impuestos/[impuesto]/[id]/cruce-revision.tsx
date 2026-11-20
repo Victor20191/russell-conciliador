@@ -149,9 +149,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
           Balance del corte: <span className="font-semibold text-navy-800">{balance.descripcion}</span> · del {fecha(balance.periodoInicio)} al {fecha(balance.periodoFin)}
         </span>
         <p className="text-[11.5px] text-ink-500">
-          {impuesto.cruce.signoPorNaturaleza
-            ? "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el IVA generado y los ingresos (crédito) y el IVA descontable, la retención de IVA y las devoluciones (débito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros. En las cuentas de IVA y de retención de IVA, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma. Las devoluciones (42) y el ajuste de descontables (80) restan en el subtotal de su sección."
-            : "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, en positivo (son pasivos). En las cuentas que lo indican, el saldo de la DIAN (los pagos registrados en la misma cuenta) se muestra tachado y no suma."}{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
+          {impuesto.cruce.textos.contabilidad}{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
         {!inicioEnero && (
           <FranjaAviso tono="warn">
@@ -560,15 +558,11 @@ function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; 
 }
 
 function FueraDelMapeo({ filas, impuesto }: { filas: ResultadoCrucePantalla["fueraDelMapeo"]; impuesto: ImpuestoDian }) {
-  const iva = impuesto.clave === "IVA";
+  const textos = impuesto.cruce.textos.fueraDelMapeo;
   return (
     <Card className="p-4 text-[12.5px]">
-      <h3 className="text-[12.5px] font-semibold text-navy-800">{iva ? "Cuentas de IVA fuera del cruce" : "Cuentas de retención fuera del cruce"}</h3>
-      <p className="mt-0.5 text-[11.5px] text-ink-500">
-        {iva
-          ? "Cuentas del cliente homologadas a una cuenta Russell de 2408 o a la 135517 que no está en el mapeo del 300 (por ejemplo 240899 «IVA saldo a pagar / pagos de IVA»). Se informan y no suman al cruce."
-          : "Cuentas del cliente homologadas a una cuenta Russell de 2365 o 2367 que no está en el mapeo del 350 (por ejemplo 236599 «Pago de retención en la fuente»). Se informan y no suman al cruce."}
-      </p>
+      <h3 className="text-[12.5px] font-semibold text-navy-800">{textos.titulo}</h3>
+      <p className="mt-0.5 text-[11.5px] text-ink-500">{textos.explicacion}</p>
       <table className="mt-2 text-[12px]">
         <tbody>
           {filas.map((f) => (
@@ -586,7 +580,7 @@ function FueraDelMapeo({ filas, impuesto }: { filas: ResultadoCrucePantalla["fue
 
 function FueraDeRetencion({ filas, impuesto }: { filas: CuentaFueraDeRetencion[]; impuesto: ImpuestoDian }) {
   const prefijos = impuesto.cruce.prefijosCliente.join(" o ");
-  const de = impuesto.clave === "IVA" ? "IVA" : "retención";
+  const de = impuesto.cruce.textos.fueraDe;
   return (
     <Card className="p-4 text-[12.5px]">
       <h3 className="text-[12.5px] font-semibold text-navy-800">Cuentas del cliente en {prefijos} homologadas fuera de {de}</h3>

@@ -111,7 +111,7 @@ export async function cargarResultadosRevision(revision: RevisionVista): Promise
     where: { clienteId_moduloCodigo_periodo: { clienteId: revision.clienteId, moduloCodigo: impuesto.clave, periodo: revision.periodo } },
     include: { _count: { select: { cuentas: true } } },
   });
-  const copia = fila?.estado === ESTADO_CIERRE_FIRME ? leerCopiaRetencion(fila.copiaCongelada, impuesto.slug === "iva" ? "iva" : "retencion") : null;
+  const copia = fila?.estado === ESTADO_CIERRE_FIRME ? leerCopiaRetencion(fila.copiaCongelada, impuesto.slug) : null;
   const cierre: CierreRetencionVista | null = fila
     ? {
         id: fila.id,

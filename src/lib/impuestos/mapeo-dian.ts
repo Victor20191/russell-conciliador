@@ -86,8 +86,9 @@ export const MAPEO_F350_FABRICA: readonly FilaMapeoDian[] = [
 ].map((fila, i) => ({ ...fila, orden: (i + 1) * 10 }));
 
 /** Cuentas Russell en las que NO se resta el tercero DIAN: sus movimientos con la DIAN son la
- *  autorretención misma. Cualquier otra cuenta lo resta salvo que «Mapeo cuentas DIAN» diga otra cosa. */
-export const CUENTAS_SIN_RESTA_DIAN_FABRICA: readonly string[] = ["236575"];
+ *  autorretención misma (236575) o el anticipo del Régimen Simple pagado a la DIAN (135595). Cualquier
+ *  otra cuenta lo resta salvo que «Mapeo cuentas DIAN» diga otra cosa. */
+export const CUENTAS_SIN_RESTA_DIAN_FABRICA: readonly string[] = ["236575", "135595"];
 
 export type TerceroDian = { nit: string; etiqueta: string };
 
