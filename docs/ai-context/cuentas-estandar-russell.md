@@ -1,6 +1,6 @@
 # Cuenta estandar Russell Bedford - contexto para modelos de IA
 
-Generado desde la tabla PostgreSQL `cuentas_estandar` el 2026-06-20T02:23:48.571Z.
+Generado desde la tabla PostgreSQL `cuentas_estandar` el 2026-11-19T19:08:47.434-05:00.
 
 Este documento describe la estructura semantica del plan estandar Russell Bedford y enumera todas las cuentas cargadas en base de datos. Su proposito es servir como contexto de recuperacion para modelos de inteligencia artificial que comparen cuentas de clientes contra el plan estandar Russell.
 
@@ -9,7 +9,7 @@ Este documento describe la estructura semantica del plan estandar Russell Bedfor
 - Tabla fisica: `cuentas_estandar`.
 - Modelo Prisma: `StandardAccount`.
 - Consumo actual en la app: `src/app/(app)/balance/page.tsx` consulta `prisma.standardAccount.findMany(...)`.
-- Cantidad de cuentas cargadas: `346`.
+- Cantidad de cuentas cargadas: `470`.
 - Este archivo es documentacion derivada. El runtime de la app debe seguir consumiendo la base de datos.
 
 ## Que informacion contiene la tabla
@@ -49,25 +49,25 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 | Clase | Nombre | Cuentas |
 |---|---|---:|
-| 1 | Activo | 114 |
-| 2 | Pasivo | 98 |
+| 1 | Activo | 122 |
+| 2 | Pasivo | 126 |
 | 3 | Patrimonio | 16 |
-| 4 | Ingresos | 18 |
-| 5 | Gastos | 65 |
+| 4 | Ingresos | 19 |
+| 5 | Gastos | 104 |
 | 6 | Costos de ventas | 15 |
-| 7 | Costos de produccion | 12 |
+| 7 | Costos de produccion | 60 |
 | 8 | Cuentas de orden deudoras | 4 |
 | 9 | Cuentas de orden acreedoras | 4 |
 
 ## Indice rapido
 
-- [Clase 1 - Activo](#clase-1-activo) (114 cuentas)
-- [Clase 2 - Pasivo](#clase-2-pasivo) (98 cuentas)
+- [Clase 1 - Activo](#clase-1-activo) (122 cuentas)
+- [Clase 2 - Pasivo](#clase-2-pasivo) (126 cuentas)
 - [Clase 3 - Patrimonio](#clase-3-patrimonio) (16 cuentas)
-- [Clase 4 - Ingresos](#clase-4-ingresos) (18 cuentas)
-- [Clase 5 - Gastos](#clase-5-gastos) (65 cuentas)
+- [Clase 4 - Ingresos](#clase-4-ingresos) (19 cuentas)
+- [Clase 5 - Gastos](#clase-5-gastos) (104 cuentas)
 - [Clase 6 - Costos de ventas](#clase-6-costos-de-ventas) (15 cuentas)
-- [Clase 7 - Costos de produccion](#clase-7-costos-de-produccion) (12 cuentas)
+- [Clase 7 - Costos de produccion](#clase-7-costos-de-produccion) (60 cuentas)
 - [Clase 8 - Cuentas de orden deudoras](#clase-8-cuentas-de-orden-deudoras) (4 cuentas)
 - [Clase 9 - Cuentas de orden acreedoras](#clase-9-cuentas-de-orden-acreedoras) (4 cuentas)
 
@@ -267,6 +267,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Medir a TRM de cierre (NIC 21). Verificar legalización y registro cambiario. Diferencia en cambio a resultados.
 
+### 119005 - Partidas conciliatorias
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `119005` |
+| Nombre | Partidas conciliatorias |
+| Cuenta Russell / 4D | Partidas conciliatorias |
+| Tipo de rubro | Activo corriente / Disponible – cuenta puente o contra-activo de conciliación |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1190` |
+| Critica | si |
+
+**Que incluye:** Partidas temporales de conciliación bancaria con efecto crédito: registros pendientes, diferencias por identificar, partidas de bancos no contabilizadas o ajustes transitorios autorizados
+
+**Que no incluye:** Gastos bancarios definitivos, ingresos financieros, pagos reales a terceros, errores permanentes, ajustes sin soporte o partidas antiguas sin depuración
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** 1110 Bancos, 1120 Cuentas de ahorro, 1115 Remesas en tránsito, 1190 cuenta puente interna
+
+**Soportes o terceros esperados:** Extracto bancario, certificación bancaria, comprobantes de consignación, transferencias, soportes de pagos, reporte del banco
+
+**Soportes de control recomendados:** Conciliación bancaria mensual, matriz de partidas conciliatorias, antigüedad de partidas, responsable asignado, evidencia de depuración
+
+**Observaciones de homologacion:** Usar solo como cuenta temporal de control. Debe cerrarse o reclasificarse contra la cuenta real una vez identificada la partida. Recomiendo política de depuración máxima de 30 a 60 días.
+
 ### 120595 - Inversiones patrimoniales - acciones
 
 | Atributo | Valor |
@@ -459,6 +483,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Medir a TRM de cierre (NIC 21) y analizar el subyacente (NIIF 9). Diferencia en cambio a resultados. Verificar valoración del derecho.
 
+### 125005 - Otras inversiones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `125005` |
+| Nombre | Otras inversiones |
+| Cuenta Russell / 4D | Otras Inversiones |
+| Tipo de rubro | Inversiones |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `1250` |
+| Critica | no |
+
+**Que incluye:** Caja, bancos o equivalentes de efectivo. CDT, bonos, TES, acciones, derechos fiduciarios o inversiones que tengan cuenta específica. Anticipos, préstamos a terceros, cuentas por cobrar comerciales o depósitos en garantía.
+
+**Que no incluye:** Caja, bancos o equivalentes de efectivo. CDT, bonos, TES, acciones, derechos fiduciarios o inversiones que tengan cuenta específica. Anticipos, préstamos a terceros, cuentas por cobrar comerciales o depósitos en garantía.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otras inversiones, inversiones varias, inversiones no clasificadas, inversiones temporales, inversiones menores, instrumentos financieros no detallados, portafolio no clasificado, inversiones especiales.
+
+**Soportes o terceros esperados:** Contrato o título de inversión, certificado de la entidad emisora, extracto, soporte de adquisición, valoración, confirmación del tercero o entidad financiera.
+
+**Soportes de control recomendados:** Tercero/emisor, tipo de inversión, fecha de adquisición, vencimiento, tasa o rendimiento, valor nominal, valor razonable o costo amortizado, restricción si aplica.
+
+**Observaciones de homologacion:** Usar como cuenta residual únicamente cuando la inversión no tenga una subcuenta específica. Validar medición bajo NIIF 9: costo amortizado, valor razonable con cambios en resultados o valor razonable con cambios en ORI, según modelo de negocio y características del instrumento. Clasificar como corriente o no corriente según vencimiento o intención de realización. Evitar usarla como “bolsa” para partidas sin soporte o cuentas por cobrar.
+
 ### 129905 - Deterioro de inversiones
 
 | Atributo | Valor |
@@ -467,7 +515,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de inversiones |
 | Cuenta Russell / 4D | Deterioro / provisión inversiones |
 | Tipo de rubro | Inversiones (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1299` |
 | Critica | no |
 
@@ -1427,7 +1475,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de clientes |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1451,7 +1499,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro cuentas por cobrar a vinculados económicos |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1475,7 +1523,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro cuentas por cobrar a socios y accionistas |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1499,7 +1547,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de anticipos y avances |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1523,7 +1571,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de ingresos por cobrar |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1547,7 +1595,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de otros deudores |
 | Cuenta Russell / 4D | Deterioro / provisiones de deudores |
 | Tipo de rubro | Deudores (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1399` |
 | Critica | no |
 
@@ -1763,7 +1811,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro por obsolescencia de inventarios |
 | Cuenta Russell / 4D | Deterioro / provisiones de inventarios |
 | Tipo de rubro | Inventarios (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1499` |
 | Critica | no |
 
@@ -1811,7 +1859,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro por pérdidas de inventarios |
 | Cuenta Russell / 4D | Deterioro / provisiones de inventarios |
 | Tipo de rubro | Inventarios (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1499` |
 | Critica | no |
 
@@ -2187,29 +2235,173 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Reconocer según Incoterm. No se deprecia. Al recibir y matricular, reclasificar a 1540. Distinguir de inventario en tránsito.
 
-### 159205 - Depreciación acumulada de propiedades, planta y equipo
+### 159205 - Depreciación acumulada de contrucciones y edificaciones
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `159205` |
-| Nombre | Depreciación acumulada de propiedades, planta y equipo |
+| Nombre | Depreciación acumulada de contrucciones y edificaciones |
 | Cuenta Russell / 4D | Depreciación acumulada |
 | Tipo de rubro | PPE (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1592` |
 | Critica | no |
 
-**Que incluye:** Depreciación acumulada de construcciones, edificaciones, maquinaria, equipo de oficina, equipo de cómputo, comunicaciones, flota y equipo de transporte.
+**Que incluye:** Depreciación acumulada de edificios, bodegas, oficinas, locales, plantas industriales, construcciones, edificaciones administrativas, comerciales u operativas que sean propiedad de la entidad y se usen en la operación.
 
-**Que no incluye:** Activo bruto, gasto de depreciación del periodo, deterioro, amortización de intangibles, terrenos y activos no depreciables.
+**Que no incluye:** Depreciación acumulada de edificios, bodegas, oficinas, locales, plantas industriales, construcciones, edificaciones administrativas, comerciales u operativas que sean propiedad de la entidad y se usen en la operación.
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada edificaciones, depreciación acumulada construcciones, depreciación acumulada maquinaria, depreciación acumulada equipos productivos, depreciación acumulada equipo de oficina, depreciación acumulada muebles y enseres, depreciación acumulada computadores, depreciación acumulada equipos de comunicación, depreciación acumulada hardware, depreciación acumulada vehículos, depreciación acumulada flota, depreciación acumulada equipo de transporte y depreciación acumulada parque automotor.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada edificios, depreciación acumulada bodegas, depreciación acumulada oficinas, depreciación acumulada locales, depreciación acumulada construcciones, depreciación acumulada edificaciones.
 
-**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política de vidas útiles, método de depreciación, fecha de adquisición, costo histórico, adiciones, bajas, traslados, actas de retiro, facturas de compra, registros de placa o serial, avalúos cuando aplique y conciliación entre auxiliar de activos fijos y contabilidad.
+**Soportes o terceros esperados:** Auxiliar de activos fijos, ficha del activo, escritura o documento de propiedad, avalúo si aplica, cálculo de depreciación, política contable de vidas útiles, comprobante contable mensual de depreciación.
 
-**Soportes de control recomendados:** Tipo de activo, código o placa del activo, centro de costo, área responsable, ubicación, fecha de adquisición, costo, vida útil, método de depreciación, valor residual, depreciación acumulada, depreciación del periodo, activo asociado, tercero/proveedor cuando aplique y unidad generadora de efectivo si se evalúa deterioro.
+**Soportes de control recomendados:** Código del activo, ubicación, fecha de adquisición, costo histórico, vida útil, valor residual, método de depreciación, depreciación mensual, depreciación acumulada, saldo neto en libros.
 
-**Observaciones de homologacion:** No especificado en el maestro.
+**Observaciones de homologacion:** Cuenta correctora de activo de naturaleza crédito. Debe cruzar con el módulo o auxiliar de activos fijos. No debe usarse para registrar deterioro, bajas, ajustes de valorización ni depreciación de otros grupos de propiedad, planta y equipo. Revisar que los terrenos no se estén depreciando, salvo componentes separables que sí correspondan a edificaciones.
+
+### 159210 - Depreciación acumulada de maquinaria y equipo
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159210` |
+| Nombre | Depreciación acumulada de maquinaria y equipo |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | PPE (cuenta correctora) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciación acumulada de maquinaria y equipo productivo u operativo, calculada desde que el activo está disponible para uso. Incluye maquinaria industrial, equipos de producción, equipos especializados y demás bienes clasificados como maquinaria y equipo.
+
+**Que no incluye:** No incluye el costo bruto del activo, el gasto de depreciación del periodo, deterioro, amortización de intangibles, bajas de activos, valorizaciones ni activos que aún no estén disponibles para uso. Tampoco incluye equipo de oficina, cómputo, comunicaciones o transporte cuando tengan subcuenta específica.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada maquinaria, depreciación acumulada equipos productivos, depreciación maquinaria industrial, depreciación equipos de planta, depreciación equipos operativos, depreciación maquinaria y equipo.
+
+**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política contable de vidas útiles y método de depreciación, facturas de compra, actas de alta/baja, traslados, placas o seriales, avalúos cuando aplique y conciliación entre auxiliar y contabilidad.
+
+**Soportes de control recomendados:** Tipo de activo, código/placa/serial, activo asociado, centro de costo, sede, responsable, fecha de adquisición, costo, vida útil, valor residual, método de depreciación, depreciación del periodo, depreciación acumulada y valor en libros.
+
+**Observaciones de homologacion:** Cuenta correctora de naturaleza crédito que disminuye el valor en libros de la maquinaria y equipo. Conciliar mensualmente con el auxiliar de activos fijos. Validar vida útil, valor residual, método de depreciación, altas, bajas y traslados. Bajo NIIF, la depreciación inicia cuando el activo está disponible para uso y se revisan estimaciones cuando existan cambios relevantes (NIC 16 / Sección 17 NIIF para Pymes).
+
+### 159215 - Depreciación acumulada de equipo de oficina
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159215` |
+| Nombre | Depreciación acumulada de equipo de oficina |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | PPE (cuenta correctora) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciación acumulada de equipo de oficina, muebles, enseres y elementos administrativos capitalizados, calculada durante su vida útil económica.
+
+**Que no incluye:** No incluye el costo bruto del activo, el gasto de depreciación del periodo, deterioro, amortización de intangibles, bajas de activos, valorizaciones ni activos que aún no estén disponibles para uso. No incluye equipo de cómputo y comunicación cuando deba clasificarse en 159220.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada equipo de oficina, depreciación muebles y enseres, depreciación mobiliario, depreciación escritorios, sillas, archivadores, dotación administrativa capitalizada.
+
+**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política contable de vidas útiles y método de depreciación, facturas de compra, actas de alta/baja, traslados, placas o seriales, avalúos cuando aplique y conciliación entre auxiliar y contabilidad.
+
+**Soportes de control recomendados:** Tipo de activo, código/placa/serial, activo asociado, centro de costo, sede, responsable, fecha de adquisición, costo, vida útil, valor residual, método de depreciación, depreciación del periodo, depreciación acumulada y valor en libros.
+
+**Observaciones de homologacion:** Cuenta correctora de naturaleza crédito. Debe corresponder al equipo de oficina reconocido como PPE, no a elementos de bajo valor llevados directamente al gasto según política contable. Conciliar con el módulo de activos fijos y revisar bajas por obsolescencia, pérdida o retiro físico (NIC 16 / Sección 17 NIIF para Pymes).
+
+### 159220 - Depreciación acumulada de equipo de computación y comunicación
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159220` |
+| Nombre | Depreciación acumulada de equipo de computación y comunicación |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | PPE (cuenta correctora) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciación acumulada de computadores, servidores, periféricos, equipos de comunicación y demás hardware o infraestructura tecnológica capitalizada como propiedad, planta y equipo.
+
+**Que no incluye:** No incluye el costo bruto del activo, el gasto de depreciación del periodo, deterioro, amortización de intangibles, bajas de activos, valorizaciones ni activos que aún no estén disponibles para uso. No incluye licencias, software o desarrollos reconocidos como intangibles, cuya amortización debe registrarse en cuentas de amortización.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada computadores, depreciación hardware, depreciación servidores, portátiles, equipos de comunicación, redes, switches, routers, impresoras capitalizadas, infraestructura tecnológica.
+
+**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política contable de vidas útiles y método de depreciación, facturas de compra, actas de alta/baja, traslados, placas o seriales, avalúos cuando aplique y conciliación entre auxiliar y contabilidad.
+
+**Soportes de control recomendados:** Tipo de activo, código/placa/serial, activo asociado, centro de costo, sede, responsable, fecha de adquisición, costo, vida útil, valor residual, método de depreciación, depreciación del periodo, depreciación acumulada y valor en libros.
+
+**Observaciones de homologacion:** Cuenta correctora de naturaleza crédito. Validar que el activo asociado sea hardware o equipo de comunicaciones, no software. Revisar vida útil por obsolescencia tecnológica, bajas por reposición y conciliación con inventario físico de TI (NIC 16 / Sección 17 NIIF para Pymes).
+
+### 159235 - Depreciación acumulada de flota y equipo de transporte
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159235` |
+| Nombre | Depreciación acumulada de flota y equipo de transporte |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | PPE (cuenta correctora) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciación acumulada de vehículos, flota, equipo de transporte, motos, camiones, camionetas, montacargas y demás bienes de transporte usados por la entidad.
+
+**Que no incluye:** No incluye el costo bruto del activo, el gasto de depreciación del periodo, deterioro, amortización de intangibles, bajas de activos, valorizaciones ni activos que aún no estén disponibles para uso. No incluye vehículos mantenidos para la venta, inventarios, gastos de mantenimiento, seguros, combustible ni activos por derecho de uso que deban controlarse separadamente según política.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada vehículos, depreciación flota, depreciación equipo de transporte, depreciación camiones, camionetas, motos, parque automotor, flota operativa, vehículos administrativos.
+
+**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política contable de vidas útiles y método de depreciación, facturas de compra, actas de alta/baja, traslados, placas o seriales, avalúos cuando aplique y conciliación entre auxiliar y contabilidad. También tarjeta de propiedad, matrícula, SOAT, pólizas, actas de entrega y control de kilometraje cuando aplique.
+
+**Soportes de control recomendados:** Tipo de activo, código/placa/serial, activo asociado, centro de costo, sede, responsable, fecha de adquisición, costo, vida útil, valor residual, método de depreciación, depreciación del periodo, depreciación acumulada y valor en libros. Placa, número de motor/chasis, kilometraje, uso administrativo/ventas/operación y póliza asociada.
+
+**Observaciones de homologacion:** Cuenta correctora de naturaleza crédito. Conciliar con el parque automotor y validar bajas por venta, siniestro o retiro. La depreciación debe asignarse al área de uso del vehículo. Revisar indicios de deterioro por accidentes, obsolescencia o baja utilización (NIC 16 y NIC 36 / Secciones 17 y 27 NIIF para Pymes).
+
+### 159280 - Depreciación acumulada de Activos Biologicos
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159280` |
+| Nombre | Depreciación acumulada de Activos Biologicos |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | Activos biológicos / PPE agrícola (cuenta correctora) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciación acumulada aplicable a activos biológicos o activos relacionados con actividad agrícola cuando la política contable permite medición al costo menos depreciación y deterioro, o cuando se trate de plantas productoras clasificadas como propiedad, planta y equipo.
+
+**Que no incluye:** No incluye activos biológicos medidos a valor razonable menos costos de venta cuando los cambios se reconocen en resultados, ni el costo bruto del activo, deterioro, gastos de mantenimiento agrícola, cosecha, inventarios agrícolas o transformación posterior.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Depreciación acumulada activos biológicos, depreciación cultivos permanentes, depreciación plantas productoras, depreciación semovientes productivos cuando aplique, depreciación activos agropecuarios.
+
+**Soportes o terceros esperados:** Auxiliar de activos biológicos, inventario físico/biológico, política de medición, cálculo de depreciación, avalúo o informe técnico agropecuario, vida productiva estimada, actas de altas/bajas, soporte de costos capitalizados y conciliación con contabilidad.
+
+**Soportes de control recomendados:** Tipo de activo biológico, lote, ubicación, unidad productiva, fecha de inicio de producción, costo, vida productiva, método de depreciación, valor residual, depreciación acumulada, deterioro y responsable técnico.
+
+**Observaciones de homologacion:** Usar con cautela: bajo NIIF los activos biológicos normalmente se miden a valor razonable menos costos de venta; las plantas productoras se tratan como PPE y se deprecian. Confirmar política contable antes de homologar saldos. Referencias: NIC 41, NIC 16 y Sección 34 NIIF para Pymes.
+
+### 159299 - Otras Depreciaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `159299` |
+| Nombre | Otras Depreciaciones |
+| Cuenta Russell / 4D | Depreciación acumulada |
+| Tipo de rubro | PPE (cuenta correctora residual) |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `1592` |
+| Critica | no |
+
+**Que incluye:** Depreciaciones acumuladas de activos depreciables no clasificadas en las subcuentas específicas de construcciones, maquinaria, equipo de oficina, cómputo, comunicación, flota, transporte o activos biológicos.
+
+**Que no incluye:** No debe usarse cuando exista una subcuenta específica. No incluye costo bruto del activo, gasto de depreciación del periodo, deterioro, amortización de intangibles ni ajustes de valor razonable.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otras depreciaciones acumuladas, depreciación acumulada otros activos, depreciación activos varios, depreciación equipos no clasificados, depreciación acumulada residual.
+
+**Soportes o terceros esperados:** Auxiliar de activos fijos, módulo de propiedad, planta y equipo, cálculo mensual de depreciación, política contable de vidas útiles y método de depreciación, facturas de compra, actas de alta/baja, traslados, placas o seriales, avalúos cuando aplique y conciliación entre auxiliar y contabilidad.
+
+**Soportes de control recomendados:** Tipo de activo, código/placa/serial, activo asociado, centro de costo, sede, responsable, fecha de adquisición, costo, vida útil, valor residual, método de depreciación, depreciación del periodo, depreciación acumulada y valor en libros. Concepto específico que justifica el uso de cuenta residual.
+
+**Observaciones de homologacion:** Cuenta residual. Se recomienda usarla solo de manera excepcional y documentada; si el activo corresponde a una categoría específica, reclasificar a la subcuenta correspondiente. En cierres, revisar saldos materiales para evitar pérdida de trazabilidad por tipo de activo (NIC 16 / Sección 17 NIIF para Pymes).
 
 ### 159916 - Deterioro acumulado de propiedades, planta y equipo
 
@@ -2219,7 +2411,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro acumulado de propiedades, planta y equipo |
 | Cuenta Russell / 4D | Deterioro / provisiones PPE |
 | Tipo de rubro | PPE (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1599` |
 | Critica | no |
 
@@ -2434,8 +2626,8 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Codigo | `169805` |
 | Nombre | Amortización acumulada de activos intangibles |
 | Cuenta Russell / 4D | Amortización acumulada intangibles |
-| Tipo de rubro | No especificado en el maestro. |
-| Naturaleza | Debito (`D`) |
+| Tipo de rubro | Intangibles |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1698` |
 | Critica | no |
 
@@ -2459,7 +2651,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de intangibles |
 | Cuenta Russell / 4D | Deterioro / provisiones intangibles |
 | Tipo de rubro | Intangibles (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1699` |
 | Critica | no |
 
@@ -2675,7 +2867,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Amortización acumulada de otros activos diferidos |
 | Cuenta Russell / 4D | Amortización acumulada diferidos |
 | Tipo de rubro | Diferidos (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1798` |
 | Critica | no |
 
@@ -2723,7 +2915,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Deterioro de otros activos |
 | Cuenta Russell / 4D | Deterioro / provisiones otros activos |
 | Tipo de rubro | Otros activos (cuenta correctora) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `1899` |
 | Critica | no |
 
@@ -3605,6 +3797,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Tarifa según calidad del proveedor (declarante/no declarante) y base mínima en UVT. Verificar bases de retención actualizadas. Conciliar con compras a proveedores.
 
+### 236545 - Loterías, rifas, apuestas y similares
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236545` |
+| Nombre | Loterías, rifas, apuestas y similares |
+| Cuenta Russell / 4D | Retención en la fuente por pagar |
+| Tipo de rubro | Pasivo corriente – Retenciones e impuestos por pagar |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2365` |
+| Critica | no |
+
+**Que incluye:** Retenciones en la fuente practicadas sobre pagos o abonos en cuenta derivados de premios, loterías, rifas, apuestas y conceptos similares, cuando la entidad tenga la calidad de agente retenedor y la operación esté sometida a retención.
+
+**Que no incluye:** El valor total del premio; retenciones asumidas sin fundamento; retenciones practicadas por terceros a favor de la entidad; retenciones sobre salarios, honorarios, servicios, compras u otros conceptos; impuestos territoriales asociados a juegos de suerte y azar; sanciones e intereses.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Retención en premios; retención por rifas; retención por sorteos; retención sobre apuestas; retención sobre concursos promocionales; retención en juegos de suerte y azar.
+
+**Soportes o terceros esperados:** Identificación y RUT del beneficiario, acta o documento de entrega del premio, comprobante de pago, certificación de la retención practicada, factura o documento equivalente cuando corresponda y autorización o reglamento de la actividad.
+
+**Soportes de control recomendados:** Auxiliar por tercero, base y cálculo de la retención, conciliación con cuentas por pagar y bancos, declaración de retención en la fuente, recibo oficial de pago, certificado expedido y conciliación entre contabilidad y declaración.
+
+**Observaciones de homologacion:** Homologar únicamente retenciones practicadas sobre premios, rifas, apuestas o conceptos similares. Validar que corresponda a una obligación a favor de la DIAN y no a impuestos territoriales o derechos de explotación. Si el cliente no desarrolla ni realiza estas operaciones, el uso de la cuenta debe revisarse individualmente.
+
 ### 236550 - Retención en la fuente por pagos al exterior
 
 | Atributo | Valor |
@@ -3628,6 +3844,54 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 **Soportes de control recomendados:** Beneficiario, país, concepto, convenio de doble imposición, tarifa.
 
 **Observaciones de homologacion:** Tarifa según concepto y existencia de convenio para evitar doble imposición (CDI). Verificar certificado de residencia fiscal del beneficiario. Concurre frecuentemente con IVA asumido en importación de servicios. Alta exposición de fiscalización.
+
+### 236560 - Enajenación de propiedades, planta y equipo de personas naturales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236560` |
+| Nombre | Enajenación de propiedades, planta y equipo de personas naturales |
+| Cuenta Russell / 4D | Retención en la fuente por pagar |
+| Tipo de rubro | Pasivo corriente – Retenciones e impuestos por pagar |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2365` |
+| Critica | no |
+
+**Que incluye:** Retenciones practicadas por la entidad en la adquisición de propiedades, planta y equipo o activos fijos enajenados por personas naturales, cuando la entidad sea responsable de practicar, declarar y pagar la retención correspondiente.
+
+**Que no incluye:** Compra ordinaria de inventarios; adquisición de servicios; retenciones practicadas sobre honorarios, comisiones, arrendamientos o compras generales; retenciones practicadas a favor de la entidad; impuesto de ganancia ocasional del vendedor; costos de escrituración, registro, beneficencia u otros gastos de adquisición.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Retención por compra de activo fijo a persona natural; retención en adquisición de inmueble; retención por compra de vehículo usado; retención en enajenación de maquinaria o equipo; retención por venta de propiedad, planta y equipo.
+
+**Soportes o terceros esperados:** RUT e identificación del vendedor, contrato de compraventa, escritura pública cuando corresponda, factura o documento soporte, certificado de tradición, tarjeta de propiedad, documento de pago y certificación de la retención practicada.
+
+**Soportes de control recomendados:** Cálculo de la base y retención, comprobante contable, auxiliar por tercero, conciliación con propiedad, planta y equipo y cuentas por pagar, declaración de retención en la fuente, recibo oficial de pago y conciliación entre declaración y contabilidad.
+
+**Observaciones de homologacion:** Homologar retenciones relacionadas con la adquisición de activos fijos o propiedades, planta y equipo vendidos por personas naturales. Antes de clasificar, validar la naturaleza del activo, la calidad del vendedor, quién tenía la obligación de retener y si la retención fue practicada directamente o mediante notaría u otro interviniente.
+
+### 236565 - Por impuesto de timbre
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236565` |
+| Nombre | Por impuesto de timbre |
+| Cuenta Russell / 4D | Impuesto de timbre por pagar |
+| Tipo de rubro | Pasivo corriente – Impuestos nacionales por pagar |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2365` |
+| Critica | no |
+
+**Que incluye:** Valores retenidos, causados o recaudados por concepto del impuesto nacional de timbre respecto de documentos, instrumentos públicos o privados y operaciones sometidas al tributo, de acuerdo con la normativa vigente para el periodo evaluado.
+
+**Que no incluye:** Estampillas departamentales o municipales; impuesto de registro; derechos notariales; retención en la fuente por renta; IVA; ICA; sanciones; intereses de mora; gastos de autenticación o expedición de documentos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Impuesto nacional de timbre; retención por impuesto de timbre; timbre nacional por contratos; timbre por documentos públicos o privados; impuesto de timbre recaudado.
+
+**Soportes o terceros esperados:** Contrato, escritura, documento o instrumento que origine el impuesto; identificación y RUT de las partes; certificaciones; documento de liquidación y soportes del valor de la operación.
+
+**Soportes de control recomendados:** Matriz de contratos y documentos sujetos a análisis, determinación de la base, cálculo del impuesto, concepto tributario cuando exista complejidad, auxiliar contable, declaración tributaria, recibo de pago y conciliación entre contratos, contabilidad y declaración.
+
+**Observaciones de homologacion:** Homologar exclusivamente el impuesto nacional de timbre. No incluir estampillas territoriales, impuesto de registro ni derechos notariales. La procedencia, tarifa, base, sujetos y posibles exenciones deben validarse según la norma vigente y las características del documento u operación.
 
 ### 236570 - Otras retenciones en la fuente
 
@@ -3677,6 +3941,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Tarifa según actividad económica (CIIU) del Decreto 2201/2016. Se liquida sobre ingresos brutos del periodo. Verificar que la entidad sea sujeto de autorretención especial (exonerada Art. 114-1). Conciliar base de autorretención con ingresos.
 
+### 236599 - Pago de retención en la fuente
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236599` |
+| Nombre | Pago de retención en la fuente |
+| Cuenta Russell / 4D | Retención en la fuente |
+| Tipo de rubro | Pasivos por impuestos / retenciones |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2365` |
+| Critica | no |
+
+**Que incluye:** Pagos, consignaciones o compensaciones que disminuyen el saldo por pagar de retenciones en la fuente practicadas y declaradas ante la DIAN. Se usa para identificar el movimiento de pago asociado a la declaración de retención.
+
+**Que no incluye:** No incluye la causación de retenciones por salarios, honorarios, servicios, compras, arrendamientos, dividendos o autorretenciones, que deben registrarse en sus subcuentas específicas. No incluye retenciones que le practicaron a la entidad, anticipos de impuestos, sanciones o intereses.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Pago retención en la fuente, pago retefuente DIAN, consignación retenciones, pago formulario 350, pago retenciones practicadas, cancelación retención en la fuente.
+
+**Soportes o terceros esperados:** Declaración de retención en la fuente, Formulario 350, recibo oficial de pago DIAN, soporte PSE o comprobante bancario, extracto bancario, conciliación de retenciones por periodo.
+
+**Soportes de control recomendados:** Periodo declarado, número de formulario, recibo de pago, fecha de pago, banco, NIT, concepto, valor declarado, valor pagado y diferencia pendiente.
+
+**Observaciones de homologacion:** Cuenta de pago o depuración del pasivo por retenciones. Conciliar contra la declaración de retención y el extracto bancario. No debe acumular saldos antiguos sin explicación; cualquier diferencia debe reclasificarse, corregirse o documentarse. Validar presentación y pago oportuno para evitar sanciones e intereses.
+
 ### 236705 - IVA retenido por pagar
 
 | Atributo | Valor |
@@ -3725,6 +4013,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Cuenta residual de reteIVA. Reclasificar a 236705 si corresponde a reteIVA general. Verificar correcta aplicación del régimen especial.
 
+### 236799 - Pago ReteIVA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236799` |
+| Nombre | Pago ReteIVA |
+| Cuenta Russell / 4D | IVA retenido |
+| Tipo de rubro | Pasivos por impuestos / retenciones |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2367` |
+| Critica | no |
+
+**Que incluye:** Pagos o consignaciones de reteIVA practicado a terceros y declarado ante la DIAN, utilizados para cancelar o disminuir el pasivo de IVA retenido.
+
+**Que no incluye:** No incluye la causación del IVA retenido, IVA generado, IVA descontable, IVA por devoluciones, retenciones de renta, retenciones de ICA, sanciones o intereses.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Pago ReteIVA, pago retención de IVA, consignación IVA retenido, pago IVA retenido DIAN, pago formulario 350 por reteIVA.
+
+**Soportes o terceros esperados:** Formulario 350, recibo oficial de pago DIAN, soporte PSE/comprobante bancario, extracto bancario, liquidación de reteIVA por proveedor y conciliación de retenciones.
+
+**Soportes de control recomendados:** Periodo, proveedor, base, porcentaje de reteIVA, valor retenido, valor declarado, número de formulario, recibo de pago y fecha de pago.
+
+**Observaciones de homologacion:** Debe conciliarse con el pasivo de reteIVA y con la declaración presentada. Diferenciar el reteIVA practicado por la entidad del IVA descontable o del IVA que le retienen a la entidad. No utilizar para registrar IVA generado/descontable (estatuto tributario y control de declaración de retención).
+
 ### 236805 - ICA retenido por pagar
 
 | Atributo | Valor |
@@ -3772,6 +4084,30 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 **Soportes de control recomendados:** Municipio, tercero, concepto, periodo.
 
 **Observaciones de homologacion:** Cuenta residual de reteICA. Reclasificar a 236805 si aplica. Verificar normativa del municipio correspondiente.
+
+### 236899 - Pago ReteICA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `236899` |
+| Nombre | Pago ReteICA |
+| Cuenta Russell / 4D | ICA retenido |
+| Tipo de rubro | Pasivos por impuestos / retenciones |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2368` |
+| Critica | no |
+
+**Que incluye:** Pagos o consignaciones de retenciones de ICA practicadas a terceros, declaradas y pagadas al municipio correspondiente.
+
+**Que no incluye:** No incluye la causación de ReteICA, ICA propio por pagar, anticipos de ICA, retenciones de renta o IVA, ni impuestos de otros municipios sin relación con retenciones practicadas.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Pago ReteICA, pago retención de ICA, consignación reteICA municipal, pago retención ICA Bogotá, pago ICA retenido, cancelación reteICA por pagar.
+
+**Soportes o terceros esperados:** Declaración municipal de retención de ICA, recibo oficial de pago, soporte PSE o comprobante bancario, extracto, liquidación por municipio y conciliación de retenciones.
+
+**Soportes de control recomendados:** Municipio, periodo, tercero, actividad gravada, base, tarifa, valor retenido, formulario o recibo, fecha de pago y saldo pendiente.
+
+**Observaciones de homologacion:** La obligación y tarifa dependen del municipio. Conciliar por municipio y periodo. Evitar compensar reteICA practicada con ICA propio si la norma local exige declaración separada. Revisar saldos antiguos y diferencias entre auxiliar, declaración y extracto.
 
 ### 237005 - Aportes a EPS por pagar
 
@@ -4043,7 +4379,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `240805` |
 | Nombre | IVA generado |
-| Cuenta Russell / 4D | IVA por pagar |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
 | Tipo de rubro | Pasivos por impuestos |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `2408` |
@@ -4061,15 +4397,87 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Conciliar IVA generado vs ventas gravadas vs facturación electrónica DIAN vs declaración. Verificar tarifas diferenciales y bases AIU. Distinguir ventas exentas (tarifa 0%, dan derecho a descontable) de excluidas (sin IVA). Cruce clave en auditoría tributaria.
 
+### 240807 - IVA generado a la tarifa del 5 %
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240807` |
+| Nombre | IVA generado a la tarifa del 5 % |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA de operaciones ordinarias gravadas al 5 %.
+
+**Que no incluye:** IVA descontable, devoluciones, pagos y conceptos con renglón específico. No incluye bases de ingresos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA ventas 5 %; IVA generado cinco por ciento.
+
+**Soportes o terceros esperados:** Factura de venta, libro de ventas y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Usar cuando el concepto esté identificado. La tarifa no reemplaza la clasificación por operación. No duplicar con 240805.
+
+### 240808 - IVA generado sobre AIU
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240808` |
+| Nombre | IVA generado sobre AIU |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA liquidado sobre AIU cuando proceda esa base especial.
+
+**Que no incluye:** IVA calculado sobre el total de la operación; ingresos AIU; otras bases especiales no equivalentes.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA sobre AIU; IVA base especial AIU.
+
+**Soportes o terceros esperados:** Contrato, factura y cálculo de la base AIU.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.	Verificar que la operación permita AIU. Clasificar por concepto antes que por tarifa; conservar la tarifa en el auxiliar.
+
+### 240809 - IVA generado por retiro de inventarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240809` |
+| Nombre | IVA generado por retiro de inventarios |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA de retiros de inventario que efectivamente causen el impuesto.
+
+**Que no incluye:** Ventas ordinarias; retiros no sujetos; pérdidas o castigos tratados como ajuste al descontable.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA autoconsumo; IVA retiro de inventario.
+
+**Soportes o terceros esperados:** Comprobante de retiro, kardex y liquidación del IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Identificar destino del retiro y procedencia del impuesto. No homologar automáticamente todo retiro de inventario.
+
 ### 240810 - IVA descontable
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `240810` |
 | Nombre | IVA descontable |
-| Cuenta Russell / 4D | IVA por pagar |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
 | Tipo de rubro | Pasivos por impuestos |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `2408` |
 | Critica | no |
 
@@ -4085,13 +4493,13 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Verificar requisitos para descontabilidad (factura válida, relación con operación gravada, oportunidad). En operaciones mixtas aplicar proporcionalidad. El IVA sin derecho a descuento es mayor valor del costo. Cuenta de naturaleza débito dentro del pasivo de IVA.
 
-### 240815 - IVA por devoluciones, anulaciones y ajustes
+### 240815 - IVA por devoluciones, anulaciones y ajustes en compras
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `240815` |
-| Nombre | IVA por devoluciones, anulaciones y ajustes |
-| Cuenta Russell / 4D | IVA por pagar |
+| Nombre | IVA por devoluciones, anulaciones y ajustes en compras |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
 | Tipo de rubro | Pasivos por impuestos |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `2408` |
@@ -4109,15 +4517,423 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Conciliar con notas crédito/débito y con el ajuste correspondiente en ventas o compras. Verificar oportunidad del ajuste del IVA. Cruce con el análisis de notas crédito (riesgo de manipulación de ingresos/IVA).
 
-### 240895 - IVA saldo a pagar / pagos de IVA
+### 240820 - IVA por devoluciones, anulaciones y ajustes en ventas
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `240895` |
-| Nombre | IVA saldo a pagar / pagos de IVA |
-| Cuenta Russell / 4D | IVA por pagar |
+| Codigo | `240820` |
+| Nombre | IVA por devoluciones, anulaciones y ajustes en ventas |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivo corriente – impuestos por pagar / IVA, con movimiento débito |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA asociado a devoluciones, anulaciones o ajustes en ventas; notas crédito emitidas a clientes que reversan IVA generado
+
+**Que no incluye:** IVA generado normal de ventas; ingresos por ventas; descuentos comerciales sin IVA; retenciones de IVA
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** 2408, 240805, 240810, 240820, auxiliares por tarifa de IVA y tipo de nota crédito
+
+**Soportes o terceros esperados:** Nota crédito electrónica emitida al cliente, factura original, aceptación/rechazo DIAN, soporte comercial de devolución/anulación
+
+**Soportes de control recomendados:** Conciliación de IVA generado, auxiliar por cliente, libro de ventas, cruce con declaración de IVA, reporte de notas crédito emitidas
+
+**Observaciones de homologacion:** Debe reducir/reversar el IVA generado de ventas. No mezclar con ingresos ni descuentos comerciales. Separar por tarifa y tipo de nota crédito.
+
+### 240830 - IVA generado a la tarifa general
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240830` |
+| Nombre | IVA generado a la tarifa general |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
 | Tipo de rubro | Pasivos por impuestos |
 | Naturaleza | Credito (`C`) |
+| Padre logico | `IVA por pagar` |
+| Critica | no |
+
+**Que incluye:** IVA de operaciones ordinarias sujetas a tarifa general.
+
+**Que no incluye:** IVA descontable, devoluciones, pagos y conceptos con renglón específico. No incluye bases de ingresos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA ventas tarifa general; IVA generado 19 %.
+
+**Soportes o terceros esperados:** Factura de venta, libro de ventas y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Usar cuando el concepto esté identificado. La tarifa no reemplaza la clasificación por operación. No duplicar con 240805.
+
+### 240834 - IVA generado en juegos de suerte y azar
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240834` |
+| Nombre | IVA generado en juegos de suerte y azar |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA identificado en operaciones gravadas de juegos.
+
+**Que no incluye:** IVA descontable, devoluciones, pagos y conceptos con renglón específico. No incluye bases de ingresos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA juegos; IVA apuestas.
+
+**Soportes o terceros esperados:** Registro de operaciones y liquidación del impuesto.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Habilitar solo para clientes con este concepto y verificar el tratamiento aplicable al período.
+
+### 240835 - IVA generado en venta de cerveza
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240835` |
+| Nombre | IVA generado en venta de cerveza |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA identificado en comercialización de cerveza.
+
+**Que no incluye:** IVA descontable, devoluciones, pagos y conceptos con renglón específico. No incluye bases de ingresos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA cerveza nacional; IVA cerveza importada.
+
+**Soportes o terceros esperados:** Factura de venta, libro de ventas y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Usar cuando el concepto esté identificado. La tarifa no reemplaza la clasificación por operación. No duplicar con 240805.
+
+### 240836 - IVA generado en venta de gaseosas y similares
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240836` |
+| Nombre | IVA generado en venta de gaseosas y similares |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA identificado en ventas de gaseosas y similares.
+
+**Que no incluye:** IVA descontable, devoluciones, pagos y conceptos con renglón específico. No incluye bases de ingresos. Impuestos saludables.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA gaseosas; IVA bebidas similares.
+
+**Soportes o terceros esperados:** Factura de venta, libro de ventas y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Usar cuando el concepto esté identificado. La tarifa no reemplaza la clasificación por operación. No duplicar con 240805.
+
+### 240837 - IVA generado en venta de licores, aperitivos, vinos y similares
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240837` |
+| Nombre | IVA generado en venta de licores, aperitivos, vinos y similares |
+| Cuenta Russell / 4D | IVA por pagar |
+| Tipo de rubro | Impuestos, gravámenes y tasas |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA generado en ventas gravadas de licores, aperitivos, vinos y productos similares, realizado por responsables del impuesto en las etapas de comercialización que correspondan.
+
+**Que no incluye:** IVA de venta de cerveza (240835), gaseosas y similares (240836), operaciones ordinarias de otras mercancías (240805/240830), IVA descontable en compras de licores (240848), devoluciones y ajustes (240820), bases de ingresos, impuesto departamental al consumo y otros tributos.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA licores ventas; IVA generado vinos; IVA aperitivos; IVA ventas bebidas alcohólicas; IVA venta aguardiente; IVA venta ron; IVA venta whisky
+
+**Soportes o terceros esperados:** No especificado en el maestro.
+
+**Soportes de control recomendados:** No especificado en el maestro.
+
+**Observaciones de homologacion:** No especificado en el maestro.
+
+### 240840 - IVA descontable en compras nacionales de bienes a la tarifa general
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240840` |
+| Nombre | IVA descontable en compras nacionales de bienes a la tarifa general |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por bienes adquiridos en el país a tarifa general.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Servicios e importaciones.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA compras bienes 19 %; IVA mercancías tarifa general.
+
+**Soportes o terceros esperados:** Factura o soporte procedente, libro de compras y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240841 - IVA descontable en compras nacionales de bienes a la tarifa del 5 %
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240841` |
+| Nombre | IVA descontable en compras nacionales de bienes a la tarifa del 5 % |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por bienes adquiridos en el país al 5 %.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Servicios e importaciones.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA compras bienes 5 %; IVA mercancías 5 %.
+
+**Soportes o terceros esperados:** Factura o soporte procedente, libro de compras y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240842 - IVA descontable en servicios nacionales a la tarifa general
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240842` |
+| Nombre | IVA descontable en servicios nacionales a la tarifa general |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por servicios nacionales a tarifa general.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Bienes y servicios de no residentes.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA servicios 19 %; IVA servicios tarifa general.
+
+**Soportes o terceros esperados:** Factura o soporte procedente, libro de compras y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240843 - IVA descontable en servicios nacionales a la tarifa del 5 %
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240843` |
+| Nombre | IVA descontable en servicios nacionales a la tarifa del 5 % |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por servicios nacionales al 5 %.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Bienes y servicios de no residentes.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA servicios 5 %; IVA servicios cinco por ciento.
+
+**Soportes o terceros esperados:** Factura o soporte procedente, libro de compras y auxiliar de IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240844 - IVA descontable en importaciones de bienes a la tarifa general
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240844` |
+| Nombre | IVA descontable en importaciones de bienes a la tarifa general |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por importaciones de bienes a tarifa general.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Compras nacionales y operaciones asignables a zona franca.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA importación 19 %; IVA aduanas tarifa general.
+
+**Soportes o terceros esperados:** Declaración de importación, liquidación y soporte de pago del IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240845 - IVA descontable en importaciones de bienes a la tarifa del 5 %
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240845` |
+| Nombre | IVA descontable en importaciones de bienes a la tarifa del 5 % |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable por importaciones de bienes al 5 %.
+
+**Que no incluye:** IVA sin derecho a descuento, retenciones por pagar, devoluciones y pagos. No incluye bases de compras. Compras nacionales y operaciones asignables a zona franca.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA importación 5 %; IVA aduanas 5 %.
+
+**Soportes o terceros esperados:** IVA importación 5 %; IVA aduanas 5 %.	Declaración de importación, liquidación y soporte de pago del IVA.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Verificar procedencia y período del descuento. Conservar origen, concepto y tarifa. No duplicar con 240810.
+
+### 240846 - IVA descontable por retención en servicios de no residentes
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240846` |
+| Nombre | IVA descontable por retención en servicios de no residentes |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA reconocido como descontable por la retención asociada a servicios de no residentes.
+
+**Que no incluye:** Retención de IVA por pagar; retenciones que clientes practicaron a la entidad; IVA sin derecho a descuento.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** IVA descontable servicios exterior; IVA descontable por retención asumida.
+
+**Soportes o terceros esperados:** Contrato, soporte del servicio, cálculo y soporte de la retención.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Clasifica el componente descontable. La obligación de retener se controla separadamente en el pasivo de retenciones. Verificar requisitos del descuento.
+
+### 240847 - IVA descontable en bienes y servicios provenientes de zonas francas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240847` |
+| Nombre | IVA descontable en bienes y servicios provenientes de zonas francas |
+| Cuenta Russell / 4D | IVA por pagar |
+| Tipo de rubro | Impuestos, gravámenes y tasas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA legalmente descontable pagado o facturado en adquisiciones gravadas de bienes y servicios provenientes de zonas francas, cuando proceda el descuento y se cumplan los requisitos legales.
+
+**Que no incluye:** Adquisiciones de zonas francas excluidas, exentas o no gravadas sin IVA descontable; IVA que no da derecho a descuento; compras nacionales comunes (240840–240843); importaciones clasificables exclusivamente en sus renglones propios (240844/240845); retenciones, devoluciones y bases de compras.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** No especificado en el maestro.
+
+**Soportes o terceros esperados:** No especificado en el maestro.
+
+**Soportes de control recomendados:** No especificado en el maestro.
+
+**Observaciones de homologacion:** No especificado en el maestro.
+
+### 240848 - IVA descontable en compras de licores, aperitivos, vinos y similares
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240848` |
+| Nombre | IVA descontable en compras de licores, aperitivos, vinos y similares |
+| Cuenta Russell / 4D | IVA por pagar |
+| Tipo de rubro | Impuestos, gravámenes y tasas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA descontable procedente en la adquisición de licores, aperitivos, vinos y productos similares destinados a operaciones que otorgan derecho a descuento.
+
+**Que no incluye:** IVA generado en ventas de estos productos (240837); IVA de adquisiciones de cerveza o de otros bienes; IVA no descontable por falta de requisitos o destinación; impuesto al consumo; devoluciones de compras (240815); bases de adquisición; IVA registrado también en 240840/240810.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** No especificado en el maestro.
+
+**Soportes o terceros esperados:** No especificado en el maestro.
+
+**Soportes de control recomendados:** No especificado en el maestro.
+
+**Observaciones de homologacion:** No especificado en el maestro.
+
+### 240849 - IVA descontable por exploración de hidrocarburos (art. 485-2 E.T.)
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240849` |
+| Nombre | IVA descontable por exploración de hidrocarburos (art. 485-2 E.T.) |
+| Cuenta Russell / 4D | IVA por pagar |
+| Tipo de rubro | Impuestos, gravámenes y tasas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** IVA pagado en adquisición o importación de bienes y servicios utilizados en las etapas de exploración y desarrollo para conformar costo de activos fijos e inversiones amortizables en proyectos costa afuera, cuando el contribuyente tenga como objeto social y actividad económica principal la exploración de hidrocarburos y cumpla el artículo 485-2 E.T.
+
+**Que no incluye:** IVA de operaciones ordinarias que no cumplen el artículo 485-2; proyectos que no correspondan al beneficio legal; IVA ya usado como costo, deducción o descuento en renta; IVA contabilizado en otra subcuenta descontable (240810/240840–240847); gastos sin vínculo acreditado con el proyecto; base de adquisición.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** No especificado en el maestro.
+
+**Soportes o terceros esperados:** No especificado en el maestro.
+
+**Soportes de control recomendados:** No especificado en el maestro.
+
+**Observaciones de homologacion:** No especificado en el maestro.
+
+### 240850 - Ajuste al IVA descontable por pérdidas, hurto o castigo de inventarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240850` |
+| Nombre | Ajuste al IVA descontable por pérdidas, hurto o castigo de inventarios |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2408` |
+| Critica | no |
+
+**Que incluye:** Reversión de impuestos descontables atribuible a pérdidas, hurto o castigos cuando proceda.
+
+**Que no incluye:** Devoluciones a proveedores; bajas sin ajuste fiscal de IVA; ajustes de otra naturaleza.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Reintegro IVA inventarios; ajuste IVA hurto; reversión IVA castigo.
+
+**Soportes o terceros esperados:** Acta de baja, kardex, soporte del hecho y cálculo del ajuste.
+
+**Soportes de control recomendados:** Cliente; cuenta origen; concepto; tarifa; período; documento y tipo de movimiento.
+
+**Observaciones de homologacion:** Separar de 240815. El renglón 80 resta en el cálculo del impuesto descontable; evitar restarlo dos veces si ya se tomó un importe neto.
+
+### 240899 - IVA saldo a pagar / pagos de IVA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `240899` |
+| Nombre | IVA saldo a pagar / pagos de IVA |
+| Cuenta Russell / 4D | Impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `2408` |
 | Critica | no |
 
@@ -4181,29 +4997,77 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Separar capital, intereses y sanciones por municipio. Revelar acuerdos de pago. Evaluar contingencias por municipios donde podría existir omisión.
 
-### 249505 - Otros impuestos, gravámenes y tasas por pagar
+### 249505 - Impuesto nacional al consumo
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `249505` |
-| Nombre | Otros impuestos, gravámenes y tasas por pagar |
+| Nombre | Impuesto nacional al consumo |
 | Cuenta Russell / 4D | Otros impuestos, gravámenes y tasas |
 | Tipo de rubro | Pasivos por impuestos |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `2495` |
 | Critica | no |
 
-**Que incluye:** Otros tributos por pagar no clasificados: impuesto al patrimonio, GMF (4x1000) cuando aplica como pasivo, impuesto al consumo, sobretasas, estampillas, impuesto predial, vehículos, tasas y contribuciones sectoriales (Supersociedades, Superfinanciera, etc.).
+**Que incluye:** Impuesto nacional al consumo (INC) causado y recaudado en operaciones por las cuales la entidad sea responsable: servicios de restaurantes y bares, determinados bienes y demás hechos gravados conforme a la modalidad aplicable. Registrar el valor del tributo separado del ingreso de la operación; conciliar por período y concepto.
 
-**Que no incluye:** Renta (2404), IVA (2408), ICA (2412), retenciones (2365-2368). Impuestos diferidos (272505).
+**Que no incluye:** IVA generado (2408); impuesto al consumo pagado por la entidad como adquirente cuando se incorpora al costo o gasto; tributos territoriales de consumo; intereses y sanciones; pagos del INC que se controlan en 249510. No registrar el INC como ingreso propio.
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Impuesto al patrimonio por pagar, GMF por pagar, impuesto al consumo por pagar, estampillas por pagar, predial por pagar, impuesto de vehículos, sobretasa bomberil, contribución superintendencia, tasa de vigilancia, impuesto de delineación, impuesto de avisos, contribuciones sectoriales.
+**Cuentas o nombres de cliente que podrian llegar aqui:** INC por pagar; impuesto al consumo generado; impuesto nacional al consumo causado; INC restaurantes; INC bares; INC venta de bienes; impuesto al consumo bolsas plásticas; impuesto al consumo cannabis (cuando proceda).
 
-**Soportes o terceros esperados:** Liquidación del tributo, declaración respectiva, factura/recibo oficial.
+**Soportes o terceros esperados:** Factura electrónica o documento equivalente con discriminación del INC cuando aplique; reporte de ventas/POS; auxiliar contable; liquidación del impuesto; declaración DIAN formulario 310; notas crédito y débito.
 
-**Soportes de control recomendados:** Tipo de tributo, entidad, periodo, base.
+**Soportes de control recomendados:** Período gravable; hecho generador; tipo de operación; establecimiento/sede; tarifa vigente aplicable; base gravable; consecutivo de factura; conciliación entre ventas, auxiliar y formulario 310.
 
-**Observaciones de homologacion:** Cuenta agregadora de tributos menores: idealmente segregar por tipo en subcuentas. El impuesto al patrimonio aplica según umbrales vigentes. Verificar contribuciones de superintendencias según la entidad vigilante del cliente.
+**Observaciones de homologacion:** Subcuenta específica del INC a pagar dentro del grupo 2495, en sustitución del uso residual anterior de 249505. Separar por conceptos sujetos y tarifas; comprobar responsabilidad, causación y período conforme a los arts. 512-1 y siguientes del E.T.; no mezclar con IVA del formulario 300. Contrastar saldo contra declaración formulario 310 y pagos 249510.
+
+### 249510 - Pago impuesto nacional al consumo
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `249510` |
+| Nombre | Pago impuesto nacional al consumo |
+| Cuenta Russell / 4D | Otros impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2495` |
+| Critica | no |
+
+**Que incluye:** Pagos y aplicaciones efectuados para extinguir la obligación previamente causada por impuesto nacional al consumo, correspondiente a períodos y conceptos debidamente identificados. Su movimiento débito disminuye el pasivo reconocido en 249505.
+
+**Que no incluye:** INC causado o generado (249505); pagos de IVA (2408); pago de renta, ICA, retenciones y otros tributos; pagos de intereses moratorios o sanciones, que requieren identificación separada; anticipos sin obligación identificada.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Pago INC; abono impuesto nacional al consumo; cancelación INC; recibo de pago INC; pago declaración formulario 310; pago impuesto al consumo DIAN.
+
+**Soportes o terceros esperados:** Formulario 310 presentado; recibo oficial de pago; comprobante de egreso; soporte de transferencia bancaria; extracto; certificación o consulta de obligaciones DIAN; conciliación tributaria.
+
+**Soportes de control recomendados:** Período de la declaración; concepto del impuesto; número de formulario; referencia del recibo; fecha de pago; banco; valor aplicado; distinción entre impuesto, interés y sanción; conciliación 249505-249510.
+
+**Observaciones de homologacion:** Registrar el débito contra bancos/cuenta por pagar según la secuencia real, sin reconocer nuevamente un gasto. Relacionar cada pago con la obligación del mismo período; controlar pagos parciales, compensaciones y saldos por aplicar. No confundir con impuesto al consumo asumido en compras
+
+### 249599 - Pago de otros impuestos, gravámenes y tasas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `249599` |
+| Nombre | Pago de otros impuestos, gravámenes y tasas |
+| Cuenta Russell / 4D | Otros impuestos, gravámenes y tasas |
+| Tipo de rubro | Pasivos por impuestos |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `2495` |
+| Critica | no |
+
+**Que incluye:** Pagos de otros impuestos, gravámenes, tasas o contribuciones reconocidos en cuentas de pasivo distintas de renta, IVA, ICA y retenciones. Incluye pagos de predial, vehículos, estampillas, contribuciones de superintendencias, tasas sectoriales u otros tributos residuales.
+
+**Que no incluye:** No incluye pagos de renta, IVA, ICA corriente, retenciones en la fuente, reteIVA, reteICA, impuesto diferido, sanciones o intereses si deben controlarse en cuentas separadas.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Pago otros impuestos, pago gravámenes, pago tasas, pago contribuciones, pago predial, pago vehículos, pago estampillas, pago contribución Supersociedades, pago tasas sectoriales.
+
+**Soportes o terceros esperados:** Liquidación del tributo, declaración o factura oficial, recibo de pago, comprobante bancario, extracto, resolución o acto administrativo cuando aplique.
+
+**Soportes de control recomendados:** Tipo de tributo, entidad recaudadora, periodo, base, tarifa, número de recibo o declaración, fecha de pago, valor pagado y saldo pendiente.
+
+**Observaciones de homologacion:** Cuenta residual para pagos de tributos no clasificados en cuentas específicas. Recomienda segregar por tipo de impuesto cuando el saldo o movimiento sea material. Conciliar con declaraciones, recibos oficiales y extractos. Evaluar causación por devengo al cierre y revelación de contingencias cuando existan liquidaciones o procesos pendientes.
 
 ### 250505 - Salarios por pagar
 
@@ -5199,7 +6063,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Capital por suscribir |
 | Cuenta Russell / 4D | Capital suscrito y pagado |
 | Tipo de rubro | Patrimonio |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `3105` |
 | Critica | no |
 
@@ -5223,7 +6087,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Capital suscrito por cobrar |
 | Cuenta Russell / 4D | Capital suscrito y pagado |
 | Tipo de rubro | Patrimonio |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `3105` |
 | Critica | no |
 
@@ -5439,7 +6303,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Pérdida del ejercicio |
 | Cuenta Russell / 4D | Pérdida del ejercicio |
 | Tipo de rubro | Patrimonio |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `3610` |
 | Critica | no |
 
@@ -5487,7 +6351,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Pérdidas acumuladas |
 | Cuenta Russell / 4D | Pérdidas acumuladas |
 | Tipo de rubro | Patrimonio |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `3710` |
 | Critica | no |
 
@@ -5559,7 +6423,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410505` |
 | Nombre | Ingresos gravados a la tarifa general |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales gravados |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional gravado con IVA tarifa general |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5583,7 +6447,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410510` |
 | Nombre | Ingresos gravados a la tarifa del 5% |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales gravados tarifa diferencial |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional gravado con tarifa diferencial |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5607,7 +6471,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410515` |
 | Nombre | Ingresos gravados a la tarifa del 0% |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales tarifa 0% |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional gravado a tarifa cero |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5631,7 +6495,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410520` |
 | Nombre | Ingresos gravados por AIU |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales AIU |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional con base gravable especial |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5655,7 +6519,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410525` |
 | Nombre | Ingresos exentos |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales exentos |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional exento de IVA |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5679,7 +6543,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `410530` |
 | Nombre | Ingresos excluidos |
-| Cuenta Russell / 4D | 4105 – Ingresos operacionales excluidos |
+| Cuenta Russell / 4D | Ingresos operacionales |
 | Tipo de rubro | Ingreso operacional excluido de IVA |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4105` |
@@ -5703,9 +6567,9 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `417505` |
 | Nombre | Devoluciones, rebajas y descuentos en ventas |
-| Cuenta Russell / 4D | Devoluciones en ventas |
+| Cuenta Russell / 4D | Devoluciones, rebajas y descuentos en ventas |
 | Tipo de rubro | Ingresos operacionales (menor valor) |
-| Naturaleza | Credito (`C`) |
+| Naturaleza | Debito (`D`) |
 | Padre logico | `4175` |
 | Critica | no |
 
@@ -5769,29 +6633,53 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** En empresas no financieras estos rendimientos son no operacionales (4210). Verificar retención que le practicaron (anticipo, activo). Distinguir de ingresos financieros del giro (415005). Medir a costo amortizado (NIIF 9).
 
-### 421020 - Ingreso por diferencia en cambio
+### 421020 - Diferencia en cambio realizada
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `421020` |
-| Nombre | Ingreso por diferencia en cambio |
+| Nombre | Diferencia en cambio realizada |
 | Cuenta Russell / 4D | Ingresos financieros |
 | Tipo de rubro | Ingresos no operacionales |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4210` |
 | Critica | no |
 
-**Que incluye:** Ingreso por diferencia en cambio realizada y no realizada favorable sobre activos y pasivos en moneda extranjera (cuentas por cobrar/pagar en ME, obligaciones en ME, efectivo en ME) medidos a TRM (NIC 21).
+**Que incluye:** Ganancia por diferencia en cambio materializada en la enajenación, recaudo o abono de partidas monetarias activas en moneda extranjera, o liquidación/pago total o parcial de pasivos monetarios, por variaciones entre los tipos de cambio aplicables. Registrar exclusivamente el efecto favorable realizado, sin duplicar ajustes anteriores.
 
-**Que no incluye:** Gasto por diferencia en cambio desfavorable (gasto). Capital de obligaciones en ME (21xx). Coberturas designadas (tratamiento NIIF 9). Diferencia en cambio capitalizable al activo (casos específicos).
+**Que no incluye:** Ganancia por reexpresión de saldos monetarios que continúan abiertos al cierre (421025); pérdida realizada (530525); pérdida no realizada (530530); capital del activo o pasivo; diferencias de conversión con tratamiento diferente (por ejemplo, ORI en casos especiales); ganancias de instrumentos de cobertura.
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Diferencia en cambio, ingreso por diferencia en cambio, diferencia cambiaria favorable, ganancia por tipo de cambio, ajuste por diferencia en cambio, revaluación de saldos en ME.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Ingreso diferencia cambiaria realizada; ganancia cambiaria al cobro; diferencia en cambio al pago; utilidad por tipo de cambio liquidada; diferencia cambiaria realizada
 
-**Soportes o terceros esperados:** TRM de cierre, soporte de saldos en ME, cálculo de la diferencia en cambio.
+**Soportes o terceros esperados:** Factura/contrato en divisas; documento de recaudo, pago o liquidación; extracto; comprobantes; tasas de cambio de reconocimiento y liquidación; movimiento del auxiliar en moneda extranjera; papel de trabajo del cálculo
 
-**Soportes de control recomendados:** Moneda, partida origen (activo/pasivo), realizada/no realizada.
+**Soportes de control recomendados:** Moneda; tercero; documento/partida; fecha y valor inicial en divisa; fechas y tasas de valoración; fecha y tasa de realización; importe liquidado; saldo pendiente; diferencia reconocida previamente; resultado neto realizado.
 
-**Observaciones de homologacion:** Medir saldos en ME a TRM de cierre (NIC 21). Separar diferencia realizada (al pago/cobro) de no realizada (revaluación de saldos). Conciliar con los saldos en ME del balance. Verificar tratamiento de coberturas si existen.
+**Observaciones de homologacion:** Registrar la ganancia realizada por evento de liquidación y documentar el reverso/reclasificación de valoraciones previas para evitar duplicidad. Para efectos fiscales el art. 288 E.T. define realización en la enajenación o abono de activos y liquidación o pago de pasivos; conciliar con la contabilidad y con 421025/530525/530530
+
+### 421025 - Diferencia en cambio no realizada
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `421025` |
+| Nombre | Diferencia en cambio no realizada |
+| Cuenta Russell / 4D | Ingresos financieros |
+| Tipo de rubro | Ingresos no operacionales |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `4210` |
+| Critica | no |
+
+**Que incluye:** Ganancia contable por la reexpresión al tipo de cambio de cierre de partidas monetarias en moneda extranjera que permanecen pendientes de recaudo, pago o liquidación. Corresponde a variaciones favorables de medición posterior sin realización de la partida subyacente.
+
+**Que no incluye:** Ganancia realizada por cobro, pago o liquidación (421020); pérdidas por diferencia en cambio (530525/530530); ajustes en partidas no monetarias que no se reexpresan; componentes reconocidos en ORI o instrumentos de cobertura cuando su marco lo requiera.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Ingreso por diferencia en cambio no realizada; diferencia cambiaria por valoración; reexpresión favorable de saldos; ganancia por TRM de cierre; ajuste cambiario no realizado
+
+**Soportes o terceros esperados:** Balance/auxiliar en divisas; conciliación por tercero y documento; tasa de cambio de cierre certificada; cálculo de medición posterior; política contable; comprobante de ajuste.
+
+**Soportes de control recomendados:** Moneda; cuenta y documento origen; tercero; saldo en moneda extranjera; TRM o tasa de cierre; tasa/valor contable anterior; fecha de corte; movimiento de ajuste; seguimiento de reversión o realización.
+
+**Observaciones de homologacion:** Aplicar la conversión de partidas monetarias conforme al marco de información financiera (NIC 21 o Sección 30 NIIF Pymes). La medición contable no equivale por sí misma a realización fiscal: controlar diferencia en conciliación fiscal conforme al art. 288 E.T. Dar seguimiento al cobro/pago para trasladar el efecto económico a realizado sin duplicarlo
 
 ### 421095 - Otros ingresos financieros
 
@@ -5913,29 +6801,29 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Distinguir de servicios como giro (415510/417005): aquí son esporádicos. Reconocer al prestar el servicio. Si se vuelven recurrentes, reclasificar a operacional.
 
-### 424515 - Utilidad en venta de PPE
+### 424515 - Ingreso en venta de PPE
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `424515` |
-| Nombre | Utilidad en venta de PPE |
+| Nombre | Ingreso en venta de PPE |
 | Cuenta Russell / 4D | Utilidad en venta de activos |
 | Tipo de rubro | Ingresos no operacionales |
 | Naturaleza | Credito (`C`) |
 | Padre logico | `4245` |
 | Critica | no |
 
-**Que incluye:** Utilidad (ganancia) en la venta o disposición de propiedad, planta y equipo, propiedades de inversión, intangibles e inversiones: diferencia positiva entre el precio de venta y el valor en libros del activo enajenado. Transversal.
+**Que incluye:** Ganancia neta obtenida en la venta o baja por disposición de propiedad, planta y equipo (PPE) utilizada por la entidad: diferencia positiva entre el producto neto de la venta y el importe en libros del activo dado de baja. En el mapeo financiero esta subcuenta debe representar la ganancia, aun si el nombre interno dice «Ingreso en venta de PPE».
 
-**Que no incluye:** Venta de inventario del giro (41xx). Pérdida en venta de activos (gasto). Ingreso bruto de la venta sin netear el costo en libros (se reconoce la utilidad neta). Recuperaciones (4250).
+**Que no incluye:** Valor bruto de venta cuando aún no se ha depurado el importe en libros; ventas de inventarios que constituyen el giro ordinario (41xx); pérdidas por venta de PPE (cuenta de gasto correspondiente); venta de intangibles, inversiones o propiedades de inversión si se gestionan en subcuentas distintas; recuperaciones.
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Utilidad en venta de PPE, ganancia en venta de activos, utilidad en venta de propiedad planta y equipo, utilidad en venta de vehículos, ganancia en venta de inmuebles, utilidad en venta de inversiones, utilidad en disposición de activos, ganancia en enajenación de activos.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Ganancia en venta de PPE; ingreso neto venta activo fijo; utilidad venta maquinaria; ganancia venta vehículo; utilidad enajenación de equipo; resultado positivo baja de PPE; ganancia venta edificio.
 
-**Soportes o terceros esperados:** Contrato/factura de venta, soporte del valor en libros, depreciación acumulada, cálculo de la utilidad.
+**Soportes o terceros esperados:** Contrato y factura/documento de venta; acta de entrega; registro auxiliar de activos fijos; costo histórico y mejoras; depreciación y deterioro acumulados; cálculo del importe en libros; soporte de cobro; baja del activo.
 
-**Soportes de control recomendados:** Activo enajenado, valor en libros, precio de venta.
+**Soportes de control recomendados:** Identificación y placa del activo; clase/sede; fecha de venta y baja; precio neto de disposición; costos de venta; importe en libros; depreciación acumulada; ganancia neta; IVA de la venta si aplica; validación del efecto fiscal.
 
-**Observaciones de homologacion:** Se reconoce la utilidad NETA (precio menos valor en libros), no el valor bruto de la venta (NIC 16). Verificar baja del activo y su depreciación acumulada. Si resulta pérdida, va a gasto. Distinguir de la venta de inventario del giro.
+**Observaciones de homologacion:** Atención al nombre propuesto: bajo NIC 16/Sección 17 NIIF Pymes, la ganancia por baja de PPE se determina neta y no se clasifica como ingreso ordinario de venta de inventarios. Verificar baja del activo, depreciación/deterioro y tratamiento tributario (utilidad ocasional o renta según requisitos). Distinguir presentación financiera de ingresos brutos fiscales cuando aplique.
 
 ### 425005 - Recuperaciones
 
@@ -5987,29 +6875,173 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 ## Clase 5 - Gastos
 
-### 510506 - Sueldos
+### 510503 - Salario integral
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `510506` |
-| Nombre | Sueldos |
+| Codigo | `510503` |
+| Nombre | Salario integral |
 | Cuenta Russell / 4D | Gastos de personal administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Sueldos y salarios del personal del área administrativa: salarios básicos, sobresueldos, subsidio de transporte del personal de administración. Transversal.
+**Que incluye:** Salario integral pactado por escrito del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): retribución que compensa el trabajo ordinario y, además, el valor de prestaciones, recargos y beneficios (factor prestacional), conforme al Art. 132 CST.
 
-**Que no incluye:** Sueldos de ventas (520506) o de producción (7205). Prestaciones sociales (510530-510539). Aportes (510568-510570). Honorarios (5110).
+**Que no incluye:** Salario ordinario (510506). Vacaciones del empleado con salario integral (510539, sí se causan). Aportes patronales (510568-510578). Honorarios de contratistas. Mismo concepto de otras áreas: 520503 (ventas), 720503 (MOD), 730503 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Sueldos administración, salarios administrativos, sueldos personal administrativo, salario básico administración, nómina administrativa, sueldos de oficina.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Salario integral, sueldo integral, remuneración integral, salario con factor prestacional, nómina salario integral, Salario integral administración.
 
-**Soportes o terceros esperados:** Nómina, contratos laborales, liquidación.
+**Soportes o terceros esperados:** Contrato laboral con pacto escrito de salario integral, nómina, desprendibles.
 
-**Soportes de control recomendados:** Empleado, centro de costo administrativo, periodo.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: verificar que el salario pactado cumpla el mínimo legal vigente (10 SMMLV + factor prestacional no inferior al 30%).
 
-**Observaciones de homologacion:** Clasificar por área (administración vs ventas vs producción). El criterio es la función del empleado. Verificar causación completa y aportes asociados. Cruzar con UGPP (IBC) y deducibilidad (pago de seguridad social).
+**Observaciones de homologacion:** No se causan cesantías, intereses ni prima sobre el salario integral; sí vacaciones. Base de aportes a seguridad social y parafiscales sobre el 70% del salario (validar norma vigente). Riesgo: salarios integrales por debajo del mínimo legal (reliquidación de prestaciones y fiscalización UGPP). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510505 - Apoyo de sostenimiento – aprendices
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510505` |
+| Nombre | Apoyo de sostenimiento – aprendices |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Apoyo de sostenimiento pagado a aprendices vinculados mediante contrato de aprendizaje (SENA u otras instituciones autorizadas), del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales), en etapa lectiva y/o productiva.
+
+**Que no incluye:** Sueldos de trabajadores ordinarios (510506). Pasantías o prácticas no regidas por contrato de aprendizaje. Monetización de la cuota de aprendices pagada al SENA (510595 u otra cuenta según política). Aportes del aprendiz. Mismo concepto de otras áreas: 520505 (ventas), 720505 (MOD), 730505 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Apoyo de sostenimiento, aprendices SENA, contrato de aprendizaje, cuota de aprendices, practicantes SENA, sostenimiento aprendiz, Apoyo de sostenimiento – aprendices administración.
+
+**Soportes o terceros esperados:** Contrato de aprendizaje, resolución de regulación de cuota del SENA, nómina de aprendices, certificación de la institución educativa.
+
+**Soportes de control recomendados:** Aprendiz, etapa (lectiva/productiva), centro de costo, periodo. Control: cumplimiento de la cuota regulada por el SENA.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). La Ley 2466 de 2025 modificó el régimen del contrato de aprendizaje (Ley 789 de 2002, Art. 30): validar monto del apoyo, naturaleza del vínculo y aportes aplicables según la norma vigente. Riesgo: incumplimiento de cuota (sanciones SENA). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510506 - Sueldos y salarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510506` |
+| Nombre | Sueldos y salarios |
+| Cuenta Russell / 4D | Gastos de administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Salario básico ordinario del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): sueldos, jornales y demás pagos que constituyen salario (Art. 127 CST), incluidos retroactivos y ajustes salariales.
+
+**Que no incluye:** Salario integral (510503). Horas extras y recargos (510515). Comisiones (510518). Prestaciones sociales (510530-510539). Aportes (510568-510578). Pagos a contratistas (honorarios/servicios). Mismo concepto de otras áreas: 520506 (ventas), 720506 (MOD), 730506 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Sueldos, salarios, salario básico, nómina, jornales, sueldo ordinario, retroactivos salariales, ajuste salarial, Sueldos y salarios administración.
+
+**Soportes o terceros esperados:** Nómina mensual, contratos laborales, novedades, documento soporte de pago de nómina electrónica (Res. DIAN 000013 de 2021), comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: conciliación nómina – PILA – contabilidad; cruce con pagos bancarios.
+
+**Observaciones de homologacion:** Cuenta base de la nómina. La deducibilidad requiere pago de aportes (Art. 108 E.T.) y nómina electrónica transmitida. Detectar empleados ficticios o contratistas registrados como salario (NIA 240). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510515 - Horas extras y recargos
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510515` |
+| Nombre | Horas extras y recargos |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Trabajo suplementario y recargos del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): horas extras diurnas y nocturnas, recargo nocturno, dominical y festivo (Arts. 168 y 179 CST).
+
+**Que no incluye:** Salario básico (510506). Bonificaciones (510548). Compensatorios no remunerados. Comisiones (510518). Mismo concepto de otras áreas: 520515 (ventas), 720515 (MOD), 730515 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Horas extras, recargos, recargo nocturno, dominicales, festivos, trabajo suplementario, horas extra diurnas, horas extra nocturnas, Horas extras y recargos administración.
+
+**Soportes o terceros esperados:** Reportes de tiempo, autorización de trabajo suplementario, nómina, novedades.
+
+**Soportes de control recomendados:** Empleado, tipo de recargo, centro de costo, periodo. Control: autorización previa y topes de trabajo suplementario.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Validar porcentajes y jornada vigentes (Ley 2101 de 2021 reducción gradual de jornada; Ley 2466 de 2025 recargos dominicales y franja nocturna). Montos recurrentes y altos indican riesgo de jornada excesiva. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510518 - Comisiones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510518` |
+| Nombre | Comisiones |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Comisiones laborales pagadas a empleados del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) como remuneración variable por ventas, recaudo o cumplimiento de metas, que constituyen salario (Art. 127 CST).
+
+**Que no incluye:** Comisiones a terceros independientes (529505 / 519505). Comisiones bancarias (530505). Bonificaciones no salariales (510548). Mismo concepto de otras áreas: 520518 (ventas), 720518 (MOD), 730518 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Comisiones laborales, comisiones empleados, comisión por ventas nómina, salario variable, comisión de recaudo, Comisiones administración.
+
+**Soportes o terceros esperados:** Política o esquema de comisiones, liquidación, nómina, reporte de ventas base.
+
+**Soportes de control recomendados:** Empleado, base de liquidación, centro de costo, periodo. Control: recálculo contra ventas/recaudo reportado.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Distinguir comisión laboral (este rubro) de comisión a tercero (529505, con retención). Correlacionar con ingresos (riesgo de corte). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510524 - Incapacidades
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510524` |
+| Nombre | Incapacidades |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Pago de incapacidades del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) a cargo del empleador: días de incapacidad por enfermedad general que asume la empresa y diferencias no reconocidas por EPS/ARL.
+
+**Que no incluye:** Incapacidades reconocidas por EPS o ARL (cuenta por cobrar, grupo 13, hasta su recobro). Licencias de maternidad/paternidad (510586). Salario ordinario (510506). Mismo concepto de otras áreas: 520524 (ventas), 720524 (MOD), 730524 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Incapacidades, incapacidad enfermedad general, incapacidad laboral, días de incapacidad, incapacidad a cargo del empleador, Incapacidades administración.
+
+**Soportes o terceros esperados:** Certificado de incapacidad, nómina, radicación y respuesta de recobro EPS/ARL.
+
+**Soportes de control recomendados:** Empleado, entidad (EPS/ARL), días, periodo. Control: conciliación incapacidades pagadas vs. recobradas.
+
+**Observaciones de homologacion:** Los primeros dos días de incapacidad por enfermedad general corren a cargo del empleador (Decreto 2943 de 2013, validar vigencia); desde el tercero, reconocimiento de la EPS (recobro, no gasto). Evaluar recuperabilidad de recobros antiguos (NIIF 9). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510527 - Auxilio de transporte
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510527` |
+| Nombre | Auxilio de transporte |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Auxilio legal de transporte pagado del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) a trabajadores que devengan hasta dos (2) SMMLV (Ley 15 de 1959 y decreto anual del Gobierno).
+
+**Que no incluye:** Auxilios extralegales de transporte o movilidad (510545). Gastos de viaje y viáticos. Transporte de personal contratado a terceros (servicios). Mismo concepto de otras áreas: 520527 (ventas), 720527 (MOD), 730527 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilio de transporte, subsidio de transporte, auxilio legal de transporte, transporte nómina, Auxilio de transporte administración.
+
+**Soportes o terceros esperados:** Nómina, decreto anual de auxilio de transporte, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, periodo. Control: verificar que solo lo reciban empleados con salario ≤ 2 SMMLV.
+
+**Observaciones de homologacion:** No integra el IBC de seguridad social, pero sí la base de cesantías y prima (Ley 1 de 1963, Art. 7). Riesgo: pago a quienes no tienen derecho o omisión en base prestacional. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510530 - Cesantías
 
@@ -6017,23 +7049,47 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510530` |
 | Nombre | Cesantías |
+| Cuenta Russell / 4D | Gastos de administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Gasto por auxilio de cesantías del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) causado en el periodo: un mes de salario por año de servicio y proporcional (Art. 249 CST).
+
+**Que no incluye:** Intereses sobre cesantías (510533). Cesantías consolidadas por pagar (pasivo 2510) o provisión (2610). Aportes a pensión (510570). Mismo concepto de otras áreas: 520530 (ventas), 720530 (MOD), 730530 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías, auxilio de cesantías, provisión de cesantías, cesantías causadas, fondo de cesantías, Cesantías administración.
+
+**Soportes o terceros esperados:** Nómina, liquidación de cesantías, consignación al fondo (Ley 50 de 1990, Art. 99), liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, fondo, centro de costo, periodo. Control: recálculo por empleado y conciliación gasto – pasivo – pago al fondo.
+
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Consignación a más tardar el 14 de febrero; la mora genera sanción moratoria. No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510533 - Intereses sobre cesantías
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510533` |
+| Nombre | Intereses sobre cesantías |
 | Cuenta Russell / 4D | Gastos de personal administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por cesantías del personal administrativo (auxilio de cesantías devengado en el periodo). Beneficio a empleados (NIC 19).
+**Que incluye:** Intereses sobre cesantías del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) a cargo del empleador: 12% anual sobre el saldo de cesantías (Ley 52 de 1975).
 
-**Que no incluye:** Cesantías de ventas (5205) o producción (7205). Intereses sobre cesantías. Cesantías consolidadas como pasivo (251010). Provisión (261005).
+**Que no incluye:** Cesantías (510530). Intereses financieros (530520). Intereses por pagar (pasivo 2515). Mismo concepto de otras áreas: 520533 (ventas), 720533 (MOD), 730533 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías administración, gasto de cesantías administrativas, auxilio de cesantías administración, cesantías personal administrativo.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Intereses sobre cesantías, intereses de cesantías, 12% cesantías, intereses cesantías causados, Intereses sobre cesantías administración.
 
-**Soportes o terceros esperados:** Nómina, liquidación de cesantías.
+**Soportes o terceros esperados:** Nómina, liquidación anual, comprobante de pago al trabajador.
 
-**Soportes de control recomendados:** Empleado, centro de costo, periodo.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo 12% anual o proporcional.
 
-**Observaciones de homologacion:** Gasto del periodo por prestación. La contrapartida es el pasivo (2510) o provisión (2610). Verificar base de liquidación y factores salariales. Clasificar por área.
+**Observaciones de homologacion:** Se pagan directamente al trabajador (a más tardar el 31 de enero). No confundir con intereses financieros (530520). No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510536 - Prima de servicios
 
@@ -6041,23 +7097,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510536` |
 | Nombre | Prima de servicios |
-| Cuenta Russell / 4D | Gastos de personal administración |
+| Cuenta Russell / 4D | Gastos de administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por prima de servicios del personal administrativo devengada en el periodo. Beneficio a empleados (NIC 19).
+**Que incluye:** Prima legal de servicios del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): 30 días de salario por año, pagadera por semestres (Art. 306 CST).
 
-**Que no incluye:** Prima de ventas (5205) o producción (7205). Prima consolidada como pasivo (252005). Provisión (261020).
+**Que no incluye:** Primas extralegales (510542). Bonificaciones (510548). Prima consolidada por pagar (pasivo 2520) o provisión (2610). Mismo concepto de otras áreas: 520536 (ventas), 720536 (MOD), 730536 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios administración, gasto de prima administrativa, prima legal administración, prima personal administrativo.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios, prima legal, prima semestral, prima de junio, prima de diciembre, Prima de servicios administración.
 
-**Soportes o terceros esperados:** Nómina, liquidación de prima.
+**Soportes o terceros esperados:** Nómina, liquidación semestral, comprobantes de pago.
 
-**Soportes de control recomendados:** Empleado, centro de costo, periodo.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo semestral y corte en junio/diciembre.
 
-**Observaciones de homologacion:** Gasto del periodo. Contrapartida en pasivo (252005) o provisión (261020). Verificar base. Clasificar por área.
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Causar mensualmente. No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510539 - Vacaciones
 
@@ -6065,23 +7121,191 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510539` |
 | Nombre | Vacaciones |
+| Cuenta Russell / 4D | Gastos de administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Gasto por vacaciones del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) causadas en el periodo: 15 días hábiles consecutivos por año de servicio (Art. 186 CST), incluidas compensaciones en dinero.
+
+**Que no incluye:** Vacaciones consolidadas por pagar (pasivo 2525) o provisión (2610). Licencias remuneradas (510586). Incapacidades (510524). Mismo concepto de otras áreas: 520539 (ventas), 720539 (MOD), 730539 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones, provisión de vacaciones, vacaciones disfrutadas, vacaciones compensadas, descanso remunerado, Vacaciones administración.
+
+**Soportes o terceros esperados:** Nómina, control de días causados/disfrutados, liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, días, centro de costo, periodo. Control: conciliación de días pendientes por empleado vs. pasivo.
+
+**Observaciones de homologacion:** Ausencia remunerada acumulable (NIC 19 / Sección 28). Aplica también a salario integral. Riesgo: acumulación excesiva de periodos no disfrutados. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510542 - Primas extralegales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510542` |
+| Nombre | Primas extralegales |
 | Cuenta Russell / 4D | Gastos de personal administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por vacaciones del personal administrativo devengadas en el periodo. Beneficio a empleados (NIC 19).
+**Que incluye:** Primas pactadas voluntariamente o por convención/pacto colectivo del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): prima de vacaciones, de antigüedad, de navidad u otras distintas de la prima legal.
 
-**Que no incluye:** Vacaciones de ventas (5205) o producción (7205). Vacaciones consolidadas como pasivo (252505). Provisión (261015).
+**Que no incluye:** Prima legal de servicios (510536). Bonificaciones ocasionales (510548). Auxilios (510545). Mismo concepto de otras áreas: 520542 (ventas), 720542 (MOD), 730542 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones administración, gasto de vacaciones administrativas, vacaciones personal administrativo, descanso remunerado administración.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Primas extralegales, prima de vacaciones, prima de antigüedad, prima de navidad, prima convencional, prima extralegal, Primas extralegales administración.
 
-**Soportes o terceros esperados:** Nómina, control de vacaciones, liquidación.
+**Soportes o terceros esperados:** Convención/pacto colectivo, contrato, política de beneficios, nómina.
 
-**Soportes de control recomendados:** Empleado, centro de costo, periodo.
+**Soportes de control recomendados:** Empleado, tipo de prima, centro de costo, periodo. Control: soporte del pacto y de la exclusión salarial, si existe.
 
-**Observaciones de homologacion:** Gasto del periodo por el devengo de días de descanso. Contrapartida en pasivo (252505) o provisión (261015). Clasificar por área.
+**Observaciones de homologacion:** Su carácter salarial depende del pacto (Art. 128 CST). Si es no salarial, verificar el límite del 40% para el IBC (Ley 1393 de 2010, Art. 30). Riesgo UGPP. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510545 - Auxilios al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510545` |
+| Nombre | Auxilios al personal |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Auxilios extralegales otorgados del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): alimentación, vivienda, educación, movilidad, conectividad u otros auxilios pactados.
+
+**Que no incluye:** Auxilio legal de transporte (510527). Gastos médicos (510584). Capacitación (510563). Préstamos a empleados (activo, grupo 13). Mismo concepto de otras áreas: 520545 (ventas), 720545 (MOD), 730545 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilios al personal, auxilio de alimentación, auxilio educativo, auxilio de vivienda, auxilio de conectividad, auxilio extralegal, Auxilios al personal administración.
+
+**Soportes o terceros esperados:** Política de beneficios, pacto de exclusión salarial, nómina, soportes de entrega.
+
+**Soportes de control recomendados:** Empleado, tipo de auxilio, centro de costo, periodo. Control: aprobación y consistencia con la política.
+
+**Observaciones de homologacion:** Evaluar si es constitutivo o no de salario (Arts. 127 y 128 CST) y el límite del 40% (Ley 1393 de 2010, Art. 30). Verificar deducibilidad y tratamiento como ingreso laboral del trabajador (retención en la fuente). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510548 - Bonificaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510548` |
+| Nombre | Bonificaciones |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Bonificaciones pagadas del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): por desempeño, resultados, cumplimiento de metas o de mera liberalidad.
+
+**Que no incluye:** Comisiones laborales (510518). Primas extralegales (510542). Indemnizaciones (510560). Participación en utilidades a socios (patrimonio). Mismo concepto de otras áreas: 520548 (ventas), 720548 (MOD), 730548 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Bonificaciones, bonos por desempeño, bonificación por resultados, bonificación ocasional, incentivos, bonos de mera liberalidad, Bonificaciones administración.
+
+**Soportes o terceros esperados:** Política de bonificaciones, actas o aprobaciones, nómina.
+
+**Soportes de control recomendados:** Empleado, concepto, centro de costo, periodo. Control: aprobación por nivel de autoridad; bonificaciones a directivos revisadas por gobierno corporativo.
+
+**Observaciones de homologacion:** Carácter salarial según habitualidad y pacto (Arts. 127-128 CST); límite del 40% (Ley 1393 de 2010, Art. 30). Bonificaciones a la alta dirección: riesgo de sesgo en metas (NIA 240). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510551 - Dotación y suministro a trabajadores
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510551` |
+| Nombre | Dotación y suministro a trabajadores |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Calzado y vestido de labor entregado del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) (Art. 230 CST: trabajadores con salario hasta 2 SMMLV, tres entregas al año) y demás elementos suministrados para el trabajo.
+
+**Que no incluye:** Elementos de protección personal del SG-SST según política (510595 o CIF 731005). Uniformes de imagen corporativa según política. Inventario de dotación no entregado (activo). Mismo concepto de otras áreas: 520551 (ventas), 720551 (MOD), 730551 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, calzado y vestido de labor, uniformes, overoles, suministro a trabajadores, dotación de ley, Dotación y suministro a trabajadores administración.
+
+**Soportes o terceros esperados:** Factura del proveedor, actas de entrega firmadas, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, entrega, centro de costo, periodo. Control: actas de entrega en las fechas legales.
+
+**Observaciones de homologacion:** No constituye salario (Art. 234 CST) y no puede compensarse en dinero. Riesgo: incumplimiento de entregas y deducibilidad sin soporte de entrega. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510554 - Seguros de empleados
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510554` |
+| Nombre | Seguros de empleados |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Primas de seguros tomados por el empleador a favor del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): vida grupo, accidentes personales, pólizas de salud o medicina prepagada colectivas.
+
+**Que no incluye:** Seguros sobre activos (5130/5230; en producción, CIF 731005). Aportes a ARL (510568). Seguros pagados por anticipado (170520). Mismo concepto de otras áreas: 520554 (ventas), 720554 (MOD), 730554 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Seguros de empleados, seguro de vida grupo, póliza de salud empleados, medicina prepagada, accidentes personales empleados, Seguros de empleados administración.
+
+**Soportes o terceros esperados:** Póliza, factura, relación de asegurados.
+
+**Soportes de control recomendados:** Aseguradora, póliza, centro de costo, periodo. Control: conciliar asegurados vs. empleados activos.
+
+**Observaciones de homologacion:** Reconocer la porción devengada (el anticipado es activo). Evaluar si constituye pago laboral para el trabajador y su tratamiento en retención y deducibilidad. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510560 - Indemnizaciones laborales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510560` |
+| Nombre | Indemnizaciones laborales |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Indemnizaciones pagadas del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) por terminación del contrato sin justa causa (Art. 64 CST) u otras indemnizaciones legales o conciliadas en la terminación.
+
+**Que no incluye:** Condenas y demandas laborales (539505). Sanción moratoria como multa (539520). Liquidación de prestaciones ordinarias (510530-510539). Mismo concepto de otras áreas: 520560 (ventas), 720560 (MOD), 730560 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Indemnizaciones laborales, indemnización por despido, despido sin justa causa, bonificación por retiro, terminación de contrato, Indemnizaciones laborales administración.
+
+**Soportes o terceros esperados:** Carta de terminación, liquidación, acta de conciliación, comprobante de pago.
+
+**Soportes de control recomendados:** Empleado, causa, centro de costo, periodo. Control: soporte jurídico de la terminación.
+
+**Observaciones de homologacion:** Beneficio por terminación (NIC 19 / Sección 28). No constituye salario ni IBC. Montos inusuales pueden requerir revelación y evaluación de contingencias (NIC 37). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510563 - Capacitación al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510563` |
+| Nombre | Capacitación al personal |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Costos de formación, cursos, seminarios, diplomados y entrenamiento del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales).
+
+**Que no incluye:** Auxilios educativos en dinero (510545). Honorarios de consultoría (5110/5210). Capacitación del SG-SST según política. Mismo concepto de otras áreas: 520563 (ventas), 720563 (MOD), 730563 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Capacitación al personal, formación, cursos, seminarios, entrenamiento, diplomados, educación continuada, Capacitación al personal administración.
+
+**Soportes o terceros esperados:** Factura, certificado de asistencia, plan de capacitación.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: vínculo con el plan de capacitación aprobado.
+
+**Observaciones de homologacion:** Gasto del periodo. Verificar retención por servicios y relación de causalidad con la actividad (deducibilidad). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510568 - Aportes ARL
 
@@ -6089,23 +7313,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510568` |
 | Nombre | Aportes ARL |
-| Cuenta Russell / 4D | Gastos de personal administración |
+| Cuenta Russell / 4D | Gastos de administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por aportes a riesgos laborales (ARL) del personal administrativo a cargo del empleador.
+**Que incluye:** Aportes a la Administradora de Riesgos Laborales del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales), 100% a cargo del empleador según clase de riesgo (Decreto 1295 de 1994, Ley 1562 de 2012, Decreto 1072 de 2015).
 
-**Que no incluye:** Aportes EPS (510569) o pensión (510570). ARL de ventas (5205) o producción (7205). ARL por pagar (237006).
+**Que no incluye:** Aportes EPS (510569), pensión (510570) y parafiscales (510572-510578). ARL por pagar (237006). Mismo concepto de otras áreas: 520568 (ventas), 720568 (MOD), 730568 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ARL administración, riesgos laborales administración, gasto ARL administrativo, aporte riesgos laborales administración.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ARL, riesgos laborales, ARP, aporte riesgos profesionales, Aportes ARL administración.
 
-**Soportes o terceros esperados:** PILA, nómina, clasificación de riesgo.
+**Soportes o terceros esperados:** Planilla PILA, afiliación ARL, nómina, clasificación de riesgo.
 
-**Soportes de control recomendados:** Empleado, nivel de riesgo, periodo.
+**Soportes de control recomendados:** Empleado, nivel de riesgo, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Gasto a cargo del empleador. Contrapartida en 237006. Verificar nivel de riesgo (UGPP). Clasificar por área.
+**Observaciones de homologacion:** Contrapartida en 237006. Verificar clase de riesgo vs. actividad real e IBC (UGPP). Deducibilidad condicionada al pago (Art. 108 E.T.). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510569 - Aportes EPS
 
@@ -6113,47 +7337,167 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510569` |
 | Nombre | Aportes EPS |
-| Cuenta Russell / 4D | Gastos de personal administración |
+| Cuenta Russell / 4D | Gastos de administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por aportes a salud (EPS) del personal administrativo a cargo del empleador.
+**Que incluye:** Aporte patronal a salud del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) (Ley 100 de 1993, Art. 204).
 
-**Que no incluye:** Aportes ARL (510568) o pensión (510570). EPS de ventas/producción. EPS por pagar (237005). Exoneración Art. 114-1.
+**Que no incluye:** Descuento de salud al trabajador (pasivo). Aportes ARL (510568) y pensión (510570). EPS por pagar (237005). Mismo concepto de otras áreas: 520569 (ventas), 720569 (MOD), 730569 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes EPS administración, salud administración, gasto EPS administrativo, aporte salud empleador administración.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes EPS, aporte salud empleador, salud patronal, aporte a EPS, Aportes EPS administración.
 
-**Soportes o terceros esperados:** PILA, nómina.
+**Soportes o terceros esperados:** Planilla PILA, nómina, afiliaciones.
 
-**Soportes de control recomendados:** Empleado, IBC, periodo.
+**Soportes de control recomendados:** Empleado, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Gasto a cargo del empleador. Verificar exoneración del Art. 114-1 E.T. (trabajadores < 10 SMMLV en entidades beneficiarias). Contrapartida en 237005. Cruzar IBC con UGPP. Clasificar por área.
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores que devenguen menos de 10 SMMLV en personas jurídicas contribuyentes que cumplan requisitos). Contrapartida en 237005. Cruzar IBC con UGPP. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
-### 510570 - Aportes pensión y cesantías
+### 510570 - Aportes a pensiones
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `510570` |
-| Nombre | Aportes pensión y cesantías |
+| Nombre | Aportes a pensiones |
+| Cuenta Russell / 4D | Gastos de administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Aporte patronal a pensiones del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) al régimen correspondiente (Ley 100 de 1993, Art. 20).
+
+**Que no incluye:** Cesantías (510530), aunque se consignen a un fondo de pensiones y cesantías. Descuento de pensión al trabajador (pasivo). Aportes por pagar (237045). Mismo concepto de otras áreas: 520570 (ventas), 720570 (MOD), 730570 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes a pensiones, fondo de pensiones, aporte pensión empleador, Colpensiones, fondo privado de pensiones, Aportes a pensiones administración.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina, certificaciones de fondos.
+
+**Soportes de control recomendados:** Empleado, fondo, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** En el Decreto 2650 de 1993 la subcuenta se denomina "Aportes a fondos de pensiones y/o cesantías"; se recomienda usarla solo para pensión y llevar cesantías en 510530. Validar el estado de vigencia de la Ley 2381 de 2024 (reforma pensional). Contrapartida en 237045. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510572 - Aportes caja de compensación familiar
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510572` |
+| Nombre | Aportes caja de compensación familiar |
 | Cuenta Russell / 4D | Gastos de personal administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Gasto por aportes a pensión y a fondos de cesantías del personal administrativo a cargo del empleador.
+**Que incluye:** Aporte parafiscal del 4% sobre la nómina del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) a la caja de compensación familiar (Ley 21 de 1982).
 
-**Que no incluye:** Aportes EPS (510569) o ARL (510568). Pensión de ventas/producción. Aportes por pagar (237045).
+**Que no incluye:** Aportes ICBF (510575) y SENA (510578). Aportes por pagar (2370). Subsidio familiar pagado por la caja (no es gasto de la entidad). Mismo concepto de otras áreas: 520572 (ventas), 720572 (MOD), 730572 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes pensión administración, fondo de pensiones administración, aportes cesantías administración, pensión empleador administración, gasto pensión administrativo.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Caja de compensación, aportes CCF, parafiscales caja, Compensar, Colsubsidio, Comfama, Cafam, aporte 4%, Aportes caja de compensación familiar administración.
 
-**Soportes o terceros esperados:** PILA, nómina.
+**Soportes o terceros esperados:** Planilla PILA, nómina.
 
-**Soportes de control recomendados:** Empleado, IBC, periodo.
+**Soportes de control recomendados:** Caja, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Gasto a cargo del empleador. Contrapartida en 237045. Verificar IBC (UGPP). Clasificar por área.
+**Observaciones de homologacion:** No está cubierto por la exoneración del Art. 114-1 E.T. Deducibilidad de salarios condicionada al pago de parafiscales (Art. 108 E.T.). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510575 - Aportes ICBF
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510575` |
+| Nombre | Aportes ICBF |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 3% sobre la nómina del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) al Instituto Colombiano de Bienestar Familiar (Ley 89 de 1988).
+
+**Que no incluye:** Aportes SENA (510578) y caja (510572). Aportes por pagar (2370). Mismo concepto de otras áreas: 520575 (ventas), 720575 (MOD), 730575 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ICBF, parafiscales ICBF, bienestar familiar, aporte 3%, Aportes ICBF administración.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores con menos de 10 SMMLV). Un gasto registrado estando exonerado indica pago de lo no debido o error de clasificación. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510578 - Aportes SENA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510578` |
+| Nombre | Aportes SENA |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 2% sobre la nómina del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) al Servicio Nacional de Aprendizaje (Ley 21 de 1982).
+
+**Que no incluye:** Monetización de la cuota de aprendices. Apoyo de sostenimiento (510505). Aportes ICBF (510575) y caja (510572). Mismo concepto de otras áreas: 520578 (ventas), 720578 (MOD), 730578 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes SENA, parafiscales SENA, aporte 2%, Aportes SENA administración.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. Distinguir el aporte parafiscal de la monetización de la cuota de aprendices. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510584 - Gastos médicos y drogas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510584` |
+| Nombre | Gastos médicos y drogas |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Gastos médicos, drogas, exámenes y evaluaciones médicas ocupacionales (ingreso, periódicas, retiro) asumidos por el empleador del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales).
+
+**Que no incluye:** Medicina prepagada o pólizas colectivas (510554). Aportes EPS (510569). Incapacidades (510524). Mismo concepto de otras áreas: 520584 (ventas), 720584 (MOD), 730584 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gastos médicos, drogas, exámenes médicos ocupacionales, medicina laboral, exámenes de ingreso, exámenes periódicos, botiquín, Gastos médicos y drogas administración.
+
+**Soportes o terceros esperados:** Factura del proveedor (IPS), relación de empleados atendidos.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: relación con el SG-SST (Decreto 1072 de 2015).
+
+**Observaciones de homologacion:** Gasto del periodo. Proteger la reserva de la historia clínica (el auditor revisa factura y relación, no diagnósticos). Verificar retención por servicios. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
+
+### 510586 - Licencias
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `510586` |
+| Nombre | Licencias |
+| Cuenta Russell / 4D | Gastos de personal administración |
+| Tipo de rubro | Gastos de administración |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5105` |
+| Critica | no |
+
+**Que incluye:** Licencias remuneradas a cargo del empleador del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales): luto (Ley 1280 de 2009), calamidad doméstica, sufragio (Ley 403 de 1997) y otras licencias remuneradas legales o pactadas.
+
+**Que no incluye:** Licencias de maternidad y paternidad reconocidas por la EPS (cuenta por cobrar hasta su recobro). Vacaciones (510539). Incapacidades (510524). Licencias no remuneradas (no generan pago). Mismo concepto de otras áreas: 520586 (ventas), 720586 (MOD), 730586 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Licencias remuneradas, licencia de luto, calamidad doméstica, licencia por sufragio, permiso remunerado, licencia de maternidad, licencia de paternidad, Licencias remuneradas administración.
+
+**Soportes o terceros esperados:** Solicitud y autorización de la licencia, soporte del hecho, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de licencia, días, periodo. Control: autorización y soporte.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). Separar lo recobrable a EPS (maternidad/paternidad) de lo asumido por el empleador. Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 510595 - Otros gastos de personal
 
@@ -6161,23 +7505,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `510595` |
 | Nombre | Otros gastos de personal |
-| Cuenta Russell / 4D | Gastos de personal administración |
+| Cuenta Russell / 4D | Gastos de administración |
 | Tipo de rubro | Gastos de administración |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5105` |
 | Critica | no |
 
-**Que incluye:** Otros gastos de personal administrativo: parafiscales, dotación, capacitación, bienestar, auxilios, indemnizaciones, gastos médicos, otros beneficios del personal de administración.
+**Que incluye:** Otros gastos laborales del personal del área administrativa (gerencia, contabilidad, tesorería, talento humano, sistemas, servicios generales) sin subcuenta específica: bienestar, recreación y deportes, celebraciones, aportes sindicales, elementos de protección personal según política, monetización de cuota de aprendices, otros beneficios.
 
-**Que no incluye:** Sueldos y prestaciones con subcuenta específica (510506-510570). Personal de ventas/producción. Honorarios (5110).
+**Que no incluye:** Todo concepto con subcuenta específica en este grupo (510503-510586). Honorarios y servicios de contratistas. Gastos personales de socios o directivos. Préstamos a empleados. Mismo concepto de otras áreas: 520595 (ventas), 720595 (MOD), 730595 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Otros gastos de personal administración, parafiscales administración, dotación administración, capacitación administración, bienestar administración, auxilios al personal, indemnizaciones administración, gastos médicos.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otros gastos de personal, bienestar laboral, recreación, actividades deportivas, celebraciones, aportes sindicales, elementos de protección personal, cuota de aprendices, Otros gastos de personal administración.
 
-**Soportes o terceros esperados:** Nómina, PILA, soporte de los gastos.
+**Soportes o terceros esperados:** Factura/soporte, autorización, política de beneficios.
 
-**Soportes de control recomendados:** Empleado, concepto, periodo.
+**Soportes de control recomendados:** Concepto, centro de costo, periodo. Control: revisión analítica y reclasificación a subcuenta específica.
 
-**Observaciones de homologacion:** Cuenta de otros conceptos de personal. Incluye parafiscales (verificar exoneración SENA/ICBF Art. 114-1). Clasificar por área. Verificar que beneficios sean deducibles y su tratamiento (constitutivo o no de salario).
+**Observaciones de homologacion:** Cuenta residual de alto riesgo: no debe usarse como "bolsillo". Reclasificar a subcuenta específica cuando aplique. Vigilar gastos personales de socios y partidas sin soporte (NIA 240; deducibilidad). Gasto del periodo. Clasificar por la función real del empleado (administración vs. ventas vs. producción).
 
 ### 511005 - Honorarios
 
@@ -6289,7 +7633,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por arrendamientos del área administrativa: oficinas, equipos, parqueaderos de administración (de contratos que no generan derecho de uso NIIF 16 o el componente de gasto).
 
-**Que no incluye:** Arrendamientos de ventas (5220) o producción (7305). Depreciación del derecho de uso NIIF 16 (5160). Arrendamientos por pagar (233540). Cánones pagados por anticipado (170525).
+**Que no incluye:** Arrendamientos de ventas (5220) o producción (731005). Depreciación del derecho de uso NIIF 16 (5160). Arrendamientos por pagar (233540). Cánones pagados por anticipado (170525).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Arrendamientos administración, arriendo de oficinas, alquiler administrativo, canon de oficina, arrendamiento de equipos administración, arriendo de parqueadero.
 
@@ -6313,7 +7657,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por contribuciones y afiliaciones del área administrativa: afiliaciones a gremios, cámaras, asociaciones, suscripciones institucionales, cuotas de sostenimiento.
 
-**Que no incluye:** Contribuciones de superintendencias (impuestos 511595). Donaciones (539525). Aportes parafiscales (510595).
+**Que no incluye:** Contribuciones de superintendencias (impuestos 511595). Donaciones (539525). Aportes parafiscales (510572 a 510578).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Contribuciones y afiliaciones, afiliaciones a gremios, cuotas de asociación, afiliación a cámara, suscripciones institucionales, cuotas de sostenimiento, membresías gremiales.
 
@@ -6337,7 +7681,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por seguros del área administrativa devengados en el periodo: pólizas de oficinas, RC, manejo, cumplimiento, vida del personal administrativo, asociadas a la administración.
 
-**Que no incluye:** Seguros de ventas (5230) o producción (7305). Seguros pagados por anticipado no devengados (170520). Seguros por pagar (233555).
+**Que no incluye:** Seguros de ventas (5230) o producción (731005). Seguros pagados por anticipado no devengados (170520). Seguros por pagar (233555).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Seguros administración, primas de seguro administración, pólizas administrativas, seguro de oficinas, RC administración, seguro de manejo, gasto de seguros.
 
@@ -6361,7 +7705,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por servicios del área administrativa: servicios públicos (energía, agua, gas, aseo, telefonía, internet), vigilancia, aseo, temporales, servicios técnicos administrativos, procesamiento de datos.
 
-**Que no incluye:** Servicios de ventas (5235) o producción (7305). Transportes y fletes (513550). Honorarios (5110). Mantenimiento (5145). Servicios por pagar (2335).
+**Que no incluye:** Servicios de ventas (5235) o producción (731005). Transportes y fletes (513550). Honorarios (5110). Mantenimiento (5145). Servicios por pagar (2335).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Servicios administración, servicios públicos, energía, agua, telefonía, internet, vigilancia, aseo, servicios temporales, servicios técnicos administración, procesamiento de datos, servicios generales.
 
@@ -6433,7 +7777,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por mantenimiento y reparaciones del área administrativa: mantenimiento de oficinas, equipos administrativos, locativo administrativo, software/equipos de cómputo administrativos.
 
-**Que no incluye:** Mantenimiento de ventas (5245) o producción (7305). Mejoras capitalizables (PPE/diferido). Mantenimiento por pagar (233535). Adecuaciones (5150).
+**Que no incluye:** Mantenimiento de ventas (5245) o producción (731005). Mejoras capitalizables (PPE/diferido). Mantenimiento por pagar (233535). Adecuaciones (5150).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Mantenimiento administración, reparaciones administrativas, mantenimiento de oficinas, mantenimiento de equipos administrativos, mantenimiento locativo, soporte de software administración.
 
@@ -6505,7 +7849,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por depreciación de PPE asignado al área administrativa: depreciación de edificios, muebles, equipos de oficina, cómputo y vehículos de administración (NIC 16).
 
-**Que no incluye:** Depreciación de ventas (5260) o producción (7305/costo). Depreciación acumulada (1592). Amortización de intangibles (5165). Deterioro (5199).
+**Que no incluye:** Depreciación de ventas (5260) o producción (731005/costo). Depreciación acumulada (1592). Amortización de intangibles (5165). Deterioro (5199).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Depreciaciones administración, gasto de depreciación administrativa, depreciación de activos administración, depreciación de oficinas, depreciación de equipos administrativos.
 
@@ -6577,7 +7921,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por útiles de oficina, papelería, fotocopias e insumos de oficina del área administrativa.
 
-**Que no incluye:** Útiles de ventas (5295) o producción (7305). Equipos de oficina (PPE). Software (intangible).
+**Que no incluye:** Útiles de ventas (5295) o producción (731005). Equipos de oficina (PPE). Software (intangible).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Útiles y papelería, papelería administración, fotocopias, útiles de oficina, insumos de oficina, suministros de oficina, elementos de papelería.
 
@@ -6601,7 +7945,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por combustibles y lubricantes de vehículos y equipos del área administrativa.
 
-**Que no incluye:** Combustible de ventas (5295) o de la flota productiva (costo 6145/7305). Combustible para reventa (inventario/costo). Mantenimiento (5145).
+**Que no incluye:** Combustible de ventas (5295) o de la flota productiva (costo 6145/731005). Combustible para reventa (inventario/costo). Mantenimiento (5145).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Combustibles y lubricantes, combustible administración, gasolina, ACPM, lubricantes, combustible de vehículos administrativos.
 
@@ -6707,29 +8051,173 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Cuenta residual de deterioros/provisiones como gasto. Reclasificar a subcuenta específica si aplica. Verificar razonabilidad (NIA 540). Distinguir deterioro de activos de provisiones de pasivos.
 
-### 520506 - Sueldos
+### 520503 - Salario integral
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `520506` |
-| Nombre | Sueldos |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Gasto laboral – salario ordinario |
+| Codigo | `520503` |
+| Nombre | Salario integral |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Sueldos básicos, salario ordinario, salario integral si aplica, pagos salariales del personal comercial, administrativo o del área clasificada en 5205.
+**Que incluye:** Salario integral pactado por escrito del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): retribución que compensa el trabajo ordinario y, además, el valor de prestaciones, recargos y beneficios (factor prestacional), conforme al Art. 132 CST.
 
-**Que no incluye:** Prestaciones sociales, seguridad social patronal, parafiscales, anticipos de nómina, préstamos a empleados, bonificaciones no salariales, indemnizaciones y pagos a contratistas.
+**Que no incluye:** Salario ordinario (520506). Vacaciones del empleado con salario integral (520539, sí se causan). Aportes patronales (520568-520578). Honorarios de contratistas. Mismo concepto de otras áreas: 510503 (administración), 720503 (MOD), 730503 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Salario básico, horas ordinarias, ajustes salariales, retroactivos salariales, comisiones salariales si la política las clasifica dentro de sueldos.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Salario integral, sueldo integral, remuneración integral, salario con factor prestacional, nómina salario integral, Salario integral ventas.
 
-**Soportes o terceros esperados:** Nómina mensual, contratos laborales, novedades de nómina, desprendibles de pago, autorizaciones salariales, soporte de ingreso y retiro.
+**Soportes o terceros esperados:** Contrato laboral con pacto escrito de salario integral, nómina, desprendibles.
 
-**Soportes de control recomendados:** Conciliación nómina vs. contabilidad, revisión de empleados activos, prueba de corte, validación de novedades, cruce con pagos bancarios y comprobantes de egreso.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: verificar que el salario pactado cumpla el mínimo legal vigente (10 SMMLV + factor prestacional no inferior al 30%).
 
-**Observaciones de homologacion:** Homologar aquí únicamente remuneración salarial. Revisar que no existan contratistas, anticipos o beneficios no salariales registrados como sueldo.
+**Observaciones de homologacion:** No se causan cesantías, intereses ni prima sobre el salario integral; sí vacaciones. Base de aportes a seguridad social y parafiscales sobre el 70% del salario (validar norma vigente). Riesgo: salarios integrales por debajo del mínimo legal (reliquidación de prestaciones y fiscalización UGPP). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520505 - Apoyo de sostenimiento – aprendices
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520505` |
+| Nombre | Apoyo de sostenimiento – aprendices |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Apoyo de sostenimiento pagado a aprendices vinculados mediante contrato de aprendizaje (SENA u otras instituciones autorizadas), del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente), en etapa lectiva y/o productiva.
+
+**Que no incluye:** Sueldos de trabajadores ordinarios (520506). Pasantías o prácticas no regidas por contrato de aprendizaje. Monetización de la cuota de aprendices pagada al SENA (520595 u otra cuenta según política). Aportes del aprendiz. Mismo concepto de otras áreas: 510505 (administración), 720505 (MOD), 730505 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Apoyo de sostenimiento, aprendices SENA, contrato de aprendizaje, cuota de aprendices, practicantes SENA, sostenimiento aprendiz, Apoyo de sostenimiento – aprendices ventas.
+
+**Soportes o terceros esperados:** Contrato de aprendizaje, resolución de regulación de cuota del SENA, nómina de aprendices, certificación de la institución educativa.
+
+**Soportes de control recomendados:** Aprendiz, etapa (lectiva/productiva), centro de costo, periodo. Control: cumplimiento de la cuota regulada por el SENA.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). La Ley 2466 de 2025 modificó el régimen del contrato de aprendizaje (Ley 789 de 2002, Art. 30): validar monto del apoyo, naturaleza del vínculo y aportes aplicables según la norma vigente. Riesgo: incumplimiento de cuota (sanciones SENA). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520506 - Sueldos y salarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520506` |
+| Nombre | Sueldos y salarios |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Salario básico ordinario del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): sueldos, jornales y demás pagos que constituyen salario (Art. 127 CST), incluidos retroactivos y ajustes salariales.
+
+**Que no incluye:** Salario integral (520503). Horas extras y recargos (520515). Comisiones (520518). Prestaciones sociales (520530-520539). Aportes (520568-520578). Pagos a contratistas (honorarios/servicios). Mismo concepto de otras áreas: 510506 (administración), 720506 (MOD), 730506 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Sueldos, salarios, salario básico, nómina, jornales, sueldo ordinario, retroactivos salariales, ajuste salarial, Sueldos y salarios ventas.
+
+**Soportes o terceros esperados:** Nómina mensual, contratos laborales, novedades, documento soporte de pago de nómina electrónica (Res. DIAN 000013 de 2021), comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: conciliación nómina – PILA – contabilidad; cruce con pagos bancarios.
+
+**Observaciones de homologacion:** Cuenta base de la nómina. La deducibilidad requiere pago de aportes (Art. 108 E.T.) y nómina electrónica transmitida. Detectar empleados ficticios o contratistas registrados como salario (NIA 240). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520515 - Horas extras y recargos
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520515` |
+| Nombre | Horas extras y recargos |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Trabajo suplementario y recargos del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): horas extras diurnas y nocturnas, recargo nocturno, dominical y festivo (Arts. 168 y 179 CST).
+
+**Que no incluye:** Salario básico (520506). Bonificaciones (520548). Compensatorios no remunerados. Comisiones (520518). Mismo concepto de otras áreas: 510515 (administración), 720515 (MOD), 730515 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Horas extras, recargos, recargo nocturno, dominicales, festivos, trabajo suplementario, horas extra diurnas, horas extra nocturnas, Horas extras y recargos ventas.
+
+**Soportes o terceros esperados:** Reportes de tiempo, autorización de trabajo suplementario, nómina, novedades.
+
+**Soportes de control recomendados:** Empleado, tipo de recargo, centro de costo, periodo. Control: autorización previa y topes de trabajo suplementario.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Validar porcentajes y jornada vigentes (Ley 2101 de 2021 reducción gradual de jornada; Ley 2466 de 2025 recargos dominicales y franja nocturna). Montos recurrentes y altos indican riesgo de jornada excesiva. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520518 - Comisiones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520518` |
+| Nombre | Comisiones |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Comisiones laborales pagadas a empleados del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) como remuneración variable por ventas, recaudo o cumplimiento de metas, que constituyen salario (Art. 127 CST).
+
+**Que no incluye:** Comisiones a terceros independientes (529505 / 519505). Comisiones bancarias (530505). Bonificaciones no salariales (520548). Mismo concepto de otras áreas: 510518 (administración), 720518 (MOD), 730518 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Comisiones laborales, comisiones empleados, comisión por ventas nómina, salario variable, comisión de recaudo, Comisiones ventas.
+
+**Soportes o terceros esperados:** Política o esquema de comisiones, liquidación, nómina, reporte de ventas base.
+
+**Soportes de control recomendados:** Empleado, base de liquidación, centro de costo, periodo. Control: recálculo contra ventas/recaudo reportado.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Distinguir comisión laboral (este rubro) de comisión a tercero (529505, con retención). Correlacionar con ingresos (riesgo de corte). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520524 - Incapacidades
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520524` |
+| Nombre | Incapacidades |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Pago de incapacidades del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) a cargo del empleador: días de incapacidad por enfermedad general que asume la empresa y diferencias no reconocidas por EPS/ARL.
+
+**Que no incluye:** Incapacidades reconocidas por EPS o ARL (cuenta por cobrar, grupo 13, hasta su recobro). Licencias de maternidad/paternidad (520586). Salario ordinario (520506). Mismo concepto de otras áreas: 510524 (administración), 720524 (MOD), 730524 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Incapacidades, incapacidad enfermedad general, incapacidad laboral, días de incapacidad, incapacidad a cargo del empleador, Incapacidades ventas.
+
+**Soportes o terceros esperados:** Certificado de incapacidad, nómina, radicación y respuesta de recobro EPS/ARL.
+
+**Soportes de control recomendados:** Empleado, entidad (EPS/ARL), días, periodo. Control: conciliación incapacidades pagadas vs. recobradas.
+
+**Observaciones de homologacion:** Los primeros dos días de incapacidad por enfermedad general corren a cargo del empleador (Decreto 2943 de 2013, validar vigencia); desde el tercero, reconocimiento de la EPS (recobro, no gasto). Evaluar recuperabilidad de recobros antiguos (NIIF 9). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520527 - Auxilio de transporte
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520527` |
+| Nombre | Auxilio de transporte |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Auxilio legal de transporte pagado del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) a trabajadores que devengan hasta dos (2) SMMLV (Ley 15 de 1959 y decreto anual del Gobierno).
+
+**Que no incluye:** Auxilios extralegales de transporte o movilidad (520545). Gastos de viaje y viáticos. Transporte de personal contratado a terceros (servicios). Mismo concepto de otras áreas: 510527 (administración), 720527 (MOD), 730527 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilio de transporte, subsidio de transporte, auxilio legal de transporte, transporte nómina, Auxilio de transporte ventas.
+
+**Soportes o terceros esperados:** Nómina, decreto anual de auxilio de transporte, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, periodo. Control: verificar que solo lo reciban empleados con salario ≤ 2 SMMLV.
+
+**Observaciones de homologacion:** No integra el IBC de seguridad social, pero sí la base de cesantías y prima (Ley 1 de 1963, Art. 7). Riesgo: pago a quienes no tienen derecho o omisión en base prestacional. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520530 - Cesantías
 
@@ -6737,23 +8225,47 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520530` |
 | Nombre | Cesantías |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Beneficio a empleados – prestación social |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Causación o provisión de cesantías del personal clasificado en 5205. Incluye el valor proporcional causado por el tiempo laborado.
+**Que incluye:** Gasto por auxilio de cesantías del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) causado en el periodo: un mes de salario por año de servicio y proporcional (Art. 249 CST).
 
-**Que no incluye:** Intereses sobre cesantías si se manejan en cuenta separada, vacaciones, prima, sueldos, seguridad social, indemnizaciones o pagos no laborales.
+**Que no incluye:** Intereses sobre cesantías (520533). Cesantías consolidadas por pagar (pasivo 2510) o provisión (2610). Aportes a pensión (520570). Mismo concepto de otras áreas: 510530 (administración), 720530 (MOD), 730530 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías causadas de personal comercial, administrativo, vendedores, coordinadores o personal asociado al rubro 5205.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías, auxilio de cesantías, provisión de cesantías, cesantías causadas, fondo de cesantías, Cesantías ventas.
 
-**Soportes o terceros esperados:** Liquidación de nómina, acumulado de prestaciones, contrato laboral, reporte por empleado, certificado o soporte del fondo de cesantías.
+**Soportes o terceros esperados:** Nómina, liquidación de cesantías, consignación al fondo (Ley 50 de 1990, Art. 99), liquidaciones definitivas.
 
-**Soportes de control recomendados:** Recalculo por empleado, conciliación provisión contable vs. nómina, validación de base salarial, revisión de pagos al fondo y saldos pendientes.
+**Soportes de control recomendados:** Empleado, fondo, centro de costo, periodo. Control: recálculo por empleado y conciliación gasto – pasivo – pago al fondo.
 
-**Observaciones de homologacion:** Cuenta sensible en cierre anual. Debe conciliarse lo causado, pagado y pendiente por empleado. Las cesantías tienen regulación laboral específica en el Código Sustantivo del Trabajo. (Secretaría del Senado)
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Consignación a más tardar el 14 de febrero; la mora genera sanción moratoria. No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520533 - Intereses sobre cesantías
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520533` |
+| Nombre | Intereses sobre cesantías |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Intereses sobre cesantías del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) a cargo del empleador: 12% anual sobre el saldo de cesantías (Ley 52 de 1975).
+
+**Que no incluye:** Cesantías (520530). Intereses financieros (530520). Intereses por pagar (pasivo 2515). Mismo concepto de otras áreas: 510533 (administración), 720533 (MOD), 730533 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Intereses sobre cesantías, intereses de cesantías, 12% cesantías, intereses cesantías causados, Intereses sobre cesantías ventas.
+
+**Soportes o terceros esperados:** Nómina, liquidación anual, comprobante de pago al trabajador.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo 12% anual o proporcional.
+
+**Observaciones de homologacion:** Se pagan directamente al trabajador (a más tardar el 31 de enero). No confundir con intereses financieros (530520). No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520536 - Prima de servicios
 
@@ -6761,23 +8273,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520536` |
 | Nombre | Prima de servicios |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Beneficio a empleados – prestación social |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Causación de prima legal de servicios del personal clasificado en 5205. Incluye prima proporcional y saldos pendientes de pago.
+**Que incluye:** Prima legal de servicios del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): 30 días de salario por año, pagadera por semestres (Art. 306 CST).
 
-**Que no incluye:** Bonificaciones extralegales, comisiones, cesantías, vacaciones, auxilios no salariales o pagos extraordinarios no clasificados como prima.
+**Que no incluye:** Primas extralegales (520542). Bonificaciones (520548). Prima consolidada por pagar (pasivo 2520) o provisión (2610). Mismo concepto de otras áreas: 510536 (administración), 720536 (MOD), 730536 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios de vendedores, personal comercial, personal administrativo asignado a ventas o empleados clasificados en 5205.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios, prima legal, prima semestral, prima de junio, prima de diciembre, Prima de servicios ventas.
 
-**Soportes o terceros esperados:** Nómina, acumulado semestral, comprobantes de pago, liquidaciones definitivas, contratos laborales y novedades.
+**Soportes o terceros esperados:** Nómina, liquidación semestral, comprobantes de pago.
 
-**Soportes de control recomendados:** Recalculo semestral, conciliación provisión vs. pagos de junio y diciembre, revisión de empleados retirados, validación de base salarial.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo semestral y corte en junio/diciembre.
 
-**Observaciones de homologacion:** En cierre mensual debe causarse proporcionalmente. En cierre anual debe quedar conciliada la obligación pendiente y los pagos realizados.
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Causar mensualmente. No aplica a salario integral. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520539 - Vacaciones
 
@@ -6785,23 +8297,191 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520539` |
 | Nombre | Vacaciones |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Beneficio a empleados – ausencia remunerada |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Provisión de vacaciones causadas, vacaciones disfrutadas y vacaciones pendientes de pago del personal asociado al rubro 5205.
+**Que incluye:** Gasto por vacaciones del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) causadas en el periodo: 15 días hábiles consecutivos por año de servicio (Art. 186 CST), incluidas compensaciones en dinero.
 
-**Que no incluye:** Cesantías, prima, incapacidades, licencias no remuneradas, indemnizaciones o bonificaciones.
+**Que no incluye:** Vacaciones consolidadas por pagar (pasivo 2525) o provisión (2610). Licencias remuneradas (520586). Incapacidades (520524). Mismo concepto de otras áreas: 510539 (administración), 720539 (MOD), 730539 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones de personal comercial, administrativo de ventas, coordinadores, vendedores y empleados relacionados con 5205.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones, provisión de vacaciones, vacaciones disfrutadas, vacaciones compensadas, descanso remunerado, Vacaciones ventas.
 
-**Soportes o terceros esperados:** Kardex de vacaciones, nómina, reporte de días causados y disfrutados, liquidaciones definitivas, autorizaciones de vacaciones.
+**Soportes o terceros esperados:** Nómina, control de días causados/disfrutados, liquidaciones definitivas.
 
-**Soportes de control recomendados:** Conciliación de días causados vs. días disfrutados, recalculo de provisión, revisión de saldos negativos, corte de retiros y comparación contra auxiliar de nómina.
+**Soportes de control recomendados:** Empleado, días, centro de costo, periodo. Control: conciliación de días pendientes por empleado vs. pasivo.
 
-**Observaciones de homologacion:** Las vacaciones deben soportarse por empleado y no solo por estimación global. En auditoría anual es crítico validar días pendientes, base salarial y liquidaciones definitivas.
+**Observaciones de homologacion:** Ausencia remunerada acumulable (NIC 19 / Sección 28). Aplica también a salario integral. Riesgo: acumulación excesiva de periodos no disfrutados. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520542 - Primas extralegales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520542` |
+| Nombre | Primas extralegales |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Primas pactadas voluntariamente o por convención/pacto colectivo del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): prima de vacaciones, de antigüedad, de navidad u otras distintas de la prima legal.
+
+**Que no incluye:** Prima legal de servicios (520536). Bonificaciones ocasionales (520548). Auxilios (520545). Mismo concepto de otras áreas: 510542 (administración), 720542 (MOD), 730542 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Primas extralegales, prima de vacaciones, prima de antigüedad, prima de navidad, prima convencional, prima extralegal, Primas extralegales ventas.
+
+**Soportes o terceros esperados:** Convención/pacto colectivo, contrato, política de beneficios, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de prima, centro de costo, periodo. Control: soporte del pacto y de la exclusión salarial, si existe.
+
+**Observaciones de homologacion:** Su carácter salarial depende del pacto (Art. 128 CST). Si es no salarial, verificar el límite del 40% para el IBC (Ley 1393 de 2010, Art. 30). Riesgo UGPP. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520545 - Auxilios al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520545` |
+| Nombre | Auxilios al personal |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Auxilios extralegales otorgados del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): alimentación, vivienda, educación, movilidad, conectividad u otros auxilios pactados.
+
+**Que no incluye:** Auxilio legal de transporte (520527). Gastos médicos (520584). Capacitación (520563). Préstamos a empleados (activo, grupo 13). Mismo concepto de otras áreas: 510545 (administración), 720545 (MOD), 730545 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilios al personal, auxilio de alimentación, auxilio educativo, auxilio de vivienda, auxilio de conectividad, auxilio extralegal, Auxilios al personal ventas.
+
+**Soportes o terceros esperados:** Política de beneficios, pacto de exclusión salarial, nómina, soportes de entrega.
+
+**Soportes de control recomendados:** Empleado, tipo de auxilio, centro de costo, periodo. Control: aprobación y consistencia con la política.
+
+**Observaciones de homologacion:** Evaluar si es constitutivo o no de salario (Arts. 127 y 128 CST) y el límite del 40% (Ley 1393 de 2010, Art. 30). Verificar deducibilidad y tratamiento como ingreso laboral del trabajador (retención en la fuente). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520548 - Bonificaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520548` |
+| Nombre | Bonificaciones |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Bonificaciones pagadas del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): por desempeño, resultados, cumplimiento de metas o de mera liberalidad.
+
+**Que no incluye:** Comisiones laborales (520518). Primas extralegales (520542). Indemnizaciones (520560). Participación en utilidades a socios (patrimonio). Mismo concepto de otras áreas: 510548 (administración), 720548 (MOD), 730548 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Bonificaciones, bonos por desempeño, bonificación por resultados, bonificación ocasional, incentivos, bonos de mera liberalidad, Bonificaciones ventas.
+
+**Soportes o terceros esperados:** Política de bonificaciones, actas o aprobaciones, nómina.
+
+**Soportes de control recomendados:** Empleado, concepto, centro de costo, periodo. Control: aprobación por nivel de autoridad; bonificaciones a directivos revisadas por gobierno corporativo.
+
+**Observaciones de homologacion:** Carácter salarial según habitualidad y pacto (Arts. 127-128 CST); límite del 40% (Ley 1393 de 2010, Art. 30). Bonificaciones a la alta dirección: riesgo de sesgo en metas (NIA 240). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520551 - Dotación y suministro a trabajadores
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520551` |
+| Nombre | Dotación y suministro a trabajadores |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Calzado y vestido de labor entregado del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) (Art. 230 CST: trabajadores con salario hasta 2 SMMLV, tres entregas al año) y demás elementos suministrados para el trabajo.
+
+**Que no incluye:** Elementos de protección personal del SG-SST según política (520595 o CIF 731005). Uniformes de imagen corporativa según política. Inventario de dotación no entregado (activo). Mismo concepto de otras áreas: 510551 (administración), 720551 (MOD), 730551 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, calzado y vestido de labor, uniformes, overoles, suministro a trabajadores, dotación de ley, Dotación y suministro a trabajadores ventas.
+
+**Soportes o terceros esperados:** Factura del proveedor, actas de entrega firmadas, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, entrega, centro de costo, periodo. Control: actas de entrega en las fechas legales.
+
+**Observaciones de homologacion:** No constituye salario (Art. 234 CST) y no puede compensarse en dinero. Riesgo: incumplimiento de entregas y deducibilidad sin soporte de entrega. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520554 - Seguros de empleados
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520554` |
+| Nombre | Seguros de empleados |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Primas de seguros tomados por el empleador a favor del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): vida grupo, accidentes personales, pólizas de salud o medicina prepagada colectivas.
+
+**Que no incluye:** Seguros sobre activos (5130/5230; en producción, CIF 731005). Aportes a ARL (520568). Seguros pagados por anticipado (170520). Mismo concepto de otras áreas: 510554 (administración), 720554 (MOD), 730554 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Seguros de empleados, seguro de vida grupo, póliza de salud empleados, medicina prepagada, accidentes personales empleados, Seguros de empleados ventas.
+
+**Soportes o terceros esperados:** Póliza, factura, relación de asegurados.
+
+**Soportes de control recomendados:** Aseguradora, póliza, centro de costo, periodo. Control: conciliar asegurados vs. empleados activos.
+
+**Observaciones de homologacion:** Reconocer la porción devengada (el anticipado es activo). Evaluar si constituye pago laboral para el trabajador y su tratamiento en retención y deducibilidad. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520560 - Indemnizaciones laborales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520560` |
+| Nombre | Indemnizaciones laborales |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Indemnizaciones pagadas del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) por terminación del contrato sin justa causa (Art. 64 CST) u otras indemnizaciones legales o conciliadas en la terminación.
+
+**Que no incluye:** Condenas y demandas laborales (539505). Sanción moratoria como multa (539520). Liquidación de prestaciones ordinarias (520530-520539). Mismo concepto de otras áreas: 510560 (administración), 720560 (MOD), 730560 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Indemnizaciones laborales, indemnización por despido, despido sin justa causa, bonificación por retiro, terminación de contrato, Indemnizaciones laborales ventas.
+
+**Soportes o terceros esperados:** Carta de terminación, liquidación, acta de conciliación, comprobante de pago.
+
+**Soportes de control recomendados:** Empleado, causa, centro de costo, periodo. Control: soporte jurídico de la terminación.
+
+**Observaciones de homologacion:** Beneficio por terminación (NIC 19 / Sección 28). No constituye salario ni IBC. Montos inusuales pueden requerir revelación y evaluación de contingencias (NIC 37). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520563 - Capacitación al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520563` |
+| Nombre | Capacitación al personal |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Costos de formación, cursos, seminarios, diplomados y entrenamiento del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente).
+
+**Que no incluye:** Auxilios educativos en dinero (520545). Honorarios de consultoría (5110/5210). Capacitación del SG-SST según política. Mismo concepto de otras áreas: 510563 (administración), 720563 (MOD), 730563 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Capacitación al personal, formación, cursos, seminarios, entrenamiento, diplomados, educación continuada, Capacitación al personal ventas.
+
+**Soportes o terceros esperados:** Factura, certificado de asistencia, plan de capacitación.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: vínculo con el plan de capacitación aprobado.
+
+**Observaciones de homologacion:** Gasto del periodo. Verificar retención por servicios y relación de causalidad con la actividad (deducibilidad). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520568 - Aportes ARL
 
@@ -6809,23 +8489,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520568` |
 | Nombre | Aportes ARL |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Seguridad social patronal – riesgos laborales |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Aportes patronales a la Administradora de Riesgos Laborales correspondientes al personal clasificado en 5205.
+**Que incluye:** Aportes a la Administradora de Riesgos Laborales del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente), 100% a cargo del empleador según clase de riesgo (Decreto 1295 de 1994, Ley 1562 de 2012, Decreto 1072 de 2015).
 
-**Que no incluye:** EPS, pensión, caja de compensación, SENA, ICBF, descuentos al trabajador, incapacidades por cobrar o recobros.
+**Que no incluye:** Aportes EPS (520569), pensión (520570) y parafiscales (520572-520578). ARL por pagar (237006). Mismo concepto de otras áreas: 510568 (administración), 720568 (MOD), 730568 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** ARL de vendedores, personal comercial, supervisores, personal de campo o empleados de ventas sujetos a riesgo laboral.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ARL, riesgos laborales, ARP, aporte riesgos profesionales, Aportes ARL ventas.
 
-**Soportes o terceros esperados:** Planilla PILA, nómina, matriz de riesgos, afiliación ARL, reporte de IBC y comprobantes de pago.
+**Soportes o terceros esperados:** Planilla PILA, afiliación ARL, nómina, clasificación de riesgo.
 
-**Soportes de control recomendados:** Conciliación PILA vs. nómina y contabilidad, revisión de clase de riesgo, validación de IBC, cruce de empleados afiliados y pagos oportunos.
+**Soportes de control recomendados:** Empleado, nivel de riesgo, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Cuenta de riesgo UGPP. Validar que el aporte corresponda a la clase de riesgo real y que todos los empleados estén incluidos en PILA. (UGPP)
+**Observaciones de homologacion:** Contrapartida en 237006. Verificar clase de riesgo vs. actividad real e IBC (UGPP). Deducibilidad condicionada al pago (Art. 108 E.T.). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520569 - Aportes EPS
 
@@ -6833,47 +8513,167 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520569` |
 | Nombre | Aportes EPS |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Seguridad social patronal – salud |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Aporte patronal a salud correspondiente al personal clasificado en 5205, causado según el IBC reportado.
+**Que incluye:** Aporte patronal a salud del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) (Ley 100 de 1993, Art. 204).
 
-**Que no incluye:** Descuentos de salud al trabajador, pensión, ARL, parafiscales, recobros de incapacidades, préstamos o anticipos.
+**Que no incluye:** Descuento de salud al trabajador (pasivo). Aportes ARL (520568) y pensión (520570). EPS por pagar (237005). Mismo concepto de otras áreas: 510569 (administración), 720569 (MOD), 730569 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** EPS de empleados comerciales, administrativos de ventas, vendedores y personal asociado al rubro 5205.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes EPS, aporte salud empleador, salud patronal, aporte a EPS, Aportes EPS ventas.
 
-**Soportes o terceros esperados:** Planilla PILA, nómina, afiliaciones EPS, reporte de IBC, comprobantes de pago y relación de empleados.
+**Soportes o terceros esperados:** Planilla PILA, nómina, afiliaciones.
 
-**Soportes de control recomendados:** Conciliación PILA vs. nómina y contabilidad, validación de novedades, ingresos, retiros, licencias, incapacidades y base de cotización.
+**Soportes de control recomendados:** Empleado, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Homologar aquí solo la porción patronal si la contabilidad separa aportes del empleado. Los descuentos del trabajador deben registrarse como pasivo.
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores que devenguen menos de 10 SMMLV en personas jurídicas contribuyentes que cumplan requisitos). Contrapartida en 237005. Cruzar IBC con UGPP. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
-### 520570 - Aportes pensión y cesantías
+### 520570 - Aportes a pensiones
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `520570` |
-| Nombre | Aportes pensión y cesantías |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Seguridad social / beneficios a empleados |
+| Nombre | Aportes a pensiones |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Aportes patronales a pensión y, si la parametrización lo permite, pagos o ajustes relacionados con fondos de cesantías del personal clasificado en 5205.
+**Que incluye:** Aporte patronal a pensiones del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) al régimen correspondiente (Ley 100 de 1993, Art. 20).
 
-**Que no incluye:** EPS, ARL, caja de compensación, SENA, ICBF, descuentos del trabajador, préstamos, anticipos o pagos no laborales.
+**Que no incluye:** Cesantías (520530), aunque se consignen a un fondo de pensiones y cesantías. Descuento de pensión al trabajador (pasivo). Aportes por pagar (237045). Mismo concepto de otras áreas: 510570 (administración), 720570 (MOD), 730570 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes patronales a pensión, fondos de pensiones, ajustes PILA, pagos a fondos de cesantías cuando la entidad los registra en esta cuenta.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes a pensiones, fondo de pensiones, aporte pensión empleador, Colpensiones, fondo privado de pensiones, Aportes a pensiones ventas.
 
-**Soportes o terceros esperados:** Planilla PILA, nómina, certificados de fondos de pensiones y cesantías, comprobantes de pago, auxiliares por tercero.
+**Soportes o terceros esperados:** Planilla PILA, nómina, certificaciones de fondos.
 
-**Soportes de control recomendados:** Conciliación PILA vs. contabilidad, revisión de terceros, validación de IBC, separación entre aporte a pensión y provisión/pago de cesantías.
+**Soportes de control recomendados:** Empleado, fondo, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Recomendación de auditoría: separar pensión y cesantías en cuentas distintas. Pensión corresponde a seguridad social; cesantías corresponde a prestación social. Mezclarlas reduce trazabilidad.
+**Observaciones de homologacion:** En el Decreto 2650 de 1993 la subcuenta se denomina "Aportes a fondos de pensiones y/o cesantías"; se recomienda usarla solo para pensión y llevar cesantías en 520530. Validar el estado de vigencia de la Ley 2381 de 2024 (reforma pensional). Contrapartida en 237045. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520572 - Aportes caja de compensación familiar
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520572` |
+| Nombre | Aportes caja de compensación familiar |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 4% sobre la nómina del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) a la caja de compensación familiar (Ley 21 de 1982).
+
+**Que no incluye:** Aportes ICBF (520575) y SENA (520578). Aportes por pagar (2370). Subsidio familiar pagado por la caja (no es gasto de la entidad). Mismo concepto de otras áreas: 510572 (administración), 720572 (MOD), 730572 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Caja de compensación, aportes CCF, parafiscales caja, Compensar, Colsubsidio, Comfama, Cafam, aporte 4%, Aportes caja de compensación familiar ventas.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** Caja, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** No está cubierto por la exoneración del Art. 114-1 E.T. Deducibilidad de salarios condicionada al pago de parafiscales (Art. 108 E.T.). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520575 - Aportes ICBF
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520575` |
+| Nombre | Aportes ICBF |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 3% sobre la nómina del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) al Instituto Colombiano de Bienestar Familiar (Ley 89 de 1988).
+
+**Que no incluye:** Aportes SENA (520578) y caja (520572). Aportes por pagar (2370). Mismo concepto de otras áreas: 510575 (administración), 720575 (MOD), 730575 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ICBF, parafiscales ICBF, bienestar familiar, aporte 3%, Aportes ICBF ventas.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores con menos de 10 SMMLV). Un gasto registrado estando exonerado indica pago de lo no debido o error de clasificación. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520578 - Aportes SENA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520578` |
+| Nombre | Aportes SENA |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 2% sobre la nómina del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) al Servicio Nacional de Aprendizaje (Ley 21 de 1982).
+
+**Que no incluye:** Monetización de la cuota de aprendices. Apoyo de sostenimiento (520505). Aportes ICBF (520575) y caja (520572). Mismo concepto de otras áreas: 510578 (administración), 720578 (MOD), 730578 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes SENA, parafiscales SENA, aporte 2%, Aportes SENA ventas.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. Distinguir el aporte parafiscal de la monetización de la cuota de aprendices. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520584 - Gastos médicos y drogas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520584` |
+| Nombre | Gastos médicos y drogas |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Gastos médicos, drogas, exámenes y evaluaciones médicas ocupacionales (ingreso, periódicas, retiro) asumidos por el empleador del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente).
+
+**Que no incluye:** Medicina prepagada o pólizas colectivas (520554). Aportes EPS (520569). Incapacidades (520524). Mismo concepto de otras áreas: 510584 (administración), 720584 (MOD), 730584 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gastos médicos, drogas, exámenes médicos ocupacionales, medicina laboral, exámenes de ingreso, exámenes periódicos, botiquín, Gastos médicos y drogas ventas.
+
+**Soportes o terceros esperados:** Factura del proveedor (IPS), relación de empleados atendidos.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: relación con el SG-SST (Decreto 1072 de 2015).
+
+**Observaciones de homologacion:** Gasto del periodo. Proteger la reserva de la historia clínica (el auditor revisa factura y relación, no diagnósticos). Verificar retención por servicios. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
+
+### 520586 - Licencias
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `520586` |
+| Nombre | Licencias |
+| Cuenta Russell / 4D | Gastos de personal ventas |
+| Tipo de rubro | Gastos de ventas |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5205` |
+| Critica | no |
+
+**Que incluye:** Licencias remuneradas a cargo del empleador del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente): luto (Ley 1280 de 2009), calamidad doméstica, sufragio (Ley 403 de 1997) y otras licencias remuneradas legales o pactadas.
+
+**Que no incluye:** Licencias de maternidad y paternidad reconocidas por la EPS (cuenta por cobrar hasta su recobro). Vacaciones (520539). Incapacidades (520524). Licencias no remuneradas (no generan pago). Mismo concepto de otras áreas: 510586 (administración), 720586 (MOD), 730586 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Licencias remuneradas, licencia de luto, calamidad doméstica, licencia por sufragio, permiso remunerado, licencia de maternidad, licencia de paternidad, Licencias remuneradas ventas.
+
+**Soportes o terceros esperados:** Solicitud y autorización de la licencia, soporte del hecho, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de licencia, días, periodo. Control: autorización y soporte.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). Separar lo recobrable a EPS (maternidad/paternidad) de lo asumido por el empleador. Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 520595 - Otros gastos de personal
 
@@ -6881,23 +8681,23 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 |---|---|
 | Codigo | `520595` |
 | Nombre | Otros gastos de personal |
-| Cuenta Russell / 4D | 5205 – Gastos de personal |
-| Tipo de rubro | Otros beneficios a empleados |
+| Cuenta Russell / 4D | Gastos de ventas |
+| Tipo de rubro | Gastos de ventas |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5205` |
 | Critica | no |
 
-**Que incluye:** Dotación, bienestar, auxilios, capacitaciones, exámenes médicos ocupacionales, bonificaciones, beneficios extralegales, incapacidades no recuperables u otros conceptos laborales del personal 5205.
+**Que incluye:** Otros gastos laborales del personal del área comercial (vendedores, asesores, mercadeo, puntos de venta, distribución y servicio al cliente) sin subcuenta específica: bienestar, recreación y deportes, celebraciones, aportes sindicales, elementos de protección personal según política, monetización de cuota de aprendices, otros beneficios.
 
-**Que no incluye:** Gastos personales de socios, pagos sin soporte, préstamos a empleados, anticipos, honorarios de contratistas, viáticos sin relación laboral o gastos administrativos no laborales.
+**Que no incluye:** Todo concepto con subcuenta específica en este grupo (520503-520586). Honorarios y servicios de contratistas. Gastos personales de socios o directivos. Préstamos a empleados. Mismo concepto de otras áreas: 510595 (administración), 720595 (MOD), 730595 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, auxilios de alimentación o transporte extralegal, bienestar laboral, capacitaciones comerciales, bonificaciones no salariales, medicina laboral.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otros gastos de personal, bienestar laboral, recreación, actividades deportivas, celebraciones, aportes sindicales, elementos de protección personal, cuota de aprendices, Otros gastos de personal ventas.
 
-**Soportes o terceros esperados:** Facturas de proveedores, nómina, política de beneficios, autorizaciones internas, relación de empleados beneficiarios, comprobantes de pago.
+**Soportes o terceros esperados:** Factura/soporte, autorización, política de beneficios.
 
-**Soportes de control recomendados:** Revisión analítica mensual, aprobación del gasto, validación de soporte, cruce con política interna, análisis de conceptos inusuales y reclasificación si aplica.
+**Soportes de control recomendados:** Concepto, centro de costo, periodo. Control: revisión analítica y reclasificación a subcuenta específica.
 
-**Observaciones de homologacion:** Cuenta residual de alto riesgo. No debe usarse como cuenta “bolsillo”. Para auditoría conviene subclasificar por naturaleza: dotación, bienestar, capacitación, bonificaciones, auxilios e incapacidades.
+**Observaciones de homologacion:** Cuenta residual de alto riesgo: no debe usarse como "bolsillo". Reclasificar a subcuenta específica cuando aplique. Vigilar gastos personales de socios y partidas sin soporte (NIA 240; deducibilidad). Gasto del periodo. Clasificar por la función real del empleado; correlacionar con el comportamiento de las ventas.
 
 ### 521005 - Honorarios
 
@@ -6961,7 +8761,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por arrendamientos del área comercial: locales comerciales, puntos de venta, showrooms, bodegas de distribución, espacios en centros comerciales (componente de gasto / contratos sin derecho de uso NIIF 16). Retail: arriendo de locales y puntos de venta.
 
-**Que no incluye:** Arrendamientos de administración (5120) o producción (7305). Derecho de uso NIIF 16 (depreciación 5260). Arrendamientos por pagar (233540). Cánones pagados por anticipado (170525).
+**Que no incluye:** Arrendamientos de administración (5120) o producción (731005). Derecho de uso NIIF 16 (depreciación 5260). Arrendamientos por pagar (233540). Cánones pagados por anticipado (170525).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Arrendamientos ventas, arriendo de locales, alquiler de puntos de venta, canon de local comercial, arriendo de showroom, arrendamiento de bodega de distribución, espacio en centro comercial.
 
@@ -6985,7 +8785,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por seguros del área comercial devengados: pólizas de puntos de venta, mercancía en exhibición, transporte de mercancía vendida, RC comercial.
 
-**Que no incluye:** Seguros de administración (5130) o producción (7305). Seguros pagados por anticipado no devengados (170520). Seguros por pagar (233555).
+**Que no incluye:** Seguros de administración (5130) o producción (731005). Seguros pagados por anticipado no devengados (170520). Seguros por pagar (233555).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Seguros ventas, primas de seguro comercial, pólizas de puntos de venta, seguro de mercancía, seguro de transporte de ventas, RC comercial.
 
@@ -7009,7 +8809,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por servicios del área comercial: servicios públicos de puntos de venta, vigilancia y aseo de locales, servicios técnicos comerciales, comisiones de pasarelas/medios de pago según política.
 
-**Que no incluye:** Servicios de administración (5135) o producción (7305). Transportes y fletes (523550). Publicidad (523560). Honorarios (5210). Servicios por pagar (2335).
+**Que no incluye:** Servicios de administración (5135) o producción (731005). Transportes y fletes (523550). Publicidad (523560). Honorarios (5210). Servicios por pagar (2335).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Servicios ventas, servicios públicos de locales, vigilancia comercial, aseo de puntos de venta, servicios técnicos comerciales, comisiones de pasarela, servicios de puntos de venta.
 
@@ -7105,7 +8905,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por mantenimiento y reparaciones del área comercial: mantenimiento de locales y puntos de venta, equipos comerciales, vehículos de distribución, exhibidores.
 
-**Que no incluye:** Mantenimiento de administración (5145) o producción (7305). Mejoras capitalizables (PPE/171024). Mantenimiento por pagar (233535).
+**Que no incluye:** Mantenimiento de administración (5145) o producción (731005). Mejoras capitalizables (PPE/171024). Mantenimiento por pagar (233535).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Mantenimiento ventas, reparaciones comerciales, mantenimiento de locales, mantenimiento de puntos de venta, mantenimiento de exhibidores, mantenimiento de vehículos de distribución.
 
@@ -7153,7 +8953,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Gasto por depreciación de PPE asignado al área comercial: depreciación de locales, exhibidores, vehículos de distribución, equipos de puntos de venta (NIC 16).
 
-**Que no incluye:** Depreciación de administración (5160) o producción (7305/costo). Depreciación acumulada (1592). Amortización de intangibles (5165). Deterioro (5199).
+**Que no incluye:** Depreciación de administración (5160) o producción (731005/costo). Depreciación acumulada (1592). Amortización de intangibles (5165). Deterioro (5199).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Depreciaciones ventas, depreciación comercial, depreciación de locales, depreciación de exhibidores, depreciación de vehículos de distribución, depreciación de puntos de venta.
 
@@ -7283,29 +9083,53 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Reconocer por el método del costo amortizado (NIIF 9). Verificar capitalización de intereses de activos aptos (NIC 23). Validar deducibilidad y límite de subcapitalización (Art. 118-1 E.T.). Intereses a vinculados: precios de transferencia. Partida material en empresas endeudadas.
 
-### 530525 - Gasto por diferencia en cambio
+### 530525 - Diferencia en cambio realizada
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `530525` |
-| Nombre | Gasto por diferencia en cambio |
+| Nombre | Diferencia en cambio realizada |
 | Cuenta Russell / 4D | Financieros |
 | Tipo de rubro | Gastos no operacionales |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `5305` |
 | Critica | no |
 
-**Que incluye:** Gasto por diferencia en cambio desfavorable sobre activos y pasivos en moneda extranjera (cuentas por cobrar/pagar en ME, obligaciones en ME, efectivo en ME) medidos a TRM (NIC 21).
+**Que incluye:** Pérdida por diferencia en cambio materializada en el cobro, pago, enajenación o liquidación total o parcial de activos o pasivos monetarios denominados en moneda extranjera. Registrar el efecto desfavorable realizado y controlar su vínculo con ajustes previos contabilizados durante la vigencia de la partida.
 
-**Que no incluye:** Ingreso por diferencia en cambio favorable (421020). Capital de las partidas en ME. Coberturas designadas (NIIF 9). Diferencia en cambio capitalizable al activo (casos específicos).
+**Que no incluye:** Pérdida por reexpresión de saldos aún abiertos al cierre (530530); ganancia realizada (421020); ganancia no realizada (421025); capital cancelado; diferencias patrimoniales u ORI con tratamiento particular; pérdidas en coberturas derivadas que se registran separadamente.
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Gasto por diferencia en cambio, diferencia en cambio desfavorable, pérdida por diferencia en cambio, pérdida por tipo de cambio, ajuste cambiario desfavorable, diferencia cambiaria gasto.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gasto por diferencia en cambio realizada; pérdida cambiaria al pago; diferencia de cambio liquidada; pérdida por tipo de cambio realizada; diferencia cambiaria al recaudo
 
-**Soportes o terceros esperados:** TRM de cierre, soporte de saldos en ME, cálculo de la diferencia.
+**Soportes o terceros esperados:** Comprobante de pago o recaudo; extracto bancario; facturas/obligaciones en divisas; tasas aplicables; comprobante de liquidación; auxiliar en moneda extranjera; papel de trabajo de cálculo y reversión de ajustes.
 
-**Soportes de control recomendados:** Moneda, partida origen, realizada/no realizada.
+**Soportes de control recomendados:** Moneda; tercero; documento origen; monto liquidado; fecha/tasa inicial; fecha/tasa de pago; reexpresiones previas; saldo residual; resultado desfavorable realizado; conciliación por período.
 
-**Observaciones de homologacion:** Medir saldos en ME a TRM de cierre (NIC 21). Separar realizada (al pago/cobro) de no realizada (revaluación de saldos). Conciliar con los saldos en ME. Verificar tratamiento de coberturas. Distinguir del ingreso por diferencia en cambio (421020).
+**Observaciones de homologacion:** Separar la pérdida realizada de valoraciones de cierre pendientes de liquidación; evitar doble reconocimiento al cerrar partidas revaluadas antes. Art. 288 E.T.: verificar momento y cuantía de realización fiscal y soportar conciliación fiscal frente a 530530. Determinar si existe tratamiento contable específico por cobertura/capitalización
+
+### 530530 - Diferencia en cambio no realizada
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `530530` |
+| Nombre | Diferencia en cambio no realizada |
+| Cuenta Russell / 4D | Financieros |
+| Tipo de rubro | Gastos no operacionales |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `5305` |
+| Critica | no |
+
+**Que incluye:** Pérdida contable por la reexpresión a la tasa de cambio de cierre de partidas monetarias denominadas en moneda extranjera que permanecen pendientes de recaudo, pago o liquidación. Reconoce la variación desfavorable por medición posterior de saldos abiertos.
+
+**Que no incluye:** Pérdida efectivamente realizada al cobro/pago (530525); ganancias cambiarias (421020/421025); movimientos de capital en divisas; ajustes a partidas no monetarias que no se reexpresan; resultados de coberturas sujetos a política específica.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gasto por diferencia cambiaria no realizada; pérdida por valoración TRM; ajuste cambiario de cierre; reexpresión desfavorable de saldo; pérdida cambiaria no liquidada
+
+**Soportes o terceros esperados:** Auxiliar de saldos en moneda extranjera; conciliación por documento; certificación de tasas de cierre; papel de trabajo del recálculo; política contable; comprobante de ajuste y trazabilidad de movimientos.
+
+**Soportes de control recomendados:** Moneda; tercero; cuenta/partida; saldo en divisa; TRM de corte; tasa/valor anterior; fecha y período de cierre; ajuste reconocido; historial y posterior reversión o realización.
+
+**Observaciones de homologacion:** Medir partidas monetarias a tasa de cierre conforme NIC 21 o Sección 30 NIIF Pymes según marco aplicable. El ajuste contable no constituye automáticamente costo/gasto fiscal realizado: controlarlo en conciliación fiscal por art. 288 E.T. Al pagar/cobrar posteriormente, rastrear valores acumulados y evitar reconocer dos veces la pérdida
 
 ### 530595 - Otros gastos financieros
 
@@ -7925,7 +9749,7 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Que incluye:** Costo de las materias primas e insumos directos consumidos en el proceso productivo del periodo (elemento del costo de producción): consumo de materia prima de manufactura, insumos directos de transformación. Manufactura/agroindustria: materia prima incorporada al producto.
 
-**Que no incluye:** Materia prima en inventario sin consumir (140505). Mano de obra directa (720505). CIF (730505). Materiales indirectos (CIF). Costo de mercancía para reventa (6135).
+**Que no incluye:** Materia prima en inventario sin consumir (140505). Mano de obra directa (7205xx). CIF no laborales (731005) y mano de obra indirecta (7305xx). Materiales indirectos (CIF). Costo de mercancía para reventa (6135).
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Materias primas e insumos directos, consumo de materia prima, materia prima directa, insumos directos consumidos, MP consumida, materiales directos, consumo de insumos de producción.
 
@@ -7935,221 +9759,1373 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 
 **Observaciones de homologacion:** Elemento del costo de producción que se acumula y traslada al inventario en proceso/terminado y luego al costo de ventas al vender (correlación). Verificar consumo real (requisiciones, kárdex) vs producción. Conciliar con el movimiento de inventario de MP. Distinguir directo (se identifica con el producto) de indirecto (CIF).
 
-### 720505 - Salarios
+### 720503 - Salario integral
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720505` |
-| Nombre | Salarios |
+| Codigo | `720503` |
+| Nombre | Salario integral |
 | Cuenta Russell / 4D | Mano de obra directa |
 | Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Costo de la mano de obra directa del proceso productivo (elemento del costo): salarios, prestaciones y aportes del personal directamente involucrado en la transformación del producto. Manufactura: operarios de producción.
+**Que incluye:** Salario integral pactado por escrito del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: retribución que compensa el trabajo ordinario y, además, el valor de prestaciones, recargos y beneficios (factor prestacional), conforme al Art. 132 CST.
 
-**Que no incluye:** Mano de obra indirecta (CIF 730505). Personal de administración (5105) o ventas (5205). MOD en inventario de producto no vendido (se capitaliza). Servicios de terceros (CIF o contratistas).
+**Que no incluye:** Salario ordinario (720506). Vacaciones del empleado con salario integral (720539, sí se causan). Aportes patronales (720568-720578). Honorarios de contratistas. Mismo concepto de otras áreas: 510503 (administración), 520503 (ventas), 730503 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Mano de obra directa, MOD, salarios de producción, nómina de planta, costo de personal directo, mano de obra de fabricación, operarios directos, jornales de producción.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Salario integral, sueldo integral, remuneración integral, salario con factor prestacional, nómina salario integral, Salario integral producción / MOD.
 
-**Soportes o terceros esperados:** Nómina de producción, tarjetas de tiempo, hoja de costos, costeo, prorrateo.
+**Soportes o terceros esperados:** Contrato laboral con pacto escrito de salario integral, nómina, desprendibles.
 
-**Soportes de control recomendados:** Producto/orden, centro de producción, periodo.
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: verificar que el salario pactado cumpla el mínimo legal vigente (10 SMMLV + factor prestacional no inferior al 30%).
 
-**Observaciones de homologacion:** Elemento del costo que se acumula al producto. Distinguir mano de obra directa (se identifica con el producto) de indirecta (CIF). Las prestaciones y aportes de los operarios son parte de la MOD. Verificar prorrateo y costeo. Se capitaliza al inventario y se reconoce al vender. Cruzar con UGPP.
+**Observaciones de homologacion:** No se causan cesantías, intereses ni prima sobre el salario integral; sí vacaciones. Base de aportes a seguridad social y parafiscales sobre el 70% del salario (validar norma vigente). Riesgo: salarios integrales por debajo del mínimo legal (reliquidación de prestaciones y fiscalización UGPP). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720510 - Cesantías
+### 720505 - Apoyo de sostenimiento – aprendices
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720510` |
-| Nombre | Cesantías |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Beneficio a empleados – prestación social causada |
+| Codigo | `720505` |
+| Nombre | Apoyo de sostenimiento – aprendices |
+| Cuenta Russell / 4D | Costos de producción |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Provisión o causación de cesantías del personal asociado al costo, producción, operación o prestación del servicio. Incluye el valor causado proporcional al tiempo laborado.
+**Que incluye:** Apoyo de sostenimiento pagado a aprendices vinculados mediante contrato de aprendizaje (SENA u otras instituciones autorizadas), del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD, en etapa lectiva y/o productiva.
 
-**Que no incluye:** Intereses sobre cesantías si la entidad los controla en cuenta separada, pagos de nómina ordinaria, vacaciones, primas, aportes a seguridad social, indemnizaciones o bonificaciones no salariales.
+**Que no incluye:** Sueldos de trabajadores ordinarios (720506). Pasantías o prácticas no regidas por contrato de aprendizaje. Monetización de la cuota de aprendices pagada al SENA (720595 u otra cuenta según política). Aportes del aprendiz. Mismo concepto de otras áreas: 510505 (administración), 520505 (ventas), 730505 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías de personal operativo, personal de producción, personal de proyectos, personal técnico o personal directamente relacionado con la prestación del servicio.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Apoyo de sostenimiento, aprendices SENA, contrato de aprendizaje, cuota de aprendices, practicantes SENA, sostenimiento aprendiz, Apoyo de sostenimiento – aprendices producción / MOD.
 
-**Soportes o terceros esperados:** Liquidación de nómina, base salarial, contrato laboral, acumulado de prestaciones, certificado del fondo de cesantías, liquidación definitiva cuando aplique.
+**Soportes o terceros esperados:** Contrato de aprendizaje, resolución de regulación de cuota del SENA, nómina de aprendices, certificación de la institución educativa.
 
-**Soportes de control recomendados:** Conciliación provisión contable vs. auxiliar de nómina, cruce con empleados activos y retirados, validación de base salarial, recalculo de provisión, revisión de pagos al fondo.
+**Soportes de control recomendados:** Aprendiz, etapa (lectiva/productiva), centro de costo, periodo. Control: cumplimiento de la cuota regulada por el SENA.
 
-**Observaciones de homologacion:** Homologar aquí únicamente cesantías causadas. Verificar que no se dupliquen con cuentas de gasto administrativo o ventas. En auditoría anual debe revisarse causación acumulada, pagos al fondo y saldos pendientes por empleado.
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). La Ley 2466 de 2025 modificó el régimen del contrato de aprendizaje (Ley 789 de 2002, Art. 30): validar monto del apoyo, naturaleza del vínculo y aportes aplicables según la norma vigente. Riesgo: incumplimiento de cuota (sanciones SENA). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720515 - Prima de servicios
+### 720506 - Sueldos y salarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720506` |
+| Nombre | Sueldos y salarios |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Salario básico ordinario del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: sueldos, jornales y demás pagos que constituyen salario (Art. 127 CST), incluidos retroactivos y ajustes salariales.
+
+**Que no incluye:** Salario integral (720503). Horas extras y recargos (720515). Comisiones (720518). Prestaciones sociales (720530-720539). Aportes (720568-720578). Pagos a contratistas (honorarios/servicios). Mismo concepto de otras áreas: 510506 (administración), 520506 (ventas), 730506 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Sueldos, salarios, salario básico, nómina, jornales, sueldo ordinario, retroactivos salariales, ajuste salarial, Sueldos y salarios producción / MOD.
+
+**Soportes o terceros esperados:** Nómina mensual, contratos laborales, novedades, documento soporte de pago de nómina electrónica (Res. DIAN 000013 de 2021), comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: conciliación nómina – PILA – contabilidad; cruce con pagos bancarios.
+
+**Observaciones de homologacion:** Cuenta base de la nómina. La deducibilidad requiere pago de aportes (Art. 108 E.T.) y nómina electrónica transmitida. Detectar empleados ficticios o contratistas registrados como salario (NIA 240). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720515 - Horas extras y recargos
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `720515` |
-| Nombre | Prima de servicios |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Beneficio a empleados – prestación social causada |
+| Nombre | Horas extras y recargos |
+| Cuenta Russell / 4D | Costos de producción |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Provisión o causación de prima legal de servicios del personal asociado al costo u operación. Incluye prima proporcional por tiempo laborado y saldos pendientes de pago.
+**Que incluye:** Trabajo suplementario y recargos del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: horas extras diurnas y nocturnas, recargo nocturno, dominical y festivo (Arts. 168 y 179 CST).
 
-**Que no incluye:** Bonificaciones voluntarias, auxilios no salariales, primas extralegales si se manejan separadamente, cesantías, vacaciones o aportes a seguridad social.
+**Que no incluye:** Salario básico (720506). Bonificaciones (720548). Compensatorios no remunerados. Comisiones (720518). Mismo concepto de otras áreas: 510515 (administración), 520515 (ventas), 730515 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios de personal operativo, producción, proyectos, técnicos, cuadrillas o personal directamente asignado al servicio.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Horas extras, recargos, recargo nocturno, dominicales, festivos, trabajo suplementario, horas extra diurnas, horas extra nocturnas, Horas extras y recargos producción / MOD.
 
-**Soportes o terceros esperados:** Nómina, acumulado semestral, contrato laboral, liquidación de prestaciones, comprobantes de pago, desprendibles de nómina.
+**Soportes o terceros esperados:** Reportes de tiempo, autorización de trabajo suplementario, nómina, novedades.
 
-**Soportes de control recomendados:** Recalculo por empleado, conciliación provisión vs. nómina, revisión de pagos de junio y diciembre, corte de empleados retirados, validación de base salarial.
+**Soportes de control recomendados:** Empleado, tipo de recargo, centro de costo, periodo. Control: autorización previa y topes de trabajo suplementario.
 
-**Observaciones de homologacion:** Cuenta sensible a errores de corte. En cierre mensual debe causarse proporcionalmente; en cierre anual debe quedar conciliado lo pagado, causado y pendiente.
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Validar porcentajes y jornada vigentes (Ley 2101 de 2021 reducción gradual de jornada; Ley 2466 de 2025 recargos dominicales y franja nocturna). Montos recurrentes y altos indican riesgo de jornada excesiva. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720520 - Vacaciones
+### 720518 - Comisiones
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720520` |
-| Nombre | Vacaciones |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Beneficio a empleados – ausencia remunerada |
+| Codigo | `720518` |
+| Nombre | Comisiones |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Provisión de vacaciones causadas por el personal relacionado con costos u operación. Incluye días causados no disfrutados y vacaciones pendientes de pago.
+**Que incluye:** Comisiones laborales pagadas a empleados del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD como remuneración variable por ventas, recaudo o cumplimiento de metas, que constituyen salario (Art. 127 CST).
 
-**Que no incluye:** Vacaciones pagadas de áreas administrativas si están en cuenta de gasto, primas, cesantías, incapacidades, licencias no remuneradas, indemnizaciones o compensaciones especiales no clasificadas como vacaciones.
+**Que no incluye:** Comisiones a terceros independientes (529505 / 519505). Comisiones bancarias (530505). Bonificaciones no salariales (720548). Mismo concepto de otras áreas: 510518 (administración), 520518 (ventas), 730518 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones causadas de operarios, técnicos, personal de campo, personal de proyectos o empleados asignados directamente a la operación.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Comisiones laborales, comisiones empleados, comisión por ventas nómina, salario variable, comisión de recaudo, Comisiones producción / MOD.
 
-**Soportes o terceros esperados:** Reporte de vacaciones causadas y disfrutadas, nómina, kardex de vacaciones, contrato laboral, liquidaciones definitivas, autorizaciones de vacaciones.
+**Soportes o terceros esperados:** Política o esquema de comisiones, liquidación, nómina, reporte de ventas base.
 
-**Soportes de control recomendados:** Conciliación de días causados vs. días disfrutados, recalculo de provisión por empleado, revisión de saldos negativos, validación de retiros, comparación contra auxiliar de nómina.
+**Soportes de control recomendados:** Empleado, base de liquidación, centro de costo, periodo. Control: recálculo contra ventas/recaudo reportado.
 
-**Observaciones de homologacion:** No confundir vacaciones con prestación social; contablemente son beneficio a empleados por ausencia remunerada. En auditoría se debe validar el saldo por empleado y la razonabilidad de la provisión.
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Distinguir comisión laboral (este rubro) de comisión a tercero (529505, con retención). Correlacionar con ingresos (riesgo de corte). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720525 - Aportes ARL
+### 720524 - Incapacidades
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720525` |
-| Nombre | Aportes ARL |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Aporte patronal a seguridad social – riesgos laborales |
+| Codigo | `720524` |
+| Nombre | Incapacidades |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Aportes a Administradora de Riesgos Laborales correspondientes al personal operativo o de costo. Incluye el valor patronal causado según clase de riesgo y base de cotización aplicable.
+**Que incluye:** Pago de incapacidades del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD a cargo del empleador: días de incapacidad por enfermedad general que asume la empresa y diferencias no reconocidas por EPS/ARL.
 
-**Que no incluye:** Aportes de EPS, pensión, caja de compensación, SENA, ICBF, provisiones laborales, incapacidades o recobros.
+**Que no incluye:** Incapacidades reconocidas por EPS o ARL (cuenta por cobrar, grupo 13, hasta su recobro). Licencias de maternidad/paternidad (720586). Salario ordinario (720506). Mismo concepto de otras áreas: 510524 (administración), 520524 (ventas), 730524 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** ARL de personal operativo, producción, obra, campo, mantenimiento, proyectos o actividades con exposición a riesgo laboral.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Incapacidades, incapacidad enfermedad general, incapacidad laboral, días de incapacidad, incapacidad a cargo del empleador, Incapacidades producción / MOD.
 
-**Soportes o terceros esperados:** Planilla PILA, certificado de afiliación ARL, nómina, matriz de riesgos, contratos laborales, reporte de IBC.
+**Soportes o terceros esperados:** Certificado de incapacidad, nómina, radicación y respuesta de recobro EPS/ARL.
 
-**Soportes de control recomendados:** Conciliación PILA vs. contabilidad, revisión de clase de riesgo, cruce de empleados afiliados vs. nómina, validación de IBC, revisión de pagos oportunos.
+**Soportes de control recomendados:** Empleado, entidad (EPS/ARL), días, periodo. Control: conciliación incapacidades pagadas vs. recobradas.
 
-**Observaciones de homologacion:** Cuenta de alto riesgo para auditoría laboral y UGPP. Validar que todos los empleados estén afiliados y que la clase de riesgo corresponda a la actividad real.
+**Observaciones de homologacion:** Los primeros dos días de incapacidad por enfermedad general corren a cargo del empleador (Decreto 2943 de 2013, validar vigencia); desde el tercero, reconocimiento de la EPS (recobro, no gasto). Evaluar recuperabilidad de recobros antiguos (NIIF 9). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720530 - Aportes EPS
+### 720527 - Auxilio de transporte
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720527` |
+| Nombre | Auxilio de transporte |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Auxilio legal de transporte pagado del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD a trabajadores que devengan hasta dos (2) SMMLV (Ley 15 de 1959 y decreto anual del Gobierno).
+
+**Que no incluye:** Auxilios extralegales de transporte o movilidad (720545). Gastos de viaje y viáticos. Transporte de personal contratado a terceros (servicios). Mismo concepto de otras áreas: 510527 (administración), 520527 (ventas), 730527 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilio de transporte, subsidio de transporte, auxilio legal de transporte, transporte nómina, Auxilio de transporte producción / MOD.
+
+**Soportes o terceros esperados:** Nómina, decreto anual de auxilio de transporte, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, periodo. Control: verificar que solo lo reciban empleados con salario ≤ 2 SMMLV.
+
+**Observaciones de homologacion:** No integra el IBC de seguridad social, pero sí la base de cesantías y prima (Ley 1 de 1963, Art. 7). Riesgo: pago a quienes no tienen derecho o omisión en base prestacional. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720530 - Cesantías
 
 | Atributo | Valor |
 |---|---|
 | Codigo | `720530` |
+| Nombre | Cesantías |
+| Cuenta Russell / 4D | Costos de producción |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Gasto por auxilio de cesantías del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD causado en el periodo: un mes de salario por año de servicio y proporcional (Art. 249 CST).
+
+**Que no incluye:** Intereses sobre cesantías (720533). Cesantías consolidadas por pagar (pasivo 2510) o provisión (2610). Aportes a pensión (720570). Mismo concepto de otras áreas: 510530 (administración), 520530 (ventas), 730530 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías, auxilio de cesantías, provisión de cesantías, cesantías causadas, fondo de cesantías, Cesantías producción / MOD.
+
+**Soportes o terceros esperados:** Nómina, liquidación de cesantías, consignación al fondo (Ley 50 de 1990, Art. 99), liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, fondo, centro de costo, periodo. Control: recálculo por empleado y conciliación gasto – pasivo – pago al fondo.
+
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Consignación a más tardar el 14 de febrero; la mora genera sanción moratoria. No aplica a salario integral. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720533 - Intereses sobre cesantías
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720533` |
+| Nombre | Intereses sobre cesantías |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Intereses sobre cesantías del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD a cargo del empleador: 12% anual sobre el saldo de cesantías (Ley 52 de 1975).
+
+**Que no incluye:** Cesantías (720530). Intereses financieros (530520). Intereses por pagar (pasivo 2515). Mismo concepto de otras áreas: 510533 (administración), 520533 (ventas), 730533 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Intereses sobre cesantías, intereses de cesantías, 12% cesantías, intereses cesantías causados, Intereses sobre cesantías producción / MOD.
+
+**Soportes o terceros esperados:** Nómina, liquidación anual, comprobante de pago al trabajador.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo 12% anual o proporcional.
+
+**Observaciones de homologacion:** Se pagan directamente al trabajador (a más tardar el 31 de enero). No confundir con intereses financieros (530520). No aplica a salario integral. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720536 - Prima de servicios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720536` |
+| Nombre | Prima de servicios |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Prima legal de servicios del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: 30 días de salario por año, pagadera por semestres (Art. 306 CST).
+
+**Que no incluye:** Primas extralegales (720542). Bonificaciones (720548). Prima consolidada por pagar (pasivo 2520) o provisión (2610). Mismo concepto de otras áreas: 510536 (administración), 520536 (ventas), 730536 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios, prima legal, prima semestral, prima de junio, prima de diciembre, Prima de servicios producción / MOD.
+
+**Soportes o terceros esperados:** Nómina, liquidación semestral, comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo semestral y corte en junio/diciembre.
+
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Causar mensualmente. No aplica a salario integral. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720539 - Vacaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720539` |
+| Nombre | Vacaciones |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Gasto por vacaciones del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD causadas en el periodo: 15 días hábiles consecutivos por año de servicio (Art. 186 CST), incluidas compensaciones en dinero.
+
+**Que no incluye:** Vacaciones consolidadas por pagar (pasivo 2525) o provisión (2610). Licencias remuneradas (720586). Incapacidades (720524). Mismo concepto de otras áreas: 510539 (administración), 520539 (ventas), 730539 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones, provisión de vacaciones, vacaciones disfrutadas, vacaciones compensadas, descanso remunerado, Vacaciones producción / MOD.
+
+**Soportes o terceros esperados:** Nómina, control de días causados/disfrutados, liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, días, centro de costo, periodo. Control: conciliación de días pendientes por empleado vs. pasivo.
+
+**Observaciones de homologacion:** Ausencia remunerada acumulable (NIC 19 / Sección 28). Aplica también a salario integral. Riesgo: acumulación excesiva de periodos no disfrutados. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720542 - Primas extralegales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720542` |
+| Nombre | Primas extralegales |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Primas pactadas voluntariamente o por convención/pacto colectivo del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: prima de vacaciones, de antigüedad, de navidad u otras distintas de la prima legal.
+
+**Que no incluye:** Prima legal de servicios (720536). Bonificaciones ocasionales (720548). Auxilios (720545). Mismo concepto de otras áreas: 510542 (administración), 520542 (ventas), 730542 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Primas extralegales, prima de vacaciones, prima de antigüedad, prima de navidad, prima convencional, prima extralegal, Primas extralegales producción / MOD.
+
+**Soportes o terceros esperados:** Convención/pacto colectivo, contrato, política de beneficios, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de prima, centro de costo, periodo. Control: soporte del pacto y de la exclusión salarial, si existe.
+
+**Observaciones de homologacion:** Su carácter salarial depende del pacto (Art. 128 CST). Si es no salarial, verificar el límite del 40% para el IBC (Ley 1393 de 2010, Art. 30). Riesgo UGPP. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720545 - Auxilios al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720545` |
+| Nombre | Auxilios al personal |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Auxilios extralegales otorgados del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: alimentación, vivienda, educación, movilidad, conectividad u otros auxilios pactados.
+
+**Que no incluye:** Auxilio legal de transporte (720527). Gastos médicos (720584). Capacitación (720563). Préstamos a empleados (activo, grupo 13). Mismo concepto de otras áreas: 510545 (administración), 520545 (ventas), 730545 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilios al personal, auxilio de alimentación, auxilio educativo, auxilio de vivienda, auxilio de conectividad, auxilio extralegal, Auxilios al personal producción / MOD.
+
+**Soportes o terceros esperados:** Política de beneficios, pacto de exclusión salarial, nómina, soportes de entrega.
+
+**Soportes de control recomendados:** Empleado, tipo de auxilio, centro de costo, periodo. Control: aprobación y consistencia con la política.
+
+**Observaciones de homologacion:** Evaluar si es constitutivo o no de salario (Arts. 127 y 128 CST) y el límite del 40% (Ley 1393 de 2010, Art. 30). Verificar deducibilidad y tratamiento como ingreso laboral del trabajador (retención en la fuente). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720548 - Bonificaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720548` |
+| Nombre | Bonificaciones |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Bonificaciones pagadas del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: por desempeño, resultados, cumplimiento de metas o de mera liberalidad.
+
+**Que no incluye:** Comisiones laborales (720518). Primas extralegales (720542). Indemnizaciones (720560). Participación en utilidades a socios (patrimonio). Mismo concepto de otras áreas: 510548 (administración), 520548 (ventas), 730548 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Bonificaciones, bonos por desempeño, bonificación por resultados, bonificación ocasional, incentivos, bonos de mera liberalidad, Bonificaciones producción / MOD.
+
+**Soportes o terceros esperados:** Política de bonificaciones, actas o aprobaciones, nómina.
+
+**Soportes de control recomendados:** Empleado, concepto, centro de costo, periodo. Control: aprobación por nivel de autoridad; bonificaciones a directivos revisadas por gobierno corporativo.
+
+**Observaciones de homologacion:** Carácter salarial según habitualidad y pacto (Arts. 127-128 CST); límite del 40% (Ley 1393 de 2010, Art. 30). Bonificaciones a la alta dirección: riesgo de sesgo en metas (NIA 240). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720551 - Dotación y suministro a trabajadores
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720551` |
+| Nombre | Dotación y suministro a trabajadores |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Calzado y vestido de labor entregado del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD (Art. 230 CST: trabajadores con salario hasta 2 SMMLV, tres entregas al año) y demás elementos suministrados para el trabajo.
+
+**Que no incluye:** Elementos de protección personal del SG-SST según política (720595 o CIF 731005). Uniformes de imagen corporativa según política. Inventario de dotación no entregado (activo). Mismo concepto de otras áreas: 510551 (administración), 520551 (ventas), 730551 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, calzado y vestido de labor, uniformes, overoles, suministro a trabajadores, dotación de ley, Dotación y suministro a trabajadores producción / MOD.
+
+**Soportes o terceros esperados:** Factura del proveedor, actas de entrega firmadas, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, entrega, centro de costo, periodo. Control: actas de entrega en las fechas legales.
+
+**Observaciones de homologacion:** No constituye salario (Art. 234 CST) y no puede compensarse en dinero. Riesgo: incumplimiento de entregas y deducibilidad sin soporte de entrega. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720554 - Seguros de empleados
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720554` |
+| Nombre | Seguros de empleados |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Primas de seguros tomados por el empleador a favor del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: vida grupo, accidentes personales, pólizas de salud o medicina prepagada colectivas.
+
+**Que no incluye:** Seguros sobre activos (5130/5230; en producción, CIF 731005). Aportes a ARL (720568). Seguros pagados por anticipado (170520). Mismo concepto de otras áreas: 510554 (administración), 520554 (ventas), 730554 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Seguros de empleados, seguro de vida grupo, póliza de salud empleados, medicina prepagada, accidentes personales empleados, Seguros de empleados producción / MOD.
+
+**Soportes o terceros esperados:** Póliza, factura, relación de asegurados.
+
+**Soportes de control recomendados:** Aseguradora, póliza, centro de costo, periodo. Control: conciliar asegurados vs. empleados activos.
+
+**Observaciones de homologacion:** Reconocer la porción devengada (el anticipado es activo). Evaluar si constituye pago laboral para el trabajador y su tratamiento en retención y deducibilidad. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720560 - Indemnizaciones laborales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720560` |
+| Nombre | Indemnizaciones laborales |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Indemnizaciones pagadas del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD por terminación del contrato sin justa causa (Art. 64 CST) u otras indemnizaciones legales o conciliadas en la terminación.
+
+**Que no incluye:** Condenas y demandas laborales (539505). Sanción moratoria como multa (539520). Liquidación de prestaciones ordinarias (720530-720539). Mismo concepto de otras áreas: 510560 (administración), 520560 (ventas), 730560 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Indemnizaciones laborales, indemnización por despido, despido sin justa causa, bonificación por retiro, terminación de contrato, Indemnizaciones laborales producción / MOD.
+
+**Soportes o terceros esperados:** Carta de terminación, liquidación, acta de conciliación, comprobante de pago.
+
+**Soportes de control recomendados:** Empleado, causa, centro de costo, periodo. Control: soporte jurídico de la terminación.
+
+**Observaciones de homologacion:** Beneficio por terminación (NIC 19 / Sección 28). No constituye salario ni IBC. Montos inusuales pueden requerir revelación y evaluación de contingencias (NIC 37). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720563 - Capacitación al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720563` |
+| Nombre | Capacitación al personal |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Costos de formación, cursos, seminarios, diplomados y entrenamiento del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD.
+
+**Que no incluye:** Auxilios educativos en dinero (720545). Honorarios de consultoría (5110/5210). Capacitación del SG-SST según política. Mismo concepto de otras áreas: 510563 (administración), 520563 (ventas), 730563 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Capacitación al personal, formación, cursos, seminarios, entrenamiento, diplomados, educación continuada, Capacitación al personal producción / MOD.
+
+**Soportes o terceros esperados:** Factura, certificado de asistencia, plan de capacitación.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: vínculo con el plan de capacitación aprobado.
+
+**Observaciones de homologacion:** Gasto del periodo. Verificar retención por servicios y relación de causalidad con la actividad (deducibilidad). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720568 - Aportes ARL
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720568` |
+| Nombre | Aportes ARL |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Aportes a la Administradora de Riesgos Laborales del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD, 100% a cargo del empleador según clase de riesgo (Decreto 1295 de 1994, Ley 1562 de 2012, Decreto 1072 de 2015).
+
+**Que no incluye:** Aportes EPS (720569), pensión (720570) y parafiscales (720572-720578). ARL por pagar (237006). Mismo concepto de otras áreas: 510568 (administración), 520568 (ventas), 730568 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ARL, riesgos laborales, ARP, aporte riesgos profesionales, Aportes ARL producción / MOD.
+
+**Soportes o terceros esperados:** Planilla PILA, afiliación ARL, nómina, clasificación de riesgo.
+
+**Soportes de control recomendados:** Empleado, nivel de riesgo, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Contrapartida en 237006. Verificar clase de riesgo vs. actividad real e IBC (UGPP). Deducibilidad condicionada al pago (Art. 108 E.T.). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720569 - Aportes EPS
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720569` |
 | Nombre | Aportes EPS |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Aporte patronal a seguridad social – salud |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Aporte patronal a salud correspondiente al personal clasificado como costo u operación, de acuerdo con la base de cotización reportada.
+**Que incluye:** Aporte patronal a salud del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD (Ley 100 de 1993, Art. 204).
 
-**Que no incluye:** Descuentos al trabajador, pensión, ARL, parafiscales, incapacidades por cobrar, recobros de EPS o ajustes de nómina no relacionados.
+**Que no incluye:** Descuento de salud al trabajador (pasivo). Aportes ARL (720568) y pensión (720570). EPS por pagar (237005). Mismo concepto de otras áreas: 510569 (administración), 520569 (ventas), 730569 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** EPS de personal operativo, técnico, producción, proyectos, servicios o personal directamente relacionado con ingresos operacionales.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes EPS, aporte salud empleador, salud patronal, aporte a EPS, Aportes EPS producción / MOD.
 
-**Soportes o terceros esperados:** Planilla PILA, nómina, reporte de IBC, certificados de afiliación EPS, comprobantes de pago, relación de empleados.
+**Soportes o terceros esperados:** Planilla PILA, nómina, afiliaciones.
 
-**Soportes de control recomendados:** Conciliación PILA vs. nómina y contabilidad, validación de IBC, revisión de novedades, ingresos, retiros, incapacidades y licencias.
+**Soportes de control recomendados:** Empleado, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Homologar solo la porción patronal si la contabilidad separa aportes del empleado. Los descuentos al trabajador deben ir como pasivo, no como costo.
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores que devenguen menos de 10 SMMLV en personas jurídicas contribuyentes que cumplan requisitos). Contrapartida en 237005. Cruzar IBC con UGPP. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720535 - Aportes pensión y cesantías
+### 720570 - Aportes a pensiones
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720535` |
-| Nombre | Aportes pensión y cesantías |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Aportes patronales / beneficios a empleados |
+| Codigo | `720570` |
+| Nombre | Aportes a pensiones |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Puede incluir aporte patronal a pensión y, si la parametrización contable lo permite, pagos o provisiones relacionadas con fondos de cesantías del personal operativo.
+**Que incluye:** Aporte patronal a pensiones del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD al régimen correspondiente (Ley 100 de 1993, Art. 20).
 
-**Que no incluye:** Aportes EPS, ARL, caja de compensación, SENA, ICBF, descuentos de nómina del trabajador, préstamos a empleados o pagos no laborales.
+**Que no incluye:** Cesantías (720530), aunque se consignen a un fondo de pensiones y cesantías. Descuento de pensión al trabajador (pasivo). Aportes por pagar (237045). Mismo concepto de otras áreas: 510570 (administración), 520570 (ventas), 730570 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Aporte patronal a pensión, fondos de pensiones, fondos de cesantías, ajustes de seguridad social del personal de costo.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes a pensiones, fondo de pensiones, aporte pensión empleador, Colpensiones, fondo privado de pensiones, Aportes a pensiones producción / MOD.
 
-**Soportes o terceros esperados:** Planilla PILA, certificados de fondos de pensiones y cesantías, nómina, auxiliares por tercero, comprobantes de pago.
+**Soportes o terceros esperados:** Planilla PILA, nómina, certificaciones de fondos.
 
-**Soportes de control recomendados:** Conciliación PILA vs. contabilidad, cruce con nómina, validación de terceros, revisión de pagos a fondos, separación entre provisión de cesantías y pago al fondo.
+**Soportes de control recomendados:** Empleado, fondo, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
 
-**Observaciones de homologacion:** Recomendación de auditoría: separar pensión y cesantías en cuentas distintas. “Pensión” corresponde a seguridad social; “cesantías” corresponde a prestación social. Mezclarlas reduce trazabilidad.
+**Observaciones de homologacion:** En el Decreto 2650 de 1993 la subcuenta se denomina "Aportes a fondos de pensiones y/o cesantías"; se recomienda usarla solo para pensión y llevar cesantías en 720530. Validar el estado de vigencia de la Ley 2381 de 2024 (reforma pensional). Contrapartida en 237045. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 720540 - Otros gastos de personal
+### 720572 - Aportes caja de compensación familiar
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `720540` |
+| Codigo | `720572` |
+| Nombre | Aportes caja de compensación familiar |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 4% sobre la nómina del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD a la caja de compensación familiar (Ley 21 de 1982).
+
+**Que no incluye:** Aportes ICBF (720575) y SENA (720578). Aportes por pagar (2370). Subsidio familiar pagado por la caja (no es gasto de la entidad). Mismo concepto de otras áreas: 510572 (administración), 520572 (ventas), 730572 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Caja de compensación, aportes CCF, parafiscales caja, Compensar, Colsubsidio, Comfama, Cafam, aporte 4%, Aportes caja de compensación familiar producción / MOD.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** Caja, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** No está cubierto por la exoneración del Art. 114-1 E.T. Deducibilidad de salarios condicionada al pago de parafiscales (Art. 108 E.T.). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720575 - Aportes ICBF
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720575` |
+| Nombre | Aportes ICBF |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 3% sobre la nómina del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD al Instituto Colombiano de Bienestar Familiar (Ley 89 de 1988).
+
+**Que no incluye:** Aportes SENA (720578) y caja (720572). Aportes por pagar (2370). Mismo concepto de otras áreas: 510575 (administración), 520575 (ventas), 730575 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ICBF, parafiscales ICBF, bienestar familiar, aporte 3%, Aportes ICBF producción / MOD.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores con menos de 10 SMMLV). Un gasto registrado estando exonerado indica pago de lo no debido o error de clasificación. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720578 - Aportes SENA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720578` |
+| Nombre | Aportes SENA |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 2% sobre la nómina del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD al Servicio Nacional de Aprendizaje (Ley 21 de 1982).
+
+**Que no incluye:** Monetización de la cuota de aprendices. Apoyo de sostenimiento (720505). Aportes ICBF (720575) y caja (720572). Mismo concepto de otras áreas: 510578 (administración), 520578 (ventas), 730578 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes SENA, parafiscales SENA, aporte 2%, Aportes SENA producción / MOD.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. Distinguir el aporte parafiscal de la monetización de la cuota de aprendices. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720584 - Gastos médicos y drogas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720584` |
+| Nombre | Gastos médicos y drogas |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Gastos médicos, drogas, exámenes y evaluaciones médicas ocupacionales (ingreso, periódicas, retiro) asumidos por el empleador del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD.
+
+**Que no incluye:** Medicina prepagada o pólizas colectivas (720554). Aportes EPS (720569). Incapacidades (720524). Mismo concepto de otras áreas: 510584 (administración), 520584 (ventas), 730584 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gastos médicos, drogas, exámenes médicos ocupacionales, medicina laboral, exámenes de ingreso, exámenes periódicos, botiquín, Gastos médicos y drogas producción / MOD.
+
+**Soportes o terceros esperados:** Factura del proveedor (IPS), relación de empleados atendidos.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: relación con el SG-SST (Decreto 1072 de 2015).
+
+**Observaciones de homologacion:** Gasto del periodo. Proteger la reserva de la historia clínica (el auditor revisa factura y relación, no diagnósticos). Verificar retención por servicios. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720586 - Licencias
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720586` |
+| Nombre | Licencias |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7205` |
+| Critica | no |
+
+**Que incluye:** Licencias remuneradas a cargo del empleador del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD: luto (Ley 1280 de 2009), calamidad doméstica, sufragio (Ley 403 de 1997) y otras licencias remuneradas legales o pactadas.
+
+**Que no incluye:** Licencias de maternidad y paternidad reconocidas por la EPS (cuenta por cobrar hasta su recobro). Vacaciones (720539). Incapacidades (720524). Licencias no remuneradas (no generan pago). Mismo concepto de otras áreas: 510586 (administración), 520586 (ventas), 730586 (MOI).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Licencias remuneradas, licencia de luto, calamidad doméstica, licencia por sufragio, permiso remunerado, licencia de maternidad, licencia de paternidad, Licencias remuneradas producción / MOD.
+
+**Soportes o terceros esperados:** Solicitud y autorización de la licencia, soporte del hecho, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de licencia, días, periodo. Control: autorización y soporte.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). Separar lo recobrable a EPS (maternidad/paternidad) de lo asumido por el empleador. Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
+
+### 720595 - Otros gastos de personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `720595` |
 | Nombre | Otros gastos de personal |
-| Cuenta Russell / 4D | 7205 – Costos / gastos de personal |
-| Tipo de rubro | Otros beneficios a empleados / costos laborales complementarios |
+| Cuenta Russell / 4D | Mano de obra directa |
+| Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7205` |
 | Critica | no |
 
-**Que incluye:** Beneficios, auxilios, dotación, capacitaciones, bienestar, bonificaciones, incapacidades no recuperables, auxilios extralegales o conceptos laborales asociados al personal operativo, siempre que correspondan al costo de la operación.
+**Que incluye:** Otros gastos laborales del personal que interviene directamente en la transformación del producto o en la prestación del servicio (operarios, técnicos de línea, cuadrillas) – MOD sin subcuenta específica: bienestar, recreación y deportes, celebraciones, aportes sindicales, elementos de protección personal según política, monetización de cuota de aprendices, otros beneficios.
 
-**Que no incluye:** Gastos administrativos, gastos de ventas, préstamos a empleados, anticipos, indemnizaciones materiales, sanciones, gastos personales de socios, pagos sin soporte laboral o conceptos no relacionados con empleados.
+**Que no incluye:** Todo concepto con subcuenta específica en este grupo (720503-720586). Honorarios y servicios de contratistas. Gastos personales de socios o directivos. Préstamos a empleados. Mismo concepto de otras áreas: 510595 (administración), 520595 (ventas), 730595 (MOI).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, bienestar laboral, auxilios de transporte o alimentación, bonificaciones operativas, capacitaciones técnicas, exámenes ocupacionales, beneficios extralegales.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otros gastos de personal, bienestar laboral, recreación, actividades deportivas, celebraciones, aportes sindicales, elementos de protección personal, cuota de aprendices, Otros gastos de personal producción / MOD.
 
-**Soportes o terceros esperados:** Nómina, política de beneficios, facturas de proveedores, contratos, autorizaciones internas, relación de empleados beneficiarios, comprobantes de pago.
+**Soportes o terceros esperados:** Factura/soporte, autorización, política de beneficios.
 
-**Soportes de control recomendados:** Revisión analítica mensual, validación de soportes, aprobación del gasto, cruce con política interna, análisis de conceptos inusuales, prueba de clasificación contable.
+**Soportes de control recomendados:** Concepto, centro de costo, periodo. Control: revisión analítica y reclasificación a subcuenta específica.
 
-**Observaciones de homologacion:** Cuenta residual de alto riesgo. No debe convertirse en “bolsillo contable”. Para homologación, se recomienda subclasificar por naturaleza: dotación, bienestar, auxilios, capacitación, bonificaciones e incapacidades.
+**Observaciones de homologacion:** Cuenta residual de alto riesgo: no debe usarse como "bolsillo". Reclasificar a subcuenta específica cuando aplique. Vigilar gastos personales de socios y partidas sin soporte (NIA 240; deducibilidad). Costo de producción: se acumula al inventario en proceso/terminado y pasa al costo de ventas al vender (NIC 2 / Sección 13 PYMES). Verificar criterio de asignación MOD vs. MOI y la base de costeo.
 
-### 730505 - Costos indirectos de fabricación u operación
+### 721005 - Otros costos de mano de obra indirecta
 
 | Atributo | Valor |
 |---|---|
-| Codigo | `730505` |
-| Nombre | Costos indirectos de fabricación u operación |
+| Codigo | `721005` |
+| Nombre | Otros costos de mano de obra indirecta |
+| Cuenta Russell / 4D | Otros gastos de personal |
+| Tipo de rubro | Costo de producción u operación |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7210` |
+| Critica | no |
+
+**Que incluye:** Costos laborales del personal que participa en el proceso productivo o en la prestación del servicio, pero cuya labor no puede identificarse directamente con un producto, orden, contrato o unidad de servicio específica. Incluye conceptos complementarios de mano de obra indirecta no clasificados en otras subcuentas.
+
+**Que no incluye:** Mano de obra directamente atribuible a productos, órdenes o servicios; gastos del personal administrativo o comercial; honorarios; servicios contratados con terceros; conceptos registrados en otras subcuentas específicas de costos laborales.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otros costos de mano de obra; personal indirecto de producción; personal de apoyo operativo; costos laborales indirectos; conceptos complementarios de nómina de producción.
+
+**Soportes o terceros esperados:** Contratos laborales, comprobantes de nómina, nómina electrónica, planillas de seguridad social, documentos de identidad y novedades laborales.
+
+**Soportes de control recomendados:** Conciliación entre nómina, nómina electrónica, seguridad social y contabilidad; centros de costos; distribución de personal; bases de asignación; auxiliares contables; aprobación de novedades y conciliación mensual.
+
+**Observaciones de homologacion:** Homologar únicamente conceptos laborales indirectamente relacionados con la producción o prestación del servicio. Validar la naturaleza del personal, el centro de costos y la base de distribución. No clasificar aquí gastos administrativos o comerciales.
+
+### 721095 - Traslado de costos
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `721095` |
+| Nombre | Traslado de costos |
+| Cuenta Russell / 4D | Mano de obra – traslado de costos |
+| Tipo de rubro | Cuenta de traslado o compensación de costos |
+| Naturaleza | Credito (`C`) |
+| Padre logico | `7210` |
+| Critica | no |
+
+**Que incluye:** Movimientos crédito mediante los cuales se trasladan, distribuyen o descargan costos de mano de obra acumulados hacia productos, órdenes de producción, contratos, proyectos, centros de costos u otras cuentas de destino.
+
+**Que no incluye:** Pagos de nómina, reversión de errores, reclasificaciones sin soporte, ingresos, recuperaciones de gastos, ajustes manuales sin relación con el proceso de distribución de costos ni saldos de cierre sin contrapartida identificada.
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Traslado de mano de obra; distribución de costos laborales; aplicación de nómina a producción; compensación de costos; cierre de costos de producción; traslado a productos en proceso o terminados.
+
+**Soportes o terceros esperados:** Por su naturaleza, normalmente no requiere soporte adicional de terceros; el origen debe estar respaldado por la documentación laboral y de nómina correspondiente.
+
+**Soportes de control recomendados:** Comprobante contable del traslado, auxiliares de las cuentas de origen y destino, orden de producción, centros de costos, hoja de costos, base de distribución, reporte del módulo de costos, conciliación entre nómina y producción y aprobación del traslado.
+
+**Observaciones de homologacion:** Homologar cuentas de naturaleza crédito utilizadas exclusivamente para trasladar o compensar costos de mano de obra. Debe identificarse la cuenta de contrapartida y comprobarse que el traslado no genere duplicidad, omisión o permanencia injustificada de saldos.
+
+### 730503 - Salario integral
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730503` |
+| Nombre | Salario integral |
 | Cuenta Russell / 4D | Costos indirectos fabricación / operación |
 | Tipo de rubro | Costos de producción |
 | Naturaleza | Debito (`D`) |
 | Padre logico | `7305` |
 | Critica | no |
 
-**Que incluye:** Costos indirectos de fabricación (CIF): materiales indirectos, mano de obra indirecta (supervisores, mantenimiento), depreciación de planta y maquinaria de producción, energía de planta, arrendamiento de planta, seguros de producción, mantenimiento de planta, y demás costos indirectos del proceso productivo.
+**Que incluye:** Salario integral pactado por escrito del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: retribución que compensa el trabajo ordinario y, además, el valor de prestaciones, recargos y beneficios (factor prestacional), conforme al Art. 132 CST.
 
-**Que no incluye:** Materia prima directa (710505) y mano de obra directa (720505). Gastos de administración (5105) y ventas (5205). Costos no productivos. CIF en inventario no vendido (se capitaliza).
+**Que no incluye:** Salario ordinario (730506). Vacaciones del empleado con salario integral (730539, sí se causan). Aportes patronales (730568-730578). Honorarios de contratistas. Mismo concepto de otras áreas: 510503 (administración), 520503 (ventas), 720503 (MOD).
 
-**Cuentas o nombres de cliente que podrian llegar aqui:** Costos indirectos de fabricación, CIF, materiales indirectos, mano de obra indirecta, depreciación de planta, energía de producción, arrendamiento de planta, mantenimiento de producción, seguros de planta, supervisión de producción, costos indirectos de operación.
+**Cuentas o nombres de cliente que podrian llegar aqui:** Salario integral, sueldo integral, remuneración integral, salario con factor prestacional, nómina salario integral, Salario integral producción / MOI.
+
+**Soportes o terceros esperados:** Contrato laboral con pacto escrito de salario integral, nómina, desprendibles.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: verificar que el salario pactado cumpla el mínimo legal vigente (10 SMMLV + factor prestacional no inferior al 30%).
+
+**Observaciones de homologacion:** No se causan cesantías, intereses ni prima sobre el salario integral; sí vacaciones. Base de aportes a seguridad social y parafiscales sobre el 70% del salario (validar norma vigente). Riesgo: salarios integrales por debajo del mínimo legal (reliquidación de prestaciones y fiscalización UGPP). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730505 - Apoyo de sostenimiento – aprendices
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730505` |
+| Nombre | Apoyo de sostenimiento – aprendices |
+| Cuenta Russell / 4D | Costos de producción |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Apoyo de sostenimiento pagado a aprendices vinculados mediante contrato de aprendizaje (SENA u otras instituciones autorizadas), del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF, en etapa lectiva y/o productiva.
+
+**Que no incluye:** Sueldos de trabajadores ordinarios (730506). Pasantías o prácticas no regidas por contrato de aprendizaje. Monetización de la cuota de aprendices pagada al SENA (730595 u otra cuenta según política). Aportes del aprendiz. Mismo concepto de otras áreas: 510505 (administración), 520505 (ventas), 720505 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Apoyo de sostenimiento, aprendices SENA, contrato de aprendizaje, cuota de aprendices, practicantes SENA, sostenimiento aprendiz, Apoyo de sostenimiento – aprendices producción / MOI.
+
+**Soportes o terceros esperados:** Contrato de aprendizaje, resolución de regulación de cuota del SENA, nómina de aprendices, certificación de la institución educativa.
+
+**Soportes de control recomendados:** Aprendiz, etapa (lectiva/productiva), centro de costo, periodo. Control: cumplimiento de la cuota regulada por el SENA.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). La Ley 2466 de 2025 modificó el régimen del contrato de aprendizaje (Ley 789 de 2002, Art. 30): validar monto del apoyo, naturaleza del vínculo y aportes aplicables según la norma vigente. Riesgo: incumplimiento de cuota (sanciones SENA). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730506 - Sueldos y salarios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730506` |
+| Nombre | Sueldos y salarios |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Salario básico ordinario del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: sueldos, jornales y demás pagos que constituyen salario (Art. 127 CST), incluidos retroactivos y ajustes salariales.
+
+**Que no incluye:** Salario integral (730503). Horas extras y recargos (730515). Comisiones (730518). Prestaciones sociales (730530-730539). Aportes (730568-730578). Pagos a contratistas (honorarios/servicios). Mismo concepto de otras áreas: 510506 (administración), 520506 (ventas), 720506 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Sueldos, salarios, salario básico, nómina, jornales, sueldo ordinario, retroactivos salariales, ajuste salarial, Sueldos y salarios producción / MOI.
+
+**Soportes o terceros esperados:** Nómina mensual, contratos laborales, novedades, documento soporte de pago de nómina electrónica (Res. DIAN 000013 de 2021), comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: conciliación nómina – PILA – contabilidad; cruce con pagos bancarios.
+
+**Observaciones de homologacion:** Cuenta base de la nómina. La deducibilidad requiere pago de aportes (Art. 108 E.T.) y nómina electrónica transmitida. Detectar empleados ficticios o contratistas registrados como salario (NIA 240). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730515 - Horas extras y recargos
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730515` |
+| Nombre | Horas extras y recargos |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Trabajo suplementario y recargos del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: horas extras diurnas y nocturnas, recargo nocturno, dominical y festivo (Arts. 168 y 179 CST).
+
+**Que no incluye:** Salario básico (730506). Bonificaciones (730548). Compensatorios no remunerados. Comisiones (730518). Mismo concepto de otras áreas: 510515 (administración), 520515 (ventas), 720515 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Horas extras, recargos, recargo nocturno, dominicales, festivos, trabajo suplementario, horas extra diurnas, horas extra nocturnas, Horas extras y recargos producción / MOI.
+
+**Soportes o terceros esperados:** Reportes de tiempo, autorización de trabajo suplementario, nómina, novedades.
+
+**Soportes de control recomendados:** Empleado, tipo de recargo, centro de costo, periodo. Control: autorización previa y topes de trabajo suplementario.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Validar porcentajes y jornada vigentes (Ley 2101 de 2021 reducción gradual de jornada; Ley 2466 de 2025 recargos dominicales y franja nocturna). Montos recurrentes y altos indican riesgo de jornada excesiva. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730518 - Comisiones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730518` |
+| Nombre | Comisiones |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Comisiones laborales pagadas a empleados del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF como remuneración variable por ventas, recaudo o cumplimiento de metas, que constituyen salario (Art. 127 CST).
+
+**Que no incluye:** Comisiones a terceros independientes (529505 / 519505). Comisiones bancarias (530505). Bonificaciones no salariales (730548). Mismo concepto de otras áreas: 510518 (administración), 520518 (ventas), 720518 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Comisiones laborales, comisiones empleados, comisión por ventas nómina, salario variable, comisión de recaudo, Comisiones producción / MOI.
+
+**Soportes o terceros esperados:** Política o esquema de comisiones, liquidación, nómina, reporte de ventas base.
+
+**Soportes de control recomendados:** Empleado, base de liquidación, centro de costo, periodo. Control: recálculo contra ventas/recaudo reportado.
+
+**Observaciones de homologacion:** Constituye salario: integra base de prestaciones y aportes. Distinguir comisión laboral (este rubro) de comisión a tercero (529505, con retención). Correlacionar con ingresos (riesgo de corte). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730524 - Incapacidades
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730524` |
+| Nombre | Incapacidades |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Pago de incapacidades del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF a cargo del empleador: días de incapacidad por enfermedad general que asume la empresa y diferencias no reconocidas por EPS/ARL.
+
+**Que no incluye:** Incapacidades reconocidas por EPS o ARL (cuenta por cobrar, grupo 13, hasta su recobro). Licencias de maternidad/paternidad (730586). Salario ordinario (730506). Mismo concepto de otras áreas: 510524 (administración), 520524 (ventas), 720524 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Incapacidades, incapacidad enfermedad general, incapacidad laboral, días de incapacidad, incapacidad a cargo del empleador, Incapacidades producción / MOI.
+
+**Soportes o terceros esperados:** Certificado de incapacidad, nómina, radicación y respuesta de recobro EPS/ARL.
+
+**Soportes de control recomendados:** Empleado, entidad (EPS/ARL), días, periodo. Control: conciliación incapacidades pagadas vs. recobradas.
+
+**Observaciones de homologacion:** Los primeros dos días de incapacidad por enfermedad general corren a cargo del empleador (Decreto 2943 de 2013, validar vigencia); desde el tercero, reconocimiento de la EPS (recobro, no gasto). Evaluar recuperabilidad de recobros antiguos (NIIF 9). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730527 - Auxilio de transporte
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730527` |
+| Nombre | Auxilio de transporte |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Auxilio legal de transporte pagado del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF a trabajadores que devengan hasta dos (2) SMMLV (Ley 15 de 1959 y decreto anual del Gobierno).
+
+**Que no incluye:** Auxilios extralegales de transporte o movilidad (730545). Gastos de viaje y viáticos. Transporte de personal contratado a terceros (servicios). Mismo concepto de otras áreas: 510527 (administración), 520527 (ventas), 720527 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilio de transporte, subsidio de transporte, auxilio legal de transporte, transporte nómina, Auxilio de transporte producción / MOI.
+
+**Soportes o terceros esperados:** Nómina, decreto anual de auxilio de transporte, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, periodo. Control: verificar que solo lo reciban empleados con salario ≤ 2 SMMLV.
+
+**Observaciones de homologacion:** No integra el IBC de seguridad social, pero sí la base de cesantías y prima (Ley 1 de 1963, Art. 7). Riesgo: pago a quienes no tienen derecho o omisión en base prestacional. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730530 - Cesantías
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730530` |
+| Nombre | Cesantías |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Gasto por auxilio de cesantías del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF causado en el periodo: un mes de salario por año de servicio y proporcional (Art. 249 CST).
+
+**Que no incluye:** Intereses sobre cesantías (730533). Cesantías consolidadas por pagar (pasivo 2510) o provisión (2610). Aportes a pensión (730570). Mismo concepto de otras áreas: 510530 (administración), 520530 (ventas), 720530 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Cesantías, auxilio de cesantías, provisión de cesantías, cesantías causadas, fondo de cesantías, Cesantías producción / MOI.
+
+**Soportes o terceros esperados:** Nómina, liquidación de cesantías, consignación al fondo (Ley 50 de 1990, Art. 99), liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, fondo, centro de costo, periodo. Control: recálculo por empleado y conciliación gasto – pasivo – pago al fondo.
+
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Consignación a más tardar el 14 de febrero; la mora genera sanción moratoria. No aplica a salario integral. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730533 - Intereses sobre cesantías
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730533` |
+| Nombre | Intereses sobre cesantías |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Intereses sobre cesantías del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF a cargo del empleador: 12% anual sobre el saldo de cesantías (Ley 52 de 1975).
+
+**Que no incluye:** Cesantías (730530). Intereses financieros (530520). Intereses por pagar (pasivo 2515). Mismo concepto de otras áreas: 510533 (administración), 520533 (ventas), 720533 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Intereses sobre cesantías, intereses de cesantías, 12% cesantías, intereses cesantías causados, Intereses sobre cesantías producción / MOI.
+
+**Soportes o terceros esperados:** Nómina, liquidación anual, comprobante de pago al trabajador.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo 12% anual o proporcional.
+
+**Observaciones de homologacion:** Se pagan directamente al trabajador (a más tardar el 31 de enero). No confundir con intereses financieros (530520). No aplica a salario integral. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730536 - Prima de servicios
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730536` |
+| Nombre | Prima de servicios |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Prima legal de servicios del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: 30 días de salario por año, pagadera por semestres (Art. 306 CST).
+
+**Que no incluye:** Primas extralegales (730542). Bonificaciones (730548). Prima consolidada por pagar (pasivo 2520) o provisión (2610). Mismo concepto de otras áreas: 510536 (administración), 520536 (ventas), 720536 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Prima de servicios, prima legal, prima semestral, prima de junio, prima de diciembre, Prima de servicios producción / MOI.
+
+**Soportes o terceros esperados:** Nómina, liquidación semestral, comprobantes de pago.
+
+**Soportes de control recomendados:** Empleado, centro de costo, periodo. Control: recálculo semestral y corte en junio/diciembre.
+
+**Observaciones de homologacion:** Beneficio a empleados de corto plazo (NIC 19 / Sección 28). Causar mensualmente. No aplica a salario integral. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730539 - Vacaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730539` |
+| Nombre | Vacaciones |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Gasto por vacaciones del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF causadas en el periodo: 15 días hábiles consecutivos por año de servicio (Art. 186 CST), incluidas compensaciones en dinero.
+
+**Que no incluye:** Vacaciones consolidadas por pagar (pasivo 2525) o provisión (2610). Licencias remuneradas (730586). Incapacidades (730524). Mismo concepto de otras áreas: 510539 (administración), 520539 (ventas), 720539 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Vacaciones, provisión de vacaciones, vacaciones disfrutadas, vacaciones compensadas, descanso remunerado, Vacaciones producción / MOI.
+
+**Soportes o terceros esperados:** Nómina, control de días causados/disfrutados, liquidaciones definitivas.
+
+**Soportes de control recomendados:** Empleado, días, centro de costo, periodo. Control: conciliación de días pendientes por empleado vs. pasivo.
+
+**Observaciones de homologacion:** Ausencia remunerada acumulable (NIC 19 / Sección 28). Aplica también a salario integral. Riesgo: acumulación excesiva de periodos no disfrutados. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730542 - Primas extralegales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730542` |
+| Nombre | Primas extralegales |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Primas pactadas voluntariamente o por convención/pacto colectivo del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: prima de vacaciones, de antigüedad, de navidad u otras distintas de la prima legal.
+
+**Que no incluye:** Prima legal de servicios (730536). Bonificaciones ocasionales (730548). Auxilios (730545). Mismo concepto de otras áreas: 510542 (administración), 520542 (ventas), 720542 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Primas extralegales, prima de vacaciones, prima de antigüedad, prima de navidad, prima convencional, prima extralegal, Primas extralegales producción / MOI.
+
+**Soportes o terceros esperados:** Convención/pacto colectivo, contrato, política de beneficios, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de prima, centro de costo, periodo. Control: soporte del pacto y de la exclusión salarial, si existe.
+
+**Observaciones de homologacion:** Su carácter salarial depende del pacto (Art. 128 CST). Si es no salarial, verificar el límite del 40% para el IBC (Ley 1393 de 2010, Art. 30). Riesgo UGPP. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730545 - Auxilios al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730545` |
+| Nombre | Auxilios al personal |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Auxilios extralegales otorgados del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: alimentación, vivienda, educación, movilidad, conectividad u otros auxilios pactados.
+
+**Que no incluye:** Auxilio legal de transporte (730527). Gastos médicos (730584). Capacitación (730563). Préstamos a empleados (activo, grupo 13). Mismo concepto de otras áreas: 510545 (administración), 520545 (ventas), 720545 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Auxilios al personal, auxilio de alimentación, auxilio educativo, auxilio de vivienda, auxilio de conectividad, auxilio extralegal, Auxilios al personal producción / MOI.
+
+**Soportes o terceros esperados:** Política de beneficios, pacto de exclusión salarial, nómina, soportes de entrega.
+
+**Soportes de control recomendados:** Empleado, tipo de auxilio, centro de costo, periodo. Control: aprobación y consistencia con la política.
+
+**Observaciones de homologacion:** Evaluar si es constitutivo o no de salario (Arts. 127 y 128 CST) y el límite del 40% (Ley 1393 de 2010, Art. 30). Verificar deducibilidad y tratamiento como ingreso laboral del trabajador (retención en la fuente). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730548 - Bonificaciones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730548` |
+| Nombre | Bonificaciones |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Bonificaciones pagadas del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: por desempeño, resultados, cumplimiento de metas o de mera liberalidad.
+
+**Que no incluye:** Comisiones laborales (730518). Primas extralegales (730542). Indemnizaciones (730560). Participación en utilidades a socios (patrimonio). Mismo concepto de otras áreas: 510548 (administración), 520548 (ventas), 720548 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Bonificaciones, bonos por desempeño, bonificación por resultados, bonificación ocasional, incentivos, bonos de mera liberalidad, Bonificaciones producción / MOI.
+
+**Soportes o terceros esperados:** Política de bonificaciones, actas o aprobaciones, nómina.
+
+**Soportes de control recomendados:** Empleado, concepto, centro de costo, periodo. Control: aprobación por nivel de autoridad; bonificaciones a directivos revisadas por gobierno corporativo.
+
+**Observaciones de homologacion:** Carácter salarial según habitualidad y pacto (Arts. 127-128 CST); límite del 40% (Ley 1393 de 2010, Art. 30). Bonificaciones a la alta dirección: riesgo de sesgo en metas (NIA 240). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730551 - Dotación y suministro a trabajadores
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730551` |
+| Nombre | Dotación y suministro a trabajadores |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Calzado y vestido de labor entregado del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF (Art. 230 CST: trabajadores con salario hasta 2 SMMLV, tres entregas al año) y demás elementos suministrados para el trabajo.
+
+**Que no incluye:** Elementos de protección personal del SG-SST según política (730595 o CIF 731005). Uniformes de imagen corporativa según política. Inventario de dotación no entregado (activo). Mismo concepto de otras áreas: 510551 (administración), 520551 (ventas), 720551 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Dotación, calzado y vestido de labor, uniformes, overoles, suministro a trabajadores, dotación de ley, Dotación y suministro a trabajadores producción / MOI.
+
+**Soportes o terceros esperados:** Factura del proveedor, actas de entrega firmadas, relación de beneficiarios.
+
+**Soportes de control recomendados:** Empleado, entrega, centro de costo, periodo. Control: actas de entrega en las fechas legales.
+
+**Observaciones de homologacion:** No constituye salario (Art. 234 CST) y no puede compensarse en dinero. Riesgo: incumplimiento de entregas y deducibilidad sin soporte de entrega. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730554 - Seguros de empleados
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730554` |
+| Nombre | Seguros de empleados |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Primas de seguros tomados por el empleador a favor del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: vida grupo, accidentes personales, pólizas de salud o medicina prepagada colectivas.
+
+**Que no incluye:** Seguros sobre activos (5130/5230; en producción, CIF 731005). Aportes a ARL (730568). Seguros pagados por anticipado (170520). Mismo concepto de otras áreas: 510554 (administración), 520554 (ventas), 720554 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Seguros de empleados, seguro de vida grupo, póliza de salud empleados, medicina prepagada, accidentes personales empleados, Seguros de empleados producción / MOI.
+
+**Soportes o terceros esperados:** Póliza, factura, relación de asegurados.
+
+**Soportes de control recomendados:** Aseguradora, póliza, centro de costo, periodo. Control: conciliar asegurados vs. empleados activos.
+
+**Observaciones de homologacion:** Reconocer la porción devengada (el anticipado es activo). Evaluar si constituye pago laboral para el trabajador y su tratamiento en retención y deducibilidad. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730560 - Indemnizaciones laborales
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730560` |
+| Nombre | Indemnizaciones laborales |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Indemnizaciones pagadas del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF por terminación del contrato sin justa causa (Art. 64 CST) u otras indemnizaciones legales o conciliadas en la terminación.
+
+**Que no incluye:** Condenas y demandas laborales (539505). Sanción moratoria como multa (539520). Liquidación de prestaciones ordinarias (730530-730539). Mismo concepto de otras áreas: 510560 (administración), 520560 (ventas), 720560 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Indemnizaciones laborales, indemnización por despido, despido sin justa causa, bonificación por retiro, terminación de contrato, Indemnizaciones laborales producción / MOI.
+
+**Soportes o terceros esperados:** Carta de terminación, liquidación, acta de conciliación, comprobante de pago.
+
+**Soportes de control recomendados:** Empleado, causa, centro de costo, periodo. Control: soporte jurídico de la terminación.
+
+**Observaciones de homologacion:** Beneficio por terminación (NIC 19 / Sección 28). No constituye salario ni IBC. Montos inusuales pueden requerir revelación y evaluación de contingencias (NIC 37). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730563 - Capacitación al personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730563` |
+| Nombre | Capacitación al personal |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Costos de formación, cursos, seminarios, diplomados y entrenamiento del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF.
+
+**Que no incluye:** Auxilios educativos en dinero (730545). Honorarios de consultoría (5110/5210). Capacitación del SG-SST según política. Mismo concepto de otras áreas: 510563 (administración), 520563 (ventas), 720563 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Capacitación al personal, formación, cursos, seminarios, entrenamiento, diplomados, educación continuada, Capacitación al personal producción / MOI.
+
+**Soportes o terceros esperados:** Factura, certificado de asistencia, plan de capacitación.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: vínculo con el plan de capacitación aprobado.
+
+**Observaciones de homologacion:** Gasto del periodo. Verificar retención por servicios y relación de causalidad con la actividad (deducibilidad). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730568 - Aportes ARL
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730568` |
+| Nombre | Aportes ARL |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aportes a la Administradora de Riesgos Laborales del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF, 100% a cargo del empleador según clase de riesgo (Decreto 1295 de 1994, Ley 1562 de 2012, Decreto 1072 de 2015).
+
+**Que no incluye:** Aportes EPS (730569), pensión (730570) y parafiscales (730572-730578). ARL por pagar (237006). Mismo concepto de otras áreas: 510568 (administración), 520568 (ventas), 720568 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ARL, riesgos laborales, ARP, aporte riesgos profesionales, Aportes ARL producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, afiliación ARL, nómina, clasificación de riesgo.
+
+**Soportes de control recomendados:** Empleado, nivel de riesgo, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Contrapartida en 237006. Verificar clase de riesgo vs. actividad real e IBC (UGPP). Deducibilidad condicionada al pago (Art. 108 E.T.). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730569 - Aportes EPS
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730569` |
+| Nombre | Aportes EPS |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aporte patronal a salud del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF (Ley 100 de 1993, Art. 204).
+
+**Que no incluye:** Descuento de salud al trabajador (pasivo). Aportes ARL (730568) y pensión (730570). EPS por pagar (237005). Mismo concepto de otras áreas: 510569 (administración), 520569 (ventas), 720569 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes EPS, aporte salud empleador, salud patronal, aporte a EPS, Aportes EPS producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina, afiliaciones.
+
+**Soportes de control recomendados:** Empleado, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores que devenguen menos de 10 SMMLV en personas jurídicas contribuyentes que cumplan requisitos). Contrapartida en 237005. Cruzar IBC con UGPP. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730570 - Aportes a pensiones
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730570` |
+| Nombre | Aportes a pensiones |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aporte patronal a pensiones del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF al régimen correspondiente (Ley 100 de 1993, Art. 20).
+
+**Que no incluye:** Cesantías (730530), aunque se consignen a un fondo de pensiones y cesantías. Descuento de pensión al trabajador (pasivo). Aportes por pagar (237045). Mismo concepto de otras áreas: 510570 (administración), 520570 (ventas), 720570 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes a pensiones, fondo de pensiones, aporte pensión empleador, Colpensiones, fondo privado de pensiones, Aportes a pensiones producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina, certificaciones de fondos.
+
+**Soportes de control recomendados:** Empleado, fondo, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** En el Decreto 2650 de 1993 la subcuenta se denomina "Aportes a fondos de pensiones y/o cesantías"; se recomienda usarla solo para pensión y llevar cesantías en 730530. Validar el estado de vigencia de la Ley 2381 de 2024 (reforma pensional). Contrapartida en 237045. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730572 - Aportes caja de compensación familiar
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730572` |
+| Nombre | Aportes caja de compensación familiar |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 4% sobre la nómina del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF a la caja de compensación familiar (Ley 21 de 1982).
+
+**Que no incluye:** Aportes ICBF (730575) y SENA (730578). Aportes por pagar (2370). Subsidio familiar pagado por la caja (no es gasto de la entidad). Mismo concepto de otras áreas: 510572 (administración), 520572 (ventas), 720572 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Caja de compensación, aportes CCF, parafiscales caja, Compensar, Colsubsidio, Comfama, Cafam, aporte 4%, Aportes caja de compensación familiar producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** Caja, IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** No está cubierto por la exoneración del Art. 114-1 E.T. Deducibilidad de salarios condicionada al pago de parafiscales (Art. 108 E.T.). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730575 - Aportes ICBF
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730575` |
+| Nombre | Aportes ICBF |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 3% sobre la nómina del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF al Instituto Colombiano de Bienestar Familiar (Ley 89 de 1988).
+
+**Que no incluye:** Aportes SENA (730578) y caja (730572). Aportes por pagar (2370). Mismo concepto de otras áreas: 510575 (administración), 520575 (ventas), 720575 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes ICBF, parafiscales ICBF, bienestar familiar, aporte 3%, Aportes ICBF producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. (trabajadores con menos de 10 SMMLV). Un gasto registrado estando exonerado indica pago de lo no debido o error de clasificación. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730578 - Aportes SENA
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730578` |
+| Nombre | Aportes SENA |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Aporte parafiscal del 2% sobre la nómina del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF al Servicio Nacional de Aprendizaje (Ley 21 de 1982).
+
+**Que no incluye:** Monetización de la cuota de aprendices. Apoyo de sostenimiento (730505). Aportes ICBF (730575) y caja (730572). Mismo concepto de otras áreas: 510578 (administración), 520578 (ventas), 720578 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Aportes SENA, parafiscales SENA, aporte 2%, Aportes SENA producción / MOI.
+
+**Soportes o terceros esperados:** Planilla PILA, nómina.
+
+**Soportes de control recomendados:** IBC, periodo. Control: conciliación PILA – nómina – contabilidad.
+
+**Observaciones de homologacion:** Verificar exoneración del Art. 114-1 E.T. Distinguir el aporte parafiscal de la monetización de la cuota de aprendices. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730584 - Gastos médicos y drogas
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730584` |
+| Nombre | Gastos médicos y drogas |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Gastos médicos, drogas, exámenes y evaluaciones médicas ocupacionales (ingreso, periódicas, retiro) asumidos por el empleador del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF.
+
+**Que no incluye:** Medicina prepagada o pólizas colectivas (730554). Aportes EPS (730569). Incapacidades (730524). Mismo concepto de otras áreas: 510584 (administración), 520584 (ventas), 720584 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Gastos médicos, drogas, exámenes médicos ocupacionales, medicina laboral, exámenes de ingreso, exámenes periódicos, botiquín, Gastos médicos y drogas producción / MOI.
+
+**Soportes o terceros esperados:** Factura del proveedor (IPS), relación de empleados atendidos.
+
+**Soportes de control recomendados:** Proveedor, empleado, centro de costo, periodo. Control: relación con el SG-SST (Decreto 1072 de 2015).
+
+**Observaciones de homologacion:** Gasto del periodo. Proteger la reserva de la historia clínica (el auditor revisa factura y relación, no diagnósticos). Verificar retención por servicios. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730586 - Licencias
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730586` |
+| Nombre | Licencias |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Licencias remuneradas a cargo del empleador del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF: luto (Ley 1280 de 2009), calamidad doméstica, sufragio (Ley 403 de 1997) y otras licencias remuneradas legales o pactadas.
+
+**Que no incluye:** Licencias de maternidad y paternidad reconocidas por la EPS (cuenta por cobrar hasta su recobro). Vacaciones (730539). Incapacidades (730524). Licencias no remuneradas (no generan pago). Mismo concepto de otras áreas: 510586 (administración), 520586 (ventas), 720586 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Licencias remuneradas, licencia de luto, calamidad doméstica, licencia por sufragio, permiso remunerado, licencia de maternidad, licencia de paternidad, Licencias remuneradas producción / MOI.
+
+**Soportes o terceros esperados:** Solicitud y autorización de la licencia, soporte del hecho, nómina.
+
+**Soportes de control recomendados:** Empleado, tipo de licencia, días, periodo. Control: autorización y soporte.
+
+**Observaciones de homologacion:** Subcuenta no contemplada en el catálogo del Decreto 2650 de 1993 (extensión propia del PUC Maestro). Separar lo recobrable a EPS (maternidad/paternidad) de lo asumido por el empleador. Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 730595 - Otros gastos de personal
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `730595` |
+| Nombre | Otros gastos de personal |
+| Cuenta Russell / 4D | Costos indirectos fabricación / operación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7305` |
+| Critica | no |
+
+**Que incluye:** Otros gastos laborales del personal de planta u operación que no interviene directamente en el producto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta) – MOI, parte de los CIF sin subcuenta específica: bienestar, recreación y deportes, celebraciones, aportes sindicales, elementos de protección personal según política, monetización de cuota de aprendices, otros beneficios.
+
+**Que no incluye:** Todo concepto con subcuenta específica en este grupo (730503-730586). Honorarios y servicios de contratistas. Gastos personales de socios o directivos. Préstamos a empleados. Mismo concepto de otras áreas: 510595 (administración), 520595 (ventas), 720595 (MOD).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Otros gastos de personal, bienestar laboral, recreación, actividades deportivas, celebraciones, aportes sindicales, elementos de protección personal, cuota de aprendices, Otros gastos de personal producción / MOI.
+
+**Soportes o terceros esperados:** Factura/soporte, autorización, política de beneficios.
+
+**Soportes de control recomendados:** Concepto, centro de costo, periodo. Control: revisión analítica y reclasificación a subcuenta específica.
+
+**Observaciones de homologacion:** Cuenta residual de alto riesgo: no debe usarse como "bolsillo". Reclasificar a subcuenta específica cuando aplique. Vigilar gastos personales de socios y partidas sin soporte (NIA 240; deducibilidad). Costo indirecto (CIF): se asigna al producto mediante base de prorrateo. Los costos de subactividad o capacidad ociosa van a resultados, no al inventario (NIC 2 párr. 13). Verificar criterio MOD vs. MOI.
+
+### 731005 - Costos indirectos de fabricación u operación
+
+| Atributo | Valor |
+|---|---|
+| Codigo | `731005` |
+| Nombre | Costos indirectos de fabricación u operación |
+| Cuenta Russell / 4D | Costos indirectos fabricación |
+| Tipo de rubro | Costos de producción |
+| Naturaleza | Debito (`D`) |
+| Padre logico | `7310` |
+| Critica | no |
+
+**Que incluye:** Costos indirectos de fabricación u operación de naturaleza NO laboral: materiales y suministros indirectos, depreciación de planta y maquinaria de producción, energía y servicios públicos de planta, arrendamiento de planta, seguros de producción, mantenimiento y reparaciones de planta, y demás costos indirectos del proceso productivo o de la operación.
+
+**Que no incluye:** Mano de obra indirecta y cualquier costo de personal indirecto (supervisores, jefes de producción, mantenimiento, calidad, almacén de planta, aprendices): va a las subcuentas 7305xx (730503 a 730595). Materia prima directa (710505). Mano de obra directa (7205xx). Gastos de administración (51xx) y ventas (52xx). Costos no productivos. Costos de capacidad ociosa (van a resultados). CIF en inventario no vendido (se capitaliza).
+
+**Cuentas o nombres de cliente que podrian llegar aqui:** Costos indirectos de fabricación, CIF, materiales indirectos, suministros de planta, depreciación de planta, depreciación de maquinaria, energía de producción, servicios públicos de planta, arrendamiento de planta, mantenimiento de producción, repuestos consumidos en planta, seguros de planta, costos indirectos de operación.
 
 **Soportes o terceros esperados:** Hoja de costos, prorrateo de CIF, soporte de los costos, base de aplicación, costeo.
 
 **Soportes de control recomendados:** Producto/orden, centro de costo, naturaleza del CIF, periodo.
 
-**Observaciones de homologacion:** Tercer elemento del costo. Se aplica al producto mediante una base de prorrateo (horas máquina/hombre, etc.). Verificar el método de aplicación de CIF y el tratamiento de la capacidad ociosa (los costos de subactividad van a resultados, no al inventario, NIC 2). Se capitaliza al inventario y se reconoce al vender. Distinguir de gastos del periodo.
+**Observaciones de homologacion:** Tercer elemento del costo. Se aplica al producto mediante una base de prorrateo (horas máquina/hombre, etc.). Verificar el método de aplicación de CIF y el tratamiento de la capacidad ociosa (los costos de subactividad van a resultados, no al inventario, NIC 2 párr. 13). Se capitaliza al inventario y se reconoce al vender. Distinguir de gastos del periodo. Código reubicado desde 730505: la cuenta 7305 queda reservada a mano de obra indirecta (estructura espejo con 5105). El total de CIF a prorratear = 731005 + subcuentas 7305xx; conciliar ambos componentes en la hoja de costos. Código auxiliar interno del Maestro: reasignar los mapeos históricos de clientes que apuntaban a 730505.
 
 ### 740505 - Costos de contratos o proyectos en ejecución
 
@@ -8183,13 +11159,13 @@ La tabla no almacena saldos, movimientos, clientes ni periodos contables. Almace
 | Nombre | Traslado o cierre de costos de producción |
 | Cuenta Russell / 4D | Traslado / cierre costos producción |
 | Tipo de rubro | Costos de producción (cuenta de cierre) |
-| Naturaleza | Debito (`D`) |
+| Naturaleza | Credito (`C`) |
 | Padre logico | `7995` |
 | Critica | no |
 
 **Que incluye:** Cuenta puente de traslado/cierre de los costos de producción acumulados (clase 7) hacia el inventario (producto en proceso/terminado) y/o el costo de ventas. Cuenta de naturaleza contraria que cancela los costos acumulados al cierre del proceso de costeo.
 
-**Que no incluye:** Los costos acumulados directos (7105/7205/7305/7405). El costo de ventas final (61xx). El inventario (14xx). No es un costo real, es una cuenta de traslado.
+**Que no incluye:** Los costos acumulados directos (7105/7205/7305/7310/7405). El costo de ventas final (61xx). El inventario (14xx). No es un costo real, es una cuenta de traslado.
 
 **Cuentas o nombres de cliente que podrian llegar aqui:** Traslado de costos de producción, cierre de costos, costos por contra, traslado a inventario, cancelación de costos de producción, contrapartida de costos, liquidación de costos de producción.
 

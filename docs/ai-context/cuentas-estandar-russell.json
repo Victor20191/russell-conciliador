@@ -1,0 +1,3297 @@
+{
+  "fuente": "Tabla cuentas_estandar de la BD configurada en .env (solo lectura)",
+  "generadoEn": "2026-11-19T19:08:47.434-05:00",
+  "cuentas": 470,
+  "plan": [
+    {
+      "codigo": "110505",
+      "nombre": "Caja general",
+      "cuentaRussell": "Caja",
+      "naturaleza": "D",
+      "padre": "1105"
+    },
+    {
+      "codigo": "110510",
+      "nombre": "Cajas menores",
+      "cuentaRussell": "Caja",
+      "naturaleza": "D",
+      "padre": "1105"
+    },
+    {
+      "codigo": "111005",
+      "nombre": "Bancos moneda nacional",
+      "cuentaRussell": "Bancos",
+      "naturaleza": "D",
+      "padre": "1110"
+    },
+    {
+      "codigo": "111010",
+      "nombre": "Bancos moneda extranjera",
+      "cuentaRussell": "Bancos",
+      "naturaleza": "D",
+      "padre": "1110"
+    },
+    {
+      "codigo": "112005",
+      "nombre": "Cuentas de ahorro moneda nacional",
+      "cuentaRussell": "Cuentas de ahorro",
+      "naturaleza": "D",
+      "padre": "1120"
+    },
+    {
+      "codigo": "112010",
+      "nombre": "Cuentas de ahorro moneda extranjera",
+      "cuentaRussell": "Cuentas de ahorro",
+      "naturaleza": "D",
+      "padre": "1120"
+    },
+    {
+      "codigo": "112505",
+      "nombre": "Fondos rotatorios moneda nacional",
+      "cuentaRussell": "Fondos",
+      "naturaleza": "D",
+      "padre": "1125"
+    },
+    {
+      "codigo": "112510",
+      "nombre": "Fondos rotatorios moneda extranjera",
+      "cuentaRussell": "Fondos",
+      "naturaleza": "D",
+      "padre": "1125"
+    },
+    {
+      "codigo": "119005",
+      "nombre": "Partidas conciliatorias",
+      "cuentaRussell": "Partidas conciliatorias",
+      "naturaleza": "C",
+      "padre": "1190"
+    },
+    {
+      "codigo": "120595",
+      "nombre": "Inversiones patrimoniales - acciones",
+      "cuentaRussell": "Acciones / inversiones patrimoniales",
+      "naturaleza": "D",
+      "padre": "1205"
+    },
+    {
+      "codigo": "121095",
+      "nombre": "Cuotas o partes de interés social",
+      "cuentaRussell": "Cuotas o partes de interés social",
+      "naturaleza": "D",
+      "padre": "1210"
+    },
+    {
+      "codigo": "121505",
+      "nombre": "Bonos moneda nacional",
+      "cuentaRussell": "Bonos",
+      "naturaleza": "D",
+      "padre": "1215"
+    },
+    {
+      "codigo": "121510",
+      "nombre": "Bonos moneda extranjera",
+      "cuentaRussell": "Bonos",
+      "naturaleza": "D",
+      "padre": "1215"
+    },
+    {
+      "codigo": "122505",
+      "nombre": "Certificados de depósito a término - CDT",
+      "cuentaRussell": "Certificados",
+      "naturaleza": "D",
+      "padre": "1225"
+    },
+    {
+      "codigo": "123515",
+      "nombre": "Títulos de tesorería - TES",
+      "cuentaRussell": "Títulos",
+      "naturaleza": "D",
+      "padre": "1235"
+    },
+    {
+      "codigo": "124505",
+      "nombre": "Derechos fiduciarios moneda nacional",
+      "cuentaRussell": "Derechos fiduciarios",
+      "naturaleza": "D",
+      "padre": "1245"
+    },
+    {
+      "codigo": "124510",
+      "nombre": "Derechos fiduciarios moneda extranjera",
+      "cuentaRussell": "Derechos fiduciarios",
+      "naturaleza": "D",
+      "padre": "1245"
+    },
+    {
+      "codigo": "125005",
+      "nombre": "Otras inversiones",
+      "cuentaRussell": "Otras Inversiones",
+      "naturaleza": "D",
+      "padre": "1250"
+    },
+    {
+      "codigo": "129905",
+      "nombre": "Deterioro de inversiones",
+      "cuentaRussell": "Deterioro / provisión inversiones",
+      "naturaleza": "C",
+      "padre": "1299"
+    },
+    {
+      "codigo": "130505",
+      "nombre": "Clientes nacionales",
+      "cuentaRussell": "Clientes",
+      "naturaleza": "D",
+      "padre": "1305"
+    },
+    {
+      "codigo": "130510",
+      "nombre": "Clientes del exterior",
+      "cuentaRussell": "Clientes",
+      "naturaleza": "D",
+      "padre": "1305"
+    },
+    {
+      "codigo": "132005",
+      "nombre": "Cuentas por cobrar a vinculados económicos",
+      "cuentaRussell": "Cuentas por cobrar a vinculados económicos",
+      "naturaleza": "D",
+      "padre": "1320"
+    },
+    {
+      "codigo": "132505",
+      "nombre": "Cuentas por cobrar a socios",
+      "cuentaRussell": "Cuentas por cobrar a socios y accionistas",
+      "naturaleza": "D",
+      "padre": "1325"
+    },
+    {
+      "codigo": "132510",
+      "nombre": "Cuentas por cobrar a accionistas",
+      "cuentaRussell": "Cuentas por cobrar a socios y accionistas",
+      "naturaleza": "D",
+      "padre": "1325"
+    },
+    {
+      "codigo": "133005",
+      "nombre": "Anticipos y avances a proveedores",
+      "cuentaRussell": "Anticipos y avances",
+      "naturaleza": "D",
+      "padre": "1330"
+    },
+    {
+      "codigo": "133010",
+      "nombre": "Anticipos y avances a contratistas",
+      "cuentaRussell": "Anticipos y avances",
+      "naturaleza": "D",
+      "padre": "1330"
+    },
+    {
+      "codigo": "133015",
+      "nombre": "Anticipos y avances a trabajadores",
+      "cuentaRussell": "Anticipos y avances",
+      "naturaleza": "D",
+      "padre": "1330"
+    },
+    {
+      "codigo": "133095",
+      "nombre": "Otros anticipos y avances",
+      "cuentaRussell": "Anticipos y avances",
+      "naturaleza": "D",
+      "padre": "1330"
+    },
+    {
+      "codigo": "133505",
+      "nombre": "Depósitos para importaciones",
+      "cuentaRussell": "Depósitos",
+      "naturaleza": "D",
+      "padre": "1335"
+    },
+    {
+      "codigo": "133510",
+      "nombre": "Depósitos para servicios",
+      "cuentaRussell": "Depósitos",
+      "naturaleza": "D",
+      "padre": "1335"
+    },
+    {
+      "codigo": "133515",
+      "nombre": "Depósitos para contratos",
+      "cuentaRussell": "Depósitos",
+      "naturaleza": "D",
+      "padre": "1335"
+    },
+    {
+      "codigo": "133535",
+      "nombre": "Depósitos en garantía",
+      "cuentaRussell": "Depósitos",
+      "naturaleza": "D",
+      "padre": "1335"
+    },
+    {
+      "codigo": "133595",
+      "nombre": "Otros depósitos entregados",
+      "cuentaRussell": "Depósitos",
+      "naturaleza": "D",
+      "padre": "1335"
+    },
+    {
+      "codigo": "134505",
+      "nombre": "Dividendos y participaciones por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "134510",
+      "nombre": "Intereses por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "134520",
+      "nombre": "Honorarios por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "134525",
+      "nombre": "Servicios por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "134530",
+      "nombre": "Arrendamientos por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "134595",
+      "nombre": "Otros ingresos por cobrar",
+      "cuentaRussell": "Ingresos por cobrar",
+      "naturaleza": "D",
+      "padre": "1345"
+    },
+    {
+      "codigo": "135005",
+      "nombre": "Retenciones sobre contratos de construcción",
+      "cuentaRussell": "Retención sobre contratos",
+      "naturaleza": "D",
+      "padre": "1350"
+    },
+    {
+      "codigo": "135010",
+      "nombre": "Retenciones sobre contratos de prestación de servicios",
+      "cuentaRussell": "Retención sobre contratos",
+      "naturaleza": "D",
+      "padre": "1350"
+    },
+    {
+      "codigo": "135095",
+      "nombre": "Otras retenciones sobre contratos",
+      "cuentaRussell": "Retención sobre contratos",
+      "naturaleza": "D",
+      "padre": "1350"
+    },
+    {
+      "codigo": "135505",
+      "nombre": "Anticipo impuesto de renta",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135510",
+      "nombre": "Anticipo impuesto de industria y comercio",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135515",
+      "nombre": "Retención en la fuente a favor",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135517",
+      "nombre": "IVA retenido a favor",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135518",
+      "nombre": "ICA retenido a favor",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135520",
+      "nombre": "Saldos a favor en liquidaciones privadas",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135530",
+      "nombre": "Impuestos descontables",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "135595",
+      "nombre": "Otros anticipos de impuestos y saldos a favor",
+      "cuentaRussell": "Anticipo de impuestos y saldos a favor",
+      "naturaleza": "D",
+      "padre": "1355"
+    },
+    {
+      "codigo": "136005",
+      "nombre": "Reclamaciones a compañías aseguradoras",
+      "cuentaRussell": "Reclamaciones",
+      "naturaleza": "D",
+      "padre": "1360"
+    },
+    {
+      "codigo": "136095",
+      "nombre": "Otras reclamaciones",
+      "cuentaRussell": "Reclamaciones",
+      "naturaleza": "D",
+      "padre": "1360"
+    },
+    {
+      "codigo": "136595",
+      "nombre": "Cuentas por cobrar a trabajadores - otros",
+      "cuentaRussell": "Cuentas por cobrar a trabajadores",
+      "naturaleza": "D",
+      "padre": "1365"
+    },
+    {
+      "codigo": "137005",
+      "nombre": "Préstamos a particulares con garantía real",
+      "cuentaRussell": "Préstamos a particulares",
+      "naturaleza": "D",
+      "padre": "1370"
+    },
+    {
+      "codigo": "137010",
+      "nombre": "Préstamos a particulares con garantía personal",
+      "cuentaRussell": "Préstamos a particulares",
+      "naturaleza": "D",
+      "padre": "1370"
+    },
+    {
+      "codigo": "138020",
+      "nombre": "Cuentas por cobrar de terceros",
+      "cuentaRussell": "Deudores varios",
+      "naturaleza": "D",
+      "padre": "1380"
+    },
+    {
+      "codigo": "138025",
+      "nombre": "Pagos por cuenta de terceros",
+      "cuentaRussell": "Deudores varios",
+      "naturaleza": "D",
+      "padre": "1380"
+    },
+    {
+      "codigo": "138095",
+      "nombre": "Otros deudores",
+      "cuentaRussell": "Deudores varios",
+      "naturaleza": "D",
+      "padre": "1380"
+    },
+    {
+      "codigo": "139905",
+      "nombre": "Deterioro de clientes",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "139920",
+      "nombre": "Deterioro cuentas por cobrar a vinculados económicos",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "139925",
+      "nombre": "Deterioro cuentas por cobrar a socios y accionistas",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "139930",
+      "nombre": "Deterioro de anticipos y avances",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "139945",
+      "nombre": "Deterioro de ingresos por cobrar",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "139975",
+      "nombre": "Deterioro de otros deudores",
+      "cuentaRussell": "Deterioro / provisiones de deudores",
+      "naturaleza": "C",
+      "padre": "1399"
+    },
+    {
+      "codigo": "140505",
+      "nombre": "Materias primas",
+      "cuentaRussell": "Materias primas",
+      "naturaleza": "D",
+      "padre": "1405"
+    },
+    {
+      "codigo": "141005",
+      "nombre": "Productos en proceso",
+      "cuentaRussell": "Productos en proceso",
+      "naturaleza": "D",
+      "padre": "1410"
+    },
+    {
+      "codigo": "143005",
+      "nombre": "Productos terminados",
+      "cuentaRussell": "Productos terminados",
+      "naturaleza": "D",
+      "padre": "1430"
+    },
+    {
+      "codigo": "143505",
+      "nombre": "Mercancías no fabricadas por la empresa",
+      "cuentaRussell": "Mercancías no fabricadas por la empresa",
+      "naturaleza": "D",
+      "padre": "1435"
+    },
+    {
+      "codigo": "145505",
+      "nombre": "Materiales, repuestos y accesorios",
+      "cuentaRussell": "Materiales, repuestos y accesorios",
+      "naturaleza": "D",
+      "padre": "1455"
+    },
+    {
+      "codigo": "146005",
+      "nombre": "Envases y empaques",
+      "cuentaRussell": "Envases y empaques",
+      "naturaleza": "D",
+      "padre": "1460"
+    },
+    {
+      "codigo": "146505",
+      "nombre": "Inventarios en tránsito",
+      "cuentaRussell": "Inventarios en tránsito",
+      "naturaleza": "D",
+      "padre": "1465"
+    },
+    {
+      "codigo": "147005",
+      "nombre": "Mercancia en consignación",
+      "cuentaRussell": "Mercancía en consignación",
+      "naturaleza": "D",
+      "padre": "1470"
+    },
+    {
+      "codigo": "149905",
+      "nombre": "Deterioro por obsolescencia de inventarios",
+      "cuentaRussell": "Deterioro / provisiones de inventarios",
+      "naturaleza": "C",
+      "padre": "1499"
+    },
+    {
+      "codigo": "149910",
+      "nombre": "Deterioro por diferencias de inventario físico",
+      "cuentaRussell": "Deterioro / provisiones de inventarios",
+      "naturaleza": "D",
+      "padre": "1499"
+    },
+    {
+      "codigo": "149915",
+      "nombre": "Deterioro por pérdidas de inventarios",
+      "cuentaRussell": "Deterioro / provisiones de inventarios",
+      "naturaleza": "C",
+      "padre": "1499"
+    },
+    {
+      "codigo": "150405",
+      "nombre": "Terrenos urbanos",
+      "cuentaRussell": "Terrenos",
+      "naturaleza": "D",
+      "padre": "1504"
+    },
+    {
+      "codigo": "150410",
+      "nombre": "Terrenos rurales",
+      "cuentaRussell": "Terrenos",
+      "naturaleza": "D",
+      "padre": "1504"
+    },
+    {
+      "codigo": "150805",
+      "nombre": "Construcciones en curso",
+      "cuentaRussell": "Construcciones en curso",
+      "naturaleza": "D",
+      "padre": "1508"
+    },
+    {
+      "codigo": "151205",
+      "nombre": "Maquinaria y equipo en montaje",
+      "cuentaRussell": "Maquinaria y equipo en montaje",
+      "naturaleza": "D",
+      "padre": "1512"
+    },
+    {
+      "codigo": "151605",
+      "nombre": "Construcciones y edificaciones",
+      "cuentaRussell": "Construcciones y edificaciones",
+      "naturaleza": "D",
+      "padre": "1516"
+    },
+    {
+      "codigo": "152005",
+      "nombre": "Maquinaria y equipo",
+      "cuentaRussell": "Maquinaria y equipo",
+      "naturaleza": "D",
+      "padre": "1520"
+    },
+    {
+      "codigo": "152405",
+      "nombre": "Equipo de oficina - muebles y enseres",
+      "cuentaRussell": "Equipo de oficina",
+      "naturaleza": "D",
+      "padre": "1524"
+    },
+    {
+      "codigo": "152410",
+      "nombre": "Equipo de oficina - equipos",
+      "cuentaRussell": "Equipo de oficina",
+      "naturaleza": "D",
+      "padre": "1524"
+    },
+    {
+      "codigo": "152805",
+      "nombre": "Equipo de computación y procesamiento de datos",
+      "cuentaRussell": "Equipo de computación y comunicación",
+      "naturaleza": "D",
+      "padre": "1528"
+    },
+    {
+      "codigo": "152810",
+      "nombre": "Equipo de comunicaciones",
+      "cuentaRussell": "Equipo de computación y comunicación",
+      "naturaleza": "D",
+      "padre": "1528"
+    },
+    {
+      "codigo": "154005",
+      "nombre": "Flota y equipo de transporte",
+      "cuentaRussell": "Flota y equipo de transporte",
+      "naturaleza": "D",
+      "padre": "1540"
+    },
+    {
+      "codigo": "158405",
+      "nombre": "Activos Biologicos",
+      "cuentaRussell": "Activos biológicos",
+      "naturaleza": "D",
+      "padre": "1584"
+    },
+    {
+      "codigo": "158805",
+      "nombre": "PPE en tránsito - maquinaria y equipo",
+      "cuentaRussell": "PPE en tránsito",
+      "naturaleza": "D",
+      "padre": "1588"
+    },
+    {
+      "codigo": "158815",
+      "nombre": "PPE en tránsito - equipo de cómputo",
+      "cuentaRussell": "PPE en tránsito",
+      "naturaleza": "D",
+      "padre": "1588"
+    },
+    {
+      "codigo": "158830",
+      "nombre": "PPE en tránsito - flota y transporte",
+      "cuentaRussell": "PPE en tránsito",
+      "naturaleza": "D",
+      "padre": "1588"
+    },
+    {
+      "codigo": "159205",
+      "nombre": "Depreciación acumulada de contrucciones y edificaciones",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159210",
+      "nombre": "Depreciación acumulada de maquinaria y equipo",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159215",
+      "nombre": "Depreciación acumulada de equipo de oficina",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159220",
+      "nombre": "Depreciación acumulada de equipo de computación y comunicación",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159235",
+      "nombre": "Depreciación acumulada de flota y equipo de transporte",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159280",
+      "nombre": "Depreciación acumulada de Activos Biologicos",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159299",
+      "nombre": "Otras Depreciaciones",
+      "cuentaRussell": "Depreciación acumulada",
+      "naturaleza": "C",
+      "padre": "1592"
+    },
+    {
+      "codigo": "159916",
+      "nombre": "Deterioro acumulado de propiedades, planta y equipo",
+      "cuentaRussell": "Deterioro / provisiones PPE",
+      "naturaleza": "C",
+      "padre": "1599"
+    },
+    {
+      "codigo": "160510",
+      "nombre": "Crédito mercantil adquirido",
+      "cuentaRussell": "Crédito mercantil",
+      "naturaleza": "D",
+      "padre": "1605"
+    },
+    {
+      "codigo": "161005",
+      "nombre": "Marcas adquiridas",
+      "cuentaRussell": "Marcas",
+      "naturaleza": "D",
+      "padre": "1610"
+    },
+    {
+      "codigo": "161505",
+      "nombre": "Patentes adquiridas",
+      "cuentaRussell": "Patentes",
+      "naturaleza": "D",
+      "padre": "1615"
+    },
+    {
+      "codigo": "162005",
+      "nombre": "Concesiones",
+      "cuentaRussell": "Concesiones y franquicias",
+      "naturaleza": "D",
+      "padre": "1620"
+    },
+    {
+      "codigo": "162010",
+      "nombre": "Franquicias",
+      "cuentaRussell": "Concesiones y franquicias",
+      "naturaleza": "D",
+      "padre": "1620"
+    },
+    {
+      "codigo": "162595",
+      "nombre": "Otros derechos intangibles",
+      "cuentaRussell": "Derechos",
+      "naturaleza": "D",
+      "padre": "1625"
+    },
+    {
+      "codigo": "163099",
+      "nombre": "Know how",
+      "cuentaRussell": "Know how",
+      "naturaleza": "D",
+      "padre": "1630"
+    },
+    {
+      "codigo": "163599",
+      "nombre": "Licencias",
+      "cuentaRussell": "Licencias",
+      "naturaleza": "D",
+      "padre": "1635"
+    },
+    {
+      "codigo": "169805",
+      "nombre": "Amortización acumulada de activos intangibles",
+      "cuentaRussell": "Amortización acumulada intangibles",
+      "naturaleza": "C",
+      "padre": "1698"
+    },
+    {
+      "codigo": "169905",
+      "nombre": "Deterioro de intangibles",
+      "cuentaRussell": "Deterioro / provisiones intangibles",
+      "naturaleza": "C",
+      "padre": "1699"
+    },
+    {
+      "codigo": "170520",
+      "nombre": "Seguros pagados por anticipado",
+      "cuentaRussell": "Gastos pagados por anticipado",
+      "naturaleza": "D",
+      "padre": "1705"
+    },
+    {
+      "codigo": "170525",
+      "nombre": "Arrendamientos pagados por anticipado",
+      "cuentaRussell": "Gastos pagados por anticipado",
+      "naturaleza": "D",
+      "padre": "1705"
+    },
+    {
+      "codigo": "170540",
+      "nombre": "Servicios pagados por anticipado",
+      "cuentaRussell": "Gastos pagados por anticipado",
+      "naturaleza": "D",
+      "padre": "1705"
+    },
+    {
+      "codigo": "170595",
+      "nombre": "Otros gastos pagados por anticipado",
+      "cuentaRussell": "Gastos pagados por anticipado",
+      "naturaleza": "D",
+      "padre": "1705"
+    },
+    {
+      "codigo": "171016",
+      "nombre": "Programas para computador - software",
+      "cuentaRussell": "Cargos diferidos / otros activos",
+      "naturaleza": "D",
+      "padre": "1710"
+    },
+    {
+      "codigo": "171024",
+      "nombre": "Mejoras a propiedades ajenas",
+      "cuentaRussell": "Cargos diferidos / otros activos",
+      "naturaleza": "D",
+      "padre": "1710"
+    },
+    {
+      "codigo": "171076",
+      "nombre": "Activo por impuesto diferido",
+      "cuentaRussell": "Cargos diferidos / otros activos",
+      "naturaleza": "D",
+      "padre": "1710"
+    },
+    {
+      "codigo": "171095",
+      "nombre": "Otros cargos diferidos",
+      "cuentaRussell": "Cargos diferidos / otros activos",
+      "naturaleza": "D",
+      "padre": "1710"
+    },
+    {
+      "codigo": "179810",
+      "nombre": "Amortización acumulada de otros activos diferidos",
+      "cuentaRussell": "Amortización acumulada diferidos",
+      "naturaleza": "C",
+      "padre": "1798"
+    },
+    {
+      "codigo": "189595",
+      "nombre": "Otros activos diversos",
+      "cuentaRussell": "Diversos otros activos",
+      "naturaleza": "D",
+      "padre": "1895"
+    },
+    {
+      "codigo": "189995",
+      "nombre": "Deterioro de otros activos",
+      "cuentaRussell": "Deterioro / provisiones otros activos",
+      "naturaleza": "C",
+      "padre": "1899"
+    },
+    {
+      "codigo": "190505",
+      "nombre": "Valorizaciones de inversiones",
+      "cuentaRussell": "Valorizaciones de inversiones",
+      "naturaleza": "D",
+      "padre": "1905"
+    },
+    {
+      "codigo": "191004",
+      "nombre": "Valorizaciones de terrenos",
+      "cuentaRussell": "Valorizaciones PPE",
+      "naturaleza": "D",
+      "padre": "1910"
+    },
+    {
+      "codigo": "191008",
+      "nombre": "Valorizaciones de construcciones y edificaciones",
+      "cuentaRussell": "Valorizaciones PPE",
+      "naturaleza": "D",
+      "padre": "1910"
+    },
+    {
+      "codigo": "210505",
+      "nombre": "Sobregiros bancarios nacionales",
+      "cuentaRussell": "Bancos nacionales",
+      "naturaleza": "C",
+      "padre": "2105"
+    },
+    {
+      "codigo": "210510",
+      "nombre": "Pagarés bancos nacionales",
+      "cuentaRussell": "Bancos nacionales",
+      "naturaleza": "C",
+      "padre": "2105"
+    },
+    {
+      "codigo": "211010",
+      "nombre": "Pagarés bancos del exterior",
+      "cuentaRussell": "Bancos del exterior",
+      "naturaleza": "C",
+      "padre": "2110"
+    },
+    {
+      "codigo": "211520",
+      "nombre": "Leasing financiero - corporaciones financieras",
+      "cuentaRussell": "Corporaciones financieras",
+      "naturaleza": "C",
+      "padre": "2115"
+    },
+    {
+      "codigo": "212020",
+      "nombre": "Leasing financiero - compañías de financiamiento",
+      "cuentaRussell": "Compañías de financiamiento comercial",
+      "naturaleza": "C",
+      "padre": "2120"
+    },
+    {
+      "codigo": "213005",
+      "nombre": "Obligaciones con entidades financieras del exterior",
+      "cuentaRussell": "Entidades financieras del exterior",
+      "naturaleza": "C",
+      "padre": "2130"
+    },
+    {
+      "codigo": "219505",
+      "nombre": "Obligaciones financieras con particulares",
+      "cuentaRussell": "Otras obligaciones financieras",
+      "naturaleza": "C",
+      "padre": "2195"
+    },
+    {
+      "codigo": "219510",
+      "nombre": "Obligaciones financieras con vinculados",
+      "cuentaRussell": "Otras obligaciones financieras",
+      "naturaleza": "C",
+      "padre": "2195"
+    },
+    {
+      "codigo": "219520",
+      "nombre": "Obligaciones financieras con socios o accionistas",
+      "cuentaRussell": "Otras obligaciones financieras",
+      "naturaleza": "C",
+      "padre": "2195"
+    },
+    {
+      "codigo": "220505",
+      "nombre": "Proveedores nacionales",
+      "cuentaRussell": "Proveedores nacionales",
+      "naturaleza": "C",
+      "padre": "2205"
+    },
+    {
+      "codigo": "221005",
+      "nombre": "Proveedores del exterior",
+      "cuentaRussell": "Proveedores del exterior",
+      "naturaleza": "C",
+      "padre": "2210"
+    },
+    {
+      "codigo": "222505",
+      "nombre": "Proveedores vinculados económicos",
+      "cuentaRussell": "Compañías vinculadas",
+      "naturaleza": "C",
+      "padre": "2225"
+    },
+    {
+      "codigo": "232005",
+      "nombre": "Cuentas por pagar a contratistas",
+      "cuentaRussell": "A contratistas",
+      "naturaleza": "C",
+      "padre": "2320"
+    },
+    {
+      "codigo": "233505",
+      "nombre": "Gastos financieros por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233510",
+      "nombre": "Gastos legales por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233520",
+      "nombre": "Comisiones por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233525",
+      "nombre": "Honorarios por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233530",
+      "nombre": "Servicios profesionales",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233540",
+      "nombre": "Servicios recurrentes, arrendamientos, transporte y servicios públicos por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233555",
+      "nombre": "Seguros por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "233595",
+      "nombre": "Otros costos y gastos por pagar",
+      "cuentaRussell": "Costos y gastos por pagar",
+      "naturaleza": "C",
+      "padre": "2335"
+    },
+    {
+      "codigo": "235505",
+      "nombre": "Deudas con accionistas",
+      "cuentaRussell": "Deudas con accionistas o socios",
+      "naturaleza": "C",
+      "padre": "2355"
+    },
+    {
+      "codigo": "235510",
+      "nombre": "Deudas con socios",
+      "cuentaRussell": "Deudas con accionistas o socios",
+      "naturaleza": "C",
+      "padre": "2355"
+    },
+    {
+      "codigo": "236005",
+      "nombre": "Dividendos por pagar",
+      "cuentaRussell": "Dividendos o participaciones por pagar",
+      "naturaleza": "C",
+      "padre": "2360"
+    },
+    {
+      "codigo": "236010",
+      "nombre": "Participaciones por pagar",
+      "cuentaRussell": "Dividendos o participaciones por pagar",
+      "naturaleza": "C",
+      "padre": "2360"
+    },
+    {
+      "codigo": "236505",
+      "nombre": "Retención en la fuente por salarios y pagos laborales",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236510",
+      "nombre": "Retención en la fuente por dividendos y participaciones",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236515",
+      "nombre": "Retención en la fuente por honorarios",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236520",
+      "nombre": "Retención en la fuente por comisiones",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236525",
+      "nombre": "Retención en la fuente por servicios",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236530",
+      "nombre": "Retención en la fuente por arrendamientos",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236535",
+      "nombre": "Retención en la fuente por rendimientos financieros",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236540",
+      "nombre": "Retención en la fuente por compras",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236545",
+      "nombre": "Loterías, rifas, apuestas y similares",
+      "cuentaRussell": "Retención en la fuente por pagar",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236550",
+      "nombre": "Retención en la fuente por pagos al exterior",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236560",
+      "nombre": "Enajenación de propiedades, planta y equipo de personas naturales",
+      "cuentaRussell": "Retención en la fuente por pagar",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236565",
+      "nombre": "Por impuesto de timbre",
+      "cuentaRussell": "Impuesto de timbre por pagar",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236570",
+      "nombre": "Otras retenciones en la fuente",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236575",
+      "nombre": "Autorretenciones por pagar",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "C",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236599",
+      "nombre": "Pago de retención en la fuente",
+      "cuentaRussell": "Retención en la fuente",
+      "naturaleza": "D",
+      "padre": "2365"
+    },
+    {
+      "codigo": "236705",
+      "nombre": "IVA retenido por pagar",
+      "cuentaRussell": "IVA retenido",
+      "naturaleza": "C",
+      "padre": "2367"
+    },
+    {
+      "codigo": "236795",
+      "nombre": "Otros IVA retenido",
+      "cuentaRussell": "IVA retenido",
+      "naturaleza": "C",
+      "padre": "2367"
+    },
+    {
+      "codigo": "236799",
+      "nombre": "Pago ReteIVA",
+      "cuentaRussell": "IVA retenido",
+      "naturaleza": "D",
+      "padre": "2367"
+    },
+    {
+      "codigo": "236805",
+      "nombre": "ICA retenido por pagar",
+      "cuentaRussell": "ICA retenido",
+      "naturaleza": "C",
+      "padre": "2368"
+    },
+    {
+      "codigo": "236895",
+      "nombre": "Otros ICA retenido",
+      "cuentaRussell": "ICA retenido",
+      "naturaleza": "C",
+      "padre": "2368"
+    },
+    {
+      "codigo": "236899",
+      "nombre": "Pago ReteICA",
+      "cuentaRussell": "ICA retenido",
+      "naturaleza": "D",
+      "padre": "2368"
+    },
+    {
+      "codigo": "237005",
+      "nombre": "Aportes a EPS por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237006",
+      "nombre": "Aportes a ARL por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237010",
+      "nombre": "Aportes ICBF, SENA y cajas por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237015",
+      "nombre": "Aportes FIC por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237025",
+      "nombre": "Embargos judiciales por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237030",
+      "nombre": "Libranzas por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237045",
+      "nombre": "Fondos de pensiones y cesantías por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "237095",
+      "nombre": "Otros descuentos y aportes de nómina por pagar",
+      "cuentaRussell": "Retenciones y aportes de nómina",
+      "naturaleza": "C",
+      "padre": "2370"
+    },
+    {
+      "codigo": "238095",
+      "nombre": "Acreedores varios - otros",
+      "cuentaRussell": "Acreedores varios",
+      "naturaleza": "C",
+      "padre": "2380"
+    },
+    {
+      "codigo": "240405",
+      "nombre": "Impuesto de renta vigencia fiscal corriente",
+      "cuentaRussell": "Impuesto de renta y complementarios",
+      "naturaleza": "C",
+      "padre": "2404"
+    },
+    {
+      "codigo": "240410",
+      "nombre": "Impuesto de renta vigencias anteriores",
+      "cuentaRussell": "Impuesto de renta y complementarios",
+      "naturaleza": "C",
+      "padre": "2404"
+    },
+    {
+      "codigo": "240805",
+      "nombre": "IVA generado",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240807",
+      "nombre": "IVA generado a la tarifa del 5 %",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240808",
+      "nombre": "IVA generado sobre AIU",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240809",
+      "nombre": "IVA generado por retiro de inventarios",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240810",
+      "nombre": "IVA descontable",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240815",
+      "nombre": "IVA por devoluciones, anulaciones y ajustes en compras",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240820",
+      "nombre": "IVA por devoluciones, anulaciones y ajustes en ventas",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240830",
+      "nombre": "IVA generado a la tarifa general",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "IVA por pagar"
+    },
+    {
+      "codigo": "240834",
+      "nombre": "IVA generado en juegos de suerte y azar",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240835",
+      "nombre": "IVA generado en venta de cerveza",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240836",
+      "nombre": "IVA generado en venta de gaseosas y similares",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240837",
+      "nombre": "IVA generado en venta de licores, aperitivos, vinos y similares",
+      "cuentaRussell": "IVA por pagar",
+      "naturaleza": "C",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240840",
+      "nombre": "IVA descontable en compras nacionales de bienes a la tarifa general",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240841",
+      "nombre": "IVA descontable en compras nacionales de bienes a la tarifa del 5 %",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240842",
+      "nombre": "IVA descontable en servicios nacionales a la tarifa general",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240843",
+      "nombre": "IVA descontable en servicios nacionales a la tarifa del 5 %",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240844",
+      "nombre": "IVA descontable en importaciones de bienes a la tarifa general",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240845",
+      "nombre": "IVA descontable en importaciones de bienes a la tarifa del 5 %",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240846",
+      "nombre": "IVA descontable por retención en servicios de no residentes",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240847",
+      "nombre": "IVA descontable en bienes y servicios provenientes de zonas francas",
+      "cuentaRussell": "IVA por pagar",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240848",
+      "nombre": "IVA descontable en compras de licores, aperitivos, vinos y similares",
+      "cuentaRussell": "IVA por pagar",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240849",
+      "nombre": "IVA descontable por exploración de hidrocarburos (art. 485-2 E.T.)",
+      "cuentaRussell": "IVA por pagar",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240850",
+      "nombre": "Ajuste al IVA descontable por pérdidas, hurto o castigo de inventarios",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "240899",
+      "nombre": "IVA saldo a pagar / pagos de IVA",
+      "cuentaRussell": "Impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2408"
+    },
+    {
+      "codigo": "241205",
+      "nombre": "ICA vigencia fiscal corriente",
+      "cuentaRussell": "Industria y comercio",
+      "naturaleza": "C",
+      "padre": "2412"
+    },
+    {
+      "codigo": "241210",
+      "nombre": "ICA vigencias fiscales anteriores",
+      "cuentaRussell": "Industria y comercio",
+      "naturaleza": "C",
+      "padre": "2412"
+    },
+    {
+      "codigo": "249505",
+      "nombre": "Impuesto nacional al consumo",
+      "cuentaRussell": "Otros impuestos, gravámenes y tasas",
+      "naturaleza": "C",
+      "padre": "2495"
+    },
+    {
+      "codigo": "249510",
+      "nombre": "Pago impuesto nacional al consumo",
+      "cuentaRussell": "Otros impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2495"
+    },
+    {
+      "codigo": "249599",
+      "nombre": "Pago de otros impuestos, gravámenes y tasas",
+      "cuentaRussell": "Otros impuestos, gravámenes y tasas",
+      "naturaleza": "D",
+      "padre": "2495"
+    },
+    {
+      "codigo": "250505",
+      "nombre": "Salarios por pagar",
+      "cuentaRussell": "Salarios por pagar",
+      "naturaleza": "C",
+      "padre": "2505"
+    },
+    {
+      "codigo": "251010",
+      "nombre": "Cesantías consolidadas",
+      "cuentaRussell": "Cesantías consolidadas",
+      "naturaleza": "C",
+      "padre": "2510"
+    },
+    {
+      "codigo": "251505",
+      "nombre": "Intereses sobre cesantías por pagar",
+      "cuentaRussell": "Intereses sobre cesantías",
+      "naturaleza": "C",
+      "padre": "2515"
+    },
+    {
+      "codigo": "252005",
+      "nombre": "Prima de servicios por pagar",
+      "cuentaRussell": "Prima de servicios",
+      "naturaleza": "C",
+      "padre": "2520"
+    },
+    {
+      "codigo": "252505",
+      "nombre": "Vacaciones consolidadas",
+      "cuentaRussell": "Vacaciones consolidadas",
+      "naturaleza": "C",
+      "padre": "2525"
+    },
+    {
+      "codigo": "253095",
+      "nombre": "Prestaciones extralegales por pagar",
+      "cuentaRussell": "Prestaciones extralegales",
+      "naturaleza": "C",
+      "padre": "2530"
+    },
+    {
+      "codigo": "253205",
+      "nombre": "Pensiones por pagar",
+      "cuentaRussell": "Pensiones por pagar",
+      "naturaleza": "C",
+      "padre": "2532"
+    },
+    {
+      "codigo": "254005",
+      "nombre": "Indemnizaciones laborales por pagar",
+      "cuentaRussell": "Indemnizaciones laborales",
+      "naturaleza": "C",
+      "padre": "2540"
+    },
+    {
+      "codigo": "260505",
+      "nombre": "Provisión para intereses",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "260515",
+      "nombre": "Provisión para honorarios",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "260520",
+      "nombre": "Provisión para servicios técnicos",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "260535",
+      "nombre": "Provisión para servicios públicos",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "260545",
+      "nombre": "Provisión para garantías",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "260595",
+      "nombre": "Otras provisiones para costos y gastos",
+      "cuentaRussell": "Provisiones para costos y gastos",
+      "naturaleza": "C",
+      "padre": "2605"
+    },
+    {
+      "codigo": "261005",
+      "nombre": "Provisión para cesantías",
+      "cuentaRussell": "Provisiones obligaciones laborales",
+      "naturaleza": "C",
+      "padre": "2610"
+    },
+    {
+      "codigo": "261010",
+      "nombre": "Provisión intereses sobre cesantías",
+      "cuentaRussell": "Provisiones obligaciones laborales",
+      "naturaleza": "C",
+      "padre": "2610"
+    },
+    {
+      "codigo": "261015",
+      "nombre": "Provisión de vacaciones",
+      "cuentaRussell": "Provisiones obligaciones laborales",
+      "naturaleza": "C",
+      "padre": "2610"
+    },
+    {
+      "codigo": "261020",
+      "nombre": "Provisión prima de servicios",
+      "cuentaRussell": "Provisiones obligaciones laborales",
+      "naturaleza": "C",
+      "padre": "2610"
+    },
+    {
+      "codigo": "261595",
+      "nombre": "Otras provisiones fiscales",
+      "cuentaRussell": "Provisiones obligaciones fiscales",
+      "naturaleza": "C",
+      "padre": "2615"
+    },
+    {
+      "codigo": "263505",
+      "nombre": "Provisión contingencias administrativas, multas y sanciones",
+      "cuentaRussell": "Provisiones para contingencias",
+      "naturaleza": "C",
+      "padre": "2635"
+    },
+    {
+      "codigo": "263520",
+      "nombre": "Provisión contingencias laborales",
+      "cuentaRussell": "Provisiones para contingencias",
+      "naturaleza": "C",
+      "padre": "2635"
+    },
+    {
+      "codigo": "263540",
+      "nombre": "Provisión contingencias comerciales",
+      "cuentaRussell": "Provisiones para contingencias",
+      "naturaleza": "C",
+      "padre": "2635"
+    },
+    {
+      "codigo": "263595",
+      "nombre": "Otras provisiones para contingencias",
+      "cuentaRussell": "Provisiones para contingencias",
+      "naturaleza": "C",
+      "padre": "2635"
+    },
+    {
+      "codigo": "264005",
+      "nombre": "Provisión para obligaciones de garantías",
+      "cuentaRussell": "Provisiones para garantías",
+      "naturaleza": "C",
+      "padre": "2640"
+    },
+    {
+      "codigo": "269595",
+      "nombre": "Provisiones diversas",
+      "cuentaRussell": "Provisiones diversas",
+      "naturaleza": "C",
+      "padre": "2695"
+    },
+    {
+      "codigo": "270505",
+      "nombre": "Ingresos recibidos por anticipado - intereses",
+      "cuentaRussell": "Ingresos recibidos por anticipado",
+      "naturaleza": "C",
+      "padre": "2705"
+    },
+    {
+      "codigo": "270515",
+      "nombre": "Ingresos recibidos por anticipado - arrendamientos",
+      "cuentaRussell": "Ingresos recibidos por anticipado",
+      "naturaleza": "C",
+      "padre": "2705"
+    },
+    {
+      "codigo": "270525",
+      "nombre": "Ingresos recibidos por anticipado - servicios técnicos",
+      "cuentaRussell": "Ingresos recibidos por anticipado",
+      "naturaleza": "C",
+      "padre": "2705"
+    },
+    {
+      "codigo": "270595",
+      "nombre": "Otros ingresos recibidos por anticipado",
+      "cuentaRussell": "Ingresos recibidos por anticipado",
+      "naturaleza": "C",
+      "padre": "2705"
+    },
+    {
+      "codigo": "272505",
+      "nombre": "Pasivo por impuesto diferido",
+      "cuentaRussell": "Impuesto diferido pasivo",
+      "naturaleza": "C",
+      "padre": "2725"
+    },
+    {
+      "codigo": "280505",
+      "nombre": "Anticipos y avances recibidos de clientes",
+      "cuentaRussell": "Anticipos y avances recibidos",
+      "naturaleza": "C",
+      "padre": "2805"
+    },
+    {
+      "codigo": "280510",
+      "nombre": "Anticipos recibidos sobre contratos",
+      "cuentaRussell": "Anticipos y avances recibidos",
+      "naturaleza": "C",
+      "padre": "2805"
+    },
+    {
+      "codigo": "280595",
+      "nombre": "Otros anticipos y avances recibidos",
+      "cuentaRussell": "Anticipos y avances recibidos",
+      "naturaleza": "C",
+      "padre": "2805"
+    },
+    {
+      "codigo": "281015",
+      "nombre": "Depósitos recibidos en garantía de prestación de servicios",
+      "cuentaRussell": "Depósitos recibidos",
+      "naturaleza": "C",
+      "padre": "2810"
+    },
+    {
+      "codigo": "281020",
+      "nombre": "Depósitos recibidos para garantía de contratos",
+      "cuentaRussell": "Depósitos recibidos",
+      "naturaleza": "C",
+      "padre": "2810"
+    },
+    {
+      "codigo": "281095",
+      "nombre": "Otros depósitos recibidos",
+      "cuentaRussell": "Depósitos recibidos",
+      "naturaleza": "C",
+      "padre": "2810"
+    },
+    {
+      "codigo": "281505",
+      "nombre": "Valores recibidos para terceros",
+      "cuentaRussell": "Ingresos recibidos para terceros",
+      "naturaleza": "C",
+      "padre": "2815"
+    },
+    {
+      "codigo": "281510",
+      "nombre": "Venta por cuenta de terceros",
+      "cuentaRussell": "Ingresos recibidos para terceros",
+      "naturaleza": "C",
+      "padre": "2815"
+    },
+    {
+      "codigo": "283005",
+      "nombre": "Embargos judiciales - indemnizaciones",
+      "cuentaRussell": "Embargos judiciales",
+      "naturaleza": "C",
+      "padre": "2830"
+    },
+    {
+      "codigo": "289595",
+      "nombre": "Otros pasivos diversos",
+      "cuentaRussell": "Diversos otros pasivos",
+      "naturaleza": "C",
+      "padre": "2895"
+    },
+    {
+      "codigo": "310505",
+      "nombre": "Capital autorizado",
+      "cuentaRussell": "Capital suscrito y pagado",
+      "naturaleza": "C",
+      "padre": "3105"
+    },
+    {
+      "codigo": "310510",
+      "nombre": "Capital por suscribir",
+      "cuentaRussell": "Capital suscrito y pagado",
+      "naturaleza": "D",
+      "padre": "3105"
+    },
+    {
+      "codigo": "310515",
+      "nombre": "Capital suscrito por cobrar",
+      "cuentaRussell": "Capital suscrito y pagado",
+      "naturaleza": "D",
+      "padre": "3105"
+    },
+    {
+      "codigo": "311505",
+      "nombre": "Aportes sociales",
+      "cuentaRussell": "Aportes sociales",
+      "naturaleza": "C",
+      "padre": "3115"
+    },
+    {
+      "codigo": "320505",
+      "nombre": "Prima en colocación de acciones",
+      "cuentaRussell": "Prima en colocación",
+      "naturaleza": "C",
+      "padre": "3205"
+    },
+    {
+      "codigo": "330505",
+      "nombre": "Reserva legal",
+      "cuentaRussell": "Reservas obligatorias",
+      "naturaleza": "C",
+      "padre": "3305"
+    },
+    {
+      "codigo": "330595",
+      "nombre": "Otras reservas obligatorias",
+      "cuentaRussell": "Reservas obligatorias",
+      "naturaleza": "C",
+      "padre": "3305"
+    },
+    {
+      "codigo": "331095",
+      "nombre": "Reservas estatutarias",
+      "cuentaRussell": "Reservas estatutarias",
+      "naturaleza": "C",
+      "padre": "3310"
+    },
+    {
+      "codigo": "331595",
+      "nombre": "Reservas ocasionales",
+      "cuentaRussell": "Reservas ocasionales",
+      "naturaleza": "C",
+      "padre": "3315"
+    },
+    {
+      "codigo": "340505",
+      "nombre": "Ajustes patrimoniales / revalorización",
+      "cuentaRussell": "Revalorización / ajustes patrimoniales",
+      "naturaleza": "C",
+      "padre": "3405"
+    },
+    {
+      "codigo": "360505",
+      "nombre": "Utilidad del ejercicio",
+      "cuentaRussell": "Utilidad del ejercicio",
+      "naturaleza": "C",
+      "padre": "3605"
+    },
+    {
+      "codigo": "361005",
+      "nombre": "Pérdida del ejercicio",
+      "cuentaRussell": "Pérdida del ejercicio",
+      "naturaleza": "D",
+      "padre": "3610"
+    },
+    {
+      "codigo": "370505",
+      "nombre": "Utilidades acumuladas",
+      "cuentaRussell": "Utilidades acumuladas",
+      "naturaleza": "C",
+      "padre": "3705"
+    },
+    {
+      "codigo": "371005",
+      "nombre": "Pérdidas acumuladas",
+      "cuentaRussell": "Pérdidas acumuladas",
+      "naturaleza": "D",
+      "padre": "3710"
+    },
+    {
+      "codigo": "380505",
+      "nombre": "Superávit por valorización de inversiones",
+      "cuentaRussell": "Superávit por valorizaciones inversiones",
+      "naturaleza": "C",
+      "padre": "3805"
+    },
+    {
+      "codigo": "381008",
+      "nombre": "Superávit por valorización de PPE",
+      "cuentaRussell": "Superávit por valorizaciones PPE",
+      "naturaleza": "C",
+      "padre": "3810"
+    },
+    {
+      "codigo": "410505",
+      "nombre": "Ingresos gravados a la tarifa general",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "410510",
+      "nombre": "Ingresos gravados a la tarifa del 5%",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "410515",
+      "nombre": "Ingresos gravados a la tarifa del 0%",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "410520",
+      "nombre": "Ingresos gravados por AIU",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "410525",
+      "nombre": "Ingresos exentos",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "410530",
+      "nombre": "Ingresos excluidos",
+      "cuentaRussell": "Ingresos operacionales",
+      "naturaleza": "C",
+      "padre": "4105"
+    },
+    {
+      "codigo": "417505",
+      "nombre": "Devoluciones, rebajas y descuentos en ventas",
+      "cuentaRussell": "Devoluciones, rebajas y descuentos en ventas",
+      "naturaleza": "D",
+      "padre": "4175"
+    },
+    {
+      "codigo": "420505",
+      "nombre": "Otras ventas no operacionales",
+      "cuentaRussell": "Otras ventas",
+      "naturaleza": "C",
+      "padre": "4205"
+    },
+    {
+      "codigo": "421005",
+      "nombre": "Ingresos por intereses",
+      "cuentaRussell": "Ingresos financieros",
+      "naturaleza": "C",
+      "padre": "4210"
+    },
+    {
+      "codigo": "421020",
+      "nombre": "Diferencia en cambio realizada",
+      "cuentaRussell": "Ingresos financieros",
+      "naturaleza": "C",
+      "padre": "4210"
+    },
+    {
+      "codigo": "421025",
+      "nombre": "Diferencia en cambio no realizada",
+      "cuentaRussell": "Ingresos financieros",
+      "naturaleza": "D",
+      "padre": "4210"
+    },
+    {
+      "codigo": "421095",
+      "nombre": "Otros ingresos financieros",
+      "cuentaRussell": "Ingresos financieros",
+      "naturaleza": "C",
+      "padre": "4210"
+    },
+    {
+      "codigo": "421505",
+      "nombre": "Dividendos y participaciones recibidos",
+      "cuentaRussell": "Dividendos y participaciones",
+      "naturaleza": "C",
+      "padre": "4215"
+    },
+    {
+      "codigo": "422005",
+      "nombre": "Ingresos por arrendamientos no operacionales",
+      "cuentaRussell": "Arrendamientos",
+      "naturaleza": "C",
+      "padre": "4220"
+    },
+    {
+      "codigo": "423005",
+      "nombre": "Ingresos por honorarios no operacionales",
+      "cuentaRussell": "Honorarios",
+      "naturaleza": "C",
+      "padre": "4230"
+    },
+    {
+      "codigo": "423505",
+      "nombre": "Ingresos por servicios no operacionales",
+      "cuentaRussell": "Servicios",
+      "naturaleza": "C",
+      "padre": "4235"
+    },
+    {
+      "codigo": "424515",
+      "nombre": "Ingreso en venta de PPE",
+      "cuentaRussell": "Utilidad en venta de activos",
+      "naturaleza": "C",
+      "padre": "4245"
+    },
+    {
+      "codigo": "425005",
+      "nombre": "Recuperaciones",
+      "cuentaRussell": "Recuperaciones",
+      "naturaleza": "C",
+      "padre": "4250"
+    },
+    {
+      "codigo": "429595",
+      "nombre": "Ingresos diversos",
+      "cuentaRussell": "Diversos",
+      "naturaleza": "C",
+      "padre": "4295"
+    },
+    {
+      "codigo": "510503",
+      "nombre": "Salario integral",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510505",
+      "nombre": "Apoyo de sostenimiento – aprendices",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510506",
+      "nombre": "Sueldos y salarios",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510515",
+      "nombre": "Horas extras y recargos",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510518",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510524",
+      "nombre": "Incapacidades",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510527",
+      "nombre": "Auxilio de transporte",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510530",
+      "nombre": "Cesantías",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510533",
+      "nombre": "Intereses sobre cesantías",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510536",
+      "nombre": "Prima de servicios",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510539",
+      "nombre": "Vacaciones",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510542",
+      "nombre": "Primas extralegales",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510545",
+      "nombre": "Auxilios al personal",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510548",
+      "nombre": "Bonificaciones",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510551",
+      "nombre": "Dotación y suministro a trabajadores",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510554",
+      "nombre": "Seguros de empleados",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510560",
+      "nombre": "Indemnizaciones laborales",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510563",
+      "nombre": "Capacitación al personal",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510568",
+      "nombre": "Aportes ARL",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510569",
+      "nombre": "Aportes EPS",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510570",
+      "nombre": "Aportes a pensiones",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510572",
+      "nombre": "Aportes caja de compensación familiar",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510575",
+      "nombre": "Aportes ICBF",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510578",
+      "nombre": "Aportes SENA",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510584",
+      "nombre": "Gastos médicos y drogas",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510586",
+      "nombre": "Licencias",
+      "cuentaRussell": "Gastos de personal administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "510595",
+      "nombre": "Otros gastos de personal",
+      "cuentaRussell": "Gastos de administración",
+      "naturaleza": "D",
+      "padre": "5105"
+    },
+    {
+      "codigo": "511005",
+      "nombre": "Honorarios",
+      "cuentaRussell": "Honorarios administración",
+      "naturaleza": "D",
+      "padre": "5110"
+    },
+    {
+      "codigo": "511095",
+      "nombre": "Otros honorarios",
+      "cuentaRussell": "Honorarios administración",
+      "naturaleza": "D",
+      "padre": "5110"
+    },
+    {
+      "codigo": "511505",
+      "nombre": "Impuestos de industria y comercio gasto",
+      "cuentaRussell": "Impuestos administración",
+      "naturaleza": "D",
+      "padre": "5115"
+    },
+    {
+      "codigo": "511595",
+      "nombre": "Otros impuestos, tasas y contribuciones gasto",
+      "cuentaRussell": "Impuestos administración",
+      "naturaleza": "D",
+      "padre": "5115"
+    },
+    {
+      "codigo": "512005",
+      "nombre": "Arrendamientos",
+      "cuentaRussell": "Arrendamientos administración",
+      "naturaleza": "D",
+      "padre": "5120"
+    },
+    {
+      "codigo": "512505",
+      "nombre": "Contribuciones",
+      "cuentaRussell": "Contribuciones y afiliaciones administración",
+      "naturaleza": "D",
+      "padre": "5125"
+    },
+    {
+      "codigo": "513005",
+      "nombre": "Seguros",
+      "cuentaRussell": "Seguros administración",
+      "naturaleza": "D",
+      "padre": "5130"
+    },
+    {
+      "codigo": "513505",
+      "nombre": "Servicios",
+      "cuentaRussell": "Servicios administración",
+      "naturaleza": "D",
+      "padre": "5135"
+    },
+    {
+      "codigo": "513550",
+      "nombre": "Transportes, fletes y acarreos",
+      "cuentaRussell": "Servicios administración",
+      "naturaleza": "D",
+      "padre": "5135"
+    },
+    {
+      "codigo": "514005",
+      "nombre": "Gastos legales",
+      "cuentaRussell": "Gastos legales administración",
+      "naturaleza": "D",
+      "padre": "5140"
+    },
+    {
+      "codigo": "514505",
+      "nombre": "Mantenimiento y reparaciones",
+      "cuentaRussell": "Mantenimiento y reparaciones administración",
+      "naturaleza": "D",
+      "padre": "5145"
+    },
+    {
+      "codigo": "515005",
+      "nombre": "Adecuación e instalación",
+      "cuentaRussell": "Adecuación e instalación administración",
+      "naturaleza": "D",
+      "padre": "5150"
+    },
+    {
+      "codigo": "515505",
+      "nombre": "Gastos de viaje",
+      "cuentaRussell": "Gastos de viaje administración",
+      "naturaleza": "D",
+      "padre": "5155"
+    },
+    {
+      "codigo": "516005",
+      "nombre": "Depreciaciones",
+      "cuentaRussell": "Depreciaciones administración",
+      "naturaleza": "D",
+      "padre": "5160"
+    },
+    {
+      "codigo": "516510",
+      "nombre": "Amortización de intangibles",
+      "cuentaRussell": "Amortizaciones administración",
+      "naturaleza": "D",
+      "padre": "5165"
+    },
+    {
+      "codigo": "519505",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Diversos administración",
+      "naturaleza": "D",
+      "padre": "5195"
+    },
+    {
+      "codigo": "519530",
+      "nombre": "Útiles, papelería y fotocopias",
+      "cuentaRussell": "Diversos administración",
+      "naturaleza": "D",
+      "padre": "5195"
+    },
+    {
+      "codigo": "519535",
+      "nombre": "Combustibles y lubricantes",
+      "cuentaRussell": "Diversos administración",
+      "naturaleza": "D",
+      "padre": "5195"
+    },
+    {
+      "codigo": "519595",
+      "nombre": "Otros gastos",
+      "cuentaRussell": "Diversos administración",
+      "naturaleza": "D",
+      "padre": "5195"
+    },
+    {
+      "codigo": "519910",
+      "nombre": "Deterioro de deudores",
+      "cuentaRussell": "Provisiones administración",
+      "naturaleza": "D",
+      "padre": "5199"
+    },
+    {
+      "codigo": "519915",
+      "nombre": "Deterioro de PPE",
+      "cuentaRussell": "Provisiones administración",
+      "naturaleza": "D",
+      "padre": "5199"
+    },
+    {
+      "codigo": "519995",
+      "nombre": "Otros deterioros y provisiones",
+      "cuentaRussell": "Provisiones administración",
+      "naturaleza": "D",
+      "padre": "5199"
+    },
+    {
+      "codigo": "520503",
+      "nombre": "Salario integral",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520505",
+      "nombre": "Apoyo de sostenimiento – aprendices",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520506",
+      "nombre": "Sueldos y salarios",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520515",
+      "nombre": "Horas extras y recargos",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520518",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520524",
+      "nombre": "Incapacidades",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520527",
+      "nombre": "Auxilio de transporte",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520530",
+      "nombre": "Cesantías",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520533",
+      "nombre": "Intereses sobre cesantías",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520536",
+      "nombre": "Prima de servicios",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520539",
+      "nombre": "Vacaciones",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520542",
+      "nombre": "Primas extralegales",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520545",
+      "nombre": "Auxilios al personal",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520548",
+      "nombre": "Bonificaciones",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520551",
+      "nombre": "Dotación y suministro a trabajadores",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520554",
+      "nombre": "Seguros de empleados",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520560",
+      "nombre": "Indemnizaciones laborales",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520563",
+      "nombre": "Capacitación al personal",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520568",
+      "nombre": "Aportes ARL",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520569",
+      "nombre": "Aportes EPS",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520570",
+      "nombre": "Aportes a pensiones",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520572",
+      "nombre": "Aportes caja de compensación familiar",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520575",
+      "nombre": "Aportes ICBF",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520578",
+      "nombre": "Aportes SENA",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520584",
+      "nombre": "Gastos médicos y drogas",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520586",
+      "nombre": "Licencias",
+      "cuentaRussell": "Gastos de personal ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "520595",
+      "nombre": "Otros gastos de personal",
+      "cuentaRussell": "Gastos de ventas",
+      "naturaleza": "D",
+      "padre": "5205"
+    },
+    {
+      "codigo": "521005",
+      "nombre": "Honorarios",
+      "cuentaRussell": "Honorarios ventas",
+      "naturaleza": "D",
+      "padre": "5210"
+    },
+    {
+      "codigo": "521595",
+      "nombre": "Otros impuestos",
+      "cuentaRussell": "Impuestos ventas",
+      "naturaleza": "D",
+      "padre": "5215"
+    },
+    {
+      "codigo": "522005",
+      "nombre": "Arrendamientos",
+      "cuentaRussell": "Arrendamientos ventas",
+      "naturaleza": "D",
+      "padre": "5220"
+    },
+    {
+      "codigo": "523005",
+      "nombre": "Seguros",
+      "cuentaRussell": "Seguros ventas",
+      "naturaleza": "D",
+      "padre": "5230"
+    },
+    {
+      "codigo": "523505",
+      "nombre": "Servicios",
+      "cuentaRussell": "Servicios ventas",
+      "naturaleza": "D",
+      "padre": "5235"
+    },
+    {
+      "codigo": "523550",
+      "nombre": "Transportes, fletes y acarreos",
+      "cuentaRussell": "Servicios ventas",
+      "naturaleza": "D",
+      "padre": "5235"
+    },
+    {
+      "codigo": "523560",
+      "nombre": "Publicidad, propaganda y promoción",
+      "cuentaRussell": "Servicios ventas",
+      "naturaleza": "D",
+      "padre": "5235"
+    },
+    {
+      "codigo": "524005",
+      "nombre": "Gastos legales",
+      "cuentaRussell": "Gastos legales ventas",
+      "naturaleza": "D",
+      "padre": "5240"
+    },
+    {
+      "codigo": "524505",
+      "nombre": "Mantenimiento y reparaciones",
+      "cuentaRussell": "Mantenimiento y reparaciones ventas",
+      "naturaleza": "D",
+      "padre": "5245"
+    },
+    {
+      "codigo": "525505",
+      "nombre": "Gastos de viaje",
+      "cuentaRussell": "Gastos de viaje ventas",
+      "naturaleza": "D",
+      "padre": "5255"
+    },
+    {
+      "codigo": "526005",
+      "nombre": "Depreciaciones",
+      "cuentaRussell": "Depreciaciones ventas",
+      "naturaleza": "D",
+      "padre": "5260"
+    },
+    {
+      "codigo": "529505",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Diversos ventas",
+      "naturaleza": "D",
+      "padre": "5295"
+    },
+    {
+      "codigo": "529595",
+      "nombre": "Otros gastos",
+      "cuentaRussell": "Diversos ventas",
+      "naturaleza": "D",
+      "padre": "5295"
+    },
+    {
+      "codigo": "530505",
+      "nombre": "Gastos bancarios",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "530515",
+      "nombre": "Comisiones financieras",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "530520",
+      "nombre": "Intereses financieros",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "530525",
+      "nombre": "Diferencia en cambio realizada",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "530530",
+      "nombre": "Diferencia en cambio no realizada",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "530595",
+      "nombre": "Otros gastos financieros",
+      "cuentaRussell": "Financieros",
+      "naturaleza": "D",
+      "padre": "5305"
+    },
+    {
+      "codigo": "531015",
+      "nombre": "Pérdida en venta de PPE",
+      "cuentaRussell": "Pérdida en venta y retiro de bienes",
+      "naturaleza": "D",
+      "padre": "5310"
+    },
+    {
+      "codigo": "531095",
+      "nombre": "Pérdida en retiro de otros activos",
+      "cuentaRussell": "Pérdida en venta y retiro de bienes",
+      "naturaleza": "D",
+      "padre": "5310"
+    },
+    {
+      "codigo": "531520",
+      "nombre": "Impuestos asumidos",
+      "cuentaRussell": "Gastos extraordinarios",
+      "naturaleza": "D",
+      "padre": "5315"
+    },
+    {
+      "codigo": "531595",
+      "nombre": "Otros gastos extraordinarios",
+      "cuentaRussell": "Gastos extraordinarios",
+      "naturaleza": "D",
+      "padre": "5315"
+    },
+    {
+      "codigo": "539505",
+      "nombre": "Demandas laborales",
+      "cuentaRussell": "Gastos diversos",
+      "naturaleza": "D",
+      "padre": "5395"
+    },
+    {
+      "codigo": "539520",
+      "nombre": "Multas, sanciones y litigios",
+      "cuentaRussell": "Gastos diversos",
+      "naturaleza": "D",
+      "padre": "5395"
+    },
+    {
+      "codigo": "539525",
+      "nombre": "Donaciones",
+      "cuentaRussell": "Gastos diversos",
+      "naturaleza": "D",
+      "padre": "5395"
+    },
+    {
+      "codigo": "539595",
+      "nombre": "Otros gastos diversos",
+      "cuentaRussell": "Gastos diversos",
+      "naturaleza": "D",
+      "padre": "5395"
+    },
+    {
+      "codigo": "540505",
+      "nombre": "Impuesto de renta y complementarios",
+      "cuentaRussell": "Impuesto de renta y complementarios",
+      "naturaleza": "D",
+      "padre": "5405"
+    },
+    {
+      "codigo": "610505",
+      "nombre": "Costo agropecuario general",
+      "cuentaRussell": "Costo agropecuario",
+      "naturaleza": "D",
+      "padre": "6105"
+    },
+    {
+      "codigo": "611005",
+      "nombre": "Costo de pesca general",
+      "cuentaRussell": "Costo pesca",
+      "naturaleza": "D",
+      "padre": "6110"
+    },
+    {
+      "codigo": "611505",
+      "nombre": "Costo minería y canteras general",
+      "cuentaRussell": "Costo minería",
+      "naturaleza": "D",
+      "padre": "6115"
+    },
+    {
+      "codigo": "612005",
+      "nombre": "Costo de manufactura general",
+      "cuentaRussell": "Costo manufactura",
+      "naturaleza": "D",
+      "padre": "6120"
+    },
+    {
+      "codigo": "612505",
+      "nombre": "Costo de servicios públicos general",
+      "cuentaRussell": "Costo servicios públicos",
+      "naturaleza": "D",
+      "padre": "6125"
+    },
+    {
+      "codigo": "613005",
+      "nombre": "Costo de construcción y obras",
+      "cuentaRussell": "Costo construcción",
+      "naturaleza": "D",
+      "padre": "6130"
+    },
+    {
+      "codigo": "613505",
+      "nombre": "Costo de mercancías vendidas - comercio mayorista",
+      "cuentaRussell": "Costo comercio",
+      "naturaleza": "D",
+      "padre": "6135"
+    },
+    {
+      "codigo": "613520",
+      "nombre": "Costo de mercancías vendidas - comercio minorista",
+      "cuentaRussell": "Costo comercio",
+      "naturaleza": "D",
+      "padre": "6135"
+    },
+    {
+      "codigo": "614005",
+      "nombre": "Costo hoteles y restaurantes general",
+      "cuentaRussell": "Costo hoteles y restaurantes",
+      "naturaleza": "D",
+      "padre": "6140"
+    },
+    {
+      "codigo": "614505",
+      "nombre": "Costo de transporte, logística y comunicaciones",
+      "cuentaRussell": "Costo transporte, almacenamiento y comunicaciones",
+      "naturaleza": "D",
+      "padre": "6145"
+    },
+    {
+      "codigo": "615005",
+      "nombre": "Costo de actividad financiera",
+      "cuentaRussell": "Costo actividad financiera",
+      "naturaleza": "D",
+      "padre": "6150"
+    },
+    {
+      "codigo": "615505",
+      "nombre": "Costo de arrendamientos y servicios empresariales",
+      "cuentaRussell": "Costo actividades inmobiliarias y empresariales",
+      "naturaleza": "D",
+      "padre": "6155"
+    },
+    {
+      "codigo": "616005",
+      "nombre": "Costo de enseñanza",
+      "cuentaRussell": "Costo enseñanza",
+      "naturaleza": "D",
+      "padre": "6160"
+    },
+    {
+      "codigo": "616505",
+      "nombre": "Costo de servicios sociales y salud",
+      "cuentaRussell": "Costo servicios sociales y salud",
+      "naturaleza": "D",
+      "padre": "6165"
+    },
+    {
+      "codigo": "617005",
+      "nombre": "Costo de otros servicios",
+      "cuentaRussell": "Costo otros servicios",
+      "naturaleza": "D",
+      "padre": "6170"
+    },
+    {
+      "codigo": "710505",
+      "nombre": "Materias primas e insumos directos",
+      "cuentaRussell": "Materia prima directa",
+      "naturaleza": "D",
+      "padre": "7105"
+    },
+    {
+      "codigo": "720503",
+      "nombre": "Salario integral",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720505",
+      "nombre": "Apoyo de sostenimiento – aprendices",
+      "cuentaRussell": "Costos de producción",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720506",
+      "nombre": "Sueldos y salarios",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720515",
+      "nombre": "Horas extras y recargos",
+      "cuentaRussell": "Costos de producción",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720518",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720524",
+      "nombre": "Incapacidades",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720527",
+      "nombre": "Auxilio de transporte",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720530",
+      "nombre": "Cesantías",
+      "cuentaRussell": "Costos de producción",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720533",
+      "nombre": "Intereses sobre cesantías",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720536",
+      "nombre": "Prima de servicios",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720539",
+      "nombre": "Vacaciones",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720542",
+      "nombre": "Primas extralegales",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720545",
+      "nombre": "Auxilios al personal",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720548",
+      "nombre": "Bonificaciones",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720551",
+      "nombre": "Dotación y suministro a trabajadores",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720554",
+      "nombre": "Seguros de empleados",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720560",
+      "nombre": "Indemnizaciones laborales",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720563",
+      "nombre": "Capacitación al personal",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720568",
+      "nombre": "Aportes ARL",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720569",
+      "nombre": "Aportes EPS",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720570",
+      "nombre": "Aportes a pensiones",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720572",
+      "nombre": "Aportes caja de compensación familiar",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720575",
+      "nombre": "Aportes ICBF",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720578",
+      "nombre": "Aportes SENA",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720584",
+      "nombre": "Gastos médicos y drogas",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720586",
+      "nombre": "Licencias",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "720595",
+      "nombre": "Otros gastos de personal",
+      "cuentaRussell": "Mano de obra directa",
+      "naturaleza": "D",
+      "padre": "7205"
+    },
+    {
+      "codigo": "721005",
+      "nombre": "Otros costos de mano de obra indirecta",
+      "cuentaRussell": "Otros gastos de personal",
+      "naturaleza": "D",
+      "padre": "7210"
+    },
+    {
+      "codigo": "721095",
+      "nombre": "Traslado de costos",
+      "cuentaRussell": "Mano de obra – traslado de costos",
+      "naturaleza": "C",
+      "padre": "7210"
+    },
+    {
+      "codigo": "730503",
+      "nombre": "Salario integral",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730505",
+      "nombre": "Apoyo de sostenimiento – aprendices",
+      "cuentaRussell": "Costos de producción",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730506",
+      "nombre": "Sueldos y salarios",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730515",
+      "nombre": "Horas extras y recargos",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730518",
+      "nombre": "Comisiones",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730524",
+      "nombre": "Incapacidades",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730527",
+      "nombre": "Auxilio de transporte",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730530",
+      "nombre": "Cesantías",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730533",
+      "nombre": "Intereses sobre cesantías",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730536",
+      "nombre": "Prima de servicios",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730539",
+      "nombre": "Vacaciones",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730542",
+      "nombre": "Primas extralegales",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730545",
+      "nombre": "Auxilios al personal",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730548",
+      "nombre": "Bonificaciones",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730551",
+      "nombre": "Dotación y suministro a trabajadores",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730554",
+      "nombre": "Seguros de empleados",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730560",
+      "nombre": "Indemnizaciones laborales",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730563",
+      "nombre": "Capacitación al personal",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730568",
+      "nombre": "Aportes ARL",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730569",
+      "nombre": "Aportes EPS",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730570",
+      "nombre": "Aportes a pensiones",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730572",
+      "nombre": "Aportes caja de compensación familiar",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730575",
+      "nombre": "Aportes ICBF",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730578",
+      "nombre": "Aportes SENA",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730584",
+      "nombre": "Gastos médicos y drogas",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730586",
+      "nombre": "Licencias",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "730595",
+      "nombre": "Otros gastos de personal",
+      "cuentaRussell": "Costos indirectos fabricación / operación",
+      "naturaleza": "D",
+      "padre": "7305"
+    },
+    {
+      "codigo": "731005",
+      "nombre": "Costos indirectos de fabricación u operación",
+      "cuentaRussell": "Costos indirectos fabricación",
+      "naturaleza": "D",
+      "padre": "7310"
+    },
+    {
+      "codigo": "740505",
+      "nombre": "Costos de contratos o proyectos en ejecución",
+      "cuentaRussell": "Costos de contratos / proyectos",
+      "naturaleza": "D",
+      "padre": "7405"
+    },
+    {
+      "codigo": "799505",
+      "nombre": "Traslado o cierre de costos de producción",
+      "cuentaRussell": "Traslado / cierre costos producción",
+      "naturaleza": "C",
+      "padre": "7995"
+    },
+    {
+      "codigo": "810505",
+      "nombre": "Garantías y cauciones entregadas",
+      "cuentaRussell": "Cuentas de orden deudoras - garantías",
+      "naturaleza": "D",
+      "padre": "8105"
+    },
+    {
+      "codigo": "811005",
+      "nombre": "Bienes y valores entregados en custodia",
+      "cuentaRussell": "Cuentas de orden deudoras - bienes",
+      "naturaleza": "D",
+      "padre": "8110"
+    },
+    {
+      "codigo": "812005",
+      "nombre": "Demandas y contingencias a favor",
+      "cuentaRussell": "Cuentas de orden deudoras - contingencias",
+      "naturaleza": "D",
+      "padre": "8120"
+    },
+    {
+      "codigo": "819595",
+      "nombre": "Otras cuentas de orden deudoras",
+      "cuentaRussell": "Otras cuentas de orden deudoras",
+      "naturaleza": "D",
+      "padre": "8195"
+    },
+    {
+      "codigo": "910505",
+      "nombre": "Garantías y cauciones recibidas",
+      "cuentaRussell": "Cuentas de orden acreedoras - garantías",
+      "naturaleza": "C",
+      "padre": "9105"
+    },
+    {
+      "codigo": "911005",
+      "nombre": "Bienes y valores recibidos en custodia",
+      "cuentaRussell": "Cuentas de orden acreedoras - bienes",
+      "naturaleza": "C",
+      "padre": "9110"
+    },
+    {
+      "codigo": "912005",
+      "nombre": "Demandas y contingencias en contra",
+      "cuentaRussell": "Cuentas de orden acreedoras - contingencias",
+      "naturaleza": "C",
+      "padre": "9120"
+    },
+    {
+      "codigo": "919595",
+      "nombre": "Otras cuentas de orden acreedoras",
+      "cuentaRussell": "Otras cuentas de orden acreedoras",
+      "naturaleza": "C",
+      "padre": "9195"
+    }
+  ]
+}
