@@ -20,7 +20,7 @@ y una consulta de solo lectura a la base del mismo día.
 
 - **La DIAN está con el NIT 800197268**, no con el del documento. En los 31 balances por
   tercero que tienen 2365/2367, 800197268 aparece en 26 (de 20 clientes), como «U.A.E.
-  DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES», «DIAN» y otras variantes; 800197384 no
+  DIRECCION DE IMPUESTOS Y ADUANAS NACIONALES», «DIAN» y otras variantes; 800197384 («U.A.E. Admon Local De Impuestos Y Aduanas Nacionales De Medellin (Usado por Hospital Hospital Manuel Uribe Angel)») no
   aparece en ninguna fila de 2365/2367 (solo en 1355 y 2335). Por eso la lista lleva los dos.
 - **Hay un tercero DIAN sin NIT** (31 filas en un balance, con el nombre completo). Con solo
   la lista de NIT no se tacharía. Propuesta: si el nombre contiene «IMPUESTOS Y ADUANAS»,

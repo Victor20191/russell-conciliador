@@ -2188,7 +2188,7 @@ model CuentaRussellDian {
 }
 
 // NIT que identifican a la DIAN como tercero (núcleo de 9 dígitos, sin DV). Sembrada con
-// 800197268 (el que traen los balances) y 800197384 (el del levantamiento).
+// 800197268 (el que traen los balances) y 800197384 (la administración local de Medellín).
 model TerceroDian {
   id        Int      @id @default(autoincrement()) @map("id")
   nit       String   @unique @map("nit")
