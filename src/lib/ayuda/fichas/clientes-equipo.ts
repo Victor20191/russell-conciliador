@@ -37,7 +37,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
           regla: REGLAS.editarClienteOperativo,
           condiciones: [
             "El Régimen Simple de Tributación viene en No para todos los clientes, también los nuevos y los importados desde Excel; quien lo marca en Sí lo deja en la auditoría.",
-            "Con el Régimen Simple en Sí, el cliente aparece primero en «Nueva revisión» de Impuestos · DIAN › Anticipos bimestrales (RST). Si se crea una revisión de anticipos de un cliente en No, se confirma allí y su ficha queda en Sí.",
+            "Con el Régimen Simple en Sí, el cliente aparece primero en «Nueva revisión» de Impuestos · DIAN › RST - Anticipos bimestrales. Si se crea una revisión de anticipos de un cliente en No, se confirma allí y su ficha queda en Sí.",
           ],
           fuente: { archivo: `${ACCIONES}/clients.ts`, funcion: "updateClient" },
         },

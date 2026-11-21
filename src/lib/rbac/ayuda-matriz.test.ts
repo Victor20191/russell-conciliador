@@ -23,7 +23,7 @@ describe("ayuda de la matriz de permisos", () => {
 
   it("una entrada con hijos se nombra con ellos, y las pantallas de otra sección también cuentan", () => {
     const impuestos = pantallasDeModulo("impuestos", NAV);
-    expect(impuestos[0]).toBe("Impuestos · DIAN (Retención en la fuente, IVA, Anticipos bimestrales (RST))");
+    expect(impuestos[0]).toBe("Impuestos · DIAN (Retención en la fuente, IVA, RST - Anticipos bimestrales)");
     expect(impuestos).toEqual(expect.arrayContaining(["Mapeo cuentas DIAN", "Calendario tributario"]));
     // «Borrador Balance» se abre también con «Revisar balance» (permiso alterno).
     expect(pantallasDeModulo("balance", NAV)).toEqual(["Balance de comprobación (Balance, Borrador Balance)"]);

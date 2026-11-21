@@ -1363,7 +1363,7 @@ export const FICHA_RST_REVISION: FichaAyuda = {
     },
   ],
   relacionadas: [
-    { label: "Anticipos bimestrales (RST)", href: "/impuestos/rst", permiso: "impuestos:ver" },
+    { label: "RST - Anticipos bimestrales", href: "/impuestos/rst", permiso: "impuestos:ver" },
     { label: "Calendario tributario", href: "/config/calendario-tributario", permiso: "impuestos:ver" },
   ],
 };

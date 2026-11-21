@@ -86,7 +86,7 @@ export const workNav: NavItem[] = [
     children: [
       { label: "Retención en la fuente", href: "/impuestos/retencion", permiso: "impuestos:ver", modulo: "impuestos" },
       { label: "IVA", href: "/impuestos/iva", permiso: "impuestos:ver", modulo: "impuestos" },
-      { label: "Anticipos bimestrales (RST)", href: "/impuestos/rst", permiso: "impuestos:ver", modulo: "impuestos" },
+      { label: "RST - Anticipos bimestrales", href: "/impuestos/rst", permiso: "impuestos:ver", modulo: "impuestos" },
     ],
   },
   {
