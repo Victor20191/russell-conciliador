@@ -476,6 +476,42 @@ export const CalendarioDianSchema = z.object({
         .max(400, { error: "La grilla tiene demasiadas casillas." }),
     ),
 });
+// «Guardar todos los calendarios»: las grillas de varios formularios del mismo año en un JSON
+// ([{ formulario, origen, filas }]); cada una pasa por `validarCalendario` en la acción.
+export const CalendariosDianSchema = z.object({
+  anio: z.coerce.number().int().min(2020, { error: "Año inválido." }).max(2100, { error: "Año inválido." }),
+  calendarios: z
+    .string()
+    .transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: "custom", message: "Los calendarios no se pudieron leer." });
+        return z.NEVER;
+      }
+    })
+    .pipe(
+      z
+        .array(
+          z.object({
+            formulario: z.enum(CLAVES_CALENDARIO as [FormularioCalendario, ...FormularioCalendario[]], { error: "Formulario sin calendario." }),
+            origen: z.enum(["pdf", "manual"]).default("pdf"),
+            filas: z
+              .array(
+                z.object({
+                  periodo: z.number().int(),
+                  ultimoDigito: z.number().int(),
+                  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Fecha inválida." }),
+                }),
+              )
+              .max(400, { error: "La grilla tiene demasiadas casillas." }),
+          }),
+        )
+        .min(1, { error: "No hay calendarios para guardar." })
+        .max(CLAVES_CALENDARIO.length, { error: "Hay más calendarios que formularios." })
+        .refine((cs) => new Set(cs.map((c) => c.formulario)).size === cs.length, { error: "Un formulario viene repetido." }),
+    ),
+});
 
 // ---- Impuestos · DIAN (Retención en la fuente, IVA y anticipos del Régimen Simple): revisiones y formularios ----
 // `periodicidad` solo se usa en IVA cuando la ficha del cliente no la tiene (la valida la acción).

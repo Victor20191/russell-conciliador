@@ -24,7 +24,7 @@ export default async function CalendarioTributarioPage({ searchParams }: { searc
     <div>
       <PageHeader
         title="Calendario tributario"
-        subtitle="Fechas límite de la DIAN para presentar y pagar la Retención en la fuente y el IVA (bimestral, cuatrimestral y anual), por período y último dígito del NIT (sin el dígito de verificación). Con ellas se mide la oportunidad de cada declaración y de su pago. Se carga una vez por año: al importar el PDF se leen todas las secciones."
+        subtitle="Fechas límite de la DIAN para presentar y pagar la Retención en la fuente, el IVA (bimestral, cuatrimestral y anual) y el anticipo bimestral del Régimen Simple, por período y último dígito del NIT (sin el dígito de verificación). Con ellas se mide la oportunidad de cada declaración y de su pago. Se carga una vez por año: con «Cargar todos los calendarios» se lee el PDF de la DIAN una sola vez y se guardan todas las secciones juntas."
       />
       <CalendarioTributarioClient anio={anio} calendarios={calendarios} formularioInicial={formulario} opcionesAnio={opcionesAnio} puedeEditar={puedeEditar} />
     </div>

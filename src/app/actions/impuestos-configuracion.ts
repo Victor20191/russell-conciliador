@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { CalendarioDianSchema, CuentaMapeoDianSchema, RestaTerceroDianSchema, TerceroDianSchema, type ActionState } from "@/lib/definitions";
+import { CalendarioDianSchema, CalendariosDianSchema, CuentaMapeoDianSchema, RestaTerceroDianSchema, TerceroDianSchema, type ActionState } from "@/lib/definitions";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA } from "@/lib/ia/uso";
 import { FORMULARIOS_CALENDARIO, validarCalendario, type PropuestaCalendario, type ResultadoLecturaCalendario } from "@/lib/impuestos/calendario";
@@ -142,9 +142,10 @@ export async function quitarTerceroDian(_prev: ActionState, formData: FormData):
 }
 
 /**
- * «Importar desde el PDF de la DIAN»: Claude lee del mismo PDF las cuatro secciones (Retención en la
- * fuente e IVA bimestral, cuatrimestral y anual) y devuelve una PROPUESTA por formulario (no se
- * guarda nada). Cada grilla se valida en código y el usuario la revisa antes de guardarla.
+ * «Cargar todos los calendarios»: Claude lee del mismo PDF todas las secciones (Retención en la
+ * fuente, IVA bimestral, cuatrimestral y anual y el anticipo bimestral del Régimen Simple) y devuelve
+ * una PROPUESTA por formulario (no se guarda nada). Cada grilla se valida en código y el usuario la
+ * revisa antes de guardarla, una por una o todas con `guardarCalendariosDian`.
  */
 export async function leerCalendarioPdf(_prev: ResultadoLecturaCalendario, formData: FormData): Promise<ResultadoLecturaCalendario> {
   const authz = await authorizePermiso(PERMISO);
@@ -220,5 +221,57 @@ export async function guardarCalendarioDian(_prev: ActionState, formData: FormDa
     return { ok: true, message: "Calendario guardado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarCalendarioDian", e) };
+  }
+}
+
+/**
+ * «Guardar todos los calendarios»: guarda de una vez las grillas de varios formularios del mismo año
+ * (las propuestas del PDF que no tienen errores), cada una reemplazando la anterior, en una sola
+ * transacción. Si una trae errores de validación no se guarda ninguna.
+ */
+export async function guardarCalendariosDian(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso(PERMISO);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const parsed = CalendariosDianSchema.safeParse({ anio: formData.get("anio"), calendarios: formData.get("calendarios") });
+  if (!parsed.success) return { ok: false, message: primerError(parsed.error.issues) };
+  const { anio, calendarios } = parsed.data;
+  const validados = calendarios.map((c) => ({ ...c, ...validarCalendario(anio, c.formulario, c.filas) }));
+  const conErrores = validados.filter((c) => c.errores.length > 0);
+  if (conErrores.length > 0) {
+    return { ok: false, message: `${conErrores.map((c) => FORMULARIOS_CALENDARIO[c.formulario].etiqueta).join(", ")}: falta corregir fechas. Corrígelas en su pestaña o quítalas de la carga.` };
+  }
+
+  try {
+    const user = await getCurrentUser();
+    const previas = await prisma.$transaction(async (tx) => {
+      const reemplazadas: number[] = [];
+      for (const c of validados) {
+        const borradas = await tx.vencimientoDian.deleteMany({ where: { anio, formulario: c.formulario } });
+        await tx.vencimientoDian.createMany({
+          data: c.filas.map((f) => ({
+            anio,
+            formulario: c.formulario,
+            periodo: f.periodo,
+            ultimoDigito: f.ultimoDigito,
+            fecha: fechaCalendarioPrisma(f.fecha),
+            actualizadoPor: user?.name ?? null,
+          })),
+        });
+        reemplazadas.push(borradas.count);
+      }
+      return reemplazadas;
+    });
+    for (const [i, c] of validados.entries()) {
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: "GUARDÓ CALENDARIO TRIBUTARIO",
+        entity: `Calendario tributario · ${FORMULARIOS_CALENDARIO[c.formulario].etiqueta} ${anio}`,
+        detail: `${c.filas.length} fechas ${c.origen === "pdf" ? "importado del PDF de la DIAN" : "escrito a mano"} · guardado con «Guardar todos»${previas[i] ? ` · reemplazó ${previas[i]}` : ""}${c.avisos.length ? ` · ${c.avisos.length} aviso(s)` : ""}`,
+      });
+    }
+    revalidatePath(RUTA_CALENDARIO);
+    return { ok: true, message: validados.length === 1 ? "1 calendario guardado." : `${validados.length} calendarios guardados.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarCalendariosDian", e) };
   }
 }

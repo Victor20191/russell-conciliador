@@ -8,7 +8,7 @@ import { Card } from "@/components/ui";
 import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
-import { guardarCalendarioDian, leerCalendarioPdf } from "@/app/actions/impuestos-configuracion";
+import { guardarCalendarioDian, guardarCalendariosDian, leerCalendarioPdf } from "@/app/actions/impuestos-configuracion";
 import type { ActionState } from "@/lib/definitions";
 import {
   CLAVES_CALENDARIO,
@@ -49,10 +49,11 @@ export default function CalendarioTributarioClient({
   puedeEditar: boolean;
 }) {
   const [formulario, setFormulario] = useState<FormularioCalendario>(formularioInicial);
-  // Un borrador por formulario: la importación del PDF propone los cuatro a la vez.
+  // Un borrador por formulario: «Cargar todos los calendarios» propone todos a la vez desde un solo PDF.
   const [borradores, setBorradores] = useState<Partial<Record<FormularioCalendario, Borrador>>>({});
   const [lecturaState, lecturaAction, leyendo] = useActionState<ResultadoLecturaCalendario, FormData>(leerCalendarioPdf, {});
   const [guardarState, guardarAction, guardando] = useActionState<ActionState, FormData>(guardarCalendarioDian, {});
+  const [todosState, todosAction, guardandoTodos] = useActionState<ActionState, FormData>(guardarCalendariosDian, {});
   // Las propuestas solo viven en esta pantalla: si se sale mientras la IA lee, la lectura se cobra y se pierde sin aviso.
   useAvisoSalidaSinGuardar(leyendo, "La IA está leyendo el calendario: espera a que termine. Si sales, se pierde la lectura.");
 
@@ -78,6 +79,17 @@ export default function CalendarioTributarioClient({
       setBorradores(resto);
     }
   }
+  // «Guardar todos»: al guardar, se cierran los borradores que se enviaron.
+  const [ultimoTodos, setUltimoTodos] = useState(todosState);
+  const [enviadosTodos, setEnviadosTodos] = useState<FormularioCalendario[]>([]);
+  if (todosState !== ultimoTodos) {
+    setUltimoTodos(todosState);
+    if (todosState.ok && enviadosTodos.length) {
+      const resto = { ...borradores };
+      for (const f of enviadosTodos) delete resto[f];
+      setBorradores(resto);
+    }
+  }
   // Cambiar de año descarta lo que no se guardó.
   const [anioPrevio, setAnioPrevio] = useState(anio);
   if (anio !== anioPrevio) {
@@ -91,11 +103,19 @@ export default function CalendarioTributarioClient({
   useEffect(() => {
     notifyActionState(guardarState, { success: "Calendario guardado.", error: "No se pudo guardar el calendario." });
   }, [guardarState]);
+  useEffect(() => {
+    notifyActionState(todosState, { success: todosState.message ?? "Calendarios guardados.", error: "No se pudieron guardar los calendarios." });
+  }, [todosState]);
 
   const calendario = calendarios.find((c) => c.formulario === formulario) ?? { anio, formulario, filas: [], actualizadoPor: null, actualizadoEn: null };
   const def = FORMULARIOS_CALENDARIO[formulario];
   const borrador = borradores[formulario] ?? null;
   const pendientes = CLAVES_CALENDARIO.filter((f) => borradores[f]);
+  // Cada propuesta pendiente con su validación: las que no tienen errores se guardan juntas.
+  const resumen = pendientes.map((f) => ({ formulario: f, ...validarCalendario(anio, f, borradores[f]!.filas) }));
+  const listos = resumen.filter((r) => r.errores.length === 0).map((r) => r.formulario);
+  const yaGuardados = listos.filter((f) => (calendarios.find((c) => c.formulario === f)?.filas.length ?? 0) > 0).length;
+  const ocupado = leyendo || guardando || guardandoTodos;
 
   const guardadas = useMemo(() => new Map(calendario.filas.map((f) => [`${f.periodo}:${f.ultimoDigito}`, f.fecha])), [calendario.filas]);
   const validacion = useMemo(() => (borrador ? validarCalendario(anio, formulario, borrador.filas) : null), [borrador, anio, formulario]);
@@ -136,11 +156,80 @@ export default function CalendarioTributarioClient({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Formulario del calendario">
-        {CLAVES_CALENDARIO.map((f) => (
-          <Pestana key={f} activa={f === formulario} onClick={() => setFormulario(f)} label={`${FORMULARIOS_CALENDARIO[f].etiqueta} · ${estadoChip(f)}`} />
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Formulario del calendario">
+          {CLAVES_CALENDARIO.map((f) => (
+            <Pestana key={f} activa={f === formulario} onClick={() => setFormulario(f)} label={`${FORMULARIOS_CALENDARIO[f].etiqueta} · ${estadoChip(f)}`} />
+          ))}
+        </div>
+        {/* Un solo PDF de la DIAN trae todas las secciones: se sube una vez y se proponen todos los calendarios del año. */}
+        {puedeEditar && (
+          <form action={lecturaAction} className="ml-auto flex flex-wrap items-center gap-2">
+            <input type="hidden" name="anio" value={anio} />
+            <input
+              type="file"
+              name="archivo"
+              accept="application/pdf,.pdf"
+              required
+              aria-label="PDF del calendario tributario de la DIAN"
+              className="max-w-[240px] text-[12px] text-ink-600 file:mr-2 file:rounded-md file:border file:border-ink-200 file:bg-white file:px-2.5 file:py-1 file:text-[12px] file:font-semibold file:text-ink-600"
+            />
+            <button type="submit" disabled={ocupado} className={BOTON_PRIMARIO} title={`Lee del PDF de la DIAN las ${CLAVES_CALENDARIO.length} secciones del calendario de ${anio}`}>
+              {leyendo ? <EstadoProcesando>Leyendo con IA</EstadoProcesando> : "Cargar todos los calendarios"}
+            </button>
+          </form>
+        )}
       </div>
+
+      {puedeEditar && resumen.length > 0 && (
+        <Card className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-[14px] font-semibold text-navy-800">Calendarios por guardar · {anio}</h2>
+              <p className="mt-1 text-[12px] text-ink-500">
+                Revisa cada pestaña contra el PDF de la DIAN. Los que no tienen errores se guardan juntos{yaGuardados > 0 ? ` y reemplazan los ${yaGuardados === 1 ? "que ya estaba guardado" : `${yaGuardados} que ya estaban guardados`}` : ""}; los que tienen errores se corrigen en su pestaña.
+              </p>
+              <ul className="mt-2 flex flex-col gap-1 text-[12px]">
+                {resumen.map((r) => (
+                  <li key={r.formulario} className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => setFormulario(r.formulario)} className="font-semibold text-blue-700 hover:underline">
+                      {FORMULARIOS_CALENDARIO[r.formulario].etiqueta}
+                    </button>
+                    {r.errores.length > 0 ? (
+                      <span className="font-semibold text-err-700">{r.errores.length === 1 ? "1 error por corregir" : `${r.errores.length} errores por corregir`}</span>
+                    ) : (
+                      <span className="font-semibold text-ok-700">Listo para guardar</span>
+                    )}
+                    {r.avisos.length > 0 && <span className="text-warn-700">· {r.avisos.length === 1 ? "1 aviso" : `${r.avisos.length} avisos`}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <form
+              action={todosAction}
+              onSubmit={() => setEnviadosTodos(listos)}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <input type="hidden" name="anio" value={anio} />
+              <input
+                type="hidden"
+                name="calendarios"
+                value={JSON.stringify(listos.map((f) => ({ formulario: f, origen: borradores[f]!.origen, filas: borradores[f]!.filas })))}
+              />
+              <button type="button" onClick={() => setBorradores({})} disabled={ocupado} className={BOTON_SECUNDARIO}>Descartar todos</button>
+              <button type="submit" disabled={ocupado || listos.length === 0} className={BOTON_PRIMARIO}>
+                {guardandoTodos ? (
+                  <EstadoProcesando>Guardando</EstadoProcesando>
+                ) : listos.length === resumen.length ? (
+                  "Guardar todos los calendarios"
+                ) : (
+                  `Guardar los ${listos.length} listos`
+                )}
+              </button>
+            </form>
+          </div>
+        </Card>
+      )}
 
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -153,35 +242,16 @@ export default function CalendarioTributarioClient({
                   : "Editando a mano. Guarda cuando la grilla esté completa."
                 : calendario.filas.length
                   ? `Cargado${calendario.actualizadoEn ? ` · ${fmtDateTime(calendario.actualizadoEn)}` : ""}${calendario.actualizadoPor ? ` · ${calendario.actualizadoPor}` : ""}`
-                  : `Sin calendario para ${anio}. Sin él, el indicador de oportunidad de ese año no se puede calcular.`}
+                  : `Sin calendario para ${anio}. Sin él, el indicador de oportunidad de ese año no se puede calcular. Cárgalo con «Cargar todos los calendarios» o escríbelo a mano.`}
             </p>
             {formulario === "IVA_ANUAL" && (
               <p className="mt-1 text-[12px] text-ink-500">
                 El calendario de {anio} trae el vencimiento de la declaración anual del año gravable {anio - 1}, en febrero de {anio}, con los dígitos del NIT de a dos.
               </p>
             )}
-            {pendientes.length > 0 && (
-              <p className="mt-1 text-[12px] font-semibold text-warn-700">
-                Sin guardar: {pendientes.map((f) => FORMULARIOS_CALENDARIO[f].etiqueta).join(", ")}. Cada formulario se guarda desde su pestaña.
-              </p>
-            )}
           </div>
           {puedeEditar && !borrador && (
             <div className="flex flex-wrap items-center gap-2">
-              <form action={lecturaAction} className="flex flex-wrap items-center gap-2">
-                <input type="hidden" name="anio" value={anio} />
-                <input
-                  type="file"
-                  name="archivo"
-                  accept="application/pdf,.pdf"
-                  required
-                  aria-label="PDF del calendario tributario de la DIAN"
-                  className="max-w-[240px] text-[12px] text-ink-600 file:mr-2 file:rounded-md file:border file:border-ink-200 file:bg-white file:px-2.5 file:py-1 file:text-[12px] file:font-semibold file:text-ink-600"
-                />
-                <button type="submit" disabled={leyendo} className={BOTON_PRIMARIO}>
-                  {leyendo ? <EstadoProcesando>Leyendo con IA</EstadoProcesando> : "Importar desde el PDF de la DIAN"}
-                </button>
-              </form>
               <button
                 type="button"
                 onClick={() => setBorradores((todos) => ({ ...todos, [formulario]: { filas: calendario.filas, origen: "manual", avisosLectura: [] } }))}
@@ -254,8 +324,8 @@ export default function CalendarioTributarioClient({
             <input type="hidden" name="origen" value={borrador.origen} />
             <input type="hidden" name="filas" value={JSON.stringify(borrador.filas)} />
             {cambios > 0 && <span className="text-[11.5px] text-ink-500">{cambios} fecha(s) distintas de las guardadas</span>}
-            <button type="button" onClick={descartar} disabled={guardando} className={BOTON_SECUNDARIO}>Descartar</button>
-            <button type="submit" disabled={guardando || (validacion?.errores.length ?? 0) > 0} className={BOTON_PRIMARIO}>
+            <button type="button" onClick={descartar} disabled={ocupado} className={BOTON_SECUNDARIO}>Descartar</button>
+            <button type="submit" disabled={ocupado || (validacion?.errores.length ?? 0) > 0} className={BOTON_PRIMARIO}>
               {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : calendario.filas.length ? `Reemplazar ${def.etiqueta}` : `Guardar ${def.etiqueta}`}
             </button>
           </form>

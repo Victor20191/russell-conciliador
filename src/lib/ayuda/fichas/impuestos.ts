@@ -92,6 +92,7 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
   antesDeEmpezar: [
     "La fecha depende del último dígito del NIT sin el dígito de verificación: en un NIT de 9 dígitos, el noveno.",
     "Sin el calendario de un año, la oportunidad de ese año no se puede calcular.",
+    "La DIAN publica un solo PDF por año con todas las secciones: se sube una vez y se cargan todos los calendarios.",
     "Cada formulario tiene su pestaña: Retención en la fuente, IVA bimestral, IVA cuatrimestral, IVA anual y RST · Anticipo bimestral. La pestaña dice si está cargado, sin cargar o con una propuesta sin guardar.",
   ],
   etapas: [
@@ -99,9 +100,9 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
       titulo: "Cargar",
       acciones: [
         {
-          nombre: "Importar desde el PDF de la DIAN",
+          nombre: "Cargar todos los calendarios",
           queHace:
-            "La IA lee del mismo PDF las secciones de Retención en la fuente, IVA bimestral, IVA cuatrimestral, la declaración anual consolidada de IVA del Régimen Simple y el anticipo bimestral del Régimen Simple (RST · Anticipo bimestral), y propone una grilla por formulario. No se guarda nada hasta revisar y guardar cada una. Si una sección no se pudo leer, el aviso la nombra. Mientras lee, la pantalla avisa si intentas salir o recargar, porque se perdería la lectura.",
+            "Se elige el PDF de la DIAN una sola vez y la IA lee sus secciones: Retención en la fuente, IVA bimestral, IVA cuatrimestral, la declaración anual consolidada de IVA del Régimen Simple y el anticipo bimestral del Régimen Simple (RST · Anticipo bimestral). Propone una grilla por formulario y muestra un resumen con cuáles están listos para guardar y cuáles tienen errores. No se guarda nada hasta revisar y guardar. Si una sección no se pudo leer, el aviso la nombra. Mientras lee, la pantalla avisa si intentas salir o recargar, porque se perdería la lectura.",
           regla: REGLAS.configurarImpuestos,
           condiciones: ["Un PDF de hasta 15 MB.", "La lectura con IA tiene que estar disponible."],
           fuente: { archivo: `${ACCIONES}/impuestos-configuracion.ts`, funcion: "leerCalendarioPdf" },
@@ -116,6 +117,14 @@ export const FICHA_CALENDARIO_TRIBUTARIO: FichaAyuda = {
     {
       titulo: "Revisar y guardar",
       acciones: [
+        {
+          nombre: "Guardar todos los calendarios",
+          queHace:
+            "Guarda de una vez todas las propuestas que no tienen errores; cada una reemplaza la que ya estaba guardada para ese formulario y año. Las que tienen errores siguen abiertas en su pestaña para corregirlas y guardarlas después. Con «Descartar todos» se cierran todas las propuestas sin guardar.",
+          regla: REGLAS.configurarImpuestos,
+          condiciones: ["Cada calendario que se guarda tiene las diez fechas de cada período, posteriores al cierre del período."],
+          fuente: { archivo: `${ACCIONES}/impuestos-configuracion.ts`, funcion: "guardarCalendariosDian" },
+        },
         {
           nombre: "Guardar · Reemplazar",
           queHace:
