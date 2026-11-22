@@ -142,6 +142,12 @@ export type ImpuestoDian = {
      * contraria resta dentro de la fila (la 417505 en el 39 del 2593).
      */
     signoPorNaturaleza: boolean;
+    /**
+     * Control que no exige marca ni impide cerrar (ver `retencion/por-pagar.ts`): el `renglon` de los
+     * recibos del año que al corte no se habían pagado contra el saldo neto por pagar de las cuentas del
+     * cliente homologadas a `cuentas`. RST: la 64 (impuesto al consumo) contra la 249505 y la 249510.
+     */
+    controlPorPagar?: { titulo: string; renglon: number; cuentas: readonly string[]; explicacion: string };
     textos: {
       /** Cómo se lee el lado contable, en la pantalla del cruce. */
       contabilidad: string;
@@ -372,6 +378,13 @@ export const RST: ImpuestoDian = {
     signoEnSubtotal: true,
     conTotalGeneral: false,
     signoPorNaturaleza: true,
+    controlPorPagar: {
+      titulo: "Impuesto al consumo por pagar",
+      renglon: 64,
+      cuentas: ["249505", "249510"],
+      explicacion:
+        "Control: no exige marca ni impide cerrar; si no cuadra, sale un aviso en Novedades. Compara lo que falta pagar al corte según la casilla 64 de los recibos 2593 del año que a esa fecha no se habían pagado (sin 490, o con el 490 pagado después) contra el saldo final de las cuentas del cliente homologadas a la 249505 (causado) menos la 249510 (pagos). El recibo se paga meses después del bimestre (enero y febrero, en mayo), así que lo normal es que quede por pagar el último bimestre. Se compara el neto y no lo pagado porque en enero se paga el último bimestre del año anterior, que no está en la revisión.",
+    },
     textos: {
       contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el anticipo (135595) y el IVA descontable (débito), y el impuesto al consumo, el IVA generado y los ingresos (crédito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros, y las devoluciones (417505) restan. En la 2408 y la 249505, el saldo de la DIAN (el pago del recibo registrado en la misma cuenta) se muestra tachado y no suma; en la 135595 no, porque el anticipo es lo pagado a la DIAN. El 67 resta en el subtotal del IVA. Los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) no se cruzan: se controlan en Novedades.",
       contabilidadExcel: "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos, por el saldo de la cuenta (la 417505 resta); la DIAN no suma en la 2408 ni en la 249505 (sí en la 135595); el 67 resta en el subtotal del IVA.",

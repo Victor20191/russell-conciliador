@@ -12,6 +12,8 @@ import { escogerBalanceImpuesto } from "@/app/actions/impuestos-revisiones";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import type { ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { etiquetaPeriodo } from "@/lib/impuestos/periodicidad";
+import { ETIQUETA_RECIBO_POR_PAGAR, type ControlPorPagar } from "@/lib/impuestos/retencion/por-pagar";
 import {
   alcanceSaldoInicial,
   aporteTercero,
@@ -214,6 +216,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
         </table>
         </div>
       </div>
+
+      {resultado.porPagar && <ControlPorPagarCard control={resultado.porPagar} impuesto={impuesto} />}
 
       {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} impuesto={impuesto} />}
 
@@ -553,6 +557,115 @@ function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * El control por pagar (RST: impuesto al consumo): lo que al corte falta pagar según los recibos contra
+ * el neto de las cuentas. No es una fila del cruce: no suma, no exige marca ni impide cerrar.
+ */
+function ControlPorPagarCard({ control, impuesto }: { control: ControlPorPagar; impuesto: ImpuestoDian }) {
+  const explicacion = impuesto.cruce.controlPorPagar?.explicacion ?? "Control: no exige marca ni impide cerrar.";
+  const codigo = impuesto.declaracion.codigo;
+  const periodicidad = impuesto.periodicidades[0] ?? "Bimestral";
+  const cuadra = control.nivel !== "alerta";
+  const cuentasControl = impuesto.cruce.controlPorPagar?.cuentas.join(" y ") ?? "";
+  return (
+    <Card className="p-4 text-[12.5px]">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
+        <div className="min-w-[16rem] flex-1">
+          <h3 className="text-[12.5px] font-semibold text-navy-800">{control.titulo} · control al {fecha(control.fechaCorte)}</h3>
+          <p className="mt-0.5 text-[11.5px] text-ink-500">{explicacion}</p>
+        </div>
+        <Chip label={control.nivel === "cero" ? "Cuadra" : cuadra ? "Diferencia menor al umbral" : "Diferencia · aviso en Novedades"} tone={cuadra ? "ok" : "warn"} />
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <CifraControl etiqueta={`Por pagar según los recibos ${codigo} (casilla ${control.renglon})`} valor={control.porPagarRecibos} />
+        <CifraControl etiqueta={`Por pagar según la contabilidad (${cuentasControl})`} valor={control.porPagarContable} />
+        <CifraControl etiqueta="Diferencia" valor={control.diferencia} resaltar={!cuadra} />
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-[12px]">
+          <thead className="text-left font-semibold text-ink-500">
+            <tr>
+              <th className="py-1 pr-4">Período</th>
+              <th className="py-1 pr-4">Recibo {codigo}</th>
+              <th className="py-1 pr-4 text-right">Casilla {control.renglon}</th>
+              <th className="py-1 pr-4">Pago (490)</th>
+              <th className="py-1 pr-4">Estado al corte</th>
+              <th className="py-1 text-right">Por pagar al corte</th>
+            </tr>
+          </thead>
+          <tbody>
+            {control.recibos.length === 0 ? (
+              <tr className="border-t border-ink-100">
+                <td colSpan={6} className="py-1.5 text-ink-400">Ningún recibo del año trae valor en la casilla {control.renglon}.</td>
+              </tr>
+            ) : (
+              control.recibos.map((r) => (
+                <tr key={r.numero} className="border-t border-ink-100 align-top">
+                  <td className="py-1 pr-4 text-ink-700">{etiquetaPeriodo(periodicidad, r.periodo)}</td>
+                  <td className="py-1 pr-4 tabular-nums text-ink-700">{r.numero}</td>
+                  <td className="whitespace-nowrap py-1 pr-4 text-right tabular-nums">{fmtContable(r.valor)}</td>
+                  <td className="py-1 pr-4 tabular-nums text-ink-500">{r.pago ? `${r.pago.numero}${r.pago.fecha ? ` · ${fecha(r.pago.fecha)}` : ""}` : "—"}</td>
+                  <td className={`py-1 pr-4 ${r.estado === "pagado" ? "text-ink-500" : "font-semibold text-ink-800"}`}>{ETIQUETA_RECIBO_POR_PAGAR[r.estado]}</td>
+                  <td className="whitespace-nowrap py-1 text-right font-semibold tabular-nums text-ink-800">{fmtContable(r.porPagar)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {control.periodosSinRecibo.length > 0 && (
+        <p className="mt-1.5 text-[11.5px] text-warn-700">
+          Sin recibo {codigo} ni causal: {control.periodosSinRecibo.map((p) => etiquetaPeriodo(periodicidad, p)).join(", ")}. Lo que la contabilidad causó en {control.periodosSinRecibo.length === 1 ? "ese período" : "esos períodos"} no está en los recibos.
+        </p>
+      )}
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[480px] text-[12px]">
+          <thead className="text-left font-semibold text-ink-500">
+            <tr>
+              <th className="py-1 pr-4">Cuenta del cliente</th>
+              <th className="py-1 pr-4">Homologada a</th>
+              <th className="py-1 text-right">Saldo por pagar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {control.cuentas.length === 0 ? (
+              <tr className="border-t border-ink-100">
+                <td colSpan={3} className="py-1.5 text-ink-400">El cliente no tiene cuentas homologadas a la {cuentasControl}.</td>
+              </tr>
+            ) : (
+              control.cuentas.map((c) => (
+                <tr key={c.cuenta} className="border-t border-ink-100 align-top">
+                  <td className="py-1 pr-4">
+                    <span className="font-semibold tabular-nums text-ink-700">{c.cuenta}</span>
+                    <span className="ml-2 text-ink-500">{c.nombre}</span>
+                  </td>
+                  <td className="py-1 pr-4">
+                    <span className="font-semibold tabular-nums text-ink-700">{c.cuentaRussell}</span>
+                    {c.nombreRussell && <span className="ml-2 text-ink-500">{c.nombreRussell}</span>}
+                  </td>
+                  <td className="whitespace-nowrap py-1 text-right tabular-nums">{fmtContable(c.saldo)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function CifraControl({ etiqueta, valor, resaltar = false }: { etiqueta: string; valor: number; resaltar?: boolean }) {
+  return (
+    <div className={`rounded-md border px-3 py-2 ${resaltar ? "border-warn-300 bg-warn-50" : "border-ink-150 bg-ink-50"}`}>
+      <div className="text-[11px] text-ink-500">{etiqueta}</div>
+      <div className={`text-[14px] font-semibold tabular-nums ${resaltar ? "text-warn-700" : "text-navy-800"}`}>{fmtContable(valor)}</div>
     </div>
   );
 }

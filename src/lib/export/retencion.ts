@@ -11,6 +11,7 @@ import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosS
 import { IMPUESTOS, midePresentacion, renglonSanciones, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { rotuloRenglon } from "@/lib/impuestos/formularios/definicion";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
+import { ETIQUETA_RECIBO_POR_PAGAR } from "@/lib/impuestos/retencion/por-pagar";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 import { ETIQUETAS_ICA, fallasMunicipioIca, nombreMunicipioIca, RENGLONES_ICA, type MunicipioIca } from "@/lib/impuestos/rst/ica-municipios";
 
@@ -262,6 +263,26 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
         else if (t.saldoInicialRestado) fila.getCell(6).font = tachada;
       }
     }
+  }
+
+  // El control por pagar (RST: impuesto al consumo): no suma, no exige marca ni impide cerrar.
+  const porPagar = resultado.porPagar;
+  if (porPagar) {
+    const codigo = impuesto.declaracion.codigo;
+    const periodicidad = impuesto.periodicidades[0] ?? "Bimestral";
+    ws.addRow([]);
+    filaSeccion(ws, `${porPagar.titulo} · control al ${fechaExcel(porPagar.fechaCorte)} (no suma ni exige marca)`, 8);
+    if (impuesto.cruce.controlPorPagar) ws.addRow([impuesto.cruce.controlPorPagar.explicacion]).font = { color: { argb: EXCEL.textoSecundario } };
+    estiloEncabezado(ws.addRow(["Período", "Recibo", `Casilla ${porPagar.renglon}`, "Recibo 490", "Fecha de pago", "Estado al corte", "Por pagar al corte"]));
+    for (const r of porPagar.recibos) {
+      ws.addRow([etiquetaPeriodoRevision(periodicidad, r.periodo), r.numero, r.valor, r.pago?.numero ?? "", fechaExcel(r.pago?.fecha ?? null), ETIQUETA_RECIBO_POR_PAGAR[r.estado], r.porPagar]);
+    }
+    for (const p of porPagar.periodosSinRecibo) ws.addRow([etiquetaPeriodoRevision(periodicidad, p), `Sin recibo ${codigo} ni causal`]);
+    estiloEncabezado(ws.addRow(["Cuenta del cliente", "Nombre", "Homologada a", "Nombre de la cuenta Russell", "", "", "Saldo por pagar"]));
+    for (const c of porPagar.cuentas) ws.addRow([c.cuenta, c.nombre, c.cuentaRussell, c.nombreRussell ?? "", "", "", c.saldo]);
+    ws.addRow([`Por pagar según los recibos ${codigo} (casilla ${porPagar.renglon})`, "", "", "", "", "", porPagar.porPagarRecibos]).font = { bold: true };
+    ws.addRow([`Por pagar según la contabilidad (${impuesto.cruce.controlPorPagar?.cuentas.join(" − ") ?? ""})`, "", "", "", "", "", porPagar.porPagarContable]).font = { bold: true };
+    ws.addRow([`Diferencia · ${porPagar.nivel === "alerta" ? "aviso en Novedades" : ETIQUETA_NIVEL[porPagar.nivel]}`, "", "", "", "", "", porPagar.diferencia]).font = { bold: true };
   }
 
   if (resultado.fueraDelMapeo.length > 0) {

@@ -73,13 +73,15 @@ export async function cargarCruceRetencion(
   // Las cuentas Russell de las secciones que se leen por cuenta (los ingresos de IVA): del detalle por cuenta.
   const seccionesPorCuenta = new Set(impuesto.cruce.grupos.filter((g) => !g.porTercero).flatMap((g) => g.secciones));
   const cuentasPorCuenta = [...new Set(mapeo.filas.filter((f) => f.enCruce && seccionesPorCuenta.has(f.seccion)).flatMap((f) => cuentasDeMapeo(f)))];
-  const todasLasCuentas = [...new Set(mapeo.filas.flatMap((f) => cuentasDeMapeo(f)))];
+  // El control por pagar (RST: 249505 y 249510) se lee del detalle por cuenta: neto, con la DIAN incluida.
+  const cuentasPorPagar = impuesto.cruce.controlPorPagar?.cuentas ?? [];
+  const todasLasCuentas = [...new Set([...mapeo.filas.flatMap((f) => cuentasDeMapeo(f)), ...cuentasPorPagar])];
   const prefijosTercero = impuesto.cruce.prefijosTercero;
   const prefijosCliente = impuesto.cruce.prefijosCliente;
 
   const agrupadoras = cuentasAgrupadorasExcluidas(contexto.prevalidador);
   const capturaId = capturaPorLote.get(elegido.loteId as string) as number;
-  const [crudas, crudasFuera, porCuenta, marcas, plan] = await Promise.all([
+  const [crudas, crudasFuera, porCuenta, marcas, plan, crudasPorPagar] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: { encabezadoId: capturaId, OR: prefijosTercero.map((p) => ({ cuenta6Russell: { startsWith: p } })) },
       select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, nitTercero: true, nombreTercero: true, saldoInicial: true, saldoFinal: true },
@@ -104,8 +106,14 @@ export async function cargarCruceRetencion(
       where: { clienteId: revision.clienteId, moduloCodigo: impuesto.clave, periodo: revision.periodo, dimension: "cuenta4" },
       orderBy: { numero: "asc" },
     }),
-    impuesto.cruce.signoPorNaturaleza
-      ? prisma.standardAccount.findMany({ where: { code: { in: todasLasCuentas } }, select: { code: true, nature: true } })
+    impuesto.cruce.signoPorNaturaleza || cuentasPorPagar.length
+      ? prisma.standardAccount.findMany({ where: { code: { in: todasLasCuentas } }, select: { code: true, nature: true, name: true } })
+      : Promise.resolve([]),
+    cuentasPorPagar.length
+      ? prisma.balancePruebaDetalle.findMany({
+          where: { encabezadoId: elegido.id, OR: cuentasPorPagar.map((c) => ({ cuenta6Russell: { startsWith: c } })) },
+          select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoFinal: true },
+        })
       : Promise.resolve([]),
   ]);
   // Sin agrupadoras ni el total de la cuenta leído como tercero (lo doblaría).
@@ -141,16 +149,27 @@ export async function cargarCruceRetencion(
   const planDestino = cuentasDestino.length
     ? await prisma.standardAccount.findMany({ where: { code: { in: cuentasDestino } }, select: { code: true, name: true } })
     : [];
+  const delControl = new Set(cuentasPorPagar);
+  const filasPorPagar = crudasPorPagar
+    .filter((d) => d.cuenta6Russell && delControl.has(russell6(d.cuenta6Russell)) && !agrupadoras.has(d.cuenta8.replace(/\D/g, "")))
+    .map((d) => ({ cuentaCliente: d.cuenta8, nombreCuenta: d.nombreCuenta, cuentaRussell: russell6(d.cuenta6Russell as string), saldoFinal: Number(d.saldoFinal) }));
+  // Nombres de las cuentas Russell: los de Mapeo cuentas DIAN y, para las del control (la 249510 no está allí), los del plan.
+  const nombresRussell = new Map([
+    ...plan.filter((c) => delControl.has(c.code)).map((c): [string, string] => [c.code, c.name]),
+    ...mapeo.cuentas.filter((c) => c.nombre).map((c): [string, string] => [c.cuenta, c.nombre as string]),
+  ]);
   const inicioEnero = balance.periodoInicio === `${revision.anio}-01-01`;
   const resultado = cruceRetencion({
     impuesto: impuesto.clave,
     naturalezas: new Map(plan.map((c) => [c.code, c.nature === "D" ? "D" : "C"])),
+    filasPorPagar,
+    fechaCorte: balance.periodoFin,
     filasContablesCuenta,
     periodos: revision.periodos,
     mapeo: mapeo.filas,
     sinRestaDian: new Set(mapeo.cuentas.filter((c) => !c.restarTerceroDian).map((c) => c.cuenta)),
     tercerosDian: mapeo.terceros,
-    nombresRussell: new Map(mapeo.cuentas.filter((c) => c.nombre).map((c) => [c.cuenta, c.nombre as string])),
+    nombresRussell,
     filasContables,
     filasFueraDeRetencion,
     nombresFueraDeRetencion: new Map(planDestino.map((c) => [c.code, c.name])),

@@ -2,6 +2,7 @@ import { alcanceSaldoInicial, etiquetaFilaCruce, type CruceRetencionVista } from
 import type { FilaOportunidad } from "./oportunidad";
 import { conceptosSinRecibo, type ResultadoPagos } from "./pagos";
 import type { PeriodoRevision } from "./periodos-revision";
+import { avisoPorPagar } from "./por-pagar";
 
 /**
  * Qué falta para cerrar en firme una revisión de Retención en la fuente (puro). Exige: cada período
@@ -63,6 +64,9 @@ export function evaluarCierreRetencion(e: {
     if (e.cruce.resultado.grupos.some((g) => g.filas.some((f) => f.posiblesDian.length > 0))) {
       avisos.push("Cruce contable: hay terceros sin NIT con nombre de la DIAN que no se restaron.");
     }
+    // El control por pagar (RST: impuesto al consumo) solo avisa: no exige marca ni impide cerrar.
+    const porPagar = e.cruce.resultado.porPagar ? avisoPorPagar(e.cruce.resultado.porPagar) : null;
+    if (porPagar) avisos.push(porPagar);
     // Lo restado como saldo inicial se documenta con una marca en Novedades: sin ella (o si el total
     // cambió) es pendiente; con ella queda como aviso. Una copia antigua sin el dato no lo menciona.
     const inicial = e.cruce.resultado.saldoInicial;

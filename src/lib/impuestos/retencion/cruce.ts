@@ -3,6 +3,7 @@ import { claveCuentasMapeo, cuentasDeMapeo, esTerceroDian, pareceNombreDian, ren
 import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
 import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
 import type { PeriodoRevision } from "./periodos-revision";
+import { controlPorPagar, type ControlPorPagar, type FilaCuentaPorPagar } from "./por-pagar";
 
 /**
  * Cruce contable de una revisión de Impuestos · DIAN (puro). Lo de abajo describe Retención en la
@@ -128,6 +129,8 @@ export type ResultadoCruce = {
   pendientesMarca: number;
   /** Marca de lo restado como saldo inicial (se pone en Novedades; guarda el total). Las copias antiguas no la traen. */
   marcaSaldoInicial?: (MarcaCruceRetencion & { vigente: boolean }) | null;
+  /** El control por pagar del impuesto (RST: impuesto al consumo); no suma ni exige marca. Los otros impuestos y las copias antiguas no lo traen. */
+  porPagar?: ControlPorPagar;
 };
 
 /** Llave de la marca de lo restado como saldo inicial (dimensión `control`, una por revisión). */
@@ -187,6 +190,10 @@ export type EntradaCruce = {
   restarSaldoInicial: boolean;
   umbral: number;
   marcas: readonly (MarcaCruceRetencion & { clave: string })[];
+  /** Las cuentas del control por pagar (`cruce.controlPorPagar`), por cuenta: saldo final con débito positivo. */
+  filasPorPagar?: readonly FilaCuentaPorPagar[];
+  /** AAAA-MM-DD: el último día del balance del corte. Sin ella no se calcula el control por pagar. */
+  fechaCorte?: string;
 };
 
 const centavos = (n: number) => Math.round(n * 100);
@@ -359,8 +366,16 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     })
     .filter((g) => g.filas.length > 0);
   const todas = grupos.flatMap((g) => g.filas);
+  const control = impuesto.cruce.controlPorPagar;
+  const porPagar = control && e.fechaCorte
+    ? controlPorPagar({
+        titulo: control.titulo, renglon: control.renglon, cuentas: control.cuentas, fechaCorte: e.fechaCorte,
+        periodos: e.periodos, filas: e.filasPorPagar ?? [], nombresRussell: e.nombresRussell, umbral: e.umbral,
+      })
+    : null;
   return {
     ...(impuesto.clave === RETENCION.clave ? {} : { impuesto: impuesto.clave }),
+    ...(porPagar ? { porPagar } : {}),
     grupos,
     total: subtotal(todas),
     saldoInicial: resumenSaldoInicial(todas, restarInicial),
