@@ -118,7 +118,7 @@ export async function previsualizarMovimientosTercero(input: { balanceId: number
 
 export type AdjuntarMovimientosState = ActionStateMovimientos & {
   descuadres?: DescuadreMovimientos[];
-  sinCuentaEnBalance?: { cuenta: string; movimiento: number }[];
+  sinCuentaEnBalance?: { cuenta: string; movimiento: number; bloquea: boolean }[];
   montosIlegibles?: number[];
   /** Contra qué se amarró (para el rechazo y el Excel). */
   base?: BaseAmarre;
@@ -180,12 +180,11 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
       base.tipo === "cierre_diciembre" ? cuentasConBaseDiciembre(cuentasBalance, cierreDiciembre ?? []) : cuentasBalance,
       umbrales.descuadre,
     );
-    if (amarre.descuadres.length > 0 || amarre.sinCuentaEnBalance.length > 0) {
+    // Solo bloquean las cuentas que usa el cruce de impuestos; las demás diferencias se informan.
+    if (amarre.bloqueantes > 0) {
       return {
         ok: false,
-        message: amarre.descuadres.length > 0
-          ? `El movimiento del archivo no amarra con el balance en ${amarre.descuadres.length} cuenta(s). No se guardó nada.`
-          : "El archivo trae cuentas con movimiento que no están en el balance. No se guardó nada.",
+        message: `El movimiento del archivo no amarra con el balance en ${amarre.bloqueantes} cuenta(s) de impuestos. No se guardó nada.`,
         descuadres: amarre.descuadres,
         sinCuentaEnBalance: amarre.sinCuentaEnBalance,
         base,
@@ -251,7 +250,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
       user: usuario.name,
       action: capturaExistente ? "REEMPLAZÓ TERCEROS AGREGADOS" : "AGREGÓ TERCEROS AL BALANCE",
       entity: `Balance #${balance.id}`,
-      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · período confirmado: ${periodoDelArchivo(balance.periodoFin).desde} al ${periodoDelArchivo(balance.periodoFin).hasta} · amarrado contra ${base.tipo === "cierre_diciembre" ? `el cierre de diciembre (balance #${base.balanceId}, ${base.descripcion})` : "el saldo inicial del balance"} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
+      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · período confirmado: ${periodoDelArchivo(balance.periodoFin).desde} al ${periodoDelArchivo(balance.periodoFin).hasta} · amarrado contra ${base.tipo === "cierre_diciembre" ? `el cierre de diciembre (balance #${base.balanceId}, ${base.descripcion})` : "el saldo inicial del balance"} · ${amarre.cuentasAmarradas} cuentas amarradas · ${amarre.descuadres.length} diferencias informativas fuera de impuestos · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
       clientId: balance.clienteId,
     });
     revalidatePath(`/balance/${balance.id}`);
@@ -259,7 +258,12 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
     revalidatePath("/impuestos", "layout");
     return {
       ok: true,
-      message: `Terceros agregados al balance para impuestos: ${amarre.cuentasAmarradas} cuentas amarradas.`,
+      message: amarre.descuadres.length || amarre.sinCuentaEnBalance.length
+        ? `Terceros agregados al balance para impuestos: las cuentas de impuestos amarran. Hay ${amarre.descuadres.length + amarre.sinCuentaEnBalance.length} diferencia(s) informativa(s) en otras cuentas.`
+        : `Terceros agregados al balance para impuestos: ${amarre.cuentasAmarradas} cuentas amarradas.`,
+      descuadres: amarre.descuadres,
+      sinCuentaEnBalance: amarre.sinCuentaEnBalance,
+      base,
       resumen: { cuentas: amarre.cuentasAmarradas, terceros: amarre.terceros, filasUsadas: agregado.filasUsadas, filasSinTercero: agregado.filasSinTercero },
     };
   } catch (e) {
@@ -277,12 +281,13 @@ const DescuadreSchema = z.object({
   debitosArchivo: z.number().finite(),
   creditosBalance: z.number().finite(),
   creditosArchivo: z.number().finite(),
+  bloquea: z.boolean(),
 });
 const ExportarDescuadreSchema = z.object({
   balanceId: z.number().int().positive(),
   archivo: z.string().max(260),
   descuadres: z.array(DescuadreSchema).max(20_000),
-  sinCuentaEnBalance: z.array(z.object({ cuenta: z.string().max(40), movimiento: z.number().finite() })).max(20_000),
+  sinCuentaEnBalance: z.array(z.object({ cuenta: z.string().max(40), movimiento: z.number().finite(), bloquea: z.boolean() })).max(20_000),
   base: z.object({ tipo: z.enum(["inicio_enero", "cierre_diciembre"]), descripcion: z.string().max(300).optional() }).optional(),
 });
 

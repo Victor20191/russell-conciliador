@@ -5,6 +5,7 @@ import {
   balanceAdmiteMovimientos,
   cuentaDelBalance,
   cuentasConBaseDiciembre,
+  esCuentaDeImpuestos,
   detectarFilaEncabezado,
   MapeoMovimientosSchema,
   montoCelda,
@@ -153,7 +154,27 @@ describe("amarrarConBalance", () => {
     agregarFilaMovimiento(a, fila("2408040000", -50, "900715153", "ACCORDE SAS"), MAPEO_DC, 5);
     const r = amarrarConBalance(a, [cuentaBalance("2365750000", -300), cuentaBalance("2367010000", -10000), cuentaBalance("5105060000", 7)], 2000);
     expect(r.descuadres.map((d) => d.cuenta8)).toEqual(["2367010000"]);
-    expect(r.sinCuentaEnBalance).toEqual([{ cuenta: "2408040000", movimiento: -50 }]);
+    expect(r.sinCuentaEnBalance).toEqual([{ cuenta: "2408040000", movimiento: -50, bloquea: true }]);
+  });
+
+  it("fuera de impuestos el descuadre es informativo: no bloquea y sus terceros se guardan", () => {
+    const a = agregado();
+    agregarFilaMovimiento(a, fila("2335950000", -400, "900715153", "ACCORDE SAS"), MAPEO_DC, 5);
+    // 2335950000 mueve −12.819.618 en el balance y −400 en el archivo (una reclasificación que el reporte no trae).
+    const r = amarrarConBalance(a, [cuentaBalance("2365750000", -300), cuentaBalance("2335950000", -12_819_618)], 2000);
+    expect(r.bloqueantes).toBe(0);
+    expect(r.descuadres).toEqual([expect.objectContaining({ cuenta8: "2335950000", bloquea: false })]);
+    expect(r.filas.some((f) => f.cuenta8 === "2335950000" && f.nitTercero === "900715153")).toBe(true);
+    // La misma diferencia en una cuenta de impuestos sí bloquea.
+    expect(amarrarConBalance(a, [cuentaBalance("2365750000", -9000), cuentaBalance("2335950000", -400)], 2000).bloqueantes).toBe(1);
+  });
+
+  it("cuentas de impuestos: por homologación Russell o, sin ella, por la cuenta del cliente", () => {
+    expect(esCuentaDeImpuestos("1355170100", "135517")).toBe(true);
+    expect(esCuentaDeImpuestos("1355180400", "135518")).toBe(false);
+    expect(esCuentaDeImpuestos("2495050000", "249505")).toBe(true);
+    expect(esCuentaDeImpuestos("2408010000", null)).toBe(true);
+    expect(esCuentaDeImpuestos("2205059999", "220505")).toBe(false);
   });
 
   it("dentro de la tolerancia amarra", () => {

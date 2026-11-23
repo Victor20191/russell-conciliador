@@ -16,7 +16,7 @@ export type DatosExcelDescuadre = {
   /** Regla 2 (cierre de diciembre): los débitos y créditos del balance no son del año y no se muestran. */
   conDebitosCreditos: boolean;
   descuadres: readonly DescuadreMovimientos[];
-  sinCuentaEnBalance: readonly { cuenta: string; movimiento: number }[];
+  sinCuentaEnBalance: readonly { cuenta: string; movimiento: number; bloquea: boolean }[];
 };
 
 const FORMATO_PESOS = '#,##0;[Red]-#,##0';
@@ -33,32 +33,35 @@ export async function crearExcelDescuadreMovimientos(d: DatosExcelDescuadre): Pr
   hoja.addRow([]);
 
   const encabezado = hoja.addRow([
-    "Cuenta", "Nombre de la cuenta",
+    "Cuenta", "Nombre de la cuenta", "¿Impide guardar?",
     "Movimiento del balance", "Movimiento del archivo", "Diferencia",
     ...(d.conDebitosCreditos ? ["Débitos del balance", "Débitos del archivo", "Créditos del balance", "Créditos del archivo"] : ["Débitos del archivo", "Créditos del archivo"]),
   ]);
   estiloEncabezado(encabezado);
   for (const [i, x] of d.descuadres.entries()) {
     const fila = hoja.addRow([
-      x.cuenta8, x.nombreCuenta,
+      x.cuenta8, x.nombreCuenta, x.bloquea ? "Sí, cuenta de impuestos" : "No, informativa",
       x.movimientoBalance, x.movimientoArchivo, x.diferencia,
       ...(d.conDebitosCreditos ? [x.debitosBalance, x.debitosArchivo, x.creditosBalance, x.creditosArchivo] : [x.debitosArchivo, x.creditosArchivo]),
     ]);
     if (i % 2 === 1) fila.fill = rellenoMarca(EXCEL.cebra);
-    for (let c = 3; c <= (d.conDebitosCreditos ? 9 : 7); c++) fila.getCell(c).numFmt = FORMATO_PESOS;
-    fila.getCell(5).font = { bold: true };
+    for (let c = 4; c <= (d.conDebitosCreditos ? 10 : 8); c++) fila.getCell(c).numFmt = FORMATO_PESOS;
+    fila.getCell(6).font = { bold: true };
+    if (x.bloquea) fila.getCell(3).font = { bold: true, color: { argb: EXCEL.error } };
   }
   hoja.getColumn(1).width = 14;
   hoja.getColumn(2).width = 48;
-  for (let c = 3; c <= 9; c++) hoja.getColumn(c).width = 20;
+  hoja.getColumn(3).width = 24;
+  for (let c = 4; c <= 10; c++) hoja.getColumn(c).width = 20;
   hoja.views = [{ state: "frozen", ySplit: 6 }];
 
   if (d.sinCuentaEnBalance.length > 0) {
     const otra = wb.addWorksheet("Sin cuenta en el balance");
-    estiloEncabezado(otra.addRow(["Cuenta del archivo", "Movimiento del archivo"]));
-    for (const s of d.sinCuentaEnBalance) otra.addRow([s.cuenta, s.movimiento]).getCell(2).numFmt = FORMATO_PESOS;
+    estiloEncabezado(otra.addRow(["Cuenta del archivo", "Movimiento del archivo", "¿Impide guardar?"]));
+    for (const s of d.sinCuentaEnBalance) otra.addRow([s.cuenta, s.movimiento, s.bloquea ? "Sí, cuenta de impuestos" : "No, informativa"]).getCell(2).numFmt = FORMATO_PESOS;
     otra.getColumn(1).width = 20;
     otra.getColumn(2).width = 22;
+    otra.getColumn(3).width = 24;
   }
 
   return escribirLibroMarca(wb);

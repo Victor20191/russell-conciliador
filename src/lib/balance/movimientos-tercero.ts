@@ -21,6 +21,7 @@ import { parseNumeroFlexible } from "./extraccion/transformar";
 import type { FilaCapturaTercero } from "./staging-tercero";
 
 import { NOMBRE_SIN_TERCERO } from "./movimientos-tercero-constantes";
+import { IMPUESTOS } from "@/lib/impuestos/impuestos-dian";
 
 export { esCapturaDeMovimientos, MENSAJE_SIN_MOVIMIENTOS_ERP, NOMBRE_SIN_TERCERO, ORIGEN_MOVIMIENTOS_ERP } from "./movimientos-tercero-constantes";
 
@@ -285,16 +286,34 @@ export type DescuadreMovimientos = {
   debitosArchivo: number;
   creditosBalance: number;
   creditosArchivo: number;
+  /** Cuenta que usa el cruce de impuestos: su descuadre impide guardar. Las demás son informativas. */
+  bloquea: boolean;
 };
 
 export type ResultadoAmarre = {
   filas: FilaCapturaTercero[];
   descuadres: DescuadreMovimientos[];
   /** Cuentas del archivo (de los grupos que se guardan) que no existen en el balance. */
-  sinCuentaEnBalance: { cuenta: string; movimiento: number }[];
+  sinCuentaEnBalance: { cuenta: string; movimiento: number; bloquea: boolean }[];
   cuentasAmarradas: number;
+  /** Descuadres (o cuentas sin balance) en cuentas de impuestos: si hay alguno no se guarda nada. */
+  bloqueantes: number;
   terceros: number;
 };
+
+/**
+ * ¿La cuenta la usa el cruce de impuestos (Retención, IVA o RST)? Por su homologación Russell (los
+ * prefijos que el cruce lee por tercero: 2365, 2367, 2408, 135517, 135595, 249505) o, sin ella, por
+ * la cuenta del cliente (2365, 2367, 2408). Solo estas impiden guardar si no amarran.
+ */
+export function esCuentaDeImpuestos(cuentaCliente: string, cuenta6Russell: string | null): boolean {
+  const russell = (cuenta6Russell ?? "").replace(/\D/g, "");
+  const cliente = cuentaCliente.replace(/\D/g, "");
+  return IMPUESTOS.some((i) =>
+    (russell !== "" && i.cruce.prefijosTercero.some((p) => russell.startsWith(p)))
+    || i.cruce.prefijosCliente.some((p) => cliente.startsWith(p))
+    || (russell === "" && i.cruce.prefijosTercero.some((p) => cliente.startsWith(p))));
+}
 
 /**
  * Cuenta del balance a la que pertenece una del archivo: la misma o, si el balance llega a menos
@@ -313,7 +332,8 @@ export function cuentaDelBalance(cuenta: string, cuentasBalance: readonly string
  * Liga el agregado con el balance (cuenta, nombre y homologación de la cuenta del balance) y
  * comprueba el amarre: por cada cuenta de los grupos que se guardan, el movimiento neto del archivo
  * debe igualar el del balance dentro de `tolerancia`. Una cuenta del balance con movimiento que no
- * está en el archivo también descuadra.
+ * está en el archivo también descuadra. Solo bloquean las cuentas de impuestos (`esCuentaDeImpuestos`);
+ * las demás se informan y sus terceros se guardan.
  */
 export function amarrarConBalance(agregado: AgregadoMovimientos, balance: readonly CuentaBalanceAmarre[], tolerancia: number): ResultadoAmarre {
   const delBalance = balance.filter((b) => conservaDetalleTercero(b.cuenta8.replace(/\D/g, "")));
@@ -327,7 +347,7 @@ export function amarrarConBalance(agregado: AgregadoMovimientos, balance: readon
     const destino = cuentaDelBalance(cuenta, codigos);
     if (!destino) {
       const movimiento = redondear([...terceros.values()].reduce((s, t) => s + t.debitos - t.creditos, 0));
-      sinCuentaEnBalance.push({ cuenta, movimiento });
+      sinCuentaEnBalance.push({ cuenta, movimiento, bloquea: esCuentaDeImpuestos(cuenta, null) });
       continue;
     }
     const acumulado = porCuentaBalance.get(destino) ?? new Map<string, TerceroMovimientos>();
@@ -356,13 +376,16 @@ export function amarrarConBalance(agregado: AgregadoMovimientos, balance: readon
     const diferencia = redondear(movimientoBalance - movimientoArchivo);
     if (terceros.length === 0 && movimientoBalance === 0) continue;
     if (Math.abs(diferencia) > tolerancia) {
+      const bloquea = esCuentaDeImpuestos(codigo, b.cuenta6Russell);
       descuadres.push({
         cuenta8: b.cuenta8, nombreCuenta: b.nombreCuenta, movimientoBalance, movimientoArchivo, diferencia,
-        debitosBalance: b.debitos, debitosArchivo, creditosBalance: b.creditos, creditosArchivo,
+        debitosBalance: b.debitos, debitosArchivo, creditosBalance: b.creditos, creditosArchivo, bloquea,
       });
-      continue;
+      // Fuera de impuestos el descuadre es informativo: sus terceros se guardan igual (ningún cruce los usa).
+      if (bloquea) continue;
+    } else {
+      cuentasAmarradas += 1;
     }
-    cuentasAmarradas += 1;
     for (const t of terceros) {
       const debitos = redondear(t.debitos);
       const creditos = redondear(t.creditos);
@@ -375,11 +398,14 @@ export function amarrarConBalance(agregado: AgregadoMovimientos, balance: readon
       });
     }
   }
+  const sinCuenta = sinCuentaEnBalance.filter((s) => s.movimiento !== 0).sort((a, b) => a.cuenta.localeCompare(b.cuenta));
   return {
     filas,
-    descuadres,
-    sinCuentaEnBalance: sinCuentaEnBalance.filter((s) => s.movimiento !== 0).sort((a, b) => a.cuenta.localeCompare(b.cuenta)),
+    // Primero los que bloquean.
+    descuadres: [...descuadres.filter((d) => d.bloquea), ...descuadres.filter((d) => !d.bloquea)],
+    sinCuentaEnBalance: sinCuenta,
     cuentasAmarradas,
+    bloqueantes: descuadres.filter((d) => d.bloquea).length + sinCuenta.filter((x) => x.bloquea).length,
     terceros: filas.length,
   };
 }

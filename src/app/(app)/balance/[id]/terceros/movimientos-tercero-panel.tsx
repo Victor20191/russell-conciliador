@@ -68,6 +68,7 @@ export function MovimientosTerceroPanel({
   const [paso, setPaso] = useState<Paso>({ tipo: "inicio" });
   const [confirmaPeriodo, setConfirmaPeriodo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
+  const [guardadoConDiferencias, setGuardadoConDiferencias] = useState<AdjuntarMovimientosState | null>(null);
   const [quitarAbierto, setQuitarAbierto] = useState(false);
   const [quitando, startQuitar] = useTransition();
 
@@ -110,10 +111,13 @@ export function MovimientosTerceroPanel({
     const r = await adjuntarMovimientosTercero({ balanceId, archivoLoteId: loteId, mapeo, confirmaPeriodo });
     if (r.ok) {
       notifySuccess("Terceros agregados", r.message);
+      // Con diferencias informativas (fuera de impuestos) la tabla se queda a la vista para exportarla.
+      setGuardadoConDiferencias(r.descuadres?.length || r.sinCuentaEnBalance?.length ? r : null);
       setPaso({ tipo: "inicio" });
       router.refresh();
       return;
     }
+    setGuardadoConDiferencias(null);
     if (r.descuadres?.length || r.sinCuentaEnBalance?.length || r.montosIlegibles?.length) {
       setPaso({ tipo: "rechazo", loteId, vista, mapeo, resultado: r });
     } else {
@@ -209,6 +213,7 @@ export function MovimientosTerceroPanel({
         />
       )}
       {paso.tipo === "rechazo" && <RechazoAmarre resultado={paso.resultado} balanceId={balanceId} archivo={nombreArchivo} baseAmarre={baseAmarre} />}
+      {paso.tipo === "inicio" && guardadoConDiferencias && <RechazoAmarre resultado={guardadoConDiferencias} balanceId={balanceId} archivo={nombreArchivo} baseAmarre={baseAmarre} />}
 
       <Modal
         open={quitarAbierto}
@@ -362,9 +367,9 @@ function RechazoAmarre({ resultado, balanceId, archivo, baseAmarre }: { resultad
     URL.revokeObjectURL(url);
   });
   return (
-    <div role="alert" className="mt-3 rounded-md border border-err-200 bg-err-50 px-4 py-3">
+    <div role={resultado.ok ? "status" : "alert"} className={`mt-3 rounded-md border px-4 py-3 ${resultado.ok ? "border-warn-200 bg-white" : "border-err-200 bg-err-50"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-err-700"><Icon name="warn" size={14} /> {resultado.message}</p>
+        <p className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold ${resultado.ok ? "text-warn-700" : "text-err-700"}`}><Icon name={resultado.ok ? "info" : "warn"} size={14} /> {resultado.message}</p>
         {hayTabla && (
           <button type="button" className={BOTON} disabled={exportando} onClick={exportar}>
             {exportando ? <EstadoProcesando>Exportando</EstadoProcesando> : <><Icon name="download" size={14} /> Exportar a Excel</>}
@@ -380,6 +385,7 @@ function RechazoAmarre({ resultado, balanceId, archivo, baseAmarre }: { resultad
             <thead>
               <tr className="border-b border-err-200 text-left text-ink-600">
                 <th className="px-2 py-1">Cuenta</th>
+                <th className="px-2 py-1">¿Impide guardar?</th>
                 <th className="px-2 py-1 text-right">Movimiento del balance</th>
                 <th className="px-2 py-1 text-right">Movimiento del archivo</th>
                 <th className="px-2 py-1 text-right">Diferencia</th>
@@ -389,6 +395,7 @@ function RechazoAmarre({ resultado, balanceId, archivo, baseAmarre }: { resultad
               {resultado.descuadres.map((d) => (
                 <tr key={d.cuenta8} className="border-b border-err-100 text-ink-800">
                   <td className="px-2 py-1">{d.cuenta8} · {d.nombreCuenta}</td>
+                  <td className={`px-2 py-1 ${d.bloquea ? "font-semibold text-err-700" : "text-ink-500"}`}>{d.bloquea ? "Sí, cuenta de impuestos" : "No, informativa"}</td>
                   <td className="px-2 py-1 text-right tabular-nums">{fmt(d.movimientoBalance)}</td>
                   <td className="px-2 py-1 text-right tabular-nums">{fmt(d.movimientoArchivo)}</td>
                   <td className="px-2 py-1 text-right font-semibold tabular-nums">{fmt(d.diferencia)}</td>
@@ -401,10 +408,14 @@ function RechazoAmarre({ resultado, balanceId, archivo, baseAmarre }: { resultad
       ) : null}
       {resultado.sinCuentaEnBalance?.length ? (
         <p className="mt-2 text-[12px] text-ink-700">
-          Cuentas del archivo que no están en el balance: {resultado.sinCuentaEnBalance.map((s) => `${s.cuenta} (${fmt(s.movimiento)})`).join(", ")}.
+          Cuentas del archivo que no están en el balance: {resultado.sinCuentaEnBalance.map((s) => `${s.cuenta} (${fmt(s.movimiento)}${s.bloquea ? ", de impuestos" : ""})`).join(", ")}.
         </p>
       ) : null}
-      <p className="mt-2 text-[12px] text-ink-700">No se guardó nada. Corrige el mapeo y vuelve a leer, o pide al cliente el reporte completo del período.</p>
+      <p className="mt-2 text-[12px] text-ink-700">
+        {resultado.ok
+          ? "Solo impiden guardar las cuentas que usa el cruce de impuestos (2365, 2367, 2408, 135517, 135595 y 249505); estas diferencias son de otras cuentas y quedan como información."
+          : "No se guardó nada: no amarra al menos una cuenta que usa el cruce de impuestos. Corrige el mapeo y vuelve a leer, o pide al cliente el reporte completo del período. Las diferencias marcadas «No, informativa» no impiden guardar."}
+      </p>
     </div>
   );
 }
