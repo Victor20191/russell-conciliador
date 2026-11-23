@@ -237,6 +237,36 @@ export function columnaIdentificadorPorContenido(
   return mejor;
 }
 
+/**
+ * Columna (1-based) del identificador del tercero cuando su ENCABEZADO quedó corrido una columna a
+ * la izquierda de sus datos, o 0 si no hay evidencia. En el reporte por edades de SIESA «SBS
+ * 1.25.0» (CxP de MINERALIN, sep/2026) «Código» va en A y «Descripción» en B, pero los códigos
+ * —cuenta con «#Ter.» y NIT— van en B y los nombres en C: el reparto por encabezado dejaba el NIT
+ * en una columna sin un solo identificador y ninguna fila sumaba.
+ *
+ * Solo se mueve si la columna mapeada no trae NINGÚN identificador en los datos (un «Total» o el
+ * pie del ERP no cuentan) y la de su derecha, sin rol ni familia, trae al menos cinco y son la
+ * mayoría de lo que tiene.
+ */
+export function columnaIdentificadorCorrida(
+  hoja: GridHoja,
+  filaEncabezado: number,
+  columnas: Readonly<Record<string, number>>,
+  reservadas: ReadonlySet<number>,
+  rolIdentificador: string,
+  maxValores = 400,
+): number {
+  const col = columnas[rolIdentificador] ?? 0;
+  if (col < 1) return 0;
+  const vecina = col + 1;
+  if (reservadas.has(vecina) || Object.values(columnas).includes(vecina)) return 0;
+  const valores = (c: number) => muestraColumna(hoja, filaEncabezado + 1, c, maxValores).filter((v) => !esIdentificadorVacio(v));
+  if (valores(col).some(esCedula)) return 0;
+  const enVecina = valores(vecina);
+  const identificadores = enVecina.filter(esCedula).length;
+  return identificadores >= 5 && identificadores / enVecina.length >= 0.5 ? vecina : 0;
+}
+
 /** ¿Algún texto de la fila es un rótulo de total («Total», «TOTAL PROVEEDOR», «Total general»)? */
 const esFilaConRotuloTotal = (fila: readonly unknown[]): boolean =>
   fila.some((c) => typeof c === "string" && /^\s*(?:sub\s*)?totale?s?\b/i.test(c));
@@ -454,6 +484,11 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
 
   // Identificador del tercero por CONTENIDO cuando ningún encabezado lo nombró (SIESA).
   const rolIdentificador = descriptor.crucePorTercero.rolClave;
+  // Encabezado del identificador corrido una columna a la izquierda de sus datos (SIESA «SBS 1.25.0»).
+  if (descriptor.crucePorTercero.detalleTercero && rolIdentificador) {
+    const corrida = columnaIdentificadorCorrida(hoja, filaEncabezado, columnas, reservadas, rolIdentificador);
+    if (corrida >= 1) columnas[rolIdentificador] = corrida;
+  }
   if (descriptor.crucePorTercero.detalleTercero && rolIdentificador && (columnas[rolIdentificador] ?? 0) < 1) {
     const col = columnaIdentificadorPorContenido(hoja, filaEncabezado, columnas, reservadas);
     if (col >= 1) columnas[rolIdentificador] = col;

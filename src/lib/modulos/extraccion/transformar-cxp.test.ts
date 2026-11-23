@@ -146,6 +146,45 @@ describe("CxP · encabezado bajo filas de metadatos (SIESA)", () => {
   });
 });
 
+describe("CxP · SIESA «SBS 1.25.0»: el encabezado del código va una columna a la izquierda de sus datos", () => {
+  // CxP de MINERALIN a sep/2026: «Código» en A y «Descripción» en B, pero los códigos van en B y
+  // los nombres en C. Con el NIT en A ninguna fila tenía proveedor y nada sumaba.
+  const filas: (string | number | null)[][] = [
+    [null, null, null, null, null, null, null, "Reporte de vencimiento por edades CxP"],
+    ["Código", "Descripción", null, null, "#Ter.", null, "Corriente", "De 1 a 30", "De 31 a 60", null, "Total"],
+    [null, "13300501            ", " ANTICIPO A PROVEEDORES", null, 2, null, -300, 0, 0, null, -300],
+    [null, "1001367792          ", "  ESCOBAR PATIÑO ALMA", null, null, null, -100, 0, 0, null, -100],
+    [null, "1033656697          ", "  LOPEZ VASQUEZ CINDY", null, null, null, -200, 0, 0, null, -200],
+    [null, "22050501            ", " PROVEEDORES NACIONALES", null, 4, null, 1200, 500, 100, null, 1800],
+    [null, "800056174           ", "  LABORATORIOS LONDON", null, null, null, 1000, 0, 0, null, 1000],
+    [null, "800131750           ", "  INDUSTRIAS CORY SAS", null, null, null, 0, 500, 0, null, 500],
+    [null, "811004655           ", "  ACRILICOS COLOMBIA SAS", null, null, null, 300, 0, 0, null, 300],
+    [null, "98541007            ", "  GALEANO MACHADO SERGIO", null, null, null, -100, 0, 100, null, 0],
+    ["Total", null, null, null, null, null, 900, 500, 100, null, 1500],
+    ["SBS 1.25.0", null, null, null, null, null, null, null, null, null, null, null, null, "Pág.", 1, "/ ", 1],
+  ];
+
+  it("el sugeridor toma el NIT de la columna con los códigos y el archivo suma", () => {
+    const h = hoja(filas);
+    const spec = sugerirSpec(CXP, h);
+    expect(spec.columnas).toMatchObject({ nit: 2, marcaSeccion: 5, total: 11 });
+    const movs = movimientos(transformarModulo(CXP, spec, h));
+    expect(movs).toHaveLength(6);
+    expect(movs.reduce((s, f) => s + f.valor, 0)).toBe(1500);
+    expect(movs.map((f) => f.clasificador)).toEqual(["13300501", "13300501", "22050501", "22050501", "22050501", "22050501"]);
+    expect(movs[0].datos).toMatchObject({ nit: "1001367792", nombre: "ESCOBAR PATIÑO ALMA" });
+  });
+
+  it("no mueve el NIT si su columna trae identificadores o si la vecina no los trae", () => {
+    // Encabezado alineado: el NIT se queda en A.
+    const alineado = filas.map((f) => (f[0] == null && typeof f[1] === "string" ? [f[1], f[2], null, null, ...f.slice(4)] : f));
+    expect(sugerirSpec(CXP, hoja(alineado)).columnas.nit).toBe(1);
+    // La vecina trae nombres, no códigos: no hay de dónde sacar el NIT.
+    const soloNombres = filas.map((f, i) => (i >= 2 && f[0] == null ? [null, f[2], null, null, ...f.slice(4)] : f));
+    expect(sugerirSpec(CXP, hoja(soloNombres)).columnas.nit).toBe(1);
+  });
+});
+
 describe("CxP · un resumen por proveedor no es un saldo de bloque", () => {
   it("edades que se compensan en cero no cuentan como documentos sin saldo (Mineralin)", () => {
     const filas: (string | number | null)[][] = [["Código", "Nombre", "Corriente", "De 1 a 90", "Total"]];
