@@ -1535,6 +1535,8 @@ model MarcaCruceModulo {
   noModulares               CuentaNoModularCruce[]
   clasificadoresNoModulares ClasificadorNoModularCruce[]
   relacionTerceros          RelacionMarcaTercero?
+  /// Otros renglones que explica esta misma marca (23/Nov/2026), cada uno con su monto.
+  renglonesCompartidos      RenglonMarcaCruce[]
 
   @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
   @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
@@ -1613,6 +1615,36 @@ model TerceroRelacionMarca {
   @@unique([clienteId, moduloCodigo, periodo, clave], map: "tercero_relacion_marca_unico")
   @@index([relacionId], map: "tercero_relacion_marca_relacion_idx")
   @@map("tercero_relacion_marca")
+}
+
+/// RENGLÓN COMPARTIDO de una marca del cruce (23/Nov/2026, pedido del usuario): una misma marca explica
+/// la diferencia de varios renglones de la cédula contable. La marca vive en su renglón
+/// (`MarcaCruceModulo.cuenta4`); aquí van los OTROS renglones, cada uno con el monto que la marca
+/// explica en él y la diferencia que tenía cuando se agregó. La nota, la referencia del anexo y los
+/// soportes son los de la marca. Se borran con ella (cascada). `dimension` deja abierto el control
+/// de deducciones (`control`, con la cuenta del cliente en `renglon`).
+model RenglonMarcaCruce {
+  id            Int              @id @default(autoincrement()) @map("id")
+  marcaId       Int              @map("marca_id")
+  clienteId     Int              @map("cliente_id")
+  moduloCodigo  String           @map("modulo_codigo")
+  periodo       String           @map("periodo")
+  /// `cuenta4` (un renglón de la cédula contable).
+  dimension     String           @default("cuenta4") @map("dimension")
+  /// La clave del renglón: la de la cédula (cuenta Russell o grupo «130505+280505»).
+  renglon       String           @map("renglon")
+  /// Lo que la marca explica en este renglón, con su signo.
+  monto         Decimal          @map("monto") @db.Decimal(18, 2)
+  /// La cifra del renglón cuando se agregó (constancia).
+  diferencia    Decimal          @map("diferencia") @db.Decimal(18, 2)
+  agregadoPor   String?          @map("agregado_por")
+  agregadoPorId Int?             @map("agregado_por_id")
+  agregadoEn    DateTime         @default(now()) @map("agregado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+
+  @@unique([marcaId, dimension, renglon], map: "renglon_marca_cruce_unico")
+  @@index([clienteId, moduloCodigo, periodo], map: "renglon_marca_cruce_periodo_idx")
+  @@map("renglon_marca_cruce")
 }
 
 model AdjuntoMarcaCruce {

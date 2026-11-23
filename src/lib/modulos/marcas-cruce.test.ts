@@ -12,6 +12,7 @@ import {
   anotarCruceConMarcas,
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
+  expandirMarcaCompartida,
   totalNoContabilizado,
   destinosMarcaSinRenglon,
   diferenciaAjustadaModulo,
@@ -350,6 +351,46 @@ describe("varias marcas por renglón, cada una con su monto", () => {
       anotarControlConMarcas([fila], montos.map((monto, i) => marca({ dimension: "control", cuenta4: "", clave: "237005", numero: i + 1, diferencia: 300, monto })));
     expect(dos([200, 100]).filas[0]).toMatchObject({ explicado: 300, desactualizada: false });
     expect(dos([200, 99.98]).filas[0]).toMatchObject({ desactualizada: true, porExplicar: 0.02 });
+  });
+});
+
+describe("una misma marca en varios renglones", () => {
+  const dif1435 = 4_120_895_928.4;
+  const dif1405 = -988_836_804.4;
+
+  it("se reparte en una entrada por renglón: la propia y una copia con el monto de cada uno", () => {
+    const propia = marca({ cuenta4: "1435", numero: 1, diferencia: dif1435, monto: dif1435, noModulares: [{ cuenta8: "143599", nombre: "X", valorAlMarcar: 1 }] });
+    const [principal, copia] = expandirMarcaCompartida(propia, [{ renglon: "1405", monto: dif1405, diferencia: dif1405 }]);
+    expect(principal).toMatchObject({ cuenta4: "1435", monto: dif1435, compartidaEn: [{ renglon: "1405", monto: dif1405 }] });
+    expect(copia).toMatchObject({ cuenta4: "1405", numero: 1, nota: propia.nota, monto: dif1405, diferencia: dif1405, compartidaDe: "1435", noModulares: [] });
+    expect(copia.compartidaEn).toBeUndefined();
+    expect(expandirMarcaCompartida(propia, [])).toEqual([propia]);
+  });
+
+  it("cada renglón queda explicado con lo que la marca explica en él", () => {
+    const marcas = expandirMarcaCompartida(
+      marca({ cuenta4: "1435", numero: 1, diferencia: dif1435, monto: dif1435 }),
+      [{ renglon: "1405", monto: dif1405, diferencia: dif1405 }],
+    );
+    const { filas, resumen } = anotarCruceConMarcas(cruce(), marcas);
+    expect(filas.find((f) => f.cuenta4 === "1435")).toMatchObject({ explicado: dif1435, desactualizada: false });
+    expect(filas.find((f) => f.cuenta4 === "1405")).toMatchObject({ explicado: dif1405, desactualizada: false });
+    expect(filas.find((f) => f.cuenta4 === "1405")!.marcas.map((m) => m.numero)).toEqual([1]);
+    expect(resumen).toMatchObject({ marcadas: 2, desactualizadas: 0 });
+  });
+
+  it("observaciones: la marca se lee una vez, en su renglón o, sin él, donde se comparte", () => {
+    const { filas } = anotarCruceConMarcas(cruce(), expandirMarcaCompartida(
+      marca({ cuenta4: "1435", numero: 1, diferencia: dif1435, monto: dif1435 }),
+      [{ renglon: "1405", monto: dif1405, diferencia: dif1405 }],
+    ));
+    expect(observacionesDeMarcas(filas).map((o) => [o.marca.numero, o.fila.cuenta4, o.marca.compartidaDe ?? null])).toEqual([[1, "1435", null]]);
+    // Su renglón ya no está en el cruce: queda la observación del renglón donde se comparte.
+    const huerfana = anotarCruceConMarcas(cruce(), expandirMarcaCompartida(
+      marca({ cuenta4: "9999", numero: 4, diferencia: 5, monto: 5 }),
+      [{ renglon: "1405", monto: dif1405, diferencia: dif1405 }],
+    ));
+    expect(observacionesDeMarcas(huerfana.filas).map((o) => [o.marca.numero, o.fila.cuenta4, o.marca.compartidaDe])).toEqual([[4, "1405", "9999"]]);
   });
 });
 

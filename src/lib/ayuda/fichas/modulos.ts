@@ -663,6 +663,14 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
                 regla: REGLAS.editarModulo,
               },
               {
+                nombre: "Usar una marca que ya existe",
+                queHace:
+                  "Al agregar una marca a un renglón, en vez de crear otra se elige una marca de otro renglón de la cédula: explica también este renglón con el monto que se indique (viene propuesto con lo que falta), con la misma nota, referencia y soportes. En Observaciones se lee una sola vez, con todos sus renglones y la suma; desde ahí se cambia lo que explica en cada renglón o se quita de uno sin borrar la marca. Retirar la marca la quita de todos sus renglones.",
+                regla: REGLAS.editarModulo,
+                condiciones: ["No en el renglón del saldo sin cuenta.", "No con la conciliación en firme."],
+                fuente: { archivo: ACCIONES_MODULOS, funcion: "usarMarcaEnRenglon" },
+              },
+              {
                 nombre: "Control de deducciones",
                 queHace:
                   "Los conceptos que van a cuentas de pasivo, activo o ingreso del cliente, comparados con su saldo; toda diferencia necesita marcas que la expliquen al centavo para cerrar. Cada renglón admite varias marcas, cada una con su monto. La diferencia lleva el «!» y el aviso de la tarjeta dice cuántas exigen marca y cuántas la tienen.",

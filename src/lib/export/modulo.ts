@@ -255,7 +255,7 @@ export type CruceTerceroExportModulo = {
   /** Con las marcas de cada tercero cuando las tiene (cada una con lo que explica). */
   resumen: Omit<ResumenCruceTerceroCartera, "filas"> & {
     filas: (FilaCruceTerceroCartera & {
-      marcas?: readonly { numero: number; nota: string; monto?: number; diferencia: number }[];
+      marcas?: readonly { numero: number; nota: string; monto?: number; diferencia: number; compartidaDe?: string }[];
       /** Relacionado con una marca existente del período: la explica por esta diferencia. */
       relacion?: { numero: number; diferencia: number } | null;
     })[];
@@ -324,7 +324,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
         f.emparejadoDesde.length > 0 ? `Emparejado con ${f.emparejadoDesde.join(", ")} del auxiliar` : null,
         f.incluyeContable.length > 0 ? `Suma ${f.incluyeContable.join(", ")} de la contabilidad (mismo tercero con otro NIT)` : null,
         f.separadoDe.length > 0 ? `Separado por el auditor de ${f.separadoDe.join(", ")} del auxiliar` : null,
-        ...(f.marcas ?? []).map((m) => `Marca ${m.numero} (${fmtContable(m.monto ?? m.diferencia)}): ${m.nota}`),
+        ...(f.marcas ?? []).map((m) => `Marca ${m.numero} (${fmtContable(m.monto ?? m.diferencia)})${m.compartidaDe ? ` · compartida con ${m.compartidaDe}` : ""}: ${m.nota}`),
         f.relacion ? `Relacionado con la marca ${f.relacion.numero} (${fmtContable(f.relacion.diferencia)})` : null,
       ].filter(Boolean).join(" · ") || null,
     });

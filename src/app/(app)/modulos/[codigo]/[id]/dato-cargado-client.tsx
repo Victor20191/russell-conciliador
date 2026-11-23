@@ -19,6 +19,8 @@ import {
   guardarClaseAgrupador,
   guardarMarcaCruce,
   quitarMarcaCruce,
+  usarMarcaEnRenglon,
+  quitarMarcaDeRenglon,
   cerrarConciliacionModulo,
   desbloquearConciliacion,
   consultarCuentasRussell,
@@ -2709,6 +2711,8 @@ function CruceContableTab({
     });
   // Grupos («Agrupada») con la lista de sus conceptos desplegada.
   const [gruposAbiertos, setGruposAbiertos] = useState<Set<string>>(() => new Set());
+  // Marca compartida cuyo monto en otro renglón se está cambiando.
+  const [editandoCompartida, setEditandoCompartida] = useState<{ numero: number; fila: FilaCruceMarcada; monto: number } | null>(null);
   const alternarGrupo = (cuenta4: string) =>
     setGruposAbiertos((previos) => {
       const siguiente = new Set(previos);
@@ -2852,6 +2856,24 @@ function CruceContableTab({
       router.refresh();
     });
   };
+
+  // Una marca en varios renglones: cambiar lo que explica en otro renglón, o quitarla de él.
+  const quitarCompartida = (numero: number, cuenta4: string) => {
+    startQuitar(async () => {
+      const r = await quitarMarcaDeRenglon({ encabezadoId, numero, cuenta4 });
+      if (r.ok) notifySuccess(r.message ?? "Marca quitada del renglón.");
+      else notifyError(r.message ?? "No se pudo quitar la marca del renglón.");
+      router.refresh();
+    });
+  };
+  const filaDeRenglon = (cuenta4: string) => filasMarcadas.find((f) => f.cuenta4 === cuenta4) ?? null;
+  // Las marcas de la cédula que se pueden usar también en `fila`: las que no están ya en ella.
+  const marcasCompartiblesPara = (fila: FilaCruceMarcada): MarcaCompartible[] =>
+    fila.cuenta4 === CLAVE_SIN_CUENTA
+      ? []
+      : observaciones
+          .filter((o) => o.marca.compartidaDe == null && o.fila.cuenta4 !== CLAVE_SIN_CUENTA && !fila.marcas.some((m) => m.numero === o.marca.numero))
+          .map((o) => ({ numero: o.marca.numero, renglon: etiquetaFilaCruce(o.fila), nota: o.marca.nota, monto: montoDeMarca(o.marca) }));
 
   // Marca del período cuyo renglón ya no aparece (sus cuentas se agruparon, cambió el mapeo): se
   // edita pasándola al renglón que hoy contiene sus cuentas, o se retira.
@@ -3241,6 +3263,9 @@ function CruceContableTab({
         onQuitar={quitar}
         relacionesTerceros={relacionesTerceros}
         onIrTerceros={onIrTerceros}
+        renglonDe={filaDeRenglon}
+        onEditarCompartida={(numero, fila, monto) => setEditandoCompartida({ numero, fila, monto })}
+        onQuitarCompartida={quitarCompartida}
       />
 
       {cruceContable.nomina?.control && (cruceContable.controlMarcado?.length ?? 0) > 0 && (
@@ -3292,9 +3317,23 @@ function CruceContableTab({
           hijosSinCuenta={marcando.fila.cuenta4 === CLAVE_SIN_CUENTA ? hijosSinCuenta : undefined}
           descripcionDeClasificador={descripcionDeClasificador}
           encabezadoId={encabezadoId}
+          marcasCompartibles={marcando.marca ? [] : marcasCompartiblesPara(marcando.fila)}
           onClose={() => setMarcando(null)}
           onGuardado={() => {
             setMarcando(null);
+            router.refresh();
+          }}
+        />
+      )}
+      {editandoCompartida && (
+        <ModalMontoCompartido
+          numero={editandoCompartida.numero}
+          fila={editandoCompartida.fila}
+          montoActual={editandoCompartida.monto}
+          encabezadoId={encabezadoId}
+          onClose={() => setEditandoCompartida(null)}
+          onGuardado={() => {
+            setEditandoCompartida(null);
             router.refresh();
           }}
         />
@@ -4162,6 +4201,9 @@ function ObservacionesMarcas({
   onQuitar,
   relacionesTerceros = [],
   onIrTerceros,
+  renglonDe,
+  onEditarCompartida,
+  onQuitarCompartida,
 }: {
   observaciones: ObservacionDeMarca<FilaCruceMarcada>[];
   /** Las demás marcas del período (cruce por tercero, o sin renglón), citadas en su lugar. */
@@ -4184,6 +4226,10 @@ function ObservacionesMarcas({
   onQuitar: (observacion: ObservacionDeMarca<FilaCruceMarcada>) => void;
   relacionesTerceros?: RelacionMarcaTercerosVm[];
   onIrTerceros?: () => void;
+  /** La fila del cruce de un renglón (para los renglones donde se comparte una marca). */
+  renglonDe?: (cuenta4: string) => FilaCruceMarcada | null;
+  onEditarCompartida?: (numero: number, fila: FilaCruceMarcada, monto: number) => void;
+  onQuitarCompartida?: (numero: number, cuenta4: string) => void;
 }) {
   const entradas = intercalarObservaciones(observaciones, (o) => o.marca.numero, referencias);
   return (
@@ -4234,6 +4280,13 @@ function ObservacionesMarcas({
               onQuitar={() => onQuitar(entrada.item)}
               relacion={relacionesTerceros.find((r) => r.numero === entrada.item.marca.numero) ?? null}
               onIrTerceros={onIrTerceros}
+              compartidas={(entrada.item.marca.compartidaEn ?? []).map((c) => ({ ...c, fila: renglonDe?.(c.renglon) ?? null }))}
+              onEditarCompartida={onEditarCompartida ? (renglon) => {
+                const fila = renglonDe?.(renglon);
+                const compartida = entrada.item.marca.compartidaEn?.find((c) => c.renglon === renglon);
+                if (fila && compartida) onEditarCompartida(entrada.item.marca.numero, fila, compartida.monto);
+              } : undefined}
+              onQuitarCompartida={onQuitarCompartida ? (renglon) => onQuitarCompartida(entrada.item.marca.numero, renglon) : undefined}
             />
           ))}
         </ol>
@@ -4254,6 +4307,9 @@ function ObservacionMarca({
   onQuitar,
   relacion = null,
   onIrTerceros,
+  compartidas = [],
+  onEditarCompartida,
+  onQuitarCompartida,
 }: {
   fila: FilaCruceMarcada;
   marca: MarcaCruce;
@@ -4266,13 +4322,18 @@ function ObservacionMarca({
   /** Terceros del cruce por tercero relacionados con esta marca. */
   relacion?: RelacionMarcaTercerosVm | null;
   onIrTerceros?: () => void;
+  /** Los otros renglones de la cédula donde se usa esta marca, con su fila si sigue en el cruce. */
+  compartidas?: { renglon: string; monto: number; diferencia: number; fila: FilaCruceMarcada | null }[];
+  onEditarCompartida?: (renglon: string) => void;
+  onQuitarCompartida?: (renglon: string) => void;
 }) {
+  const pendiente = fila.desactualizada || compartidas.some((c) => c.fila?.desactualizada);
   return (
     <li id={anclaObservacionMarca(marca.numero)} className="flex gap-3 px-3 py-3 scroll-mt-24">
       <div className="pt-0.5">
         <InsigniaMarca
           numero={marca.numero}
-          tono={fila.desactualizada ? "warn" : "ok"}
+          tono={pendiente ? "warn" : "ok"}
           titulo={`Marca ${marca.numero}`}
         />
       </div>
@@ -4294,6 +4355,60 @@ function ObservacionMarca({
           {!fila.admiteMarca && <Chip label="Ya cuadra" tone="ok" />}
           {fila.admiteMarca && !fila.requiereMarca && <Chip label="Dentro de la tolerancia · marca opcional" tone="ink" />}
         </div>
+
+        {marca.compartidaDe != null && (
+          <p className="text-[11.5px] text-ink-500">
+            La marca se escribió en R - {marca.compartidaDe}, que ya no aparece en el cruce; aquí se lee en el renglón donde se usa.
+          </p>
+        )}
+        {compartidas.length > 0 && (
+          <div className="rounded-md border border-blue-100 bg-blue-50/60 px-2.5 py-1.5">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-navy-700">También explica</div>
+            <ul className="mt-0.5 flex flex-col gap-0.5">
+              {compartidas.map((c) => (
+                <li key={c.renglon} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+                  <span className="font-semibold text-ink-800">{c.fila ? etiquetaFilaCruce(c.fila) : `R - ${c.renglon} (ya no aparece en el cruce)`}</span>
+                  <span className="tabular-nums text-ink-700">Explica {fmtContable(c.monto)}</span>
+                  {c.fila && (
+                    <span className={`text-[11.5px] tabular-nums ${c.fila.cuadra ? "text-ok-700" : "text-err-700"}`}>de {fmtContable(c.fila.porExplicar + c.fila.explicado)}</span>
+                  )}
+                  {c.fila?.desactualizada && <Chip label={`Por explicar ${fmtContable(c.fila.porExplicar)}`} tone="warn" />}
+                  {puedeEditar && (
+                    <span className="inline-flex items-center gap-0.5">
+                      {c.fila && onEditarCompartida && (
+                        <button
+                          type="button"
+                          onClick={() => onEditarCompartida(c.renglon)}
+                          title="Cambiar lo que explica la marca en este renglón"
+                          aria-label={`Cambiar lo que explica la marca en R - ${c.renglon}`}
+                          className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+                        >
+                          <Icon name="edit" size={12} />
+                        </button>
+                      )}
+                      {onQuitarCompartida && (
+                        <button
+                          type="button"
+                          onClick={() => onQuitarCompartida(c.renglon)}
+                          disabled={ocupado}
+                          title="Quitar la marca de este renglón (la marca y sus demás renglones siguen)"
+                          aria-label={`Quitar la marca de R - ${c.renglon}`}
+                          className="rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
+                        >
+                          <Icon name="trash" size={12} />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-1 text-[11px] text-ink-500">
+              Σ de la marca en {compartidas.length + 1} renglones:{" "}
+              <b className="tabular-nums text-ink-700">{fmtContable(compartidas.reduce((s, c) => s + c.monto, montoDeMarca(marca)))}</b>
+            </div>
+          </div>
+        )}
 
         <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>
 
@@ -4353,7 +4468,7 @@ function ObservacionMarca({
             type="button"
             onClick={onQuitar}
             disabled={ocupado}
-            title="Retirar la marca (se lleva sus soportes)"
+            title={compartidas.length > 0 ? `Retirar la marca de sus ${compartidas.length + 1} renglones (se lleva sus soportes)` : "Retirar la marca (se lleva sus soportes)"}
             aria-label="Retirar la marca"
             className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-60"
           >
@@ -4419,9 +4534,94 @@ function ModalElegirRenglonMarca({
   );
 }
 
+/** Una marca de la cédula que se puede usar también en otro renglón. */
+type MarcaCompartible = { numero: number; renglon: string; nota: string; monto: number };
+
+/** «Nueva marca» o «Usar una marca que ya existe» al marcar un renglón de la cédula. */
+function SelectorModoMarca({ modo, onCambiar, cantidad }: { modo: "nueva" | "existente"; onCambiar: (modo: "nueva" | "existente") => void; cantidad: number }) {
+  const opcion = (valor: "nueva" | "existente", etiqueta: string) => (
+    <button
+      type="button"
+      aria-pressed={modo === valor}
+      onClick={() => onCambiar(valor)}
+      className={`rounded-full border px-3 py-1 text-[12px] font-semibold ${modo === valor ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
+    >
+      {etiqueta}
+    </button>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {opcion("nueva", "Nueva marca")}
+      {opcion("existente", `Usar una marca que ya existe (${cantidad})`)}
+    </div>
+  );
+}
+
+/** Cambia lo que explica una marca compartida en uno de sus renglones (la nota se edita en su observación). */
+function ModalMontoCompartido({
+  numero,
+  fila,
+  montoActual,
+  encabezadoId,
+  onClose,
+  onGuardado,
+}: {
+  numero: number;
+  fila: FilaCruceMarcada;
+  montoActual: number;
+  encabezadoId: number;
+  onClose: () => void;
+  onGuardado: () => void;
+}) {
+  const redondear2 = (v: number) => Math.round(v * 100) / 100 + 0;
+  const cifra = redondear2(fila.porExplicar + fila.explicado);
+  const otras = redondear2(fila.explicado - montoActual);
+  const [texto, setTexto] = useState(textoMontoMarca(montoActual));
+  const monto = leerMontoMarca(texto);
+  const [guardando, startGuardar] = useTransition();
+  const guardar = () => {
+    if (monto == null || guardando) return;
+    startGuardar(async () => {
+      const r = await usarMarcaEnRenglon({ encabezadoId, numero, cuenta4: fila.cuenta4, monto });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Monto actualizado.");
+        onGuardado();
+      } else {
+        notifyError(r.message ?? "No se pudo cambiar el monto.");
+      }
+    });
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`${etiquetaMarca(numero)} · ${etiquetaFilaCruce(fila)}`}
+      footer={
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={monto == null || guardando}
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {guardando ? "Guardando…" : "Guardar monto"}
+        </button>
+      }
+    >
+      <div className="flex flex-col gap-2.5">
+        <p className="text-[12px] text-ink-600">
+          La marca {numero} se usa también en este renglón. Aquí solo cambia lo que explica en él; la nota, la referencia y los soportes se
+          editan en su observación.
+        </p>
+        <CampoMontoMarca texto={texto} onCambiar={setTexto} faltante={redondear2(cifra - otras)} cifra={cifra} otras={otras} />
+      </div>
+    </Modal>
+  );
+}
+
 /**
  * Modal para poner una marca a una diferencia (o reescribir una del renglón), con el monto que
- * explica, y adjuntarle soportes. Un renglón puede llevar varias marcas.
+ * explica, y adjuntarle soportes. Un renglón puede llevar varias marcas. Al agregar, ofrece usar
+ * una marca que ya existe en otro renglón de la cédula (una marca, varias diferencias).
  */
 function ModalMarca({
   moduloLabel,
@@ -4432,11 +4632,14 @@ function ModalMarca({
   hijosSinCuenta,
   descripcionDeClasificador,
   encabezadoId,
+  marcasCompartibles = [],
   onClose,
   onGuardado,
 }: {
   moduloLabel: string;
   fila: FilaCruceMarcada;
+  /** Marcas de la cédula que se pueden usar también en este renglón (solo al agregar). */
+  marcasCompartibles?: MarcaCompartible[];
   /** La marca del renglón que se edita; null (o ausente) para agregar una nueva. */
   marca?: MarcaCruce | null;
   /**
@@ -4527,6 +4730,25 @@ function ModalMarca({
   const textoMonto = montoTocado ? montoTexto : textoMontoMarca(faltante);
   const monto = leerMontoMarca(textoMonto);
   const [guardando, startGuardar] = useTransition();
+  // «Usar una marca que ya existe»: esa marca explica también este renglón, con su monto aquí.
+  const puedeUsarExistente = !marca && !origen && marcasCompartibles.length > 0;
+  const [modo, setModo] = useState<"nueva" | "existente">("nueva");
+  const [elegida, setElegida] = useState<number | null>(marcasCompartibles.length === 1 ? marcasCompartibles[0].numero : null);
+  const cifraRenglon = Math.round((fila.porExplicar + fila.explicado) * 100) / 100 + 0;
+  const [montoUsoTexto, setMontoUsoTexto] = useState(textoMontoMarca(fila.porExplicar));
+  const montoUso = leerMontoMarca(montoUsoTexto);
+  const usarExistente = () => {
+    if (elegida == null || montoUso == null || guardando) return;
+    startGuardar(async () => {
+      const r = await usarMarcaEnRenglon({ encabezadoId, numero: elegida, cuenta4: fila.cuenta4, monto: montoUso });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Marca aplicada a este renglón.");
+        onGuardado();
+      } else {
+        notifyError(r.message ?? "No se pudo usar la marca en este renglón.");
+      }
+    });
+  };
   const guardar = () => {
     const texto = nota.trim();
     if (!texto || monto == null || guardando) return;
@@ -4568,6 +4790,55 @@ function ModalMarca({
   const noContabilizadosQueSeLiberan = origen
     ? (origen.clasificadoresNoModulares ?? []).filter((c) => !conceptos.some((x) => x.clasificador === c.clasificador))
     : [];
+  const selectorModo = puedeUsarExistente ? <SelectorModoMarca modo={modo} onCambiar={setModo} cantidad={marcasCompartibles.length} /> : null;
+
+  if (puedeUsarExistente && modo === "existente") {
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        title={`Usar una marca · ${etiquetaFilaCruce(fila)}`}
+        size="lg"
+        footer={
+          <button
+            type="button"
+            onClick={usarExistente}
+            disabled={elegida == null || montoUso == null || guardando}
+            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {guardando ? "Guardando…" : elegida != null ? `Usar la marca ${elegida} en este renglón` : "Elige una marca"}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {selectorModo}
+          <p className="text-[12px] text-ink-600">
+            La marca que elijas explicará también este renglón, con el monto que indiques aquí. Su nota, su referencia y sus soportes
+            son los mismos, y en Observaciones se lee una sola vez, con todos sus renglones.
+          </p>
+          <ul className="flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto">
+            {marcasCompartibles.map((m) => (
+              <li key={m.numero}>
+                <label
+                  className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-[12px] ${elegida === m.numero ? "border-navy-700 bg-blue-50/60" : "border-ink-150 hover:bg-ink-50"}`}
+                >
+                  <input type="radio" name="marca-existente" className="mt-1" checked={elegida === m.numero} onChange={() => setElegida(m.numero)} />
+                  <InsigniaMarca numero={m.numero} tono="ok" titulo={etiquetaMarca(m.numero)} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-ink-800">
+                      {m.renglon} <span className="font-normal tabular-nums text-ink-500">· explica {fmtContable(m.monto)}</span>
+                    </span>
+                    <span className="line-clamp-2 block text-ink-600">{m.nota}</span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <CampoMontoMarca texto={montoUsoTexto} onCambiar={setMontoUsoTexto} faltante={fila.porExplicar} cifra={cifraRenglon} otras={fila.explicado} />
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -4587,6 +4858,7 @@ function ModalMarca({
       }
     >
       <div className="flex flex-col gap-3">
+        {selectorModo}
         {origen && (
           <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800">
             Esta marca era de <b>{origen.cuenta4.split("+").map((c) => `R - ${c}`).join(" + ")}</b> y ese renglón ya no aparece en el

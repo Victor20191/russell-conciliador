@@ -38,6 +38,7 @@ import { avisoContenidoIncompleto, contenidoDelCargue, filaEsSoloDepreciacion } 
 import {
   anotarControlConMarcas,
   anotarCruceConMarcas,
+  expandirMarcaCompartida,
   type FilaControlMarcada,
   type FilaCruceMarcada,
   type HijoModuloSinCuenta,
@@ -566,6 +567,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
       noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true, valorAlMarcar: true } },
       clasificadoresNoModulares: { orderBy: { clasificador: "asc" }, select: { clasificador: true, totalAlMarcar: true } },
+      // Los otros renglones que explica la misma marca (una marca, varias diferencias).
+      renglonesCompartidos: { where: { dimension: "cuenta4" }, orderBy: { renglon: "asc" }, select: { renglon: true, monto: true, diferencia: true } },
     },
   });
   const excluidas = new Set(marcasPeriodo.flatMap((m) => m.noModulares.map((n) => n.cuenta8)));
@@ -760,21 +763,26 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     }
   }
 
-  const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
-    dimension: "cuenta4",
-    cuenta4: m.cuenta4 ?? "",
-    numero: m.numero,
-    nota: m.nota,
-    referenciaAnexo: m.referenciaAnexo,
-    diferencia: Number(m.diferencia),
-    ...(m.monto != null ? { monto: Number(m.monto) } : {}),
-    comentarioId: m.comentarioId,
-    marcadoPor: m.marcadoPor,
-    marcadoEn: fmtDateTime(m.marcadoEn),
-    adjuntos: m.adjuntos,
-    noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
-    clasificadoresNoModulares: m.clasificadoresNoModulares.map((c) => ({ clasificador: c.clasificador, totalAlMarcar: Number(c.totalAlMarcar) })),
-  }));
+  // Una marca compartida entra una vez por renglón (la propia y una copia en cada renglón donde
+  // se usa), con lo que explica en cada uno: lo explicado, el resumen y el cierre no cambian.
+  const marcas: MarcaCruce[] = marcasPeriodo.flatMap((m) => expandirMarcaCompartida(
+    {
+      dimension: "cuenta4",
+      cuenta4: m.cuenta4 ?? "",
+      numero: m.numero,
+      nota: m.nota,
+      referenciaAnexo: m.referenciaAnexo,
+      diferencia: Number(m.diferencia),
+      ...(m.monto != null ? { monto: Number(m.monto) } : {}),
+      comentarioId: m.comentarioId,
+      marcadoPor: m.marcadoPor,
+      marcadoEn: fmtDateTime(m.marcadoEn),
+      adjuntos: m.adjuntos,
+      noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
+      clasificadoresNoModulares: m.clasificadoresNoModulares.map((c) => ({ clasificador: c.clasificador, totalAlMarcar: Number(c.totalAlMarcar) })),
+    },
+    m.renglonesCompartidos.map((r) => ({ renglon: r.renglon, monto: Number(r.monto), diferencia: Number(r.diferencia) })),
+  ));
   // Tolerancia de la cédula: la congelada en el cierre o la vigente. Decide qué diferencia exige
   // marca, nunca si hay cédula: un valor que no llegue (una caché vieja sin la clave) cae al de
   // fábrica en vez de dejar el cruce sin filas.

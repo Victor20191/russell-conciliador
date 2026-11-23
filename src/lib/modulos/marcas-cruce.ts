@@ -77,9 +77,45 @@ export type MarcaCruce = {
    * excluyó del lado del módulo, con su total cuando se marcaron.
    */
   clasificadoresNoModulares?: ClasificadorNoModular[];
+  /**
+   * Marca COMPARTIDA (23/Nov/2026): esta entrada es la misma marca puesta en otro renglón. Es la
+   * llave del renglón donde se escribió la marca. Aquí explica `monto` y congeló `diferencia`; la
+   * nota, la referencia y los soportes son los de la marca. Ausente en la marca de su propio renglón.
+   */
+  compartidaDe?: string;
+  /** En la marca de su propio renglón: los otros renglones que explica, con lo que explica en cada uno. */
+  compartidaEn?: RenglonCompartidoMarca[];
 };
 
 export type ClasificadorNoModular = { clasificador: string; totalAlMarcar: number };
+
+/** Otro renglón que explica una marca: su llave, lo que explica allí y la cifra que tenía al agregarlo. */
+export type RenglonCompartidoMarca = { renglon: string; monto: number; diferencia: number };
+
+/**
+ * Una marca y los renglones donde se comparte, como entradas por renglón: la marca en el suyo (con
+ * `compartidaEn`) y una copia en cada renglón compartido, con su monto y su diferencia. Las copias
+ * no llevan cuentas no modulares ni conceptos no contabilizados: esos ajustan el renglón de la marca.
+ * Así cada renglón suma lo que le explican todas sus marcas sin que el resto del cruce cambie.
+ */
+export function expandirMarcaCompartida(marca: MarcaCruce, renglones: readonly RenglonCompartidoMarca[]): MarcaCruce[] {
+  if (renglones.length === 0) return [marca];
+  const propia = marca.cuenta4;
+  const compartidas = [...renglones].sort((a, b) => a.renglon.localeCompare(b.renglon));
+  return [
+    { ...marca, compartidaEn: compartidas },
+    ...compartidas.map((r): MarcaCruce => ({
+      ...marca,
+      cuenta4: r.renglon,
+      monto: r.monto,
+      diferencia: r.diferencia,
+      noModulares: [],
+      clasificadoresNoModulares: [],
+      compartidaDe: propia,
+      compartidaEn: undefined,
+    })),
+  ];
+}
 
 /** Lo que explica una marca: su monto o, en las anteriores al 9/Nov/2026, toda la diferencia que congeló. */
 export function montoDeMarca(marca: Pick<MarcaCruce, "monto" | "diferencia">): number {
@@ -299,9 +335,16 @@ export type ObservacionDeMarca<F> = { fila: F; marca: MarcaCruce };
  * NO se muestra aquí: sin cifra que explicar, la observación no tiene dónde anclarse.
  */
 export function observacionesDeMarcas<F extends { marcas: readonly MarcaCruce[] }>(filas: readonly F[]): ObservacionDeMarca<F>[] {
-  return filas
-    .flatMap((fila) => fila.marcas.map((marca) => ({ fila, marca })))
-    .sort((a, b) => a.marca.numero - b.marca.numero);
+  // Una marca compartida en varios renglones se lee UNA vez: en su renglón o, si ese ya no está en
+  // el cruce, en el primero donde se comparte.
+  const porNumero = new Map<number, ObservacionDeMarca<F>>();
+  for (const fila of filas) {
+    for (const marca of fila.marcas) {
+      const previa = porNumero.get(marca.numero);
+      if (!previa || (previa.marca.compartidaDe != null && marca.compartidaDe == null)) porNumero.set(marca.numero, { fila, marca });
+    }
+  }
+  return [...porNumero.values()].sort((a, b) => a.marca.numero - b.marca.numero);
 }
 
 /**

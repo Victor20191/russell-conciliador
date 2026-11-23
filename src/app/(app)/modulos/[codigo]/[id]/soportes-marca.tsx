@@ -44,7 +44,7 @@ export function InsigniasMarcasRenglon({
   const { marcas, desactualizada, porExplicar } = renglon;
   const tono = desactualizada ? "warn" : "ok";
   const titulo = (m: MarcaCruce) =>
-    `Marca ${m.numero} · explica ${fmtContable(montoDeMarca(m))}`
+    `Marca ${m.numero}${m.compartidaDe ? ` (compartida con R - ${m.compartidaDe})` : ""} · explica ${fmtContable(montoDeMarca(m))}`
     + (desactualizada ? ` · el renglón tiene ${fmtContable(diferencia)} y faltan ${fmtContable(porExplicar)} por explicar` : "")
     + " · ver la observación al pie";
   return (

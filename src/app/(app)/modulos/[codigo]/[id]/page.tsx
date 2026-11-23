@@ -491,7 +491,8 @@ export default async function DatoModuloPage({
     filasMarcadas: cruce.filasMarcadas,
     // Marcas de cuenta del período cuyo renglón ya no aparece: se pueden pasar al renglón actual.
     marcasSinRenglon: cruce.cruceContable
-      ? cruce.marcas.filter((m) => !cruce.filasMarcadas.some((f) => f.cuenta4 === m.cuenta4))
+      // Las copias de una marca compartida no cuentan: la marca sigue en su renglón.
+      ? cruce.marcas.filter((m) => m.compartidaDe == null && !cruce.filasMarcadas.some((f) => f.cuenta4 === m.cuenta4))
       : [],
     resumenMarcas: cruce.resumenMarcas,
     toleranciaCedula: cruce.toleranciaCedula,

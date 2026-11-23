@@ -3932,6 +3932,10 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
               select: { id: true, numero: true },
             });
           })();
+      // Pasar la marca a un renglón donde ya se compartía: ahí vuelve a ser la marca propia.
+      if (pasarDesde && cuenta4) {
+        await tx.renglonMarcaCruce.deleteMany({ where: { marcaId: guardada.id, dimension: "cuenta4", renglon: cuenta4 } });
+      }
       await tx.cuentaNoModularCruce.deleteMany({ where: { marcaId: guardada.id } });
       if (filasNoModulares.length > 0) {
         await tx.cuentaNoModularCruce.createMany({
@@ -4030,7 +4034,7 @@ export async function quitarMarcaCruce(input: { encabezadoId: number; numero: nu
       },
       select: {
         id: true, numero: true, dimension: true, cuenta4: true, clave: true,
-        adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true } },
+        adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true, renglonesCompartidos: true } },
       },
     });
     if (!marca) return { ok: false, message: "Esa marca ya no existe." };
@@ -4061,14 +4065,134 @@ export async function quitarMarcaCruce(input: { encabezadoId: number; numero: nu
           ? cuenta4 === CLAVE_SIN_CUENTA
             ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)`
             : ` · liberó ${marca._count.clasificadoresNoModulares} concepto(s) no contabilizado(s)`
-          : ""),
+          : "")
+        + (marca._count.renglonesCompartidos ? ` · también de ${marca._count.renglonesCompartidos} renglón(es) donde se compartía` : ""),
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
-    return { ok: true, message: `Marca ${marca.numero} retirada.` };
+    return {
+      ok: true,
+      message: marca._count.renglonesCompartidos
+        ? `Marca ${marca.numero} retirada, también de ${marca._count.renglonesCompartidos === 1 ? "1 renglón" : `${marca._count.renglonesCompartidos} renglones`} donde se compartía.`
+        : `Marca ${marca.numero} retirada.`,
+    };
   } catch (e) {
     const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
     if (enFirme) return enFirme;
     return { ok: false, message: mensajeErrorBD("quitarMarcaCruce", e) };
+  }
+}
+
+// ===== Una marca en varios renglones de la cédula (23/Nov/2026) =====
+// En vez de crear la marca ② para otra diferencia, la marca ① se usa también en ese renglón con el
+// monto que explica allí. La marca sigue en su renglón; los otros van en `renglon_marca_cruce`.
+
+/**
+ * Usa una marca de la cédula contable del período en OTRO renglón de la cédula, con el monto que
+ * explica allí; si ya estaba en ese renglón, cambia su monto. La cifra del renglón se congela del
+ * cruce vigente. No aplica al renglón del saldo sin cuenta ni a marcas de otras pestañas.
+ */
+export async function usarMarcaEnRenglon(input: { encabezadoId: number; numero: number; cuenta4: string; monto: number }): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  if (!Number.isSafeInteger(input.numero) || input.numero <= 0) return { ok: false, message: "Marca inválida." };
+  const cuenta4 = cuentaMarcable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  if (cuenta4 === CLAVE_SIN_CUENTA) return { ok: false, message: "El saldo sin cuenta lleva sus propias marcas." };
+  if (typeof input.monto !== "number" || !Number.isFinite(input.monto) || Math.abs(input.monto) >= 1e13) {
+    return { ok: false, message: "Indica el monto que explica la marca en este renglón." };
+  }
+  const monto = Math.round(input.monto * 100) / 100 + 0;
+
+  const { encabezado } = ctx;
+  const periodoMarca = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
+  try {
+    const marca = await prisma.marcaCruceModulo.findFirst({
+      where: { ...periodoMarca, numero: input.numero },
+      select: { id: true, numero: true, dimension: true, cuenta4: true, renglonesCompartidos: { where: { dimension: "cuenta4", renglon: cuenta4 }, select: { id: true } } },
+    });
+    if (!marca) return { ok: false, message: "Esa marca ya no existe. Recarga la pantalla." };
+    if (marca.dimension !== "cuenta4") return { ok: false, message: "Solo una marca de la cédula contable se puede usar en otro renglón de la cédula." };
+    if (marca.cuenta4 === CLAVE_SIN_CUENTA) return { ok: false, message: "La marca del saldo sin cuenta no se usa en otros renglones." };
+    if (marca.cuenta4 === cuenta4) return { ok: false, message: `La marca ${marca.numero} ya es de este renglón: edítala en su observación.` };
+    const yaEstaba = marca.renglonesCompartidos.length > 0;
+
+    // La cifra del renglón se toma del cruce VIGENTE, no del formulario.
+    const insumos = await cargarInsumosCruceModulo(encabezado.id);
+    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
+    const cruceVigente = await construirCruceContableModulo(insumos);
+    if (!cruceVigente.cruceContable) return { ok: false, message: cruceVigente.bloqueo ?? "El cruce contable no está disponible en este momento." };
+    const fila = cruceVigente.filasMarcadas.find((f) => f.cuenta4 === cuenta4);
+    if (!fila) return { ok: false, message: "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
+    if (!fila.admiteMarca && !yaEstaba) return { ok: false, message: "Ese renglón ya no tiene diferencia que explicar." };
+    const diferencia = Math.round((fila.porExplicar + fila.explicado) * 100) / 100 + 0;
+
+    const user = await getCurrentUser();
+    await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      const datos = {
+        monto: new Prisma.Decimal(monto.toFixed(2)),
+        diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+        agregadoPor: user?.name ?? null,
+        agregadoPorId: ctx.userId,
+        agregadoEn: new Date(),
+      };
+      await tx.renglonMarcaCruce.upsert({
+        where: { marcaId_dimension_renglon: { marcaId: marca.id, dimension: "cuenta4", renglon: cuenta4 } },
+        create: { marcaId: marca.id, ...periodoMarca, dimension: "cuenta4", renglon: cuenta4, ...datos },
+        update: datos,
+      });
+    });
+
+    await auditarMarcaCruce(
+      encabezado,
+      yaEstaba ? "CAMBIÓ lo que explica una marca compartida del cruce contable" : "USÓ en otro renglón una marca del cruce contable",
+      `cuenta ${cuenta4}`,
+      ` · marca ${marca.numero} (de ${marca.cuenta4}) · explica ${monto.toFixed(2)} de ${diferencia.toFixed(2)}`,
+    );
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return {
+      ok: true,
+      message: yaEstaba
+        ? `Monto de la marca ${marca.numero} en este renglón actualizado.`
+        : `La marca ${marca.numero} ahora explica también este renglón.`,
+    };
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: ctx.encabezado.nombreCliente });
+    if (enFirme) return enFirme;
+    return { ok: false, message: mensajeErrorBD("usarMarcaEnRenglon", e) };
+  }
+}
+
+/** Quita una marca compartida de UN renglón; la marca y sus demás renglones no se tocan. */
+export async function quitarMarcaDeRenglon(input: { encabezadoId: number; numero: number; cuenta4: string }): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId, OPERACION_MARCA);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  if (!Number.isSafeInteger(input.numero) || input.numero <= 0) return { ok: false, message: "Marca inválida." };
+  const cuenta4 = cuentaMarcable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+
+  const { encabezado } = ctx;
+  try {
+    const borrados = await prisma.$transaction(async (tx) => {
+      await exigirPeriodoAbierto(tx, encabezado, { operacion: OPERACION_MARCA, enTransaccion: true });
+      return tx.renglonMarcaCruce.deleteMany({
+        where: {
+          dimension: "cuenta4",
+          renglon: cuenta4,
+          marca: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, numero: input.numero },
+        },
+      });
+    });
+    if (borrados.count === 0) return { ok: false, message: "Esa marca ya no estaba en este renglón." };
+
+    await auditarMarcaCruce(encabezado, "QUITÓ de un renglón una marca compartida del cruce contable", `cuenta ${cuenta4}`, ` · marca ${input.numero}`);
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `La marca ${input.numero} ya no explica este renglón.` };
+  } catch (e) {
+    const enFirme = await respuestaPeriodoEnFirme(e, { entidad: encabezado.nombreCliente });
+    if (enFirme) return enFirme;
+    return { ok: false, message: mensajeErrorBD("quitarMarcaDeRenglon", e) };
   }
 }
 
