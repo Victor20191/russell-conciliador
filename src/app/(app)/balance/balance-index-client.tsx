@@ -34,6 +34,8 @@ export type CorteRow = {
   mapped: number; unmapped: number; total: number;
   /** Apertura de la línea (`cuenta` | `tercero`); null en cargues anteriores a este dato. */
   apertura: string | null;
+  /** Balance por cuenta con terceros agregados (archivo de movimientos del ERP, solo para impuestos). */
+  tercerosAgregados?: boolean;
   /** Sus saldos finales difieren de otro balance vigente del mismo corte. */
   inconsistente: boolean;
   /** Módulos (por su nombre, «Inventarios») con la conciliación en firme contra este balance. */
@@ -369,6 +371,14 @@ function FilaCorte({ p, grupo, primera, ultima }: { p: CorteRow; grupo: CorteGro
         {apertura
           ? <Chip label={etiquetaApertura(p.apertura)} tone={apertura === "tercero" ? "blue" : "ink"} />
           : <span className="text-ink-300" title="Cargue anterior al registro del tipo de balance.">—</span>}
+        {p.tercerosAgregados && (
+          <span
+            className="mt-0.5 block text-[10.5px] font-semibold leading-tight text-warn-700"
+            title="Cliente con excepción de balance por terceros: tiene los terceros del archivo de movimientos del ERP, que sirven solo para los impuestos."
+          >
+            Terceros agregados
+          </span>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-ink-600">
         {/* El conteo abre la bitácora de versiones de la línea, desde donde se entra y

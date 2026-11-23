@@ -16,6 +16,7 @@ import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import { porcentajeCompletitud } from "@/lib/balance/completitud";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
+import { ORIGEN_MOVIMIENTOS_ERP } from "@/lib/balance/movimientos-tercero-constantes";
 
 // La extracción asistida puede tardar hasta 10 minutos. Vercel usa este valor
 // para que la Server Action no sea terminada antes que su proveedor de IA.
@@ -43,7 +44,7 @@ export default async function BalancePage() {
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, periodoFin: true, version: true,
         estaCongelado: true, estado: true, completitud: true, ultimaCarga: true, cargadoPor: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
-        archivosCargue: true,
+        archivosCargue: true, loteId: true,
       },
     }),
     // Clientes de la cartera para el selector del modal de carga.
@@ -96,6 +97,17 @@ export default async function BalancePage() {
   // la misma fecha —mensual, anual, por cuenta, por terceros—; cada renglón es la versión
   // VIGENTE de una línea (texto del período + apertura) y muestra su período completo. Las
   // reglas de líneas y vigentes viven en `corte.ts`. Solo objetos planos cruzan al cliente.
+  // Balances por cuenta con terceros agregados (archivo de movimientos del ERP, clientes con la
+  // excepción de balance por terceros): llevan la marca debajo del tipo.
+  const lotes = encabezados.map((b) => b.loteId).filter((l): l is string => l != null);
+  const lotesConTercerosAgregados = new Set(
+    lotes.length
+      ? (await prisma.balanceTerceroEncabezado.findMany({
+          where: { loteId: { in: lotes }, origenExtraccion: ORIGEN_MOVIMIENTOS_ERP },
+          select: { loteId: true },
+        })).flatMap((c) => (c.loteId ? [c.loteId] : []))
+      : [],
+  );
   const pares = comparaciones ?? [];
   const firmesPorBalance = new Map<number, string[]>();
   for (const c of cierresEnFirme) firmesPorBalance.set(c.balanceEncabezadoId, [...(firmesPorBalance.get(c.balanceEncabezadoId) ?? []), c.moduloCodigo]);
@@ -129,6 +141,7 @@ export default async function BalancePage() {
               enFirme: [...new Set(firmesPorBalance.get(b.id) ?? [])].map((codigo) => descriptorModulo(codigo)?.label ?? codigo),
               // Balance partido en varios archivos: nombres de las partes de ESTA versión.
               archivos: leerPartesArchivo(b.archivosCargue).map((parte) => parte.archivoNombre),
+              tercerosAgregados: b.loteId != null && lotesConTercerosAgregados.has(b.loteId),
             };
           });
           const [anio, mes, dia] = fechaCorteISO(delCorte[0].periodoFin).split("-");
