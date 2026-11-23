@@ -19,6 +19,9 @@ import KanbanTablero from "./kanban-tablero";
 import TicketDetalleModal from "./ticket-detalle-modal";
 import FiltroEstadosTickets from "./filtro-estados-tickets";
 import { guardarEstadosOcultosTickets } from "@/app/actions/soporte-preferencias";
+import { EncabezadoOrdenable } from "@/components/encabezado-ordenable";
+import { alternarOrden, type OrdenTabla } from "@/lib/modulos/orden-tabla";
+import { ordenarTickets, type ColumnaTicket } from "@/lib/soporte-orden";
 
 const CLAVE_VISTA = "reportes:vista";
 type Vista = "tabla" | "kanban";
@@ -75,7 +78,7 @@ function guardarVista(siguiente: Vista): void {
 
 /**
  * Las novedades de `/reportes` en dos lecturas: la tabla (el detalle completo,
- * ordenado por llegada) y el tablero Kanban (el pipeline, con arrastre). La
+ * por llegada u ordenada por la columna que se elija) y el tablero Kanban (el pipeline, con arrastre). La
  * preferencia se recuerda en el navegador (ver el store de arriba).
  */
 export default function TicketsVista({
@@ -107,6 +110,8 @@ export default function TicketsVista({
   // el origen siguen siendo filtros temporales y siempre visibles.
   const [dominio, setDominio] = useState<FiltroDominioReporte>(FILTRO_DOMINIO_TODOS);
   const [busqueda, setBusqueda] = useState("");
+  // Orden de la tabla por columna (clic en el título); sin orden, como llegaron.
+  const [orden, setOrden] = useState<OrdenTabla>(null);
 
   const termino = busqueda.trim();
   const hayBusqueda = termino.length > 0;
@@ -288,7 +293,7 @@ export default function TicketsVista({
           onAbrir={setAbierto}
         />
       ) : visibles.length > 0 ? (
-        <TablaTickets tickets={visibles} onAbrir={setAbierto} />
+        <TablaTickets tickets={visibles} onAbrir={setAbierto} orden={orden} onOrdenar={(columna) => setOrden((actual) => alternarOrden(actual, columna))} />
       ) : null}
 
       <TicketDetalleModal
@@ -330,29 +335,51 @@ function BotonVista({
   );
 }
 
+/** Columnas de la tabla: clave de orden, título y si ordena por valor. */
+const COLUMNAS: { columna: ColumnaTicket; etiqueta: string; numerica?: boolean }[] = [
+  { columna: "codigo", etiqueta: "Código" },
+  { columna: "asunto", etiqueta: "Asunto" },
+  { columna: "reportado", etiqueta: "Reportado por" },
+  { columna: "ubicacion", etiqueta: "Ubicación" },
+  { columna: "estado", etiqueta: "Estado" },
+  { columna: "imagenes", etiqueta: "Imágenes", numerica: true },
+  { columna: "creado", etiqueta: "Creado", numerica: true },
+];
+
 function TablaTickets({
   tickets,
   onAbrir,
+  orden,
+  onOrdenar,
 }: {
   tickets: TicketKanban[];
   onAbrir: (ticketId: number) => void;
+  orden: OrdenTabla;
+  onOrdenar: (columna: string) => void;
 }) {
+  // Cada título ordena (A→Z o de menor a mayor, al revés y sin orden). El estado sigue el flujo.
+  const filas = useMemo(() => ordenarTickets(tickets, orden), [tickets, orden]);
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-150 bg-paper">
       <table className="min-w-full text-left text-[13px]">
         <thead className="bg-ink-50 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
           <tr>
-            <th className="px-4 py-3">Código</th>
-            <th className="px-4 py-3">Asunto</th>
-            <th className="px-4 py-3">Reportado por</th>
-            <th className="px-4 py-3">Ubicación</th>
-            <th className="px-4 py-3">Estado</th>
-            <th className="px-4 py-3">Imágenes</th>
-            <th className="px-4 py-3">Creado</th>
+            {COLUMNAS.map((c) => (
+              <th key={c.columna} className="px-4 py-3" aria-sort={orden?.columna === c.columna ? (orden.direccion === "asc" ? "ascending" : "descending") : undefined}>
+                <EncabezadoOrdenable
+                  etiqueta={c.etiqueta}
+                  columna={c.columna}
+                  orden={orden}
+                  onOrdenar={onOrdenar}
+                  numerica={c.numerica}
+                  className="uppercase tracking-wider"
+                />
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {tickets.map((ticket) => (
+          {filas.map((ticket) => (
             // La fila entera abre el detalle en modal. El rol y el manejo de
             // teclado son explícitos porque `<tr>` no es interactivo por sí
             // mismo y un <button> por celda rompería la tabla.

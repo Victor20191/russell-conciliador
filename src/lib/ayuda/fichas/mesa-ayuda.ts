@@ -28,6 +28,12 @@ export const FICHA_MESA_AYUDA: FichaAyuda = {
       acciones: [
         { nombre: "Tabla · Kanban", queHace: "Cambia la forma de ver las novedades; el navegador la recuerda.", regla: REGLAS.verMesaAyuda },
         {
+          nombre: "Ordenar por columna",
+          queHace:
+            "En la tabla, un clic en el título de una columna (Código, Asunto, Reportado por, Ubicación, Estado, Imágenes o Creado) ordena por ella; otro clic invierte el orden y el tercero vuelve al orden de llegada. El código va por su número y el estado por el orden del flujo.",
+          regla: REGLAS.verMesaAyuda,
+        },
+        {
           nombre: "Buscar · Reportado por",
           queHace: "Filtran por código, asunto, persona o ubicación, y por quién reportó.",
           regla: REGLAS.verMesaAyuda,
