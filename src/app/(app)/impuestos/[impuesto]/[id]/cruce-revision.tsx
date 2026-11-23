@@ -156,7 +156,8 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
         <p className="text-[11.5px] text-ink-500">
           {impuesto.cruce.textos.contabilidad}{saldoInicial?.restado && " Como el balance empieza el 1 de enero, además se resta siempre el saldo inicial de los terceros distintos de la DIAN: cada uno suma solo lo del año."} Diferencias desde {fmt(umbral)} exigen marca; por debajo son informativas (la DIAN redondea cada renglón a miles).
         </p>
-        {!inicioEnero && (
+        {/* Los terceros agregados ya traen solo el movimiento del año: no arrastran saldo inicial. */}
+        {!inicioEnero && !deMovimientos && (
           <FranjaAviso tono="warn">
             <span className="font-semibold">El balance no empieza el 1 de enero:</span> no se puede medir el saldo inicial que arrastran los terceros.
           </FranjaAviso>

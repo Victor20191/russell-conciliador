@@ -4,6 +4,7 @@ import {
   amarrarConBalance,
   balanceAdmiteMovimientos,
   cuentaDelBalance,
+  cuentasConBaseDiciembre,
   detectarFilaEncabezado,
   MapeoMovimientosSchema,
   montoCelda,
@@ -158,6 +159,39 @@ describe("amarrarConBalance", () => {
   it("dentro de la tolerancia amarra", () => {
     const r = amarrarConBalance(agregado(), [cuentaBalance("2365750000", -1500)], 2000);
     expect(r.descuadres).toEqual([]);
+  });
+});
+
+describe("regla 2: amarre contra el cierre de diciembre", () => {
+  // El balance mensual de septiembre de MUMA: su saldo anterior es el de agosto y sus débitos y
+  // créditos son solo del mes. El año sale de saldo final de septiembre − saldo final de diciembre.
+  const septiembre: CuentaBalanceAmarre[] = [
+    { cuenta8: "2365750000", nombreCuenta: "Autorretenciones", cuenta6Russell: "236575", coincidencia: null, saldoInicial: -9_000, debitos: 100, creditos: 400, saldoFinal: -800 },
+  ];
+  const diciembre = [
+    { cuenta8: "2365750000", nombreCuenta: "Autorretenciones", cuenta6Russell: "236575", saldoFinal: -500 },
+    { cuenta8: "2367010000", nombreCuenta: "IVA retenido", cuenta6Russell: "236701", saldoFinal: -70 },
+  ];
+
+  it("la apertura de cada cuenta es su saldo final de diciembre y las que solo están en diciembre entran con saldo final 0", () => {
+    const cuentas = cuentasConBaseDiciembre(septiembre, diciembre);
+    expect(cuentas).toEqual([
+      expect.objectContaining({ cuenta8: "2365750000", saldoInicial: -500, saldoFinal: -800, debitos: 0, creditos: 0 }),
+      expect.objectContaining({ cuenta8: "2367010000", saldoInicial: -70, saldoFinal: 0 }),
+    ]);
+  });
+
+  it("amarra el movimiento de enero al corte del archivo aunque el balance sea mensual", () => {
+    const a = nuevoAgregado();
+    agregarFilaMovimiento(a, fila("2365750000", -1000, "800197268", "DIAN"), MAPEO_DC, 2);
+    agregarFilaMovimiento(a, fila("2365750000", 700, "800197268", "DIAN"), MAPEO_DC, 3);
+    agregarFilaMovimiento(a, fila("2367010000", 70, "900715153", "ACCORDE SAS"), MAPEO_DC, 4);
+    // Contra el saldo anterior del mensual (−9.000 → −800) no amarra: ese es el movimiento de septiembre.
+    expect(amarrarConBalance(a, septiembre, 1).descuadres.map((d) => d.cuenta8)).toEqual(["2365750000"]);
+    // Contra diciembre: 2365 mueve −800 − (−500) = −300 y la 2367 se saldó (0 − (−70) = 70).
+    const r = amarrarConBalance(a, cuentasConBaseDiciembre(septiembre, diciembre), 1);
+    expect(r.descuadres).toEqual([]);
+    expect(r.cuentasAmarradas).toBe(2);
   });
 });
 

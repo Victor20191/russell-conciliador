@@ -236,6 +236,43 @@ export type CuentaBalanceAmarre = {
   saldoFinal: number;
 };
 
+/**
+ * Contra qué se amarra el movimiento de enero al corte del archivo:
+ * - `inicio_enero`: el balance empieza el 1 de enero; su saldo inicial es el de apertura del año.
+ * - `cierre_diciembre`: el balance es de otro período (p. ej. el mensual del corte, cuyo saldo
+ *   anterior es el del mes anterior); la apertura del año es el saldo final del balance cerrado al
+ *   31 de diciembre del año anterior. Del balance del corte solo cuenta su saldo final.
+ */
+export type BaseAmarre =
+  | { tipo: "inicio_enero" }
+  | { tipo: "cierre_diciembre"; balanceId: number; descripcion: string };
+
+export type SaldoCierreDiciembre = { cuenta8: string; nombreCuenta: string; cuenta6Russell: string | null; saldoFinal: number };
+
+/**
+ * Regla 2: el saldo inicial de cada cuenta pasa a ser su saldo final al 31 de diciembre (0 si no
+ * existía), así el movimiento del año = saldo final del corte − saldo final de diciembre. Los débitos
+ * y créditos del balance del corte no son del año: van en 0 y no se comparan. Las cuentas que solo
+ * están en diciembre (se saldaron o se cerraron en el año) entran con saldo final 0.
+ */
+export function cuentasConBaseDiciembre(balance: readonly CuentaBalanceAmarre[], diciembre: readonly SaldoCierreDiciembre[]): CuentaBalanceAmarre[] {
+  const digitos = (c: string) => c.replace(/\D/g, "");
+  const cierre = new Map<string, SaldoCierreDiciembre>();
+  for (const d of diciembre) {
+    const previo = cierre.get(digitos(d.cuenta8));
+    cierre.set(digitos(d.cuenta8), previo ? { ...previo, saldoFinal: previo.saldoFinal + d.saldoFinal } : { ...d });
+  }
+  const delCorte = new Set(balance.map((b) => digitos(b.cuenta8)));
+  const cuentas: CuentaBalanceAmarre[] = balance.map((b) => ({
+    ...b, saldoInicial: cierre.get(digitos(b.cuenta8))?.saldoFinal ?? 0, debitos: 0, creditos: 0,
+  }));
+  for (const [codigo, d] of cierre) {
+    if (delCorte.has(codigo) || d.saldoFinal === 0) continue;
+    cuentas.push({ cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, cuenta6Russell: d.cuenta6Russell, coincidencia: null, saldoInicial: d.saldoFinal, debitos: 0, creditos: 0, saldoFinal: 0 });
+  }
+  return cuentas;
+}
+
 export type DescuadreMovimientos = {
   cuenta8: string;
   nombreCuenta: string;

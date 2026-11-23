@@ -12,17 +12,21 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
-import { fmtNum } from "@/lib/format";
+import { fmtDateTime, fmtNum } from "@/lib/format";
+import { crearExcelDescuadreMovimientos } from "@/lib/export/movimientos-tercero-descuadre";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { siguienteVersionCargue } from "@/lib/balance/version-cargue";
 import { claveTerceroDeCaptura } from "@/lib/balance/staging-tercero";
 import { cierresFirmesDeBalance } from "@/lib/conciliacion/verificar-bloqueo";
+import { periodoDelArchivo, resolverBaseAmarre } from "@/lib/balance/movimientos-tercero-base-servidor";
 import { descartarArchivoBalanceTemporal, leerArchivoBalanceTemporal } from "@/lib/balance/archivo-temporal-servidor";
 import { agregarArchivoMovimientos, esArchivoXlsx, vistaPreviaMovimientos, type VistaPreviaMovimientos } from "@/lib/balance/movimientos-tercero-servidor";
 import {
   amarrarConBalance,
-  balanceAdmiteMovimientos,
+  cuentasConBaseDiciembre,
+  type BaseAmarre,
+  type SaldoCierreDiciembre,
   esCapturaDeMovimientos,
   MapeoMovimientosSchema,
   ORIGEN_MOVIMIENTOS_ERP,
@@ -30,9 +34,6 @@ import {
 } from "@/lib/balance/movimientos-tercero";
 
 const LOTE_INSERCION = 20_000;
-
-/** «01/01/2026» de una fecha de calendario del balance (UTC). */
-const fechaLegible = (fecha: Date): string => fecha.toISOString().slice(0, 10).split("-").reverse().join("/");
 
 const BaseSchema = z.object({
   balanceId: z.number().int().positive(),
@@ -42,6 +43,9 @@ const BaseSchema = z.object({
 type Contexto = {
   balance: { id: number; clienteId: number; nombreCliente: string; nit: string | null; periodo: string; periodoInicio: Date; periodoFin: Date; loteId: string };
   capturaExistente: { id: number; origenExtraccion: string | null } | null;
+  /** Contra qué se amarra: el saldo inicial del balance (empieza en enero) o el cierre de diciembre. */
+  base: BaseAmarre;
+  cierreDiciembre: SaldoCierreDiciembre[] | null;
 };
 
 /** Verifica el cliente y el balance; devuelve el motivo si no se puede adjuntar. */
@@ -56,9 +60,6 @@ async function contextoBalance(balanceId: number): Promise<{ ok: true; contexto:
     return { ok: false, message: "Solo los clientes con la excepción «sin balance por terceros» adjuntan movimientos por tercero del ERP." };
   }
   if (!balance.loteId) return { ok: false, message: "Este balance es un cargue antiguo sin vínculo para el detalle por tercero. Vuelve a cargarlo." };
-  if (!balanceAdmiteMovimientos(balance.periodoInicio, balance.periodoFin)) {
-    return { ok: false, message: "El balance debe empezar el 1 de enero del año de su corte: los movimientos del ERP se suman desde enero." };
-  }
   const capturaExistente = await prisma.balanceTerceroEncabezado.findUnique({
     where: { loteId: balance.loteId },
     select: { id: true, origenExtraccion: true },
@@ -66,7 +67,10 @@ async function contextoBalance(balanceId: number): Promise<{ ok: true; contexto:
   if (capturaExistente && !esCapturaDeMovimientos(capturaExistente.origenExtraccion)) {
     return { ok: false, message: "Este balance ya conserva su detalle por tercero; no necesita el archivo de movimientos." };
   }
-  return { ok: true, contexto: { balance: { ...balance, loteId: balance.loteId }, capturaExistente } };
+  // Regla 1: el balance empieza el 1 de enero. Regla 2: si no, el balance cerrado al 31/12 del año anterior.
+  const base = await resolverBaseAmarre(balance);
+  if (!base.ok) return base;
+  return { ok: true, contexto: { balance: { ...balance, loteId: balance.loteId }, capturaExistente, base: base.base, cierreDiciembre: base.cierreDiciembre } };
 }
 
 async function autorizar(balanceId: number) {
@@ -116,6 +120,8 @@ export type AdjuntarMovimientosState = ActionStateMovimientos & {
   descuadres?: DescuadreMovimientos[];
   sinCuentaEnBalance?: { cuenta: string; movimiento: number }[];
   montosIlegibles?: number[];
+  /** Contra qué se amarró (para el rechazo y el Excel). */
+  base?: BaseAmarre;
   resumen?: { cuentas: number; terceros: number; filasUsadas: number; filasSinTercero: number };
 };
 
@@ -134,7 +140,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
   try {
     const ctx = await contextoBalance(parsed.data.balanceId);
     if (!ctx.ok) return ctx;
-    const { balance, capturaExistente } = ctx.contexto;
+    const { balance, capturaExistente, base, cierreDiciembre } = ctx.contexto;
     if (capturaExistente) {
       const bloqueo = await bloqueoPorCierres(balance.id);
       if (bloqueo) return { ok: false, message: bloqueo };
@@ -164,13 +170,14 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
       }),
       getUmbralesAlertas(),
     ]);
+    const cuentasBalance = detalle.map((d) => ({
+      cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, cuenta6Russell: d.cuenta6Russell,
+      coincidencia: d.coincidencia == null ? null : Number(d.coincidencia),
+      saldoInicial: Number(d.saldoInicial), debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal),
+    }));
     const amarre = amarrarConBalance(
       agregado,
-      detalle.map((d) => ({
-        cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, cuenta6Russell: d.cuenta6Russell,
-        coincidencia: d.coincidencia == null ? null : Number(d.coincidencia),
-        saldoInicial: Number(d.saldoInicial), debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal),
-      })),
+      base.tipo === "cierre_diciembre" ? cuentasConBaseDiciembre(cuentasBalance, cierreDiciembre ?? []) : cuentasBalance,
       umbrales.descuadre,
     );
     if (amarre.descuadres.length > 0 || amarre.sinCuentaEnBalance.length > 0) {
@@ -181,6 +188,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
           : "El archivo trae cuentas con movimiento que no están en el balance. No se guardó nada.",
         descuadres: amarre.descuadres,
         sinCuentaEnBalance: amarre.sinCuentaEnBalance,
+        base,
       };
     }
 
@@ -243,7 +251,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
       user: usuario.name,
       action: capturaExistente ? "REEMPLAZÓ TERCEROS AGREGADOS" : "AGREGÓ TERCEROS AL BALANCE",
       entity: `Balance #${balance.id}`,
-      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · período confirmado: ${fechaLegible(balance.periodoInicio)} al ${fechaLegible(balance.periodoFin)} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
+      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · período confirmado: ${periodoDelArchivo(balance.periodoFin).desde} al ${periodoDelArchivo(balance.periodoFin).hasta} · amarrado contra ${base.tipo === "cierre_diciembre" ? `el cierre de diciembre (balance #${base.balanceId}, ${base.descripcion})` : "el saldo inicial del balance"} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
       clientId: balance.clienteId,
     });
     revalidatePath(`/balance/${balance.id}`);
@@ -256,6 +264,60 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("adjuntarMovimientosTercero", e) };
+  }
+}
+
+const DescuadreSchema = z.object({
+  cuenta8: z.string().max(40),
+  nombreCuenta: z.string().max(300),
+  movimientoBalance: z.number().finite(),
+  movimientoArchivo: z.number().finite(),
+  diferencia: z.number().finite(),
+  debitosBalance: z.number().finite(),
+  debitosArchivo: z.number().finite(),
+  creditosBalance: z.number().finite(),
+  creditosArchivo: z.number().finite(),
+});
+const ExportarDescuadreSchema = z.object({
+  balanceId: z.number().int().positive(),
+  archivo: z.string().max(260),
+  descuadres: z.array(DescuadreSchema).max(20_000),
+  sinCuentaEnBalance: z.array(z.object({ cuenta: z.string().max(40), movimiento: z.number().finite() })).max(20_000),
+  base: z.object({ tipo: z.enum(["inicio_enero", "cierre_diciembre"]), descripcion: z.string().max(300).optional() }).optional(),
+});
+
+/**
+ * Excel del descuadre que acaba de salir al leer el archivo (no se guarda en la BD: llega desde la
+ * pantalla). Mismo permiso y alcance que agregar los terceros. Devuelve el .xlsx en base64.
+ */
+export async function exportarDescuadreMovimientos(input: unknown): Promise<ActionStateMovimientos & { nombre?: string; base64?: string }> {
+  const parsed = ExportarDescuadreSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "La solicitud no es válida." };
+  const authz = await autorizar(parsed.data.balanceId);
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const balance = await prisma.balancePruebaEncabezado.findUnique({
+      where: { id: parsed.data.balanceId },
+      select: { nombreCliente: true, periodo: true, version: true },
+    });
+    if (!balance) return { ok: false, message: "No se encontró el balance." };
+    const buffer = await crearExcelDescuadreMovimientos({
+      cliente: balance.nombreCliente,
+      periodoBalance: balance.periodo,
+      versionBalance: balance.version,
+      archivo: parsed.data.archivo,
+      generadoEn: fmtDateTime(new Date()),
+      base: parsed.data.base?.tipo === "cierre_diciembre"
+        ? `saldo final del balance de cierre de diciembre (${parsed.data.base.descripcion ?? "—"})`
+        : "saldo inicial del balance",
+      conDebitosCreditos: parsed.data.base?.tipo !== "cierre_diciembre",
+      descuadres: parsed.data.descuadres,
+      sinCuentaEnBalance: parsed.data.sinCuentaEnBalance,
+    });
+    const nombre = `Descuadre terceros agregados - ${balance.nombreCliente} - ${balance.periodo}.xlsx`.replace(/[\\/:*?"<>|]/g, "-");
+    return { ok: true, nombre, base64: buffer.toString("base64") };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("exportarDescuadreMovimientos", e) };
   }
 }
 

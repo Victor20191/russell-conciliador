@@ -10,6 +10,7 @@ import { fmt, fmtNum } from "@/lib/format";
 import { cargarArchivoBalanceTemporal, cancelarArchivoBalanceTemporal } from "@/lib/balance/carga-archivo-cliente";
 import {
   adjuntarMovimientosTercero,
+  exportarDescuadreMovimientos,
   previsualizarMovimientosTercero,
   quitarMovimientosTercero,
   type AdjuntarMovimientosState,
@@ -44,14 +45,17 @@ const BOTON_PRIMARIO = "inline-flex items-center gap-1.5 rounded-md bg-navy-800 
 export function MovimientosTerceroPanel({
   balanceId,
   periodo,
+  baseAmarre,
   captura,
   puedeEditar,
   motivoNoAdmite,
   bloqueoCierre,
 }: {
   balanceId: number;
-  /** Período del balance: el archivo tiene que ser del mismo y se confirma antes de leerlo. */
+  /** Período del archivo: del 1 de enero a la fecha de corte del balance; se confirma antes de leerlo. */
   periodo: PeriodoBalanceVm;
+  /** Regla 2: «el balance de cierre de diciembre …» cuando el balance no empieza en enero; null = su saldo inicial. */
+  baseAmarre: string | null;
   captura: CapturaMovimientosVm | null;
   puedeEditar: boolean;
   /** Por qué este balance no admite el archivo (no empieza en enero, cargue antiguo…); null = lo admite. */
@@ -63,6 +67,7 @@ export function MovimientosTerceroPanel({
   const entrada = useRef<HTMLInputElement>(null);
   const [paso, setPaso] = useState<Paso>({ tipo: "inicio" });
   const [confirmaPeriodo, setConfirmaPeriodo] = useState(false);
+  const [nombreArchivo, setNombreArchivo] = useState("");
   const [quitarAbierto, setQuitarAbierto] = useState(false);
   const [quitando, startQuitar] = useTransition();
 
@@ -81,6 +86,7 @@ export function MovimientosTerceroPanel({
     const loteId = crypto.randomUUID();
     // Cada archivo nuevo se vuelve a confirmar.
     setConfirmaPeriodo(false);
+    setNombreArchivo(archivo.name);
     setPaso({ tipo: "subiendo", porcentaje: 0 });
     try {
       await cargarArchivoBalanceTemporal(archivo, loteId, (porcentaje) => setPaso({ tipo: "subiendo", porcentaje }));
@@ -142,8 +148,20 @@ export function MovimientosTerceroPanel({
             Se guardan los grupos 13, 21, 22, 23, 24 y 28, y el movimiento de cada cuenta debe amarrar con el balance. Cartera y Cuentas por pagar no los usan: se concilian por cuenta.
           </p>
           <p className="mt-1 text-[12.5px] text-ink-800">
-            Período del balance: <b>{periodo.desde}</b> al <b>{periodo.hasta}</b>. El archivo debe ser del mismo período.
+            El archivo debe traer los movimientos del <b>{periodo.desde}</b> al <b>{periodo.hasta}</b> (de enero a la fecha de corte de este balance).
+            {" "}Se amarra contra {baseAmarre ? <>la diferencia entre el saldo final de este balance y <b>{baseAmarre}</b>, porque este balance no empieza el 1 de enero</> : "el saldo inicial de este balance, que empieza el 1 de enero"}.
           </p>
+          {/* Lo que debe traer el archivo, a la vista antes de adjuntarlo. */}
+          <div className="mt-1.5 text-[12.5px] text-ink-800">
+            <p className="font-semibold">El archivo (Excel .xlsx) debe traer estas columnas:</p>
+            <ul className="mt-0.5 list-disc pl-5">
+              <li><b>Cuenta</b> contable</li>
+              <li><b>Débito</b> y <b>Crédito</b> en columnas aparte, o un solo <b>importe o movimiento</b> con signo (positivo = débito)</li>
+              <li><b>NIT</b> del tercero</li>
+              <li><b>Nombre</b> del tercero (cliente o proveedor)</li>
+            </ul>
+            <p className="mt-0.5 text-[11.5px] text-ink-600">Una fila por documento o movimiento; los títulos de las columnas van en una sola fila. Al adjuntarlo se escoge cuál columna es cada una.</p>
+          </div>
           {captura ? (
             <p className="mt-1.5 inline-flex flex-wrap items-center gap-x-2 text-[12px] text-ink-700">
               <Icon name="file-check" size={14} />
@@ -190,7 +208,7 @@ export function MovimientosTerceroPanel({
           onCancelar={() => cancelar(paso.loteId)}
         />
       )}
-      {paso.tipo === "rechazo" && <RechazoAmarre resultado={paso.resultado} />}
+      {paso.tipo === "rechazo" && <RechazoAmarre resultado={paso.resultado} balanceId={balanceId} archivo={nombreArchivo} baseAmarre={baseAmarre} />}
 
       <Modal
         open={quitarAbierto}
@@ -309,7 +327,7 @@ function MapeoMovimientosForm({ vista, mapeo, leyendo, periodo, confirmaPeriodo,
           onChange={(e) => onConfirmarPeriodo(e.target.checked)}
         />
         <span>
-          Confirmo que el archivo trae los movimientos del <b>{periodo.desde}</b> al <b>{periodo.hasta}</b>, el mismo período de este balance.
+          Confirmo que el archivo trae los movimientos del <b>{periodo.desde}</b> al <b>{periodo.hasta}</b>, de enero a la fecha de corte de este balance.
         </span>
       </label>
 
@@ -324,10 +342,35 @@ function MapeoMovimientosForm({ vista, mapeo, leyendo, periodo, confirmaPeriodo,
   );
 }
 
-function RechazoAmarre({ resultado }: { resultado: AdjuntarMovimientosState }) {
+function RechazoAmarre({ resultado, balanceId, archivo, baseAmarre }: { resultado: AdjuntarMovimientosState; balanceId: number; archivo: string; baseAmarre: string | null }) {
+  const [exportando, startExportar] = useTransition();
+  const hayTabla = Boolean(resultado.descuadres?.length || resultado.sinCuentaEnBalance?.length);
+  const exportar = () => startExportar(async () => {
+    const r = await exportarDescuadreMovimientos({
+      balanceId, archivo, descuadres: resultado.descuadres ?? [], sinCuentaEnBalance: resultado.sinCuentaEnBalance ?? [], base: resultado.base,
+    });
+    if (!r.ok || !r.base64 || !r.nombre) {
+      notifyError("No se pudo exportar", r.message);
+      return;
+    }
+    const bytes = Uint8Array.from(atob(r.base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = r.nombre;
+    enlace.click();
+    URL.revokeObjectURL(url);
+  });
   return (
     <div role="alert" className="mt-3 rounded-md border border-err-200 bg-err-50 px-4 py-3">
-      <p className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-err-700"><Icon name="warn" size={14} /> {resultado.message}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-err-700"><Icon name="warn" size={14} /> {resultado.message}</p>
+        {hayTabla && (
+          <button type="button" className={BOTON} disabled={exportando} onClick={exportar}>
+            {exportando ? <EstadoProcesando>Exportando</EstadoProcesando> : <><Icon name="download" size={14} /> Exportar a Excel</>}
+          </button>
+        )}
+      </div>
       {resultado.montosIlegibles?.length ? (
         <p className="mt-1 text-[12px] text-ink-700">Filas del archivo con importes ilegibles: {resultado.montosIlegibles.join(", ")}.</p>
       ) : null}
@@ -353,7 +396,7 @@ function RechazoAmarre({ resultado }: { resultado: AdjuntarMovimientosState }) {
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[11.5px] text-ink-500">Movimiento = débitos − créditos de enero al corte (en el balance, saldo final − saldo inicial).</p>
+          <p className="mt-1 text-[11.5px] text-ink-500">Movimiento = débitos − créditos de enero al corte. En el balance: saldo final − {baseAmarre ? <>saldo final de {baseAmarre}</> : "saldo inicial"}.</p>
         </div>
       ) : null}
       {resultado.sinCuentaEnBalance?.length ? (

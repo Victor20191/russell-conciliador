@@ -12,7 +12,8 @@ import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import TercerosClient from "./terceros-client";
 import { MovimientosTerceroPanel } from "./movimientos-tercero-panel";
-import { balanceAdmiteMovimientos, esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero";
+import { esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero";
+import { periodoDelArchivo, resolverBaseAmarre } from "@/lib/balance/movimientos-tercero-base-servidor";
 import { cierresFirmesDeBalance } from "@/lib/conciliacion/verificar-bloqueo";
 import { fmtDateTime } from "@/lib/format";
 import Link from "next/link";
@@ -27,9 +28,6 @@ import Link from "next/link";
  * No es una pantalla de carga ni de edición: no toca staging, no persiste nada,
  * no cambia la política de congelado. Mismo gate que `/balance/[id]`.
  */
-/** «01/01/2026»: las fechas del balance son de calendario (UTC). */
-const fechaLegible = (fecha: Date): string => fecha.toISOString().slice(0, 10).split("-").reverse().join("/");
-
 export default async function BalanceTercerosPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("balance:ver");
   const { id: rawId } = await params;
@@ -84,18 +82,21 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
   const cliente = await prisma.client.findUnique({ where: { id: balance.clienteId }, select: { balancePorTerceros: true } });
   const sinBalancePorTerceros = cliente?.balancePorTerceros === false;
   const deMovimientos = esCapturaDeMovimientos(encabezadoTercero?.origenExtraccion);
-  const [crearAuth, cierres] = sinBalancePorTerceros
-    ? await Promise.all([authorizePermiso("balance:crear", { clientId: balance.clienteId }), cierresFirmesDeBalance([id])])
-    : [null, []];
+  const [crearAuth, cierres, baseAmarre] = sinBalancePorTerceros
+    ? await Promise.all([authorizePermiso("balance:crear", { clientId: balance.clienteId }), cierresFirmesDeBalance([id]), resolverBaseAmarre(balance)])
+    : [null, [], null];
   const motivoNoAdmite = !sinBalancePorTerceros
     ? null
     : !balance.loteId
       ? "Este cargue antiguo no conserva el vínculo para el detalle por tercero: vuelve a cargar el balance."
       : encabezadoTercero && !deMovimientos
         ? "Este balance ya conserva su detalle por tercero; no necesita el archivo de movimientos."
-        : !balanceAdmiteMovimientos(balance.periodoInicio, balance.periodoFin)
-          ? "El balance debe empezar el 1 de enero del año de su corte para sumar los movimientos del ERP."
+        : baseAmarre && !baseAmarre.ok
+          ? baseAmarre.message
           : null;
+  // Regla 2: el balance no empieza en enero y la apertura del año sale del cierre de diciembre.
+  const baseDiciembre = baseAmarre?.ok && baseAmarre.base.tipo === "cierre_diciembre" ? baseAmarre : null;
+  const aperturaDiciembre = new Map((baseDiciembre?.cierreDiciembre ?? []).map((d) => [d.cuenta8.replace(/D/g, ""), d.saldoFinal]));
   const modulosEnFirme = [...new Set(cierres.map((c) => c.moduloCodigo))].join(", ");
   const bloqueoCierre = cierres.length
     ? `Hay conciliaciones en firme contra este balance (${modulosEnFirme}): abre esos cierres para reemplazar o quitar el archivo.`
@@ -116,14 +117,25 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
 
   // Con el archivo de movimientos los terceros traen solo el movimiento del año (saldo inicial 0): se
   // comparan contra el movimiento de cada cuenta del balance, no contra sus saldos.
+  const sumasTercero = new Map<string, { debitos: number; creditos: number }>();
+  for (const t of filasTerceroRaw) {
+    const s = sumasTercero.get(t.cuenta8) ?? { debitos: 0, creditos: 0 };
+    s.debitos += Number(t.debitos);
+    s.creditos += Number(t.creditos);
+    sumasTercero.set(t.cuenta8, s);
+  }
   const filasBalance = filasBalanceRaw.map((f) => ({
     cuenta8: f.cuenta8,
     nombreCuenta: f.nombreCuenta,
     cuenta6Russell: f.cuenta6Russell,
     saldoInicial: deMovimientos ? 0 : Number(f.saldoInicial),
-    debitos: Number(f.debitos),
-    creditos: Number(f.creditos),
-    saldoFinal: deMovimientos ? Number(f.saldoFinal) - Number(f.saldoInicial) : Number(f.saldoFinal),
+    // Contra el cierre de diciembre los débitos y créditos del balance son solo del mes: se toman los
+    // de los terceros para que la comparación mire el movimiento del año.
+    debitos: deMovimientos && baseDiciembre ? (sumasTercero.get(f.cuenta8)?.debitos ?? 0) : Number(f.debitos),
+    creditos: deMovimientos && baseDiciembre ? (sumasTercero.get(f.cuenta8)?.creditos ?? 0) : Number(f.creditos),
+    saldoFinal: !deMovimientos
+      ? Number(f.saldoFinal)
+      : Number(f.saldoFinal) - (baseDiciembre ? (aperturaDiciembre.get(f.cuenta8.replace(/D/g, "")) ?? 0) : Number(f.saldoInicial)),
   }));
   const filasTercero = completarNombresDelMismoArchivo(filasTerceroRaw.map((f) => ({
     cuenta8: f.cuenta8,
@@ -178,7 +190,8 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
       {sinBalancePorTerceros && (
         <MovimientosTerceroPanel
           balanceId={id}
-          periodo={{ desde: fechaLegible(balance.periodoInicio), hasta: fechaLegible(balance.periodoFin) }}
+          periodo={periodoDelArchivo(balance.periodoFin)}
+          baseAmarre={baseDiciembre && baseDiciembre.base.tipo === "cierre_diciembre" ? `el balance de cierre de diciembre ${baseDiciembre.base.descripcion}` : null}
           captura={deMovimientos && encabezadoTercero ? {
             archivo: encabezadoTercero.archivo ?? "—",
             cargadoPor: encabezadoTercero.cargadoPor ?? "—",

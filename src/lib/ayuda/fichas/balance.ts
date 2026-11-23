@@ -454,9 +454,10 @@ export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
             "Para un cliente con la excepción «No maneja balance por terceros»: sube el reporte del ERP con los movimientos de enero al corte por cuenta y tercero (Excel .xlsx), se escogen las columnas de cuenta, NIT, nombre y valores (débito y crédito, o un importe con signo) y «Leer y amarrar con el balance» los agrega: el balance queda «Por cuenta con terceros agregados». Se guardan los terceros de los grupos 13, 21, 22, 23, 24 y 28, cada uno con su movimiento del año; sirven solo para los impuestos: con ellos cruzan Retención en la fuente, IVA y el Régimen Simple. Cartera y Cuentas por pagar no los usan. Los movimientos sin NIT quedan como «Sin tercero».",
           regla: REGLAS.cargarBalance,
           condiciones: [
-            "El balance debe empezar el 1 de enero del año de su corte.",
-            "El archivo debe ser del mismo período del balance: antes de leerlo hay que marcar «Confirmo que el archivo trae los movimientos del … al …», con las fechas del balance. La confirmación queda en la auditoría.",
-            "El movimiento de cada cuenta del archivo (débitos − créditos) debe amarrar con el del balance (saldo final − saldo inicial) dentro del umbral de descuadre; si una cuenta no amarra o no existe en el balance, no se guarda nada y se muestra cuál.",
+            "El archivo siempre trae los movimientos del 1 de enero a la fecha de corte del balance. Se amarra contra el saldo inicial del balance si este empieza el 1 de enero; si no (por ejemplo, el balance mensual del corte), contra el balance cerrado del cliente al 31 de diciembre del año anterior: el movimiento de cada cuenta es saldo final del corte − saldo final de diciembre. Sin ninguno de los dos no se pueden agregar los terceros.",
+            "El archivo debe traer las columnas Cuenta, Débito y Crédito (o un solo importe o movimiento con signo), NIT y Nombre del tercero; la pantalla las lista antes de adjuntarlo.",
+            "Antes de leerlo hay que marcar «Confirmo que el archivo trae los movimientos del 1 de enero a la fecha de corte». La confirmación, y contra qué se amarró, quedan en la auditoría.",
+            "El movimiento de cada cuenta del archivo (débitos − créditos) debe amarrar con el del balance dentro del umbral de descuadre; si una cuenta no amarra o no existe en el balance, no se guarda nada, se muestra cuál y la tabla se puede exportar a Excel.",
             "No se reemplaza mientras haya una conciliación en firme contra el balance.",
           ],
           fuente: { archivo: "src/app/actions/balance-movimientos-tercero.ts", funcion: "adjuntarMovimientosTercero" },
