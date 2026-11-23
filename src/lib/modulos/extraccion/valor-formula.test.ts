@@ -3,12 +3,39 @@ import { letraColumnaModulo } from "../perfil-modulo";
 import {
   claveTerminoFormula,
   evaluarValorFormula,
+  quitarTerminoFormula,
   sanearValorFormula,
   textoValorFormula,
   tieneValorFormula,
   validarValorFormula,
+  volverAUnaColumna,
   type TerminoFormula,
 } from "./valor-formula";
+
+describe("salir de la fórmula del valor", () => {
+  const spec = { columnas: { valorTotal: 0, cantidad: 4 }, valorFormula: [{ columna: 18, signo: "+" as const }, { columna: 19, signo: "+" as const }] };
+
+  it("«Volver a una sola columna» deja la fórmula y mapea el valor a la del primer término", () => {
+    const r = volverAUnaColumna(spec, "valorTotal");
+    expect(r.valorFormula).toBeUndefined();
+    expect(tieneValorFormula(r)).toBe(false);
+    expect(r.columnas).toEqual({ valorTotal: 18, cantidad: 4 });
+    expect(spec.valorFormula).toHaveLength(2);
+  });
+
+  it("con dos columnas, la «×» vuelve a una sola columna: la que queda", () => {
+    expect(quitarTerminoFormula(spec, "valorTotal", 1)).toEqual({ columnas: { valorTotal: 18, cantidad: 4 } });
+    expect(quitarTerminoFormula(spec, "valorTotal", 0)).toEqual({ columnas: { valorTotal: 19, cantidad: 4 } });
+  });
+
+  it("con tres o más, la «×» solo quita ese término", () => {
+    const tres = { ...spec, valorFormula: [...spec.valorFormula, { columna: 20, signo: "-" as const }] };
+    const r = quitarTerminoFormula(tres, "valorTotal", 0);
+    expect(r.valorFormula).toEqual([{ columna: 19, signo: "+" }, { columna: 20, signo: "-" }]);
+    expect(r.columnas.valorTotal).toBe(0);
+    expect(quitarTerminoFormula(tres, "valorTotal", 9)).toBe(tres);
+  });
+});
 
 // SAP Business One: M «Total sin Descuento» + N, O, P (los tres «Total Fletes»).
 const SAP: TerminoFormula[] = [

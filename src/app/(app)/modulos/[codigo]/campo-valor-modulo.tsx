@@ -9,7 +9,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import { fmtContable } from "@/lib/format";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { MINIMO_TERMINOS_FORMULA, tieneValorFormula, type TerminoFormula } from "@/lib/modulos/extraccion/valor-formula";
+import { MINIMO_TERMINOS_FORMULA, quitarTerminoFormula, tieneValorFormula, volverAUnaColumna, type TerminoFormula } from "@/lib/modulos/extraccion/valor-formula";
 import {
   avisoValorSinProponer,
   confirmacionValor,
@@ -67,14 +67,10 @@ export function FormulaValor({
       ?? [...Array(ancho).keys()].map((c) => c + 1).find((c) => !usadas.has(c));
     if (siguiente != null) actualizar([...formula, { columna: siguiente, signo: "+" }]);
   };
-  const quitar = (i: number) => actualizar(formula.filter((_, j) => j !== i));
-  const usarUnaColumna = () =>
-    setSpec((s) => {
-      if (!s) return s;
-      const { valorFormula: _fuera, ...resto } = s;
-      void _fuera;
-      return conCambio(resto as SpecModulo, { columnas: { ...s.columnas, [rolValor]: formula[0]?.columna ?? 0 } });
-    });
+  // Con dos columnas, quitar una vuelve a una sola columna: la que queda.
+  const quitar = (i: number) => setSpec((s) => (s ? retirarConfirmacionValor(quitarTerminoFormula(s, rolValor, i)) : s));
+  const usarUnaColumna = () => setSpec((s) => (s ? retirarConfirmacionValor(volverAUnaColumna(s, rolValor)) : s));
+  const ultimaDos = formula.length <= MINIMO_TERMINOS_FORMULA;
 
   // Vista previa con las primeras filas de la muestra que traen algo en la fórmula.
   const filasConDato = muestraFilas
@@ -110,9 +106,9 @@ export function FormulaValor({
           <button
             type="button"
             onClick={() => quitar(i)}
-            disabled={formula.length <= MINIMO_TERMINOS_FORMULA}
-            title={formula.length <= MINIMO_TERMINOS_FORMULA ? "La fórmula necesita al menos dos columnas" : "Quitar esta columna"}
-            className="shrink-0 rounded px-1.5 text-[14px] leading-none text-ink-400 hover:text-err-700 disabled:opacity-40"
+            title={ultimaDos ? "Quitar esta columna y volver a una sola columna (queda la otra)" : "Quitar esta columna"}
+            aria-label={ultimaDos ? `Quitar la columna ${letra(t.columna)} y volver a una sola columna` : `Quitar la columna ${letra(t.columna)}`}
+            className="shrink-0 rounded px-1.5 text-[14px] leading-none text-ink-400 hover:text-err-700"
           >
             ×
           </button>
@@ -122,8 +118,13 @@ export function FormulaValor({
         <button type="button" onClick={agregar} disabled={formula.length >= ancho} className="font-semibold text-navy-700 hover:underline disabled:opacity-40">
           + Agregar columna
         </button>
-        <button type="button" onClick={usarUnaColumna} className="text-ink-500 hover:underline">
-          Usar una sola columna
+        <button
+          type="button"
+          onClick={usarUnaColumna}
+          title={`Deja la fórmula y mapea el valor a una sola columna (${formula[0] ? letra(formula[0].columna) : "la primera"})`}
+          className="font-semibold text-navy-700 hover:underline"
+        >
+          ← Volver a una sola columna
         </button>
       </div>
       <p className="break-words text-[11.5px] text-ink-600">

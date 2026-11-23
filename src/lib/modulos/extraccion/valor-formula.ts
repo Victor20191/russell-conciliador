@@ -19,6 +19,29 @@ export function tieneValorFormula(spec: Pick<SpecModulo, "valorFormula">): spec 
 }
 
 /**
+ * Deja la fórmula y vuelve a mapear el valor a UNA columna (`columna`; por defecto, la del primer
+ * término). No muta el spec.
+ */
+export function volverAUnaColumna<S extends Pick<SpecModulo, "valorFormula" | "columnas">>(spec: S, rolValor: string, columna?: number): S {
+  const { valorFormula, ...resto } = spec;
+  const elegida = columna ?? valorFormula?.[0]?.columna ?? 0;
+  return { ...(resto as S), columnas: { ...spec.columnas, [rolValor]: elegida } };
+}
+
+/**
+ * Quita un término de la fórmula. Con dos términos, la fórmula ya no tiene sentido: el valor vuelve a
+ * una columna, la del término que queda (así la «×» nunca deja al usuario sin salida).
+ */
+export function quitarTerminoFormula<S extends Pick<SpecModulo, "valorFormula" | "columnas">>(spec: S, rolValor: string, indice: number): S {
+  const formula = spec.valorFormula ?? [];
+  if (indice < 0 || indice >= formula.length) return spec;
+  if (formula.length <= MINIMO_TERMINOS_FORMULA) {
+    return volverAUnaColumna(spec, rolValor, formula.find((_, j) => j !== indice)?.columna);
+  }
+  return { ...spec, valorFormula: formula.filter((_, j) => j !== indice) };
+}
+
+/**
  * Sanea lo que llegue guardado (perfil, patrón, spec del navegador): solo términos con columna
  * entera ≥ 1 y signo válido, sin columnas repetidas. Devuelve `undefined` si no queda fórmula.
  */
