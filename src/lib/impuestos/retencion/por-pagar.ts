@@ -2,10 +2,12 @@ import { nivelDiferencia, type NivelDiferencia } from "@/lib/balance/umbrales-al
 import type { PeriodoRevision } from "./periodos-revision";
 
 /**
- * Control de lo que queda por pagar al corte (puro). No es una fila del cruce: no exige marca ni impide
- * cerrar; si no cuadra, sale un aviso en Novedades. RST lo usa con el impuesto al consumo: la casilla 64
- * de los recibos 2593 del año que al corte no se habían pagado, contra el saldo neto por pagar de las
- * cuentas del cliente homologadas a la 249505 (causado, crédito) y la 249510 (pagos, débito).
+ * Controles de lo que queda por pagar al corte (puros). No son filas del cruce: no exigen marca ni impiden
+ * cerrar; si uno no cuadra, sale un aviso en Novedades. RST tiene tres (`cruce.controlesPorPagar`): el
+ * impuesto al consumo (64 contra 249505 − 249510), el IVA (74 contra el neto de las 2408 del recibo, la
+ * 240899 de pagos y la 135517) y el ICA (76, la suma de las 104, contra la 241205). Cada uno compara el
+ * renglón de los recibos 2593 del año que al corte no se habían pagado con el saldo neto por pagar de las
+ * cuentas del cliente homologadas a sus cuentas (crédito suma, débito resta).
  *
  * Se compara el neto por pagar y no lo pagado porque el pago llega meses después del bimestre (enero y
  * febrero se pagan en mayo; noviembre y diciembre, en enero del año siguiente): lo pagado en el año trae
@@ -44,8 +46,14 @@ export type ReciboPorPagar = {
 export type CuentaPorPagar = { cuenta: string; nombre: string; cuentaRussell: string; nombreRussell: string | null; saldo: number };
 
 export type ControlPorPagar = {
+  /** Llave del control («consumo», «iva», «ica»). La copia del 21/Nov/2026 sin lista no la trae. */
+  clave?: string;
   titulo: string;
   renglon: number;
+  /** «casilla 64»; «casilla 76 (suma de las 104)». La copia del 21/Nov/2026 sin lista no la trae. */
+  etiquetaRenglon?: string;
+  /** Cómo se lee la contabilidad, en una frase. */
+  contabilidad?: string;
   /** AAAA-MM-DD: el último día del balance del corte. */
   fechaCorte: string;
   /** Los recibos del año con valor en el renglón, pagados o no. */
@@ -69,8 +77,11 @@ const centavos = (n: number) => Math.round(n * 100);
 const sumar = (valores: readonly number[]) => valores.reduce((s, v) => s + centavos(v), 0) / 100;
 
 export function controlPorPagar(e: {
+  clave?: string;
   titulo: string;
   renglon: number;
+  etiquetaRenglon?: string;
+  contabilidad?: string;
   cuentas: readonly string[];
   fechaCorte: string;
   periodos: readonly PeriodoRevision[];
@@ -131,8 +142,11 @@ export function controlPorPagar(e: {
   const porPagarContable = sumar(cuentas.map((c) => c.saldo));
   const diferencia = sumar([porPagarRecibos, -porPagarContable]);
   return {
+    ...(e.clave ? { clave: e.clave } : {}),
     titulo: e.titulo,
     renglon: e.renglon,
+    ...(e.etiquetaRenglon ? { etiquetaRenglon: e.etiquetaRenglon } : {}),
+    ...(e.contabilidad ? { contabilidad: e.contabilidad } : {}),
     fechaCorte: e.fechaCorte,
     recibos,
     periodosSinRecibo,
@@ -148,5 +162,8 @@ export function controlPorPagar(e: {
 export function avisoPorPagar(c: ControlPorPagar): string | null {
   if (c.nivel !== "alerta") return null;
   const pesos = (n: number) => `${n < 0 ? "-" : ""}$ ${Math.abs(n).toLocaleString("es-CO", { maximumFractionDigits: 2 })}`;
-  return `Cruce contable · ${c.titulo}: al corte quedan por pagar ${pesos(c.porPagarRecibos)} según la casilla ${c.renglon} de los recibos y ${pesos(c.porPagarContable)} según la contabilidad; diferencia de ${pesos(c.diferencia)}. Es un control: no impide cerrar.`;
+  return `Cruce contable · ${c.titulo}: al corte quedan por pagar ${pesos(c.porPagarRecibos)} según la ${etiquetaRenglonPorPagar(c)} de los recibos y ${pesos(c.porPagarContable)} según la contabilidad; diferencia de ${pesos(c.diferencia)}. Es un control: no impide cerrar.`;
 }
+
+/** Cómo se nombra el renglón del control: «casilla 64», o la etiqueta que trae («casilla 76 (suma de las 104)»). */
+export const etiquetaRenglonPorPagar = (c: Pick<ControlPorPagar, "renglon" | "etiquetaRenglon">): string => c.etiquetaRenglon ?? `casilla ${c.renglon}`;

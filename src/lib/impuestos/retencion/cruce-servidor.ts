@@ -73,8 +73,8 @@ export async function cargarCruceRetencion(
   // Las cuentas Russell de las secciones que se leen por cuenta (los ingresos de IVA): del detalle por cuenta.
   const seccionesPorCuenta = new Set(impuesto.cruce.grupos.filter((g) => !g.porTercero).flatMap((g) => g.secciones));
   const cuentasPorCuenta = [...new Set(mapeo.filas.filter((f) => f.enCruce && seccionesPorCuenta.has(f.seccion)).flatMap((f) => cuentasDeMapeo(f)))];
-  // El control por pagar (RST: 249505 y 249510) se lee del detalle por cuenta: neto, con la DIAN incluida.
-  const cuentasPorPagar = impuesto.cruce.controlPorPagar?.cuentas ?? [];
+  // Los controles por pagar (RST: consumo, IVA e ICA) se leen del detalle por cuenta: neto, con la DIAN incluida.
+  const cuentasPorPagar = [...new Set((impuesto.cruce.controlesPorPagar ?? []).flatMap((c) => c.cuentas))];
   const todasLasCuentas = [...new Set([...mapeo.filas.flatMap((f) => cuentasDeMapeo(f)), ...cuentasPorPagar])];
   const prefijosTercero = impuesto.cruce.prefijosTercero;
   const prefijosCliente = impuesto.cruce.prefijosCliente;

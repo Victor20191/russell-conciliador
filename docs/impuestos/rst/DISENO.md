@@ -15,7 +15,7 @@ Fuentes: `Formulario_2593_2024.pdf` (formulario e instructivo de las dos hojas, 
 3. **Solo clientes del Régimen Simple.** «Nueva revisión» pregunta el cliente; si su ficha dice No, pide confirmar que sí pertenece al régimen y, al confirmar, la ficha queda en Sí (bitácora «MARCÓ RÉGIMEN SIMPLE DEL CLIENTE»).
 4. **Validación central:** 76 (ICA) + 77 (anticipo SIMPLE) + 78 (impuesto al consumo) + 79 (IVA) del 2593 = casilla 36 del 490 concepto 27 (Pagos efectuados; una diferencia exige marca).
 5. **Oportunidad = fecha de pago:** el sello (997) del 490 concepto 27 contra el calendario «RST – Anticipo bimestral». El 2593 no trae sello de presentación.
-6. **Cruce contable** (decidido el 18 y el 19/Nov/2026): 44 contra 135595, 59 contra 249505, 66 y 67 contra las cuentas genéricas de IVA y 39 contra los ingresos; los excedentes y saldos a favor quedan de control. La 64 (impuesto al consumo) queda de control contra el neto 249505 − 249510 (21/Nov/2026). Detalle en `IMPLEMENTACION.md`.
+6. **Cruce contable** (decidido el 18 y el 19/Nov/2026): 44 contra 135595, 59 contra 249505, 66 y 67 contra las cuentas genéricas de IVA y 39 contra los ingresos; los excedentes y saldos a favor quedan de control. El 21/Nov/2026 se agregaron la 70 (135517) y la 43 = Σ99 (511505) al cruce, avisos de la 50, 100, 105 y Σ84 = 39, y tres controles de lo que falta pagar: consumo (64 contra 249505 − 249510), IVA (74) e ICA (76). Detalle en `IMPLEMENTACION.md`.
 7. **Cierre en firme** con el cruce, como Retención e IVA.
 8. Vistas «Por períodos» y «Acumulado», y «Pagos efectuados», como en IVA y Retención.
 

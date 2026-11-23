@@ -25,13 +25,13 @@ const MEDELLIN: IcaMunicipioCrudo = {
   tarifaDelContribuyente: "",
 };
 
-/** El 2593 con lo justo para los controles de la hoja 2: el 43, el 76 y el 37. */
+/** El 2593 con lo justo para los controles de la hoja 2: el 39, el 43, el 76 y el 37 (la 39 del recibo real es la 84 de su único municipio). */
 function cruda2593(ica: IcaMunicipioCrudo[] | undefined): LecturaCruda {
   return {
     formulario: "2593", anio: "2026", periodo: "1", numero: "25936612172158", nit: "900000008", dv: "", razonSocial: "CLIENTE SIMPLE DE PRUEBA S.A.S.",
     periodicidad: "", codigoCorreccion: "", numeroAnterior: "", concepto: "", numeroPagado: "", cuota: "", deCuotas: "", fechaLimitePago: "",
     autoadhesivo: "", fechaSello: "",
-    renglones: [{ renglon: 43, valor: "10,005,000" }, { renglon: 76, valor: "10,005,000" }, { renglon: 77, valor: "28,033,000" }],
+    renglones: [{ renglon: 39, valor: "870,016,000" }, { renglon: 43, valor: "10,005,000" }, { renglon: 76, valor: "10,005,000" }, { renglon: 77, valor: "28,033,000" }],
     exterior: [],
     ...(ica ? { ica } : {}),
   };
@@ -59,9 +59,9 @@ describe("hoja 2 del 2593: ICA por municipio", () => {
     expect(aTarifaPorMil("")).toBeNull();
   });
 
-  it("con el recibo real todo cuadra: 104 = 76, 99 = 43 y las fórmulas del municipio", () => {
+  it("con el recibo real todo cuadra: 104 = 76, 99 = 43, 84 = 39 y las fórmulas del municipio", () => {
     const controles = controlesLectura(lectura, CTX).filter((c) => deIca(c.clave));
-    expect(controles.map((c) => c.clave)).toEqual(["ica_76", "ica_43", "ica_municipio_1"]);
+    expect(controles.map((c) => c.clave)).toEqual(["ica_76", "ica_43", "ica_39", "ica_municipio_1"]);
     expect(controles.every((c) => c.ok && !c.bloquea)).toBe(true);
   });
 

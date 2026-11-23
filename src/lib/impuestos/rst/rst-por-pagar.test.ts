@@ -5,7 +5,7 @@ import { pagosRevision } from "../retencion/pagos";
 import { vistasRevision } from "../retencion/vistas";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA } from "../mapeo-dian";
 import { evaluarCierreRetencion } from "../retencion/cierre";
-import { cruceRetencion, type EntradaCruce } from "../retencion/cruce";
+import { controlesPorPagarDe, cruceRetencion, type EntradaCruce } from "../retencion/cruce";
 import { periodosRevision, type Formulario350, type Formulario490 } from "../retencion/periodos-revision";
 import { avisoPorPagar, controlPorPagar, type FilaCuentaPorPagar } from "../retencion/por-pagar";
 import { MAPEO_F2593_FABRICA } from "./mapeo-f2593";
@@ -133,11 +133,25 @@ describe("impuesto al consumo por pagar (64 contra 249505 − 249510)", () => {
   });
 });
 
-describe("el control dentro del cruce del 2593", () => {
+describe("los tres controles dentro del cruce del 2593: consumo (64), IVA (74) e ICA (76)", () => {
+  // Cada bimestre con impuesto al consumo, IVA a pagar e ICA; el bimestre 4 se paga el 18 de septiembre.
+  const RECIBOS_TRES = RECIBOS.map((f, i) => ({ ...f, valores: { ...f.valores, 74: (i + 1) * 1_000_000, 76: (i + 1) * 50_000 } }));
+  const periodosTres = () => periodos(RECIBOS_TRES);
+  const FILAS = [
+    // Consumo: causado 1.000.000 sin pagos registrados en la 249510 (falta registrar 600.000).
+    cuenta("24950501", "249505", -1_000_000),
+    // IVA: generado 30 M, descontable 16 M, pagos de los bimestres 1 a 3 (6 M) y la retención del bimestre 4 aún en la 135517.
+    cuenta("24080501", "240805", -30_000_000),
+    cuenta("24081001", "240810", 16_000_000),
+    cuenta("24089901", "240899", 6_000_000),
+    cuenta("13551701", "135517", 4_000_000),
+    // ICA: lo que falta pagar del bimestre 4.
+    cuenta("24120501", "241205", -200_000),
+  ];
   const entrada = (cambios: Partial<EntradaCruce> = {}): EntradaCruce => ({
     impuesto: "RST",
-    naturalezas: new Map([["249505", "C"], ["249510", "D"]]),
-    periodos: periodos(),
+    naturalezas: new Map(),
+    periodos: periodosTres(),
     mapeo: MAPEO_F2593_FABRICA,
     sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA),
     tercerosDian: [{ nit: "800197268" }],
@@ -148,56 +162,82 @@ describe("el control dentro del cruce del 2593", () => {
     umbral: 501,
     marcas: [],
     fechaCorte: "2026-08-31",
-    filasPorPagar: [cuenta("24950501", "249505", -1_000_000)],
+    filasPorPagar: FILAS,
     ...cambios,
   });
-
-  it("viaja en el resultado del cruce (y con él a la copia del cierre), sin filas ni marcas", () => {
-    const r = cruceRetencion(entrada());
-    expect(r.porPagar?.porPagarRecibos).toBe(400_000);
-    expect(r.porPagar?.porPagarContable).toBe(1_000_000);
-    // No es una fila del cruce: el 64 no se concilia ni pide marca.
-    expect(r.grupos.flatMap((g) => g.filas).some((f) => f.conceptos.some((c) => c.renglones.includes(64)))).toBe(false);
-    expect(r.pendientesMarca).toBe(r.grupos.flatMap((g) => g.filas).filter((f) => f.requiereMarca && !f.marca?.vigente).length);
+  const CRUCE_LISTO = (resultado: ReturnType<typeof cruceRetencion>) => ({
+    estado: "listo" as const, mensaje: null, balance: { id: 1, periodo: "", descripcion: "Balance", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" }, umbral: 501, inicioEnero: true, resultado,
   });
 
-  it("en Novedades queda como aviso, no como pendiente", () => {
+  it("trae un control por cada uno, en el orden del descriptor, sin filas ni marcas", () => {
+    const r = cruceRetencion(entrada());
+    expect(controlesPorPagarDe(r).map((c) => [c.clave, c.porPagarRecibos, c.porPagarContable, c.nivel])).toEqual([
+      ["consumo", 400_000, 1_000_000, "alerta"],
+      ["iva", 4_000_000, 4_000_000, "cero"],
+      ["ica", 200_000, 200_000, "cero"],
+    ]);
+    // No son filas del cruce: la 64, la 74 y la 76 no se concilian ni piden marca.
+    expect(r.grupos.flatMap((g) => g.filas).some((f) => f.conceptos.some((c) => c.renglones.some((x) => [64, 74, 76].includes(x))))).toBe(false);
+  });
+
+  it("en el IVA la retención que sigue en la 135517 resta; sin ella el neto no cuadra", () => {
+    const sinRetencion = cruceRetencion(entrada({ filasPorPagar: FILAS.filter((f) => f.cuentaRussell !== "135517") }));
+    const iva = controlesPorPagarDe(sinRetencion).find((c) => c.clave === "iva")!;
+    expect(iva.porPagarContable).toBe(8_000_000);
+    expect(iva.nivel).toBe("alerta");
+  });
+
+  it("en Novedades solo avisa el que no cuadra, y no es un pendiente", () => {
     const resultado = cruceRetencion(entrada());
     const evaluacion = evaluarCierreRetencion({
-      codigo: "2593", periodos: periodos(), cruce: { estado: "listo", mensaje: null, balance: { id: 1, periodo: "", descripcion: "", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" }, umbral: 501, inicioEnero: true, resultado },
+      codigo: "2593", periodos: periodosTres(), cruce: CRUCE_LISTO(resultado),
       pagos: { filas: [], total: { retenciones: 0, sanciones: 0, totalDeclarado: 0, impuestoPagado: 0, sancionPagada: 0, intereses: 0, totalPagado: 0, diferencia: 0 }, pendientesMarca: 0 },
       oportunidad: [], etiquetaPeriodo: (p) => `Bimestre ${p}`,
     });
-    expect(evaluacion.avisos.some((a) => a.startsWith("Cruce contable · Impuesto al consumo por pagar"))).toBe(true);
-    expect(evaluacion.pendientes.some((p) => p.texto.includes("Impuesto al consumo por pagar"))).toBe(false);
+    expect(evaluacion.avisos.filter((a) => a.includes("por pagar"))).toEqual([
+      "Cruce contable · Impuesto al consumo por pagar: al corte quedan por pagar $ 400.000 según la casilla 64 de los recibos y $ 1.000.000 según la contabilidad; diferencia de -$ 600.000. Es un control: no impide cerrar.",
+    ]);
+    expect(evaluacion.pendientes.some((p) => p.texto.includes("por pagar"))).toBe(false);
   });
 
-  it("el Excel lo lleva en la hoja del cruce, con los recibos, las cuentas y la diferencia", () => {
-    const p = periodos();
+  it("una copia con el control único de antes se sigue leyendo", () => {
+    const unico = control();
+    expect(controlesPorPagarDe({ porPagar: unico })).toEqual([unico]);
+    expect(controlesPorPagarDe({})).toEqual([]);
+  });
+
+  it("el Excel lleva los tres en la hoja del cruce, con los recibos, las cuentas y la diferencia", () => {
+    const p = periodosTres();
     const resultado = cruceRetencion(entrada());
     const wb = libroRetencion(
       { impuesto: RST.nombre, cliente: "Cliente de prueba", nit: "900000008", anio: 2026, corte: "agosto", periodicidad: "Bimestral" },
       vistasRevision(p, "RST", "Bimestral"),
       [],
-      {
-        cruce: { estado: "listo", mensaje: null, balance: { id: 1, periodo: "", descripcion: "Balance", periodoInicio: "2026-01-01", periodoFin: "2026-08-31" }, umbral: 501, inicioEnero: true, resultado },
-        oportunidad: [],
-        pagos: pagosRevision({ impuesto: "RST", anio: 2026, periodos: p, marcas: [] }),
-      },
+      { cruce: CRUCE_LISTO(resultado), oportunidad: [], pagos: pagosRevision({ impuesto: "RST", anio: 2026, periodos: p, marcas: [] }) },
     );
     const filas: unknown[][] = [];
     wb.getWorksheet("Cruce contable")!.eachRow((row) => filas.push((row.values as unknown[]).slice(1)));
-    const titulo = filas.findIndex((f) => String(f[0]).startsWith("Impuesto al consumo por pagar · control al 31/08/2026"));
-    expect(titulo).toBeGreaterThan(-1);
+    const texto = (f: unknown[]) => String(f[0]);
+    expect(filas.some((f) => texto(f).startsWith("Lo que falta pagar al 31/08/2026 · controles"))).toBe(true);
+    expect(filas.filter((f) => /^(Impuesto al consumo|IVA|ICA) por pagar: /.test(texto(f))).map((f) => texto(f).split(":")[0])).toEqual(["Impuesto al consumo por pagar", "IVA por pagar", "ICA por pagar"]);
     expect(filas.some((f) => f[1] === numero2593(4) && f[2] === 400_000 && f[5] === "Pagado después del corte" && f[6] === 400_000)).toBe(true);
-    expect(filas.some((f) => f[0] === "24950501" && f[6] === 1_000_000)).toBe(true);
-    expect(filas.some((f) => String(f[0]).startsWith("Diferencia · aviso en Novedades") && f[6] === -600_000)).toBe(true);
+    expect(filas.some((f) => f[0] === "13551701" && f[6] === -4_000_000)).toBe(true);
+    expect(filas.some((f) => texto(f) === "Por pagar según los recibos 2593 (casilla 76 (suma de las 104))" && f[6] === 200_000)).toBe(true);
+    expect(filas.filter((f) => texto(f).startsWith("Diferencia · ")).map((f) => [texto(f), f[6]])).toEqual([
+      ["Diferencia · aviso en Novedades", -600_000],
+      ["Diferencia · Cuadra", 0],
+      ["Diferencia · Cuadra", 0],
+    ]);
   });
 
-  it("sin fecha de corte no se calcula, y Retención e IVA no lo tienen", () => {
-    expect(cruceRetencion(entrada({ fechaCorte: undefined })).porPagar).toBeUndefined();
-    expect(RST.cruce.controlPorPagar?.cuentas).toEqual(["249505", "249510"]);
-    expect(RETENCION.cruce.controlPorPagar).toBeUndefined();
-    expect(IVA.cruce.controlPorPagar).toBeUndefined();
+  it("sin fecha de corte no se calculan, y Retención e IVA no los tienen", () => {
+    expect(cruceRetencion(entrada({ fechaCorte: undefined })).controlesPorPagar).toBeUndefined();
+    expect(RST.cruce.controlesPorPagar?.map((c) => [c.clave, c.renglon, c.cuentas])).toEqual([
+      ["consumo", 64, ["249505", "249510"]],
+      ["iva", 74, ["240805", "240810", "240815", "240820", "240899", "135517"]],
+      ["ica", 76, ["241205"]],
+    ]);
+    expect(RETENCION.cruce.controlesPorPagar).toBeUndefined();
+    expect(IVA.cruce.controlesPorPagar).toBeUndefined();
   });
 });

@@ -6,7 +6,7 @@
  *
  * La hoja 2 se guarda dentro de la lectura del formulario (`lectura_json`, campo `ica`) y se
  * normaliza con la hoja 1 (`normalizarLectura`). Sus controles avisan sin bloquear, como las demás
- * fórmulas del 2593; los tres que la amarran a la hoja 1 son Σ104 = 76, Σ99 = 43 y Σ106 = 37.
+ * fórmulas del 2593; los que la amarran a la hoja 1 son Σ104 = 76, Σ99 = 43, Σ84 = 39 y Σ106 = 37.
  */
 
 /** Lo que devuelve la IA por cada página de la hoja 2: todo como texto. */
@@ -134,6 +134,7 @@ export function controlesIca(hoja1: Readonly<Record<number, number>>, municipios
   const controles: ControlIca[] = [
     cruce("ica_76", 76, 104, "ICA a pagar"),
     cruce("ica_43", 43, 99, "ICA consolidado liquidado"),
+    cruce("ica_39", 39, 84, "ingresos brutos bimestrales"),
   ];
   if (total(106) !== 0 || (hoja1[37] ?? 0) !== 0) controles.push(cruce("ica_37", 37, 106, "ganancias ocasionales en el país"));
   municipios.forEach((m, i) => {

@@ -129,9 +129,16 @@ export type ResultadoCruce = {
   pendientesMarca: number;
   /** Marca de lo restado como saldo inicial (se pone en Novedades; guarda el total). Las copias antiguas no la traen. */
   marcaSaldoInicial?: (MarcaCruceRetencion & { vigente: boolean }) | null;
-  /** El control por pagar del impuesto (RST: impuesto al consumo); no suma ni exige marca. Los otros impuestos y las copias antiguas no lo traen. */
+  /** Los controles por pagar del impuesto (RST: consumo, IVA e ICA); no suman ni exigen marca. Los otros impuestos y las copias antiguas no los traen. */
+  controlesPorPagar?: ControlPorPagar[];
+  /** Antes de la lista (21/Nov/2026) había un solo control, el del impuesto al consumo. Ver `controlesPorPagarDe`. */
   porPagar?: ControlPorPagar;
 };
+
+/** Los controles por pagar de un cruce, también de una copia que trae el control único de antes. */
+export function controlesPorPagarDe(r: Pick<ResultadoCruce, "controlesPorPagar" | "porPagar">): ControlPorPagar[] {
+  return r.controlesPorPagar ?? (r.porPagar ? [r.porPagar] : []);
+}
 
 /** Llave de la marca de lo restado como saldo inicial (dimensión `control`, una por revisión). */
 export const CLAVE_MARCA_SALDO_INICIAL = "saldo_inicial";
@@ -190,7 +197,7 @@ export type EntradaCruce = {
   restarSaldoInicial: boolean;
   umbral: number;
   marcas: readonly (MarcaCruceRetencion & { clave: string })[];
-  /** Las cuentas del control por pagar (`cruce.controlPorPagar`), por cuenta: saldo final con débito positivo. */
+  /** Las cuentas de los controles por pagar (`cruce.controlesPorPagar`), por cuenta: saldo final con débito positivo. */
   filasPorPagar?: readonly FilaCuentaPorPagar[];
   /** AAAA-MM-DD: el último día del balance del corte. Sin ella no se calcula el control por pagar. */
   fechaCorte?: string;
@@ -366,16 +373,18 @@ export function cruceRetencion(e: EntradaCruce): ResultadoCruce {
     })
     .filter((g) => g.filas.length > 0);
   const todas = grupos.flatMap((g) => g.filas);
-  const control = impuesto.cruce.controlPorPagar;
-  const porPagar = control && e.fechaCorte
-    ? controlPorPagar({
-        titulo: control.titulo, renglon: control.renglon, cuentas: control.cuentas, fechaCorte: e.fechaCorte,
-        periodos: e.periodos, filas: e.filasPorPagar ?? [], nombresRussell: e.nombresRussell, umbral: e.umbral,
-      })
-    : null;
+  const fechaCorte = e.fechaCorte;
+  const controlesPorPagar = fechaCorte
+    ? (impuesto.cruce.controlesPorPagar ?? []).map((c) =>
+        controlPorPagar({
+          clave: c.clave, titulo: c.titulo, renglon: c.renglon, etiquetaRenglon: c.etiquetaRenglon, contabilidad: c.contabilidad, cuentas: c.cuentas,
+          fechaCorte, periodos: e.periodos, filas: e.filasPorPagar ?? [], nombresRussell: e.nombresRussell, umbral: e.umbral,
+        }),
+      )
+    : [];
   return {
     ...(impuesto.clave === RETENCION.clave ? {} : { impuesto: impuesto.clave }),
-    ...(porPagar ? { porPagar } : {}),
+    ...(controlesPorPagar.length > 0 ? { controlesPorPagar } : {}),
     grupos,
     total: subtotal(todas),
     saldoInicial: resumenSaldoInicial(todas, restarInicial),

@@ -85,8 +85,15 @@ export type ImpuestoDian = {
    * del período anterior (la 51 = la 57 del bimestre anterior). Si no, aviso del período; no bloquea.
    */
   controlesEntreRecibos?: readonly { renglon: number; anterior: number; etiqueta: string }[];
-  /** Renglones que no se cruzan y se avisan cuando traen valor (RST: 52 y 68, saldos del año anterior). */
-  avisosConValor?: readonly { renglon: number; texto: string }[];
+  /**
+   * Renglones que no se cruzan y se avisan cuando traen valor (RST: 52 y 68, saldos del año anterior; 50,
+   * retenciones de antes del SIMPLE). `revision` dice contra qué revisarlo; sin ella, «esa declaración».
+   */
+  avisosConValor?: readonly { renglon: number; texto: string; revision?: string }[];
+  /** Lo mismo en la hoja 2 del 2593, por municipio (RST: 100, retenciones de ICA de antes del SIMPLE; 105, saldo a favor a solicitar). */
+  avisosConValorIca?: readonly { renglon: number; texto: string; revision: string }[];
+  /** La suma de un renglón de la hoja 2 en todos los municipios debe ser un renglón de la hoja 1 (RST: Σ84 = 39). Si no, aviso. */
+  cuadresHoja2?: readonly { renglon: number; contra: number; texto: string }[];
   /** Las pestañas de la revisión que ya están disponibles para el impuesto. */
   pestanas: readonly TabRevisionImpuesto[];
   /** La revisión se puede cerrar en firme (RST todavía no: llega con su cruce contable). */
@@ -143,11 +150,12 @@ export type ImpuestoDian = {
      */
     signoPorNaturaleza: boolean;
     /**
-     * Control que no exige marca ni impide cerrar (ver `retencion/por-pagar.ts`): el `renglon` de los
+     * Controles que no exigen marca ni impiden cerrar (ver `retencion/por-pagar.ts`): el `renglon` de los
      * recibos del año que al corte no se habían pagado contra el saldo neto por pagar de las cuentas del
-     * cliente homologadas a `cuentas`. RST: la 64 (impuesto al consumo) contra la 249505 y la 249510.
+     * cliente homologadas a `cuentas`. RST: el impuesto al consumo (64), el IVA (74) y el ICA (76, la suma
+     * de las 104). `textos.porPagar` explica lo común.
      */
-    controlPorPagar?: { titulo: string; renglon: number; cuentas: readonly string[]; explicacion: string };
+    controlesPorPagar?: readonly ControlPorPagarImpuesto[];
     textos: {
       /** Cómo se lee el lado contable, en la pantalla del cruce. */
       contabilidad: string;
@@ -161,8 +169,25 @@ export type ImpuestoDian = {
       notaEnFirme: string;
       /** La pestaña del formulario en Mapeo cuentas DIAN. */
       mapeo: { pestana: string; titulo: string; explicacion: string; terceroDian: string };
+      /** Lo común de los controles por pagar (`controlesPorPagar`), en la pantalla y en el Excel. */
+      porPagar?: string;
     };
   };
+};
+
+/** Un control por pagar del descriptor (`cruce.controlesPorPagar`). */
+export type ControlPorPagarImpuesto = {
+  /** Llave estable del control («consumo», «iva», «ica»). */
+  clave: string;
+  titulo: string;
+  /** El renglón de la declaración que dice lo que se debe pagar. */
+  renglon: number;
+  /** Cómo se nombra ese renglón («casilla 64»; «casilla 76 (suma de las 104)»). */
+  etiquetaRenglon: string;
+  /** Cuentas Russell cuyo saldo final neto es lo que falta pagar (crédito suma, débito resta). */
+  cuentas: readonly string[];
+  /** Cómo se lee la contabilidad, en una frase. */
+  contabilidad: string;
 };
 
 export const RETENCION: ImpuestoDian = {
@@ -317,8 +342,9 @@ export const IVA: ImpuestoDian = {
  * Anticipos bimestrales del Régimen Simple de Tributación: el recibo electrónico 2593 y su 490
  * concepto 27, que paga 76 + 77 + 78 + 79. Siempre bimestral; solo para clientes con «Régimen Simple
  * de Tributación» en Sí. Oportunidad mide el pago (el 2593 no trae sello de presentación). El cruce
- * contable compara cinco casillas (44, 59, 66, 67 y 39; ver `rst/mapeo-f2593.ts`); los excedentes y
- * saldos a favor quedan de control: entre recibos y con aviso.
+ * contable compara siete casillas (44, 43, 59, 66, 67, 70 y 39; ver `rst/mapeo-f2593.ts`); los excedentes,
+ * saldos a favor y retenciones de antes del SIMPLE quedan de control (entre recibos y con aviso), y lo que
+ * falta pagar (64, 74 y 76) va en los controles por pagar.
  */
 export const RST: ImpuestoDian = {
   clave: "RST",
@@ -346,9 +372,15 @@ export const RST: ImpuestoDian = {
     { renglon: 69, anterior: 75, etiqueta: "excedente de IVA" },
   ],
   avisosConValor: [
+    { renglon: 50, texto: "retenciones de renta practicadas antes de pertenecer al SIMPLE", revision: "revísalo contra su soporte" },
     { renglon: 52, texto: "saldo a favor del SIMPLE de la declaración del año anterior" },
     { renglon: 68, texto: "saldo a favor de la declaración de IVA del año anterior" },
   ],
+  avisosConValorIca: [
+    { renglon: 100, texto: "retenciones de ICA practicadas antes de pertenecer al SIMPLE", revision: "revísalo contra su soporte" },
+    { renglon: 105, texto: "saldo a favor a solicitar en el municipio", revision: "revisa su solicitud" },
+  ],
+  cuadresHoja2: [{ renglon: 84, contra: 39, texto: "ingresos brutos" }],
   pestanas: TABS_REVISION_IMPUESTO,
   cierreEnFirme: true,
   textos: {
@@ -368,37 +400,60 @@ export const RST: ImpuestoDian = {
     disponible: true,
     grupos: [
       { grupo: "anticipo", etiqueta: "Anticipo SIMPLE (44)", secciones: [SECCIONES_MAPEO_F2593.anticipo], porTercero: true, renglonTotal: 44 },
+      { grupo: "ica", etiqueta: "ICA consolidado (43, suma de las 99)", secciones: [SECCIONES_MAPEO_F2593.ica], porTercero: false, renglonTotal: 43 },
       { grupo: "consumo", etiqueta: "Impuesto nacional al consumo (59)", secciones: [SECCIONES_MAPEO_F2593.consumo], porTercero: true, renglonTotal: 59 },
       { grupo: "iva", etiqueta: "Impuesto sobre las ventas (66 − 67)", secciones: [SECCIONES_MAPEO_F2593.iva], porTercero: true, renglonTotal: null },
+      { grupo: "reteiva", etiqueta: "Retenciones de IVA que le practicaron (70)", secciones: [SECCIONES_MAPEO_F2593.reteiva], porTercero: true, renglonTotal: 70 },
       { grupo: "ingresos", etiqueta: "Ingresos brutos (39)", secciones: [SECCIONES_MAPEO_F2593.ingresos], porTercero: false, renglonTotal: 39 },
     ],
-    prefijosTercero: ["135595", "2408", "249505"],
+    prefijosTercero: ["135595", "2408", "249505", "135517"],
     prefijosCliente: ["2408"],
-    gruposEnFirme: ["135595", "2408", "249505"],
+    gruposEnFirme: ["135595", "2408", "249505", "135517"],
     signoEnSubtotal: true,
     conTotalGeneral: false,
     signoPorNaturaleza: true,
-    controlPorPagar: {
-      titulo: "Impuesto al consumo por pagar",
-      renglon: 64,
-      cuentas: ["249505", "249510"],
-      explicacion:
-        "Control: no exige marca ni impide cerrar; si no cuadra, sale un aviso en Novedades. Compara lo que falta pagar al corte según la casilla 64 de los recibos 2593 del año que a esa fecha no se habían pagado (sin 490, o con el 490 pagado después) contra el saldo final de las cuentas del cliente homologadas a la 249505 (causado) menos la 249510 (pagos). El recibo se paga meses después del bimestre (enero y febrero, en mayo), así que lo normal es que quede por pagar el último bimestre. Se compara el neto y no lo pagado porque en enero se paga el último bimestre del año anterior, que no está en la revisión.",
-    },
+    controlesPorPagar: [
+      {
+        clave: "consumo",
+        titulo: "Impuesto al consumo por pagar",
+        renglon: 64,
+        etiquetaRenglon: "casilla 64",
+        cuentas: ["249505", "249510"],
+        contabilidad: "la 249505 (causado) menos la 249510 (pagos)",
+      },
+      {
+        clave: "iva",
+        titulo: "IVA por pagar",
+        renglon: 74,
+        etiquetaRenglon: "casilla 74",
+        cuentas: ["240805", "240810", "240815", "240820", "240899", "135517"],
+        contabilidad: "el neto de la 240805, la 240810, la 240815, la 240820 y la 240899 (pagos), menos la retención de IVA que sigue en la 135517",
+      },
+      {
+        clave: "ica",
+        titulo: "ICA por pagar",
+        renglon: 76,
+        etiquetaRenglon: "casilla 76 (suma de las 104)",
+        cuentas: ["241205"],
+        contabilidad: "la 241205 (causado y pagos)",
+      },
+    ],
     textos: {
-      contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el anticipo (135595) y el IVA descontable (débito), y el impuesto al consumo, el IVA generado y los ingresos (crédito) quedan en positivo. Los ingresos se toman por el saldo de la cuenta, sin terceros, y las devoluciones (417505) restan. En la 2408 y la 249505, el saldo de la DIAN (el pago del recibo registrado en la misma cuenta) se muestra tachado y no suma; en la 135595 no, porque el anticipo es lo pagado a la DIAN. El 67 resta en el subtotal del IVA. Los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) no se cruzan: se controlan en Novedades.",
-      contabilidadExcel: "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos, por el saldo de la cuenta (la 417505 resta); la DIAN no suma en la 2408 ni en la 249505 (sí en la 135595); el 67 resta en el subtotal del IVA.",
+      contabilidad: "Contabilidad = saldo final al corte de las cuentas del cliente homologadas a cada cuenta Russell, con el signo de su naturaleza en el plan Russell: el anticipo (135595), el gasto de ICA (511505), el IVA descontable y las retenciones de IVA (135517), débito, y el impuesto al consumo, el IVA generado y los ingresos, crédito, quedan en positivo. Los ingresos y el gasto de ICA se toman por el saldo de la cuenta, sin terceros, y las devoluciones (417505) restan. En la 2408, la 249505 y la 135517, el saldo de la DIAN (el pago o la aplicación del recibo registrados en la misma cuenta) se muestra tachado y no suma; en la 135595 no, porque el anticipo es lo pagado a la DIAN. El 67 resta en el subtotal del IVA. Los excedentes, saldos a favor y retenciones de antes del SIMPLE (50, 51, 52, 57, 60, 65, 68, 69, 75, 100 y 105) no se cruzan: se controlan en Novedades.",
+      contabilidadExcel: "Contabilidad = saldo final al corte con el signo de la naturaleza del plan Russell (en positivo); los ingresos y el gasto de ICA (511505), por el saldo de la cuenta (la 417505 resta); la DIAN no suma en la 2408, la 249505 ni la 135517 (sí en la 135595); el 67 resta en el subtotal del IVA.",
+      porPagar:
+        "Controles: no exigen marca ni impiden cerrar; si uno no cuadra, sale un aviso en Novedades. Cada uno compara lo que falta pagar al corte según los recibos 2593 del año que a esa fecha no se habían pagado (sin 490, o con el 490 pagado después) contra el saldo final neto de sus cuentas en la contabilidad. El recibo se paga meses después del bimestre (enero y febrero, en mayo), así que lo normal es que quede por pagar el último bimestre. Se compara el neto y no lo pagado porque en enero se paga el último bimestre del año anterior, que no está en la revisión.",
       fueraDelMapeo: {
         titulo: "Otras cuentas de IVA del cliente",
         explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2408 distinta de las genéricas del recibo (240805, 240810, 240815 y 240820), por ejemplo 240830 o 240840. En un cliente del Régimen Simple el IVA se homologa a las genéricas: si su saldo explica la diferencia del IVA, revisa la homologación. Se informan y no suman al cruce.",
       },
       fueraDe: "IVA",
-      notaEnFirme: "La 135595, la 249505 y la 2408 quedan enteras, fijas en el sistema; las cuentas de ingresos del 39, una por una.",
+      notaEnFirme: "La 135595, la 249505, la 2408 y la 135517 quedan enteras, fijas en el sistema; las cuentas de ingresos del 39 y la 511505 del ICA, una por una.",
       mapeo: {
         pestana: "RST · 2593",
         titulo: "Casillas del recibo 2593",
-        explicacion: "Solo estas casillas se comparan con el saldo final de su cuenta Russell; los excedentes y saldos a favor (51, 52, 57, 60, 65, 68, 69 y 75) se controlan entre recibos. Una casilla puede ir contra varias cuentas (sepáralas con +): en el 39, la 417505 (devoluciones) resta por su naturaleza débito. El 67 resta en el subtotal del IVA. En los clientes del Régimen Simple el IVA se homologa a las cuentas genéricas (240805, 240810, 240815 y 240820).",
-        terceroDian: "El pago del recibo 2593 suele quedar en las mismas cuentas con la DIAN como tercero. En las cuentas marcadas (2408 y 249505), su saldo se muestra tachado y no suma. En la 135595 no se resta: el anticipo es justamente lo pagado a la DIAN. Las cuentas de ingresos no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros.",
+        explicacion: "Solo estas casillas se comparan con el saldo final de su cuenta Russell. Los excedentes, saldos a favor y retenciones de antes del SIMPLE (50, 51, 52, 57, 60, 65, 68, 69, 75, 100 y 105) se controlan con avisos; lo que falta pagar (64, 74 y 76) se controla aparte, debajo del cruce, y las bases (58, 84, 85 y 86) no se cruzan. El 43 es la suma de las 99 de la hoja 2. Una casilla puede ir contra varias cuentas (sepáralas con +): en el 39, la 417505 (devoluciones) resta por su naturaleza débito. El 67 resta en el subtotal del IVA. En los clientes del Régimen Simple el IVA se homologa a las cuentas genéricas (240805, 240810, 240815 y 240820).",
+        terceroDian: "El pago del recibo 2593 suele quedar en las mismas cuentas con la DIAN como tercero. En las cuentas marcadas (2408, 249505 y 135517), su saldo se muestra tachado y no suma. En la 135595 no se resta: el anticipo es justamente lo pagado a la DIAN. Las cuentas de ingresos y la 511505 no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros.",
       },
     },
   },

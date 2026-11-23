@@ -1,4 +1,4 @@
-import type { MunicipioIca } from "../rst/ica-municipios";
+import { nombreMunicipioIca, type MunicipioIca } from "../rst/ica-municipios";
 import { etiquetaPeriodo, periodosEsperados } from "../periodicidad";
 import { calcularTotal, valorRenglon } from "../formularios/definicion";
 import { conceptosPagoDe, impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
@@ -250,9 +250,11 @@ const pesosAviso = (n: number) => `$ ${n.toLocaleString("es-CO", { maximumFracti
  * cada excedente que el recibo trae del bimestre anterior (51, 60, 69) debe ser el que dejó el recibo
  * vigente de ese bimestre (57, 65, 75), y los saldos a favor del año anterior (52, 68) se avisan cuando
  * traen valor, para revisarlos contra la declaración anual. El primer bimestre no tiene anterior en la
- * revisión: su excedente viene del año pasado y no se compara.
+ * revisión: su excedente viene del año pasado y no se compara. También se avisan las retenciones de
+ * antes de pertenecer al SIMPLE (50 y, por municipio, 100), el saldo a favor de ICA a solicitar (105) y
+ * que la suma de los 84 de la hoja 2 no dé la 39.
  */
-function agregarControlesDeValores(impuesto: Pick<ImpuestoDian, "controlesEntreRecibos" | "avisosConValor">, periodos: PeriodoRevision[]): void {
+function agregarControlesDeValores(impuesto: Pick<ImpuestoDian, "controlesEntreRecibos" | "avisosConValor" | "avisosConValorIca" | "cuadresHoja2">, periodos: PeriodoRevision[]): void {
   periodos.forEach((p, i) => {
     const vigente = p.cadena.vigente;
     if (!vigente) return;
@@ -267,7 +269,23 @@ function agregarControlesDeValores(impuesto: Pick<ImpuestoDian, "controlesEntreR
     }
     for (const a of impuesto.avisosConValor ?? []) {
       const valor = vigente.valores[a.renglon] ?? 0;
-      if (valor !== 0) p.avisos.push(`El ${a.renglon} trae ${pesosAviso(valor)} de ${a.texto}: no se cruza con la contabilidad; revísalo contra esa declaración.`);
+      if (valor !== 0) p.avisos.push(`El ${a.renglon} trae ${pesosAviso(valor)} de ${a.texto}: no se cruza con la contabilidad; ${a.revision ?? "revísalo contra esa declaración"}.`);
+    }
+    // La hoja 2 (RST: ICA por municipio). Un recibo importado antes de que se leyera no la trae: no se avisa.
+    const municipios = vigente.ica ?? [];
+    if (municipios.length === 0) return;
+    for (const a of impuesto.avisosConValorIca ?? []) {
+      municipios.forEach((m, i) => {
+        const valor = m.valores[a.renglon] ?? 0;
+        if (valor !== 0) p.avisos.push(`El ${a.renglon} de ${nombreMunicipioIca(m, i)} trae ${pesosAviso(valor)} de ${a.texto}: no se cruza con la contabilidad; ${a.revision}.`);
+      });
+    }
+    for (const c of impuesto.cuadresHoja2 ?? []) {
+      const suma = municipios.reduce((s, m) => s + Math.round((m.valores[c.renglon] ?? 0) * 100), 0) / 100;
+      const hoja1 = vigente.valores[c.contra] ?? 0;
+      if (Math.round(suma * 100) !== Math.round(hoja1 * 100)) {
+        p.avisos.push(`La suma de los ${c.renglon} de la hoja 2 (${c.texto} por municipio) da ${pesosAviso(suma)} y el ${c.contra} dice ${pesosAviso(hoja1)}.`);
+      }
     }
   });
 }

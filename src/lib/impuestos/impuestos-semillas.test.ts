@@ -10,6 +10,7 @@ const leer = (carpeta: string) => readFileSync(join(process.cwd(), "prisma/migra
 const SQL = leer("20261031120000_impuestos_configuracion");
 const SQL_IVA = leer("20261108120000_impuestos_iva");
 const SQL_RST = leer("20261119120000_rst_mapeo_2593");
+const SQL_RST_RETEIVA_ICA = leer("20261121120000_rst_mapeo_2593_reteiva_ica");
 const SQL_NIT_MEDELLIN = leer("20261119180000_tercero_dian_medellin");
 
 const texto = (v: string) => (v === "NULL" ? null : v.slice(1, -1).replace(/''/g, "'"));
@@ -79,12 +80,13 @@ describe("semillas de la migración de IVA", () => {
 });
 
 describe("semillas de la migración del cruce del RST", () => {
-  it("el mapeo del 2593 sembrado es el de fábrica", () => {
-    expect(mapeoSembrado(SQL_RST, "2593")).toEqual([...MAPEO_F2593_FABRICA]);
+  it("el mapeo del 2593 sembrado es el de fábrica: las cinco casillas del 19/Nov y la 70 y la 43 del 21/Nov", () => {
+    expect([...mapeoSembrado(SQL_RST, "2593"), ...mapeoSembrado(SQL_RST_RETEIVA_ICA, "2593")]).toEqual([...MAPEO_F2593_FABRICA]);
   });
 
   it("solo inserta datos y respeta lo que ya se editó", () => {
-    expect(SQL_RST).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bUPDATE\b/i);
+    for (const sql of [SQL_RST, SQL_RST_RETEIVA_ICA]) expect(sql).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bUPDATE\b/i);
     expect(SQL_RST.match(/ON CONFLICT \("[a-z_]+"/g)).toHaveLength(2);
+    expect(SQL_RST_RETEIVA_ICA.match(/ON CONFLICT \("[a-z_]+"/g)).toHaveLength(1);
   });
 });

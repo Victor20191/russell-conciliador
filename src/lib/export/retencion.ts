@@ -5,13 +5,13 @@
 
 import ExcelJS from "exceljs";
 import { renglonDeFila, unidadPlural, vistaConPersonas, type VistaRevision } from "@/lib/impuestos/retencion/vistas";
-import { alcanceSaldoInicial, cuentasDeFilaCruce, etiquetaFilaCruce, impuestoDelCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type DetalleSaldoInicialRestado, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
+import { alcanceSaldoInicial, controlesPorPagarDe, cuentasDeFilaCruce, etiquetaFilaCruce, impuestoDelCruce, renglonesFilaCruce, terceroTachado, type CruceRetencionVista, type DetalleSaldoInicialRestado, type FilaCruce } from "@/lib/impuestos/retencion/cruce";
 import { etiquetaOportunidad, pagosDeFila, type FilaOportunidad } from "@/lib/impuestos/retencion/oportunidad";
 import { alertaReciboDeOtro350, alertaRecibosSin350, alertaSinRecibo, conceptosSinRecibo, etiquetaPago, type ResultadoPagos } from "@/lib/impuestos/retencion/pagos";
 import { IMPUESTOS, midePresentacion, renglonSanciones, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { rotuloRenglon } from "@/lib/impuestos/formularios/definicion";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
-import { ETIQUETA_RECIBO_POR_PAGAR } from "@/lib/impuestos/retencion/por-pagar";
+import { ETIQUETA_RECIBO_POR_PAGAR, etiquetaRenglonPorPagar } from "@/lib/impuestos/retencion/por-pagar";
 import { EXCEL, escribirLibroMarca, estiloEncabezado, rellenoMarca } from "./marca-excel";
 import { ETIQUETAS_ICA, fallasMunicipioIca, nombreMunicipioIca, RENGLONES_ICA, type MunicipioIca } from "@/lib/impuestos/rst/ica-municipios";
 
@@ -265,24 +265,29 @@ function hojaCruce(wb: ExcelJS.Workbook, meta: MetaRevisionExcel, cruce: CruceRe
     }
   }
 
-  // El control por pagar (RST: impuesto al consumo): no suma, no exige marca ni impide cerrar.
-  const porPagar = resultado.porPagar;
-  if (porPagar) {
+  // Los controles por pagar (RST: consumo, IVA e ICA): no suman, no exigen marca ni impiden cerrar.
+  const controles = controlesPorPagarDe(resultado);
+  if (controles.length > 0) {
     const codigo = impuesto.declaracion.codigo;
     const periodicidad = impuesto.periodicidades[0] ?? "Bimestral";
     ws.addRow([]);
-    filaSeccion(ws, `${porPagar.titulo} · control al ${fechaExcel(porPagar.fechaCorte)} (no suma ni exige marca)`, 8);
-    if (impuesto.cruce.controlPorPagar) ws.addRow([impuesto.cruce.controlPorPagar.explicacion]).font = { color: { argb: EXCEL.textoSecundario } };
-    estiloEncabezado(ws.addRow(["Período", "Recibo", `Casilla ${porPagar.renglon}`, "Recibo 490", "Fecha de pago", "Estado al corte", "Por pagar al corte"]));
-    for (const r of porPagar.recibos) {
-      ws.addRow([etiquetaPeriodoRevision(periodicidad, r.periodo), r.numero, r.valor, r.pago?.numero ?? "", fechaExcel(r.pago?.fecha ?? null), ETIQUETA_RECIBO_POR_PAGAR[r.estado], r.porPagar]);
+    filaSeccion(ws, `Lo que falta pagar al ${fechaExcel(controles[0].fechaCorte)} · controles (no suman ni exigen marca)`, 8);
+    if (impuesto.cruce.textos.porPagar) ws.addRow([impuesto.cruce.textos.porPagar]).font = { color: { argb: EXCEL.textoSecundario } };
+    for (const c of controles) {
+      const renglon = etiquetaRenglonPorPagar(c);
+      ws.addRow([]);
+      ws.addRow([c.contabilidad ? `${c.titulo}: la ${renglon} de los recibos sin pagar al corte contra ${c.contabilidad}.` : c.titulo]).font = { bold: true, color: { argb: EXCEL.titulo } };
+      estiloEncabezado(ws.addRow(["Período", "Recibo", `Casilla ${c.renglon}`, "Recibo 490", "Fecha de pago", "Estado al corte", "Por pagar al corte"]));
+      for (const r of c.recibos) {
+        ws.addRow([etiquetaPeriodoRevision(periodicidad, r.periodo), r.numero, r.valor, r.pago?.numero ?? "", fechaExcel(r.pago?.fecha ?? null), ETIQUETA_RECIBO_POR_PAGAR[r.estado], r.porPagar]);
+      }
+      for (const p of c.periodosSinRecibo) ws.addRow([etiquetaPeriodoRevision(periodicidad, p), `Sin recibo ${codigo} ni causal`]);
+      estiloEncabezado(ws.addRow(["Cuenta del cliente", "Nombre", "Homologada a", "Nombre de la cuenta Russell", "", "", "Saldo por pagar"]));
+      for (const x of c.cuentas) ws.addRow([x.cuenta, x.nombre, x.cuentaRussell, x.nombreRussell ?? "", "", "", x.saldo]);
+      ws.addRow([`Por pagar según los recibos ${codigo} (${renglon})`, "", "", "", "", "", c.porPagarRecibos]).font = { bold: true };
+      ws.addRow(["Por pagar según la contabilidad", "", "", "", "", "", c.porPagarContable]).font = { bold: true };
+      ws.addRow([`Diferencia · ${c.nivel === "alerta" ? "aviso en Novedades" : ETIQUETA_NIVEL[c.nivel]}`, "", "", "", "", "", c.diferencia]).font = { bold: true };
     }
-    for (const p of porPagar.periodosSinRecibo) ws.addRow([etiquetaPeriodoRevision(periodicidad, p), `Sin recibo ${codigo} ni causal`]);
-    estiloEncabezado(ws.addRow(["Cuenta del cliente", "Nombre", "Homologada a", "Nombre de la cuenta Russell", "", "", "Saldo por pagar"]));
-    for (const c of porPagar.cuentas) ws.addRow([c.cuenta, c.nombre, c.cuentaRussell, c.nombreRussell ?? "", "", "", c.saldo]);
-    ws.addRow([`Por pagar según los recibos ${codigo} (casilla ${porPagar.renglon})`, "", "", "", "", "", porPagar.porPagarRecibos]).font = { bold: true };
-    ws.addRow([`Por pagar según la contabilidad (${impuesto.cruce.controlPorPagar?.cuentas.join(" − ") ?? ""})`, "", "", "", "", "", porPagar.porPagarContable]).font = { bold: true };
-    ws.addRow([`Diferencia · ${porPagar.nivel === "alerta" ? "aviso en Novedades" : ETIQUETA_NIVEL[porPagar.nivel]}`, "", "", "", "", "", porPagar.diferencia]).font = { bold: true };
   }
 
   if (resultado.fueraDelMapeo.length > 0) {

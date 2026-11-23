@@ -13,10 +13,11 @@ import { CeldaMarca, MarcaModal } from "./marca-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import type { ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { etiquetaPeriodo } from "@/lib/impuestos/periodicidad";
-import { ETIQUETA_RECIBO_POR_PAGAR, type ControlPorPagar } from "@/lib/impuestos/retencion/por-pagar";
+import { ETIQUETA_RECIBO_POR_PAGAR, etiquetaRenglonPorPagar, type ControlPorPagar } from "@/lib/impuestos/retencion/por-pagar";
 import {
   alcanceSaldoInicial,
   aporteTercero,
+  controlesPorPagarDe,
   cuentasDeFilaCruce,
   etiquetaFilaCruce,
   impuestoDelCruce,
@@ -217,7 +218,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
         </div>
       </div>
 
-      {resultado.porPagar && <ControlPorPagarCard control={resultado.porPagar} impuesto={impuesto} />}
+      <ControlesPorPagar controles={controlesPorPagarDe(resultado)} impuesto={impuesto} />
 
       {resultado.fueraDelMapeo.length > 0 && <FueraDelMapeo filas={resultado.fueraDelMapeo} impuesto={impuesto} />}
 
@@ -562,28 +563,43 @@ function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; 
 }
 
 /**
- * El control por pagar (RST: impuesto al consumo): lo que al corte falta pagar según los recibos contra
- * el neto de las cuentas. No es una fila del cruce: no suma, no exige marca ni impide cerrar.
+ * Los controles por pagar (RST: impuesto al consumo, IVA e ICA): lo que al corte falta pagar según los
+ * recibos contra el neto de las cuentas. No son filas del cruce: no suman, no exigen marca ni impiden cerrar.
  */
+function ControlesPorPagar({ controles, impuesto }: { controles: ControlPorPagar[]; impuesto: ImpuestoDian }) {
+  if (controles.length === 0) return null;
+  return (
+    <section aria-label="Lo que falta pagar al corte" className="flex flex-col gap-2">
+      <div className="px-1">
+        <h3 className="text-[12.5px] font-semibold text-navy-800">Lo que falta pagar al {fecha(controles[0].fechaCorte)} · controles</h3>
+        {impuesto.cruce.textos.porPagar && <p className="mt-0.5 text-[11.5px] text-ink-500">{impuesto.cruce.textos.porPagar}</p>}
+      </div>
+      {controles.map((c) => <ControlPorPagarCard key={c.clave ?? c.titulo} control={c} impuesto={impuesto} />)}
+    </section>
+  );
+}
+
 function ControlPorPagarCard({ control, impuesto }: { control: ControlPorPagar; impuesto: ImpuestoDian }) {
-  const explicacion = impuesto.cruce.controlPorPagar?.explicacion ?? "Control: no exige marca ni impide cerrar.";
   const codigo = impuesto.declaracion.codigo;
   const periodicidad = impuesto.periodicidades[0] ?? "Bimestral";
   const cuadra = control.nivel !== "alerta";
-  const cuentasControl = impuesto.cruce.controlPorPagar?.cuentas.join(" y ") ?? "";
+  const renglon = etiquetaRenglonPorPagar(control);
+  // Las copias del control único (21/Nov/2026) no traen la frase de la contabilidad: era el impuesto al consumo.
+  const contabilidad = control.contabilidad ?? "la 249505 (causado) menos la 249510 (pagos)";
+  const cuentasRussell = impuesto.cruce.controlesPorPagar?.find((c) => c.clave === (control.clave ?? "consumo"))?.cuentas ?? [];
   return (
     <Card className="p-4 text-[12.5px]">
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <div className="min-w-[16rem] flex-1">
-          <h3 className="text-[12.5px] font-semibold text-navy-800">{control.titulo} · control al {fecha(control.fechaCorte)}</h3>
-          <p className="mt-0.5 text-[11.5px] text-ink-500">{explicacion}</p>
+          <h4 className="text-[12.5px] font-semibold text-navy-800">{control.titulo}</h4>
+          <p className="mt-0.5 text-[11.5px] text-ink-500">La {renglon} de los recibos sin pagar al corte contra {contabilidad}.</p>
         </div>
         <Chip label={control.nivel === "cero" ? "Cuadra" : cuadra ? "Diferencia menor al umbral" : "Diferencia · aviso en Novedades"} tone={cuadra ? "ok" : "warn"} />
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <CifraControl etiqueta={`Por pagar según los recibos ${codigo} (casilla ${control.renglon})`} valor={control.porPagarRecibos} />
-        <CifraControl etiqueta={`Por pagar según la contabilidad (${cuentasControl})`} valor={control.porPagarContable} />
+        <CifraControl etiqueta={`Por pagar según los recibos ${codigo} (${renglon})`} valor={control.porPagarRecibos} />
+        <CifraControl etiqueta="Por pagar según la contabilidad" valor={control.porPagarContable} />
         <CifraControl etiqueta="Diferencia" valor={control.diferencia} resaltar={!cuadra} />
       </div>
 
@@ -602,7 +618,7 @@ function ControlPorPagarCard({ control, impuesto }: { control: ControlPorPagar; 
           <tbody>
             {control.recibos.length === 0 ? (
               <tr className="border-t border-ink-100">
-                <td colSpan={6} className="py-1.5 text-ink-400">Ningún recibo del año trae valor en la casilla {control.renglon}.</td>
+                <td colSpan={6} className="py-1.5 text-ink-400">Ningún recibo del año trae valor en la {renglon}.</td>
               </tr>
             ) : (
               control.recibos.map((r) => (
@@ -637,7 +653,7 @@ function ControlPorPagarCard({ control, impuesto }: { control: ControlPorPagar; 
           <tbody>
             {control.cuentas.length === 0 ? (
               <tr className="border-t border-ink-100">
-                <td colSpan={3} className="py-1.5 text-ink-400">El cliente no tiene cuentas homologadas a la {cuentasControl}.</td>
+                <td colSpan={3} className="py-1.5 text-ink-400">El cliente no tiene cuentas homologadas a {cuentasRussell.length ? cuentasRussell.join(", ") : "las cuentas del control"}.</td>
               </tr>
             ) : (
               control.cuentas.map((c) => (
