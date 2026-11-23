@@ -39,3 +39,34 @@ export function contarConCuentas(valores: Record<string, string[]>, seleccion: I
   for (const clasificador of seleccion) if ((valores[clasificador] ?? []).length > 0) n += 1;
   return n;
 }
+
+/** Las cuentas que tienen los clasificadores seleccionados y en cuántos está cada una, por código. */
+export function cuentasDeSeleccion(valores: Record<string, string[]>, seleccion: Iterable<string>): { codigo: string; renglones: number }[] {
+  const conteo = new Map<string, number>();
+  for (const clasificador of new Set(seleccion)) {
+    for (const codigo of new Set(valores[clasificador] ?? [])) conteo.set(codigo, (conteo.get(codigo) ?? 0) + 1);
+  }
+  return [...conteo].map(([codigo, renglones]) => ({ codigo, renglones })).sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+/**
+ * Quita `cuentas4` de los clasificadores de `seleccion` (todas sus cuentas si es `null`). NO muta la
+ * entrada. Devuelve el mapa nuevo y los clasificadores que cambiaron: solo esos se graban.
+ */
+export function quitarCuentasMasivo(
+  valores: Record<string, string[]>,
+  seleccion: Iterable<string>,
+  cuentas4: string[] | null,
+): { valores: Record<string, string[]>; cambiados: string[] } {
+  const quitar = cuentas4 ? new Set(cuentas4) : null;
+  const siguiente = { ...valores };
+  const cambiados: string[] = [];
+  for (const clasificador of new Set(seleccion)) {
+    const actuales = valores[clasificador] ?? [];
+    const quedan = quitar ? actuales.filter((c) => !quitar.has(c)) : [];
+    if (quedan.length === actuales.length) continue;
+    siguiente[clasificador] = [...quedan].sort();
+    cambiados.push(clasificador);
+  }
+  return { valores: siguiente, cambiados };
+}

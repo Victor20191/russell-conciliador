@@ -27,7 +27,7 @@ import {
 } from "@/app/actions/modulos-datos";
 import { SelectorBalanceCruce } from "@/components/selector-balance-cruce";
 import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
-import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
+import { aplicarAsignacionMasiva, contarConCuentas, cuentasDeSeleccion, quitarCuentasMasivo, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
 import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import { resumenCuentaArchivo, type SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
@@ -1156,6 +1156,8 @@ function ConsolidadoTab({
   // Selección de filas para la asignación MASIVA (una o varias cuentas a N clasificadores).
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [masivoAbierto, setMasivoAbierto] = useState(false);
+  // Quitar cuentas en bloque a los seleccionados (todas o las que se elijan).
+  const [quitarAbierto, setQuitarAbierto] = useState(false);
   const [, startGuardar] = useTransition();
   // Renglones que el usuario tocó: lo que difiere de lo grabado y NO se tocó es una propuesta.
   const [tocados, setTocados] = useState<Set<string>>(() => new Set());
@@ -1297,6 +1299,24 @@ function ConsolidadoTab({
   // «Sin cuenta»: los visibles que no tienen ninguna (no los de control ni los de fuera del módulo,
   // que no se asignan a mano).
   const seleccionarSinCuenta = () => setSeleccion(new Set(clasificadores.filter((k) => categoriaPorClave.get(k) === "sin_cuenta")));
+
+  // Las cuentas que tienen hoy los seleccionados (lo que se puede quitar en bloque).
+  const cuentasSeleccion = useMemo(() => cuentasDeSeleccion(valores, seleccionados), [valores, seleccionados]);
+  // Quitar en bloque es la misma edición explícita que la «×» de cada cuenta: el autoguardado la
+  // persiste sola, y solo de los renglones que cambiaron.
+  const quitarMasivo = (cuentas4: string[] | null) => {
+    const { valores: siguiente, cambiados } = quitarCuentasMasivo(valores, seleccionados, cuentas4);
+    setQuitarAbierto(false);
+    if (cambiados.length === 0) {
+      notifyInfo("Los seleccionados no tenían esas cuentas.");
+      return;
+    }
+    setValores(siguiente);
+    for (const clasificador of cambiados) anotarAutoguardado(clasificador, siguiente[clasificador] ?? []);
+    notifyInfo(
+      `Cuentas quitadas de ${cambiados.length} ${cambiados.length === 1 ? clasificadorEtiqueta.toLocaleLowerCase("es") : etiquetaPlural}. Se guardan solas en un momento.`,
+    );
+  };
 
   // La asignación masiva es una edición explícita: el autoguardado la persiste sola.
   const aplicarMasivo = (cuentas4: string[], modo: ModoAsignacionMasiva) => {
@@ -1568,6 +1588,19 @@ function ConsolidadoTab({
                 title={nSel === 0 ? `Marca ${etiquetaPlural} en la tabla para asignarles cuentas en bloque` : undefined}
               >
                 Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
+              </button>
+              <button
+                type="button"
+                disabled={nSel === 0 || cuentasSeleccion.length === 0 || ocupado}
+                onClick={() => setQuitarAbierto(true)}
+                className="rounded-md border border-err-500 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:cursor-not-allowed disabled:opacity-60"
+                title={
+                  nSel === 0
+                    ? `Marca ${etiquetaPlural} en la tabla para quitarles cuentas en bloque`
+                    : cuentasSeleccion.length === 0 ? "Los seleccionados no tienen cuentas asignadas" : undefined
+                }
+              >
+                Quitar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
               </button>
               {propuestas.length > 0 && (
                 <button
@@ -1895,6 +1928,18 @@ function ConsolidadoTab({
           onClose={() => setMasivoAbierto(false)}
         />
       )}
+      {quitarAbierto && nSel > 0 && cuentasSeleccion.length > 0 && (
+        <ModalQuitarCuentas
+          seleccionados={nSel}
+          etiquetaSingular={clasificadorEtiqueta}
+          etiquetaPlural={etiquetaPlural}
+          cuentas={cuentasSeleccion}
+          nombrePorCuenta={nombrePorCuenta}
+          contarAfectados={(codigos) => seleccionados.filter((k) => (valores[k] ?? []).some((c) => codigos.has(c))).length}
+          onQuitar={quitarMasivo}
+          onClose={() => setQuitarAbierto(false)}
+        />
+      )}
       {salidaPendiente && (
         <ModalCuentasSinGuardar
           renglones={pendientes}
@@ -2179,6 +2224,89 @@ function ModalCuentas({
 // seleccionados. Dos pasos, para que el alcance (agregar vs reemplazar) sea una
 // decisión explícita — mismo patrón que la homologación del balance.
 const MAX_LISTADOS = 10;
+
+/**
+ * Quitar cuentas en bloque a los renglones seleccionados del Consolidado. Vienen marcadas todas las
+ * cuentas que tienen; se desmarcan las que deben quedarse. Se graba solo, como la «×» de cada cuenta.
+ */
+function ModalQuitarCuentas({
+  seleccionados,
+  etiquetaSingular,
+  etiquetaPlural,
+  cuentas,
+  nombrePorCuenta,
+  contarAfectados,
+  onQuitar,
+  onClose,
+}: {
+  seleccionados: number;
+  etiquetaSingular: string;
+  etiquetaPlural: string;
+  cuentas: { codigo: string; renglones: number }[];
+  nombrePorCuenta: Map<string, string | null>;
+  contarAfectados: (codigos: Set<string>) => number;
+  onQuitar: (cuentas4: string[] | null) => void;
+  onClose: () => void;
+}) {
+  const [marcadas, setMarcadas] = useState<Set<string>>(() => new Set(cuentas.map((c) => c.codigo)));
+  const todas = cuentas.every((c) => marcadas.has(c.codigo));
+  const afectados = contarAfectados(marcadas);
+  const nombre = (seleccionados === 1 ? etiquetaSingular : etiquetaPlural).toLocaleLowerCase("es");
+  const alternar = (codigo: string) =>
+    setMarcadas((p) => {
+      const s = new Set(p);
+      if (s.has(codigo)) s.delete(codigo);
+      else s.add(codigo);
+      return s;
+    });
+
+  const footer = (
+    <button
+      type="button"
+      disabled={marcadas.size === 0}
+      onClick={() => onQuitar(todas ? null : [...marcadas])}
+      className="rounded-md border border-err-500 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {todas ? "Quitar todas las cuentas" : `Quitar ${marcadas.size} cuenta${marcadas.size === 1 ? "" : "s"}`}
+      {afectados > 0 ? ` de ${afectados} ${afectados === 1 ? "renglón" : "renglones"}` : ""}
+    </button>
+  );
+
+  return (
+    <Modal open onClose={onClose} title={`Quitar cuentas · ${seleccionados} ${nombre}`} size="lg" footer={footer}>
+      <div className="flex flex-col gap-2">
+        <p className="text-[12px] text-ink-600">
+          {seleccionados === 1
+            ? <>Se quitan del {nombre} seleccionado las cuentas marcadas; desmarca las que deban quedarse. Si queda sin cuentas, pasa a «Sin cuenta».</>
+            : <>Se quitan de los <b>{seleccionados}</b> {nombre} seleccionados las cuentas marcadas; desmarca las que deban quedarse. Los que queden sin cuentas pasan a «Sin cuenta».</>}
+          {" "}Se guarda solo, igual que al quitar una cuenta con la «×» de la fila.
+        </p>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-ink-700">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={todas}
+            onChange={(e) => setMarcadas(e.target.checked ? new Set(cuentas.map((c) => c.codigo)) : new Set())}
+          />
+          Todas las cuentas ({cuentas.length})
+        </label>
+        <ul className="flex max-h-[50vh] flex-col divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-150">
+          {cuentas.map((c) => (
+            <li key={c.codigo}>
+              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[12.5px] text-ink-800 hover:bg-ink-50">
+                <input type="checkbox" className="h-4 w-4" checked={marcadas.has(c.codigo)} onChange={() => alternar(c.codigo)} />
+                <span className="min-w-0 flex-1">
+                  <b>R - {c.codigo}</b>{nombrePorCuenta.get(c.codigo) ? ` · ${nombrePorCuenta.get(c.codigo)}` : ""}
+                </span>
+                <span className="shrink-0 text-[11.5px] text-ink-500">en {c.renglones} {c.renglones === 1 ? "renglón" : "renglones"}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Modal>
+  );
+}
 
 function ModalAsignacionMasiva({
   seleccionados,

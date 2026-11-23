@@ -544,6 +544,13 @@ export function fichaModuloCargue(d: DescriptorModulo): FichaAyuda {
               },
               { nombre: "Asignar cuentas (N)…", queHace: "Asigna cuentas a varios renglones seleccionados a la vez.", regla: REGLAS.editarModulo },
               {
+                nombre: "Quitar cuentas (N)…",
+                queHace:
+                  "Quita cuentas a varios renglones seleccionados a la vez: vienen marcadas todas las que tienen y se desmarcan las que deben quedarse. Los que quedan sin cuentas pasan a «Sin cuenta». Se guarda solo, como la «×» de cada cuenta.",
+                regla: REGLAS.editarModulo,
+                condiciones: ["Al menos un renglón seleccionado tiene cuentas.", "No con la conciliación en firme."],
+              },
+              {
                 nombre: "Guardar propuestas (N)",
                 queHace: "Graba las cuentas que propone el sistema; mientras no se guarden, no cruzan.",
                 regla: REGLAS.editarModulo,

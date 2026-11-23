@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aplicarAsignacionMasiva, contarConCuentas, parseModoAsignacionMasiva } from "./consolidacion-masiva";
+import { aplicarAsignacionMasiva, contarConCuentas, cuentasDeSeleccion, parseModoAsignacionMasiva, quitarCuentasMasivo } from "./consolidacion-masiva";
 
 const VALORES = {
   "MERCANCIA A": ["1435"],
@@ -50,5 +50,34 @@ describe("asignación masiva de cuentas del consolidado", () => {
     expect(contarConCuentas(VALORES, ["MERCANCIA A", "MERCANCIA B", "MATERIA PRIMA"])).toBe(2);
     expect(contarConCuentas(VALORES, ["MERCANCIA B", "REPUESTOS"])).toBe(0);
     expect(contarConCuentas(VALORES, ["INEXISTENTE"])).toBe(0);
+  });
+});
+
+describe("quitar cuentas en bloque del consolidado", () => {
+  it("lista las cuentas de la selección con en cuántos renglones está cada una", () => {
+    const valores = { ...VALORES, REPUESTOS: ["1435"] };
+    expect(cuentasDeSeleccion(valores, ["MERCANCIA A", "MATERIA PRIMA", "REPUESTOS", "MERCANCIA B"])).toEqual([
+      { codigo: "1405", renglones: 1 },
+      { codigo: "1410", renglones: 1 },
+      { codigo: "1435", renglones: 2 },
+    ]);
+    expect(cuentasDeSeleccion(valores, ["MERCANCIA B"])).toEqual([]);
+  });
+
+  it("sin cuentas elegidas quita todas; solo cambian los renglones que tenían alguna", () => {
+    const r = quitarCuentasMasivo(VALORES, ["MERCANCIA A", "MERCANCIA B", "MATERIA PRIMA"], null);
+    expect(r.valores["MERCANCIA A"]).toEqual([]);
+    expect(r.valores["MATERIA PRIMA"]).toEqual([]);
+    expect(r.cambiados).toEqual(["MERCANCIA A", "MATERIA PRIMA"]);
+    // No muta la entrada ni toca lo no seleccionado.
+    expect(VALORES["MATERIA PRIMA"]).toEqual(["1405", "1410"]);
+  });
+
+  it("con cuentas elegidas quita solo esas y deja las demás", () => {
+    const r = quitarCuentasMasivo(VALORES, ["MERCANCIA A", "MATERIA PRIMA"], ["1405", "1435"]);
+    expect(r.valores["MERCANCIA A"]).toEqual([]);
+    expect(r.valores["MATERIA PRIMA"]).toEqual(["1410"]);
+    expect(r.cambiados).toEqual(["MERCANCIA A", "MATERIA PRIMA"]);
+    expect(quitarCuentasMasivo(VALORES, ["MATERIA PRIMA"], ["9999"]).cambiados).toEqual([]);
   });
 });
