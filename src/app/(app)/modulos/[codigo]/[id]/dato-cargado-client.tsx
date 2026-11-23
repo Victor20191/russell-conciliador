@@ -550,6 +550,35 @@ const unirConY = (partes: readonly string[]): string =>
  * no cambia —el renglón compara la suma de todas—, así que una cuenta olvidada en el Consolidado no
  * se notaría: se avisa, plegado, con lo que le falta a cada concepto y quién sí la tiene.
  */
+/**
+ * «Agrupada» de un renglón de la cédula con varias cuentas: el concepto (si es uno) o cuántos son, y
+ * al hacer clic la lista completa en letra pequeña. La lista entera en el distintivo, repetida en cada
+ * cuenta del grupo, volvía la columna tan ancha que la tabla no se podía leer (Nómina).
+ */
+function ChipAgrupada({ clasificadores, abierta, onAlternar }: { clasificadores: string[]; abierta: boolean; onAlternar: () => void }) {
+  const n = clasificadores.length;
+  const etiqueta = n === 0 ? "Agrupada" : n === 1 ? `Agrupada · ${clasificadores[0]}` : `Agrupada · ${n} conceptos`;
+  const ayuda = `${n === 1 ? `«${clasificadores[0]}» está asignado` : n > 1 ? `Estos ${n} conceptos están asignados` : "El concepto está asignado"} a varias cuentas y se concilia contra la suma de ellas.`;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onAlternar}
+        disabled={n === 0}
+        aria-expanded={abierta}
+        title={n > 0 ? `${ayuda} Clic para ${abierta ? "ocultar" : "ver"} ${n === 1 ? "el concepto" : "los conceptos"}.` : ayuda}
+        className="inline-flex max-w-[16rem] items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-navy-700 hover:underline disabled:no-underline"
+      >
+        <span className="truncate">{etiqueta}</span>
+        {n > 0 && <Icon name={chevronDivulgacion(abierta)} size={11} />}
+      </button>
+      {abierta && n > 0 && (
+        <p className="basis-full text-[11px] font-normal leading-snug text-ink-600">{clasificadores.join(" · ")}</p>
+      )}
+    </>
+  );
+}
+
 function AvisoCuentasDispares({ dispares, etiqueta }: { dispares: CuentaDisparCruce[]; etiqueta: (clave: string) => string }) {
   return (
     <details className="mt-1 w-full rounded border border-warn-500 bg-warn-100 px-2 py-1 text-[11px] font-normal leading-snug text-warn-700">
@@ -2678,6 +2707,15 @@ function CruceContableTab({
       else siguiente.add(cuenta4);
       return siguiente;
     });
+  // Grupos («Agrupada») con la lista de sus conceptos desplegada.
+  const [gruposAbiertos, setGruposAbiertos] = useState<Set<string>>(() => new Set());
+  const alternarGrupo = (cuenta4: string) =>
+    setGruposAbiertos((previos) => {
+      const siguiente = new Set(previos);
+      if (siguiente.has(cuenta4)) siguiente.delete(cuenta4);
+      else siguiente.add(cuenta4);
+      return siguiente;
+    });
   const [quitando, startQuitar] = useTransition();
   // Orden por columna elegido en el encabezado de la cédula (null = el del sistema).
   const [orden, setOrden] = useState<OrdenCruce<ColumnaCruceContable>>(null);
@@ -2920,7 +2958,8 @@ function CruceContableTab({
           <table className="tabla-encabezado-fijo w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
-                <th className="min-w-[12rem] px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
+                {/* Ancho fijo: la cuenta y sus distintivos parten línea en vez de ensanchar la tabla. */}
+                <th className="w-[24rem] min-w-[16rem] px-3 py-2 font-semibold">{encabezado("Cuenta", "cuenta", "left", "Ordenar por cuenta.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">{encabezado("Contabilidad", "contable", "right", "Ordenar por el saldo contable.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">{encabezado(`${ladoModuloCruce(moduloLabel)} (archivos)`, "modulo", "right", "Ordenar por el saldo del módulo.")}</th>
                 <th className="px-3 py-2 text-right font-semibold">
@@ -3010,10 +3049,14 @@ function CruceContableTab({
                               ) : etiquetaRussell(renglon.cuenta, renglon.nombre)}
                               {sinCuenta && <Chip label="Sin cuenta" tone="warn" />}
                               {cuentasPeriodo.has(renglon.cuenta) && <ChipSoloPeriodo periodo={cruceContable.periodo} />}
-                              {agrupada && !esTotalGrupo && (
-                                <span title={`Agrupada: ${f.clasificadores?.join(", ") ?? "el clasificador"} está asignado a varias cuentas y se concilia contra la suma de ellas.`}>
-                                  <Chip label={f.clasificadores?.length ? `Agrupada · ${f.clasificadores.join(", ")}` : "Agrupada"} tone="blue" />
-                                </span>
+                              {/* «Agrupada» una sola vez, en la primera cuenta del grupo (el borde azul marca
+                                  las demás): el conteo de conceptos y, al hacer clic, su lista. */}
+                              {agrupada && primero && (
+                                <ChipAgrupada
+                                  clasificadores={f.clasificadores ?? []}
+                                  abierta={gruposAbiertos.has(f.cuenta4)}
+                                  onAlternar={() => alternarGrupo(f.cuenta4)}
+                                />
                               )}
                             </div>
                           </td>
