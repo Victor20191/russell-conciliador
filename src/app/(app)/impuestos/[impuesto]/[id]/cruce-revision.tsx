@@ -163,7 +163,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
         )}
         {deMovimientos && (
           <FranjaAviso tono="warn">
-            <span className="font-semibold">Terceros tomados del archivo de movimientos del ERP</span> (el cliente no tiene balance por terceros): cada tercero suma su movimiento de enero al corte. Los movimientos sin NIT van como «Sin tercero» y, si dejan diferencia, se explican con marca.
+            <span className="font-semibold">Balance por cuenta con terceros agregados</span>: el cliente tiene la excepción de balance por terceros y sus terceros salen del archivo de movimientos del ERP. Cada tercero suma su movimiento de enero al corte. Los movimientos sin NIT van como «Sin tercero» y, si dejan diferencia, se explican con marca.
           </FranjaAviso>
         )}
         <ResumenSaldoInicial saldoInicial={saldoInicial} />

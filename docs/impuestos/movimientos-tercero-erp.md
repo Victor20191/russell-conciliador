@@ -13,7 +13,7 @@ La excepción son las cuentas donde no se resta la DIAN (236575, 135595 y las qu
 ## Flujo
 
 1. El balance del corte se carga y se cierra como siempre (por cuenta). Debe empezar el 1 de enero.
-2. En el balance, «Ver por terceros» → «Adjuntar archivo»: Excel `.xlsx`, subido por partes (`/api/balance/archivo-temporal`).
+2. En el balance, donde una tarjeta dice «Cliente con excepción de balance por terceros», botón «Adjuntar terceros» y, en esa pantalla, otra vez «Adjuntar terceros»: Excel `.xlsx`, subido por partes (`/api/balance/archivo-temporal`).
 3. Se escogen las columnas: cuenta, NIT, nombre (opcional) y valores, como débito y crédito o como un importe con signo (positivo = débito). Se sugieren por los encabezados; el reporte de SAP de MUMA trae «Cuenta», «Importe en moneda local», «DB», «CR», «Clave referencia 1» (NIT) y «Clave referencia 3» (nombre).
 4. «Leer y amarrar con el balance» recorre el archivo en flujo (400 mil filas en unos 30 s), agrega por cuenta y tercero solo los grupos 13, 21, 22, 23, 24 y 28, y liga cada cuenta con la del balance (la misma o la más larga del balance que sea su prefijo), que aporta el nombre y la homologación.
 5. **Amarre**: por cuenta, el movimiento del archivo debe igualar el del balance (saldo final − saldo inicial) dentro del umbral «descuadre». Si una cuenta no amarra, o el archivo trae una cuenta con movimiento que no está en el balance, no se guarda nada y se muestra la tabla.
@@ -32,4 +32,10 @@ La excepción son las cuentas donde no se resta la DIAN (236575, 135595 y las qu
 - Lectura en flujo: `src/lib/balance/movimientos-tercero-servidor.ts`.
 - Acciones: `src/app/actions/balance-movimientos-tercero.ts`.
 - Pantalla: `src/app/(app)/balance/[id]/terceros/movimientos-tercero-panel.tsx`.
-- Cruce: `src/lib/impuestos/retencion/cruce-servidor.ts` (letrero «Terceros tomados del archivo de movimientos del ERP» en `cruce-revision.tsx`).
+- Cruce: `src/lib/impuestos/retencion/cruce-servidor.ts` (letrero «Balance por cuenta con terceros agregados» en `cruce-revision.tsx`).
+
+## Nombres en pantalla
+
+- El balance con el archivo adjunto se llama **«Balance por cuenta con terceros agregados»** (etiqueta junto al archivo, tarjeta del balance, descripción del balance en el cruce de impuestos).
+- El botón del balance dice **«Adjuntar terceros»** y, ya agregados, **«Terceros agregados»**; la pantalla lleva el mismo nombre.
+- Todas dicen que los terceros agregados sirven **solo para los impuestos**.

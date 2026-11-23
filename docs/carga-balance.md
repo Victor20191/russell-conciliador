@@ -78,7 +78,7 @@ Estas correcciones se aplican al leer o reprocesar el archivo. Para corregir un 
 
 ### Clientes sin balance por terceros
 
-Si el cliente tiene la excepción «No maneja balance por terceros», el balance se carga por cuenta y, para los impuestos, se le adjunta en **Ver por terceros** el reporte del ERP con los movimientos de enero al corte por cuenta y tercero. El movimiento de cada cuenta debe amarrar con el del balance. Detalle en `docs/impuestos/movimientos-tercero-erp.md`.
+Si el cliente tiene la excepción «No maneja balance por terceros», el balance se carga por cuenta y, para los impuestos, se le agregan en **Adjuntar terceros** (el balance queda «Por cuenta con terceros agregados») los terceros del reporte del ERP con los movimientos de enero al corte por cuenta y tercero. El movimiento de cada cuenta debe amarrar con el del balance. Detalle en `docs/impuestos/movimientos-tercero-erp.md`.
 
 ### Por qué es eficiente y confiable
 

@@ -12,4 +12,4 @@ export function esCapturaDeMovimientos(origenExtraccion: string | null | undefin
 
 /** Lo que ve un impuesto de un cliente sin balance por terceros cuando el balance del corte no tiene el archivo. */
 export const MENSAJE_SIN_MOVIMIENTOS_ERP =
-  "Este cliente no tiene balance por terceros. Para cruzar el impuesto, adjunta al balance cerrado del corte el archivo de movimientos por tercero del ERP (botón «Ver por terceros» del balance).";
+  "Este cliente no tiene balance por terceros. Para cruzar el impuesto, agrégale terceros al balance cerrado del corte con el archivo de movimientos del ERP (botón «Adjuntar terceros» del balance).";

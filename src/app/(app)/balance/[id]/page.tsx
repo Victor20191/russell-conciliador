@@ -37,6 +37,8 @@ import {
 import Conversacion from "@/components/conversacion";
 import { cargarVistaCorte } from "@/lib/balance/comparacion-corte-servidor";
 import { CortePanel } from "./corte-panel";
+import { ExcepcionTercerosCard } from "./excepcion-terceros-card";
+import { esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero-constantes";
 import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-bloqueo";
 import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
 import { evaluarCierreBalance, mensajePrevalidadorParaCerrar } from "@/lib/balance/cierre-balance";
@@ -144,7 +146,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // (archivo sin detalle reconocible, evento «SIN DETALLE POR TERCERO») no
     // ofrece el visor: no habría nada que mostrar.
     balance.loteId
-      ? prisma.balanceTerceroEncabezado.findUnique({ where: { loteId: balance.loteId, clienteId: balance.clienteId }, select: { id: true } })
+      ? prisma.balanceTerceroEncabezado.findUnique({ where: { loteId: balance.loteId, clienteId: balance.clienteId }, select: { id: true, origenExtraccion: true, filasTotales: true } })
       : Promise.resolve(null),
     // Todas las conciliaciones en firme del cliente: deciden qué alcances de «Eliminar» se ofrecen
     // (el balance con que se cerró una no se elimina hasta desbloquearla).
@@ -156,6 +158,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   ]);
   // Cliente sin balance por terceros: «Ver por terceros» lleva a adjuntar los movimientos del ERP.
   const sinBalancePorTerceros = (await prisma.client.findUnique({ where: { id: clientId }, select: { balancePorTerceros: true } }))?.balancePorTerceros === false;
+  // «Balance por cuenta con terceros agregados»: el archivo de movimientos del ERP ya está adjunto.
+  const tercerosAgregados = sinBalancePorTerceros && esCapturaDeMovimientos(terceroLigado?.origenExtraccion) ? terceroLigado : null;
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
     moduloCodigo: c.moduloCodigo,
@@ -427,8 +431,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         {/* Apertura declarada al cargar. Los balances anteriores a este dato no la pintan. */}
         {parsearApertura(balance.aperturaBalance) && (
           <Chip
-            label={etiquetaApertura(balance.aperturaBalance)}
-            tone={parsearApertura(balance.aperturaBalance) === "tercero" ? "blue" : "ink"}
+            label={tercerosAgregados ? "Por cuenta con terceros agregados" : etiquetaApertura(balance.aperturaBalance)}
+            tone={parsearApertura(balance.aperturaBalance) === "tercero" ? "blue" : tercerosAgregados ? "warn" : "ink"}
           />
         )}
       </p>
@@ -497,6 +501,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             <StatCard label="Utilidad" value={fmt(sums.utilidad)} tone="ok" valueClassName="text-lg" />
             <StatCard label="Validaciones" value={`${okCount} ok`} hint={warnCount > 0 ? `${warnCount} alerta(s)` : "Sin alertas"} tone={warnCount > 0 ? "warn" : "ok"} valueClassName="text-lg" />
             {meta && <StatCard label="Mapeo al estándar" value={`${meta.mapped}/${meta.rows}`} hint={`${meta.critical} críticas`} tone="ink" valueClassName="text-lg" />}
+            {sinBalancePorTerceros && (
+              <ExcepcionTercerosCard
+                href={`/balance/${id}/terceros`}
+                renglones={tercerosAgregados?.filasTotales ?? null}
+              />
+            )}
           </div>
 
           <BalanceDetailClient
@@ -513,6 +523,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             // detalle por tercero ligado (mismo loteId). Solo si esta versión declaró apertura «por
             // terceros» y trae su propio detalle cargado. Se ofrece junto a «Detalle por niveles».
             verPorTercerosHref={(parsearApertura(balance.aperturaBalance) === "tercero" && terceroLigado) || sinBalancePorTerceros ? `/balance/${id}/terceros` : null}
+            // Cliente con la excepción: «Adjuntar terceros» hasta que se adjunten; después, «Terceros agregados».
+            verPorTercerosEtiqueta={sinBalancePorTerceros ? (tercerosAgregados ? "Terceros agregados" : "Adjuntar terceros") : undefined}
             warnCount={warnCount}
             balanceId={id}
             comentarios={comentariosPorAncla}

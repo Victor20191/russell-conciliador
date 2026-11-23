@@ -94,7 +94,7 @@ export function MovimientosTerceroPanel({
     setPaso({ tipo: "leyendo", loteId, vista, mapeo });
     const r = await adjuntarMovimientosTercero({ balanceId, archivoLoteId: loteId, mapeo });
     if (r.ok) {
-      notifySuccess("Movimientos por tercero guardados", r.message);
+      notifySuccess("Terceros agregados", r.message);
       setPaso({ tipo: "inicio" });
       router.refresh();
       return;
@@ -102,7 +102,7 @@ export function MovimientosTerceroPanel({
     if (r.descuadres?.length || r.sinCuentaEnBalance?.length || r.montosIlegibles?.length) {
       setPaso({ tipo: "rechazo", loteId, vista, mapeo, resultado: r });
     } else {
-      notifyError("No se guardaron los movimientos", r.message);
+      notifyError("No se agregaron los terceros", r.message);
       setPaso({ tipo: "mapeo", loteId, vista, mapeo });
     }
   };
@@ -110,24 +110,27 @@ export function MovimientosTerceroPanel({
   const quitar = () => startQuitar(async () => {
     const r = await quitarMovimientosTercero({ balanceId });
     if (r.ok) {
-      notifySuccess("Movimientos quitados", r.message);
+      notifySuccess("Terceros agregados quitados", r.message);
       setQuitarAbierto(false);
       router.refresh();
     } else {
-      notifyError("No se quitaron los movimientos", r.message);
+      notifyError("No se quitaron los terceros agregados", r.message);
     }
   });
 
   const enFlujo = paso.tipo === "mapeo" || paso.tipo === "leyendo" || paso.tipo === "rechazo";
 
   return (
-    <section className="mb-4 rounded-lg border border-warn-200 bg-warn-50 px-4 py-3" aria-label="Movimientos por tercero del ERP">
+    <section className="mb-4 rounded-lg border border-warn-200 bg-warn-50 px-4 py-3" aria-label="Terceros agregados para impuestos">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[13.5px] font-semibold text-ink-800">Movimientos por tercero del ERP · cliente sin balance por terceros</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">Cliente con excepción de balance por terceros</p>
+          <p className="mt-0.5 text-[13.5px] font-semibold text-ink-800">
+            {captura ? "Balance por cuenta con terceros agregados · para impuestos" : "Terceros agregados para impuestos"}
+          </p>
           <p className="mt-0.5 max-w-3xl text-[12.5px] text-ink-700">
-            Para los impuestos (Retención, IVA y RST) adjunta el reporte del ERP con los movimientos de enero a la fecha de corte por cuenta y tercero.
-            Se guardan los grupos 13, 21, 22, 23, 24 y 28, y el movimiento de cada cuenta debe amarrar con el balance.
+            Este cliente no entrega balance por terceros. Para cruzar los <b>impuestos</b> (Retención en la fuente, IVA y RST) se agregan los terceros desde el reporte del ERP con los movimientos de enero a la fecha de corte por cuenta y tercero.
+            Se guardan los grupos 13, 21, 22, 23, 24 y 28, y el movimiento de cada cuenta debe amarrar con el balance. Cartera y Cuentas por pagar no los usan: se concilian por cuenta.
           </p>
           {captura ? (
             <p className="mt-1.5 inline-flex flex-wrap items-center gap-x-2 text-[12px] text-ink-700">
@@ -136,7 +139,7 @@ export function MovimientosTerceroPanel({
               <span>· {fmtNum(captura.renglones)} renglones cuenta–tercero · {captura.cargadoPor} · {captura.cargadoEn}</span>
             </p>
           ) : (
-            <p className="mt-1.5 text-[12px] font-medium text-warn-700">Este balance aún no tiene el archivo: los impuestos del corte no pueden cruzar.</p>
+            <p className="mt-1.5 text-[12px] font-medium text-warn-700">Sin terceros agregados: los impuestos de este corte no pueden cruzar.</p>
           )}
           {motivoNoAdmite && <p className="mt-1 text-[12px] text-err-700">{motivoNoAdmite}</p>}
           {bloqueoCierre && captura && <p className="mt-1 text-[12px] text-ink-500">{bloqueoCierre}</p>}
@@ -149,7 +152,7 @@ export function MovimientosTerceroPanel({
             ) : (!captura || !bloqueoCierre) && (
               <>
                 <button type="button" className={BOTON_PRIMARIO} onClick={() => entrada.current?.click()}>
-                  <Icon name="upload" size={14} /> {captura ? "Reemplazar archivo" : "Adjuntar archivo"}
+                  <Icon name="upload" size={14} /> {captura ? "Reemplazar terceros" : "Adjuntar terceros"}
                 </button>
                 {captura && (
                   <button type="button" className={BOTON} onClick={() => setQuitarAbierto(true)}>
@@ -177,7 +180,7 @@ export function MovimientosTerceroPanel({
       <Modal
         open={quitarAbierto}
         onClose={() => setQuitarAbierto(false)}
-        title="Quitar los movimientos por tercero"
+        title="Quitar los terceros agregados"
         footer={
           <button type="button" onClick={quitar} disabled={quitando} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-400 disabled:opacity-60">
             {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : <><Icon name="trash" size={14} /> Quitar</>}
@@ -185,7 +188,7 @@ export function MovimientosTerceroPanel({
         }
       >
         <p className="text-[13px] text-ink-700">
-          Los impuestos de este corte quedarán sin terceros para el cruce hasta que adjuntes otro archivo. El balance no cambia.
+          Los impuestos de este corte quedarán sin terceros para el cruce hasta que adjuntes otro archivo; el balance por cuenta no cambia.
         </p>
       </Modal>
     </section>

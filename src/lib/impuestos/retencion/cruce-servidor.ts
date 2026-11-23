@@ -61,7 +61,10 @@ export async function cargarCruceRetencion(
   const balance: BalanceCruceRetencion = {
     id: elegido.id,
     periodo: elegido.periodo,
-    descripcion: describirBalanceCruce(elegido),
+    // Cliente sin balance por terceros: se dice que el balance es por cuenta con terceros agregados.
+    descripcion: movimientosPorLote.has(elegido.loteId as string)
+      ? `${describirBalanceCruce(elegido)} con terceros agregados`
+      : describirBalanceCruce(elegido),
     periodoInicio: elegido.periodoInicio.toISOString().slice(0, 10),
     periodoFin: elegido.periodoFin.toISOString().slice(0, 10),
   };

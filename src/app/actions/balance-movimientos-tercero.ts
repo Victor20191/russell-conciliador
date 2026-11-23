@@ -78,7 +78,7 @@ async function bloqueoPorCierres(balanceId: number): Promise<string | null> {
   const cierres = await cierresFirmesDeBalance([balanceId]);
   if (cierres.length === 0) return null;
   const modulos = [...new Set(cierres.map((c) => c.moduloCodigo))].join(", ");
-  return `Hay conciliaciones en firme contra este balance (${modulos}). Abre esos cierres antes de cambiar los movimientos por tercero.`;
+  return `Hay conciliaciones en firme contra este balance (${modulos}). Abre esos cierres antes de cambiar los terceros agregados.`;
 }
 
 export type VistaPreviaMovimientosState = ActionStateMovimientos & { vista?: VistaPreviaMovimientos };
@@ -234,7 +234,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
     await descartarArchivoBalanceTemporal({ loteId: parsed.data.archivoLoteId, usuarioId: usuario.id });
     await logAudit({
       user: usuario.name,
-      action: capturaExistente ? "REEMPLAZÓ MOVIMIENTOS POR TERCERO" : "ADJUNTÓ MOVIMIENTOS POR TERCERO",
+      action: capturaExistente ? "REEMPLAZÓ TERCEROS AGREGADOS" : "AGREGÓ TERCEROS AL BALANCE",
       entity: `Balance #${balance.id}`,
       detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
       clientId: balance.clienteId,
@@ -244,7 +244,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
     revalidatePath("/impuestos", "layout");
     return {
       ok: true,
-      message: `Movimientos por tercero guardados: ${amarre.cuentasAmarradas} cuentas amarradas con el balance.`,
+      message: `Terceros agregados al balance para impuestos: ${amarre.cuentasAmarradas} cuentas amarradas.`,
       resumen: { cuentas: amarre.cuentasAmarradas, terceros: amarre.terceros, filasUsadas: agregado.filasUsadas, filasSinTercero: agregado.filasSinTercero },
     };
   } catch (e) {
@@ -263,15 +263,15 @@ export async function quitarMovimientosTercero(input: { balanceId: number }): Pr
       where: { id: parsed.data.balanceId },
       select: { id: true, clienteId: true, nombreCliente: true, periodo: true, loteId: true },
     });
-    if (!balance?.loteId) return { ok: false, message: "Este balance no tiene movimientos por tercero." };
+    if (!balance?.loteId) return { ok: false, message: "Este balance no tiene terceros agregados." };
     const bloqueo = await bloqueoPorCierres(balance.id);
     if (bloqueo) return { ok: false, message: bloqueo };
     const borrados = await prisma.balanceTerceroEncabezado.deleteMany({ where: { loteId: balance.loteId, origenExtraccion: ORIGEN_MOVIMIENTOS_ERP } });
-    if (borrados.count === 0) return { ok: false, message: "Este balance no tiene movimientos por tercero." };
+    if (borrados.count === 0) return { ok: false, message: "Este balance no tiene terceros agregados." };
     const usuario = await getCurrentUser();
     await logAudit({
       user: usuario?.name ?? "Sistema",
-      action: "QUITÓ MOVIMIENTOS POR TERCERO",
+      action: "QUITÓ TERCEROS AGREGADOS",
       entity: `Balance #${balance.id}`,
       detail: `${balance.nombreCliente} · ${balance.periodo}`,
       clientId: balance.clienteId,
@@ -279,7 +279,7 @@ export async function quitarMovimientosTercero(input: { balanceId: number }): Pr
     revalidatePath(`/balance/${balance.id}`);
     revalidatePath(`/balance/${balance.id}/terceros`);
     revalidatePath("/impuestos", "layout");
-    return { ok: true, message: "Se quitaron los movimientos por tercero del balance." };
+    return { ok: true, message: "Se quitaron los terceros agregados del balance." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("quitarMovimientosTercero", e) };
   }

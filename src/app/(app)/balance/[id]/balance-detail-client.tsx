@@ -80,7 +80,7 @@ const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, puedeHomologar, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, historialPrevalidador, tabInicial = null, verPorTercerosHref = null,
+  arbol, estandar, puedeMapear, puedeHomologar, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, historialPrevalidador, tabInicial = null, verPorTercerosHref = null, verPorTercerosEtiqueta,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
   /** Asignar o cambiar la cuenta Russell de una cuenta: senior asignado o administrador. */
@@ -91,6 +91,8 @@ export default function BalanceDetailClient({
   tabInicial?: Tab | null;
   /** Enlace al visor por tercero; null si el balance no es «Por terceros» o no trae su detalle. */
   verPorTercerosHref?: string | null;
+  /** Cliente sin balance por terceros: «Adjuntar terceros» o «Terceros agregados» en vez de «Ver por terceros». */
+  verPorTercerosEtiqueta?: string;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
   /** Informe del prevalidador de homologación (recalculado al leer). */
@@ -115,7 +117,7 @@ export default function BalanceDetailClient({
             href={verPorTercerosHref}
             className="inline-flex items-center gap-1.5 rounded-md border border-navy-300 bg-navy-50 px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 transition hover:border-navy-600"
           >
-            <Icon name="users" size={13} /> Ver por terceros
+            <Icon name={verPorTercerosEtiqueta === "Adjuntar terceros" ? "upload" : "users"} size={13} /> {verPorTercerosEtiqueta ?? "Ver por terceros"}
           </Link>
         )}
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />

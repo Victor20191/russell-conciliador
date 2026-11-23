@@ -146,7 +146,13 @@ export const FICHA_BALANCE_DETALLE: FichaAyuda = {
           nombre: "Ver por terceros",
           queHace: "Abre el saldo de cada cuenta por tercero, solo para consulta.",
           regla: REGLAS.verBalance,
-          condiciones: ["En balances «Por terceros» con el detalle capturado, y en todos los balances de un cliente con la excepción «No maneja balance por terceros» (ahí se adjunta el archivo de movimientos del ERP)."],
+          condiciones: ["Solo en balances «Por terceros» con el detalle capturado."],
+        },
+        {
+          nombre: "Adjuntar terceros · Terceros agregados",
+          queHace:
+            "Solo en los clientes con la excepción «No maneja balance por terceros», en lugar de «Ver por terceros». «Adjuntar terceros» lleva a agregarle terceros al balance por cuenta con el archivo de movimientos del ERP; una vez agregados, el botón dice «Terceros agregados». Los terceros agregados sirven solo para los impuestos. Junto a los totales, una tarjeta «Cliente con excepción de balance por terceros» dice si el balance ya tiene terceros agregados, y la etiqueta del balance pasa a «Por cuenta con terceros agregados».",
+          regla: REGLAS.verBalance,
         },
         {
           nombre: "Conversación",
@@ -436,16 +442,16 @@ export const FICHA_BALANCE_DIFF: FichaAyuda = {
 
 export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
   id: "balance.terceros",
-  titulo: "Balance por terceros",
-  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es de consulta, salvo para un cliente sin balance por terceros, que adjunta aquí el archivo de movimientos del ERP; entonces cada tercero trae su movimiento del año y se compara con el movimiento de la cuenta. El sistema solo guarda y muestra los terceros de las cuentas de los grupos 13, 21, 22, 23, 24 y 28; las demás cuentas se ven con su total y aparecen «Sin desagregar», y un aviso arriba lo recuerda. Si el balance se cargó con una regla anterior y trae terceros de otros grupos, el aviso dice cuáles.",
+  titulo: "Balance por terceros · Terceros agregados",
+  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es de consulta. En un cliente con la excepción «No maneja balance por terceros» la pantalla se llama «Adjuntar terceros» o «Terceros agregados»: ahí se agregan al balance por cuenta los terceros del archivo de movimientos del ERP, que sirven solo para los impuestos; cada tercero trae su movimiento del año y se compara con el movimiento de la cuenta. El sistema solo guarda y muestra los terceros de las cuentas de los grupos 13, 21, 22, 23, 24 y 28; las demás cuentas se ven con su total y aparecen «Sin desagregar», y un aviso arriba lo recuerda. Si el balance se cargó con una regla anterior y trae terceros de otros grupos, el aviso dice cuáles.",
   etapas: [
     {
-      titulo: "Movimientos por tercero del ERP (cliente sin balance por terceros)",
+      titulo: "Terceros agregados para impuestos (cliente con excepción de balance por terceros)",
       acciones: [
         {
-          nombre: "Adjuntar archivo · Reemplazar archivo",
+          nombre: "Adjuntar terceros · Reemplazar terceros",
           queHace:
-            "Para un cliente con la excepción «No maneja balance por terceros»: sube el reporte del ERP con los movimientos de enero al corte por cuenta y tercero (Excel .xlsx), se escogen las columnas de cuenta, NIT, nombre y valores (débito y crédito, o un importe con signo) y «Leer y amarrar con el balance» lo guarda. Se guardan los terceros de los grupos 13, 21, 22, 23, 24 y 28, cada uno con su movimiento del año; con ellos cruzan Retención en la fuente, IVA y el Régimen Simple. Los movimientos sin NIT quedan como «Sin tercero».",
+            "Para un cliente con la excepción «No maneja balance por terceros»: sube el reporte del ERP con los movimientos de enero al corte por cuenta y tercero (Excel .xlsx), se escogen las columnas de cuenta, NIT, nombre y valores (débito y crédito, o un importe con signo) y «Leer y amarrar con el balance» los agrega: el balance queda «Por cuenta con terceros agregados». Se guardan los terceros de los grupos 13, 21, 22, 23, 24 y 28, cada uno con su movimiento del año; sirven solo para los impuestos: con ellos cruzan Retención en la fuente, IVA y el Régimen Simple. Cartera y Cuentas por pagar no los usan. Los movimientos sin NIT quedan como «Sin tercero».",
           regla: REGLAS.cargarBalance,
           condiciones: [
             "El balance debe empezar el 1 de enero del año de su corte.",
@@ -456,7 +462,7 @@ export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
         },
         {
           nombre: "Quitar",
-          queHace: "Quita el archivo de movimientos del balance; los impuestos del corte quedan sin terceros para el cruce. El balance no cambia.",
+          queHace: "Quita los terceros agregados; los impuestos del corte quedan sin terceros para el cruce. El balance por cuenta no cambia.",
           regla: REGLAS.cargarBalance,
           condiciones: ["No se quita mientras haya una conciliación en firme contra el balance."],
           fuente: { archivo: "src/app/actions/balance-movimientos-tercero.ts", funcion: "quitarMovimientosTercero" },

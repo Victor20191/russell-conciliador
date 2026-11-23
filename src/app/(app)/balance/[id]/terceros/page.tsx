@@ -164,9 +164,28 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         </Link>
       </div>
       <PageHeader
-        title="Balance por terceros"
-        subtitle={`${balance.nombreCliente} · ${balance.periodo} · versión ${balance.version} · apertura ${etiquetaApertura(balance.aperturaBalance)}`}
+        title={!sinBalancePorTerceros ? "Balance por terceros" : deMovimientos ? "Terceros agregados" : "Adjuntar terceros"}
+        subtitle={`${balance.nombreCliente} · ${balance.periodo} · versión ${balance.version} · ${
+          sinBalancePorTerceros
+            ? deMovimientos ? "balance por cuenta con terceros agregados, para impuestos" : "balance por cuenta, sin terceros agregados"
+            : `apertura ${etiquetaApertura(balance.aperturaBalance)}`
+        }`}
       />
+
+      {sinBalancePorTerceros && (
+        <MovimientosTerceroPanel
+          balanceId={id}
+          captura={deMovimientos && encabezadoTercero ? {
+            archivo: encabezadoTercero.archivo ?? "—",
+            cargadoPor: encabezadoTercero.cargadoPor ?? "—",
+            cargadoEn: fmtDateTime(encabezadoTercero.ultimaCarga ?? encabezadoTercero.creadoEn),
+            renglones: encabezadoTercero.filasTotales,
+          } : null}
+          puedeEditar={crearAuth?.ok === true}
+          motivoNoAdmite={motivoNoAdmite}
+          bloqueoCierre={bloqueoCierre}
+        />
+      )}
 
       {/* Siempre a la vista: sin él, una cuenta «Sin desagregar» parece un error del sistema. Si la
           captura es de una regla anterior y trae terceros de otros grupos, se dice cuáles. */}
@@ -194,27 +213,14 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         <Link href={`/balance/${id}#corte`} className="font-medium text-blue-600 hover:underline">Balances del mismo corte</Link>.
       </p>
 
-      {sinBalancePorTerceros && (
-        <MovimientosTerceroPanel
-          balanceId={id}
-          captura={deMovimientos && encabezadoTercero ? {
-            archivo: encabezadoTercero.archivo ?? "—",
-            cargadoPor: encabezadoTercero.cargadoPor ?? "—",
-            cargadoEn: fmtDateTime(encabezadoTercero.ultimaCarga ?? encabezadoTercero.creadoEn),
-            renglones: encabezadoTercero.filasTotales,
-          } : null}
-          puedeEditar={crearAuth?.ok === true}
-          motivoNoAdmite={motivoNoAdmite}
-          bloqueoCierre={bloqueoCierre}
-        />
-      )}
       {deMovimientos && (
         <p className="mb-3 text-[12px] text-ink-600">
-          Los terceros vienen del archivo de movimientos del ERP: cada uno trae su movimiento de enero al corte (saldo inicial 0), y la comparación usa el movimiento de cada cuenta del balance.
+          Los terceros agregados vienen del archivo de movimientos del ERP: cada uno trae su movimiento de enero al corte (saldo inicial 0), y la comparación usa el movimiento de cada cuenta del balance.
         </p>
       )}
 
-      {motivoSinVinculo ? (
+      {/* Cliente con la excepción y aún sin terceros agregados: el panel de arriba ya dice qué falta. */}
+      {sinBalancePorTerceros && !encabezadoTercero ? null : motivoSinVinculo ? (
         <Card>
           <EmptyState icon="info" title="Sin balance por tercero vinculado" description={motivoSinVinculo} />
         </Card>
