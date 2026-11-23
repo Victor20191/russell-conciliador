@@ -1,6 +1,7 @@
 import { nivelDiferencia, type NivelDiferencia } from "@/lib/balance/umbrales-alertas";
 import { claveCuentasMapeo, cuentasDeMapeo, esTerceroDian, pareceNombreDian, renglonesDeFila, type FilaMapeoDian, type TerceroDian } from "../mapeo-dian";
 import { impuestoPorClave, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "../impuestos-dian";
+import { NOMBRE_SIN_TERCERO } from "@/lib/balance/movimientos-tercero-constantes";
 import type { EleccionBalanceVista } from "@/lib/modulos/compuerta-cruce";
 import type { PeriodoRevision } from "./periodos-revision";
 import { controlPorPagar, type ControlPorPagar, type FilaCuentaPorPagar } from "./por-pagar";
@@ -540,6 +541,8 @@ export type CruceRetencionVista =
       /** Huella del prevalidador del balance: el cierre la vuelve a leer bajo candado y exige la misma. */
       huellaBalance?: string;
       eleccionBalance?: EleccionBalanceVista | null;
+      /** Cliente sin balance por terceros: los terceros salen del archivo de movimientos del ERP (saldo inicial 0). */
+      tercerosDeMovimientos?: boolean;
     };
 
 /** Terceros por cuenta del cliente que viajan a la pantalla (el Excel lleva todos). */
@@ -564,7 +567,9 @@ export function cruceParaPantalla(resultado: ResultadoCruce): ResultadoCrucePant
       cuentasCliente: f.cuentasCliente.map((c) => {
         if (c.terceros.length <= MAX_TERCEROS_PANTALLA) return c;
         // Primero la DIAN y los posibles DIAN; luego los de mayor saldo (ya vienen ordenados por |saldo|).
-        const visibles = [...c.terceros.filter((t) => t.esDian || t.posibleDian), ...c.terceros.filter((t) => !t.esDian && !t.posibleDian)].slice(0, MAX_TERCEROS_PANTALLA);
+        // También va primero «Sin tercero» (movimientos del ERP sin NIT): suma y suele pedir marca.
+        const primero = (t: TerceroCruce) => t.esDian || t.posibleDian || (!t.nit && t.nombre === NOMBRE_SIN_TERCERO);
+        const visibles = [...c.terceros.filter(primero), ...c.terceros.filter((t) => !primero(t))].slice(0, MAX_TERCEROS_PANTALLA);
         const enPantalla = new Set(visibles);
         const resto = c.terceros.filter((t) => !enPantalla.has(t));
         ocultos[`${f.clave}|${c.cuenta}`] = {

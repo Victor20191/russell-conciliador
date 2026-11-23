@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { parseId } from "@/lib/ids";
@@ -11,6 +11,10 @@ import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/bal
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import TercerosClient from "./terceros-client";
+import { MovimientosTerceroPanel } from "./movimientos-tercero-panel";
+import { balanceAdmiteMovimientos, esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero";
+import { cierresFirmesDeBalance } from "@/lib/conciliacion/verificar-bloqueo";
+import { fmtDateTime } from "@/lib/format";
 import Link from "next/link";
 
 /**
@@ -33,7 +37,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     where: { id },
     select: {
       id: true, clienteId: true, nombreCliente: true, periodo: true, version: true,
-      loteId: true, aperturaBalance: true,
+      loteId: true, aperturaBalance: true, periodoInicio: true, periodoFin: true,
     },
   });
   if (!balance) notFound();
@@ -57,7 +61,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
   const encabezadoTercero = balance.loteId
     ? await prisma.balanceTerceroEncabezado.findUnique({
         where: { loteId: balance.loteId, clienteId: balance.clienteId },
-        select: { id: true, version: true, archivo: true, filasTotales: true, origenExtraccion: true, creadoEn: true },
+        select: { id: true, version: true, archivo: true, filasTotales: true, origenExtraccion: true, creadoEn: true, cargadoPor: true, ultimaCarga: true },
       })
     : null;
 
@@ -72,6 +76,28 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
       })
     : [];
 
+  // Cliente SIN balance por terceros (excepción del cliente): los terceros de los impuestos salen del
+  // archivo de movimientos del ERP que se adjunta aquí.
+  const cliente = await prisma.client.findUnique({ where: { id: balance.clienteId }, select: { balancePorTerceros: true } });
+  const sinBalancePorTerceros = cliente?.balancePorTerceros === false;
+  const deMovimientos = esCapturaDeMovimientos(encabezadoTercero?.origenExtraccion);
+  const [crearAuth, cierres] = sinBalancePorTerceros
+    ? await Promise.all([authorizePermiso("balance:crear", { clientId: balance.clienteId }), cierresFirmesDeBalance([id])])
+    : [null, []];
+  const motivoNoAdmite = !sinBalancePorTerceros
+    ? null
+    : !balance.loteId
+      ? "Este cargue antiguo no conserva el vínculo para el detalle por tercero: vuelve a cargar el balance."
+      : encabezadoTercero && !deMovimientos
+        ? "Este balance ya conserva su detalle por tercero; no necesita el archivo de movimientos."
+        : !balanceAdmiteMovimientos(balance.periodoInicio, balance.periodoFin)
+          ? "El balance debe empezar el 1 de enero del año de su corte para sumar los movimientos del ERP."
+          : null;
+  const modulosEnFirme = [...new Set(cierres.map((c) => c.moduloCodigo))].join(", ");
+  const bloqueoCierre = cierres.length
+    ? `Hay conciliaciones en firme contra este balance (${modulosEnFirme}): abre esos cierres para reemplazar o quitar el archivo.`
+    : null;
+
   const tieneDetalleBalance = filasBalanceRaw.length > 0;
   const vinculado = tieneDetalleBalance && encabezadoTercero != null;
 
@@ -85,14 +111,16 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         ? "No se encontró un balance por tercero capturado para este cargue. Puede que la apertura declarada no fuera «Por terceros», o que el archivo careciera de detalle recuperable por tercero al promoverlo (ver la bitácora del balance)."
         : null;
 
+  // Con el archivo de movimientos los terceros traen solo el movimiento del año (saldo inicial 0): se
+  // comparan contra el movimiento de cada cuenta del balance, no contra sus saldos.
   const filasBalance = filasBalanceRaw.map((f) => ({
     cuenta8: f.cuenta8,
     nombreCuenta: f.nombreCuenta,
     cuenta6Russell: f.cuenta6Russell,
-    saldoInicial: Number(f.saldoInicial),
+    saldoInicial: deMovimientos ? 0 : Number(f.saldoInicial),
     debitos: Number(f.debitos),
     creditos: Number(f.creditos),
-    saldoFinal: Number(f.saldoFinal),
+    saldoFinal: deMovimientos ? Number(f.saldoFinal) - Number(f.saldoInicial) : Number(f.saldoFinal),
   }));
   const filasTercero = completarNombresDelMismoArchivo(filasTerceroRaw.map((f) => ({
     cuenta8: f.cuenta8,
@@ -165,6 +193,26 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         La comparación de saldos finales con los demás balances de la misma fecha de corte está en{" "}
         <Link href={`/balance/${id}#corte`} className="font-medium text-blue-600 hover:underline">Balances del mismo corte</Link>.
       </p>
+
+      {sinBalancePorTerceros && (
+        <MovimientosTerceroPanel
+          balanceId={id}
+          captura={deMovimientos && encabezadoTercero ? {
+            archivo: encabezadoTercero.archivo ?? "—",
+            cargadoPor: encabezadoTercero.cargadoPor ?? "—",
+            cargadoEn: fmtDateTime(encabezadoTercero.ultimaCarga ?? encabezadoTercero.creadoEn),
+            renglones: encabezadoTercero.filasTotales,
+          } : null}
+          puedeEditar={crearAuth?.ok === true}
+          motivoNoAdmite={motivoNoAdmite}
+          bloqueoCierre={bloqueoCierre}
+        />
+      )}
+      {deMovimientos && (
+        <p className="mb-3 text-[12px] text-ink-600">
+          Los terceros vienen del archivo de movimientos del ERP: cada uno trae su movimiento de enero al corte (saldo inicial 0), y la comparación usa el movimiento de cada cuenta del balance.
+        </p>
+      )}
 
       {motivoSinVinculo ? (
         <Card>

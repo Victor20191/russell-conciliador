@@ -200,6 +200,44 @@ export type ArchivoBalanceTemporalConsumido = {
   contenido: ArrayBuffer;
 };
 
+/**
+ * Lee el archivo temporal SIN consumirlo: para los insumos que se leen en dos pasos (primero los
+ * encabezados para mapear, después el archivo entero) y que solo se descartan si la carga termina
+ * bien (los movimientos por tercero del ERP). Mismas verificaciones que `consumirArchivoBalanceTemporal`.
+ */
+export async function leerArchivoBalanceTemporal(args: {
+  loteId: string;
+  usuarioId: number;
+}): Promise<
+  | { ok: true; archivo: ArchivoBalanceTemporalConsumido }
+  | { ok: false; message: string }
+> {
+  const archivo = await prisma.balanceArchivoTemporal.findUnique({ where: { loteId: args.loteId } });
+  if (!archivo || !archivo.completado || archivo.expiraEn < new Date()) {
+    return { ok: false, message: "No se encontró el archivo completo. Vuelve a seleccionarlo y reintenta." };
+  }
+  if (archivo.usuarioId !== args.usuarioId) {
+    return { ok: false, message: "No tienes acceso a este archivo temporal." };
+  }
+  const partes = await prisma.balanceArchivoTemporalParte.findMany({
+    where: { loteId: args.loteId }, orderBy: { numero: "asc" },
+  });
+  const total = partes.reduce((suma, parte) => suma + parte.tamanoBytes, 0);
+  if (partes.length !== archivo.totalPartes || total !== archivo.tamanoBytes) {
+    return { ok: false, message: "El archivo temporal está incompleto. Vuelve a cargarlo." };
+  }
+  const contenido = new Uint8Array(archivo.tamanoBytes);
+  let offset = 0;
+  for (const parte of partes) {
+    contenido.set(parte.contenido, offset);
+    offset += parte.tamanoBytes;
+  }
+  return {
+    ok: true,
+    archivo: { nombre: archivo.nombreArchivo, tipo: archivo.tipoContenido, tamano: archivo.tamanoBytes, contenido: contenido.buffer },
+  };
+}
+
 export async function consumirArchivoBalanceTemporal(args: {
   loteId: string;
   usuarioId: number;

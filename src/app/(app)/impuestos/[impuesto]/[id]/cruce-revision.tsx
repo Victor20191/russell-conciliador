@@ -9,6 +9,7 @@ import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmt, fmtContable, fmtDateTime } from "@/lib/format";
 import { SelectorBalanceCruce } from "@/components/selector-balance-cruce";
 import { escogerBalanceImpuesto } from "@/app/actions/impuestos-revisiones";
+import { NOMBRE_SIN_TERCERO } from "@/lib/balance/movimientos-tercero-constantes";
 import { CeldaMarca, MarcaModal } from "./marca-modal";
 import { ConmutadorCeros } from "./vistas-revision";
 import type { ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
@@ -135,6 +136,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
   }
 
   const { resultado, balance, umbral, inicioEnero } = cruce;
+  const deMovimientos = cruce.tercerosDeMovimientos === true;
   const impuesto = impuestoDelCruce(resultado);
   const codigo = impuesto.declaracion.codigo;
   const saldoInicial = resultado.saldoInicial ?? null;
@@ -157,6 +159,11 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
         {!inicioEnero && (
           <FranjaAviso tono="warn">
             <span className="font-semibold">El balance no empieza el 1 de enero:</span> no se puede medir el saldo inicial que arrastran los terceros.
+          </FranjaAviso>
+        )}
+        {deMovimientos && (
+          <FranjaAviso tono="warn">
+            <span className="font-semibold">Terceros tomados del archivo de movimientos del ERP</span> (el cliente no tiene balance por terceros): cada tercero suma su movimiento de enero al corte. Los movimientos sin NIT van como «Sin tercero» y, si dejan diferencia, se explican con marca.
           </FranjaAviso>
         )}
         <ResumenSaldoInicial saldoInicial={saldoInicial} />
@@ -203,7 +210,7 @@ export function CruceRevision({ cruce, revisionId, puedeEditar, enConstruccion =
                     {abiertas.has(f.clave) && (
                       <tr className="border-b border-ink-100 bg-ink-50/40">
                         <td colSpan={COLUMNAS} className="border-l-2 border-ink-300 px-4 py-3">
-                          <DetalleFila fila={f} codigo={codigo} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} />
+                          <DetalleFila fila={f} codigo={codigo} inicioEnero={inicioEnero} ocultos={resultado.tercerosOcultos} deMovimientos={deMovimientos} />
                         </td>
                       </tr>
                     )}
@@ -391,7 +398,7 @@ function TituloDetalle({ titulo, detalle, cuentaRussell }: { titulo: string; det
   );
 }
 
-function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; codigo: string; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"] }) {
+function DetalleFila({ fila, codigo, inicioEnero, ocultos, deMovimientos = false }: { fila: FilaCruce; codigo: string; inicioEnero: boolean; ocultos: ResultadoCrucePantalla["tercerosOcultos"]; deMovimientos?: boolean }) {
   const cuentasRussell = cuentasDeFilaCruce(fila);
   const [cuentasAbiertas, setCuentasAbiertas] = useState<ReadonlySet<string>>(new Set());
   const hayAvisos = fila.saldoInicial || fila.posiblesDian.length > 0 || (fila.marca && !fila.marca.vigente);
@@ -508,7 +515,8 @@ function DetalleFila({ fila, codigo, inicioEnero, ocultos }: { fila: FilaCruce; 
                             <td className={`${VALOR_DETALLE} ${tachado}`}>{fmtContable(t.saldo)}</td>
                             <td className="px-2 py-1 text-[10.5px] font-semibold">
                               {t.restado && <span className="text-ink-500">DIAN · se resta</span>}
-                              {t.esDian && !t.restado && <span className="text-ink-500">DIAN · esta cuenta no la resta</span>}
+                              {t.esDian && !t.restado && <span className={deMovimientos ? "text-warn-700" : "text-ink-500"}>DIAN · esta cuenta no la resta{deMovimientos && ": suma solo su movimiento del año (el archivo del ERP no trae su saldo inicial)"}</span>}
+                              {deMovimientos && !t.nit && t.nombre === NOMBRE_SIN_TERCERO && <span className="text-warn-700">Movimientos sin NIT en el ERP</span>}
                               {Boolean(t.saldoInicialRestado) && <span className="block text-ink-500">Saldo inicial · se resta{aporte !== 0 && `; suma ${fmtContable(aporte)}`}</span>}
                               {t.posibleDian && <span className="text-warn-700">¿Es la DIAN? Sin NIT: no se resta sola</span>}
                             </td>

@@ -146,7 +146,7 @@ export const FICHA_BALANCE_DETALLE: FichaAyuda = {
           nombre: "Ver por terceros",
           queHace: "Abre el saldo de cada cuenta por tercero, solo para consulta.",
           regla: REGLAS.verBalance,
-          condiciones: ["Solo en balances «Por terceros» con el detalle capturado."],
+          condiciones: ["En balances «Por terceros» con el detalle capturado, y en todos los balances de un cliente con la excepción «No maneja balance por terceros» (ahí se adjunta el archivo de movimientos del ERP)."],
         },
         {
           nombre: "Conversación",
@@ -437,8 +437,32 @@ export const FICHA_BALANCE_DIFF: FichaAyuda = {
 export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
   id: "balance.terceros",
   titulo: "Balance por terceros",
-  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es solo de consulta. El sistema solo guarda y muestra los terceros de las cuentas de los grupos 13, 21, 22, 23, 24 y 28; las demás cuentas se ven con su total y aparecen «Sin desagregar», y un aviso arriba lo recuerda. Si el balance se cargó con una regla anterior y trae terceros de otros grupos, el aviso dice cuáles.",
+  proposito: "El saldo de cada cuenta abierto por tercero, comparado con el balance oficial. Es de consulta, salvo para un cliente sin balance por terceros, que adjunta aquí el archivo de movimientos del ERP; entonces cada tercero trae su movimiento del año y se compara con el movimiento de la cuenta. El sistema solo guarda y muestra los terceros de las cuentas de los grupos 13, 21, 22, 23, 24 y 28; las demás cuentas se ven con su total y aparecen «Sin desagregar», y un aviso arriba lo recuerda. Si el balance se cargó con una regla anterior y trae terceros de otros grupos, el aviso dice cuáles.",
   etapas: [
+    {
+      titulo: "Movimientos por tercero del ERP (cliente sin balance por terceros)",
+      acciones: [
+        {
+          nombre: "Adjuntar archivo · Reemplazar archivo",
+          queHace:
+            "Para un cliente con la excepción «No maneja balance por terceros»: sube el reporte del ERP con los movimientos de enero al corte por cuenta y tercero (Excel .xlsx), se escogen las columnas de cuenta, NIT, nombre y valores (débito y crédito, o un importe con signo) y «Leer y amarrar con el balance» lo guarda. Se guardan los terceros de los grupos 13, 21, 22, 23, 24 y 28, cada uno con su movimiento del año; con ellos cruzan Retención en la fuente, IVA y el Régimen Simple. Los movimientos sin NIT quedan como «Sin tercero».",
+          regla: REGLAS.cargarBalance,
+          condiciones: [
+            "El balance debe empezar el 1 de enero del año de su corte.",
+            "El movimiento de cada cuenta del archivo (débitos − créditos) debe amarrar con el del balance (saldo final − saldo inicial) dentro del umbral de descuadre; si una cuenta no amarra o no existe en el balance, no se guarda nada y se muestra cuál.",
+            "No se reemplaza mientras haya una conciliación en firme contra el balance.",
+          ],
+          fuente: { archivo: "src/app/actions/balance-movimientos-tercero.ts", funcion: "adjuntarMovimientosTercero" },
+        },
+        {
+          nombre: "Quitar",
+          queHace: "Quita el archivo de movimientos del balance; los impuestos del corte quedan sin terceros para el cruce. El balance no cambia.",
+          regla: REGLAS.cargarBalance,
+          condiciones: ["No se quita mientras haya una conciliación en firme contra el balance."],
+          fuente: { archivo: "src/app/actions/balance-movimientos-tercero.ts", funcion: "quitarMovimientosTercero" },
+        },
+      ],
+    },
     {
       titulo: "Buscar y filtrar",
       acciones: [

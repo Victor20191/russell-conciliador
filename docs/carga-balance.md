@@ -76,6 +76,10 @@ El cargador admite también Excel binario (`.xlsb`), con selección de hoja y le
 
 Estas correcciones se aplican al leer o reprocesar el archivo. Para corregir un borrador previo, revisar las columnas de identificación y nombre en el editor de estructura, adjuntar nuevamente el original y pulsar **Reprocesar sin IA**. Los balances ya guardados no se recalculan automáticamente.
 
+### Clientes sin balance por terceros
+
+Si el cliente tiene la excepción «No maneja balance por terceros», el balance se carga por cuenta y, para los impuestos, se le adjunta en **Ver por terceros** el reporte del ERP con los movimientos de enero al corte por cuenta y tercero. El movimiento de cada cuenta debe amarrar con el del balance. Detalle en `docs/impuestos/movimientos-tercero-erp.md`.
+
 ### Por qué es eficiente y confiable
 
 - **Eficiente:** para archivos grandes (miles de cuentas), la IA se concentra en **entender la estructura** del archivo y la plataforma procesa el resto de las filas de forma automática. Así la carga es rápida y de bajo costo, incluso con balances extensos.

@@ -25,7 +25,7 @@ import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloque
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { transaccionSerializable } from "@/lib/concurrency";
 import { cargarCruceRetencion } from "@/lib/impuestos/retencion/cruce-servidor";
-import { cargarCandidatosBalanceCruce, guardarEleccionBalanceCruce } from "@/lib/modulos/balance-cruce-servidor";
+import { cargarCandidatosBalanceCruce, clienteSinBalancePorTerceros, guardarEleccionBalanceCruce } from "@/lib/modulos/balance-cruce-servidor";
 import { balancesQueSirvenCruce, describirBalanceCruce } from "@/lib/modulos/compuerta-cruce";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { CONTROLES_QUE_RECHAZAN, controlesLectura, lecturaConErrores, normalizarLectura, renglonesCorregidos, resumenConfirmacion, type CodigoFormulario, type LecturaCruda, type LecturaFormulario } from "@/lib/impuestos/retencion/lectura";
@@ -789,7 +789,7 @@ export async function escogerBalanceImpuesto(_prev: ActionState, formData: FormD
   if (!imp.cruce.disponible) return { ok: false, message: imp.cruce.mensajeNoDisponible ?? "El cruce contable de este impuesto todavía no está disponible." };
 
   try {
-    const { candidatos, vigentes } = await cargarCandidatosBalanceCruce(revision.clienteId, true);
+    const { candidatos, vigentes } = await cargarCandidatosBalanceCruce(revision.clienteId, true, { aceptarMovimientosErp: await clienteSinBalancePorTerceros(revision.clienteId) });
     const sirven = balancesQueSirvenCruce(candidatos, revision.periodo, { exigirDetalleTercero: true, vigentes });
     const balance = sirven.find((b) => b.id === balanceId);
     if (!balance) return { ok: false, message: "Ese balance ya no sirve para este cruce (se abrió, otra versión lo reemplazó o no termina en la fecha de corte). Recarga la página." };

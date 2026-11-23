@@ -558,7 +558,12 @@ export const FICHA_RETENCION_REVISION: FichaAyuda = {
     {
       pregunta: "¿Por qué el cruce dice que no hay balance o que está bloqueado?",
       respuesta:
-        "El cruce necesita un balance cerrado y vigente que termine el último día del mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta. Si el balance en uso está bloqueado y sirve otro, se puede escoger el otro.",
+        "El cruce necesita un balance cerrado y vigente que termine el último día del mes de corte, cargado con detalle por tercero, y la aprobación vigente de su prevalidador. La pantalla dice cuál falta. Si el balance en uso está bloqueado y sirve otro, se puede escoger el otro. Si el cliente tiene la excepción «No maneja balance por terceros», el detalle por tercero sale del archivo de movimientos del ERP adjunto al balance en «Ver por terceros»: sin ese archivo no hay cruce.",
+    },
+    {
+      pregunta: "¿Cómo cruza un cliente sin balance por terceros?",
+      respuesta:
+        "Con el archivo de movimientos por tercero del ERP, de enero al corte, que se adjunta al balance cerrado del corte (botón «Ver por terceros»). Cada tercero suma su movimiento del año, que es lo mismo que el cruce usa cuando el balance empieza el 1 de enero; a la DIAN se la tacha igual. Los movimientos sin NIT van como «Sin tercero»: suman y, si dejan diferencia, se explican con marca. En las cuentas donde no se resta la DIAN (como la 236575 y la 135595), su fila suma solo el movimiento del año, porque el archivo no trae el saldo inicial por tercero.",
     },
     {
       pregunta: "¿Por qué la oportunidad dice «Sin calendario»?",

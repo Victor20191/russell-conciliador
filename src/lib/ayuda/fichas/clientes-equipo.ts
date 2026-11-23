@@ -55,7 +55,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
         {
           nombre: "Balance por terceros",
           queHace:
-            "Dice si el cliente maneja balance por terceros (por defecto, sí). Si no lo maneja, Cartera y Cuentas por pagar se concilian contra el balance por cuenta, sin detalle de terceros ni cruce por tercero. Se cambia con «Marcar como excepción…» o «Volver a por terceros…».",
+            "Dice si el cliente maneja balance por terceros (por defecto, sí). Si no lo maneja, Cartera y Cuentas por pagar se concilian contra el balance por cuenta, sin detalle de terceros ni cruce por tercero, y los impuestos cruzan con el archivo de movimientos por tercero del ERP que se adjunta al balance. Se cambia con «Marcar como excepción…» o «Volver a por terceros…».",
           regla: REGLAS.configurarCliente,
           condiciones: [
             "Exige una anotación con el visto bueno (mínimo 10 caracteres); queda en el cliente y en la auditoría.",

@@ -154,6 +154,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Aprobaciones y revocaciones del prevalidador de este balance (pestaña Prevalidador › Historial).
     cargarHistorialRevisionesPrevalidador(id),
   ]);
+  // Cliente sin balance por terceros: «Ver por terceros» lleva a adjuntar los movimientos del ERP.
+  const sinBalancePorTerceros = (await prisma.client.findUnique({ where: { id: clientId }, select: { balancePorTerceros: true } }))?.balancePorTerceros === false;
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
     moduloCodigo: c.moduloCodigo,
@@ -510,7 +512,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             // Visor interno de solo lectura: compara la homologación y el saldo de cada cuenta contra su
             // detalle por tercero ligado (mismo loteId). Solo si esta versión declaró apertura «por
             // terceros» y trae su propio detalle cargado. Se ofrece junto a «Detalle por niveles».
-            verPorTercerosHref={parsearApertura(balance.aperturaBalance) === "tercero" && terceroLigado ? `/balance/${id}/terceros` : null}
+            verPorTercerosHref={(parsearApertura(balance.aperturaBalance) === "tercero" && terceroLigado) || sinBalancePorTerceros ? `/balance/${id}/terceros` : null}
             warnCount={warnCount}
             balanceId={id}
             comentarios={comentariosPorAncla}

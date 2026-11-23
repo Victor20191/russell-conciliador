@@ -6,6 +6,7 @@ import { cadenaCorrecciones, periodosRevision, avisoReciboDeOtro350 } from "./pe
 import { vistasRevision } from "./vistas";
 import { aporteTercero, cruceParaPantalla, cruceRetencion, etiquetaFilaCruce, filaCruceConValores, gruposCruceConValores, MAX_TERCEROS_PANTALLA, renglonesFilaCruce, resumenCuentaCruce, terceroTachado, totalAlCambiarResta, cuentasFueraDeRetencion } from "./cruce";
 import { CUENTAS_SIN_RESTA_DIAN_FABRICA, MAPEO_F350_FABRICA, TERCEROS_DIAN_FABRICA } from "../mapeo-dian";
+import { NOMBRE_SIN_TERCERO } from "@/lib/balance/movimientos-tercero-constantes";
 
 const DV = String(dvNit(NIT_FICTICIO));
 const CTX = { nitCliente: NIT_FICTICIO, anio: 2026, mesCorte: 9 };
@@ -518,6 +519,38 @@ describe("cruce contable (casos construidos sobre los datos de Melonn)", () => {
     expect(pantalla.tercerosOcultos["236525|23652501"]).toEqual({ cantidad: 51, saldo: 1_326, saldoInicial: 0, saldoInicialRestado: 0 });
     expect(cuenta.saldo).toBe(fila(r, "236525").cuentasCliente[0].saldo);
     expect(fila(r, "236525").cuentasCliente[0].terceros).toHaveLength(151);
+  });
+
+  it("los movimientos del ERP (saldo inicial 0, saldo final = movimiento) cruzan igual que un balance por terceros desde enero", () => {
+    // Balance por terceros: saldo inicial y final. Archivo de movimientos: solo el movimiento del año.
+    const conSaldos = [
+      t("23650501", "236505", "800111222", "PROVEEDOR A", -1_000_050_000, -50_000),
+      t("23650502", "236505", "900333444", "PROVEEDOR B", -74_373_500),
+      t("23650501", "236505", "800197268", "DIAN", 900_000_000, 300_000_000),
+      t("23670501", "236705", "800555666", "PROVEEDOR C", -17_900_000, -100_000),
+    ];
+    const deMovimientos = conSaldos.map((x) => ({ ...x, saldoInicial: 0, saldoFinal: x.saldoFinal - x.saldoInicial }));
+    const cruzar = (filas: typeof conSaldos) => cruceRetencion({
+      periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
+      nombresRussell: new Map(), filasContables: filas, inicioEnero: true, restarSaldoInicial: true, umbral: 6_000, marcas: [],
+    });
+    const a = cruzar(conSaldos);
+    const b = cruzar(deMovimientos);
+    for (const clave of ["236505", "236705"]) {
+      expect(fila(b, clave).contable).toBe(fila(a, clave).contable);
+      expect(fila(b, clave).diferencia).toBe(fila(a, clave).diferencia);
+    }
+    expect(fila(b, "236505").contable).toBe(1_074_373_500);
+  });
+
+  it("en pantalla, «Sin tercero» va entre los primeros aunque su saldo sea chico", () => {
+    const muchos = Array.from({ length: 120 }, (_, i) => t("23652501", "236525", `9001${String(i).padStart(5, "0")}`, `PROVEEDOR ${i}`, -1_000_000 - i));
+    const r = cruceRetencion({
+      periodos, mapeo: MAPEO_F350_FABRICA, sinRestaDian: new Set(CUENTAS_SIN_RESTA_DIAN_FABRICA), tercerosDian: TERCEROS_DIAN_FABRICA,
+      nombresRussell: new Map(), filasContables: [...muchos, t("23652501", "236525", null, NOMBRE_SIN_TERCERO, -5)], inicioEnero: true, restarSaldoInicial: true, umbral: 6_000, marcas: [],
+    });
+    const cuenta = cruceParaPantalla(r).grupos.flatMap((g) => g.filas).find((f) => f.clave === "236525")!.cuentasCliente[0];
+    expect(cuenta.terceros[0]).toMatchObject({ nit: null, nombre: NOMBRE_SIN_TERCERO });
   });
 });
 

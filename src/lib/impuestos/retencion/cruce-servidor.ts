@@ -1,7 +1,8 @@
 import "server-only";
 import prisma from "@/lib/prisma";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
-import { cargarCandidatosBalanceCruce, resolverBalanceCruceDelPeriodo } from "@/lib/modulos/balance-cruce-servidor";
+import { cargarCandidatosBalanceCruce, clienteSinBalancePorTerceros, resolverBalanceCruceDelPeriodo } from "@/lib/modulos/balance-cruce-servidor";
+import { MENSAJE_SIN_MOVIMIENTOS_ERP } from "@/lib/balance/movimientos-tercero-constantes";
 import { esTotalDeCuentaComoTercero, filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { UMBRAL_IMPUESTOS_DIFERENCIA } from "@/lib/balance/umbrales-alertas";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -38,7 +39,9 @@ export async function cargarCruceRetencion(
   const umbrales = await getUmbralesAlertas();
   const umbral = Number.isFinite(umbrales.impuestos_diferencia) ? umbrales.impuestos_diferencia : UMBRAL_IMPUESTOS_DIFERENCIA;
 
-  const { candidatos, vigentes, capturaPorLote } = await cargarCandidatosBalanceCruce(revision.clienteId, true);
+  // Cliente sin balance por terceros: los terceros salen del archivo de movimientos del ERP adjunto al balance.
+  const sinTerceros = await clienteSinBalancePorTerceros(revision.clienteId);
+  const { candidatos, vigentes, capturaPorLote, movimientosPorLote } = await cargarCandidatosBalanceCruce(revision.clienteId, true, { aceptarMovimientosErp: sinTerceros });
   const opciones = { exigirDetalleTercero: true, vigentes, modulo: impuesto.nombre };
   // Si sirve más de un balance del corte, el escogido por el usuario o el de modificación más reciente.
   const { balance: elegido, eleccion: eleccionBalance } = await resolverBalanceCruceDelPeriodo({
@@ -50,7 +53,10 @@ export async function cargarCruceRetencion(
   });
   if (!elegido) {
     const motivo = motivoSinBalanceCruce(candidatos, revision.periodo, opciones);
-    return { estado: "sin_balance", mensaje: motivo?.mensaje ?? `No hay un balance cerrado con corte en ${revision.periodo}.`, balance: null, umbral };
+    const mensaje = sinTerceros && motivo?.motivo === "sin_balance_cerrado_por_terceros"
+      ? MENSAJE_SIN_MOVIMIENTOS_ERP
+      : motivo?.mensaje ?? `No hay un balance cerrado con corte en ${revision.periodo}.`;
+    return { estado: "sin_balance", mensaje, balance: null, umbral };
   }
   const balance: BalanceCruceRetencion = {
     id: elegido.id,
@@ -191,5 +197,6 @@ export async function cargarCruceRetencion(
   });
   return {
     estado: "listo", mensaje: null, balance, umbral, inicioEnero, resultado, huellaBalance: contexto.huella, eleccionBalance,
+    ...(movimientosPorLote.has(elegido.loteId as string) ? { tercerosDeMovimientos: true } : {}),
   };
 }

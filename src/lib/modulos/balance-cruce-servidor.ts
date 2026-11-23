@@ -1,6 +1,7 @@
 import "server-only";
 import prisma from "@/lib/prisma";
 import { agruparPorCorte, balancesVigentesDelCorte } from "@/lib/balance/corte";
+import { esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero-constantes";
 import {
   avisoEleccionCaida,
   balancesQueSirvenCruce,
@@ -35,7 +36,16 @@ const SELECT_BALANCE_CRUCE = {
  * Balances del cliente (del corte más reciente al más antiguo, luego por carga e id), las versiones
  * vigentes de cada línea y, con `conTerceros`, qué captura por tercero conserva cada uno.
  */
-export async function cargarCandidatosBalanceCruce(clienteId: number, conTerceros: boolean) {
+export async function cargarCandidatosBalanceCruce(
+  clienteId: number,
+  conTerceros: boolean,
+  /**
+   * Impuestos de un cliente SIN balance por terceros: también sirve la captura hecha con el archivo de
+   * movimientos por tercero del ERP (`ORIGEN_MOVIMIENTOS_ERP`). Cartera y CxP nunca la toman: su saldo
+   * inicial por tercero es 0, no el del balance.
+   */
+  opciones: { aceptarMovimientosErp?: boolean } = {},
+) {
   const balances = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId },
     select: SELECT_BALANCE_CRUCE,
@@ -43,16 +53,30 @@ export async function cargarCandidatosBalanceCruce(clienteId: number, conTercero
   });
   const vigentes = new Set([...agruparPorCorte(balances).values()].flatMap((delCorte) => balancesVigentesDelCorte(delCorte).map((b) => b.id)));
   const capturaPorLote = new Map<string, number>();
+  // Lotes cuya captura viene del archivo de movimientos del ERP (solo con `aceptarMovimientosErp`).
+  const movimientosPorLote = new Set<string>();
   const lotes = conTerceros ? balances.map((b) => b.loteId).filter((l): l is string => l != null) : [];
   if (lotes.length > 0) {
     const capturas = await prisma.balanceTerceroEncabezado.findMany({
       where: { clienteId, loteId: { in: lotes } },
-      select: { id: true, loteId: true },
+      select: { id: true, loteId: true, origenExtraccion: true },
     });
-    for (const c of capturas) if (c.loteId) capturaPorLote.set(c.loteId, c.id);
+    for (const c of capturas) {
+      if (!c.loteId) continue;
+      const deMovimientos = esCapturaDeMovimientos(c.origenExtraccion);
+      if (deMovimientos && !opciones.aceptarMovimientosErp) continue;
+      capturaPorLote.set(c.loteId, c.id);
+      if (deMovimientos) movimientosPorLote.add(c.loteId);
+    }
   }
   const candidatos = balances.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && capturaPorLote.has(b.loteId) }));
-  return { candidatos, vigentes, capturaPorLote };
+  return { candidatos, vigentes, capturaPorLote, movimientosPorLote };
+}
+
+/** ¿El cliente es de la excepción «sin balance por terceros»? Sus impuestos cruzan con los movimientos del ERP. */
+export async function clienteSinBalancePorTerceros(clienteId: number): Promise<boolean> {
+  const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { balancePorTerceros: true } });
+  return cliente?.balancePorTerceros === false;
 }
 
 export type CandidatoBalanceCruceServidor = Awaited<ReturnType<typeof cargarCandidatosBalanceCruce>>["candidatos"][number];
