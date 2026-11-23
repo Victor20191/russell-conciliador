@@ -32,6 +32,7 @@ import {
   type BarraUso,
   type SerieDiaUso,
 } from "./indicadores-uso";
+import type { PeriodoIndicadores } from "./selector-periodo-tablero";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import type { TicketsAtendidosVista } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
@@ -60,7 +61,10 @@ export type KpisIniciales = {
   costos?: CostosIA | null;
   /** Tickets atendidos en el período; null cuando no se pudieron leer. */
   tickets?: TicketsAtendidosVista | null;
+  /** Operaciones: las acciones por fila valen una por persona, acción, cliente y día. */
   totalAcciones: number;
+  /** Registros de la bitácora detrás de esas operaciones. */
+  totalRegistros?: number;
   /** Personas con acciones auditadas en el período (no es «usuarios activos»). */
   totalUsuarios: number;
   /** «Usuarios activos: X de Y»; null cuando no se pudo medir. */
@@ -252,6 +256,7 @@ export function ReporteEjecutivoClient({
   defaultDesde,
   defaultHasta,
   periodoTablero,
+  periodoIndicadores,
   notaPeriodo,
   envios,
   pendiente,
@@ -262,8 +267,10 @@ export function ReporteEjecutivoClient({
   /** Período PRELLENADO del modal: continúa donde terminó el último reporte. */
   defaultDesde: string;
   defaultHasta: string;
-  /** Ventana que leen los indicadores del tablero (últimos 30 días). */
+  /** Ventana que leen los indicadores del tablero, en texto. */
   periodoTablero?: string;
+  /** Período elegido para los indicadores (por defecto, los últimos 30 días). */
+  periodoIndicadores?: PeriodoIndicadores;
   /** Explicación de por qué el modal propone ese período. */
   notaPeriodo?: string | null;
   envios: EnvioReportePrevio[];
@@ -525,7 +532,16 @@ export function ReporteEjecutivoClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Acciones en el período" value={fmtNum(kpis.totalAcciones)} tone="ink" />
+        <StatCard
+          label="Operaciones en el período"
+          value={fmtNum(kpis.totalAcciones)}
+          tone="ink"
+          hint={
+            kpis.totalRegistros && kpis.totalRegistros > kpis.totalAcciones
+              ? `${fmtNum(kpis.totalRegistros)} registros en la bitácora`
+              : undefined
+          }
+        />
         <StatCard label="Usuarios con operaciones" value={fmtNum(kpis.totalUsuarios)} tone="blue" />
         <StatCard
           label="Actividad relacionada con nuevas funcionalidades"
@@ -553,6 +569,7 @@ export function ReporteEjecutivoClient({
       {/* Indicadores permanentes: siempre visibles en la plataforma (sin depender del reporte IA). */}
       <IndicadoresUso
         periodoLabel={periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
+        periodo={periodoIndicadores}
         porFamilia={kpis.porFamilia ?? []}
         topUsuarios={kpis.topUsuarios ?? []}
         topAcciones={kpis.topAcciones ?? []}

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  actorUnificado,
+  aliasDeActores,
   correosDelReporte,
+  cuentasSumadas,
   esCuentaDePrueba,
   esCuentaInterna,
+  nombresDelGastoIA,
   nombresDelReporte,
   normalizarNombre,
+  unificarActores,
   usuariosDelComparativo,
   usuariosDelReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
@@ -29,10 +34,9 @@ describe("cuentas internas", () => {
 });
 
 describe("usuarios del reporte", () => {
-  it("deja fuera a todo el equipo de Xentria", () => {
+  it("deja fuera a todo el equipo de Xentria y a las cuentas genéricas", () => {
     expect(usuariosDelReporte(usuarios).map((u) => u.name)).toEqual([
       "Camilo Perez Rojo",
-      "Administrador Russell",
       "YULI ATEHORTUA GIRALDO",
     ]);
   });
@@ -97,10 +101,63 @@ describe("cuentas de prueba o genéricas", () => {
     expect(esCuentaDePrueba(undefined)).toBe(false);
   });
 
-  it("no cambia a quién cuenta el resto del reporte como usuario", () => {
-    // Las cuentas de prueba siguen dentro del reporte: la exclusión es solo del indicador.
-    expect(usuariosDelReporte(usuarios).map((u) => u.name)).toContain("Administrador Russell");
-    expect(nombresDelReporte(usuarios)).toContain("Administrador Russell");
+  it("salen de todo el uso reportado, no solo del comparativo", () => {
+    const conPruebas = [...usuarios, { name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" }];
+    expect(nombresDelReporte(conPruebas)).not.toContain("Administrador Russell");
+    expect(nombresDelReporte(conPruebas)).not.toContain("Camilo Perez Rojo Pruebas");
+    expect(correosDelReporte(conPruebas).has("Camilo Perez Rojo Pruebas")).toBe(false);
+  });
+
+  it("su consumo de IA sí entra en el gasto; el de Xentria no", () => {
+    const conPruebas = [...usuarios, { name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" }];
+    const gasto = nombresDelGastoIA(conPruebas);
+    expect(gasto).toContain("Administrador Russell");
+    expect(gasto).toContain("Camilo Perez Rojo Pruebas");
+    expect(gasto).not.toContain("Victor Rivera");
+    expect(gasto).not.toContain("Luisa Martinez");
+  });
+});
+
+describe("cuentas de prueba que se suman a una persona", () => {
+  const equipo = [
+    { name: "DUVAN CAMILO PÉREZ ROJO", email: "camiloperez@rbcol.co" },
+    { name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" },
+    { name: "YULI ANDREA ATEHORTUA GIRALDO", email: "yuliatehortua@rbcol.co" },
+    { name: "YULI ATEHORTUA GIRALDO Pruebas", email: "RUSSELL@russellbedford.com.co" },
+    { name: "Ana Real", email: "ana@rbcol.co" },
+  ];
+
+  it("une la cuenta «Pruebas» de Camilo y la de Yuli con su cuenta personal, por correo", () => {
+    expect(cuentasSumadas(equipo).map((s) => [s.cuenta.name, s.persona.name, s.nombres])).toEqual([
+      ["Camilo Perez Rojo Pruebas", "DUVAN CAMILO PÉREZ ROJO", ["camilo perez rojo pruebas", "camilo perez rojo"]],
+      ["YULI ATEHORTUA GIRALDO Pruebas", "YULI ANDREA ATEHORTUA GIRALDO", ["yuli atehortua giraldo pruebas", "yuli atehortua giraldo"]],
+    ]);
+  });
+
+  it("pasa sus acciones e ingresos al nombre de la persona, que sí está en el reporte", () => {
+    const alias = aliasDeActores(equipo);
+    const eventos = unificarActores(
+      [
+        { user: "Camilo Perez Rojo Pruebas", action: "ASIGNÓ CUENTA ESTÁNDAR" },
+        { user: "YULI ATEHORTUA GIRALDO", action: "CARGÓ BALANCE" }, // nombre anterior de la cuenta
+        { user: "Ana Real", action: "CARGÓ BALANCE" },
+      ],
+      alias,
+    );
+    expect(eventos.map((e) => e.user)).toEqual(["DUVAN CAMILO PÉREZ ROJO", "YULI ANDREA ATEHORTUA GIRALDO", "Ana Real"]);
+    expect(actorUnificado("camilo perez rojo pruebas", alias)).toBe("DUVAN CAMILO PÉREZ ROJO");
+    const nombres = nombresDelReporte(equipo);
+    expect(eventos.every((e) => nombres.includes(e.user))).toBe(true);
+    // La cuenta de prueba en sí sigue fuera de la lista: no aparece como otra persona.
+    expect(nombres).not.toContain("Camilo Perez Rojo Pruebas");
+  });
+
+  it("sin la cuenta personal no se suma nada, y el nombre anterior no se toma si es de otra cuenta", () => {
+    expect(cuentasSumadas(equipo.filter((u) => u.email !== "camiloperez@rbcol.co")).map((s) => s.persona.name)).toEqual([
+      "YULI ANDREA ATEHORTUA GIRALDO",
+    ]);
+    const conHomonimo = [...equipo, { name: "Camilo Perez Rojo", email: "otro@rbcol.co" }];
+    expect(cuentasSumadas(conHomonimo)[0]?.nombres).toEqual(["camilo perez rojo pruebas"]);
   });
 });
 

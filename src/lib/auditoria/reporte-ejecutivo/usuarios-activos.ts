@@ -9,7 +9,8 @@
 //   - Y (total): cuentas habilitadas (`active`) del equipo de Russell, sin las de
 //     Xentria (`esCuentaInterna`) ni las de prueba o genéricas (`esCuentaDePrueba`).
 //   - X (activos): de esas Y, quienes tuvieron actividad en el período: al menos
-//     un registro de acceso (ingreso o navegación) o al menos una acción auditada.
+//     un registro de acceso (ingreso o navegación) o al menos una acción auditada,
+//     propia o de la cuenta de prueba que se le suma (`CUENTAS_QUE_SE_SUMAN`).
 //   - Z (porcentaje): X / Y, con un decimal; null si no hay cuentas que medir.
 //   - N (nuncaIngresaron): de esas Y, quienes jamás tuvieron un registro de acceso
 //     ni un inicio de sesión guardado en su cuenta.
@@ -27,7 +28,13 @@
 // cuya fecha es igual o posterior a la creación de la cuenta.
 //
 // Módulo PURO.
-import { esCuentaDePrueba, esCuentaInterna, normalizarNombre } from "./usuarios-reporte";
+import {
+  cuentasSumadas,
+  esCuentaDePrueba,
+  esCuentaInterna,
+  normalizarNombre,
+  type CuentaSumada,
+} from "./usuarios-reporte";
 
 export type CuentaUsuario = {
   id: number;
@@ -105,19 +112,38 @@ export function clasificarCuentas(
     repeticiones.set(nombre, (repeticiones.get(nombre) ?? 0) + 1);
   }
 
+  // Cuentas de prueba que usa una persona del equipo: su actividad es la de la
+  // persona (ver `CUENTAS_QUE_SE_SUMAN`). Ellas no entran en el total.
+  const sumadasPorPersona = new Map<number, CuentaSumada<CuentaUsuario>[]>();
+  for (const sumada of cuentasSumadas(entrada.cuentas)) {
+    sumadasPorPersona.set(sumada.persona.id, [...(sumadasPorPersona.get(sumada.persona.id) ?? []), sumada]);
+  }
+
+  // Sin fecha de creación conocida no hay con qué descartar: el registro vale.
+  const esDe = (cuenta: CuentaUsuario, ultimo: number | undefined): boolean => {
+    const creada = cuenta.createdAt ? aMilisegundos(cuenta.createdAt) : Number.NaN;
+    return ultimo !== undefined && (!Number.isFinite(creada) || ultimo >= creada);
+  };
+
   return cuentasMedidas(entrada.cuentas).map((cuenta) => {
     const nombre = normalizarNombre(cuenta.name);
-    const creada = cuenta.createdAt ? aMilisegundos(cuenta.createdAt) : Number.NaN;
-    // Sin fecha de creación conocida no hay con qué descartar: el registro vale.
-    const esDeLaCuenta = (ultimo: number | undefined): boolean =>
-      ultimo !== undefined && (!Number.isFinite(creada) || ultimo >= creada);
+    const sumadas = sumadasPorPersona.get(cuenta.id) ?? [];
 
     const actua =
-      esDeLaCuenta(accesoEnPeriodo.get(cuenta.id)) ||
-      (repeticiones.get(nombre) === 1 && esDeLaCuenta(accionEnPeriodo.get(nombre)));
+      esDe(cuenta, accesoEnPeriodo.get(cuenta.id)) ||
+      (repeticiones.get(nombre) === 1 && esDe(cuenta, accionEnPeriodo.get(nombre))) ||
+      sumadas.some(
+        (s) =>
+          esDe(s.cuenta, accesoEnPeriodo.get(s.cuenta.id)) ||
+          // `cuentasSumadas` ya descartó los nombres que comparte otra cuenta.
+          s.nombres.some((n) => (repeticiones.get(n) ?? 0) <= 1 && esDe(s.cuenta, accionEnPeriodo.get(n))),
+      );
     if (actua) return { cuenta, estado: "activa" as const };
     // Sin actividad en el período: «nunca» solo si tampoco hay rastro histórico de un ingreso.
-    const ingresoAlgunaVez = esDeLaCuenta(accesoHistorico.get(cuenta.id)) || Boolean(cuenta.lastLoginAt);
+    const ingresoAlgunaVez =
+      esDe(cuenta, accesoHistorico.get(cuenta.id)) ||
+      Boolean(cuenta.lastLoginAt) ||
+      sumadas.some((s) => esDe(s.cuenta, accesoHistorico.get(s.cuenta.id)) || Boolean(s.cuenta.lastLoginAt));
     return { cuenta, estado: ingresoAlgunaVez ? ("inactiva" as const) : ("nunca" as const) };
   });
 }

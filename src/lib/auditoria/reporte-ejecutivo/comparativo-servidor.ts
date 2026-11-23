@@ -5,8 +5,7 @@
 // a las de Xentria. Con ellas dentro, una sola cuenta de pruebas llegó a ser el
 // 89 % de las operaciones del período previo (110 de 124) y el comparativo
 // anunciaba «el uso subió 674 %» cuando el equipo real había pasado de 4 a 565
-// operaciones. El resto del reporte (detalle por usuario, top, familias) no
-// cambia: esas cuentas siguen ahí, solo que no entran en la comparación.
+// operaciones. Desde la metodología 4 el resto del reporte usa la misma regla.
 //
 // Período ACTUAL: lo calcula el llamador con `construirUsoComparable` (y el
 // reporte lo guarda en `fuente.usoComparable`).
@@ -30,7 +29,13 @@ import { filtrarEventosPublicados, filtrarNavegacionesPublicadas, type FiltroPub
 import { calcularResumenUso, clasificarFamilia, type EventoAuditoria, type ResumenUsoFactual } from "./metricas";
 import { metodologiaAlDia } from "./metodologia";
 import { leerUsuariosActivos } from "./usuarios-activos";
-import { usuariosDelComparativo } from "./usuarios-reporte";
+import {
+  actorUnificado,
+  aliasDeActores,
+  cuentasSumadas,
+  unificarActores,
+  usuariosDelComparativo,
+} from "./usuarios-reporte";
 
 /** Tope de eventos de un período (el de la página y el de la acción tienen el suyo). */
 const MAX_EVENTOS_PERIODO = 25_000;
@@ -103,9 +108,12 @@ async function calcularUsoComparable(params: {
 }): Promise<ResumenUsoFactual> {
   const fin = params.corte && params.corte < params.hasta ? params.corte : params.hasta;
   const ventana = { gte: params.desde, lte: fin };
-  const cuentas = usuariosDelComparativo(
-    await prisma.user.findMany({ select: { id: true, name: true, email: true } }),
-  );
+  const todas = await prisma.user.findMany({ select: { id: true, name: true, email: true } });
+  const cuentas = usuariosDelComparativo(todas);
+  // Las cuentas de prueba que usa una persona del equipo se le suman: sus visitas
+  // entran por id y sus acciones e ingresos pasan al nombre de la persona.
+  const alias = aliasDeActores(todas);
+  const idsMedidos = [...cuentas.map((c) => c.id), ...cuentasSumadas(todas).map((s) => s.cuenta.id)];
 
   const [eventosRaw, conexiones, navegacionesRaw] = await Promise.all([
     prisma.auditEntry.findMany({
@@ -121,7 +129,7 @@ async function calcularUsoComparable(params: {
     }),
     prisma.accessLog.groupBy({
       by: ["path"],
-      where: { kind: "navegacion", createdAt: ventana, userId: { in: cuentas.map((c) => c.id) } },
+      where: { kind: "navegacion", createdAt: ventana, userId: { in: idsMedidos } },
       _count: { path: true },
     }),
   ]);
@@ -136,8 +144,8 @@ async function calcularUsoComparable(params: {
     filtro: params.filtro,
   });
   return calcularResumenUso({
-    eventos: publicados,
-    conexiones: conexiones.map((c) => ({ usuario: c.userName, total: c._count.userName })),
+    eventos: unificarActores(publicados, alias),
+    conexiones: conexiones.map((c) => ({ usuario: actorUnificado(c.userName, alias), total: c._count.userName })),
     navegaciones,
     periodoDesde: params.desde,
     periodoHasta: params.hasta,

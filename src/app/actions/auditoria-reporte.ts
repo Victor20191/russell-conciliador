@@ -28,7 +28,15 @@ import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/cost
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
 import type { TicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
-import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
+import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import {
+  actorUnificado,
+  aliasDeActores,
+  correosDelReporte,
+  nombresDelGastoIA,
+  nombresDelReporte,
+  unificarActores,
+} from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
@@ -79,29 +87,8 @@ function recortarTexto(texto: string | null | undefined, max: number): string | 
   return `${limpio.slice(0, max - 1).trim()}…`;
 }
 
-/** Normaliza ISO o YYYY-MM-DD a inicio/fin de día UTC del rango inclusive. */
-function parseRango(desdeRaw: string, hastaRaw: string): { desde: Date; hasta: Date } | null {
-  const d = Date.parse(desdeRaw);
-  const h = Date.parse(hastaRaw);
-  if (!Number.isFinite(d) || !Number.isFinite(h) || d > h) return null;
-
-  const desde = new Date(d);
-  const hasta = new Date(h);
-
-  // Si el usuario mandó solo fecha (YYYY-MM-DD), expandir al día completo.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(desdeRaw.trim())) {
-    desde.setUTCHours(0, 0, 0, 0);
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(hastaRaw.trim())) {
-    hasta.setUTCHours(23, 59, 59, 999);
-  }
-
-  // Tope de rango: 366 días para no saturar la agregación.
-  const ms = hasta.getTime() - desde.getTime();
-  if (ms > 366 * 86400000) return null;
-
-  return { desde, hasta };
-}
+/** Misma regla que el tablero (ver `rango.ts`): así coinciden sus cifras. */
+const parseRango = parseRangoReporte;
 
 function crearContextoNovedades(
   versiones: Array<{
@@ -411,7 +398,10 @@ export async function generarReporteEjecutivoUso(
       clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
       filtro,
     });
-    const eventos = alcanceUso.eventos;
+    // Las cuentas de prueba que usa una persona del equipo se le suman a su cuenta
+    // personal (ver `CUENTAS_QUE_SE_SUMAN`).
+    const alias = aliasDeActores(usuarios);
+    const eventos = unificarActores(alcanceUso.eventos, alias);
     const alcanceNavegaciones = filtrarNavegacionesPublicadas({
       navegaciones: navegacionesRaw.map((navegacion) => ({
         ruta: navegacion.path,
@@ -421,8 +411,8 @@ export async function generarReporteEjecutivoUso(
     });
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
-    // El reporte mide el uso del equipo de Russell: fuera los actores técnicos
-    // y las cuentas internas de Xentria (ver `usuarios-reporte.ts`).
+    // El reporte mide el uso del equipo de Russell: fuera los actores técnicos,
+    // las cuentas internas de Xentria y las de prueba (ver `usuarios-reporte.ts`).
     const correosUsuarios = correosDelReporte(usuarios);
     const usuariosRegistrados = nombresDelReporte(usuarios);
     // «Usuarios activos: X de Y»: cuentas del equipo que usaron la plataforma en
@@ -432,7 +422,7 @@ export async function generarReporteEjecutivoUso(
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
-        usuario: conexion.userName,
+        usuario: actorUnificado(conexion.userName, alias),
         total: conexion._count.userName,
       })),
       navegaciones: alcanceNavegaciones.navegaciones,
@@ -465,14 +455,15 @@ export async function generarReporteEjecutivoUso(
         })
       : null;
 
-    // Costos de IA del período, contra el mismo tramo anterior que el uso.
+    // Costos de IA del período, contra el mismo tramo anterior que el uso. El
+    // gasto sí incluye a las cuentas de prueba: su consumo se paga igual.
     const costos = await construirCostosIAReporte({
       desde: rango.desde,
       hasta: rango.hasta,
       corte,
       ventanaPrevia: comparativo?.ventanaPrevia ?? null,
       base: comparativo?.base ?? null,
-      usuariosRegistrados,
+      usuariosRegistrados: nombresDelGastoIA(usuarios),
     });
 
     // Tickets que el equipo de Russell reportó y que se atendieron en el
@@ -607,18 +598,22 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     ]);
 
     const filtro: FiltroPublicacion = { modulosPublicados };
-    const eventos = filtrarEventosPublicados({
-      eventos: eventosRaw.map((e) => ({
-        user: e.user,
-        action: e.action,
-        entity: e.entity,
-        detail: e.detail,
-        clientId: e.clientId,
-        createdAt: e.createdAt,
-      })),
-      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
-      filtro,
-    }).eventos;
+    const alias = aliasDeActores(usuarios);
+    const eventos = unificarActores(
+      filtrarEventosPublicados({
+        eventos: eventosRaw.map((e) => ({
+          user: e.user,
+          action: e.action,
+          entity: e.entity,
+          detail: e.detail,
+          clientId: e.clientId,
+          createdAt: e.createdAt,
+        })),
+        clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+        filtro,
+      }).eventos,
+      alias,
+    );
     const navegaciones = filtrarNavegacionesPublicadas({
       navegaciones: navegacionesRaw.map((navegacion) => ({
         ruta: navegacion.path,
@@ -631,7 +626,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
-        usuario: conexion.userName,
+        usuario: actorUnificado(conexion.userName, alias),
         total: conexion._count.userName,
       })),
       navegaciones,
@@ -669,7 +664,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       corte: new Date(),
       ventanaPrevia: comparativo?.ventanaPrevia ?? null,
       base: comparativo?.base ?? null,
-      usuariosRegistrados: nombresDelReporte(usuarios),
+      usuariosRegistrados: nombresDelGastoIA(usuarios),
     });
 
     const tickets = await construirTicketsAtendidosReporte({

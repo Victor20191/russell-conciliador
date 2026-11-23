@@ -226,7 +226,7 @@ describe("usuarios activos", () => {
   });
 });
 
-describe("comparativo sin cuentas de prueba", () => {
+describe("uso sin cuentas de prueba", () => {
   const cuentas = [
     { id: 1, name: "Ana Real", email: "ana@rbcol.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
     { id: 3, name: "Russell 1", email: "russell1@russellbedford.com.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
@@ -240,12 +240,13 @@ describe("comparativo sin cuentas de prueba", () => {
     mocks.eventos.mockResolvedValue([evento("Ana Real"), evento("Ana Real"), evento("Ana Real"), evento("Russell 1"), evento("Russell 1")]);
   });
 
-  test("el reporte deja como está su detalle y guarda aparte las cifras comparables, sin cuentas de prueba", async () => {
+  test("ni el reporte ni las cifras comparables cuentan las cuentas de prueba", async () => {
     await generarReporteEjecutivoUso({ ...scope, actualizar: true });
     const { fuente } = mocks.guardar.mock.calls[0][0];
-    // El resto del reporte (detalle por usuario, top) conserva a las cuentas de prueba.
-    expect(fuente.uso).toMatchObject({ totalAcciones: 5, totalUsuarios: 2 });
-    // Lo que se compara no las trae, y se guarda para que el siguiente reporte compare contra esto.
+    // Desde la metodología 4, el detalle por usuario y el top tampoco las traen.
+    expect(fuente.uso).toMatchObject({ totalAcciones: 3, totalUsuarios: 1 });
+    expect(fuente.uso.detalleUsuarios.map((u: { usuario: string }) => u.usuario)).toEqual(["Ana Real"]);
+    // Lo que se compara se guarda para que el siguiente reporte compare contra esto.
     expect(fuente.usoComparable).toMatchObject({ totalAcciones: 3, totalUsuarios: 1 });
     expect(fuente.usoComparable.detalleUsuarios.map((u: { usuario: string }) => u.usuario)).toEqual(["Ana Real"]);
   });

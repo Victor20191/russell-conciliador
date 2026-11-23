@@ -4,7 +4,7 @@ import type { UsuariosActivos } from "./usuarios-activos";
 
 export type FamiliaProceso =
   | "balance"
-  | "inventarios"
+  | "modulos"
   | "conciliaciones"
   | "dian"
   | "clientes"
@@ -15,7 +15,9 @@ export type FamiliaProceso =
 
 export const ETIQUETA_FAMILIA: Record<FamiliaProceso, string> = {
   balance: "Balance de comprobación",
-  inventarios: "Inventarios",
+  // Los seis módulos (INV, AFI, CAR, CXP, ING, NOM) son un solo módulo de la
+  // plataforma (`modulos_datos`): se miden juntos, como se publican.
+  modulos: "Módulos de conciliación",
   conciliaciones: "Conciliaciones",
   dian: "Impuestos · DIAN",
   clientes: "Clientes",
@@ -28,7 +30,7 @@ export const ETIQUETA_FAMILIA: Record<FamiliaProceso, string> = {
 /** Familias operativas que prioriza el resumen ejecutivo. */
 export const FAMILIAS_OPERATIVAS: FamiliaProceso[] = [
   "balance",
-  "inventarios",
+  "modulos",
   "conciliaciones",
   "dian",
   "clientes",
@@ -47,6 +49,12 @@ export type EventoAuditoria = {
 export type ConteoNombrado = {
   nombre: string;
   total: number;
+  /**
+   * Registros de la bitácora detrás de `total`. Solo viene cuando son más que las
+   * operaciones, es decir, cuando la acción se registra una vez por fila y se
+   * agrupó (ver `ACCIONES_POR_FILA`).
+   */
+  registros?: number;
 };
 
 export type ConteoUsuario = {
@@ -92,6 +100,8 @@ export type EvidenciaAccion = {
   detalle: string;
   familia: FamiliaProceso;
   clienteId: number | null;
+  /** Registros agrupados en esta operación; solo viene cuando son más de uno. */
+  registros?: number;
 };
 
 export type SerieDia = {
@@ -103,7 +113,17 @@ export type SerieDia = {
 export type ResumenUsoFactual = {
   periodoDesde: string;
   periodoHasta: string;
+  /**
+   * OPERACIONES del período: las acciones que se registran una vez por fila
+   * (homologar una cuenta, validar una alerta, marcar una diferencia…) cuentan
+   * una sola vez por persona, acción, cliente y día. Ver `agruparOperaciones`.
+   */
   totalAcciones: number;
+  /**
+   * Registros de la bitácora detrás de esas operaciones. Opcional: las
+   * instantáneas anteriores a la metodología 4 no lo traen (contaban registros).
+   */
+  totalRegistros?: number;
   /** Visitas de navegación; nunca se suman a totalAcciones. */
   totalNavegaciones: number;
   totalConexiones: number;
@@ -147,11 +167,82 @@ const PREFIJOS_BALANCE = [
   "ELIMINÓ PERFIL de carga de balance",
   "ELIMINÓ CORRECCIÓN de carga de balance",
   "LIMPIÓ CORRECCIONES de carga de balance",
+  "MARCÓ CUENTA PENDIENTE POR ASIGNAR",
+  "QUITÓ PENDIENTE POR ASIGNAR",
+  // El prevalidador revisa los balances del cliente: su aprobación es parte del balance.
+  "APROBÓ PREVALIDADOR",
+  "REVOCÓ APROBACIÓN DEL PREVALIDADOR",
+  "AGREGÓ TERCEROS AL BALANCE",
+  "REEMPLAZÓ TERCEROS AGREGADOS",
+  "QUITÓ TERCEROS AGREGADOS",
+  "DETALLE POR TERCERO INCOMPLETO",
+  "SIN DETALLE POR TERCERO",
+  "CONVENCIÓN RELATIVA A LA CLASE",
 ];
 
 const PREFIJOS_CONCILIACIONES = ["EJECUTÓ", "ENVIÓ A REVISOR", "ACTUALIZÓ PARTIDA"];
 
 const PREFIJOS_DIAN = ["GUARDÓ MAPEO DIAN", "PIDIÓ ANÁLISIS IA"];
+
+/**
+ * Impuestos · DIAN: todo lo que nombra a la DIAN, el calendario tributario, el
+ * Régimen Simple y las acciones de las revisiones de cada impuesto, que llevan el
+ * nombre del impuesto («CREÓ REVISIÓN DE IVA», «MARCÓ DIFERENCIA DE RETENCIÓN»,
+ * «CERRÓ RETENCIÓN EN LA FUENTE (EN FIRME)»…).
+ */
+const PATRON_IMPUESTOS =
+  /\bDIAN\b|CALENDARIO TRIBUTARIO|RÉGIMEN SIMPLE|(?:REVISIÓN|DIFERENCIA|MARCA|CRUCE) DE (?:RETENCIÓN|IVA|RST)|^(?:CERRÓ|DESBLOQUEÓ) (?:RETENCIÓN EN LA FUENTE|IVA|ANTICIPOS BIMESTRALES)/;
+
+/** Nombres de los módulos tal como entran en «CARGÓ <módulo>». */
+const NOMBRES_MODULOS = ["Inventarios", "Activos Fijos", "Cartera", "Cuentas por Pagar", "Ingresos", "Nómina"];
+
+/**
+ * Módulos de conciliación (los seis): lectura y carga del archivo, Consolidado,
+ * marcas del cruce, cruce por tercero, cierre en firme y el formato propio de
+ * sus archivos. Antes solo contaban las de Inventarios y el resto caía en «Otras
+ * acciones» (161 de sus 350 en nov/2026 eran del Consolidado de otros módulos).
+ */
+const PREFIJOS_MODULOS = [
+  "LEYÓ archivo de",
+  "AGREGÓ ítems a",
+  "ACTUALIZÓ consolidación de módulo",
+  "MARCÓ una diferencia del",
+  "EDITÓ la marca del",
+  "RETIRÓ la marca del",
+  "ELIMINÓ un soporte de la marca del",
+  "CAMBIÓ lo que explica una marca",
+  "USÓ en otro renglón una marca",
+  "QUITÓ de un renglón una marca",
+  "RELACIONÓ terceros con una marca",
+  "QUITÓ un tercero de la relación con una marca",
+  "EMPAREJÓ",
+  "SEPARÓ un tercero",
+  "RETIRÓ la separación de un tercero",
+  "ELIMINÓ DATOS DE MÓDULO",
+  "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
+  "DOCUMENTÓ archivo original de módulo",
+  "NOMBRÓ agrupador del borrador",
+  "QUITÓ clase de agrupador",
+  "CAMBIÓ LA AGRUPACIÓN DEL",
+  "CAMBIÓ la fecha de corte del cargue",
+  // El de impuestos («… DEL CRUCE DE IVA») ya se resolvió antes.
+  "ESCOGIÓ EL BALANCE DEL CRUCE",
+  "CERRÓ CONCILIACIÓN (EN FIRME)",
+  "DESBLOQUEÓ CONCILIACIÓN",
+  "CONCILIACIÓN EN FIRME",
+  "PREPARÓ BORRADOR DE INVENTARIOS",
+  "CORRIGIÓ LECTURA DE INVENTARIOS",
+  "DESCARTÓ LECTURA DE INVENTARIOS",
+  "AGREGÓ APLICATIVO DESDE LA CARGA",
+  "QUITÓ CUENTA DE CONCILIACIÓN",
+  "AGREGÓ SUBGRUPO DE CONCILIACIÓN",
+  "QUITÓ SUBGRUPO DE CONCILIACIÓN",
+  "QUITÓ PAREJA DE DEPRECIACIÓN",
+  "ELIMINÓ concepto de nómina",
+];
+
+/** Conexiones e integraciones: configuración técnica, no conciliación. */
+const PATRON_ADMIN_TECNICA = /CONEXIÓN|SMTP/;
 
 const PREFIJOS_CLIENTES = [
   "CREÓ CLIENTE",
@@ -170,6 +261,14 @@ const PREFIJOS_MAPEO = [
   "CREÓ SUBGRUPO",
   "EDITÓ SUBGRUPO",
   "ELIMINÓ SUBGRUPO",
+  // Plan estándar y mapeo del PUC del cliente («ASIGNÓ CUENTA ESTÁNDAR» es del balance
+  // y se resuelve antes).
+  "CREÓ CUENTA ESTÁNDAR",
+  "EDITÓ CUENTA ESTÁNDAR",
+  "ELIMINÓ CUENTA ESTÁNDAR",
+  "HOMOLOGÓ CUENTA CLIENTE",
+  "ALINEÓ MAPEO CON GRUPO",
+  "DECLARÓ EXCEPCIÓN DE MAPEO",
 ];
 
 const PREFIJOS_USUARIOS = [
@@ -210,25 +309,18 @@ const PREFIJOS_ADMIN = [
   "ELIMINÓ",
 ];
 
-const ACCIONES_INVENTARIOS_DIRECTAS = [
-  "LEYÓ archivo de Inventarios",
-  "CARGÓ Inventarios",
-  "AGREGÓ ítems a Inventarios",
-];
-
-const ACCIONES_INVENTARIOS_POR_DETALLE = [
-  "ACTUALIZÓ consolidación de módulo",
-  "MARCÓ una diferencia del cruce contable",
-  "EDITÓ la marca del cruce contable",
-  "RETIRÓ la marca del cruce contable",
-  "ELIMINÓ un soporte de la marca del cruce contable",
-  "ELIMINÓ DATOS DE MÓDULO",
-  "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
-];
-
 function coincidePrefijo(action: string, prefijos: string[]): boolean {
   const a = action.trim();
   return prefijos.some((p) => a === p || a.startsWith(p));
+}
+
+function esAccionDeModulo(a: string): boolean {
+  if (coincidePrefijo(a, PREFIJOS_MODULOS)) return true;
+  // Carga del módulo y perfiles de carga de cada módulo («CARGÓ Cartera»,
+  // «EDITÓ PERFIL de carga de Nómina»…).
+  if (NOMBRES_MODULOS.some((m) => a === `CARGÓ ${m}` || a.endsWith(`de carga de ${m}`))) return true;
+  // Formato propio de los archivos de los módulos (patrones de archivo).
+  return a.includes("PATRÓN");
 }
 
 /**
@@ -244,15 +336,11 @@ export function clasificarFamilia(
   const ctx = `${entity} ${detail}`.toLowerCase();
 
   if (coincidePrefijo(a, PREFIJOS_BALANCE)) return "balance";
-  if (coincidePrefijo(a, ACCIONES_INVENTARIOS_DIRECTAS)) return "inventarios";
-  if (
-    coincidePrefijo(a, ACCIONES_INVENTARIOS_POR_DETALLE) &&
-    (/\binv\b/i.test(detail) || /inventarios?/i.test(`${entity} ${detail}`))
-  ) {
-    return "inventarios";
-  }
+  // Impuestos antes que módulos: «ESCOGIÓ EL BALANCE DEL CRUCE DE IVA» es de impuestos.
+  if (coincidePrefijo(a, PREFIJOS_DIAN) || PATRON_IMPUESTOS.test(a)) return "dian";
+  if (esAccionDeModulo(a)) return "modulos";
+  if (PATRON_ADMIN_TECNICA.test(a)) return "administracion";
   if (coincidePrefijo(a, PREFIJOS_CONCILIACIONES)) return "conciliaciones";
-  if (coincidePrefijo(a, PREFIJOS_DIAN)) return "dian";
   if (coincidePrefijo(a, PREFIJOS_CLIENTES)) return "clientes";
   if (coincidePrefijo(a, PREFIJOS_MAPEO)) return "mapeo";
   if (coincidePrefijo(a, PREFIJOS_USUARIOS)) return "usuarios";
@@ -273,6 +361,8 @@ export function clasificarFamilia(
     return "otros";
   }
 
+  // Antes que «BORRADOR»: «PREPARÓ BORRADOR DE INVENTARIOS» no es del balance.
+  if (a.includes("INVENTARIO") || a.includes("MÓDULO")) return "modulos";
   if (a.includes("BALANCE") || a.includes("BORRADOR")) return "balance";
   if (a.includes("MAPEO") && a.includes("DIAN")) return "dian";
   if (a.includes("MAPEO")) return "mapeo";
@@ -285,14 +375,108 @@ export function clasificarFamilia(
   return "otros";
 }
 
+/**
+ * Acciones que la bitácora registra UNA VEZ POR FILA: homologar las 80 cuentas de
+ * un balance deja 80 «ASIGNÓ CUENTA ESTÁNDAR», validar sus alertas otros tantos
+ * «VALIDÓ alerta de balance», y cada cambio del Consolidado se autoguarda con su
+ * propio registro. Contadas una a una, el reporte medía clics y no trabajo: en
+ * nov/2026, 777 de las 1.019 acciones de «Balance de comprobación» eran
+ * homologaciones cuenta por cuenta.
+ *
+ * Para medir uso, cada una cuenta como UNA operación por persona, acción, cliente
+ * y día (`agruparOperaciones`). Se comparan por prefijo, como las familias.
+ */
+export const ACCIONES_POR_FILA: readonly string[] = [
+  // Balance: homologación, pendientes y alertas, cuenta por cuenta.
+  "ASIGNÓ CUENTA ESTÁNDAR",
+  "MARCÓ CUENTA PENDIENTE POR ASIGNAR",
+  "QUITÓ PENDIENTE POR ASIGNAR",
+  "VALIDÓ alerta de balance",
+  "REVIRTIÓ validación de alerta",
+  "ELIMINÓ cuenta del balance",
+  // Mapeo del cliente y plan estándar, cuenta por cuenta.
+  "HOMOLOGÓ CUENTA CLIENTE",
+  "CREÓ MAPEO CLIENTE",
+  "EDITÓ MAPEO CLIENTE",
+  "CONFIRMÓ MAPEO CLIENTE",
+  "REASIGNÓ MAPEO CLIENTE",
+  "ELIMINÓ MAPEO CLIENTE",
+  "CREÓ CUENTA ESTÁNDAR",
+  "EDITÓ CUENTA ESTÁNDAR",
+  "ELIMINÓ CUENTA ESTÁNDAR",
+  // Módulos: cada cambio del Consolidado, cada marca, cada tercero emparejado.
+  "ACTUALIZÓ consolidación de módulo",
+  "MARCÓ una diferencia del",
+  "EDITÓ la marca del",
+  "RETIRÓ la marca del",
+  "ELIMINÓ un soporte de la marca del",
+  "CAMBIÓ lo que explica una marca",
+  "USÓ en otro renglón una marca",
+  "QUITÓ de un renglón una marca",
+  "RELACIONÓ terceros con una marca",
+  "QUITÓ un tercero de la relación con una marca",
+  "EMPAREJÓ",
+  "SEPARÓ un tercero",
+  "RETIRÓ la separación de un tercero",
+  "QUITÓ CUENTA DE CONCILIACIÓN",
+  // Impuestos: marcas de los renglones.
+  "MARCÓ DIFERENCIA DE",
+  "QUITÓ MARCA DE",
+  // Comentarios: cada mensaje de una conversación.
+  "COMENTÓ",
+  "EDITÓ un comentario",
+  "ELIMINÓ un comentario",
+];
+
+/** ¿La acción se registra una vez por fila (cuenta, alerta, marca…)? */
+export function esAccionPorFila(action: string): boolean {
+  return coincidePrefijo(action, ACCIONES_POR_FILA as string[]);
+}
+
+/** Una operación de uso: el primer registro del grupo y cuántos registros agrupa. */
+export type OperacionUso = EventoAuditoria & { registros: number };
+
+/**
+ * Convierte registros de bitácora en OPERACIONES. Las acciones por fila
+ * (`ACCIONES_POR_FILA`) se agrupan en una sola por persona, acción, cliente y día
+ * (UTC, el mismo día con el que se arma la serie diaria); el resto queda una a una.
+ * Cada operación conserva el primer registro del grupo, así que el orden de
+ * entrada se mantiene. No modifica los eventos recibidos.
+ */
+export function agruparOperaciones(eventos: readonly EventoAuditoria[]): OperacionUso[] {
+  const operaciones: OperacionUso[] = [];
+  const grupos = new Map<string, OperacionUso>();
+  for (const e of eventos) {
+    if (!esAccionPorFila(e.action)) {
+      operaciones.push({ ...e, registros: 1 });
+      continue;
+    }
+    const clave = [e.user.trim(), e.action.trim(), e.clientId ?? "-", diaClave(e.createdAt)].join("|");
+    const grupo = grupos.get(clave);
+    if (grupo) {
+      grupo.registros += 1;
+      continue;
+    }
+    const operacion = { ...e, registros: 1 };
+    grupos.set(clave, operacion);
+    operaciones.push(operacion);
+  }
+  return operaciones;
+}
+
 /** Mapea moduleKey de Novedades → familia medible de adopción. */
 export function familiaDesdeModulo(moduleKey: string | null | undefined): FamiliaProceso | null {
   if (!moduleKey) return null;
   const k = moduleKey.trim().toLowerCase();
   if (!k) return null;
   if (k === "balance" || k.includes("balance")) return "balance";
-  if (k === "modulos_datos" || k === "inventarios" || k === "inventario" || k === "inv") {
-    return "inventarios";
+  if (
+    k === "modulos_datos" ||
+    k === "inventarios" ||
+    k === "inventario" ||
+    ["inv", "afi", "car", "cxp", "ing", "nom"].includes(k)
+  ) {
+    return "modulos";
   }
   if (k === "conciliaciones" || k.includes("concili")) return "conciliaciones";
   if (k === "dian" || k.includes("dian") || k.includes("impuesto")) return "dian";
@@ -321,9 +505,10 @@ export function familiaDesdeModulo(moduleKey: string | null | undefined): Famili
 export function familiaDesdeRuta(ruta: string): FamiliaProceso | null {
   const path = ruta.trim().toLowerCase().split(/[?#]/, 1)[0]?.replace(/\/+$/, "") || "/";
   if (path === "/balance" || path.startsWith("/balance/")) return "balance";
-  if (path === "/modulos/inv" || path.startsWith("/modulos/inv/")) return "inventarios";
+  if (path === "/modulos" || path.startsWith("/modulos/")) return "modulos";
   if (path === "/conciliacion" || path.startsWith("/conciliacion/")) return "conciliaciones";
   if (path === "/dian" || path.startsWith("/dian/")) return "dian";
+  if (path === "/impuestos" || path.startsWith("/impuestos/")) return "dian";
   if (path === "/config/clientes" || path.startsWith("/config/clientes/")) return "clientes";
   if (path === "/config/mapeo" || path.startsWith("/config/mapeo/") || path === "/config/mapeo-cliente") return "mapeo";
   return null;
@@ -409,6 +594,7 @@ export function calcularResumenUso(params: {
 
   const porFamilia = new Map<string, number>();
   const porAccion = new Map<string, number>();
+  const registrosPorAccion = new Map<string, number>();
   const porUsuario = new Map<string, number>();
   const porUsuarioFamilia = new Map<string, Map<string, number>>();
   const porUsuarioAccion = new Map<string, Map<string, number>>();
@@ -431,16 +617,25 @@ export function calcularResumenUso(params: {
     .filter((e) => !esActorSistema(e.user) && esUsuarioDeLaApp(e.user) && e.action !== "GENERÓ REPORTE IA")
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+  // Primera y última se leen de los registros: una operación agrupada empieza en
+  // su primer registro, pero el último puede ser posterior.
   for (const e of ordenados) {
-    const familia = clasificarFamilia(e.action, e.entity, e.detail);
-    const etiquetaFamilia = ETIQUETA_FAMILIA[familia];
     const iso = aIso(e.createdAt);
     if (!primera || iso < primera) primera = iso;
     if (!ultima || iso > ultima) ultima = iso;
+  }
+
+  // Desde aquí se cuentan OPERACIONES, no registros (ver `ACCIONES_POR_FILA`).
+  const operaciones = agruparOperaciones(ordenados);
+
+  for (const e of operaciones) {
+    const familia = clasificarFamilia(e.action, e.entity, e.detail);
+    const etiquetaFamilia = ETIQUETA_FAMILIA[familia];
 
     usuarios.add(e.user);
     porFamilia.set(etiquetaFamilia, (porFamilia.get(etiquetaFamilia) ?? 0) + 1);
     porAccion.set(e.action, (porAccion.get(e.action) ?? 0) + 1);
+    registrosPorAccion.set(e.action, (registrosPorAccion.get(e.action) ?? 0) + e.registros);
     porUsuario.set(e.user, (porUsuario.get(e.user) ?? 0) + 1);
 
     let ua = porUsuarioAccion.get(e.user);
@@ -550,8 +745,8 @@ export function calcularResumenUso(params: {
     }))
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-  // Evidencia: las más recientes primero (recortada).
-  const evidencia: EvidenciaAccion[] = [...ordenados]
+  // Evidencia: las operaciones más recientes primero (recortada).
+  const evidencia: EvidenciaAccion[] = [...operaciones]
     .reverse()
     .slice(0, maxEvidencia)
     .map((e) => {
@@ -564,13 +759,21 @@ export function calcularResumenUso(params: {
         detalle: recortar(e.detail, 200),
         familia,
         clienteId: e.clientId,
+        ...(e.registros > 1 ? { registros: e.registros } : {}),
       };
     });
+
+  // Las acciones agrupadas llevan cuántos registros reúnen; las demás, no.
+  const topAcciones: ConteoNombrado[] = topN(porAccion, maxTopAcciones).map((a) => {
+    const registros = registrosPorAccion.get(a.nombre) ?? a.total;
+    return registros > a.total ? { ...a, registros } : a;
+  });
 
   return {
     periodoDesde: aIso(params.periodoDesde),
     periodoHasta: aIso(params.periodoHasta),
-    totalAcciones: ordenados.length,
+    totalAcciones: operaciones.length,
+    totalRegistros: ordenados.length,
     totalNavegaciones,
     totalConexiones,
     totalUsuarios: usuarios.size,
@@ -579,7 +782,7 @@ export function calcularResumenUso(params: {
     ultimaAccion: ultima,
     porFamilia: topN(porFamilia, 20),
     navegacionesPorFamilia: topN(porFamiliaNavegacion, 20),
-    topAcciones: topN(porAccion, maxTopAcciones),
+    topAcciones,
     topUsuarios,
     detalleUsuarios,
     topClientes,
@@ -595,14 +798,18 @@ function recortar(texto: string, max: number): string {
   return `${t.slice(0, max - 1).trim()}…`;
 }
 
-/** Conteos por familia de proceso (clave canónica, no etiqueta). */
+/**
+ * Operaciones por familia de proceso (clave canónica, no etiqueta), con las
+ * mismas reglas que `calcularResumenUso`: sin actores técnicos, solo las cuentas
+ * declaradas y con las acciones por fila agrupadas.
+ */
 export function conteosPorFamiliaCanon(
   eventos: EventoAuditoria[],
   usuariosRegistrados?: Iterable<string> | null,
 ): Record<FamiliaProceso, number> {
   const out: Record<FamiliaProceso, number> = {
     balance: 0,
-    inventarios: 0,
+    modulos: 0,
     conciliaciones: 0,
     dian: 0,
     clientes: 0,
@@ -614,9 +821,13 @@ export function conteosPorFamiliaCanon(
   const registrados = usuariosRegistrados
     ? new Set(Array.from(usuariosRegistrados, (nombre) => nombre.trim()).filter(Boolean))
     : null;
-  for (const e of eventos) {
-    if (esActorSistema(e.user) || e.action === "GENERÓ REPORTE IA") continue;
-    if (registrados && !registrados.has(e.user.trim())) continue;
+  const medibles = eventos.filter(
+    (e) =>
+      !esActorSistema(e.user) &&
+      e.action !== "GENERÓ REPORTE IA" &&
+      (!registrados || registrados.has(e.user.trim())),
+  );
+  for (const e of agruparOperaciones(medibles)) {
     const f = clasificarFamilia(e.action, e.entity, e.detail);
     out[f] += 1;
   }

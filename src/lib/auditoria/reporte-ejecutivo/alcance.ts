@@ -26,7 +26,7 @@ import {
 /** Módulo de plataforma «dueño» de cada familia de proceso (null = indeterminado). */
 export const MODULO_POR_FAMILIA: Record<FamiliaProceso, string | null> = {
   balance: "balance",
-  inventarios: "modulos_datos",
+  modulos: "modulos_datos",
   conciliaciones: "conciliaciones",
   dian: "impuestos",
   clientes: "clientes",

@@ -4,7 +4,7 @@ import type { FamiliaProceso } from "./metricas";
 
 const vacio: Record<FamiliaProceso, number> = {
   balance: 0,
-  inventarios: 0,
+  modulos: 0,
   conciliaciones: 0,
   dian: 0,
   clientes: 0,
@@ -94,9 +94,9 @@ describe("evaluarAdopcion", () => {
     expect(resumen.evaluables).toBe(0);
   });
 
-  test("mide modulos_datos con la actividad operativa de Inventarios", () => {
+  test("mide modulos_datos con la actividad operativa de los módulos", () => {
     const resumen = evaluarAdopcion({
-      conteosPorFamilia: { ...vacio, inventarios: 26 },
+      conteosPorFamilia: { ...vacio, modulos: 26 },
       cambios: [
         {
           versionNumero: "1.10.0",
@@ -115,8 +115,8 @@ describe("evaluarAdopcion", () => {
 
     expect(resumen.items[0]).toEqual(
       expect.objectContaining({
-        familia: "inventarios",
-        familiaEtiqueta: "Inventarios",
+        familia: "modulos",
+        familiaEtiqueta: "Módulos de conciliación",
         accionesEnPeriodo: 26,
         estado: "usada",
       }),

@@ -218,6 +218,36 @@ describe("quién está activo", () => {
   });
 });
 
+describe("cuentas de prueba que se suman a una persona", () => {
+  const base = { accesosEnPeriodo: [], accionesEnPeriodo: [], accesosHistoricos: [] };
+  const camilo = russell(1, "DUVAN CAMILO PÉREZ ROJO", { email: "camiloperez@rbcol.co" });
+  const pruebasCamilo = russell(101, "Camilo Perez Rojo Pruebas", { email: "russell4@rbcol.co" });
+  const yuli = russell(2, "YULI ANDREA ATEHORTUA GIRALDO", { email: "yuliatehortua@rbcol.co" });
+  const pruebasYuli = russell(102, "YULI ATEHORTUA GIRALDO Pruebas", { email: "russell@russellbedford.com.co" });
+  const cuentas = [camilo, pruebasCamilo, yuli, pruebasYuli, russell(3, "Ana")];
+
+  it("la cuenta de prueba no entra en el total, pero su actividad activa a la persona", () => {
+    const r = calcularUsuariosActivos({
+      ...base,
+      cuentas,
+      accesosEnPeriodo: [acceso(101)],
+      accionesEnPeriodo: [accion("YULI ATEHORTUA GIRALDO Pruebas")],
+      accesosHistoricos: [acceso(101), acceso(102)],
+    });
+    expect(r).toEqual({ total: 3, activos: 2, porcentaje: 66.7, nuncaIngresaron: 1 });
+  });
+
+  it("también cuenta la acción registrada con el nombre que tenía antes de llevar «Pruebas»", () => {
+    const e = clasificarCuentas({ ...base, cuentas, accionesEnPeriodo: [accion("Camilo Perez Rojo")] });
+    expect(e.find((c) => c.cuenta.id === 1)?.estado).toBe("activa");
+  });
+
+  it("si falta la cuenta personal, la de prueba sigue fuera", () => {
+    const r = calcularUsuariosActivos({ ...base, cuentas: [pruebasCamilo, russell(3, "Ana")], accesosEnPeriodo: [acceso(101)] });
+    expect(r).toMatchObject({ total: 1, activos: 0 });
+  });
+});
+
 describe("sin cuentas que medir", () => {
   it("no divide por cero: el porcentaje queda en null", () => {
     const r = calcularUsuariosActivos({

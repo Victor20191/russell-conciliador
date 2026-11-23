@@ -1,5 +1,7 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
+import { fmtNum } from "@/lib/format";
+import { leerRangoElegido } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { requireReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import {
   calcularResumenUso,
@@ -31,8 +33,12 @@ import {
   sugerirPeriodoReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
 import {
+  actorUnificado,
+  aliasDeActores,
   correosDelReporte,
+  nombresDelGastoIA,
   nombresDelReporte,
+  unificarActores,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import {
@@ -50,30 +56,47 @@ function aYYYYMMDD(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export default async function ReportesEjecutivosPage() {
+export default async function ReportesEjecutivosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ desde?: string | string[]; hasta?: string | string[] }>;
+}) {
   await requireReporteEjecutivo();
 
-  const hasta = new Date();
-  const desde = new Date();
-  desde.setDate(desde.getDate() - 29);
-  desde.setHours(0, 0, 0, 0);
-  hasta.setHours(23, 59, 59, 999);
+  // Período del tablero: el que se elige arriba de los indicadores
+  // (`?desde=…&hasta=…`, con la misma regla que el reporte generado) o, si no se
+  // eligió o no sirve, los últimos 30 días.
+  const ahora = new Date();
+  const elegido = leerRangoElegido(await searchParams);
+  let desde: Date;
+  let hasta: Date;
+  if (elegido.estado === "valido") {
+    ({ desde, hasta } = elegido);
+  } else {
+    hasta = new Date(ahora);
+    desde = new Date(ahora);
+    desde.setDate(desde.getDate() - 29);
+    desde.setHours(0, 0, 0, 0);
+    hasta.setHours(23, 59, 59, 999);
+  }
+  const tableroDesde = elegido.estado === "valido" ? elegido.desdeTexto : aYYYYMMDD(desde);
+  const tableroHasta = elegido.estado === "valido" ? elegido.hastaTexto : aYYYYMMDD(hasta);
 
-  // El tablero sigue leyendo los últimos 30 días; el MODAL propone continuar
-  // donde terminó el último reporte, para que los períodos no se traslapen.
+  // El MODAL propone continuar donde terminó el último reporte, para que los
+  // períodos no se traslapen; no depende del período que se mire en el tablero.
   const ultimoReporte = await prisma.reporteEjecutivoUsoIA.findFirst({
     orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
     select: { periodoDesde: true, periodoHasta: true },
   });
   const periodoSugerido = sugerirPeriodoReporte({
-    hoy: aYYYYMMDD(hasta),
+    hoy: aYYYYMMDD(ahora),
     ultimoReporte: ultimoReporte
       ? { desde: aYYYYMMDD(ultimoReporte.periodoDesde), hasta: aYYYYMMDD(ultimoReporte.periodoHasta) }
       : null,
   });
   const defaultDesde = periodoSugerido.desde;
   const defaultHasta = periodoSugerido.hasta;
-  const periodoTablero = `${aYYYYMMDD(desde)} → ${aYYYYMMDD(hasta)}`;
+  const periodoTablero = `${tableroDesde} → ${tableroHasta}`;
 
   const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados, usuariosActivos] = await Promise.all([
     prisma.auditEntry.findMany({
@@ -136,28 +159,35 @@ export default async function ReportesEjecutivosPage() {
   // usuarios y funcionalidades ya disponibles (nada en desarrollo).
   const filtro: FiltroPublicacion = { modulosPublicados };
 
-  const eventos: EventoAuditoria[] = filtrarEventosPublicados({
-    eventos: eventosRaw.map((e) => ({
-      user: e.user,
-      action: e.action,
-      entity: e.entity,
-      detail: e.detail,
-      clientId: e.clientId,
-      createdAt: e.createdAt,
-    })),
-    clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
-    filtro,
-  }).eventos;
+  // Las cuentas de prueba que usa una persona del equipo se le suman a su cuenta
+  // personal (ver `CUENTAS_QUE_SE_SUMAN`).
+  const alias = aliasDeActores(usuarios);
+  const eventos: EventoAuditoria[] = unificarActores(
+    filtrarEventosPublicados({
+      eventos: eventosRaw.map((e) => ({
+        user: e.user,
+        action: e.action,
+        entity: e.entity,
+        detail: e.detail,
+        clientId: e.clientId,
+        createdAt: e.createdAt,
+      })),
+      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+      filtro,
+    }).eventos,
+    alias,
+  );
 
   const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
   // Solo cuentas existentes en la plataforma y del cliente: el tablero mide el
-  // uso del equipo de Russell, no el de actores técnicos de la bitácora ni el
-  // de las cuentas de Xentria que construyen y operan la plataforma.
+  // uso del equipo de Russell, no el de actores técnicos de la bitácora, el de
+  // las cuentas de Xentria que construyen y operan la plataforma ni el de las
+  // cuentas de prueba o genéricas.
   const correosUsuarios = correosDelReporte(usuarios);
   const usuariosRegistrados = nombresDelReporte(usuarios);
   const uso = calcularResumenUso({
     eventos,
-    conexiones: conexionesRaw.map((c) => ({ usuario: c.userName, total: c._count.userName })),
+    conexiones: conexionesRaw.map((c) => ({ usuario: actorUnificado(c.userName, alias), total: c._count.userName })),
     navegaciones: filtrarNavegacionesPublicadas({
       navegaciones: navegacionesRaw.map((n) => ({ ruta: n.path, total: n._count.path })),
       filtro,
@@ -184,7 +214,8 @@ export default async function ReportesEjecutivosPage() {
     corte: new Date(),
     ventanaPrevia: comparativo?.ventanaPrevia ?? null,
     base: comparativo?.base ?? null,
-    usuariosRegistrados,
+    // El gasto sí incluye a las cuentas de prueba: su consumo se paga igual.
+    usuariosRegistrados: nombresDelGastoIA(usuarios),
   });
 
   // Qué tickets del equipo se atendieron en la misma ventana. Solo se manda la
@@ -247,6 +278,7 @@ export default async function ReportesEjecutivosPage() {
     costos,
     tickets,
     totalAcciones: uso.totalAcciones,
+    totalRegistros: uso.totalRegistros,
     totalUsuarios: uso.totalUsuarios,
     usuariosActivos: uso.usuariosActivos ?? null,
     totalClientes: uso.totalClientes,
@@ -271,7 +303,11 @@ export default async function ReportesEjecutivosPage() {
           .filter(Boolean)
           .join(" · ") || undefined,
     })),
-    topAcciones: uso.topAcciones.map((a) => ({ etiqueta: a.nombre, total: a.total })),
+    topAcciones: uso.topAcciones.map((a) => ({
+      etiqueta: a.nombre,
+      total: a.total,
+      detalle: a.registros ? `${fmtNum(a.registros)} registros agrupados por persona, cliente y día` : undefined,
+    })),
     topClientes: uso.topClientes.map((c) => ({ etiqueta: c.nombre, total: c.total })),
     serieDiaria: uso.serieDiaria.map((d) => ({
       fecha: d.fecha,
@@ -297,6 +333,18 @@ export default async function ReportesEjecutivosPage() {
         defaultDesde={defaultDesde}
         defaultHasta={defaultHasta}
         periodoTablero={periodoTablero}
+        periodoIndicadores={{
+          desde: tableroDesde,
+          hasta: tableroHasta,
+          elegido: elegido.estado === "valido",
+          hoy: aYYYYMMDD(ahora),
+          aviso:
+            elegido.estado === "invalido"
+              ? `${elegido.motivo} Se muestran los últimos 30 días.`
+              : eventosRaw.length >= MAX_EVENTOS
+                ? `El período tiene más de ${fmtNum(MAX_EVENTOS)} registros y las cifras quedan incompletas. Acorta el rango.`
+                : null,
+        }}
         notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
         envios={envios}
         pendiente={pendiente}

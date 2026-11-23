@@ -17,7 +17,12 @@
 //     esas cuentas dentro (una sola llegó a ser el 89 % de un período previo): su
 //     ventana se conserva pero el comparativo las recalcula en vivo. El reporte ya
 //     generado no cambia; solo cambia contra qué cifras se compara el siguiente.
-export const METODOLOGIA_USO_VIGENTE = 3;
+// 4 — se cuentan OPERACIONES, no registros: las acciones que se registran una vez
+//     por fila (homologar cuenta por cuenta, validar alertas, marcas, cada cambio
+//     del Consolidado) valen una por persona, acción, cliente y día; las cuentas
+//     de prueba y genéricas salen de TODO el uso (no solo del comparativo), y los
+//     seis módulos se miden juntos como «Módulos de conciliación» (23/Nov/2026).
+export const METODOLOGIA_USO_VIGENTE = 4;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

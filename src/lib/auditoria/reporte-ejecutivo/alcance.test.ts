@@ -51,11 +51,13 @@ describe("moduloDeEvento", () => {
     expect(moduloDeEvento(e, clasificarFamilia(e.action))).toBeNull();
   });
 
-  it("ubica las acciones de Inventarios en modulos_datos", () => {
-    const e = evento("ACTUALIZÓ consolidación de módulo", { detail: "INV · 2 clasificadores" });
-    const familia = clasificarFamilia(e.action, e.entity, e.detail);
-    expect(familia).toBe("inventarios");
-    expect(moduloDeEvento(e, familia)).toBe("modulos_datos");
+  it("ubica las acciones de los módulos en modulos_datos", () => {
+    for (const detail of ["INV · 2 clasificadores", "NOM · 3 clasificadores"]) {
+      const e = evento("ACTUALIZÓ consolidación de módulo", { detail });
+      const familia = clasificarFamilia(e.action, e.entity, e.detail);
+      expect(familia).toBe("modulos");
+      expect(moduloDeEvento(e, familia)).toBe("modulos_datos");
+    }
   });
 });
 

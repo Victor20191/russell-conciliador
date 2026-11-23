@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  agruparOperaciones,
   calcularResumenUso,
   clasificarFamilia,
   conteosPorFamiliaCanon,
+  esAccionPorFila,
   familiaDesdeModulo,
   familiaDesdeRuta,
 } from "./metricas";
@@ -33,22 +35,176 @@ describe("clasificarFamilia", () => {
     expect(clasificarFamilia("EDITÓ PROMPT IA")).toBe("administracion");
   });
 
-  test("clasifica las operaciones de Inventarios sin confundir otros módulos", () => {
-    expect(clasificarFamilia("LEYÓ archivo de Inventarios")).toBe("inventarios");
-    expect(clasificarFamilia("CARGÓ Inventarios")).toBe("inventarios");
-    expect(clasificarFamilia("AGREGÓ ítems a Inventarios")).toBe("inventarios");
+  test("clasifica las operaciones de los seis módulos en una sola familia", () => {
+    expect(clasificarFamilia("LEYÓ archivo de Inventarios")).toBe("modulos");
+    expect(clasificarFamilia("LEYÓ archivo de Cartera")).toBe("modulos");
+    expect(clasificarFamilia("CARGÓ Inventarios")).toBe("modulos");
+    expect(clasificarFamilia("CARGÓ Cuentas por Pagar")).toBe("modulos");
+    expect(clasificarFamilia("AGREGÓ ítems a Nómina")).toBe("modulos");
     for (const accion of [
       "ACTUALIZÓ consolidación de módulo",
       "MARCÓ una diferencia del cruce contable",
+      "MARCÓ una diferencia del cruce por tercero",
       "EDITÓ la marca del cruce contable",
-      "RETIRÓ la marca del cruce contable",
+      "RETIRÓ la marca del control de deducciones",
       "ELIMINÓ un soporte de la marca del cruce contable",
       "ELIMINÓ DATOS DE MÓDULO",
       "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
     ]) {
-      expect(clasificarFamilia(accion, "Cliente", "INV · 2025-12")).toBe("inventarios");
-      expect(clasificarFamilia(accion, "Cliente", "NOM · 2025-12")).not.toBe("inventarios");
+      // El módulo del detalle ya no decide la familia: los seis van juntos.
+      expect(clasificarFamilia(accion, "Cliente", "INV · 2025-12"), accion).toBe("modulos");
+      expect(clasificarFamilia(accion, "Cliente", "NOM · 2025-12"), accion).toBe("modulos");
     }
+    // «BORRADOR» no basta para mandarla al balance.
+    expect(clasificarFamilia("PREPARÓ BORRADOR DE INVENTARIOS")).toBe("modulos");
+    expect(clasificarFamilia("EDITÓ PERFIL de carga de Nómina")).toBe("modulos");
+    expect(clasificarFamilia("CREÓ PATRÓN DE ARCHIVO")).toBe("modulos");
+    expect(clasificarFamilia("ESCOGIÓ EL BALANCE DEL CRUCE")).toBe("modulos");
+    expect(clasificarFamilia("CERRÓ CONCILIACIÓN (EN FIRME)")).toBe("modulos");
+    expect(clasificarFamilia("EMPAREJÓ un tercero del cruce por tercero")).toBe("modulos");
+  });
+
+  test("clasifica las revisiones de impuestos aunque nombren el balance o un cierre", () => {
+    for (const accion of [
+      "IMPORTÓ FORMULARIO DIAN",
+      "CONFIRMÓ FORMULARIO DIAN",
+      "REGISTRÓ MES SIN FORMULARIO DIAN",
+      "CREÓ REVISIÓN DE IVA",
+      "ELIMINÓ REVISIÓN DE RETENCIÓN",
+      "MARCÓ DIFERENCIA DE RETENCIÓN",
+      "QUITÓ MARCA DE RST",
+      "ESCOGIÓ EL BALANCE DEL CRUCE DE IVA",
+      "CERRÓ RETENCIÓN EN LA FUENTE (EN FIRME)",
+      "DESBLOQUEÓ ANTICIPOS BIMESTRALES (RST)",
+      "GUARDÓ CALENDARIO TRIBUTARIO",
+      "MARCÓ RÉGIMEN SIMPLE DEL CLIENTE",
+      "EDITÓ MAPEO DIAN",
+    ]) {
+      expect(clasificarFamilia(accion), accion).toBe("dian");
+    }
+  });
+
+  test("ubica prevalidador, plan estándar y conexiones", () => {
+    expect(clasificarFamilia("APROBÓ PREVALIDADOR")).toBe("balance");
+    expect(clasificarFamilia("ASIGNÓ CUENTA ESTÁNDAR")).toBe("balance");
+    expect(clasificarFamilia("CREÓ CUENTA ESTÁNDAR")).toBe("mapeo");
+    expect(clasificarFamilia("EDITÓ CUENTA ESTÁNDAR")).toBe("mapeo");
+    expect(clasificarFamilia("HOMOLOGÓ CUENTA CLIENTE (PUC)")).toBe("mapeo");
+    expect(clasificarFamilia("EJECUTÓ CONEXIÓN")).toBe("administracion");
+    expect(clasificarFamilia("EJECUTÓ")).toBe("conciliaciones");
+  });
+
+  test("las acciones más frecuentes de nov/2026 quedan en su familia", () => {
+    // Top real del tablero (25/Oct → 23/Nov/2026): antes 15 iban a «Balance» sin
+    // serlo y 200 a «Otras acciones».
+    const esperado: Array<[string, string]> = [
+      ["ASIGNÓ CUENTA ESTÁNDAR", "balance"],
+      ["ACTUALIZÓ consolidación de módulo", "modulos"],
+      ["VALIDÓ alerta de balance", "balance"],
+      ["MARCÓ una diferencia del cruce contable", "modulos"],
+      ["APROBÓ PREVALIDADOR", "balance"],
+      ["IMPORTÓ FORMULARIO DIAN", "dian"],
+      ["CARGÓ BALANCE", "balance"],
+      ["CERRÓ BALANCE", "balance"],
+      ["PREPARÓ BORRADOR DE INVENTARIOS", "modulos"],
+      ["CREÓ CUENTA ESTÁNDAR", "mapeo"],
+      ["AGREGÓ APLICATIVO DESDE LA CARGA", "modulos"],
+      ["CREÓ PATRÓN DE ARCHIVO", "modulos"],
+      ["EDITÓ CUENTA ESTÁNDAR", "mapeo"],
+      ["GUARDÓ PERFIL de carga de balance", "balance"],
+    ];
+    for (const [accion, familia] of esperado) {
+      expect(clasificarFamilia(accion), accion).toBe(familia);
+    }
+  });
+});
+
+describe("agruparOperaciones", () => {
+  const ev = (user: string, action: string, clientId: number | null, createdAt: string) => ({
+    user,
+    action,
+    entity: "",
+    detail: "",
+    clientId,
+    createdAt,
+  });
+
+  test("las acciones por fila valen una por persona, acción, cliente y día", () => {
+    const eventos = [
+      ...Array.from({ length: 80 }, (_, i) =>
+        ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 1, `2026-11-05T1${i % 10}:00:00.000Z`),
+      ),
+      ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 1, "2026-11-06T10:00:00.000Z"), // otro día
+      ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 2, "2026-11-05T10:00:00.000Z"), // otro cliente
+      ev("Luis", "ASIGNÓ CUENTA ESTÁNDAR", 1, "2026-11-05T10:00:00.000Z"), // otra persona
+      ev("Ana", "VALIDÓ alerta de balance", 1, "2026-11-05T10:00:00.000Z"), // otra acción
+    ];
+    const operaciones = agruparOperaciones(eventos);
+    expect(operaciones).toHaveLength(5);
+    expect(operaciones[0]).toMatchObject({ user: "Ana", clientId: 1, registros: 80 });
+    expect(operaciones.slice(1).every((o) => o.registros === 1)).toBe(true);
+  });
+
+  test("las acciones de proceso se cuentan una a una", () => {
+    const eventos = [1, 2, 3].map((n) => ev("Ana", "CARGÓ BALANCE", 1, `2026-11-05T1${n}:00:00.000Z`));
+    expect(agruparOperaciones(eventos).map((o) => o.registros)).toEqual([1, 1, 1]);
+  });
+
+  test("no modifica los eventos recibidos", () => {
+    const eventos = [
+      ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 1, "2026-11-05T10:00:00.000Z"),
+      ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 1, "2026-11-05T11:00:00.000Z"),
+    ];
+    const originales = structuredClone(eventos);
+    agruparOperaciones(eventos);
+    expect(eventos).toEqual(originales);
+  });
+
+  test("reconoce las variantes por prefijo", () => {
+    expect(esAccionPorFila("MARCÓ una diferencia del cruce por tercero")).toBe(true);
+    expect(esAccionPorFila("MARCÓ DIFERENCIA DE IVA")).toBe(true);
+    expect(esAccionPorFila("EMPAREJÓ 3 terceros del cruce por tercero")).toBe(true);
+    expect(esAccionPorFila("CARGÓ BALANCE")).toBe(false);
+    expect(esAccionPorFila("CERRÓ BALANCE")).toBe(false);
+  });
+
+  test("el resumen cuenta operaciones y conserva los registros", () => {
+    const eventos = [
+      ...Array.from({ length: 40 }, (_, i) =>
+        ev("Ana", "ASIGNÓ CUENTA ESTÁNDAR", 1, `2026-11-05T10:${String(i).padStart(2, "0")}:00.000Z`),
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        ev("Ana", "VALIDÓ alerta de balance", 1, `2026-11-05T11:${String(i).padStart(2, "0")}:00.000Z`),
+      ),
+      ev("Ana", "CARGÓ BALANCE", 1, "2026-11-05T09:00:00.000Z"),
+      ev("Ana", "CERRÓ BALANCE", 1, "2026-11-05T12:00:00.000Z"),
+    ];
+    const resumen = calcularResumenUso({
+      eventos,
+      periodoDesde: "2026-11-01T00:00:00.000Z",
+      periodoHasta: "2026-11-30T23:59:59.999Z",
+    });
+
+    expect(resumen.totalAcciones).toBe(4);
+    expect(resumen.totalRegistros).toBe(52);
+    expect(resumen.porFamilia).toEqual([{ nombre: "Balance de comprobación", total: 4 }]);
+    expect(resumen.topUsuarios[0]).toMatchObject({ usuario: "Ana", total: 4 });
+    expect(resumen.topClientes[0]).toMatchObject({ clienteId: 1, total: 4 });
+    expect(resumen.serieDiaria).toEqual([
+      { fecha: "2026-11-05", total: 4, usuarios: [{ usuario: "Ana", total: 4 }] },
+    ]);
+    expect(resumen.topAcciones).toEqual([
+      { nombre: "ASIGNÓ CUENTA ESTÁNDAR", total: 1, registros: 40 },
+      { nombre: "CARGÓ BALANCE", total: 1 },
+      { nombre: "CERRÓ BALANCE", total: 1 },
+      { nombre: "VALIDÓ alerta de balance", total: 1, registros: 10 },
+    ]);
+    // La última acción es el último registro, no el inicio de la última operación.
+    expect(resumen.primeraAccion).toBe("2026-11-05T09:00:00.000Z");
+    expect(resumen.ultimaAccion).toBe("2026-11-05T12:00:00.000Z");
+    expect(resumen.evidencia.find((e) => e.accion === "ASIGNÓ CUENTA ESTÁNDAR")?.registros).toBe(40);
+    expect(resumen.evidencia.find((e) => e.accion === "CARGÓ BALANCE")).not.toHaveProperty("registros");
+    expect(conteosPorFamiliaCanon(eventos).balance).toBe(4);
   });
 });
 
@@ -57,8 +213,11 @@ describe("familiaDesdeModulo", () => {
     expect(familiaDesdeModulo("balance")).toBe("balance");
     expect(familiaDesdeModulo("conciliaciones")).toBe("conciliaciones");
     expect(familiaDesdeModulo("dian")).toBe("dian");
-    expect(familiaDesdeModulo("modulos_datos")).toBe("inventarios");
-    expect(familiaDesdeModulo("INV")).toBe("inventarios");
+    expect(familiaDesdeModulo("modulos_datos")).toBe("modulos");
+    expect(familiaDesdeModulo("INV")).toBe("modulos");
+    expect(familiaDesdeModulo("CAR")).toBe("modulos");
+    // «modulos» es la configuración «Módulos y campos», no los módulos de conciliación.
+    expect(familiaDesdeModulo("modulos")).toBe("administracion");
     expect(familiaDesdeModulo("novedades")).toBe("administracion");
   });
 
@@ -71,7 +230,9 @@ describe("familiaDesdeModulo", () => {
 
 describe("familiaDesdeRuta", () => {
   test("solo expone familias operativas medibles", () => {
-    expect(familiaDesdeRuta("/modulos/inv/25")).toBe("inventarios");
+    expect(familiaDesdeRuta("/modulos/inv/25")).toBe("modulos");
+    expect(familiaDesdeRuta("/modulos/car/borradores/3")).toBe("modulos");
+    expect(familiaDesdeRuta("/impuestos/iva")).toBe("dian");
     expect(familiaDesdeRuta("/balance/borradores")).toBe("balance");
     expect(familiaDesdeRuta("/conciliacion/resultados/8")).toBe("conciliaciones");
     expect(familiaDesdeRuta("/config/prompts")).toBeNull();
@@ -129,7 +290,7 @@ describe("calcularResumenUso", () => {
     expect(resumen.totalConexiones).toBe(6);
     expect(resumen.totalNavegaciones).toBe(19);
     expect(resumen.navegacionesPorFamilia).toEqual([
-      { nombre: "Inventarios", total: 15 },
+      { nombre: "Módulos de conciliación", total: 15 },
       { nombre: "Balance de comprobación", total: 4 },
     ]);
     expect(resumen.totalUsuarios).toBe(2);
@@ -245,7 +406,7 @@ describe("calcularResumenUso", () => {
     expect(resumen.serieDiaria[0].usuarios?.map((u) => u.usuario).sort()).toEqual([...humanos].sort());
     const adopcion = conteosPorFamiliaCanon(eventos);
     expect(adopcion.balance).toBe(4);
-    expect(adopcion.inventarios).toBe(0);
+    expect(adopcion.modulos).toBe(0);
     expect({ eventos, conexiones }).toEqual(originales);
   });
 
@@ -296,7 +457,7 @@ describe("conteosPorFamiliaCanon", () => {
     ]);
     expect(c.balance).toBe(1);
     expect(c.conciliaciones).toBe(2);
-    expect(c.inventarios).toBe(1);
+    expect(c.modulos).toBe(1);
     expect(c.dian).toBe(0);
   });
 });

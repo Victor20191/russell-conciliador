@@ -228,8 +228,9 @@ describe("lectura honesta del comparativo en el documento", () => {
   test("aclara que el comparativo se hace sin cuentas de prueba ni genéricas", () => {
     const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: sube }).html;
     expect(html).toContain("Este comparativo se hace sin las cuentas de prueba ni las genéricas del equipo, en los dos períodos.");
-    // Sin comparativo no hay nota que dar.
-    expect(construirDocumentoConsistente(contexto).html).not.toContain("cuentas de prueba");
+    // Sin comparativo no hay nota que dar. (La sección de gráficos sí dice, en general,
+    // que el uso no incluye las cuentas de prueba: desde la metodología 4 rige para todo.)
+    expect(construirDocumentoConsistente(contexto).html).not.toContain("Este comparativo se hace sin");
   });
 });
 

@@ -74,7 +74,7 @@ function construirDetalleUsuariosHtml(uso: ResumenUsoFactual): string {
 <section class="rd-user-detail" id="rd-detalle-usuarios" style="break-inside:auto;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid ${NEUTRO.k20};border-radius:10px;background:#fff;">
   <div class="rd-user-detail-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
     <h3 style="margin:0 0 0.25rem;font-family:${FUENTE_PANTALLA};font-size:1.05rem;color:${SPACE_BLUE[100]};font-weight:700;">Detalle de actividad por usuario</h3>
-    <p style="margin:0 0 0.85rem;font-size:12px;color:${NEUTRO.k75};">Cada usuario se identifica con su nombre y su correo. Conexiones corresponde a inicios de sesión exitosos en el período. Las acciones provienen de la bitácora auditable y se muestran sin limitar usuarios.</p>
+    <p style="margin:0 0 0.85rem;font-size:12px;color:${NEUTRO.k75};">Cada usuario se identifica con su nombre y su correo. Conexiones corresponde a inicios de sesión exitosos en el período. Las acciones provienen de la bitácora auditable y se muestran sin limitar usuarios; las que se registran cuenta por cuenta (homologar, validar alertas, marcar diferencias) valen una por persona, cliente y día.</p>
   </div>
   <div style="overflow:visible;">
     <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.5px;">
@@ -224,7 +224,7 @@ export function construirSeccionGraficosHtml(params: {
   const operacionesPorProceso = graficoBarrasHorizontales({
     id: "rd-chart-operaciones-proceso",
     titulo: "Procesos con más operaciones registradas",
-    subtitulo: "Acciones auditables agrupadas por familia de proceso; no incluyen visitas de navegación",
+    subtitulo: "Operaciones auditables agrupadas por familia de proceso; no incluyen visitas de navegación",
     items: uso.porFamilia.slice(0, 10).map((f) => ({
       etiqueta: f.nombre,
       valor: f.total,
@@ -260,10 +260,11 @@ export function construirSeccionGraficosHtml(params: {
   const acciones = graficoBarrasHorizontales({
     id: "rd-chart-acciones",
     titulo: "Acciones más frecuentes",
-    subtitulo: "Tipos de operación con mayor volumen",
+    subtitulo: "Tipos de operación con mayor volumen, contados como operaciones",
     items: uso.topAcciones.slice(0, 10).map((a) => ({
       etiqueta: a.nombre,
       valor: a.total,
+      sub: a.registros ? `${fmtNum(a.registros)} registros agrupados por persona, cliente y día` : undefined,
     })),
     colorBarra: SPACE_BLUE[80],
     vacio: "Sin acciones en el período.",
@@ -344,7 +345,7 @@ export function construirSeccionGraficosHtml(params: {
 <section id="${MARCA_GRAFICOS}" class="rd-graficos-uso" style="margin:1.75rem 0 2rem;">
   <div class="rd-graficos-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
     <h2 style="margin:0 0 0.35rem;font-family:${FUENTE_PANTALLA};font-size:1.35rem;color:${SPACE_BLUE[100]};font-weight:400;border-left:3px solid ${SPACE_BLUE[100]};padding-left:0.65rem;">Uso en gráficos</h2>
-    <p style="margin:0 0 1rem;font-size:13px;color:${NEUTRO.k80};">Distribución factual del período. Las consultas provienen de la navegación y las operaciones de la bitácora auditable; se muestran por separado e incluyen únicamente familias operativas publicadas.</p>
+    <p style="margin:0 0 1rem;font-size:13px;color:${NEUTRO.k80};">Distribución factual del período. Las consultas provienen de la navegación y las operaciones de la bitácora auditable; se muestran por separado e incluyen únicamente familias operativas publicadas. Lo que se registra cuenta por cuenta vale una operación por persona, cliente y día, y no se incluyen las cuentas de prueba ni las genéricas.</p>
   </div>
   <div style="display:grid;grid-template-columns:1fr;gap:0;">
     ${modulosConsultados}
