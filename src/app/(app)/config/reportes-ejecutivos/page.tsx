@@ -204,11 +204,11 @@ export default async function ReportesEjecutivosPage({
     usuariosActivos,
   });
 
-  // ¿Subió o bajó el uso frente al último reporte generado? Los dos lados se miden
-  // sin cuentas de prueba ni genéricas (ver `comparativo-servidor.ts`).
+  // ¿Subió o bajó el uso frente al período anterior de igual duración? Los dos lados
+  // se miden sin cuentas de prueba ni genéricas (ver `comparativo-servidor.ts`).
   const usoComparable = await construirUsoComparable({ desde, hasta, filtro, nombresClientes });
   const comparativo = usoComparable
-    ? await construirComparativoUso({ usoComparableActual: usoComparable, desde, hasta, filtro, nombresClientes })
+    ? await construirComparativoUso({ usoComparableActual: usoComparable, desde, hasta, corte: ahora, filtro, nombresClientes })
     : null;
 
   // Cuánto costó la IA en la misma ventana, contra el mismo tramo anterior.

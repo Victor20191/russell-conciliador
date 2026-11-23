@@ -62,8 +62,9 @@ describe("consistencia de generación del reporte", () => {
   test("actualizar consulta actividad y guarda una plantilla factual con revisión anterior", async () => {
     const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
     expect(result).toMatchObject({ ok: true, desdeCache: false });
-    // Dos lecturas de la bitácora: la del reporte y la del uso comparable (sin cuentas de prueba).
-    expect(mocks.eventos).toHaveBeenCalledTimes(2);
+    // Tres lecturas de la bitácora: la del reporte, la del uso comparable (sin cuentas
+    // de prueba) y la del período anterior de igual duración contra el que se compara.
+    expect(mocks.eventos).toHaveBeenCalledTimes(3);
     // El documento se arma entero en código: ninguna generación llama a la IA.
     expect(mocks.ia).not.toHaveBeenCalled();
     expect(mocks.guardar).toHaveBeenCalledWith(expect.objectContaining({

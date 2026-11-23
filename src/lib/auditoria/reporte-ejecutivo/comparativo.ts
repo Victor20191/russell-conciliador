@@ -1,9 +1,9 @@
-// Comparativo de uso entre el período del reporte actual y el del reporte
-// ANTERIOR: ¿el equipo de Russell usó más o menos la plataforma?
+// Comparativo de uso entre el período elegido y el período ANTERIOR de igual
+// duración: ¿el equipo de Russell usó más o menos la plataforma?
 //
 // Módulo PURO: recibe dos `ResumenUsoFactual` ya calculados y devuelve las
-// variaciones. No consulta BD ni decide de dónde sale el período previo (eso
-// vive en `comparativo-servidor.ts`).
+// variaciones, y calcula la ventana anterior (`periodoAnteriorIgual`). No
+// consulta BD: eso vive en `comparativo-servidor.ts`.
 //
 // Dos cuidados que definen el diseño:
 //  1. **Períodos de distinta duración.** Comparar 30 días contra 14 en cifras
@@ -34,7 +34,11 @@ export type VariacionUso = {
   direccion: DireccionVariacion;
 };
 
-/** De dónde salió el período de comparación. */
+/**
+ * De dónde salió el período de comparación. Desde la metodología 5 siempre es
+ * `periodo_anterior`; `reporte_anterior` queda por los comparativos guardados
+ * antes, que se medían contra el último reporte generado.
+ */
 export type BaseComparativo = "reporte_anterior" | "periodo_anterior";
 
 export type PeriodoComparado = {
@@ -56,6 +60,12 @@ export type ComparativoUso = {
    * de IA— pueda consultar EXACTAMENTE el mismo tramo y no uno corrido por horas.
    */
   ventanaPrevia: { desde: string; hasta: string };
+  /**
+   * Cuando el período actual sigue abierto (termina hoy o después), hasta dónde se
+   * midió cada lado, en ISO: el anterior se corta en el mismo punto. Ausente si
+   * los dos períodos se midieron completos.
+   */
+  corteMismoPunto?: { actual: string; previo: string } | null;
   /** false cuando las duraciones difieren > 10 %: las cifras absolutas no son equiparables. */
   comparable: boolean;
   /** Operaciones, usuarios, conexiones, visitas y clientes. */
@@ -190,6 +200,53 @@ function unirConteos(actual: ConteoNombrado[], previo: ConteoNombrado[]): Variac
 
 /** Tolerancia de duración: más allá de esto, las cifras absolutas no son equiparables. */
 const TOLERANCIA_DURACION = 0.1;
+
+/**
+ * Período ANTERIOR de igual duración, pegado al actual: 7 días contra los 7
+ * anteriores, 10 contra los 10 anteriores. Antes se comparaba contra el último
+ * reporte generado, que podía medir 12 días frente a 7 y mezclar semanas con
+ * distinta cantidad de días hábiles.
+ *
+ * Si el período actual sigue abierto (el `corte` cae dentro de él), el anterior
+ * se corta en el MISMO PUNTO —el mismo desfase desde su inicio—: hoy hasta las
+ * 6:40 p. m. se compara con el mismo día de la semana anterior hasta las
+ * 6:40 p. m., no con un día completo. `corte` queda en null si no hace falta.
+ */
+export function periodoAnteriorIgual(params: {
+  desde: Date;
+  hasta: Date;
+  corte?: Date | null;
+}): { desde: Date; hasta: Date; corte: Date | null } | null {
+  const desde = params.desde.getTime();
+  const hasta = params.hasta.getTime();
+  if (!Number.isFinite(desde) || !Number.isFinite(hasta) || !(hasta > desde)) return null;
+  const hastaPrevio = desde - 1;
+  const desdePrevio = hastaPrevio - (hasta - desde);
+  const desfase = desde - desdePrevio;
+  const corte = params.corte?.getTime();
+  const abierto = corte !== undefined && Number.isFinite(corte) && corte >= desde && corte < hasta;
+  return {
+    desde: new Date(desdePrevio),
+    hasta: new Date(hastaPrevio),
+    corte: abierto ? new Date(corte - desfase) : null,
+  };
+}
+
+const formatoFechaHora = new Intl.DateTimeFormat("es-CO", {
+  timeZone: ZONA_HORARIA_OPERACION,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** Aclaración del corte en el mismo punto, para la pantalla y el documento; null si no aplica. */
+export function notaCorteMismoPunto(c: ComparativoUso): string | null {
+  if (!c.corteMismoPunto) return null;
+  const fecha = (iso: string) => formatoFechaHora.format(new Date(iso));
+  return `El período actual sigue abierto: se midió hasta el ${fecha(c.corteMismoPunto.actual)} y el anterior hasta el mismo punto (${fecha(c.corteMismoPunto.previo)}).`;
+}
 
 export function compararUso(params: {
   actual: ResumenUsoFactual;

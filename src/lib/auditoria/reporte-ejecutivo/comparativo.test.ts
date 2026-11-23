@@ -9,6 +9,8 @@ import {
   concentracionOperaciones,
   diasDePeriodo,
   NOTA_SIN_CUENTAS_DE_PRUEBA,
+  notaCorteMismoPunto,
+  periodoAnteriorIgual,
   textoConcentracion,
   titularComparativo,
   variacion,
@@ -463,5 +465,57 @@ describe("comparativo sin cuentas de prueba, base pequeña y concentración", ()
     it("sin operaciones no hay nada que decir", () => {
       expect(concentracionOperaciones(reparto([]))).toBeNull();
     });
+  });
+});
+
+describe("período anterior de igual duración", () => {
+  const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
+
+  it("7 días se comparan con los 7 anteriores, pegados al inicio", () => {
+    const p = periodoAnteriorIgual({
+      desde: new Date("2026-11-17T00:00:00.000Z"),
+      hasta: new Date("2026-11-23T23:59:59.999Z"),
+    })!;
+    expect([iso(p.desde), iso(p.hasta), iso(p.corte)]).toEqual(["2026-11-10T00:00:00.000Z", "2026-11-16T23:59:59.999Z", null]);
+  });
+
+  it("10 días se comparan con los 10 anteriores", () => {
+    const p = periodoAnteriorIgual({
+      desde: new Date("2026-11-14T00:00:00.000Z"),
+      hasta: new Date("2026-11-23T23:59:59.999Z"),
+    })!;
+    expect([iso(p.desde), iso(p.hasta)]).toEqual(["2026-11-04T00:00:00.000Z", "2026-11-13T23:59:59.999Z"]);
+  });
+
+  it("con el período abierto, el anterior se corta en el mismo punto", () => {
+    const p = periodoAnteriorIgual({
+      desde: new Date("2026-11-17T00:00:00.000Z"),
+      hasta: new Date("2026-11-23T23:59:59.999Z"),
+      corte: new Date("2026-11-23T23:40:00.000Z"),
+    })!;
+    expect(iso(p.corte)).toBe("2026-11-16T23:40:00.000Z");
+  });
+
+  it("un corte fuera del período no recorta nada; un período sin duración no tiene anterior", () => {
+    const semana = { desde: new Date("2026-11-17T00:00:00.000Z"), hasta: new Date("2026-11-23T23:59:59.999Z") };
+    expect(periodoAnteriorIgual({ ...semana, corte: new Date("2026-11-30T00:00:00.000Z") })!.corte).toBeNull();
+    expect(periodoAnteriorIgual({ ...semana, corte: new Date("2026-11-01T00:00:00.000Z") })!.corte).toBeNull();
+    expect(periodoAnteriorIgual({ desde: semana.hasta, hasta: semana.desde })).toBeNull();
+  });
+
+  it("la nota del corte nombra los dos puntos en hora de Colombia; sin corte no hay nota", () => {
+    const c = compararUso({
+      actual: resumen({ periodoDesde: "2026-11-17T00:00:00.000Z", periodoHasta: "2026-11-23T23:59:59.999Z", totalAcciones: 2 }),
+      previo: resumen({ periodoDesde: "2026-11-10T00:00:00.000Z", periodoHasta: "2026-11-16T23:59:59.999Z", totalAcciones: 2 }),
+      base: "periodo_anterior",
+    });
+    expect(notaCorteMismoPunto(c)).toBeNull();
+    const nota = notaCorteMismoPunto({
+      ...c,
+      corteMismoPunto: { actual: "2026-11-23T23:40:00.000Z", previo: "2026-11-16T23:40:00.000Z" },
+    })!;
+    expect(nota).toContain("se midió hasta el 23/11/2026");
+    expect(nota).toContain("el anterior hasta el mismo punto (16/11/2026");
+    expect(nota).toMatch(/6:40/);
   });
 });

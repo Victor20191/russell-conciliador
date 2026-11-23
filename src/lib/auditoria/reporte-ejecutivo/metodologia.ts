@@ -22,7 +22,12 @@
 //     del Consolidado) valen una por persona, acción, cliente y día; las cuentas
 //     de prueba y genéricas salen de TODO el uso (no solo del comparativo), y los
 //     seis módulos se miden juntos como «Módulos de conciliación» (23/Nov/2026).
-export const METODOLOGIA_USO_VIGENTE = 4;
+// 5 — el comparativo se mide SIEMPRE contra el período anterior de igual
+//     duración (cortado en el mismo punto si el actual sigue abierto), ya no
+//     contra el último reporte generado. Las cifras guardadas en
+//     `fuente.usoComparable` quedan como constancia y no se leen para comparar
+//     (23/Nov/2026).
+export const METODOLOGIA_USO_VIGENTE = 5;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

@@ -6,6 +6,7 @@ import { fmt, fmtNum } from "@/lib/format";
 import {
   alertasComparativo,
   NOTA_SIN_CUENTAS_DE_PRUEBA,
+  notaCorteMismoPunto,
   soloFecha,
   type ComparativoUso,
   type VariacionUso,
@@ -224,19 +225,20 @@ function FilaVariacion({ v }: { v: VariacionUso }) {
 }
 
 /**
- * Comparativo del período actual contra el del reporte anterior. Responde la
- * pregunta de gerencia: ¿el equipo usó más o menos la plataforma?
+ * Comparativo del período actual contra el anterior de igual duración. Responde
+ * la pregunta de gerencia: ¿el equipo usó más o menos la plataforma?
  */
 export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoUso | null }) {
   if (!comparativo) return null;
   const c = comparativo;
   const alertas = alertasComparativo(c);
+  const notaCorte = notaCorteMismoPunto(c);
   const origen =
     c.base === "reporte_anterior"
       ? `Reporte anterior (${c.previo.desde} → ${c.previo.hasta}${
           c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""
         })`
-      : `Período anterior (${c.previo.desde} → ${c.previo.hasta})`;
+      : `Período anterior de igual duración (${c.previo.desde} → ${c.previo.hasta})`;
 
   return (
     <Card className="p-4">
@@ -246,6 +248,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
           <p className="mt-0.5 text-[11.5px] text-ink-500">
             {origen} vs. actual ({c.actual.desde} → {c.actual.hasta})
           </p>
+          {notaCorte && <p className="mt-0.5 text-[11.5px] text-ink-500">{notaCorte}</p>}
           <p className="mt-0.5 text-[11.5px] text-ink-500">{NOTA_SIN_CUENTAS_DE_PRUEBA}</p>
         </div>
       </div>

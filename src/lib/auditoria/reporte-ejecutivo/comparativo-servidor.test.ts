@@ -17,7 +17,6 @@ vi.mock("@/lib/prisma", () => ({
 
 import { construirComparativoUso, construirUsoComparable } from "./comparativo-servidor";
 import { alertaComparativo, alertaUsuarios } from "./comparativo";
-import { METODOLOGIA_USO_VIGENTE } from "./metodologia";
 
 const filtro = { modulosPublicados: new Set(["balance"]) };
 const nombresClientes = new Map<number, string>();
@@ -73,19 +72,17 @@ beforeEach(() => {
   mocks.reportes.mockResolvedValue([]);
 });
 
-/** Reporte #50 guardado con la metodología vigente o con una anterior. */
-function reporteGuardado(metodologia: number, extra: Record<string, unknown> = {}, corte?: string) {
-  const periodo = { periodoDesde: "2026-10-14T00:00:00.000Z", periodoHasta: "2026-10-27T23:59:59.999Z" };
-  const vacio = {
-    totalAcciones: 124, totalUsuarios: 4, totalConexiones: 0, totalNavegaciones: 0, totalClientes: 1,
-    porFamilia: [{ nombre: "Balance de comprobación", total: 124 }],
-    detalleUsuarios: [{ usuario: "Camilo Perez Rojo Pruebas", correo: null, conexiones: 0, totalAcciones: 110, accionesPrincipales: [], porFamilia: [] }],
-  };
-  return {
-    creadoEn: new Date("2026-10-27T23:30:01.695Z"),
-    metadatos: { metodologia, ...(corte ? { corte } : {}), fuente: { uso: { ...periodo, ...vacio }, ...extra } },
-  };
-}
+/** Un reporte ya generado: desde la metodología 5 no se usa para comparar. */
+const reporteGuardado = {
+  creadoEn: new Date("2026-10-27T23:30:01.695Z"),
+  metadatos: {
+    metodologia: 4,
+    fuente: { uso: { periodoDesde: "2026-10-14T00:00:00.000Z", periodoHasta: "2026-10-27T23:59:59.999Z", totalAcciones: 124 } },
+  },
+};
+
+/** Un instante posterior al período: el período ya cerró y se mide completo. */
+const corteCerrado = new Date("2026-11-20T00:00:00.000Z");
 
 const ventanaActual = { desde: new Date("2026-10-30T00:00:00.000Z"), hasta: new Date("2026-11-10T23:59:59.999Z") };
 
@@ -166,16 +163,21 @@ describe("uso comparable", () => {
   });
 });
 
-describe("comparativo contra el reporte anterior", () => {
-  test("reporte guardado con una metodología anterior: conserva su ventana y recalcula sin cuentas de prueba (30-oct → 10-nov contra 14 → 27-oct)", async () => {
+describe("comparativo contra el período anterior de igual duración", () => {
+  test("30-oct → 10-nov (12 días) se compara con 18 → 29-oct, sin cuentas de prueba y sin mirar los reportes generados", async () => {
     sembrarCasoReal();
-    mocks.reportes.mockResolvedValue([reporteGuardado(METODOLOGIA_USO_VIGENTE - 1)]);
+    // Hay un reporte del 14 → 27-oct (14 días): ya no es la base de la comparación.
+    mocks.reportes.mockResolvedValue([reporteGuardado]);
     const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
+    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, corte: corteCerrado, filtro, nombresClientes });
 
     expect(c).not.toBeNull();
-    expect(c!.base).toBe("reporte_anterior");
-    expect(c!.previo).toMatchObject({ desde: "2026-10-14", hasta: "2026-10-27", dias: 14 });
+    expect(c!.base).toBe("periodo_anterior");
+    expect(c!.previo).toEqual({ desde: "2026-10-18", hasta: "2026-10-29", dias: 12 });
+    expect(c!.comparable).toBe(true);
+    expect(c!.corteMismoPunto).toBeUndefined();
+    expect(mocks.reportes).not.toHaveBeenCalled();
+    // En 18 → 29-oct solo cuentan las 4 operaciones de Erica (las demás son de cuentas de prueba).
     expect(c!.totales[0]).toMatchObject({ previo: 4, actual: 565 });
     expect(c!.totales[1]).toMatchObject({ previo: 1, actual: 4 });
     expect(c!.usuarios.salieron).toEqual(["ERICA MARIA VERGARA SALAZAR"]);
@@ -188,85 +190,44 @@ describe("comparativo contra el reporte anterior", () => {
     expect(alertaUsuarios(c!).titulo).toBe("Operaron más usuarios: de 1 a 4");
   });
 
-  test("recalcula el período previo solo hasta el corte de su reporte: lo operado después no se le suma", async () => {
-    sembrarCasoReal();
-    // El reporte del 14 → 27-oct se generó a las 18:30 del 27; Sindy operó 263 veces más tarde esa noche.
-    bitacora.push(...Array.from({ length: 263 }, () => ({
-      user: "SINDY KATERINE ECHEVERRI RAMÍREZ", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1,
-      createdAt: new Date("2026-10-27T23:45:00Z"),
-    })));
-    mocks.reportes.mockResolvedValue([reporteGuardado(METODOLOGIA_USO_VIGENTE - 1, {}, "2026-10-27T23:30:01.695Z")]);
-    const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-    expect(c!.totales[0]).toMatchObject({ previo: 4, actual: 565 });
-    expect(c!.totales[1]).toMatchObject({ previo: 1, actual: 4 });
-
-    // Sin corte guardado (instantánea muy antigua) se lee la ventana completa, como antes.
-    mocks.reportes.mockResolvedValue([reporteGuardado(METODOLOGIA_USO_VIGENTE - 1)]);
-    const entera = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-    expect(entera!.totales[0].previo).toBe(267);
-  });
-
-  test("reporte guardado con la metodología vigente: usa su `usoComparable` tal cual, sin recalcular", async () => {
-    sembrarCasoReal();
-    const guardado = {
-      periodoDesde: "2026-10-14T00:00:00.000Z", periodoHasta: "2026-10-27T23:59:59.999Z",
-      totalAcciones: 4, totalUsuarios: 1, totalConexiones: 0, totalNavegaciones: 0, totalClientes: 1,
-      porFamilia: [{ nombre: "Balance de comprobación", total: 4 }],
-      detalleUsuarios: [{ usuario: "ERICA MARIA VERGARA SALAZAR", correo: null, conexiones: 0, totalAcciones: 4, accionesPrincipales: [], porFamilia: [] }],
-    };
-    mocks.reportes.mockResolvedValue([reporteGuardado(METODOLOGIA_USO_VIGENTE, { usoComparable: guardado })]);
-    const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    mocks.eventos.mockClear();
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-
-    expect(c!.totales[0]).toMatchObject({ previo: 4, actual: 565 });
-    // No volvió a leer la bitácora del período previo: las cifras son las guardadas.
-    expect(mocks.eventos).not.toHaveBeenCalled();
-  });
-
-  test("con la metodología vigente pero sin `usoComparable` guardado, lo recalcula en vivo", async () => {
-    sembrarCasoReal();
-    mocks.reportes.mockResolvedValue([reporteGuardado(METODOLOGIA_USO_VIGENTE)]);
-    const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-    expect(c!.totales[0]).toMatchObject({ previo: 4, actual: 565 });
-  });
-
-  test("salta las instantáneas sin fuente y compara contra la primera que la trae", async () => {
-    sembrarCasoReal();
-    mocks.reportes.mockResolvedValue([
-      { creadoEn: new Date("2026-10-31T00:00:00Z"), metadatos: { metodologia: 2 } },
-      reporteGuardado(2),
-    ]);
-    const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-    expect(c!.previo.desde).toBe("2026-10-14");
-  });
-
-  test("sin reporte anterior compara contra el período inmediatamente anterior, también sin cuentas de prueba", async () => {
-    sembrarCasoReal();
-    // Período previo de igual duración: 18 → 29-oct (12 días); ahí solo hay 4 operaciones de Erica.
+  test("con el período abierto, el anterior se corta en el mismo punto (17 → 23-nov hasta las 18:40 contra 10 → 16-nov hasta las 18:40)", async () => {
+    const semana = { desde: new Date("2026-11-17T00:00:00.000Z"), hasta: new Date("2026-11-23T23:59:59.999Z") };
+    const corte = new Date("2026-11-23T23:40:00.000Z");
+    const evento = (user: string, iso: string): Evento => ({ user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: new Date(iso) });
     bitacora = [
-      ...bitacora.filter((e) => e.createdAt >= new Date("2026-10-30T00:00:00Z")),
-      ...eventosDe("Camilo Perez Rojo Pruebas", 110, "2026-10-20"),
-      ...eventosDe("ERICA MARIA VERGARA SALAZAR", 4, "2026-10-22"),
+      evento("LUISA FERNANDA CHAVARRIA CARMONA", "2026-11-20T15:00:00Z"),
+      evento("DARWIN GUZMAN MENA", "2026-11-23T20:00:00Z"),
+      // Semana anterior: dos antes del mismo punto y una después (no cuenta).
+      evento("DARWIN GUZMAN MENA", "2026-11-10T00:00:00Z"),
+      evento("DARWIN GUZMAN MENA", "2026-11-16T22:00:00Z"),
+      evento("SINDY KATERINE ECHEVERRI RAMÍREZ", "2026-11-16T23:50:00Z"),
+      // Fuera de la semana anterior.
+      evento("SINDY KATERINE ECHEVERRI RAMÍREZ", "2026-11-09T23:00:00Z"),
     ];
-    const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    const c = await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes });
-    expect(c!.base).toBe("periodo_anterior");
-    expect(c!.totales[0]).toMatchObject({ previo: 4, actual: 565 });
+    const actual = (await construirUsoComparable({ ...semana, corte, filtro, nombresClientes }))!;
+    const c = await construirComparativoUso({ usoComparableActual: actual, ...semana, corte, filtro, nombresClientes });
+
+    expect(c!.previo).toEqual({ desde: "2026-11-10", hasta: "2026-11-16", dias: 7 });
+    expect(c!.totales[0]).toMatchObject({ previo: 2, actual: 2 });
+    expect(c!.corteMismoPunto).toEqual({ actual: "2026-11-23T23:40:00.000Z", previo: "2026-11-16T23:40:00.000Z" });
+    // El costo de IA consulta la misma ventana recortada.
+    expect(c!.ventanaPrevia).toEqual({ desde: "2026-11-10T00:00:00.000Z", hasta: "2026-11-16T23:40:00.000Z" });
   });
 
   test("un período previo sin una sola operación del equipo no es una caída: no hay comparativo", async () => {
     bitacora = eventosDe("Camilo Perez Rojo Pruebas", 110, "2026-10-20");
     const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    expect(await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes })).toBeNull();
+    expect(
+      await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, corte: corteCerrado, filtro, nombresClientes }),
+    ).toBeNull();
   });
 
   test("si la consulta falla devuelve null y no lanza", async () => {
-    mocks.reportes.mockRejectedValue(new Error("BD no disponible"));
+    sembrarCasoReal();
     const actual = (await construirUsoComparable({ ...ventanaActual, filtro, nombresClientes }))!;
-    expect(await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, filtro, nombresClientes })).toBeNull();
+    mocks.eventos.mockRejectedValue(new Error("BD no disponible"));
+    expect(
+      await construirComparativoUso({ usoComparableActual: actual, ...ventanaActual, corte: corteCerrado, filtro, nombresClientes }),
+    ).toBeNull();
   });
 });

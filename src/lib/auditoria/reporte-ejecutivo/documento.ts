@@ -6,6 +6,7 @@ import type { ResumenUsoFactual } from "./metricas";
 import {
   alertasComparativo,
   NOTA_SIN_CUENTAS_DE_PRUEBA,
+  notaCorteMismoPunto,
   soloFecha,
   type AlertaUso,
   type ComparativoUso,
@@ -275,10 +276,12 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const alertas = alertasComparativo(c);
   const referencia = c.base === "reporte_anterior"
     ? `reporte anterior (${c.previo.desde} – ${c.previo.hasta}${c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""})`
-    : `período anterior (${c.previo.desde} – ${c.previo.hasta})`;
-  const aviso = c.comparable
+    : `período anterior de igual duración (${c.previo.desde} – ${c.previo.hasta})`;
+  const notaCorte = notaCorteMismoPunto(c);
+  const aviso = (c.comparable
     ? ""
-    : `<p class="nota">Los períodos no miden lo mismo (${numero(c.previo.dias)} días frente a ${numero(c.actual.dias)}): la comparación se lee sobre el promedio diario, no sobre los totales.</p>`;
+    : `<p class="nota">Los períodos no miden lo mismo (${numero(c.previo.dias)} días frente a ${numero(c.actual.dias)}): la comparación se lee sobre el promedio diario, no sobre los totales.</p>`)
+    + (notaCorte ? `<p class="nota">${escapeHtml(notaCorte)}</p>` : "");
   const familias = c.porFamilia.slice(0, 8).map((v) => filaVariacion(v)).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}

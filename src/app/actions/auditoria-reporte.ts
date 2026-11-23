@@ -434,10 +434,10 @@ export async function generarReporteEjecutivoUso(
       usuariosActivos,
     });
 
-    // Comparativo contra el último reporte generado (o el período anterior). Los dos
-    // lados se miden sin cuentas de prueba ni genéricas; el del período actual se
-    // guarda con el reporte (`fuente.usoComparable`) para que el siguiente compare
-    // contra exactamente estas cifras.
+    // Comparativo contra el período anterior de igual duración, cortado en el mismo
+    // punto si el actual sigue abierto. Los dos lados se miden sin cuentas de prueba
+    // ni genéricas; el del período actual se guarda con el reporte
+    // (`fuente.usoComparable`) como constancia de las cifras comparadas.
     const usoComparable = await construirUsoComparable({
       desde: rango.desde,
       hasta: rango.hasta,
@@ -450,6 +450,7 @@ export async function generarReporteEjecutivoUso(
           usoComparableActual: usoComparable,
           desde: rango.desde,
           hasta: rango.hasta,
+          corte,
           filtro,
           nombresClientes,
         })
@@ -653,6 +654,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
           usoComparableActual: usoComparable,
           desde: rango.desde,
           hasta: rango.hasta,
+          corte: new Date(),
           filtro,
           nombresClientes,
         })

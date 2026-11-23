@@ -10,25 +10,16 @@
 // Período ACTUAL: lo calcula el llamador con `construirUsoComparable` (y el
 // reporte lo guarda en `fuente.usoComparable`).
 //
-// Período PREVIO, por prioridad:
-//  1. El último reporte cuyo período TERMINA antes de que empiece el actual
-//     —comparar contra uno que se traslapa (o que contiene al período nuevo) no
-//     dice nada—. Si se calculó con la metodología vigente trae su
-//     `fuente.usoComparable`: exactamente las cifras con las que se comparó
-//     entonces, sin que un cambio posterior de la bitácora las mueva. Si es de una
-//     metodología anterior (sus cifras incluyen cuentas de prueba, o no guardó
-//     `usoComparable`) se conserva su VENTANA —y su corte— y las cifras se
-//     recalculan en vivo.
-//  2. Respaldo: el período inmediatamente anterior de IGUAL duración, calculado en
-//     vivo con la misma regla. Cubre el primer reporte y las instantáneas
-//     antiguas que no guardaron la fuente.
+// Período PREVIO (metodología 5): el inmediatamente anterior de IGUAL duración,
+// calculado en vivo con la misma regla y, si el actual sigue abierto, cortado en
+// el mismo punto (`periodoAnteriorIgual`). Antes se tomaba el último reporte
+// generado, que podía medir 12 días frente a 7: el tablero lo compensaba con
+// promedios por día, pero las semanas no tenían los mismos días hábiles.
 import "server-only";
 import prisma from "@/lib/prisma";
-import { compararUso, type ComparativoUso } from "./comparativo";
+import { compararUso, periodoAnteriorIgual, type ComparativoUso } from "./comparativo";
 import { filtrarEventosPublicados, filtrarNavegacionesPublicadas, type FiltroPublicacion } from "./alcance";
 import { calcularResumenUso, clasificarFamilia, type EventoAuditoria, type ResumenUsoFactual } from "./metricas";
-import { metodologiaAlDia } from "./metodologia";
-import { leerUsuariosActivos } from "./usuarios-activos";
 import {
   actorUnificado,
   aliasDeActores,
@@ -39,55 +30,6 @@ import {
 
 /** Tope de eventos de un período (el de la página y el de la acción tienen el suyo). */
 const MAX_EVENTOS_PERIODO = 25_000;
-
-/**
- * Normaliza el resumen guardado en una instantánea: una vieja puede no traer todos
- * los campos. `clave` elige cuál: `uso` (el del reporte, con todas las cuentas) o
- * `usoComparable` (el de la comparación).
- */
-function leerResumenGuardado(metadatos: unknown, clave: "uso" | "usoComparable"): ResumenUsoFactual | null {
-  if (!metadatos || typeof metadatos !== "object") return null;
-  const fuente = (metadatos as { fuente?: unknown }).fuente;
-  if (!fuente || typeof fuente !== "object") return null;
-  const uso = (fuente as Record<string, unknown>)[clave];
-  if (!uso || typeof uso !== "object") return null;
-  const candidato = uso as Partial<ResumenUsoFactual>;
-  if (typeof candidato.periodoDesde !== "string" || typeof candidato.periodoHasta !== "string") return null;
-  if (typeof candidato.totalAcciones !== "number") return null;
-  return {
-    ...candidato,
-    totalNavegaciones: candidato.totalNavegaciones ?? 0,
-    totalConexiones: candidato.totalConexiones ?? 0,
-    totalUsuarios: candidato.totalUsuarios ?? 0,
-    totalClientes: candidato.totalClientes ?? 0,
-    porFamilia: candidato.porFamilia ?? [],
-    topUsuarios: candidato.topUsuarios ?? [],
-    topAcciones: candidato.topAcciones ?? [],
-    detalleUsuarios: candidato.detalleUsuarios ?? [],
-    topClientes: candidato.topClientes ?? [],
-    serieDiaria: candidato.serieDiaria ?? [],
-    evidencia: candidato.evidencia ?? [],
-    navegacionesPorFamilia: candidato.navegacionesPorFamilia ?? [],
-    primeraAccion: candidato.primeraAccion ?? null,
-    ultimaAccion: candidato.ultimaAccion ?? null,
-    // Las instantáneas anteriores al indicador de usuarios activos no lo traen.
-    usuariosActivos: leerUsuariosActivos(candidato.usuariosActivos) ?? undefined,
-  } as ResumenUsoFactual;
-}
-
-/**
- * Hasta dónde llegó la lectura cuando se generó el reporte guardado (`corte`), o
- * null si no la guardó. Un reporte se genera con el período aún abierto —el del
- * 14 al 27-oct se generó el 27 a las 18:30—, así que sus cifras llegan solo hasta
- * ahí; recalcular la ventana ENTERA hoy le sumaría lo que se operó después y el
- * período previo ya no sería el que se midió.
- */
-function corteGuardado(metadatos: unknown): Date | null {
-  const corte = (metadatos as { corte?: unknown } | null)?.corte;
-  if (typeof corte !== "string") return null;
-  const fecha = new Date(corte);
-  return Number.isNaN(fecha.getTime()) ? null : fecha;
-}
 
 /**
  * Resumen de uso de una ventana, SIN cuentas de prueba ni genéricas (ni de Xentria).
@@ -176,77 +118,42 @@ export async function construirUsoComparable(params: {
 }
 
 /**
- * Comparativo del período actual contra el reporte anterior (o, en su defecto,
- * contra el período anterior de igual duración). `usoComparableActual` es el
- * resultado de `construirUsoComparable` del período actual. Nunca lanza: si no hay
- * con qué comparar o la consulta falla, devuelve null y la pantalla simplemente no
- * muestra el bloque.
+ * Comparativo del período actual contra el período ANTERIOR de igual duración
+ * (`periodoAnteriorIgual`). `usoComparableActual` es el resultado de
+ * `construirUsoComparable` del período actual, y `corte` hasta dónde se leyó
+ * (ahora, por defecto): si el período sigue abierto, el anterior se corta en el
+ * mismo punto. Nunca lanza: si no hay con qué comparar o la consulta falla,
+ * devuelve null y la pantalla simplemente no muestra el bloque.
  */
 export async function construirComparativoUso(params: {
   usoComparableActual: ResumenUsoFactual;
   desde: Date;
   hasta: Date;
+  corte?: Date | null;
   filtro: FiltroPublicacion;
   nombresClientes: Map<number, string>;
 }): Promise<ComparativoUso | null> {
   try {
-    // 1) El último reporte cuyo período TERMINA antes de que empiece el actual.
-    //
-    // La condición de no traslape es lo que hace legible la comparación: un
-    // reporte de 09-01 a 09-20 CONTIENE al período 09-12 → 09-20, así que
-    // compararlos mide lo mismo contra sí mismo. Se ordena por fin de período
-    // —no por fecha de generación— porque lo que interesa es el tramo anterior
-    // inmediato, aunque se haya generado después de otro más reciente.
-    //
-    // Se miran varios porque las instantáneas antiguas no guardaban la fuente:
-    // se toma la primera que SÍ la tenga, en vez de renunciar a comparar.
-    const candidatos = await prisma.reporteEjecutivoUsoIA.findMany({
-      where: { periodoHasta: { lt: params.desde } },
-      orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
-      take: 10,
-      select: { metadatos: true, creadoEn: true },
-    });
-    for (const candidato of candidatos) {
-      // Del `uso` del reporte solo se toma la VENTANA (qué tramo cubrió).
-      const ventana = leerResumenGuardado(candidato.metadatos, "uso");
-      if (!ventana) continue;
-      // Una instantánea con reglas viejas (o sin `usoComparable`) no es comparable:
-      // se conserva su ventana y las cifras se recalculan con la regla de hoy. Sin
-      // esto, las cuentas de prueba del período previo inflaban la subida.
-      const guardado = metodologiaAlDia(candidato.metadatos)
-        ? leerResumenGuardado(candidato.metadatos, "usoComparable")
-        : null;
-      const previo =
-        guardado ??
-        (await calcularUsoComparable({
-          desde: new Date(ventana.periodoDesde),
-          hasta: new Date(ventana.periodoHasta),
-          corte: corteGuardado(candidato.metadatos),
-          filtro: params.filtro,
-          nombresClientes: params.nombresClientes,
-        }));
-      return compararUso({
-        actual: params.usoComparableActual,
-        previo,
-        base: "reporte_anterior",
-        generadoEn: candidato.creadoEn.toISOString(),
-      });
-    }
-
-    // 2) Respaldo: el período inmediatamente anterior, de la misma duración.
-    const duracion = params.hasta.getTime() - params.desde.getTime();
-    if (!(duracion > 0)) return null;
-    const hastaPrevio = new Date(params.desde.getTime() - 1);
-    const desdePrevio = new Date(hastaPrevio.getTime() - duracion);
+    const corteActual = params.corte ?? new Date();
+    const previo = periodoAnteriorIgual({ desde: params.desde, hasta: params.hasta, corte: corteActual });
+    if (!previo) return null;
     const resumenPrevio = await calcularUsoComparable({
-      desde: desdePrevio,
-      hasta: hastaPrevio,
+      desde: previo.desde,
+      hasta: previo.hasta,
+      corte: previo.corte,
       filtro: params.filtro,
       nombresClientes: params.nombresClientes,
     });
     // Un período previo sin una sola operación no es una caída: es falta de datos.
     if (resumenPrevio.totalAcciones === 0 && resumenPrevio.totalConexiones === 0) return null;
-    return compararUso({ actual: params.usoComparableActual, previo: resumenPrevio, base: "periodo_anterior" });
+    const comparativo = compararUso({ actual: params.usoComparableActual, previo: resumenPrevio, base: "periodo_anterior" });
+    if (!previo.corte) return comparativo;
+    return {
+      ...comparativo,
+      // El costo de IA consulta esta ventana: con el período abierto, hasta el mismo punto.
+      ventanaPrevia: { desde: comparativo.ventanaPrevia.desde, hasta: previo.corte.toISOString() },
+      corteMismoPunto: { actual: corteActual.toISOString(), previo: previo.corte.toISOString() },
+    };
   } catch {
     return null;
   }
