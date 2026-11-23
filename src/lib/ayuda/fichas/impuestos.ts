@@ -161,10 +161,10 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
   id: "impuestos.retencion",
   titulo: "Retención en la fuente",
   proposito:
-    "Las revisiones de Retención en la fuente de los clientes: cada una revisa, acumulado a un corte, los formularios 350 (declaración) y 490 (pago) del año. El precierre suele ser a septiembre y el cierre a diciembre.",
+    "Las revisiones de Retención en la fuente de los clientes: cada una revisa, acumulado hasta una fecha de corte, los formularios 350 (declaración) y 490 (pago) del año. La fecha de corte es el último día de la información que se revisa, no el mes en que se hace el trabajo: el precierre que se hace en septiembre con la información hasta agosto va con corte al 31 de agosto. El cierre va con corte al 31 de diciembre.",
   antesDeEmpezar: [
     "Se ven las revisiones de los clientes de tu cartera.",
-    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de enero a septiembre.",
+    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los meses hasta el corte del precierre.",
   ],
   etapas: [
     {
@@ -173,7 +173,7 @@ export const FICHA_RETENCION_LISTADO: FichaAyuda = {
         {
           nombre: "Nueva revisión",
           queHace:
-            "Abre la revisión de un cliente para un año y un corte (precierre a septiembre, cierre a diciembre u otro mes). Retención en la fuente es siempre mensual: se espera un 350 por cada mes hasta el corte. Si la revisión ya existe, la abre.",
+            "Abre la revisión de un cliente para un año y una fecha de corte: «Precierre, con fecha de corte hasta el período» con el último mes de la información que se revisa (de enero a noviembre), o «Cierre, con fecha de corte al 31 de diciembre». Retención en la fuente es siempre mensual: se espera un 350 por cada mes hasta el corte, y el balance del cruce tiene que terminar el último día de ese mes. Antes de crearla, la ventana dice qué meses se revisan y la fecha del balance. Si la revisión ya existe, la abre.",
           regla: REGLAS.cargarImpuestos,
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "crearRevisionImpuesto" },
         },
@@ -585,11 +585,11 @@ export const FICHA_IVA_LISTADO: FichaAyuda = {
   id: "impuestos.iva",
   titulo: "IVA",
   proposito:
-    "Las revisiones de IVA de los clientes: cada una revisa, acumulado a un corte, los formularios 300 (declaración) y 490 (pago) del año. El corte es un precierre, en el mes que se elija, o el cierre a diciembre.",
+    "Las revisiones de IVA de los clientes: cada una revisa, acumulado hasta una fecha de corte, los formularios 300 (declaración) y 490 (pago) del año. La fecha de corte es el último día de la información que se revisa, no el mes en que se hace el trabajo: el precierre va con corte al último mes de un período (por ejemplo, el que se hace en septiembre de un cliente bimestral va con corte al 31 de agosto) y el cierre, al 31 de diciembre.",
   antesDeEmpezar: [
     "Se ven las revisiones de los clientes de tu cartera.",
     "La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente y es la misma todo el año.",
-    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los períodos hasta el precierre.",
+    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los períodos hasta el corte del precierre.",
   ],
   etapas: [
     {
@@ -598,7 +598,7 @@ export const FICHA_IVA_LISTADO: FichaAyuda = {
         {
           nombre: "Nueva revisión",
           queHace:
-            "Abre la revisión de un cliente para un año y un corte. El corte tiene que cerrar un período de la periodicidad del cliente: bimestral, febrero, abril, junio, agosto, octubre o diciembre; cuatrimestral, abril, agosto o diciembre; anual, diciembre. Si el cliente no tiene periodicidad de IVA en su ficha, la pide y la guarda allí. Si la revisión ya existe, la abre.",
+            "Abre la revisión de un cliente para un año y una fecha de corte: «Precierre, con fecha de corte hasta el período» con el último mes de la información que se revisa, o «Cierre, con fecha de corte al 31 de diciembre». El mes del precierre tiene que cerrar un período de la periodicidad del cliente: bimestral, febrero, abril, junio, agosto u octubre; cuatrimestral, abril o agosto; anual, solo hay cierre. Antes de crearla, la ventana dice qué períodos se revisan y la fecha del balance. Si el cliente no tiene periodicidad de IVA en su ficha, la pide y la guarda allí. Si la revisión ya existe, la abre.",
           regla: REGLAS.cargarImpuestos,
           fuente: { archivo: `${ACCIONES}/impuestos-revisiones.ts`, funcion: "crearRevisionImpuesto" },
         },
@@ -997,12 +997,12 @@ export const FICHA_RST_LISTADO: FichaAyuda = {
   id: "impuestos.rst",
   titulo: "Anticipos bimestrales (RST)",
   proposito:
-    "Las revisiones de los anticipos bimestrales del Régimen Simple de Tributación: cada una revisa, acumulado a un corte, los recibos electrónicos 2593 y sus recibos de pago 490 concepto 27 del año. El corte es un precierre, en el bimestre que se elija, o el cierre a diciembre.",
+    "Las revisiones de los anticipos bimestrales del Régimen Simple de Tributación: cada una revisa, acumulado hasta una fecha de corte, los recibos electrónicos 2593 y sus recibos de pago 490 concepto 27 del año. La fecha de corte es el último día de la información que se revisa, no el mes en que se hace el trabajo: el precierre va con corte al último mes de un bimestre (el que se hace en septiembre va con corte al 31 de agosto) y el cierre, al 31 de diciembre.",
   antesDeEmpezar: [
     "Solo aplica a los clientes con «Régimen Simple de Tributación» en Sí en su ficha.",
     "Los anticipos son siempre bimestrales.",
     "Se ven las revisiones de los clientes de tu cartera.",
-    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los bimestres hasta el precierre.",
+    "Los formularios son del cliente y el año: el precierre y el cierre del mismo año comparten los de los bimestres hasta el corte del precierre.",
   ],
   etapas: [
     {
@@ -1011,7 +1011,7 @@ export const FICHA_RST_LISTADO: FichaAyuda = {
         {
           nombre: "Nueva revisión",
           queHace:
-            "Abre la revisión de un cliente para un año y un corte: «Precierre» con su mes (febrero, abril, junio, agosto u octubre) o «Cierre · diciembre». La lista muestra primero los clientes con la marca del Régimen Simple. Si la revisión ya existe, la abre.",
+            "Abre la revisión de un cliente para un año y una fecha de corte: «Precierre, con fecha de corte hasta el período» con el último mes de un bimestre de la información que se revisa (febrero, abril, junio, agosto u octubre), o «Cierre, con fecha de corte al 31 de diciembre». Antes de crearla, la ventana dice qué bimestres se revisan y la fecha del balance. La lista muestra primero los clientes con la marca del Régimen Simple. Si la revisión ya existe, la abre.",
           regla: REGLAS.cargarImpuestos,
           condiciones: [
             "Si el cliente tiene «Régimen Simple de Tributación» en No, hay que confirmar que sí pertenece al régimen: al crear la revisión su ficha queda en Sí y el cambio queda en la auditoría.",

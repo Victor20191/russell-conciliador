@@ -14,8 +14,8 @@ import { Icon } from "@/components/icons";
 import type { ActionState } from "@/lib/definitions";
 import { BuscadorListado, FiltroEstadoListado } from "@/app/(app)/modulos/[codigo]/listado-compartido";
 import { NOMBRES_MES } from "@/lib/impuestos/calendario";
-import { impuestoPorClave, nombreCorte, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
-import { mesesCorteValidos } from "@/lib/impuestos/periodicidad";
+import { descripcionCorte, fechaCorteTexto, impuestoPorClave, nombreCorte, RETENCION, type ClaveImpuesto, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { etiquetaPeriodo, mesesCorteValidos, mesesPorPeriodo, periodosEsperados } from "@/lib/impuestos/periodicidad";
 import {
   contarRevisionesPorEstado,
   ESTADOS_REVISION,
@@ -29,8 +29,19 @@ import type { ResultadoRevision } from "@/lib/impuestos/retencion/tipos";
 
 const BOTON_PRIMARIO = "rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
 
-/** «Precierre · septiembre», «Precierre · agosto», «Cierre · diciembre» o «Corte · marzo». */
-const etiquetaCorte = (imp: ImpuestoDian, mes: number) => nombreCorte(imp, mes) ?? `Corte · ${NOMBRES_MES[mes - 1]?.toLowerCase()}`;
+/** Cuántos períodos van hasta el corte: «8 meses», «4 bimestres», «1 año». */
+const UNIDAD_PERIODO: Readonly<Record<string, [string, string]>> = {
+  Mensual: ["mes", "meses"],
+  Bimestral: ["bimestre", "bimestres"],
+  Trimestral: ["trimestre", "trimestres"],
+  Cuatrimestral: ["cuatrimestre", "cuatrimestres"],
+  Semestral: ["semestre", "semestres"],
+  Anual: ["año", "años"],
+};
+const cuantosPeriodos = (periodicidad: string, n: number) => {
+  const [uno, varios] = UNIDAD_PERIODO[periodicidad] ?? ["período", "períodos"];
+  return `${n} ${n === 1 ? uno : varios}`;
+};
 
 export default function RevisionesClient({
   impuestoClave,
@@ -92,7 +103,7 @@ export default function RevisionesClient({
               <tr className="border-b border-ink-150 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
                 <th className="px-3 py-2">Cliente</th>
                 <th className="px-3 py-2">Año</th>
-                <th className="px-3 py-2">Corte</th>
+                <th className="px-3 py-2">Fecha de corte</th>
                 <th className="px-3 py-2 text-right">Formularios del año</th>
                 <th className="px-3 py-2">Estado</th>
                 <th className="px-3 py-2">Creada</th>
@@ -107,7 +118,7 @@ export default function RevisionesClient({
                     <div className="tabular-nums text-[11px] text-ink-400">NIT {r.nitCliente}</div>
                   </td>
                   <td className="px-3 py-2 tabular-nums">{r.anio}</td>
-                  <td className="px-3 py-2">{etiquetaCorte(impuesto, r.mesCorte)}</td>
+                  <td className="px-3 py-2">{nombreCorte(r.anio, r.mesCorte, { conAnio: false })}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {r.confirmados} confirmados{r.porConfirmar > 0 && <span className="ml-1 text-warn-700">· {r.porConfirmar} por confirmar</span>}
                   </td>
@@ -165,7 +176,7 @@ function EliminarRevisionModal({ impuesto, revision, onClose }: { impuesto: Impu
       <form id="eliminar-revision" action={action} className="flex flex-col gap-2 text-[12.5px] text-ink-700">
         <input type="hidden" name="id" value={revision.id} />
         <p>
-          Se elimina la revisión de {impuesto.nombre} de <span className="font-semibold text-ink-900">{revision.nombreCliente}</span>, {revision.anio}, corte {etiquetaCorte(impuesto, revision.mesCorte).toLowerCase()}.
+          Se elimina la revisión de {impuesto.nombre} de <span className="font-semibold text-ink-900">{revision.nombreCliente}</span>: {descripcionCorte(revision.anio, revision.mesCorte)}.
         </p>
         <p className="text-ink-500">
           Los formularios del cliente y el año se conservan, porque los usan las otras revisiones del año. La eliminación queda en la bitácora.
@@ -180,8 +191,7 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const [state, action, creando] = useActionState<ResultadoRevision, FormData>(crearRevisionImpuesto, {});
   const [clienteId, setClienteId] = useState("");
   const [anio, setAnio] = useState(String(anioActual));
-  const [mesCorte, setMesCorte] = useState(String(impuesto.cortesAtajo[0]?.mes ?? 12));
-  // IVA: «Precierre» (con su mes) o «Cierre · diciembre»; sin elegir, no se crea.
+  // El corte: «Precierre» hasta el mes que se elija o «Cierre» a diciembre; sin elegir, no se crea.
   const [tipoCorte, setTipoCorte] = useState<"" | "precierre" | "cierre">("");
   const [mesPrecierre, setMesPrecierre] = useState("");
   const [periodicidadElegida, setPeriodicidadElegida] = useState("");
@@ -198,15 +208,21 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const deLaFicha = cliente?.periodicidad ?? null;
   const periodicidad = unica ?? deLaFicha ?? (periodicidadElegida || null);
   const pidePeriodicidad = !unica && cliente != null && deLaFicha == null;
-  // El corte cierra un período: con una periodicidad que no admite el elegido, se toma el último que sí.
-  const validos = periodicidad ? mesesCorteValidos(periodicidad) : [];
-  const corte = validos.length === 0 || validos.includes(Number(mesCorte)) ? mesCorte : String(validos[validos.length - 1]);
-  const atajos = impuesto.cortesAtajo.filter((c) => validos.length === 0 || validos.includes(c.mes));
-  // Meses de precierre: los que cierran un período antes de diciembre (con periodicidad anual, ninguno).
-  const mesesPrecierre = validos.filter((m) => m < 12);
-  const tipo = tipoCorte === "precierre" && periodicidad && mesesPrecierre.length === 0 ? "" : tipoCorte;
-  const corteIva = tipo === "cierre" ? "12" : tipo === "precierre" && mesesPrecierre.includes(Number(mesPrecierre)) ? mesPrecierre : "";
-  const corteFinal = impuesto.precierreConMes ? corteIva : corte;
+  // El corte cierra un período. Meses de precierre: los que cierran uno antes de diciembre (con periodicidad anual, ninguno).
+  const mesesPrecierre = periodicidad ? mesesCorteValidos(periodicidad).filter((m) => m < 12) : [];
+  const soloCierre = !!periodicidad && mesesPrecierre.length === 0;
+  const tipo = tipoCorte === "precierre" && soloCierre ? "" : tipoCorte;
+  const mesCorte = tipo === "cierre" ? 12 : tipo === "precierre" && mesesPrecierre.includes(Number(mesPrecierre)) ? Number(mesPrecierre) : null;
+  const anioCorte = Number(anio);
+  // «Agosto» con periodicidad mensual; «Agosto (bimestre 04)» con las demás (corto, para que quepa al frente de la pregunta).
+  const opcionMes = (m: number) => {
+    const nombre = NOMBRES_MES[m - 1];
+    const meses = periodicidad ? mesesPorPeriodo(periodicidad) : 1;
+    return meses === 1 || !periodicidad ? nombre : `${nombre} (${etiquetaPeriodo(periodicidad, m / meses).split(" · ")[0].toLowerCase()})`;
+  };
+  const queSeRevisa = mesCorte && periodicidad
+    ? `Se revisan los formularios ${impuesto.declaracion.codigo} y 490 ${mesCorte === 1 ? "de enero" : `de enero a ${NOMBRES_MES[mesCorte - 1].toLowerCase()}`} de ${anioCorte}${periodicidad === "Anual" ? "" : ` (${cuantosPeriodos(periodicidad, periodosEsperados(periodicidad, mesCorte).length)})`}. El balance debe tener corte al ${fechaCorteTexto(anioCorte, mesCorte)}.`
+    : null;
   const pideConfirmarRegimen = impuesto.requiereRegimenSimple && cliente != null && !cliente.regimenSimple;
   // En RST, primero los clientes con la marca del Régimen Simple (en orden alfabético, como llegan).
   const opcionesClientes = impuesto.requiereRegimenSimple ? [...clientes].sort((a, b) => Number(b.regimenSimple) - Number(a.regimenSimple)) : clientes;
@@ -214,7 +230,7 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
   const anios = [anioActual, anioActual - 1, anioActual - 2];
   return (
     <Modal open onClose={onClose} title={`Nueva revisión de ${impuesto.nombre}`} size="xl" footer={
-      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad || !corteFinal || (pideConfirmarRegimen && !confirmaRegimen)} className={BOTON_PRIMARIO}>
+      <button type="submit" form="nueva-revision" disabled={creando || !clienteId || !periodicidad || mesCorte == null || (pideConfirmarRegimen && !confirmaRegimen)} className={BOTON_PRIMARIO}>
         {creando ? <EstadoProcesando>Creando</EstadoProcesando> : "Crear revisión"}
       </button>
     }>
@@ -271,72 +287,49 @@ function NuevaRevisionModal({ impuesto, clientes, anioActual, onClose }: { impue
             </label>
           )
         )}
-        <div className="flex flex-wrap gap-4">
-          <label className="flex flex-col gap-1">
-            <span className="font-semibold text-ink-700">Año</span>
-            <select name="anio" value={anio} onChange={(e) => setAnio(e.target.value)} className="h-9 rounded-md border border-ink-200 bg-white px-2">
-              {anios.map((a) => <option key={a} value={a}>{a}</option>)}
+        <label className="flex w-32 flex-col gap-1">
+          <span className="font-semibold text-ink-700">Año</span>
+          <select name="anio" value={anio} onChange={(e) => setAnio(e.target.value)} className="h-9 rounded-md border border-ink-200 bg-white px-2">
+            {anios.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 font-semibold text-ink-700">¿Qué vas a revisar?</legend>
+          <div className="flex items-center gap-2">
+            <label className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap ${soloCierre ? "text-ink-400" : ""}`}>
+              <input type="radio" name="tipoCorte" checked={tipo === "precierre"} disabled={soloCierre} onChange={() => setTipoCorte("precierre")} />
+              Precierre, con fecha de corte hasta el período:
+            </label>
+            <select
+              value={soloCierre ? "" : mesPrecierre}
+              onChange={(e) => {
+                setMesPrecierre(e.target.value);
+                if (e.target.value) setTipoCorte("precierre");
+              }}
+              disabled={!periodicidad || soloCierre}
+              aria-label="Mes de la fecha de corte del precierre"
+              className="h-8 min-w-0 rounded-md border border-ink-200 bg-white px-2 disabled:bg-ink-50 disabled:text-ink-400"
+            >
+              <option value="">{periodicidad ? "Elige el mes" : "Elige primero la periodicidad"}</option>
+              {mesesPrecierre.map((m) => <option key={m} value={m}>{opcionMes(m)}</option>)}
             </select>
+          </div>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" name="tipoCorte" checked={tipo === "cierre"} onChange={() => setTipoCorte("cierre")} />
+            Cierre, con fecha de corte al 31 de diciembre
           </label>
-          {impuesto.precierreConMes ? (
-            <fieldset className="flex flex-col gap-1">
-              <legend className="mb-1 font-semibold text-ink-700">¿A qué corte se revisa?</legend>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className={`flex items-center gap-1.5 ${periodicidad && mesesPrecierre.length === 0 ? "text-ink-400" : ""}`}>
-                  <input
-                    type="radio"
-                    name="tipoCorte"
-                    checked={tipo === "precierre"}
-                    disabled={!!periodicidad && mesesPrecierre.length === 0}
-                    onChange={() => setTipoCorte("precierre")}
-                  />
-                  Precierre
-                </label>
-                {tipo === "precierre" && (
-                  <select
-                    value={mesPrecierre}
-                    onChange={(e) => setMesPrecierre(e.target.value)}
-                    aria-label="Mes del precierre"
-                    autoFocus
-                    className="h-8 rounded-md border border-ink-200 bg-white px-2"
-                  >
-                    <option value="">Elige el mes del precierre</option>
-                    {(periodicidad ? mesesPrecierre : [...Array(11).keys()].map((i) => i + 1)).map((m) => (
-                      <option key={m} value={m} disabled={!periodicidad}>{NOMBRES_MES[m - 1]}</option>
-                    ))}
-                  </select>
-                )}
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" name="tipoCorte" checked={tipo === "cierre"} onChange={() => setTipoCorte("cierre")} />
-                  Cierre · diciembre
-                </label>
-              </div>
-              {pidePeriodicidad && !periodicidad && <span className="text-[11.5px] text-ink-500">Elige la periodicidad: el precierre tiene que cerrar uno de sus períodos.</span>}
-              {periodicidad && mesesPrecierre.length === 0 && <span className="text-[11.5px] text-ink-500">Con periodicidad {periodicidad.toLowerCase()} solo hay cierre a diciembre.</span>}
-              <input type="hidden" name="mesCorte" value={corteIva} />
-            </fieldset>
-          ) : (
-          <fieldset className="flex flex-col gap-1">
-            <legend className="mb-1 font-semibold text-ink-700">¿A qué corte se revisa?</legend>
-            <div className="flex flex-wrap items-center gap-3">
-              {atajos.map((o) => (
-                <label key={o.mes} className="flex items-center gap-1.5">
-                  <input type="radio" name="mesCorteAtajo" checked={corte === String(o.mes)} onChange={() => setMesCorte(String(o.mes))} />
-                  {o.etiqueta}
-                </label>
-              ))}
-              <label className="flex items-center gap-1.5">
-                Otro mes
-                <select value={corte} onChange={(e) => setMesCorte(e.target.value)} className="h-8 rounded-md border border-ink-200 bg-white px-2">
-                  {NOMBRES_MES.map((m, i) => (validos.length === 0 || validos.includes(i + 1)) && <option key={m} value={i + 1}>{m}</option>)}
-                </select>
-              </label>
-            </div>
-            {pidePeriodicidad && !periodicidad && <span className="text-[11.5px] text-ink-500">Elige la periodicidad: el corte tiene que cerrar uno de sus períodos.</span>}
-            <input type="hidden" name="mesCorte" value={corte} />
-          </fieldset>
+          {!periodicidad && (
+            <span className="text-[11.5px] text-ink-500">
+              {pidePeriodicidad ? "Elige la periodicidad: el precierre tiene que cerrar uno de sus períodos." : "Elige el cliente: los meses del precierre dependen de su periodicidad."}
+            </span>
           )}
-        </div>
+          {soloCierre && <span className="text-[11.5px] text-ink-500">Con periodicidad {periodicidad?.toLowerCase()} solo hay cierre a diciembre.</span>}
+          {queSeRevisa && <p className="rounded-md bg-navy-50 px-3 py-2 text-[12px] text-navy-800">{queSeRevisa}</p>}
+          <span className="text-[11.5px] text-ink-500">
+            Elige el último mes de la información que vas a revisar, no el mes en que haces el precierre: si en septiembre revisas hasta agosto, elige agosto.
+          </span>
+          <input type="hidden" name="mesCorte" value={mesCorte ?? ""} />
+        </fieldset>
       </form>
     </Modal>
   );

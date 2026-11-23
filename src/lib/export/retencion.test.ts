@@ -22,7 +22,7 @@ const cruce: CruceRetencionVista = {
     marcas: [{ clave: "236705", numero: 1, nota: "Falta la contabilidad del reteIVA", referenciaAnexo: "PT-RET-02", diferencia: 17_817_000, marcadoPor: "Senior", marcadoEn: "2026-10-31T15:00:00.000Z" }],
   }),
 };
-const meta = { cliente: "CLIENTE DE PRUEBA S.A.S.", nit: "900123456", anio: 2026, corte: "agosto", periodicidad: "Mensual" };
+const meta = { cliente: "CLIENTE DE PRUEBA S.A.S.", nit: "900123456", anio: 2026, corte: "Precierre con fecha de corte al 31 de agosto de 2026", periodicidad: "Mensual" };
 const formularios = [{ periodo: "Enero", formulario: "350", numero: "3510673781751", estado: "Confirmado", correccionDe: "3510669606483", concepto: null, numeroPagado: null, fecha: "2026-04-07", autoadhesivo: "91900433058007", corregidoAMano: "" }];
 
 /** Valor de la última columna de la fila cuya primera celda es `etiqueta`. */

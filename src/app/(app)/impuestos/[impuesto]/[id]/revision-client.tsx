@@ -19,7 +19,6 @@ import {
   registrarPeriodoSinFormulario,
 } from "@/app/actions/impuestos-revisiones";
 import type { ActionState } from "@/lib/definitions";
-import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { etiquetaConceptoPago } from "@/lib/impuestos/formularios/f490";
 import { renglonDe, rotuloRenglon, valorRenglon, type DefinicionFormulario } from "@/lib/impuestos/formularios/definicion";
 import { lecturaConErrores } from "@/lib/impuestos/retencion/lectura";
@@ -33,7 +32,7 @@ import {
   type EstadoPeriodo,
   type PeriodoRevision,
 } from "@/lib/impuestos/retencion/periodos-revision";
-import { impuestoPorClave, nombreCorte, RETENCION, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
+import { fechaCorteTexto, impuestoPorClave, nombreCorte, RETENCION, tipoCorte, type ImpuestoDian } from "@/lib/impuestos/impuestos-dian";
 import { alertaRecibosSin350, alertaSinRecibo } from "@/lib/impuestos/retencion/pagos";
 import type { FormularioVista, RevisionVista } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
@@ -54,8 +53,6 @@ const TONO_ESTADO: Record<EstadoPeriodo, "ok" | "warn" | "err" | "ink" | "blue">
   completo: "ok", por_confirmar: "warn", falta_350: "err", sin_formulario: "ink", falta_original: "warn", faltan_pagos: "warn",
 };
 const CONCURRENCIA_LECTURA = 2;
-/** El mes del corte. Los períodos de la revisión se nombran con su periodicidad (`etiquetaPeriodoRevision`). */
-const mes = (p: number) => NOMBRES_MES[p - 1] ?? `Período ${p}`;
 type Etiqueta = (periodo: number) => string;
 
 type EnCola = { nombre: string; estado: "pendiente" | "leyendo" | "ok" | "error"; mensaje?: string };
@@ -91,7 +88,6 @@ export default function RevisionClient({
   const contexto = { revisionId: revision.id, nitCliente: revision.nitCliente, anio: revision.anio, mesCorte: revision.mesCorte, impuesto: impuesto.clave, periodicidad: revision.periodicidad };
   // Con periodicidad anual hay un solo período: el acumulado sería igual a la vista por períodos.
   const hay = (t: TabRevisionRetencion) => impuesto.pestanas.includes(t) && !(t === "acumulado" && revision.periodicidad === "Anual");
-  const nombreDelCorte = nombreCorte(impuesto, revision.mesCorte);
   const porId = new Map(revision.formularios.map((f) => [f.id, f]));
   const [tab, setTab] = useState<TabRevisionRetencion>("formularios");
   useAnunciarPestanaAyuda(tab);
@@ -108,7 +104,7 @@ export default function RevisionClient({
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <Dato etiqueta="NIT" valor={revision.nitCliente} />
             <Dato etiqueta="Año" valor={String(revision.anio)} />
-            <Dato etiqueta="Corte" valor={`${mes(revision.mesCorte)}${nombreDelCorte ? ` · ${nombreDelCorte.split(" · ")[0].toLowerCase()}` : ""}`} />
+            <Dato etiqueta="Fecha de corte" valor={`${fechaCorteTexto(revision.anio, revision.mesCorte)} · ${tipoCorte(revision.mesCorte).toLowerCase()}`} />
             <Dato etiqueta="Periodicidad" valor={revision.periodicidad} />
             <Dato etiqueta="Estado" valor={revision.estado === "en_firme" ? "En firme" : "En proceso"} />
           </div>
@@ -570,7 +566,7 @@ function DescartarFormulariosModal({ revision, impuesto, etq, puedeDescartarConf
   const todos = elegibles.length > 0 && seleccionados.length === elegibles.length;
   const confirmadosElegidos = seleccionados.filter((f) => f.estado === "confirmado").length;
   const cuantos = seleccionados.length === 1 ? "1 formulario" : `${seleccionados.length} formularios`;
-  const nombreRevision = (r: RevisionDelAnio) => `${nombreCorte(impuesto, r.mesCorte) ?? `Corte · ${mes(r.mesCorte).toLowerCase()}`}${r.id === revision.id ? " (esta)" : ""}`;
+  const nombreRevision = (r: RevisionDelAnio) => `${nombreCorte(revision.anio, r.mesCorte, { conAnio: false })}${r.id === revision.id ? " (esta)" : ""}`;
   const alternar = (id: number) => setMarcados((prev) => {
     const sig = new Set(prev);
     if (sig.has(id)) sig.delete(id);

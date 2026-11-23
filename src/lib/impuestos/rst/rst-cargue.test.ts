@@ -6,6 +6,8 @@ import { calcularTotal, controlarTotales, controlarValidaciones, renglonesConImp
 import { F2593, RENGLON_TOTAL_F2593 } from "../formularios/f2593";
 import {
   conceptosPagoDe,
+  descripcionCorte,
+  fechaCorteTexto,
   impuestoPorDeclaracion,
   impuestoPorSlug,
   IVA,
@@ -14,6 +16,7 @@ import {
   renglonSanciones,
   RETENCION,
   RST,
+  tipoCorte,
 } from "../impuestos-dian";
 import { CONTROLES_QUE_RECHAZAN, controlesLectura, lecturaConErrores, mapaValores, normalizarLectura, type LecturaCruda, type LecturaFormulario } from "../retencion/lectura";
 import { pagosRevision } from "../retencion/pagos";
@@ -283,8 +286,17 @@ describe("descriptor de RST", () => {
     expect(midePresentacion(IVA)).toBe(true);
     expect(RST.requiereRegimenSimple && RST.claveFormularioCliente === null).toBe(true);
     expect(RST.cruce.disponible && RST.cierreEnFirme).toBe(true);
-    expect(nombreCorte(RST, 4)).toBe("Precierre · abril");
-    expect(nombreCorte(RST, 12)).toBe("Cierre · diciembre");
+  });
+
+  it("el corte se nombra por su fecha: el último día de la información revisada", () => {
+    expect(nombreCorte(2026, 4)).toBe("Precierre · 30 de abril de 2026");
+    expect(nombreCorte(2026, 8, { conAnio: false })).toBe("Precierre · 31 de agosto");
+    expect(nombreCorte(2026, 12)).toBe("Cierre · 31 de diciembre de 2026");
+    expect(fechaCorteTexto(2028, 2)).toBe("29 de febrero de 2028");
+    expect(fechaCorteTexto(2026, 2)).toBe("28 de febrero de 2026");
+    expect(descripcionCorte(2026, 8)).toBe("precierre con fecha de corte al 31 de agosto de 2026");
+    expect(tipoCorte(11)).toBe("Precierre");
+    expect(tipoCorte(12)).toBe("Cierre");
   });
 
   it("solo RST no tiene renglón de sanciones", () => {

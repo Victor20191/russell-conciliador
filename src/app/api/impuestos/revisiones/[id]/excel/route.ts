@@ -3,11 +3,10 @@ import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
 import { registrarError } from "@/lib/errores";
 import { contentDispositionSeguro, cuerpoBinario } from "@/lib/modulos/respuesta-archivo";
-import { NOMBRES_MES } from "@/lib/impuestos/calendario";
 import { cargarRevision } from "@/lib/impuestos/retencion/revision-servidor";
 import { vistasRevision } from "@/lib/impuestos/retencion/vistas";
 import { etiquetaPeriodoRevision } from "@/lib/impuestos/retencion/periodos-revision";
-import { impuestoPorClave, nombreCorte, RETENCION } from "@/lib/impuestos/impuestos-dian";
+import { descripcionCorte, impuestoPorClave, RETENCION } from "@/lib/impuestos/impuestos-dian";
 import { cargarResultadosRevision } from "@/lib/impuestos/retencion/resultados-servidor";
 import type { ResultadosExcel } from "@/lib/export/retencion";
 import { excelRetencion } from "@/lib/export/retencion";
@@ -34,7 +33,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const alcance = await authorizePermiso("impuestos:ver", { clientId: revision.clienteId, modo: "lectura" });
     if (!alcance.ok) return new Response("No encontrado", { status: 404 });
     const impuesto = impuestoPorClave(revision.impuesto) ?? RETENCION;
-    const mes = (p: number) => NOMBRES_MES[p - 1] ?? `Período ${p}`;
     // El cruce y los resultados solo entran si el impuesto ya los tiene (IVA los suma en las fases 4 y 5).
     // Un fallo de los resultados no impide descargar las vistas: la hoja del cruce lo explica.
     const calculados = impuesto.pestanas.includes("cruce")
@@ -53,8 +51,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           }
         : { cruce: { estado: "bloqueado", mensaje: "No fue posible calcular el cruce contable.", balance: null, umbral: 0 } };
     const periodos = calculados?.periodos ?? revision.periodos;
-    const nombreDelCorte = nombreCorte(impuesto, revision.mesCorte);
-    const corte = `${mes(revision.mesCorte).toLowerCase()}${nombreDelCorte ? ` (${nombreDelCorte.split(" · ")[0].toLowerCase()})` : ""}`;
+    const corte = descripcionCorte(revision.anio, revision.mesCorte).replace(/^./, (c) => c.toUpperCase());
     const buffer = await excelRetencion(
       { impuesto: impuesto.nombre, cliente: revision.nombreCliente, nit: revision.nitCliente, anio: revision.anio, corte, periodicidad: revision.periodicidad },
       vistasRevision(periodos, revision.impuesto, revision.periodicidad),

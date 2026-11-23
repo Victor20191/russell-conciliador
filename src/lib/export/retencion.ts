@@ -23,6 +23,7 @@ export type MetaRevisionExcel = {
   cliente: string;
   nit: string;
   anio: number;
+  /** El corte en una frase, con su año: «Precierre con fecha de corte al 31 de agosto de 2026». */
   corte: string;
   periodicidad: string;
 };
@@ -44,7 +45,7 @@ export type FormularioExcel = {
 
 function encabezadoLibro(ws: ExcelJS.Worksheet, meta: MetaRevisionExcel, titulo: string): void {
   ws.addRow([`${meta.impuesto ?? "Retención en la fuente"} · ${titulo}`]).font = { bold: true, size: 13, color: { argb: EXCEL.titulo } };
-  ws.addRow([`${meta.cliente} · NIT ${meta.nit} · ${meta.anio} · corte ${meta.corte} · periodicidad ${meta.periodicidad}`]).font = { color: { argb: EXCEL.textoSecundario } };
+  ws.addRow([`${meta.cliente} · NIT ${meta.nit} · ${meta.corte} · periodicidad ${meta.periodicidad}`]).font = { color: { argb: EXCEL.textoSecundario } };
   ws.addRow([]);
 }
 

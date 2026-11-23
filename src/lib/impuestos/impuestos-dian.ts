@@ -109,13 +109,11 @@ export type ImpuestoDian = {
   };
   /** Retención declara por persona jurídica y natural; IVA, un solo valor por renglón. */
   columnasPersona: boolean;
-  periodicidades: readonly Periodicidad[];
-  cortesAtajo: readonly { mes: number; etiqueta: string }[];
   /**
-   * IVA: el corte es «Precierre» en el mes que se elija (uno que cierre período) o «Cierre · diciembre».
-   * Retención: atajos fijos más «Otro mes».
+   * El corte se elige igual en todos: «Precierre» hasta el mes que cierre un período de la periodicidad
+   * (ver `mesesCorteValidos`) o «Cierre» a diciembre. Ver `tipoCorte`.
    */
-  precierreConMes: boolean;
+  periodicidades: readonly Periodicidad[];
   /** El calendario que mide la oportunidad de un año: IVA anual vence en febrero del año siguiente. */
   calendario: (periodicidad: string, anio: number) => { formulario: FormularioCalendario; anio: number } | null;
   cruce: {
@@ -215,15 +213,13 @@ export const RETENCION: ImpuestoDian = {
   cierreEnFirme: true,
   textos: {
     totalPeriodo: { etiqueta: "Total retenciones", renglon: 136 },
-    subtituloLista: "Revisión acumulada de los formularios 350 (declaración) y 490 (pago) de cada cliente a un corte: el precierre, generalmente a septiembre, y el cierre a diciembre.",
+    subtituloLista: "Revisión acumulada de los formularios 350 (declaración) y 490 (pago) de cada cliente hasta una fecha de corte: el precierre, con corte al último mes de la información que se revisa (el que se hace en septiembre suele ir con corte a agosto), y el cierre, a diciembre.",
     subtituloRevision: "Importa los PDF de los formularios 350 y 490 del año hasta el corte, revisa lo que leyó la IA y confírmalo. Un formulario solo cuenta cuando está confirmado.",
     explicacionCausal: "Un mes sin retenciones que declarar no es un error.",
     ejemploCausal: "Ej.: en el mes no hubo pagos sujetos a retención.",
   },
   columnasPersona: true,
   periodicidades: ["Mensual"],
-  cortesAtajo: [{ mes: 9, etiqueta: "Precierre · septiembre" }, { mes: 12, etiqueta: "Cierre · diciembre" }],
-  precierreConMes: false,
   calendario: (periodicidad, anio) => (periodicidad === "Mensual" ? { formulario: "RETEFUENTE", anio } : null),
   cruce: {
     disponible: true,
@@ -288,15 +284,13 @@ export const IVA: ImpuestoDian = {
   cierreEnFirme: true,
   textos: {
     totalPeriodo: { etiqueta: "Total saldo a pagar", renglon: 88 },
-    subtituloLista: "Revisión acumulada de los formularios 300 (declaración de IVA) y 490 (pago) de cada cliente a un corte: el precierre, en el mes que se elija, y el cierre a diciembre. La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente.",
+    subtituloLista: "Revisión acumulada de los formularios 300 (declaración de IVA) y 490 (pago) de cada cliente hasta una fecha de corte: el precierre, con corte al último período de la información que se revisa (por ejemplo, agosto en bimestral), y el cierre, a diciembre. La periodicidad (bimestral, cuatrimestral o anual) es la de la ficha del cliente.",
     subtituloRevision: "Importa los PDF de los formularios 300 y 490 del año hasta el corte, revisa lo que leyó la IA y confírmalo. Un formulario solo cuenta cuando está confirmado.",
     explicacionCausal: "Un período sin operaciones que declarar no es un error.",
     ejemploCausal: "Ej.: en el bimestre no hubo operaciones gravadas ni ingresos.",
   },
   columnasPersona: false,
   periodicidades: ["Bimestral", "Cuatrimestral", "Anual"],
-  cortesAtajo: [{ mes: 12, etiqueta: "Cierre · diciembre" }],
-  precierreConMes: true,
   calendario: (periodicidad, anio) =>
     periodicidad === "Bimestral"
       ? { formulario: "IVA_BIMESTRAL", anio }
@@ -386,15 +380,13 @@ export const RST: ImpuestoDian = {
   textos: {
     totalPeriodo: { etiqueta: "Total valores a pagar", renglon: RENGLON_TOTAL_F2593 },
     subtituloLista:
-      "Revisión acumulada de los recibos electrónicos 2593 (anticipo bimestral del Régimen Simple de Tributación) y sus 490 concepto 27 de cada cliente a un corte: el precierre, en el bimestre que se elija, y el cierre a diciembre. Solo para clientes del Régimen Simple.",
+      "Revisión acumulada de los recibos electrónicos 2593 (anticipo bimestral del Régimen Simple de Tributación) y sus 490 concepto 27 de cada cliente hasta una fecha de corte: el precierre, con corte al último bimestre de la información que se revisa, y el cierre, a diciembre. Solo para clientes del Régimen Simple.",
     subtituloRevision: "Importa los PDF de los recibos 2593 y de los 490 concepto 27 del año hasta el corte, revisa lo que leyó la IA y confírmalo. Un formulario solo cuenta cuando está confirmado.",
     explicacionCausal: "Un bimestre sin anticipo que liquidar no es un error.",
     ejemploCausal: "Ej.: el cliente entró al Régimen Simple en el bimestre siguiente.",
   },
   columnasPersona: false,
   periodicidades: ["Bimestral"],
-  cortesAtajo: [{ mes: 12, etiqueta: "Cierre · diciembre" }],
-  precierreConMes: true,
   calendario: (periodicidad, anio) => (periodicidad === "Bimestral" ? { formulario: "RST_ANTICIPO", anio } : null),
   cruce: {
     disponible: true,
@@ -470,14 +462,30 @@ export function impuestoPorSlug(slug: string | null | undefined): ImpuestoDian |
 }
 
 /**
- * Cómo se nombra el corte de una revisión: el atajo («Precierre · septiembre», «Cierre · diciembre»),
- * «Precierre · agosto» en IVA (cualquier mes antes de diciembre) o null si es otro mes sin nombre.
+ * El corte de una revisión es la fecha hasta la que llega la información revisada (el último día del
+ * mes de corte), no el mes en que se hace el trabajo: el precierre que se hace en septiembre con la
+ * información de enero a agosto tiene corte al 31 de agosto. Diciembre es el cierre; cualquier mes
+ * anterior, un precierre.
  */
-export function nombreCorte(impuesto: ImpuestoDian, mes: number): string | null {
-  const atajo = impuesto.cortesAtajo.find((c) => c.mes === mes);
-  if (atajo) return atajo.etiqueta;
-  if (impuesto.precierreConMes && mes >= 1 && mes < 12) return `Precierre · ${NOMBRES_MES[mes - 1].toLowerCase()}`;
-  return null;
+export function tipoCorte(mes: number): "Precierre" | "Cierre" {
+  return mes === 12 ? "Cierre" : "Precierre";
+}
+
+/** «31 de agosto de 2026» (o «31 de agosto» sin el año): el último día del mes de corte. */
+export function fechaCorteTexto(anio: number, mes: number, { conAnio = true }: { conAnio?: boolean } = {}): string {
+  const dia = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+  const nombreMes = (NOMBRES_MES[mes - 1] ?? `mes ${mes}`).toLowerCase();
+  return `${dia} de ${nombreMes}${conAnio ? ` de ${anio}` : ""}`;
+}
+
+/** Cómo se nombra el corte en las listas: «Precierre · 31 de agosto de 2026», «Cierre · 31 de diciembre». */
+export function nombreCorte(anio: number, mes: number, opciones?: { conAnio?: boolean }): string {
+  return `${tipoCorte(mes)} · ${fechaCorteTexto(anio, mes, opciones)}`;
+}
+
+/** El corte dicho en una frase: «precierre con fecha de corte al 31 de agosto de 2026». */
+export function descripcionCorte(anio: number, mes: number): string {
+  return `${tipoCorte(mes).toLowerCase()} con fecha de corte al ${fechaCorteTexto(anio, mes)}`;
 }
 
 /** El impuesto cuyo formulario de declaración es este código («350» → Retención, «300» → IVA, «2593» → RST). */
