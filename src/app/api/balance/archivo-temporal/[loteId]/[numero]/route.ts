@@ -3,6 +3,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { guardarParteArchivoBalance } from "@/lib/balance/archivo-temporal-servidor";
 import { BALANCE_UPLOAD_CHUNK_BYTES } from "@/lib/balance/limites-archivo";
+import { registrarError } from "@/lib/errores";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,12 +33,22 @@ export async function PUT(
   if (contenido.byteLength > BALANCE_UPLOAD_CHUNK_BYTES) {
     return Response.json({ message: "El fragmento supera el límite permitido." }, { status: 413 });
   }
-  const resultado = await guardarParteArchivoBalance({
-    loteId: parsed.data.loteId,
-    usuarioId: usuario.id,
-    numero: parsed.data.numero,
-    contenido,
-  });
+  let resultado: Awaited<ReturnType<typeof guardarParteArchivoBalance>>;
+  try {
+    resultado = await guardarParteArchivoBalance({
+      loteId: parsed.data.loteId,
+      usuarioId: usuario.id,
+      numero: parsed.data.numero,
+      contenido,
+    });
+  } catch (e) {
+    // Sin esto el cliente solo ve «No se pudo transferir el archivo del balance».
+    registrarError("guardar parte del archivo temporal", e);
+    return Response.json(
+      { ok: false, message: `No se pudo guardar la parte ${parsed.data.numero} del archivo. Reintenta la carga; si se repite, repórtalo a la Mesa de ayuda.` },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   return Response.json(resultado, {
     status: resultado.ok ? 200 : resultado.status,
     headers: { "Cache-Control": "no-store" },

@@ -10,9 +10,18 @@ type ResultadoOperacion =
   | { ok: true }
   | { ok: false; message: string; status: number };
 
+type PlazoTransaccion = { maxWait: number; timeout: number };
+const PLAZO_CORTO: PlazoTransaccion = { maxWait: 5_000, timeout: 10_000 };
+/**
+ * Escribir una parte de 3 MB: el plazo cubre esperar el turno de las otras partes del mismo archivo
+ * (el cliente sube 3 a la vez y el candado las pone en fila) más la escritura en la BD remota.
+ */
+const PLAZO_PARTE: PlazoTransaccion = { maxWait: 30_000, timeout: 120_000 };
+
 async function conArchivoBloqueado<T>(
   loteId: string,
   operar: (tx: Prisma.TransactionClient) => Promise<T>,
+  plazo: PlazoTransaccion = PLAZO_CORTO,
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
     // El candado coordina también el caso todavía inexistente y la recreación.
@@ -20,7 +29,7 @@ async function conArchivoBloqueado<T>(
     // El bloqueo de fila hace que la purga por vencimiento también espere.
     await tx.$queryRaw`SELECT lote_id FROM balance_archivo_temporal WHERE lote_id = ${loteId} FOR UPDATE`;
     return operar(tx);
-  }, { maxWait: 5_000, timeout: 10_000 });
+  }, plazo);
 }
 
 async function purgarArchivosExpirados(): Promise<void> {
@@ -96,7 +105,12 @@ export async function guardarParteArchivoBalance(args: {
   numero: number;
   contenido: Uint8Array;
 }): Promise<ResultadoOperacion> {
-  return conArchivoBloqueado(args.loteId, async (tx) => {
+  // La parte se escribe bajo el candado del lote: así no puede caer en un lote que otro usuario
+  // descartó y recreó mientras subía. Con la BD remota, escribir 3 MB (bytea viaja en hexadecimal, el
+  // doble) y esperar el turno de las otras partes del mismo archivo superaba los 10 s por defecto, y
+  // un archivo de varias partes (el de movimientos del ERP de MUMA, 34 MB) no terminaba de subir:
+  // las partes llevan su propio plazo, más largo.
+  return conArchivoBloqueado(args.loteId, async (tx): Promise<ResultadoOperacion> => {
     const archivo = await tx.balanceArchivoTemporal.findUnique({
       where: { loteId: args.loteId },
       select: {
@@ -145,7 +159,7 @@ export async function guardarParteArchivoBalance(args: {
       },
     });
     return { ok: true };
-  });
+  }, PLAZO_PARTE);
 }
 
 export async function completarArchivoBalanceTemporal(args: {
