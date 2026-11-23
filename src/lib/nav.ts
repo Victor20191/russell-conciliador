@@ -28,6 +28,10 @@ export type NavItem = {
   roles?: readonly string[];
 };
 
+// Los módulos de conciliación van en el menú en orden ALFABÉTICO (Activos fijos, Cartera, Cuentas por
+// pagar, Ingresos, Inventarios, Nómina), en el submenú y en «Perfiles de carga».
+const MODULOS_MENU = Object.values(MODULOS_IMPORT).sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
+
 // Estructura del menú — rutas reales (App Router) que reemplazan el enrutado por estado del prototipo
 export const workNav: NavItem[] = [
   { label: "Inicio", href: "/dashboard", icon: "home", permiso: "dashboard:ver", modulo: "dashboard" },
@@ -64,11 +68,11 @@ export const workNav: NavItem[] = [
     // de cada módulo NO van en el menú: viven como pestaña dentro del módulo
     // (`/modulos/[codigo]/borradores`, ver `pestanas-modulo.tsx`).
     label: "Módulos de conciliación",
-    href: `/modulos/${(Object.values(MODULOS_IMPORT)[0]?.codigo ?? "INV").toLowerCase()}`,
+    href: `/modulos/${(MODULOS_MENU[0]?.codigo ?? "INV").toLowerCase()}`,
     icon: "box",
     permiso: "modulos_datos:ver",
     modulo: "modulos_datos",
-    children: Object.values(MODULOS_IMPORT).map((m) => ({
+    children: MODULOS_MENU.map((m) => ({
       label: m.label,
       href: `/modulos/${m.codigo.toLowerCase()}`,
       permiso: "modulos_datos:ver",
@@ -198,7 +202,7 @@ export const configSecciones: NavSeccion[] = [
         modulo: "perfiles_carga",
         children: [
           { label: "Balance", href: "/config/perfiles-carga", permiso: "perfiles_carga:administrar", modulo: "perfiles_carga" },
-          ...Object.values(MODULOS_IMPORT).map((m) => ({
+          ...MODULOS_MENU.map((m) => ({
             label: m.label,
             href: `/config/perfiles-carga/${m.codigo.toLowerCase()}`,
             permiso: "perfiles_carga:administrar",
