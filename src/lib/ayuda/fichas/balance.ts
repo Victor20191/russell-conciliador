@@ -455,6 +455,7 @@ export const FICHA_BALANCE_TERCEROS: FichaAyuda = {
           regla: REGLAS.cargarBalance,
           condiciones: [
             "El balance debe empezar el 1 de enero del año de su corte.",
+            "El archivo debe ser del mismo período del balance: antes de leerlo hay que marcar «Confirmo que el archivo trae los movimientos del … al …», con las fechas del balance. La confirmación queda en la auditoría.",
             "El movimiento de cada cuenta del archivo (débitos − créditos) debe amarrar con el del balance (saldo final − saldo inicial) dentro del umbral de descuadre; si una cuenta no amarra o no existe en el balance, no se guarda nada y se muestra cuál.",
             "No se reemplaza mientras haya una conciliación en firme contra el balance.",
           ],

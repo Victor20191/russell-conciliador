@@ -31,6 +31,9 @@ import {
 
 const LOTE_INSERCION = 20_000;
 
+/** «01/01/2026» de una fecha de calendario del balance (UTC). */
+const fechaLegible = (fecha: Date): string => fecha.toISOString().slice(0, 10).split("-").reverse().join("/");
+
 const BaseSchema = z.object({
   balanceId: z.number().int().positive(),
   archivoLoteId: z.string().uuid(),
@@ -117,7 +120,11 @@ export type AdjuntarMovimientosState = ActionStateMovimientos & {
 };
 
 /** Paso 2: lee el archivo entero, comprueba el amarre con el balance y guarda la captura. */
-export async function adjuntarMovimientosTercero(input: { balanceId: number; archivoLoteId: string; mapeo: unknown }): Promise<AdjuntarMovimientosState> {
+export async function adjuntarMovimientosTercero(input: { balanceId: number; archivoLoteId: string; mapeo: unknown; confirmaPeriodo: boolean }): Promise<AdjuntarMovimientosState> {
+  // El usuario confirma que el archivo es del mismo período del balance (queda en la auditoría).
+  if (input.confirmaPeriodo !== true) {
+    return { ok: false, message: "Confirma que el archivo es del mismo período del balance antes de agregar los terceros." };
+  }
   const parsed = BaseSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "La solicitud no es válida." };
   const mapeo = MapeoMovimientosSchema.safeParse(input.mapeo);
@@ -236,7 +243,7 @@ export async function adjuntarMovimientosTercero(input: { balanceId: number; arc
       user: usuario.name,
       action: capturaExistente ? "REEMPLAZÓ TERCEROS AGREGADOS" : "AGREGÓ TERCEROS AL BALANCE",
       entity: `Balance #${balance.id}`,
-      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
+      detail: `${balance.nombreCliente} · ${balance.periodo} · ${archivo.archivo.nombre} · período confirmado: ${fechaLegible(balance.periodoInicio)} al ${fechaLegible(balance.periodoFin)} · ${amarre.cuentasAmarradas} cuentas amarradas · ${fmtNum(amarre.terceros)} renglones cuenta–tercero · ${fmtNum(agregado.filasSinTercero)} movimientos sin tercero`,
       clientId: balance.clienteId,
     });
     revalidatePath(`/balance/${balance.id}`);

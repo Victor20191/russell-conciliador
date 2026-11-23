@@ -27,6 +27,9 @@ import Link from "next/link";
  * No es una pantalla de carga ni de edición: no toca staging, no persiste nada,
  * no cambia la política de congelado. Mismo gate que `/balance/[id]`.
  */
+/** «01/01/2026»: las fechas del balance son de calendario (UTC). */
+const fechaLegible = (fecha: Date): string => fecha.toISOString().slice(0, 10).split("-").reverse().join("/");
+
 export default async function BalanceTercerosPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("balance:ver");
   const { id: rawId } = await params;
@@ -175,6 +178,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
       {sinBalancePorTerceros && (
         <MovimientosTerceroPanel
           balanceId={id}
+          periodo={{ desde: fechaLegible(balance.periodoInicio), hasta: fechaLegible(balance.periodoFin) }}
           captura={deMovimientos && encabezadoTercero ? {
             archivo: encabezadoTercero.archivo ?? "—",
             cargadoPor: encabezadoTercero.cargadoPor ?? "—",

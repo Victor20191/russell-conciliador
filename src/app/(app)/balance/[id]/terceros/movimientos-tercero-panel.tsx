@@ -17,6 +17,9 @@ import {
 import type { MapeoMovimientos } from "@/lib/balance/movimientos-tercero";
 import type { VistaPreviaMovimientos } from "@/lib/balance/movimientos-tercero-servidor";
 
+/** Fechas del balance ya legibles («01/01/2026»). */
+export type PeriodoBalanceVm = { desde: string; hasta: string };
+
 export type CapturaMovimientosVm = {
   archivo: string;
   cargadoPor: string;
@@ -40,12 +43,15 @@ const BOTON_PRIMARIO = "inline-flex items-center gap-1.5 rounded-md bg-navy-800 
  */
 export function MovimientosTerceroPanel({
   balanceId,
+  periodo,
   captura,
   puedeEditar,
   motivoNoAdmite,
   bloqueoCierre,
 }: {
   balanceId: number;
+  /** Período del balance: el archivo tiene que ser del mismo y se confirma antes de leerlo. */
+  periodo: PeriodoBalanceVm;
   captura: CapturaMovimientosVm | null;
   puedeEditar: boolean;
   /** Por qué este balance no admite el archivo (no empieza en enero, cargue antiguo…); null = lo admite. */
@@ -56,6 +62,7 @@ export function MovimientosTerceroPanel({
   const router = useRouter();
   const entrada = useRef<HTMLInputElement>(null);
   const [paso, setPaso] = useState<Paso>({ tipo: "inicio" });
+  const [confirmaPeriodo, setConfirmaPeriodo] = useState(false);
   const [quitarAbierto, setQuitarAbierto] = useState(false);
   const [quitando, startQuitar] = useTransition();
 
@@ -72,6 +79,8 @@ export function MovimientosTerceroPanel({
       return;
     }
     const loteId = crypto.randomUUID();
+    // Cada archivo nuevo se vuelve a confirmar.
+    setConfirmaPeriodo(false);
     setPaso({ tipo: "subiendo", porcentaje: 0 });
     try {
       await cargarArchivoBalanceTemporal(archivo, loteId, (porcentaje) => setPaso({ tipo: "subiendo", porcentaje }));
@@ -92,7 +101,7 @@ export function MovimientosTerceroPanel({
     if (paso.tipo !== "mapeo" && paso.tipo !== "rechazo") return;
     const { loteId, vista, mapeo } = paso;
     setPaso({ tipo: "leyendo", loteId, vista, mapeo });
-    const r = await adjuntarMovimientosTercero({ balanceId, archivoLoteId: loteId, mapeo });
+    const r = await adjuntarMovimientosTercero({ balanceId, archivoLoteId: loteId, mapeo, confirmaPeriodo });
     if (r.ok) {
       notifySuccess("Terceros agregados", r.message);
       setPaso({ tipo: "inicio" });
@@ -132,6 +141,9 @@ export function MovimientosTerceroPanel({
             Este cliente no entrega balance por terceros. Para cruzar los <b>impuestos</b> (Retención en la fuente, IVA y RST) se agregan los terceros desde el reporte del ERP con los movimientos de enero a la fecha de corte por cuenta y tercero.
             Se guardan los grupos 13, 21, 22, 23, 24 y 28, y el movimiento de cada cuenta debe amarrar con el balance. Cartera y Cuentas por pagar no los usan: se concilian por cuenta.
           </p>
+          <p className="mt-1 text-[12.5px] text-ink-800">
+            Período del balance: <b>{periodo.desde}</b> al <b>{periodo.hasta}</b>. El archivo debe ser del mismo período.
+          </p>
           {captura ? (
             <p className="mt-1.5 inline-flex flex-wrap items-center gap-x-2 text-[12px] text-ink-700">
               <Icon name="file-check" size={14} />
@@ -170,6 +182,9 @@ export function MovimientosTerceroPanel({
           vista={paso.vista}
           mapeo={paso.mapeo}
           leyendo={paso.tipo === "leyendo"}
+          periodo={periodo}
+          confirmaPeriodo={confirmaPeriodo}
+          onConfirmarPeriodo={setConfirmaPeriodo}
           onCambiar={(mapeo) => setPaso({ ...paso, tipo: paso.tipo === "leyendo" ? "leyendo" : "mapeo", mapeo } as Paso)}
           onLeer={() => void leer()}
           onCancelar={() => cancelar(paso.loteId)}
@@ -222,10 +237,13 @@ function SelectorColumna({ etiqueta, valor, encabezados, opcional, onChange }: {
   );
 }
 
-function MapeoMovimientosForm({ vista, mapeo, leyendo, onCambiar, onLeer, onCancelar }: {
+function MapeoMovimientosForm({ vista, mapeo, leyendo, periodo, confirmaPeriodo, onConfirmarPeriodo, onCambiar, onLeer, onCancelar }: {
   vista: VistaPreviaMovimientos;
   mapeo: MapeoMovimientos;
   leyendo: boolean;
+  periodo: PeriodoBalanceVm;
+  confirmaPeriodo: boolean;
+  onConfirmarPeriodo: (v: boolean) => void;
   onCambiar: (m: MapeoMovimientos) => void;
   onLeer: () => void;
   onCancelar: () => void;
@@ -281,8 +299,22 @@ function MapeoMovimientosForm({ vista, mapeo, leyendo, onCambiar, onLeer, onCanc
         </div>
       )}
 
+      {/* El archivo tiene que ser del mismo período del balance: se confirma antes de leerlo. */}
+      <label className="mt-3 flex items-start gap-2 rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[12.5px] text-ink-800">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0"
+          checked={confirmaPeriodo}
+          disabled={leyendo}
+          onChange={(e) => onConfirmarPeriodo(e.target.checked)}
+        />
+        <span>
+          Confirmo que el archivo trae los movimientos del <b>{periodo.desde}</b> al <b>{periodo.hasta}</b>, el mismo período de este balance.
+        </span>
+      </label>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" className={BOTON_PRIMARIO} disabled={!completo || leyendo} onClick={onLeer}>
+        <button type="button" className={BOTON_PRIMARIO} disabled={!completo || !confirmaPeriodo || leyendo} onClick={onLeer}>
           {leyendo ? <EstadoProcesando>Leyendo y amarrando con el balance</EstadoProcesando> : <><Icon name="check" size={14} /> Leer y amarrar con el balance</>}
         </button>
         {!leyendo && <button type="button" className={BOTON} onClick={onCancelar}>Cancelar</button>}

@@ -15,9 +15,10 @@ La excepción son las cuentas donde no se resta la DIAN (236575, 135595 y las qu
 1. El balance del corte se carga y se cierra como siempre (por cuenta). Debe empezar el 1 de enero.
 2. En el balance, donde una tarjeta dice «Cliente con excepción de balance por terceros», botón «Adjuntar terceros» y, en esa pantalla, otra vez «Adjuntar terceros»: Excel `.xlsx`, subido por partes (`/api/balance/archivo-temporal`).
 3. Se escogen las columnas: cuenta, NIT, nombre (opcional) y valores, como débito y crédito o como un importe con signo (positivo = débito). Se sugieren por los encabezados; el reporte de SAP de MUMA trae «Cuenta», «Importe en moneda local», «DB», «CR», «Clave referencia 1» (NIT) y «Clave referencia 3» (nombre).
-4. «Leer y amarrar con el balance» recorre el archivo en flujo (400 mil filas en unos 30 s), agrega por cuenta y tercero solo los grupos 13, 21, 22, 23, 24 y 28, y liga cada cuenta con la del balance (la misma o la más larga del balance que sea su prefijo), que aporta el nombre y la homologación.
-5. **Amarre**: por cuenta, el movimiento del archivo debe igualar el del balance (saldo final − saldo inicial) dentro del umbral «descuadre». Si una cuenta no amarra, o el archivo trae una cuenta con movimiento que no está en el balance, no se guarda nada y se muestra la tabla.
-6. Se guarda como captura por tercero ligada al balance (`balance_tercero_encabezado` con el `lote_id` del balance y `origen_extraccion = "movimientos-erp"`). Los movimientos sin NIT ni nombre quedan en el tercero «Sin tercero».
+4. Se confirma que el archivo es del mismo período del balance (casilla con las fechas del balance; sin ella no se lee y la confirmación queda en la auditoría).
+5. «Leer y amarrar con el balance» recorre el archivo en flujo (400 mil filas en unos 30 s), agrega por cuenta y tercero solo los grupos 13, 21, 22, 23, 24 y 28, y liga cada cuenta con la del balance (la misma o la más larga del balance que sea su prefijo), que aporta el nombre y la homologación.
+6. **Amarre**: por cuenta, el movimiento del archivo debe igualar el del balance (saldo final − saldo inicial) dentro del umbral «descuadre». Si una cuenta no amarra, o el archivo trae una cuenta con movimiento que no está en el balance, no se guarda nada y se muestra la tabla.
+7. Se guarda como captura por tercero ligada al balance (`balance_tercero_encabezado` con el `lote_id` del balance y `origen_extraccion = "movimientos-erp"`). Los movimientos sin NIT ni nombre quedan en el tercero «Sin tercero».
 
 ## Reglas
 
