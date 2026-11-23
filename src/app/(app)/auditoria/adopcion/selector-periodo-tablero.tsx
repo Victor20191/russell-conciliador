@@ -1,6 +1,7 @@
 "use client";
 
-// Período de los «Indicadores de uso». Se guarda en la URL (`?desde=…&hasta=…`):
+// Período de «Reportes para gerencia» (tarjetas e «Indicadores de uso»); va junto
+// al título de la página. Se guarda en la URL (`?desde=…&hasta=…`):
 // la página lo lee en el servidor con la misma regla que el reporte generado
 // (`rango.ts`), y el enlace se puede compartir o recargar sin perderlo.
 
@@ -70,6 +71,7 @@ export function SelectorPeriodoTablero({ periodo }: { periodo: PeriodoIndicadore
   return (
     <div className="flex flex-col items-start gap-1.5 lg:items-end">
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Período de los indicadores">
+        <span className="mr-0.5 text-[11.5px] font-semibold text-ink-600">Período</span>
         {ATAJOS.map(([etiqueta, dias]) => {
           const rango = ultimosDias(periodo.hoy, dias);
           const activo = rango.desde === periodo.desde && rango.hasta === periodo.hasta;

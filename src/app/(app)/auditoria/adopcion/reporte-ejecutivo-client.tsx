@@ -32,7 +32,6 @@ import {
   type BarraUso,
   type SerieDiaUso,
 } from "./indicadores-uso";
-import type { PeriodoIndicadores } from "./selector-periodo-tablero";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import type { TicketsAtendidosVista } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
@@ -256,7 +255,6 @@ export function ReporteEjecutivoClient({
   defaultDesde,
   defaultHasta,
   periodoTablero,
-  periodoIndicadores,
   notaPeriodo,
   envios,
   pendiente,
@@ -267,10 +265,8 @@ export function ReporteEjecutivoClient({
   /** Período PRELLENADO del modal: continúa donde terminó el último reporte. */
   defaultDesde: string;
   defaultHasta: string;
-  /** Ventana que leen los indicadores del tablero, en texto. */
+  /** Ventana que leen los indicadores del tablero, en texto (se elige arriba de la página). */
   periodoTablero?: string;
-  /** Período elegido para los indicadores (por defecto, los últimos 30 días). */
-  periodoIndicadores?: PeriodoIndicadores;
   /** Explicación de por qué el modal propone ese período. */
   notaPeriodo?: string | null;
   envios: EnvioReportePrevio[];
@@ -569,7 +565,6 @@ export function ReporteEjecutivoClient({
       {/* Indicadores permanentes: siempre visibles en la plataforma (sin depender del reporte IA). */}
       <IndicadoresUso
         periodoLabel={periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
-        periodo={periodoIndicadores}
         porFamilia={kpis.porFamilia ?? []}
         topUsuarios={kpis.topUsuarios ?? []}
         topAcciones={kpis.topAcciones ?? []}

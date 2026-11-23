@@ -17,7 +17,6 @@ import {
   type TicketsAtendidosVista,
 } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
-import { SelectorPeriodoTablero, type PeriodoIndicadores } from "./selector-periodo-tablero";
 
 export type BarraUso = {
   etiqueta: string;
@@ -497,7 +496,6 @@ export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVi
  */
 export function IndicadoresUso({
   periodoLabel,
-  periodo,
   porFamilia,
   topUsuarios,
   topAcciones,
@@ -509,8 +507,6 @@ export function IndicadoresUso({
   tickets,
 }: {
   periodoLabel: string;
-  /** Período elegido; sin él no se muestra el selector. */
-  periodo?: PeriodoIndicadores;
   comparativo?: ComparativoUso | null;
   costos?: CostosIA | null;
   tickets?: TicketsAtendidosVista | null;
@@ -523,8 +519,8 @@ export function IndicadoresUso({
 }) {
   return (
     <section aria-label="Indicadores de uso de la plataforma" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1 basis-[22rem]">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
           <h2 className="text-lg text-navy-800">Indicadores de uso</h2>
           <p className="mt-0.5 text-[12.5px] text-ink-500">
             Actividad real de los usuarios en el período {periodoLabel}. Estos indicadores están
@@ -536,10 +532,6 @@ export function IndicadoresUso({
             persona, cliente y día. No se incluyen las cuentas de prueba ni las genéricas.
           </p>
         </div>
-        {periodo && (
-          // La clave remonta el selector cuando cambia el período (p. ej. con «Atrás»).
-          <SelectorPeriodoTablero key={`${periodo.desde}|${periodo.hasta}`} periodo={periodo} />
-        )}
       </div>
 
       <ComparativoUsoCard comparativo={comparativo} />

@@ -46,6 +46,10 @@ import {
   type KpisIniciales,
   type VersionOpcion,
 } from "@/app/(app)/auditoria/adopcion/reporte-ejecutivo-client";
+import {
+  SelectorPeriodoTablero,
+  type PeriodoIndicadores,
+} from "@/app/(app)/auditoria/adopcion/selector-periodo-tablero";
 
 const MAX_EVENTOS = 25_000;
 
@@ -321,11 +325,30 @@ export default async function ReportesEjecutivosPage({
     ].filter((b) => b.total > 0),
   };
 
+  // El período manda sobre toda la página (tarjetas e indicadores): por eso el
+  // selector va junto al título y no dentro de «Indicadores de uso».
+  const periodoIndicadores: PeriodoIndicadores = {
+    desde: tableroDesde,
+    hasta: tableroHasta,
+    elegido: elegido.estado === "valido",
+    hoy: aYYYYMMDD(ahora),
+    aviso:
+      elegido.estado === "invalido"
+        ? `${elegido.motivo} Se muestran los últimos 30 días.`
+        : eventosRaw.length >= MAX_EVENTOS
+          ? `El período tiene más de ${fmtNum(MAX_EVENTOS)} registros y las cifras quedan incompletas. Acorta el rango.`
+          : null,
+  };
+
   return (
     <div>
       <PageHeader
         title="Reportes para gerencia"
         subtitle="Indicadores de uso, avances de la plataforma y generación de un reporte claro para el cliente."
+        actions={
+          // La clave remonta el selector cuando cambia el período (p. ej. con «Atrás»).
+          <SelectorPeriodoTablero key={`${tableroDesde}|${tableroHasta}`} periodo={periodoIndicadores} />
+        }
       />
       <ReporteEjecutivoClient
         versions={versions}
@@ -333,18 +356,6 @@ export default async function ReportesEjecutivosPage({
         defaultDesde={defaultDesde}
         defaultHasta={defaultHasta}
         periodoTablero={periodoTablero}
-        periodoIndicadores={{
-          desde: tableroDesde,
-          hasta: tableroHasta,
-          elegido: elegido.estado === "valido",
-          hoy: aYYYYMMDD(ahora),
-          aviso:
-            elegido.estado === "invalido"
-              ? `${elegido.motivo} Se muestran los últimos 30 días.`
-              : eventosRaw.length >= MAX_EVENTOS
-                ? `El período tiene más de ${fmtNum(MAX_EVENTOS)} registros y las cifras quedan incompletas. Acorta el rango.`
-                : null,
-        }}
         notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
         envios={envios}
         pendiente={pendiente}
