@@ -349,7 +349,7 @@ export function controlesLectura(l: LecturaFormulario, ctx: ContextoLectura): Co
       agregar(`total_${c.renglon}`, c.cuadra, c.cuadra ? `Renglón ${c.renglon} cuadra` : `El renglón ${c.renglon} dice ${fmtPesos(c.impreso)} y sus renglones suman ${fmtPesos(c.calculado)}.`);
     }
     for (const v of controlarValidaciones(impuesto.declaracion, valores)) {
-      agregar(v.clave, v.cuadra, v.cuadra ? `${v.etiqueta}: cuadra` : `${v.etiqueta}: suman ${fmtPesos(v.calculado)} y el ${v.renglonContra} dice ${fmtPesos(v.contra)}.`, false);
+      agregar(v.clave, v.cuadra, v.cuadra ? `${v.etiqueta}: cuadra` : `${v.etiqueta}: ${v.factor == null ? "suman" : "da"} ${fmtPesos(v.calculado)} y el ${v.renglonContra} dice ${fmtPesos(v.contra)}.`, false);
     }
     // Hoja 2 del 2593 (ICA por municipio): sus fórmulas y su amarre con la hoja 1 avisan sin bloquear.
     if (l.formulario === "2593") for (const c of controlesIca(l.valores, l.ica ?? [])) agregar(c.clave, c.ok, c.mensaje, false);

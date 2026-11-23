@@ -56,9 +56,19 @@ export type RenglonDian = {
 /**
  * Cuadre entre renglones que el formulario pide pero no es un total impreso (en el 300,
  * 90 + 91 + 92 = 89). No bloquea la confirmación: avisa. Con `pisoCero`, la suma se toma en cero si
- * da negativo (los «resultado positivo de…» del 2593).
+ * da negativo (los «resultado positivo de…» del 2593). Con `factor`, la suma se multiplica por él (en
+ * el 2593, la 59 es el 8 % de la 58), y `tolerancia` es la diferencia en pesos que se tiene por
+ * redondeo (la DIAN aproxima cada casilla a miles).
  */
-export type ValidacionFormulario = { clave: string; etiqueta: string; terminos: readonly TerminoTotal[]; contra: number; pisoCero?: boolean };
+export type ValidacionFormulario = {
+  clave: string;
+  etiqueta: string;
+  terminos: readonly TerminoTotal[];
+  contra: number;
+  pisoCero?: boolean;
+  factor?: number;
+  tolerancia?: number;
+};
 
 export type DefinicionFormulario = {
   codigo: CodigoFormularioDian;
@@ -167,15 +177,20 @@ export function valorRenglon(def: DefinicionFormulario, renglon: number, valores
   return renglonDe(def, renglon)?.tipo === "calculado" ? calcularTotal(def, renglon, valores) : (valores.get(renglon) ?? 0);
 }
 
-export type ControlValidacion = { clave: string; etiqueta: string; calculado: number; contra: number; renglonContra: number; cuadra: boolean };
+export type ControlValidacion = { clave: string; etiqueta: string; calculado: number; contra: number; renglonContra: number; cuadra: boolean; factor?: number };
 
 /** Las validaciones del formulario (cuadres que avisan) con los valores leídos. */
 export function controlarValidaciones(def: DefinicionFormulario, valores: ReadonlyMap<number, number>): ControlValidacion[] {
   const valor = (r: number) => aCentavos(valores.get(r) ?? 0);
   return (def.validaciones ?? []).map((v) => {
     const suma = v.terminos.reduce((s, [renglon, signo]) => s + signo * valor(renglon), 0);
-    const calculado = v.pisoCero ? Math.max(0, suma) : suma;
+    const base = v.pisoCero ? Math.max(0, suma) : suma;
+    const calculado = v.factor == null ? base : Math.round(base * v.factor);
     const contra = valor(v.contra);
-    return { clave: v.clave, etiqueta: v.etiqueta, calculado: calculado / 100, contra: contra / 100, renglonContra: v.contra, cuadra: calculado === contra };
+    const cuadra = Math.abs(calculado - contra) <= Math.round((v.tolerancia ?? 0) * 100);
+    return {
+      clave: v.clave, etiqueta: v.etiqueta, calculado: calculado / 100, contra: contra / 100, renglonContra: v.contra, cuadra,
+      ...(v.factor == null ? {} : { factor: v.factor }),
+    };
   });
 }

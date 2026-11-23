@@ -126,6 +126,24 @@ describe("formulario 2593", () => {
     expect(v).toMatchObject({ calculado: 0, cuadra: true });
   });
 
+  it("la 59 debe ser el 8 % de la 58, con hasta $1.000 de redondeo a miles; si no, avisa sin bloquear", () => {
+    const consumo = (c58: string, c59: string) => {
+      const cruda = cruda2593();
+      cruda.renglones = [...cruda.renglones.filter((r) => r.renglon !== 58 && r.renglon !== 59), { renglon: 58, valor: c58 }, { renglon: 59, valor: c59 }];
+      return normalizarLectura(cruda);
+    };
+    // 50.016.000 × 8 % = 4.001.280, que el recibo aproxima a 4.001.000.
+    const redondeado = controlarValidaciones(F2593, mapaValores(consumo("50,016,000", "4,001,000").valores)).find((v) => v.clave === "cuadre_59");
+    expect(redondeado).toMatchObject({ calculado: 4_001_280, contra: 4_001_000, cuadra: true, factor: 0.08 });
+    const mal = consumo("50,016,000", "4,500,000");
+    expect(controlarValidaciones(F2593, mapaValores(mal.valores)).find((v) => v.clave === "cuadre_59")?.cuadra).toBe(false);
+    expect(controlesLectura(mal, CTX_RST).find((c) => c.clave === "cuadre_59")).toMatchObject({
+      ok: false,
+      bloquea: false,
+      mensaje: "Impuesto al consumo: el 8 % de la 58 debe ser igual al 59: da $4.001.280 y el 59 dice $4.500.000.",
+    });
+  });
+
   it("el ajuste se lee de la casilla 24 (1 o X) y pide el recibo que ajusta, de 14 dígitos", () => {
     const ajuste = normalizarLectura(cruda2593({ numero: "25936612179999", codigoCorreccion: "X", numeroAnterior: NUMERO_2593 }));
     expect(ajuste).toMatchObject({ codigoCorreccion: 1, numeroAnterior: NUMERO_2593 });

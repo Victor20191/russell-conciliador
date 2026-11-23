@@ -20,12 +20,13 @@ type Contenido = {
   solo490: readonly string[];
 };
 
-/** «26 a 35» o «49 + 54 − 50 − 51», a partir de los términos de una fórmula. */
-function formula(terminos: readonly TerminoTotal[], pisoCero?: boolean): string {
+/** «26 a 35», «49 + 54 − 50 − 51» u «8 % de 58», a partir de los términos de una fórmula. */
+function formula(terminos: readonly TerminoTotal[], pisoCero?: boolean, factor?: number): string {
   const seguidos = terminos.length > 2 && terminos.every(([r, s], i) => s === 1 && (i === 0 || r === terminos[i - 1][0] + 1));
   const texto = seguidos
     ? `${terminos[0][0]} a ${terminos[terminos.length - 1][0]}`
     : terminos.map(([r, s], i) => `${i === 0 ? (s < 0 ? "−" : "") : s < 0 ? " − " : " + "}${r}`).join("");
+  if (factor != null) return `${(factor * 100).toLocaleString("es-CO")} % de ${texto}`;
   return pisoCero ? `${texto}, o cero si da negativo` : texto;
 }
 
@@ -100,7 +101,7 @@ const RST: Contenido = {
     "El período (bimestre) está entre 1 y 6.",
     "El 490 trae la fecha del sello de la entidad recaudadora (renglón 997). El 2593 no tiene sello: no se le pide fecha.",
   ],
-  totales: (F2593.validaciones ?? []).map((v) => [String(v.contra), formula(v.terminos, v.pisoCero)] as const),
+  totales: (F2593.validaciones ?? []).map((v) => [String(v.contra), formula(v.terminos, v.pisoCero, v.factor)] as const),
   totalesAvisan: true,
   soloDeclaracion: [
     "Si es un ajuste (casilla 24), trae un número válido del recibo que ajusta (casilla 25).",

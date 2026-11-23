@@ -134,6 +134,8 @@ export const F2593: DefinicionFormulario = {
     valida(53, "Saldo anticipo SIMPLE: 49 − 50 − 51 − 52 debe ser igual al 53", [[49, 1], [50, -1], [51, -1], [52, -1]], true),
     valida(56, "Total a pagar anticipo: 49 + 54 − 50 − 51 − 52 − 55 debe ser igual al 56", [[49, 1], [54, 1], [50, -1], [51, -1], [52, -1], [55, -1]], true),
     valida(57, "Excedente anticipo: 50 + 51 + 52 + 55 − 49 − 54 debe ser igual al 57", [[50, 1], [51, 1], [52, 1], [55, 1], [49, -1], [54, -1]], true),
+    // La 59 es el 8 % de la 58; la DIAN aproxima cada casilla a miles, así que hasta $1.000 es redondeo.
+    { clave: "cuadre_59", etiqueta: "Impuesto al consumo: el 8 % de la 58 debe ser igual al 59", terminos: [[58, 1]], contra: 59, factor: 0.08, tolerancia: 1000 },
     valida(61, "Saldo impuesto al consumo: 59 − 60 debe ser igual al 61", [[59, 1], [60, -1]], true),
     valida(64, "Total a pagar impuesto al consumo: 59 + 62 − 60 − 63 debe ser igual al 64", [[59, 1], [62, 1], [60, -1], [63, -1]], true),
     valida(65, "Excedente impuesto al consumo: 60 + 63 − 59 − 62 debe ser igual al 65", [[60, 1], [63, 1], [59, -1], [62, -1]], true),
