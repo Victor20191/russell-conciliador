@@ -12,6 +12,7 @@ const SQL_IVA = leer("20261108120000_impuestos_iva");
 const SQL_RST = leer("20261119120000_rst_mapeo_2593");
 const SQL_RST_RETEIVA_ICA = leer("20261121120000_rst_mapeo_2593_reteiva_ica");
 const SQL_NIT_MEDELLIN = leer("20261119180000_tercero_dian_medellin");
+const SQL_NIT_MEDELLIN_NOMBRE = leer("20261123120000_tercero_dian_medellin_nombre");
 
 const texto = (v: string) => (v === "NULL" ? null : v.slice(1, -1).replace(/''/g, "'"));
 const numero = (v: string) => (v === "NULL" ? null : Number(v));
@@ -40,16 +41,21 @@ describe("semillas de la migración de Impuestos", () => {
   });
 
   it("los NIT de la DIAN sembrados, con los nombres que les cambiaron migraciones posteriores, son los de fábrica", () => {
+    // En orden: el último cambio de nombre de cada NIT es el que queda.
     const renombres = new Map(
-      [...SQL_NIT_MEDELLIN.matchAll(/UPDATE "tercero_dian" SET "etiqueta" = '((?:[^']|'')*)' WHERE "nit" = '(\d{9})';/g)].map((m) => [m[2], m[1].replace(/''/g, "'")]),
+      [SQL_NIT_MEDELLIN, SQL_NIT_MEDELLIN_NOMBRE].flatMap((sql) =>
+        [...sql.matchAll(/UPDATE "tercero_dian" SET "etiqueta" = '((?:[^']|'')*)' WHERE "nit" = '(\d{9})'[^;]*;/g)].map((m) => [m[2], m[1].replace(/''/g, "'")] as const),
+      ),
     );
     expect(renombres.size).toBe(1);
     const nits = [...SQL.matchAll(/\('(\d{9})', '((?:[^']|'')*)'\)/g)].map((m) => ({ nit: m[1], etiqueta: renombres.get(m[1]) ?? m[2].replace(/''/g, "'") }));
     expect(nits).toEqual([...TERCEROS_DIAN_FABRICA]);
   });
 
-  it("el cambio de nombre del NIT de Medellín solo toca la etiqueta", () => {
-    expect(SQL_NIT_MEDELLIN).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bINSERT\b/i);
+  it("los cambios de nombre del NIT de Medellín solo tocan la etiqueta", () => {
+    for (const sql of [SQL_NIT_MEDELLIN, SQL_NIT_MEDELLIN_NOMBRE]) expect(sql).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bINSERT\b/i);
+    // La corrección solo cambia el nombre que puso la migración anterior: uno editado a mano se respeta.
+    expect(SQL_NIT_MEDELLIN_NOMBRE).toMatch(/WHERE "nit" = '800197384' AND "etiqueta" = '[^']+Hospital Hospital[^']+';/);
   });
 
   it("las cuentas que no restan la DIAN son las de fábrica", () => {

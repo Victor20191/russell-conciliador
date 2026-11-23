@@ -94,7 +94,7 @@ export type TerceroDian = { nit: string; etiqueta: string };
 
 export const TERCEROS_DIAN_FABRICA: readonly TerceroDian[] = [
   { nit: "800197268", etiqueta: "U.A.E. Dirección de Impuestos y Aduanas Nacionales (DIAN)" },
-  { nit: "800197384", etiqueta: "U.A.E. Admon Local De Impuestos Y Aduanas Nacionales De Medellin (Usado por Hospital Hospital Manuel Uribe Angel)" },
+  { nit: "800197384", etiqueta: "U.A.E. Admon Local de Impuestos y Aduanas Nacionales de Medellin (Usado por Hospital Manuel Uribe Angel)" },
 ];
 
 /** ¿El tercero es la DIAN? Compara por núcleo de 9 dígitos (con o sin DV). */
