@@ -9,10 +9,11 @@ import { construirComparacionCuentasTerceros, resumirComparacionTerceros } from 
 import { construirArbolVisorTerceros } from "@/lib/balance/arbol-visor-terceros";
 import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/balance/identidad-tercero";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
-import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
+import { PREFIJOS_TERCERO_CONSERVADOS, conservaDetalleTercero, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import TercerosClient from "./terceros-client";
 import { MovimientosTerceroPanel } from "./movimientos-tercero-panel";
-import { esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero";
+import { agregadoDesdeCaptura, amarrarConBalance, cuentasConBaseDiciembre, esCapturaDeMovimientos } from "@/lib/balance/movimientos-tercero";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { periodoDelArchivo, resolverBaseAmarre } from "@/lib/balance/movimientos-tercero-base-servidor";
 import { cierresFirmesDeBalance } from "@/lib/conciliacion/verificar-bloqueo";
 import { fmtDateTime } from "@/lib/format";
@@ -96,7 +97,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
           : null;
   // Regla 2: el balance no empieza en enero y la apertura del año sale del cierre de diciembre.
   const baseDiciembre = baseAmarre?.ok && baseAmarre.base.tipo === "cierre_diciembre" ? baseAmarre : null;
-  const aperturaDiciembre = new Map((baseDiciembre?.cierreDiciembre ?? []).map((d) => [d.cuenta8.replace(/D/g, ""), d.saldoFinal]));
+  const aperturaDiciembre = new Map((baseDiciembre?.cierreDiciembre ?? []).map((d) => [d.cuenta8.replace(/\D/g, ""), d.saldoFinal]));
   const modulosEnFirme = [...new Set(cierres.map((c) => c.moduloCodigo))].join(", ");
   const bloqueoCierre = cierres.length
     ? `Hay conciliaciones en firme contra este balance (${modulosEnFirme}): abre esos cierres para reemplazar o quitar el archivo.`
@@ -124,7 +125,17 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     s.creditos += Number(t.creditos);
     sumasTercero.set(t.cuenta8, s);
   }
-  const filasBalance = filasBalanceRaw.map((f) => ({
+  // Los terceros agregados solo existen en los grupos que se guardan (13, 21 a 24 y 28): el resto del
+  // balance no se compara (no tiene ni tendrá terceros) y, de esos grupos, tampoco la cuenta que no se
+  // movió en el año ni trae terceros. Sin esto todas las demás cuentas salían «Sin detalle por tercero».
+  const cuentasConTerceros = new Set(filasTerceroRaw.map((t) => t.cuenta8));
+  const movimientoDelAnio = (f: (typeof filasBalanceRaw)[number]) =>
+    Number(f.saldoFinal) - (baseDiciembre ? (aperturaDiciembre.get(f.cuenta8.replace(/\D/g, "")) ?? 0) : Number(f.saldoInicial));
+  const filasBalanceComparables = deMovimientos
+    ? filasBalanceRaw.filter((f) => conservaDetalleTercero(f.cuenta8.replace(/\D/g, ""))
+      && (cuentasConTerceros.has(f.cuenta8) || Math.abs(movimientoDelAnio(f)) > 0.005))
+    : filasBalanceRaw;
+  const filasBalance = filasBalanceComparables.map((f) => ({
     cuenta8: f.cuenta8,
     nombreCuenta: f.nombreCuenta,
     cuenta6Russell: f.cuenta6Russell,
@@ -133,10 +144,28 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     // de los terceros para que la comparación mire el movimiento del año.
     debitos: deMovimientos && baseDiciembre ? (sumasTercero.get(f.cuenta8)?.debitos ?? 0) : Number(f.debitos),
     creditos: deMovimientos && baseDiciembre ? (sumasTercero.get(f.cuenta8)?.creditos ?? 0) : Number(f.creditos),
-    saldoFinal: !deMovimientos
-      ? Number(f.saldoFinal)
-      : Number(f.saldoFinal) - (baseDiciembre ? (aperturaDiciembre.get(f.cuenta8.replace(/D/g, "")) ?? 0) : Number(f.saldoInicial)),
+    saldoFinal: deMovimientos ? movimientoDelAnio(f) : Number(f.saldoFinal),
   }));
+  // Diferencias del amarre, recalculadas con lo guardado (el archivo ya no está): las mismas que salieron
+  // al leerlo, para tenerlas a la vista y exportarlas en cualquier momento.
+  const diferenciasGuardadas = deMovimientos && baseAmarre?.ok
+    ? (() => {
+        const cuentas = filasBalanceRaw.map((f) => ({
+          cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: null,
+          saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+        }));
+        return { cuentas: baseDiciembre ? cuentasConBaseDiciembre(cuentas, baseDiciembre.cierreDiciembre ?? []) : cuentas, base: baseAmarre.base };
+      })()
+    : null;
+  const umbralDescuadre = diferenciasGuardadas ? (await getUmbralesAlertas()).descuadre : 0;
+  const amarreGuardado = diferenciasGuardadas
+    ? amarrarConBalance(
+        agregadoDesdeCaptura(filasTerceroRaw.map((t) => ({ cuenta8: t.cuenta8, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero, debitos: Number(t.debitos), creditos: Number(t.creditos) }))),
+        diferenciasGuardadas.cuentas,
+        umbralDescuadre,
+      )
+    : null;
+
   const filasTercero = completarNombresDelMismoArchivo(filasTerceroRaw.map((f) => ({
     cuenta8: f.cuenta8,
     nombreCuenta: f.nombreCuenta,
@@ -201,6 +230,15 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
           puedeEditar={crearAuth?.ok === true}
           motivoNoAdmite={motivoNoAdmite}
           bloqueoCierre={bloqueoCierre}
+          diferencias={amarreGuardado && diferenciasGuardadas && (amarreGuardado.descuadres.length > 0 || amarreGuardado.sinCuentaEnBalance.length > 0)
+            ? {
+                ok: true,
+                message: `Diferencias con el balance: ${amarreGuardado.descuadres.length + amarreGuardado.sinCuentaEnBalance.length} cuenta(s)${amarreGuardado.bloqueantes === 0 ? ", ninguna de impuestos" : ""}.`,
+                descuadres: amarreGuardado.descuadres,
+                sinCuentaEnBalance: amarreGuardado.sinCuentaEnBalance,
+                base: diferenciasGuardadas.base,
+              }
+            : null}
         />
       )}
 
@@ -232,7 +270,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
 
       {deMovimientos && (
         <p className="mb-3 text-[12px] text-ink-600">
-          Los terceros agregados vienen del archivo de movimientos del ERP: cada uno trae su movimiento de enero al corte (saldo inicial 0), y la comparación usa el movimiento de cada cuenta del balance.
+          Los terceros agregados vienen del archivo de movimientos del ERP: cada uno trae su movimiento de enero al corte (saldo inicial 0), y la comparación usa el movimiento de cada cuenta del balance. Solo se comparan las cuentas de los grupos {describirGruposTercero(PREFIJOS_TERCERO_CONSERVADOS)} que se movieron en el año o traen terceros; el resto del balance no lleva terceros agregados.
         </p>
       )}
 

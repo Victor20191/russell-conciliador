@@ -50,6 +50,7 @@ export function MovimientosTerceroPanel({
   puedeEditar,
   motivoNoAdmite,
   bloqueoCierre,
+  diferencias,
 }: {
   balanceId: number;
   /** Período del archivo: del 1 de enero a la fecha de corte del balance; se confirma antes de leerlo. */
@@ -62,6 +63,8 @@ export function MovimientosTerceroPanel({
   motivoNoAdmite: string | null;
   /** Conciliación en firme contra este balance: no se reemplaza ni se quita. */
   bloqueoCierre: string | null;
+  /** Diferencias del amarre de los terceros ya guardados (recalculadas al abrir la página); null = ninguna. */
+  diferencias: AdjuntarMovimientosState | null;
 }) {
   const router = useRouter();
   const entrada = useRef<HTMLInputElement>(null);
@@ -213,7 +216,9 @@ export function MovimientosTerceroPanel({
         />
       )}
       {paso.tipo === "rechazo" && <RechazoAmarre resultado={paso.resultado} balanceId={balanceId} archivo={nombreArchivo} baseAmarre={baseAmarre} />}
-      {paso.tipo === "inicio" && guardadoConDiferencias && <RechazoAmarre resultado={guardadoConDiferencias} balanceId={balanceId} archivo={nombreArchivo} baseAmarre={baseAmarre} />}
+      {paso.tipo === "inicio" && (guardadoConDiferencias ?? diferencias) && (
+        <RechazoAmarre resultado={(guardadoConDiferencias ?? diferencias)!} balanceId={balanceId} archivo={nombreArchivo || captura?.archivo || ""} baseAmarre={baseAmarre} />
+      )}
 
       <Modal
         open={quitarAbierto}

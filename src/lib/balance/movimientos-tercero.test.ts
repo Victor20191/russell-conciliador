@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agregarFilaMovimiento,
+  agregadoDesdeCaptura,
   amarrarConBalance,
   balanceAdmiteMovimientos,
   cuentaDelBalance,
@@ -213,6 +214,18 @@ describe("regla 2: amarre contra el cierre de diciembre", () => {
     const r = amarrarConBalance(a, cuentasConBaseDiciembre(septiembre, diciembre), 1);
     expect(r.descuadres).toEqual([]);
     expect(r.cuentasAmarradas).toBe(2);
+  });
+});
+
+describe("agregadoDesdeCaptura", () => {
+  it("con los terceros guardados vuelve a dar las mismas diferencias que al leer el archivo", () => {
+    const a = nuevoAgregado();
+    agregarFilaMovimiento(a, fila("2365750000", -300, "900715153", "ACCORDE SAS"), MAPEO_DC, 2);
+    agregarFilaMovimiento(a, fila("2335950000", -400, "900715153", "ACCORDE SAS"), MAPEO_DC, 3);
+    const balance = [cuentaBalance("2365750000", -300), cuentaBalance("2335950000", -12_819_618)];
+    const alLeer = amarrarConBalance(a, balance, 2000);
+    const guardado = agregadoDesdeCaptura(alLeer.filas);
+    expect(amarrarConBalance(guardado, balance, 2000).descuadres).toEqual(alLeer.descuadres);
   });
 });
 

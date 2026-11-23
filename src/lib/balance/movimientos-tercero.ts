@@ -410,6 +410,26 @@ export function amarrarConBalance(agregado: AgregadoMovimientos, balance: readon
   };
 }
 
+/**
+ * Rehace el agregado desde los terceros ya guardados (sin el archivo): cada renglón cuenta–tercero
+ * con sus débitos y créditos. Con él `amarrarConBalance` vuelve a dar las diferencias del amarre, para
+ * mostrarlas y exportarlas después de guardar.
+ */
+export function agregadoDesdeCaptura(filas: readonly { cuenta8: string; nitTercero: string | null; nombreTercero: string | null; debitos: number; creditos: number }[]): AgregadoMovimientos {
+  const agregado = nuevoAgregado();
+  for (const [i, f] of filas.entries()) {
+    const cuenta = f.cuenta8.replace(/\D/g, "");
+    const terceros = agregado.cuentas.get(cuenta) ?? new Map<string, TerceroMovimientos>();
+    agregado.cuentas.set(cuenta, terceros);
+    // Cada renglón guardado ya es un tercero distinto de su cuenta.
+    terceros.set(`${f.nitTercero ?? ""}|${f.nombreTercero ?? ""}|${i}`, {
+      nit: f.nitTercero, nombre: f.nombreTercero ?? "", identidad: null, debitos: f.debitos, creditos: f.creditos,
+    });
+    agregado.filasUsadas += 1;
+  }
+  return agregado;
+}
+
 /** ¿El balance sirve para adjuntarle movimientos? Debe empezar el 1 de enero del año de su corte. */
 export function balanceAdmiteMovimientos(periodoInicio: Date, periodoFin: Date): boolean {
   return periodoInicio.getUTCMonth() === 0 && periodoInicio.getUTCDate() === 1 && periodoInicio.getUTCFullYear() === periodoFin.getUTCFullYear();
