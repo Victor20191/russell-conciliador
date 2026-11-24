@@ -25,7 +25,51 @@ export type CampoDefinicion = {
   placeholder?: string;
   ayuda?: string;
   porDefecto?: string | number | boolean;
+  /**
+   * Solo en `camposCredenciales`. Credencial que NO es secreta (hoy: el usuario o correo de
+   * SMTP y Gmail): el servidor la descifra para `/config/conexiones` y se ve siempre, también
+   * después de guardar. Sigue guardándose cifrada en `credenciales`. Todo campo sin esta
+   * marca nunca vuelve al cliente.
+   */
+  visible?: boolean;
+  /**
+   * Solo en `camposCredenciales`. Limpieza del valor al guardar: `recortar` quita los espacios
+   * de los extremos; `sin_espacios` quita todos (Google muestra la contraseña de aplicación
+   * como «abcd efgh ijkl mnop»). Sin marca, el valor se guarda tal cual: una contraseña puede
+   * tener espacios legítimos.
+   */
+  normalizar?: "recortar" | "sin_espacios";
 };
+
+/** Aplica la limpieza declarada por el campo (`normalizar`) al valor que se va a guardar. */
+export function normalizarCredencial(campo: CampoDefinicion, valor: string): string {
+  if (campo.normalizar === "sin_espacios") return valor.replace(/\s+/g, "");
+  if (campo.normalizar === "recortar") return valor.trim();
+  return valor;
+}
+
+/** Claves de las credenciales no secretas de un proveedor (las únicas que se descifran para la pantalla). */
+export function clavesCredencialesVisibles(proveedor: ProveedorDefinicion | null | undefined): string[] {
+  return proveedor?.camposCredenciales.filter((campo) => campo.visible).map((campo) => campo.clave) ?? [];
+}
+
+/**
+ * Valores con los que arranca el formulario de credenciales: las credenciales visibles ya
+ * guardadas (precargadas y editables), solo si la conexión sigue siendo del mismo proveedor.
+ * Las secretas nunca se precargan.
+ */
+export function credencialesIniciales(
+  proveedor: ProveedorDefinicion | null | undefined,
+  conexion: { proveedor: string; credencialesVisibles: Record<string, string> } | undefined,
+): Record<string, string> {
+  const salida: Record<string, string> = {};
+  if (!proveedor || !conexion || conexion.proveedor !== proveedor.clave) return salida;
+  for (const clave of clavesCredencialesVisibles(proveedor)) {
+    const valor = conexion.credencialesVisibles[clave];
+    if (typeof valor === "string" && valor !== "") salida[clave] = valor;
+  }
+  return salida;
+}
 
 export type EstrategiaPrueba =
   | { tipo: "s3" }
@@ -291,7 +335,8 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
       },
     ],
     camposCredenciales: [
-      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true },
+      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true, visible: true, normalizar: "recortar" },
+      // Sin `normalizar`: en SMTP genérico la contraseña puede tener espacios legítimos.
       { clave: "contrasena", label: "Contraseña", tipo: "texto", requerido: true },
     ],
     prueba: { tipo: "smtp" },
@@ -309,8 +354,8 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
       { clave: "remitente", label: "Remitente", tipo: "texto", placeholder: "cuenta@gmail.com" },
     ],
     camposCredenciales: [
-      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true },
-      { clave: "contrasena", label: "Contraseña de aplicación", tipo: "texto", requerido: true },
+      { clave: "usuario", label: "Usuario", tipo: "texto", requerido: true, visible: true, normalizar: "recortar" },
+      { clave: "contrasena", label: "Contraseña de aplicación", tipo: "texto", requerido: true, normalizar: "sin_espacios" },
     ],
     prueba: { tipo: "smtp" },
   },

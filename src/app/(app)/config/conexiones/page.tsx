@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { clavesCredencialesDefinidas } from "@/lib/conexiones/credenciales";
+import { clavesCredencialesDefinidas, credencialesVisiblesDeConexion } from "@/lib/conexiones/credenciales";
 import ConexionesClient from "./conexiones-client";
 import type { ConexionVista } from "./conexion-modal";
 import { cifradoDisponible } from "@/lib/crypto";
@@ -34,8 +34,11 @@ export default async function ConexionesPage() {
     entorno: c.entorno,
     activa: c.activa,
     configuracion: (c.configuracion ?? {}) as Record<string, unknown>,
-    // Solo las CLAVES definidas: los valores descifrados nunca salen del servidor.
+    // De las credenciales secretas solo salen las CLAVES definidas: sus valores nunca llegan al cliente.
     credencialesDefinidas: clavesCredencialesDefinidas(c.credenciales),
+    // Únicas excepciones: las credenciales marcadas `visible` en el catálogo (el usuario de SMTP y Gmail),
+    // que no son secretas y se ven siempre. La página ya está autorizada (`conexiones:ver`).
+    credencialesVisibles: credencialesVisiblesDeConexion(c.proveedor, c.credenciales),
     ultimaPruebaEn: c.ultimaPruebaEn,
     ultimaPruebaOk: c.ultimaPruebaOk,
     ultimaPruebaMensaje: c.ultimaPruebaMensaje,

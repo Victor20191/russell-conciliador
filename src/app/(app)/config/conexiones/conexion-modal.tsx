@@ -7,6 +7,7 @@ import { Icon } from "@/components/icons";
 import { notifyActionState } from "@/lib/client-notifications";
 import {
   CATEGORIAS,
+  credencialesIniciales,
   ENTORNOS,
   proveedorPorClave,
   proveedoresDeCategoria,
@@ -30,7 +31,10 @@ export type ConexionVista = {
   entorno: string;
   activa: boolean;
   configuracion: Record<string, unknown>;
+  /** Claves de las credenciales secretas definidas (sus valores nunca llegan al cliente). */
   credencialesDefinidas: string[];
+  /** Credenciales NO secretas (`visible` en el catálogo, p. ej. el usuario de SMTP), ya descifradas. */
+  credencialesVisibles: Record<string, string>;
   ultimaPruebaEn: Date | null;
   ultimaPruebaOk: boolean | null;
   ultimaPruebaMensaje: string | null;
@@ -172,7 +176,11 @@ export function ConexionModal({
   const [valoresConfig, setValoresConfig] = useState<Record<string, ValorCampo>>(() =>
     valoresIniciales(conexion, proveedorPorClave(proveedorClave)),
   );
-  const [valoresCred, setValoresCred] = useState<Record<string, string>>({});
+  // Las credenciales visibles (usuario) llegan precargadas y editables; las secretas, siempre vacías.
+  const [valoresCred, setValoresCred] = useState<Record<string, string>>(() =>
+    credencialesIniciales(proveedorPorClave(proveedorClave), conexion),
+  );
+  const [mostrarCred, setMostrarCred] = useState<Record<string, boolean>>({});
   const [codigo, setCodigo] = useState(conexion?.codigo ?? "");
   const [codigoTocado, setCodigoTocado] = useState(editando);
   const [nombre, setNombre] = useState(conexion?.nombre ?? "");
@@ -190,7 +198,8 @@ export function ConexionModal({
   function cambiarProveedor(clave: string) {
     setProveedorClave(clave);
     setValoresConfig(porDefectos(proveedorPorClave(clave)));
-    setValoresCred({});
+    setValoresCred(credencialesIniciales(proveedorPorClave(clave), conexion));
+    setMostrarCred({});
   }
 
   function cambiarNombre(valor: string) {
@@ -369,37 +378,58 @@ export function ConexionModal({
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {proveedor.camposCredenciales.map((campo) => {
-                const definida = conexion?.proveedor === proveedorClave && conexion.credencialesDefinidas.includes(campo.clave);
+                const nombreCampo = `cred_${campo.clave}`;
+                const mismoProveedor = conexion?.proveedor === proveedorClave;
+                const definida = mismoProveedor && conexion.credencialesDefinidas.includes(campo.clave);
+                // Las credenciales visibles no son secretas: se ven siempre y no llevan el aviso de «conservar».
+                const secreta = !campo.visible;
+                const mostrar = mostrarCred[campo.clave] === true;
                 return (
                   <label key={campo.clave} className="flex flex-col gap-1.5">
                     <span className="text-[12px] font-medium text-ink-700">
                       {campo.label}
                       {campo.requerido && !definida && <span className="ml-0.5 text-err-700">*</span>}
-                      {definida && (
+                      {definida && secreta && (
                         <span className="ml-2 inline-flex items-center rounded-full bg-ok-100 px-2 py-0.5 text-[10px] font-semibold text-ok-700">
                           Definida
                         </span>
                       )}
                     </span>
-                    <input
-                      type="password"
-                      name={`cred_${campo.clave}`}
-                      value={valoresCred[campo.clave] ?? ""}
-                      onChange={(event) =>
-                        setValoresCred((previos) => ({ ...previos, [campo.clave]: event.target.value }))
-                      }
-                      placeholder={definida ? "•••••• (conservar actual)" : campo.placeholder}
-                      autoComplete="new-password"
-                      className="rounded-md border border-ink-200 px-3 py-2 tabular-nums text-[13px]"
-                    />
-                    {definida && (
+                    <div className="relative">
+                      <input
+                        type={secreta && !mostrar ? "password" : "text"}
+                        name={nombreCampo}
+                        value={valoresCred[campo.clave] ?? ""}
+                        onChange={(event) =>
+                          setValoresCred((previos) => ({ ...previos, [campo.clave]: event.target.value }))
+                        }
+                        placeholder={definida && secreta ? "•••••• (conservar actual)" : campo.placeholder}
+                        autoComplete={secreta ? "new-password" : "off"}
+                        spellCheck={false}
+                        autoCapitalize="none"
+                        className={`w-full rounded-md border border-ink-200 py-2 pl-3 tabular-nums text-[13px] ${secreta ? "pr-10" : "pr-3"}`}
+                      />
+                      {secreta && (
+                        <button
+                          type="button"
+                          onClick={() => setMostrarCred((previos) => ({ ...previos, [campo.clave]: !mostrar }))}
+                          aria-pressed={mostrar}
+                          aria-label={mostrar ? `Ocultar ${campo.label.toLowerCase()}` : `Mostrar ${campo.label.toLowerCase()}`}
+                          title={mostrar ? "Ocultar lo que escribes" : "Ver lo que escribes"}
+                          className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-ink-400 hover:text-ink-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                        >
+                          <Icon name={mostrar ? "eye-off" : "eye"} size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {definida && secreta && (
                       <span className="text-[11px] text-ink-500">
                         Déjalo vacío para conservar el secreto actual.
                       </span>
                     )}
-                    {state?.errors?.[`cred_${campo.clave}`]?.[0] && (
+                    {state?.errors?.[nombreCampo]?.[0] && (
                       <span className="text-[11px] text-err-700">
-                        {state.errors[`cred_${campo.clave}`][0]}
+                        {state.errors[nombreCampo][0]}
                       </span>
                     )}
                   </label>

@@ -21,12 +21,14 @@ import type { ActionState } from "@/lib/definitions";
 import {
   categoriaValida,
   entornoValido,
+  normalizarCredencial,
   proveedorPorClave,
   type ProveedorDefinicion,
 } from "@/lib/conexiones/tipos";
 import {
   cifrarCredenciales,
   clavesCredencialesDefinidas,
+  credencialesVisiblesDeConexion,
   descifrarCredenciales,
   fusionarCredenciales,
 } from "@/lib/conexiones/credenciales";
@@ -113,7 +115,9 @@ function leerCredencialesEnviadas(
 ): Record<string, string> {
   const salida: Record<string, string> = {};
   for (const campo of proveedor.camposCredenciales) {
-    const valor = String(formData.get(`cred_${campo.clave}`) ?? "");
+    // Solo los campos que lo declaran se limpian (usuario sin espacios alrededor; contraseña de
+    // aplicación de Gmail sin espacios). Las demás credenciales se guardan exactamente como llegan.
+    const valor = normalizarCredencial(campo, String(formData.get(`cred_${campo.clave}`) ?? ""));
     if (valor !== "") salida[campo.clave] = valor;
   }
   return salida;
@@ -307,6 +311,9 @@ export async function actualizarConexion(
       ["url_base", "url", "url_token", "host", "puerto", "endpoint", "tenant_id", "encabezado_auth", "ruta_prueba"].every(
         (clave) => String(anterior[clave] ?? "") === String(datos[clave] ?? ""),
       );
+    // El usuario llega precargado en el formulario: solo cuenta como cambio lo que difiere de lo guardado.
+    const previasVisibles = mismoDestino ? credencialesVisiblesDeConexion(actual.proveedor, actual.credenciales) : {};
+    const credencialesCambiadas = Object.entries(enviadas).some(([clave, valor]) => previasVisibles[clave] !== valor);
     const definidas = new Set(mismoDestino ? clavesCredencialesDefinidas(actual.credenciales) : []);
     Object.assign(errores, validarCredencialesRequeridas(proveedor, enviadas, definidas));
     if (!mismoDestino) {
@@ -351,7 +358,7 @@ export async function actualizarConexion(
       user: actor?.name ?? "Sistema",
       action: "EDITÓ CONEXIÓN",
       entity: `Configuración · ${data.codigo}`,
-      detail: `${data.nombre} · ${data.categoria} · ${data.proveedor} · ${data.entorno}${enviadas && Object.keys(enviadas).length > 0 ? " · credenciales actualizadas" : ""}`,
+      detail: `${data.nombre} · ${data.categoria} · ${data.proveedor} · ${data.entorno}${credencialesCambiadas ? " · credenciales actualizadas" : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true, message: "Conexión actualizada." };

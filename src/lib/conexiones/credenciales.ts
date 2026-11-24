@@ -1,5 +1,6 @@
 import "server-only";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { clavesCredencialesVisibles, proveedorPorClave } from "./tipos";
 
 // Cifrado de las credenciales de una conexión. Cada valor se cifra por
 // separado (AES-256-GCM) y el conjunto se persiste como JSON en
@@ -36,6 +37,26 @@ export function descifrarCredenciales(guardadas: CredencialesGuardadas): Record<
     }
   }
   return salida;
+}
+
+/**
+ * Descifra SOLO las claves indicadas: las credenciales no secretas que la pantalla muestra
+ * (`visible` en el catálogo). Cualquier otra clave guardada se ignora sin descifrarse.
+ */
+export function descifrarCredencialesVisibles(
+  guardadas: CredencialesGuardadas,
+  claves: readonly string[],
+): Record<string, string> {
+  if (!esObjeto(guardadas) || claves.length === 0) return {};
+  const permitidas = new Set(claves);
+  return descifrarCredenciales(
+    Object.fromEntries(Object.entries(guardadas).filter(([clave]) => permitidas.has(clave))),
+  );
+}
+
+/** Lo descifrable de una conexión para la página de conexiones: solo las credenciales `visible` de su proveedor. */
+export function credencialesVisiblesDeConexion(proveedor: string, guardadas: CredencialesGuardadas): Record<string, string> {
+  return descifrarCredencialesVisibles(guardadas, clavesCredencialesVisibles(proveedorPorClave(proveedor)));
 }
 
 /** Claves de credenciales con valor definido (sin exponer los valores). */

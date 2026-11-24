@@ -143,6 +143,40 @@ describe("SMTP de notificaciones", () => {
     expect(mocks.create).toHaveBeenCalledTimes(2);
     expect(mocks.create.mock.calls[1][0].data.configuracion).toMatchObject({ usar_para_notificaciones: true });
   });
+  it("Gmail guarda la contraseña de aplicación sin espacios y el usuario sin espacios alrededor", async () => {
+    const r = await crearConexion(undefined, formularioSmtp({
+      proveedor: "gmail", codigo: "gmail_russell", config_host: "smtp.gmail.com", config_remitente: "cuenta@gmail.com",
+      cred_usuario: "  cuenta@gmail.com ", cred_contrasena: "abcd efgh ijkl mnop",
+    }));
+    expect(r.ok).toBe(true);
+    const guardadas = descifrarCredenciales(mocks.create.mock.calls[0][0].data.credenciales);
+    expect(guardadas).toEqual({ usuario: "cuenta@gmail.com", contrasena: "abcdefghijklmnop" });
+  });
+  it("SMTP genérico no toca la contraseña (puede tener espacios), solo recorta el usuario", async () => {
+    const r = await crearConexion(undefined, formularioSmtp({ cred_usuario: " usuario ", cred_contrasena: "clave con  espacios " }));
+    expect(r.ok).toBe(true);
+    expect(descifrarCredenciales(mocks.create.mock.calls[0][0].data.credenciales)).toEqual({ usuario: "usuario", contrasena: "clave con  espacios " });
+  });
+  it("al editar, el usuario precargado sin cambios y la contraseña vacía conservan el secreto y no cuentan como credenciales nuevas", async () => {
+    mocks.findUnique.mockResolvedValueOnce({
+      id: 1, codigo: "smtp_russell", proveedor: "smtp", configuracion: { host: "smtp.example.com", puerto: 587 },
+      credenciales: cifrarCredenciales({ usuario: "usuario", contrasena: "clave-ficticia" }),
+    });
+    const r = await actualizarConexion(undefined, formularioSmtp({ id: "1", codigo: "smtp_russell", cred_usuario: "usuario", cred_contrasena: "" }));
+    expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
+    expect(descifrarCredenciales(mocks.update.mock.calls[0][0].data.credenciales)).toEqual({ usuario: "usuario", contrasena: "clave-ficticia" });
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ detail: expect.not.stringContaining("credenciales actualizadas") }));
+  });
+  it("al editar, cambiar el usuario o escribir una contraseña nueva sí queda como credenciales actualizadas", async () => {
+    mocks.findUnique.mockResolvedValueOnce({
+      id: 1, codigo: "smtp_russell", proveedor: "smtp", configuracion: { host: "smtp.example.com", puerto: 587 },
+      credenciales: cifrarCredenciales({ usuario: "usuario", contrasena: "clave-ficticia" }),
+    });
+    const r = await actualizarConexion(undefined, formularioSmtp({ id: "1", codigo: "smtp_russell", cred_usuario: "otro", cred_contrasena: "" }));
+    expect(r.ok).toBe(true);
+    expect(descifrarCredenciales(mocks.update.mock.calls[0][0].data.credenciales)).toEqual({ usuario: "otro", contrasena: "clave-ficticia" });
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ detail: expect.stringContaining("credenciales actualizadas") }));
+  });
   it("si se escribe una dirección de Russell, sigue debiendo ser HTTPS limpia", async () => {
     for (const direccion of ["http://85.239.249.103:3001", "https://russell.example/app", "https://russell.example?x=1", "https://u:p@russell.example", "russell"]) {
       const r = await crearConexion(undefined, formularioSmtp({ config_url_plataforma: direccion }));

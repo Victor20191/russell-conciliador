@@ -399,6 +399,17 @@ function TarjetaConexion({
             {proveedor?.label ?? conexion.proveedor}
           </div>
         </div>
+        {/* Credenciales no secretas (usuario de SMTP y Gmail): se ven siempre. */}
+        {proveedor?.camposCredenciales.filter((campo) => campo.visible && conexion.credencialesVisibles[campo.clave]).map((campo) => (
+          <div key={campo.clave} className="col-span-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">
+              {campo.label}
+            </div>
+            <div className="mt-0.5 truncate text-[12px] text-ink-700" title={conexion.credencialesVisibles[campo.clave]}>
+              {conexion.credencialesVisibles[campo.clave]}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="mt-3 min-h-9">

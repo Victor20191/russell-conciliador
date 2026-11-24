@@ -3,7 +3,9 @@ import { decrypt } from "@/lib/crypto";
 import {
   cifrarCredenciales,
   clavesCredencialesDefinidas,
+  credencialesVisiblesDeConexion,
   descifrarCredenciales,
+  descifrarCredencialesVisibles,
   fusionarCredenciales,
 } from "./credenciales";
 
@@ -70,5 +72,38 @@ describe("credenciales de conexión", () => {
     expect(descifrarCredenciales(["a"])).toEqual({});
     expect(descifrarCredenciales({ numero: 42 })).toEqual({});
     expect(clavesCredencialesDefinidas(null)).toEqual([]);
+  });
+});
+
+describe("credenciales visibles (no secretas)", () => {
+  const guardadas = () => cifrarCredenciales({ usuario: "notificaciones@russell.co", contrasena: "clave-secreta", token: "otro-secreto" });
+
+  it("descifra únicamente las claves permitidas y deja el resto sin tocar", () => {
+    expect(descifrarCredencialesVisibles(guardadas(), ["usuario"])).toEqual({ usuario: "notificaciones@russell.co" });
+    expect(descifrarCredencialesVisibles(guardadas(), [])).toEqual({});
+    // Una clave permitida que no está guardada no inventa nada.
+    expect(descifrarCredencialesVisibles(guardadas(), ["inexistente"])).toEqual({});
+    expect(descifrarCredencialesVisibles(null, ["usuario"])).toEqual({});
+  });
+
+  it("no intenta descifrar lo que no está permitido (un secreto corrupto no se toca)", () => {
+    const conCorrupto = { ...guardadas(), contrasena: "v1:corrupto" };
+    expect(descifrarCredencialesVisibles(conCorrupto, ["usuario"])).toEqual({ usuario: "notificaciones@russell.co" });
+  });
+
+  it("para SMTP y Gmail devuelve solo el usuario; nunca la contraseña", () => {
+    for (const proveedor of ["smtp", "gmail"]) {
+      const visibles = credencialesVisiblesDeConexion(proveedor, guardadas());
+      expect(visibles).toEqual({ usuario: "notificaciones@russell.co" });
+      expect(JSON.stringify(visibles)).not.toContain("clave-secreta");
+      expect(JSON.stringify(visibles)).not.toContain("otro-secreto");
+    }
+  });
+
+  it("los proveedores sin campos visibles (claves de IA, S3, tokens) no devuelven nada descifrado", () => {
+    const secretos = cifrarCredenciales({ api_key: "sk-ficticia", usuario: "no-aplica", token: "t" });
+    for (const proveedor of ["anthropic", "gemini", "cloudflare_r2", "api_rest", "proveedor_inexistente"]) {
+      expect(credencialesVisiblesDeConexion(proveedor, secretos), proveedor).toEqual({});
+    }
   });
 });
