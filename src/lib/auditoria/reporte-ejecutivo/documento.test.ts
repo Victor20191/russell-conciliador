@@ -31,7 +31,8 @@ describe("documento consistente", () => {
     expect(a.html).toContain("Operaciones registradas: <strong>1</strong>");
     expect(a.html).toContain("Usuarios con operaciones: <strong>1</strong>");
     // El encabezado muestra solo fechas de calendario, sin la hora UTC.
-    expect(a.html).toContain("Período: 2026-09-01 – 2026-09-07");
+    expect(a.html).toContain("Período:</td>");
+    expect(a.html).toContain(">2026-09-01 – 2026-09-07 (7 días)</td>");
     expect(a.html).not.toContain("T00:00:00");
     expect(a.html).not.toContain("T23:59:59");
     // El corte también va sin hora, en la fecha de Colombia (02:00 UTC del 8 = 7 de sep. en Bogotá).
@@ -237,8 +238,12 @@ describe("lectura honesta del comparativo en el documento", () => {
     const anterior = compararUso({ actual: diezOperaciones, previo: unaOperacion, base: "periodo_anterior" });
     const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: anterior }).html;
     const encabezado = html.slice(html.indexOf("<header>"), html.indexOf("</header>"));
-    expect(encabezado).toContain("Período: 2026-09-01 – 2026-09-07 (7 días)");
-    expect(encabezado).toContain("Período anterior (comparación): 2026-08-25 – 2026-08-31 (7 días)");
+    // Etiqueta en negrita en una columna y las fechas en otra, alineadas una debajo de la otra.
+    const fila = (etiqueta: string, fechas: string) =>
+      new RegExp(`<tr><td style="[^"]*font-weight:700[^"]*">${etiqueta.replace(/[()]/g, "\\$&")}</td><td style="[^"]*">${fechas.replace(/[()]/g, "\\$&")}</td></tr>`);
+    expect(encabezado).toMatch(fila("Período:", "2026-09-01 – 2026-09-07 (7 días)"));
+    expect(encabezado).toMatch(fila("Período anterior (comparación):", "2026-08-25 – 2026-08-31 (7 días)"));
+    expect(encabezado).toContain('class="rd-periodos"');
     // Sin comparativo solo va el período actual.
     const solo = construirDocumentoConsistente(contexto).html;
     expect(solo.slice(solo.indexOf("<header>"), solo.indexOf("</header>"))).not.toContain("Período anterior");
