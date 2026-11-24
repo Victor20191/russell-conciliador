@@ -4,6 +4,7 @@ const db = vi.hoisted(() => ({ findFirst: vi.fn(), findUnique: vi.fn(), create: 
 vi.mock("@/lib/prisma", () => ({ default: { reporteEjecutivoUsoIA: db } }));
 import { ajustarMaquetacionReporte } from "./maquetacion";
 import { claveAlcanceReporte, guardarInstantanea, instantaneaCubreElPeriodo, leerInstantanea } from "./instantaneas";
+import { METODOLOGIA_USO_VIGENTE } from "./metodologia";
 const desde = new Date("2026-08-01T00:00:00Z");
 const hasta = new Date("2026-08-31T23:59:59.999Z");
 const row = {
@@ -49,7 +50,15 @@ describe("instantáneas de reportes", () => {
       porcentajeAdopcion: 50, versionIdsIncluidos: [1, 2], corte: hasta.toISOString(),
       // Los guardados antes de poder omitir novedades no traen el campo: no omitieron nada.
       cambiosOmitidos: [],
+      // Sin marca de metodología: se calculó con reglas anteriores.
+      metodologiaVigente: false,
     });
+  });
+  test("marca si la instantánea se calculó con la metodología vigente", async () => {
+    db.findFirst.mockResolvedValue({ ...row, metadatos: { ...row.metadatos, metodologia: METODOLOGIA_USO_VIGENTE } });
+    expect((await leerInstantanea("alcance"))?.metodologiaVigente).toBe(true);
+    db.findFirst.mockResolvedValue({ ...row, metadatos: { ...row.metadatos, metodologia: METODOLOGIA_USO_VIGENTE - 1 } });
+    expect((await leerInstantanea("alcance"))?.metodologiaVigente).toBe(false);
   });
   test("conflicto concurrente devuelve íntegra la primera revisión guardada", async () => {
     db.create.mockRejectedValue({ code: "P2002" });

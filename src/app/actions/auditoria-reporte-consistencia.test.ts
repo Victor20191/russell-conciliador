@@ -31,6 +31,7 @@ const snapshot = {
   id: 9, report: { titulo: "Guardado", html: "<html>Original</html>" }, model: "modelo-original",
   generatedAt: "2026-09-01T12:00:00Z", totalAcciones: 103, totalUsuarios: 7, totalNovedades: 4,
   porcentajeAdopcion: 75, versionIdsIncluidos: [3, 5], corte: "2026-09-01T11:00:00Z",
+  metodologiaVigente: true,
 };
 beforeEach(() => {
   vi.resetAllMocks();
@@ -52,6 +53,14 @@ describe("consistencia de generación del reporte", () => {
     expect(mocks.eventos).not.toHaveBeenCalled();
     expect(mocks.ia).not.toHaveBeenCalled();
     expect(mocks.guardar).not.toHaveBeenCalled();
+  });
+
+  test("un reporte guardado con otra metodología no se reutiliza: se recalcula como revisión nueva", async () => {
+    mocks.leer.mockResolvedValue({ ...snapshot, metodologiaVigente: false });
+    const result = await generarReporteEjecutivoUso(scope);
+    expect(result).toMatchObject({ ok: true, desdeCache: false });
+    expect(mocks.eventos).toHaveBeenCalled();
+    expect(mocks.guardar).toHaveBeenCalledWith(expect.objectContaining({ anteriorId: 9 }));
   });
 
   test("autoriza antes de leer la instantánea", async () => {

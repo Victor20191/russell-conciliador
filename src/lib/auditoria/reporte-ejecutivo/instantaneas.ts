@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import type { ReporteEjecutivoUso } from "./reportes";
-import { METODOLOGIA_USO_VIGENTE } from "./metodologia";
+import { METODOLOGIA_USO_VIGENTE, metodologiaAlDia } from "./metodologia";
 
 const Metadatos = z.object({
   porcentajeAdopcion: z.number().nullable(),
@@ -54,6 +54,11 @@ export type InstantaneaReporte = {
   versionIdsIncluidos: number[];
   corte: string;
   cambiosOmitidos: number[];
+  /**
+   * ¿Se calculó con la metodología vigente? Una guardada con reglas anteriores (p. ej.
+   * antes de contar operaciones como hoy) no se reutiliza al generar: se recalcula.
+   */
+  metodologiaVigente: boolean;
 };
 
 type Fila = Awaited<ReturnType<typeof prisma.reporteEjecutivoUsoIA.findUnique>>;
@@ -63,6 +68,7 @@ function leerFila(row: NonNullable<Fila>): InstantaneaReporte {
     id: row.id, report: { titulo: row.titulo, html: ajustarMaquetacionReporte(row.html) }, model: row.modelo,
     generatedAt: row.creadoEn.toISOString(), totalAcciones: row.totalAcciones,
     totalUsuarios: row.totalUsuarios, totalNovedades: row.totalNovedades, ...datos,
+    metodologiaVigente: metodologiaAlDia(row.metadatos),
   };
 }
 

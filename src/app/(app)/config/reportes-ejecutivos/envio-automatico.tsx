@@ -848,7 +848,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
             <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">
               <p>
                 El mismo período recupera el reporte guardado con sus cifras y fecha de corte originales, salvo que
-                marques actualizarlo.
+                marques actualizarlo. Si se guardó con otra forma de contar las operaciones, se vuelve a calcular.
               </p>
               <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium text-ink-800">
                 <input

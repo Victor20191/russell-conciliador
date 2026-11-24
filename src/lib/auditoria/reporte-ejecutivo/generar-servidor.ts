@@ -355,7 +355,12 @@ export async function generarReporteEjecutivoNucleo(params: {
     const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds, cambiosOmitidos);
     const anterior = await leerInstantanea(clave);
     signal?.throwIfAborted();
-    if (anterior && !datos.actualizar && (!soloReutilizarSiCompleta || instantaneaCubreElPeriodo(anterior.corte, rango.hasta))) {
+    // Solo se reutiliza lo calculado con las reglas vigentes: un reporte guardado con otra
+    // metodología (otra forma de contar operaciones) se vuelve a generar, como revisión nueva.
+    if (
+      anterior && anterior.metodologiaVigente && !datos.actualizar
+      && (!soloReutilizarSiCompleta || instantaneaCubreElPeriodo(anterior.corte, rango.hasta))
+    ) {
       return { ok: true, ...anterior, desdeCache: true };
     }
     const corte = new Date(Math.min(Date.now(), rango.hasta.getTime()));

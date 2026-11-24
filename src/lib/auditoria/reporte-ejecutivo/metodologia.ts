@@ -43,7 +43,12 @@
 //     eliminar o borrar y lo que la plataforma anota sola no cuentan. Crear el
 //     borrador de balance se anota («CREÓ BORRADOR de balance»; volver a leerlo,
 //     «RELEYÓ…»), y las alertas de los módulos pasan a «Módulos de conciliación».
-export const METODOLOGIA_USO_VIGENTE = 7;
+// 8 — la definición de la 7 en su forma final: cada cuenta del Plan Russell y cada
+//     incidente reportado cuentan una vez cada uno, y el reporte trae el volumen de
+//     trabajo. Desde aquí, generar un período que ya tenía un reporte guardado con
+//     otra metodología lo RECALCULA (antes devolvía el guardado, con las cifras y el
+//     documento viejos) (24/Nov/2026).
+export const METODOLOGIA_USO_VIGENTE = 8;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

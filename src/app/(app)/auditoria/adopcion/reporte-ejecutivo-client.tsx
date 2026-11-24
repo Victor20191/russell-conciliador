@@ -905,7 +905,8 @@ export function ReporteEjecutivoClient({
           <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">
             <p>
               El mismo período, con las mismas novedades omitidas, recupera el reporte guardado, con sus
-              cifras y fecha de corte originales.
+              cifras y fecha de corte originales. Si se guardó con otra forma de contar las operaciones, se
+              vuelve a calcular.
             </p>
             <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium text-ink-800">
               <input type="checkbox" className="mt-0.5 accent-navy-700" checked={actualizarDatos}
