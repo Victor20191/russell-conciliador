@@ -153,6 +153,7 @@ export const FICHA_MAPEO_CLIENTE: FichaAyuda = {
   antesDeEmpezar: [
     "La lista de clientes incluye a los que tienen al menos un balance cargado.",
     "Homologar se hace sobre los clientes donde puedes revisar balances; los demás roles consultan.",
+    "Si el cliente es del Régimen Simple de Tributación (ficha del cliente en Sí), debajo del selector de cliente un aviso recuerda homologar su IVA generado, descontable y de devoluciones a las cuentas propias del RST: 240855, 240856, 240857 y 240858. Es un recordatorio: no impide homologar a otras cuentas.",
   ],
   etapas: [
     {

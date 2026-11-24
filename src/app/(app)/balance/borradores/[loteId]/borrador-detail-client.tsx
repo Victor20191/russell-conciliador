@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Icon, type IconName, IconoEnTexto } from "@/components/icons";
 import { PREFIJOS_TERCERO_CONSERVADOS, describirGruposTercero } from "@/lib/balance/staging-tercero";
 import { Card, Chip, PageHeader } from "@/components/ui";
+import { AvisoRegimenSimple } from "@/components/aviso-regimen-simple";
 import { Modal } from "@/components/modal";
 import {
   BotonPantallaCompleta,
@@ -159,6 +160,8 @@ type Cliente = {
   nit: string;
   notas?: string | null;
   imputarSoloHojas: boolean | null;
+  /** Ficha del cliente con «Régimen Simple de Tributación» en Sí: recuerda homologar su IVA a las cuentas del RST. */
+  regimenSimple?: boolean;
 };
 
 export function etiquetaPerfilSoloHojas(valor: boolean | null | undefined): string {
@@ -1383,6 +1386,7 @@ export default function BorradorDetailClient({
           </div>
         }
       />
+      {clientes.find((c) => c.id === clienteSelId)?.regimenSimple && <AvisoRegimenSimple />}
       <PartesBalanceResumen partes={partes} />
       <CuentasRepetidasPartesAviso
         repetidas={cuentasRepetidasPartes}

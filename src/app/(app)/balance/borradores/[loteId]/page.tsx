@@ -96,7 +96,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   const [clientes, ajustesRows, lotesVisibles] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
-      select: { id: true, name: true, nit: true },
+      select: { id: true, name: true, nit: true, regimenSimple: true },
       orderBy: { name: "asc" },
     }),
     // Preferencias mínimas por cliente: alimentan el estado visible de protección
@@ -196,6 +196,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
           nit: c.nit,
           notas: ajustesPorCliente.get(c.id)?.observaciones ?? null,
           imputarSoloHojas: ajustesPorCliente.get(c.id)?.imputarSoloHojas ?? null,
+          regimenSimple: c.regimenSimple,
         }))}
         clienteSugeridoId={clienteSugeridoId}
         clientePersistido={clientePersistido}

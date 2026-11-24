@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { AvisoRegimenSimple } from "@/components/aviso-regimen-simple";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { ORIGEN_PENDIENTE } from "@/lib/balance/mapeo-cliente-config";
@@ -156,8 +157,11 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Aprobaciones y revocaciones del prevalidador de este balance (pestaña Prevalidador › Historial).
     cargarHistorialRevisionesPrevalidador(id),
   ]);
+  const fichaCliente = await prisma.client.findUnique({ where: { id: clientId }, select: { balancePorTerceros: true, regimenSimple: true } });
   // Cliente sin balance por terceros: «Ver por terceros» lleva a adjuntar los movimientos del ERP.
-  const sinBalancePorTerceros = (await prisma.client.findUnique({ where: { id: clientId }, select: { balancePorTerceros: true } }))?.balancePorTerceros === false;
+  const sinBalancePorTerceros = fichaCliente?.balancePorTerceros === false;
+  // Cliente del Régimen Simple: recordatorio de homologar su IVA a las cuentas propias del RST.
+  const regimenSimple = fichaCliente?.regimenSimple === true;
   // «Balance por cuenta con terceros agregados»: el archivo de movimientos del ERP ya está adjunto.
   const tercerosAgregados = sinBalancePorTerceros && esCapturaDeMovimientos(terceroLigado?.origenExtraccion) ? terceroLigado : null;
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
@@ -436,6 +440,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
           />
         )}
       </p>
+
+      {regimenSimple && <AvisoRegimenSimple className="mb-4" />}
 
       {descongelada && (
         <div role="status" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[12.5px] text-warn-700">

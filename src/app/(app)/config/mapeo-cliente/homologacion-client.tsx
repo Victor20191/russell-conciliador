@@ -20,14 +20,17 @@ import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { consultarImpactoHomologacionCliente, guardarHomologacionCliente } from "@/app/actions/homologacion-cliente";
 import { eliminarMapeoCliente } from "@/app/actions/mapeo-cliente";
 import { SelectBuscable, type OpcionBuscable } from "@/components/select-buscable";
+import { AvisoRegimenSimple } from "@/components/aviso-regimen-simple";
 import type { StdAccount } from "@/lib/balance/tipos-mapeo";
 
 const INPUT = "w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-[12.5px] text-ink-800 outline-none focus:border-blue-400";
 const porConfirmar = (c: CuentaPucCliente) => !!c.cuenta6Russell && (c.coincidencia == null || c.coincidencia < 100);
 
-export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNit, puedeMapear, cliente, clientNames, clientOptions, onEditar }: {
+export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNit, puedeMapear, cliente, clientNames, clientOptions, onEditar, regimenSimple = false }: {
   accounts: CuentaPucCliente[]; std: StdAccount[]; anomalias: Map<string, AnomaliaMapeo>;
   clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
+  /** El cliente elegido es del Régimen Simple: recuerda homologar su IVA a las cuentas del RST. */
+  regimenSimple?: boolean;
   cliente: string; clientNames: string[]; clientOptions?: Array<{ nombre: string; nit: string | null }>; onEditar: (cuenta: CuentaPucCliente | null) => void;
 }) {
   const router = useRouter();
@@ -108,6 +111,11 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
           {puedeMapear && clienteId != null && <button type="button" onClick={() => onEditar(null)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600">Nueva regla</button>}
         </div>
       </div>
+      {regimenSimple && (
+        <div className="border-b border-ink-100 px-4 py-3">
+          <AvisoRegimenSimple />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
         <input aria-label="Buscar cuenta del cliente" value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Buscar código (prefijo o **25), nombre o estándar…" title={AYUDA_COMODIN} className={`${INPUT} min-w-48 flex-1 sm:max-w-sm`} />
         <select aria-label="Nivel de la cuenta" value={nivel} onChange={(e) => { setNivel(e.target.value); pg.resetToFirstPage(); }} className="rounded-md border border-ink-200 px-2 py-2 text-[12px]">

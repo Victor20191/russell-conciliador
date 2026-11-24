@@ -70,6 +70,7 @@ export const FICHA_BORRADOR_BALANCE: FichaAyuda = {
     "Los cambios del árbol no se aplican hasta pulsar «Guardar cambios».",
     "Para cargar se necesitan cliente, período (no futuro y confirmado) y tipo de balance.",
     "Quien puede revisar balances pero no cargarlos abre el borrador en modo consulta: lo revisa y lo puede descartar.",
+    "Si el cliente es del Régimen Simple de Tributación (ficha del cliente en Sí), debajo del encabezado (sigue al cliente que eliges) un aviso recuerda homologar su IVA generado, descontable y de devoluciones a las cuentas propias del RST: 240855, 240856, 240857 y 240858. Es un recordatorio: no impide homologar a otras cuentas.",
   ],
   etapas: [
     {

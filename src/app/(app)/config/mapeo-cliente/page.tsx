@@ -42,9 +42,13 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
   const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
-  const [puedeMapear, accounts, standard, historicas, originales] = await Promise.all([
+  const [puedeMapear, regimenSimple, accounts, standard, historicas, originales] = await Promise.all([
     clienteId
       ? authorizePermiso("balance:revisar", { clientId: clienteId }).then((result) => result.ok)
+      : Promise.resolve(false),
+    // Cliente del Régimen Simple: recordatorio de homologar su IVA a las cuentas propias del RST.
+    clienteId
+      ? prisma.client.findUnique({ where: { id: clienteId }, select: { regimenSimple: true } }).then((c) => c?.regimenSimple === true)
       : Promise.resolve(false),
     clienteId
       ? prisma.clientAccount.findMany({
@@ -131,7 +135,7 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
   return (
     <div>
       <PageHeader title="Mapeo cuentas cliente" subtitle="Homologación del PUC de cada cliente contra el plan estándar de Russell Bedford." />
-      <MapeoClienteClient key={clienteId} clientNames={clientNames} clientOptions={clientOptions} cliente={cliente} accounts={acc} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} />
+      <MapeoClienteClient key={clienteId} clientNames={clientNames} clientOptions={clientOptions} cliente={cliente} accounts={acc} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} regimenSimple={regimenSimple} />
     </div>
   );
 }
