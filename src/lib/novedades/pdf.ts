@@ -19,9 +19,33 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
+/**
+ * Navegadores de respaldo, en orden, cuando falta el Chromium propio de Playwright:
+ * pasa en los equipos de desarrollo en Windows donde nunca se corrió
+ * `npx playwright install` (ahí el PDF fallaba con «Executable doesn't exist»).
+ * El servidor sí tiene su Chromium y no llega a usarlos.
+ */
+const CANALES_RESPALDO = ["chrome", "msedge"] as const;
+
+async function lanzarChromium(): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (errorPropio) {
+    for (const channel of CANALES_RESPALDO) {
+      try {
+        return await chromium.launch({ headless: true, channel });
+      } catch {
+        // Ese navegador tampoco está: se prueba el siguiente.
+      }
+    }
+    // Ninguno sirvió: el error que vale es el del Chromium de Playwright.
+    throw errorPropio;
+  }
+}
+
 async function obtenerBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium.launch({ headless: true }).catch((error) => {
+    browserPromise = lanzarChromium().catch((error) => {
       browserPromise = null;
       throw error;
     });
