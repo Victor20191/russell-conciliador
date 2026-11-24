@@ -10,13 +10,26 @@ const Metadatos = z.object({
   porcentajeAdopcion: z.number().nullable(),
   versionIdsIncluidos: z.array(z.number().int()),
   corte: z.string(),
+  // Cambios de Novedades que se dejaron fuera de este reporte (ver `omitir-novedades.ts`).
+  cambiosOmitidos: z.array(z.number().int()).default([]),
 });
 
-export function claveAlcanceReporte(desde: Date, hasta: Date, versiones: number[] | null): string {
+/**
+ * Llave del reporte guardado. Los cambios omitidos solo entran cuando hay alguno:
+ * sin omisiones la llave es la de siempre y los reportes ya guardados se reutilizan.
+ */
+export function claveAlcanceReporte(
+  desde: Date,
+  hasta: Date,
+  versiones: number[] | null,
+  cambiosOmitidos: readonly number[] = [],
+): string {
+  const omitidos = [...new Set(cambiosOmitidos)].sort((a, b) => a - b);
   return createHash("sha256").update(JSON.stringify({
     formato: "instantanea-gerencia-v1",
     desde: desde.toISOString(), hasta: hasta.toISOString(),
     versiones: !versiones ? "publicadas" : versiones.length ? [...new Set(versiones)].sort((a, b) => a - b) : "ninguna",
+    ...(omitidos.length ? { omitidos } : {}),
   })).digest("hex");
 }
 
@@ -31,6 +44,7 @@ export type InstantaneaReporte = {
   porcentajeAdopcion: number | null;
   versionIdsIncluidos: number[];
   corte: string;
+  cambiosOmitidos: number[];
 };
 
 type Fila = Awaited<ReturnType<typeof prisma.reporteEjecutivoUsoIA.findUnique>>;
@@ -54,7 +68,7 @@ export async function guardarInstantanea(params: {
   clave: string; anteriorId: number | null; report: ReporteEjecutivoUso;
   modelo: string; desde: Date; hasta: Date; totalAcciones: number; totalUsuarios: number;
   totalNovedades: number; porcentajeAdopcion: number | null; versionIdsIncluidos: number[];
-  corte: string; fuente: unknown; userId: number | null;
+  cambiosOmitidos: number[]; corte: string; fuente: unknown; userId: number | null;
 }): Promise<InstantaneaReporte> {
   // Dos generaciones concurrentes de la misma revisión convergen en una sola fila.
   const huella = createHash("sha256").update(`${params.clave}:${params.anteriorId ?? "inicial"}`).digest("hex");
@@ -64,7 +78,7 @@ export async function guardarInstantanea(params: {
       // `metodologia` marca con qué reglas se calcularon estas cifras: el
       // comparativo descarta las instantáneas viejas en vez de mezclarlas.
       metadatos: JSON.parse(JSON.stringify({ porcentajeAdopcion: params.porcentajeAdopcion,
-        versionIdsIncluidos: params.versionIdsIncluidos, corte: params.corte,
+        versionIdsIncluidos: params.versionIdsIncluidos, cambiosOmitidos: params.cambiosOmitidos, corte: params.corte,
         metodologia: METODOLOGIA_USO_VIGENTE, fuente: params.fuente })),
       modelo: params.modelo, titulo: params.report.titulo, html: params.report.html,
       periodoDesde: params.desde, periodoHasta: params.hasta,

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { chevronDivulgacion } from "./chevron-divulgacion";
 
@@ -21,6 +21,8 @@ describe("convención cableada en UI de expandir/contraer", () => {
   const root = join(process.cwd(), "src");
 
   const archivosConToggles = [
+    "app/(app)/auditoria/adopcion/novedades-a-omitir.tsx",
+    "app/(app)/auditoria/adopcion/reporte-ejecutivo-client.tsx",
     "app/(app)/auditoria/ia/consumo-tabla.tsx",
     "app/(app)/balance/cargar-balance-modal.tsx",
     "app/(app)/balance/borradores/[loteId]/borrador-detail-client.tsx",
@@ -42,8 +44,9 @@ describe("convención cableada en UI de expandir/contraer", () => {
     readdirSync(dir, { withFileTypes: true }).flatMap((entrada) => {
       const ruta = join(dir, entrada.name);
       if (entrada.isDirectory()) return listarTsx(ruta);
+      // Con «/» también en Windows, como el inventario.
       return entrada.isFile() && entrada.name.endsWith(".tsx")
-        ? [relative(root, ruta)]
+        ? [relative(root, ruta).split(sep).join("/")]
         : [];
     });
 

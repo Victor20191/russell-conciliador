@@ -24,6 +24,7 @@ vi.mock("@/lib/rbac/publicacion", () => ({ modulosPublicadosParaTodos: vi.fn(asy
 vi.mock("@/lib/auditoria/reporte-ejecutivo/instantaneas", () => ({ claveAlcanceReporte: vi.fn(() => "clave"), leerInstantanea: mocks.leer, guardarInstantanea: mocks.guardar }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { generarReporteEjecutivoUso, listarEnviosReporteEjecutivo } from "./auditoria-reporte";
+import { claveAlcanceReporte } from "@/lib/auditoria/reporte-ejecutivo/instantaneas";
 
 const scope = { desde: "2026-09-01", hasta: "2026-09-07" };
 const snapshot = {
@@ -164,6 +165,50 @@ describe("consistencia de generación del reporte", () => {
       const guardado = mocks.guardar.mock.calls[0][0];
       expect(guardado.report.html).toContain("No se atendieron tickets reportados por el equipo");
       expect(guardado.fuente.tickets).toMatchObject({ total: 0, tickets: [] });
+    });
+  });
+
+  describe("novedades omitidas a pedido", () => {
+    const cambio = (id: number, type: string, title: string) => ({
+      id, type, title, description: `${title}: descripción.`, moduleKey: "balance", route: null,
+      howTo: null, example: null, featureStatus: "disponible",
+    });
+    const version = {
+      id: 5, number: "2.5.0", title: "Versión de prueba", summary: null, status: "publicada",
+      releasedAt: new Date("2026-09-03T12:00:00Z"), deployedAt: new Date("2026-09-03T12:00:00Z"),
+      changes: [
+        cambio(10, "nueva", "Panel que sí se muestra"),
+        cambio(11, "mejora", "Ajuste interno que no se muestra"),
+        cambio(12, "nueva", "Pantalla interna que no se muestra"),
+      ],
+    };
+
+    test("lo omitido no sale en el documento ni cuenta en la adopción", async () => {
+      mocks.versiones.mockResolvedValue([version]);
+      // 99 no es del período: se ignora.
+      await generarReporteEjecutivoUso({ ...scope, actualizar: true, cambiosOmitidos: [12, 11, 99] });
+
+      expect(claveAlcanceReporte).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), [5], [11, 12]);
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.cambiosOmitidos).toEqual([11, 12]);
+      expect(guardado.report.html).toContain("Panel que sí se muestra");
+      expect(guardado.report.html).not.toContain("Ajuste interno que no se muestra");
+      expect(guardado.report.html).not.toContain("Pantalla interna que no se muestra");
+      // La adopción se mide sobre la única funcionalidad nueva que quedó.
+      expect(guardado.totalNovedades).toBe(1);
+      expect(guardado.fuente.adopcion.items.map((i: { titulo: string }) => i.titulo)).toEqual(["Panel que sí se muestra"]);
+      expect(mocks.audit.mock.calls[0][0].detail).toContain("2 novedades omitidas a pedido");
+    });
+
+    test("sin omisiones entran todos los cambios y la clave no cambia", async () => {
+      mocks.versiones.mockResolvedValue([version]);
+      await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+
+      expect(claveAlcanceReporte).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), [5], []);
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.cambiosOmitidos).toEqual([]);
+      expect(guardado.report.html).toContain("Ajuste interno que no se muestra");
+      expect(guardado.totalNovedades).toBe(2);
     });
   });
 });

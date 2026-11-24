@@ -891,6 +891,8 @@ export const ReporteEjecutivoUsoScopeSchema = z
     actualizar: z.boolean().optional(),
     desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
     hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
+    // Cambios de Novedades que este reporte deja fuera (ver `omitir-novedades.ts`).
+    cambiosOmitidos: z.array(z.number().int().positive()).max(5000).optional(),
   })
   .superRefine((val, ctx) => {
     const d = Date.parse(val.desde);

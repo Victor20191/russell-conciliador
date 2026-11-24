@@ -30,6 +30,7 @@ import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecut
 import type { TicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { filtroVersionesDelPeriodo } from "@/lib/auditoria/reporte-ejecutivo/novedades-periodo";
+import { omitidosDelPeriodo } from "@/lib/auditoria/reporte-ejecutivo/omitir-novedades";
 import {
   actorUnificado,
   aliasDeActores,
@@ -80,6 +81,8 @@ export type GenerarReporteEjecutivoResult =
       desdeCache: boolean;
       /** Versiones de Novedades realmente incluidas: es lo que se registra al marcar el envío. */
       versionIdsIncluidos: number[];
+      /** Cambios de esas versiones que este reporte dejó fuera a pedido. */
+      cambiosOmitidos: number[];
     }
   | { ok: false; message: string };
 
@@ -101,6 +104,7 @@ function crearContextoNovedades(
     status: string;
     releasedAt: Date | null;
     changes: Array<{
+      id: number;
       type: string;
       title: string;
       description: string;
@@ -112,18 +116,22 @@ function crearContextoNovedades(
     }>;
   }>,
   filtro: FiltroPublicacion,
+  /** Cambios que este reporte deja fuera a pedido (ver `omitir-novedades.ts`). */
+  omitidos: ReadonlySet<number> = new Set(),
 ): {
   contexto: NovedadReporteEjecutivoContexto[];
   totalChanges: number;
   includedChanges: number;
   excluidosEnDesarrollo: number;
   excluidosNoPublicados: number;
+  omitidosAPedido: number;
   planos: CambioNovedadContexto[];
 } {
   let includedChanges = 0;
   let totalChanges = 0;
   let excluidosEnDesarrollo = 0;
   let excluidosNoPublicados = 0;
+  let omitidosAPedido = 0;
   const planos: CambioNovedadContexto[] = [];
 
   const contexto: NovedadReporteEjecutivoContexto[] = versiones.map((version) => {
@@ -142,7 +150,13 @@ function crearContextoNovedades(
     excluidosNoPublicados += publicables.moduloNoPublicado + publicables.sinModulo;
     totalChanges += publicables.cambios.length;
     const cambios = publicables.cambios
-      .filter(() => {
+      // Lo omitido a pedido no entra en ninguna parte del documento: ni en las
+      // tablas de avances ni en los conteos ni en la adopción.
+      .filter((change) => {
+        if (omitidos.has(change.id)) {
+          omitidosAPedido += 1;
+          return false;
+        }
         includedChanges += 1;
         return true;
       })
@@ -191,6 +205,7 @@ function crearContextoNovedades(
     includedChanges,
     excluidosEnDesarrollo,
     excluidosNoPublicados,
+    omitidosAPedido,
     planos,
   };
 }
@@ -315,12 +330,17 @@ export async function generarReporteEjecutivoUso(
     // Entran en la clave: si después se publica una versión desplegada en este
     // período, el reporte guardado deja de ser el del alcance y se recalcula.
     const filtroVersiones = filtroVersionesDelPeriodo(rango.desde, rango.hasta);
-    const versionIds = (
-      await prisma.platformVersion.findMany({ where: filtroVersiones, select: { id: true } })
-    )
-      .map((v) => v.id)
-      .sort((a, b) => a - b);
-    const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds);
+    const versionesDelPeriodo = await prisma.platformVersion.findMany({
+      where: filtroVersiones,
+      select: { id: true, changes: { select: { id: true } } },
+    });
+    const versionIds = versionesDelPeriodo.map((v) => v.id).sort((a, b) => a - b);
+    // Lo omitido a pedido también entra en la clave: otra selección es otro reporte.
+    const cambiosOmitidos = omitidosDelPeriodo(
+      parsed.data.cambiosOmitidos,
+      versionesDelPeriodo.flatMap((v) => v.changes.map((c) => c.id)),
+    );
+    const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds, cambiosOmitidos);
     const anterior = await leerInstantanea(clave);
     signal?.throwIfAborted();
     if (anterior && !parsed.data.actualizar) {
@@ -487,8 +507,9 @@ export async function generarReporteEjecutivoUso(
       includedChanges,
       excluidosEnDesarrollo,
       excluidosNoPublicados,
+      omitidosAPedido,
       planos,
-    } = crearContextoNovedades(versiones, filtro);
+    } = crearContextoNovedades(versiones, filtro, new Set(cambiosOmitidos));
 
     const conteos = conteosPorFamiliaCanon(eventos, usuariosRegistrados);
     // La adopción se mide solo sobre funcionalidades NUEVAS; las mejoras y
@@ -516,7 +537,7 @@ export async function generarReporteEjecutivoUso(
       desde: rango.desde, hasta: rango.hasta,
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
-      versionIdsIncluidos, corte: corte.toISOString(),
+      versionIdsIncluidos, cambiosOmitidos, corte: corte.toISOString(),
       fuente: { uso, usoComparable, adopcion, novedades, comparativo, costos, tickets }, userId: user?.id ?? null,
     });
     signal?.throwIfAborted();
@@ -526,7 +547,7 @@ export async function generarReporteEjecutivoUso(
       entity: "Uso y adopción",
       detail: `Generó reporte para gerencia (documento ${MODELO_REPORTE_DETERMINISTA}: ${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         `${versiones.length} versiones desplegadas en el período`
-      }). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
+      }${omitidosAPedido ? `, ${omitidosAPedido} novedades omitidas a pedido` : ""}). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
     return { ok: true, ...final, desdeCache: false };
   } catch (e) {
@@ -868,10 +889,12 @@ export async function eliminarEnvioReporteEjecutivo(
 
 /* ===== Historial de reportes GENERADOS (instantáneas) ===== */
 //
-// Existe para poder reiniciar la serie: el período que propone el modal y el
-// comparativo de uso se apoyan en el último reporte generado, así que borrar
-// una instantánea mueve ambos hacia atrás. Es distinto del registro de ENVÍOS,
-// que controla qué avances ya se le contaron al cliente.
+// Guarda la copia de cada reporte (la que se reutiliza al volver a generar el
+// mismo alcance) y avisa cuando el período de la página se traslapa con uno ya
+// generado. Borrar una instantánea la saca del historial: si se vuelve a generar
+// ese período, el documento se arma de nuevo. El período lo elige la página y el
+// comparativo no lee este historial. Es distinto del registro de ENVÍOS, que
+// controla qué avances ya se le contaron al cliente.
 
 export type ReporteGeneradoPrevio = {
   id: number;
@@ -917,7 +940,7 @@ export async function listarReportesGenerados(limite = 50): Promise<ReporteGener
 
 export type EliminarReporteGeneradoResult = { ok: true; eliminados: number } | { ok: false; message: string };
 
-/** Borra UNA instantánea. El período sugerido y el comparativo retroceden a la anterior. */
+/** Borra UNA instantánea: sale del historial y de los avisos de traslape. */
 export async function eliminarReporteGenerado(id: number): Promise<EliminarReporteGeneradoResult> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -933,7 +956,7 @@ export async function eliminarReporteGenerado(id: number): Promise<EliminarRepor
       user: user?.name ?? "Sistema",
       action: "ELIMINÓ REPORTE GENERADO",
       entity: "Uso y adopción",
-      detail: `Borró el reporte #${id} del período ${fila.periodoDesde.toISOString().slice(0, 10)} → ${fila.periodoHasta.toISOString().slice(0, 10)}. El período sugerido y el comparativo vuelven al reporte anterior.`,
+      detail: `Borró el reporte #${id} del período ${fila.periodoDesde.toISOString().slice(0, 10)} → ${fila.periodoHasta.toISOString().slice(0, 10)}. Si se vuelve a generar ese período, el documento se arma de nuevo.`,
     });
     revalidatePath(RUTA_REPORTES);
     return { ok: true, eliminados: 1 };
@@ -954,7 +977,7 @@ export async function eliminarTodosLosReportesGenerados(): Promise<EliminarRepor
       user: user?.name ?? "Sistema",
       action: "VACIÓ EL HISTORIAL DE REPORTES GENERADOS",
       entity: "Uso y adopción",
-      detail: `Borró ${count} reporte(s) generados. El modal vuelve a proponer los últimos 30 días y el comparativo se calcula contra el período anterior.`,
+      detail: `Borró ${count} reporte(s) generados. El historial queda vacío; cada período se arma de nuevo al generarlo.`,
     });
     revalidatePath(RUTA_REPORTES);
     return { ok: true, eliminados: count };

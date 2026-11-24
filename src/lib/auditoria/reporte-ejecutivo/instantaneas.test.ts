@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 const db = vi.hoisted(() => ({ findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ default: { reporteEjecutivoUsoIA: db } }));
@@ -13,7 +14,8 @@ const row = {
 const input = {
   clave: "alcance", anteriorId: null, report: { titulo: "Nuevo", html: "<html>Nuevo</html>" },
   modelo: "modelo-nuevo", desde, hasta, totalAcciones: 105, totalUsuarios: 6, totalNovedades: 30,
-  porcentajeAdopcion: 70, versionIdsIncluidos: [3], corte: hasta.toISOString(), fuente: { uso: {} }, userId: 1,
+  porcentajeAdopcion: 70, versionIdsIncluidos: [3], cambiosOmitidos: [], corte: hasta.toISOString(),
+  fuente: { uso: {} }, userId: 1,
 };
 beforeEach(() => vi.resetAllMocks());
 describe("instantáneas de reportes", () => {
@@ -24,12 +26,29 @@ describe("instantáneas de reportes", () => {
     expect(claveAlcanceReporte(desde, hasta, null)).not.toBe(claveAlcanceReporte(desde, hasta, [1, 2]));
     expect(claveAlcanceReporte(desde, hasta, [1])).not.toBe(claveAlcanceReporte(hasta, hasta, [1]));
   });
+  test("sin omisiones la clave es la de siempre: los reportes ya guardados se reutilizan", () => {
+    const anterior = createHash("sha256").update(JSON.stringify({
+      formato: "instantanea-gerencia-v1",
+      desde: desde.toISOString(), hasta: hasta.toISOString(), versiones: [1, 2],
+    })).digest("hex");
+    expect(claveAlcanceReporte(desde, hasta, [1, 2])).toBe(anterior);
+    expect(claveAlcanceReporte(desde, hasta, [1, 2], [])).toBe(anterior);
+  });
+  test("otra selección de novedades omitidas es otro reporte", () => {
+    const sin = claveAlcanceReporte(desde, hasta, [1, 2]);
+    const con = claveAlcanceReporte(desde, hasta, [1, 2], [30, 10]);
+    expect(con).not.toBe(sin);
+    expect(con).toBe(claveAlcanceReporte(desde, hasta, [1, 2], [10, 30, 10]));
+    expect(con).not.toBe(claveAlcanceReporte(desde, hasta, [1, 2], [10]));
+  });
   test("lee documento, alcance, cifras, modelo y corte de la misma revisión", async () => {
     db.findFirst.mockResolvedValue(row);
     expect(await leerInstantanea("alcance")).toEqual({
       id: 8, report: { titulo: row.titulo, html: ajustarMaquetacionReporte(row.html) }, model: row.modelo,
       generatedAt: desde.toISOString(), totalAcciones: 103, totalUsuarios: 5, totalNovedades: 27,
       porcentajeAdopcion: 50, versionIdsIncluidos: [1, 2], corte: hasta.toISOString(),
+      // Los guardados antes de poder omitir novedades no traen el campo: no omitieron nada.
+      cambiosOmitidos: [],
     });
   });
   test("conflicto concurrente devuelve íntegra la primera revisión guardada", async () => {

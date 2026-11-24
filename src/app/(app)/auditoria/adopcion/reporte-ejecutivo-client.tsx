@@ -16,6 +16,8 @@ import { Modal } from "@/components/modal";
 import { fmtCalendarDate, fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
 import { periodoAnteriorEnFechas } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import type { SeccionNovedad } from "@/lib/auditoria/reporte-ejecutivo/omitir-novedades";
+import { NovedadesAOmitir, type CambioAOmitir } from "./novedades-a-omitir";
 import { despliegueEnFechas } from "@/lib/auditoria/reporte-ejecutivo/novedades-periodo";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import {
@@ -46,11 +48,22 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/traslape";
 import { TarjetaUsuariosActivos } from "./usuarios-activos-tarjeta";
 
+/** Un cambio publicable de una versión, tal como lo verá gerencia (para elegir qué omitir). */
+export type CambioOpcion = {
+  id: number;
+  tipo: string;
+  titulo: string;
+  descripcion: string;
+  /** Nombre del módulo en el menú; null si el cambio es de la plataforma en general. */
+  modulo: string | null;
+};
+
 export type VersionOpcion = {
   id: number;
   number: string;
   title: string;
   changesCount: number;
+  cambios: CambioOpcion[];
   releasedAt: string | null;
   /** Día que cuenta para el reporte (AAAA-MM-DD): el de despliegue o, sin él, el de publicación. */
   deployedOn: string | null;
@@ -96,6 +109,8 @@ type MetaReporte = {
   desdeCache: boolean;
   /** Alcance con el que se generó: necesario para registrar el envío. */
   versionIdsIncluidos: number[];
+  /** Cambios que se dejaron fuera de este reporte. */
+  cambiosOmitidos: number[];
   desde: string;
   hasta: string;
 };
@@ -108,11 +123,6 @@ const BTN_REPORTE_PRINCIPAL =
   "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md ring-1 ring-ink-150 transition hover:bg-navy-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
-const BTN_ATAJO =
-  "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
-const BTN_ATAJO_ACTIVO =
-  "inline-flex items-center gap-1 rounded-md border border-navy-700 bg-navy-700 px-2.5 py-1 text-[11.5px] font-semibold text-white shadow-sm transition hover:bg-navy-600";
-
 function fechaLarga(iso: string): string {
   const fecha = fmtDateTimeLong(iso);
   return fecha === "—" ? "" : fecha;
@@ -128,19 +138,6 @@ function slug(texto: string): string {
     .slice(0, 80);
 }
 
-function aYYYYMMDD(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function haceDias(n: number): { desde: string; hasta: string } {
-  const hasta = new Date();
-  const desde = new Date();
-  desde.setDate(desde.getDate() - (n - 1));
-  return { desde: aYYYYMMDD(desde), hasta: aYYYYMMDD(hasta) };
-}
 
 function descargarHtml(reporte: ReporteEjecutivoUso): void {
   // El archivo se abre fuera de la plataforma: el logotipo y Lato con dirección absoluta.
@@ -256,24 +253,21 @@ async function descargarPdf(reporte: ReporteEjecutivoUso, viewportWidth?: number
 export function ReporteEjecutivoClient({
   versions,
   kpis,
-  defaultDesde,
-  defaultHasta,
-  periodoTablero,
-  notaPeriodo,
+  periodoDesde,
+  periodoHasta,
   envios,
   generados = [],
 }: {
   versions: VersionOpcion[];
   kpis: KpisIniciales;
-  /** Período PRELLENADO del modal: continúa donde terminó el último reporte. */
-  defaultDesde: string;
-  defaultHasta: string;
-  /** Ventana que leen los indicadores del tablero, en texto (se elige arriba de la página). */
-  periodoTablero?: string;
-  /** Explicación de por qué el modal propone ese período. */
-  notaPeriodo?: string | null;
+  /**
+   * Período de toda la página (AAAA-MM-DD), elegido arriba junto al título: lo
+   * usan los indicadores, las novedades, los tickets y el reporte que se genere.
+   */
+  periodoDesde: string;
+  periodoHasta: string;
   envios: EnvioReportePrevio[];
-  /** Historial de reportes generados; borrarlos reinicia el período sugerido. */
+  /** Historial de reportes generados; solo sirve para avisar de traslapes. */
   generados?: ReporteGeneradoPrevio[];
 }) {
   const [, startTransition] = useTransition();
@@ -290,8 +284,10 @@ export function ReporteEjecutivoClient({
   const [correoPendiente, setCorreoPendiente] = useState(false);
   const vistaPreviaRef = useRef<HTMLIFrameElement | null>(null);
 
-  const [desde, setDesde] = useState(defaultDesde);
-  const [hasta, setHasta] = useState(defaultHasta);
+  // El reporte se genera con el período de arriba: la ventana no tiene fechas propias.
+  const desde = periodoDesde;
+  const hasta = periodoHasta;
+  const periodoTexto = `${desde} → ${hasta}`;
   const [envioPendiente, setEnvioPendiente] = useState(false);
   const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
   const [canalUsado, setCanalUsado] = useState<CanalEnvio>("correo");
@@ -308,6 +304,36 @@ export function ReporteEjecutivoClient({
     [versions, desde, hasta],
   );
   const cambiosDelPeriodo = versionesDelPeriodo.reduce((acc, v) => acc + v.changesCount, 0);
+  const cambiosAOmitir = useMemo<CambioAOmitir[]>(
+    () => versionesDelPeriodo.flatMap((v) => v.cambios.map((c) => ({ ...c, version: v.number }))),
+    [versionesDelPeriodo],
+  );
+
+  // Qué dejar fuera del reporte: se marca en «Novedades del período», vive en la
+  // página (no se guarda en Novedades) y solo viaja lo que pertenece al período.
+  // Las secciones arrancan cerradas.
+  const [omitidos, setOmitidos] = useState<ReadonlySet<number>>(() => new Set());
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState<ReadonlySet<SeccionNovedad>>(() => new Set());
+  // El último reporte generado en esta visita solo se ofrece si es del período de arriba.
+  const reporteVigente = Boolean(reporte && meta && meta.desde === desde && meta.hasta === hasta);
+  const omitidosParaEnviar = useMemo(
+    () => cambiosAOmitir.filter((c) => omitidos.has(c.id)).map((c) => c.id),
+    [cambiosAOmitir, omitidos],
+  );
+  const alternarOmitido = (id: number) =>
+    setOmitidos((previos) => {
+      const siguiente = new Set(previos);
+      if (siguiente.has(id)) siguiente.delete(id);
+      else siguiente.add(id);
+      return siguiente;
+    });
+  const alternarSeccion = (seccion: SeccionNovedad) =>
+    setSeccionesAbiertas((previas) => {
+      const siguiente = new Set(previas);
+      if (siguiente.has(seccion)) siguiente.delete(seccion);
+      else siguiente.add(seccion);
+      return siguiente;
+    });
 
   const cancelarGeneracion = () => {
     solicitudRef.current?.abort();
@@ -328,7 +354,12 @@ export function ReporteEjecutivoClient({
       const response = await fetch("/api/auditoria/reporte-ejecutivo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desde, hasta, actualizar: actualizarDatos }),
+        body: JSON.stringify({
+          desde,
+          hasta,
+          actualizar: actualizarDatos,
+          cambiosOmitidos: omitidosParaEnviar,
+        }),
         signal: solicitud.signal,
       });
       const res = (await response.json()) as GenerarReporteEjecutivoResult;
@@ -346,6 +377,7 @@ export function ReporteEjecutivoClient({
         porcentajeAdopcion: res.porcentajeAdopcion,
         desdeCache: res.desdeCache,
         versionIdsIncluidos: res.versionIdsIncluidos,
+        cambiosOmitidos: res.cambiosOmitidos ?? [],
         desde,
         hasta,
       });
@@ -453,8 +485,7 @@ export function ReporteEjecutivoClient({
     });
   };
 
-  // Confirmación en dos pasos: el borrado del historial mueve hacia atrás el
-  // período que propone el modal, así que no basta un clic.
+  // Confirmación en dos pasos: lo borrado del historial no se recupera.
   const [confirmarBorrado, setConfirmarBorrado] = useState<number | "todos" | null>(null);
   // El historial de reportes generados es largo y se consulta poco: arranca cerrado.
   const [historialAbierto, setHistorialAbierto] = useState(false);
@@ -467,7 +498,7 @@ export function ReporteEjecutivoClient({
         notifyError("No se pudo eliminar", res.message);
         return;
       }
-      notifySuccess("Reporte eliminado", "El período que se propone al generar vuelve a partir del reporte anterior.");
+      notifySuccess("Reporte eliminado", "Si vuelves a generar ese período, el documento se arma de nuevo.");
     });
   };
 
@@ -481,7 +512,7 @@ export function ReporteEjecutivoClient({
       }
       notifySuccess(
         "Historial vaciado",
-        `Se borraron ${res.eliminados} reporte(s). El modal vuelve a proponer los últimos 30 días.`,
+        `Se borraron ${res.eliminados} reporte(s). El historial quedó vacío.`,
       );
     });
   };
@@ -546,7 +577,7 @@ export function ReporteEjecutivoClient({
 
       {/* Indicadores permanentes: siempre visibles en la plataforma (sin depender del reporte IA). */}
       <IndicadoresUso
-        periodoLabel={periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
+        periodoLabel={periodoTexto}
         porFamilia={kpis.porFamilia ?? []}
         topUsuarios={kpis.topUsuarios ?? []}
         topAcciones={kpis.topAcciones ?? []}
@@ -559,6 +590,50 @@ export function ReporteEjecutivoClient({
       />
 
       <Card className="overflow-hidden">
+        <div className="border-b border-ink-100 px-4 py-3 lg:px-5">
+          <h2 className="text-[13px] font-semibold text-navy-800">Novedades del período</h2>
+          <p className="text-[11.5px] text-ink-500">
+            Versiones publicadas en Novedades con fecha de despliegue entre el {fmtCalendarDate(desde)} y
+            el {fmtCalendarDate(hasta)}: son los avances que lleva el reporte para gerencia.
+          </p>
+        </div>
+        {versionesDelPeriodo.length === 0 ? (
+          <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
+            No se desplegaron versiones en este período: el reporte saldrá sin avances. Si algo se
+            desplegó y no aparece, revisa en Novedades que la versión esté publicada y tenga su fecha
+            «Desplegada el».
+          </p>
+        ) : (
+          <>
+            <ul className="divide-y divide-ink-100">
+              {versionesDelPeriodo.map((v) => (
+                <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[12.5px] lg:px-5">
+                  <span className="min-w-0 flex-1 truncate text-ink-800">
+                    <span className="font-medium">v{v.number}</span> · {v.title}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[11px] text-ink-400">
+                    Desplegada el {v.deployedOn ? fmtCalendarDate(v.deployedOn) : "—"}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-ink-500">
+                    {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <NovedadesAOmitir
+              cambios={cambiosAOmitir}
+              omitidos={omitidos}
+              onAlternarOmitido={alternarOmitido}
+              onIncluirTodos={() => setOmitidos(new Set())}
+              abiertas={seccionesAbiertas}
+              onAlternarSeccion={alternarSeccion}
+              deshabilitado={generando}
+            />
+          </>
+        )}
+      </Card>
+
+      <Card className="overflow-hidden">
         <div className="flex flex-col gap-4 border-b border-ink-100 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-5">
           <div className="flex min-w-0 gap-3">
             <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-ai-100 text-ai-700">
@@ -567,9 +642,7 @@ export function ReporteEjecutivoClient({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Chip label="Reporte para gerencia" tone="ai" />
-                <span className="text-[11.5px] text-ink-500">
-                  {periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
-                </span>
+                <span className="text-[11.5px] text-ink-500">{periodoTexto}</span>
               </div>
               <h2 className="mt-1 text-lg text-navy-800">
                 Resumen de uso y avances
@@ -583,9 +656,9 @@ export function ReporteEjecutivoClient({
           <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
             <button onClick={abrirConfig} className={BTN_REPORTE_PRINCIPAL}>
               <Icon name="ai" size={15} />
-              {reporte ? "Consultar o actualizar reporte" : "Generar reporte para gerencia"}
+              {reporteVigente ? "Consultar o actualizar reporte" : "Generar reporte para gerencia"}
             </button>
-            {reporte && (
+            {reporteVigente && (
               <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
                 <Icon name="eye" size={14} />
                 Ver reporte
@@ -601,16 +674,22 @@ export function ReporteEjecutivoClient({
         )}
 
         <div className="px-4 py-5 text-[13px] text-ink-500">
-          {reporte && meta ? (
+          {reporteVigente && meta ? (
             <span className="inline-flex flex-wrap items-center gap-2">
               <Icon name="check" size={14} className="text-ok-700" />
               Reporte generado el {fechaLarga(meta.generatedAt)}
               {meta.desdeCache ? " (reutilizado de caché)" : ""} · {fmtNum(meta.totalAcciones)}{" "}
               acciones · {fmtNum(meta.totalUsuarios)} usuarios · {fmtNum(meta.totalNovedades)}{" "}
-              novedades.
+              novedades
+              {meta.cambiosOmitidos.length > 0
+                ? ` · ${fmtNum(meta.cambiosOmitidos.length)} ${
+                    meta.cambiosOmitidos.length === 1 ? "omitida" : "omitidas"
+                  }`
+                : ""}
+              .
             </span>
           ) : (
-            "El reporte para gerencia se genera bajo demanda. Elige el período: incluye las versiones de Novedades desplegadas en esas fechas."
+            "El reporte para gerencia se genera bajo demanda con el período elegido arriba y las novedades del período que no marques «Omitir»."
           )}
         </div>
       </Card>
@@ -642,8 +721,8 @@ export function ReporteEjecutivoClient({
               </button>
             </h2>
             <p className="pl-[19px] text-[11.5px] text-ink-500">
-              Historial de la plataforma. Al borrar uno, el período que propone «Generar reporte para
-              gerencia» vuelve a partir del reporte anterior.
+              Historial de la plataforma: avisa si el período elegido arriba se traslapa con un reporte
+              ya generado. Al borrar uno, si vuelves a generar ese período, se arma de nuevo.
             </p>
           </div>
           {historialAbierto &&
@@ -671,7 +750,7 @@ export function ReporteEjecutivoClient({
                 type="button"
                 onClick={() => setConfirmarBorrado("todos")}
                 className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
-                title="Vacía el historial: el modal vuelve a proponer los últimos 30 días"
+                title="Vacía el historial de reportes generados"
               >
                 Borrar todos
               </button>
@@ -679,7 +758,7 @@ export function ReporteEjecutivoClient({
         </div>
         {!historialAbierto ? null : generados.length === 0 ? (
           <p id="historial-reportes-generados" className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
-            Aún no se ha generado ningún reporte. El primero tomará los últimos 30 días.
+            Aún no se ha generado ningún reporte.
           </p>
         ) : (
           <ul id="historial-reportes-generados" className="divide-y divide-ink-100">
@@ -802,12 +881,15 @@ export function ReporteEjecutivoClient({
       >
         <div className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-ink-600">
-            Define el período de actividad de los usuarios y el alcance de las novedades liberadas.
-            La IA solo redacta a partir de la actividad registrada y de los avances publicados.
+            El reporte se genera con el período elegido arriba y deja fuera las novedades marcadas
+            «Omitir» en la página. Se arma solo con la actividad registrada y los avances publicados.
           </p>
 
           <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">
-            <p>El mismo período y alcance recupera el reporte guardado, con sus cifras y fecha de corte originales.</p>
+            <p>
+              El mismo período, con las mismas novedades omitidas, recupera el reporte guardado, con sus
+              cifras y fecha de corte originales.
+            </p>
             <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium text-ink-800">
               <input type="checkbox" className="mt-0.5 accent-navy-700" checked={actualizarDatos}
                 disabled={generando} onChange={(event) => setActualizarDatos(event.target.checked)} />
@@ -815,56 +897,17 @@ export function ReporteEjecutivoClient({
             </label>
           </div>
           <div>
-            <h3 className="mb-2 text-[12.5px] font-semibold text-navy-800">Período de uso</h3>
-            <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Atajos de período">
-              {/* Igual que el selector del tablero: los atajos son los últimos N días, hasta hoy. */}
-              <span className="text-[11.5px] text-ink-600">Últimos:</span>
-              {(
-                [
-                  ["7 días", 7],
-                  ["15 días", 15],
-                  ["30 días", 30],
-                  ["90 días", 90],
-                ] as const
-              ).map(([label, n]) => {
-                const rango = haceDias(n);
-                const activo = rango.desde === desde && rango.hasta === hasta;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    aria-pressed={activo}
-                    className={activo ? BTN_ATAJO_ACTIVO : BTN_ATAJO}
-                    onClick={() => {
-                      setDesde(rango.desde);
-                      setHasta(rango.hasta);
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-[12px] text-ink-600">
-                Desde
-                <input
-                  type="date"
-                  value={desde}
-                  onChange={(e) => setDesde(e.target.value)}
-                  className="rounded-md border border-ink-150 px-2.5 py-2 text-[13px] text-ink-800"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] text-ink-600">
-                Hasta
-                <input
-                  type="date"
-                  value={hasta}
-                  onChange={(e) => setHasta(e.target.value)}
-                  className="rounded-md border border-ink-150 px-2.5 py-2 text-[13px] text-ink-800"
-                />
-              </label>
-            </div>
+            <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">Período</h3>
+            <p className="text-[12.5px] text-ink-700">
+              <strong>
+                {desde === hasta
+                  ? fmtCalendarDate(desde)
+                  : `${fmtCalendarDate(desde)} al ${fmtCalendarDate(hasta)}`}
+              </strong>
+              {periodoComparado ? ` (${periodoComparado.dias} ${periodoComparado.dias === 1 ? "día" : "días"})` : ""}.
+              Es el que elegiste arriba, junto al título de la página; para cambiarlo, cierra esta ventana
+              y elige otro.
+            </p>
             {traslapes.length > 0 && (
               <div
                 role="status"
@@ -878,9 +921,6 @@ export function ReporteEjecutivoClient({
                 </ul>
                 <p className="mt-1">{consecuenciaTraslape(traslapes.length)}</p>
               </div>
-            )}
-            {notaPeriodo && desde === defaultDesde && hasta === defaultHasta && (
-              <p className="mt-1.5 text-[11.5px] text-ink-500">{notaPeriodo}</p>
             )}
             {periodoComparado && (
               <p className="mt-1.5 rounded-md bg-navy-50 px-3 py-2 text-[12px] text-navy-800">
@@ -900,40 +940,37 @@ export function ReporteEjecutivoClient({
             <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">
               Novedades del período (avances de la plataforma)
             </h3>
-            <p className="mb-2 text-[11.5px] leading-relaxed text-ink-600">
-              Entran solas: las versiones publicadas en Novedades cuya fecha de despliegue cae entre
-              Desde y Hasta. Así dos reportes de fechas distintas no repiten avances. No cambian las
-              cifras de uso ni la comparación.
-            </p>
             {versionesDelPeriodo.length === 0 ? (
-              <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5 text-[12px] text-ink-600">
-                No hay versiones desplegadas en este período: el reporte saldrá sin avances. Si algo se
-                desplegó y no aparece, revisa en Novedades que la versión esté publicada y tenga su
-                fecha «Desplegada el».
+              <p className="text-[12.5px] text-ink-600">
+                No se desplegaron versiones en este período: el reporte saldrá sin avances.
               </p>
             ) : (
-              <div className="rounded-md border border-ink-150">
-                <p className="border-b border-ink-100 px-3 py-2 text-[11.5px] text-ink-500">
+              <>
+                <p className="text-[12.5px] text-ink-700">
                   {versionesDelPeriodo.length}{" "}
                   {versionesDelPeriodo.length === 1 ? "versión desplegada" : "versiones desplegadas"} ·{" "}
                   {cambiosDelPeriodo} {cambiosDelPeriodo === 1 ? "cambio" : "cambios"}
+                  {omitidosParaEnviar.length === 0
+                    ? " · entran todos."
+                    : ` · ${omitidosParaEnviar.length} ${
+                        omitidosParaEnviar.length === 1 ? "queda fuera:" : "quedan fuera:"
+                      }`}
                 </p>
-                <ul className="max-h-56 divide-y divide-ink-100 overflow-y-auto">
-                  {versionesDelPeriodo.map((v) => (
-                    <li key={v.id} className="flex items-center gap-2.5 px-3 py-2 text-[12.5px]">
-                      <span className="min-w-0 flex-1 truncate text-ink-800">
-                        <span className="font-medium">v{v.number}</span> · {v.title}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">
-                        Desplegada el {v.deployedOn ? fmtCalendarDate(v.deployedOn) : "—"}
-                      </span>
-                      <span className="shrink-0 text-[11px] text-ink-500">
-                        {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                {omitidosParaEnviar.length > 0 && (
+                  <ul className="mt-1 max-h-32 list-disc overflow-y-auto pl-5 text-[12px] text-ink-500">
+                    {cambiosAOmitir
+                      .filter((c) => omitidos.has(c.id))
+                      .map((c) => (
+                        <li key={c.id}>
+                          {c.titulo} <span className="text-ink-400">(v{c.version})</span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+                <p className="mt-1 text-[11.5px] text-ink-500">
+                  Lo que entra y lo que queda fuera se elige en «Novedades del período», en la página.
+                </p>
+              </>
             )}
           </div>
 

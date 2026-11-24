@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import { fmtNum } from "@/lib/format";
-import { leerRangoElegido } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import { leerRangoElegido, parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { requireReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import {
   calcularResumenUso,
@@ -13,10 +13,12 @@ import {
   filtrarCambiosPublicados,
   filtrarEventosPublicados,
   filtrarNavegacionesPublicadas,
+  moduloPlataformaDeClave,
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
+import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
-import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
+import { MODULOS_PLATAFORMA, MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import {
   evaluarAdopcion,
   soloFuncionalidadesNuevas,
@@ -28,10 +30,7 @@ import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
 import { vistaTicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
-import {
-  explicarPeriodoSugerido,
-  sugerirPeriodoReporte,
-} from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
+import { ultimosDias } from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
 import {
   actorUnificado,
   aliasDeActores,
@@ -45,6 +44,7 @@ import {
 import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import {
   ReporteEjecutivoClient,
+  type CambioOpcion,
   type KpisIniciales,
   type VersionOpcion,
 } from "@/app/(app)/auditoria/adopcion/reporte-ejecutivo-client";
@@ -54,6 +54,7 @@ import {
 } from "@/app/(app)/auditoria/adopcion/selector-periodo-tablero";
 
 const MAX_EVENTOS = 25_000;
+const ETIQUETA_MODULO = new Map<string, string>(MODULOS_PLATAFORMA.map((m) => [m.key, m.label]));
 
 function aYYYYMMDD(d: Date): string {
   const y = d.getFullYear();
@@ -69,40 +70,18 @@ export default async function ReportesEjecutivosPage({
 }) {
   await requireReporteEjecutivo();
 
-  // Período del tablero: el que se elige arriba de los indicadores
-  // (`?desde=…&hasta=…`, con la misma regla que el reporte generado) o, si no se
-  // eligió o no sirve, los últimos 30 días.
+  // Período de TODA la página: el que se elige arriba, junto al título
+  // (`?desde=…&hasta=…`) o, si no se eligió o no sirve, los últimos 30 días. Manda
+  // sobre los indicadores, las novedades, los tickets y el reporte que se genere,
+  // y se convierte a instantes con la misma regla que el generador
+  // (`parseRangoReporte`), así que el tablero y el PDF miden lo mismo.
   const ahora = new Date();
   const elegido = leerRangoElegido(await searchParams);
-  let desde: Date;
-  let hasta: Date;
-  if (elegido.estado === "valido") {
-    ({ desde, hasta } = elegido);
-  } else {
-    hasta = new Date(ahora);
-    desde = new Date(ahora);
-    desde.setDate(desde.getDate() - 29);
-    desde.setHours(0, 0, 0, 0);
-    hasta.setHours(23, 59, 59, 999);
-  }
-  const tableroDesde = elegido.estado === "valido" ? elegido.desdeTexto : aYYYYMMDD(desde);
-  const tableroHasta = elegido.estado === "valido" ? elegido.hastaTexto : aYYYYMMDD(hasta);
-
-  // El MODAL propone continuar donde terminó el último reporte, para que los
-  // períodos no se traslapen; no depende del período que se mire en el tablero.
-  const ultimoReporte = await prisma.reporteEjecutivoUsoIA.findFirst({
-    orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
-    select: { periodoDesde: true, periodoHasta: true },
-  });
-  const periodoSugerido = sugerirPeriodoReporte({
-    hoy: aYYYYMMDD(ahora),
-    ultimoReporte: ultimoReporte
-      ? { desde: aYYYYMMDD(ultimoReporte.periodoDesde), hasta: aYYYYMMDD(ultimoReporte.periodoHasta) }
-      : null,
-  });
-  const defaultDesde = periodoSugerido.desde;
-  const defaultHasta = periodoSugerido.hasta;
-  const periodoTablero = `${tableroDesde} → ${tableroHasta}`;
+  const porDefecto = ultimosDias(aYYYYMMDD(ahora), 30);
+  const tableroDesde = elegido.estado === "valido" ? elegido.desdeTexto : porDefecto.desde;
+  const tableroHasta = elegido.estado === "valido" ? elegido.hastaTexto : porDefecto.hasta;
+  const { desde, hasta } =
+    elegido.estado === "valido" ? elegido : parseRangoReporte(porDefecto.desde, porDefecto.hasta)!;
 
   const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados, usuariosActivos] = await Promise.all([
     prisma.auditEntry.findMany({
@@ -236,6 +215,9 @@ export default async function ReportesEjecutivosPage({
   );
 
   const cambiosPublicadosPorVersion = new Map<number, number>();
+  // Lo que la ventana de generar lista para elegir qué omitir: los mismos cambios
+  // publicables que entran al PDF, con el título tal como lo verá gerencia.
+  const cambiosPorVersion = new Map<number, CambioOpcion[]>();
   const planos: CambioNovedadContexto[] = [];
   // El tablero, como el reporte, solo cuenta las versiones desplegadas en su período.
   const versionesDelPeriodo = versiones.filter((v) => desplegadaEnPeriodo(v, desde, hasta));
@@ -250,6 +232,19 @@ export default async function ReportesEjecutivosPage({
       clavesConocidas: MODULOS_PLATAFORMA_KEYS,
     });
     cambiosPublicadosPorVersion.set(v.id, publicables.cambios.length);
+    cambiosPorVersion.set(
+      v.id,
+      publicables.cambios.map((c) => {
+        const clave = moduloPlataformaDeClave(c.moduleKey, MODULOS_PLATAFORMA_KEYS);
+        return {
+          id: c.id,
+          tipo: c.type,
+          titulo: tituloAvance(c.title),
+          descripcion: descripcionAvance(c.description, 160),
+          modulo: clave ? (ETIQUETA_MODULO.get(clave) ?? null) : null,
+        };
+      }),
+    );
     if (!versionesDelPeriodo.includes(v)) continue;
     for (const c of publicables.cambios) {
       planos.push({
@@ -277,6 +272,7 @@ export default async function ReportesEjecutivosPage({
     number: v.number,
     title: v.title,
     changesCount: cambiosPublicadosPorVersion.get(v.id) ?? 0,
+    cambios: cambiosPorVersion.get(v.id) ?? [],
     releasedAt: v.releasedAt?.toISOString() ?? null,
     // El día que cuenta para el reporte: el de despliegue (o el de publicación si no lo tiene).
     deployedOn: fechaDespliegueTexto(fechaQueCuenta(v)),
@@ -360,10 +356,8 @@ export default async function ReportesEjecutivosPage({
       <ReporteEjecutivoClient
         versions={versions}
         kpis={kpis}
-        defaultDesde={defaultDesde}
-        defaultHasta={defaultHasta}
-        periodoTablero={periodoTablero}
-        notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
+        periodoDesde={tableroDesde}
+        periodoHasta={tableroHasta}
         envios={envios}
         generados={generados}
       />
