@@ -33,6 +33,27 @@ export type ConexionCorreoPanel = {
   mensaje: string | null;
 };
 
+/**
+ * Qué cubrirá el próximo envío y de dónde sale (fechas de calendario AAAA-MM-DD). Se calcula en
+ * el servidor con la próxima ejecución y el último reporte enviado (`calcularPeriodoEnvio`).
+ */
+export type PeriodoProximoPanel =
+  | {
+      estado: "nuevo";
+      desde: string;
+      hasta: string;
+      /** `continua`: arranca el día siguiente al último reporte enviado; `primer_envio`: aún no hay reportes enviados. */
+      origen: "continua" | "primer_envio";
+      /** Período del último reporte enviado (null en el primer envío). */
+      ultimoDesde: string | null;
+      ultimoHasta: string | null;
+      /** El período pasaba de 366 días y se recortó al tope. */
+      recortado: boolean;
+      desdeSinRecorte: string;
+    }
+  /** El último reporte ya llega hasta ese día: el próximo envío se omitirá. */
+  | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
+
 export type PanelEnvioAutomatico = {
   /** `false` mientras nadie ha guardado nada: se muestran los valores por defecto. */
   existe: boolean;
@@ -41,6 +62,8 @@ export type PanelEnvioAutomatico = {
   hora: string;
   /** Próximo envío (ISO); null si está pausado. */
   proximaEjecucionEn: string | null;
+  /** Lo que cubrirá ese próximo envío; null si está en pausa. */
+  periodoProximo: PeriodoProximoPanel | null;
   destinatarios: DestinatarioPanel[];
   ejecuciones: EjecucionPanel[];
   conexion: ConexionCorreoPanel;

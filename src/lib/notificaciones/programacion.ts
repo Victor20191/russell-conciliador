@@ -7,6 +7,7 @@
 // Diseño y despliegue: docs/notificaciones/reporte-ejecutivo-programado.md.
 
 import { sumarDias, ultimosDias } from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
+import { MAX_DIAS_RANGO } from "@/lib/auditoria/reporte-ejecutivo/rango";
 
 /** Tipo de la notificación del reporte para gerencia (`notificacion_programada.tipo`). */
 export const TIPO_REPORTE_EJECUTIVO = "reporte_ejecutivo";
@@ -89,12 +90,77 @@ export function proximaEjecucion(params: { ahora: Date; diaSemana: number; hora:
 
 /**
  * Los 7 días de calendario que terminan el día ANTERIOR al envío, en hora de
- * Colombia: enviado un lunes, cubre del lunes al domingo anteriores. Se mide desde
- * `referencia` (para un envío programado, el instante programado, no el real: un
- * retraso que cruce la medianoche no corre la ventana).
+ * Colombia: enviado un lunes, cubre de lunes a domingo anteriores. Es el período del
+ * primer envío (sin reportes previos) y el de respaldo de la prueba. Se mide desde
+ * `referencia`.
  */
 export function periodoEnvioSemanal(referencia: Date): { desde: string; hasta: string } {
   return ultimosDias(sumarDias(fechaColombia(referencia), -1), 7);
+}
+
+/**
+ * La fecha de calendario (AAAA-MM-DD) que un `periodoHasta` guardado representa.
+ *
+ * Es la inversa de `parseRangoReporte`, que es lo que usa `registrarEnvioReporteEjecutivo`
+ * (y el envío automático) para guardar el período: «hasta» 2026-11-22 se guarda como el
+ * instante 2026-11-22T23:59:59.999Z, y «desde» como 2026-11-22T00:00:00.000Z. La fecha es la
+ * del instante en UTC; leerla en hora de Colombia correría el «desde» un día atrás (a las
+ * 7 p. m. del día anterior).
+ */
+export function fechaDePeriodoGuardado(instante: Date): string {
+  return instante.toISOString().slice(0, 10);
+}
+
+function diasInclusive(desde: string, hasta: string): number {
+  return Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+export type PeriodoEnvio =
+  /** Hay un período nuevo que reportar. */
+  | {
+      estado: "nuevo";
+      desde: string;
+      hasta: string;
+      /** `continua`: arranca el día siguiente al último reporte enviado; `primer_envio`: no hay reportes previos. */
+      origen: "continua" | "primer_envio";
+      /** Hasta dónde llegó el último reporte enviado (null en el primer envío). */
+      ultimoHasta: string | null;
+      /** El período pasaba de 366 días y `desde` se acercó a `hasta` para respetar el tope. */
+      recortado: boolean;
+      /** El `desde` que habría tenido sin el tope (el día siguiente al último reporte). */
+      desdeSinRecorte: string;
+    }
+  /** El último reporte ya llega hasta el día que se iba a reportar o más allá: no hay nada nuevo. */
+  | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
+
+/**
+ * El período del reporte de un envío: arranca donde terminó el último reporte enviado y
+ * llega hasta el día ANTERIOR al envío (en hora de Colombia), para no contar medio día dos
+ * veces.
+ *
+ * - Sin reportes previos: los 7 días que terminan el día anterior.
+ * - Con un último reporte (manual o automático, el mayor `periodoHasta` de «Reportes
+ *   enviados»): desde el día siguiente a su fecha final.
+ * - Más de 366 días (el tope de `parseRangoReporte`): `desde` se recorta a 366 días.
+ * - Si el último reporte ya llega hasta ese día o después: `cubierto`, no hay período nuevo.
+ *
+ * `referencia` es el instante del envío (el programado, o ahora en el envío manual).
+ */
+export function calcularPeriodoEnvio(params: { referencia: Date; ultimoPeriodoHasta: Date | null }): PeriodoEnvio {
+  const hasta = sumarDias(fechaColombia(params.referencia), -1);
+
+  if (!params.ultimoPeriodoHasta) {
+    const desde = sumarDias(hasta, -6);
+    return { estado: "nuevo", desde, hasta, origen: "primer_envio", ultimoHasta: null, recortado: false, desdeSinRecorte: desde };
+  }
+
+  const ultimoHasta = fechaDePeriodoGuardado(params.ultimoPeriodoHasta);
+  if (ultimoHasta >= hasta) return { estado: "cubierto", hasta, cubiertoHasta: ultimoHasta };
+
+  const desdeSinRecorte = sumarDias(ultimoHasta, 1);
+  const recortado = diasInclusive(desdeSinRecorte, hasta) > MAX_DIAS_RANGO;
+  const desde = recortado ? sumarDias(hasta, -(MAX_DIAS_RANGO - 1)) : desdeSinRecorte;
+  return { estado: "nuevo", desde, hasta, origen: "continua", ultimoHasta, recortado, desdeSinRecorte };
 }
 
 export type DecisionVencimiento =

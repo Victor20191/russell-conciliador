@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   ejecUpdateMany: vi.fn(), ejecCreate: vi.fn(), ejecUpdate: vi.fn(), ejecFindFirst: vi.fn(),
   progFindMany: vi.fn(), progUpdateMany: vi.fn(), progUpsert: vi.fn(), progFindUnique: vi.fn(),
-  destFindMany: vi.fn(), envioCreate: vi.fn(),
+  destFindMany: vi.fn(), envioCreate: vi.fn(), envioFindFirst: vi.fn(),
   logAudit: vi.fn(), conexion: vi.fn(), enviarHtml: vi.fn(), generar: vi.fn(), logo: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({
@@ -11,7 +11,7 @@ vi.mock("@/lib/prisma", () => ({
     notificacionEjecucion: { updateMany: mocks.ejecUpdateMany, create: mocks.ejecCreate, update: mocks.ejecUpdate, findFirst: mocks.ejecFindFirst },
     notificacionProgramada: { findMany: mocks.progFindMany, updateMany: mocks.progUpdateMany, upsert: mocks.progUpsert, findUnique: mocks.progFindUnique },
     notificacionDestinatario: { findMany: mocks.destFindMany },
-    envioReporteEjecutivo: { create: mocks.envioCreate },
+    envioReporteEjecutivo: { create: mocks.envioCreate, findFirst: mocks.envioFindFirst },
   },
 }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
@@ -19,6 +19,7 @@ vi.mock("@/lib/errores", () => ({ registrarError: vi.fn() }));
 vi.mock("@/lib/correo/notificaciones", () => ({ conexionNotificaciones: mocks.conexion, enviarHtmlRegistrado: mocks.enviarHtml }));
 vi.mock("@/lib/marca/recursos-correo", () => ({ logoAzulCorreo: mocks.logo }));
 vi.mock("@/lib/auditoria/reporte-ejecutivo/generar-servidor", () => ({ generarReporteEjecutivoNucleo: mocks.generar }));
+import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import {
   ACTOR_PROGRAMADO,
   enviarReporteAhora,
@@ -60,6 +61,8 @@ beforeEach(() => {
   mocks.generar.mockResolvedValue(reporte);
   mocks.enviarHtml.mockResolvedValue({ ok: true, message: "2 correo(s) aceptado(s) por SMTP.", aceptados: 2, fallidos: 0 });
   mocks.envioCreate.mockResolvedValue({});
+  // Sin reportes enviados antes: el primer envío cubre los 7 días anteriores.
+  mocks.envioFindFirst.mockResolvedValue(null);
   vi.stubEnv("CRON_SECRET", "x");
 });
 
@@ -101,6 +104,8 @@ describe("disparo programado", () => {
     const entradaGenerar = mocks.generar.mock.calls[0][0];
     expect(entradaGenerar.opciones).toEqual({ desde: "2026-11-16", hasta: "2026-11-22", actualizar: false, cambiosOmitidos: [] });
     expect(await entradaGenerar.obtenerActor()).toEqual({ id: null, nombre: ACTOR_PROGRAMADO });
+    // Reutiliza la instantánea solo si se hizo con el período ya terminado.
+    expect(entradaGenerar.soloReutilizarSiCompleta).toBe(true);
 
     const [, destinatarios, correo, actor] = mocks.enviarHtml.mock.calls[0];
     expect(destinatarios).toEqual(["ana@x.co", "eva@x.co"]);
@@ -368,5 +373,163 @@ describe("panel", () => {
     expect(panel.disparadorConfigurado).toBe(false);
     expect(panel.conexion.estado).toBe("sin_conexion");
     expect(panel.proximaEjecucionEn).toBe(PROGRAMADA.toISOString());
+  });
+});
+
+/** El último reporte enviado, tal como lo guarda el envío: período con los límites de parseRangoReporte. */
+const ultimoEnviado = (desde: string, hasta: string) => {
+  const r = parseRangoReporte(desde, hasta)!;
+  mocks.envioFindFirst.mockResolvedValue({ periodoDesde: r.desde, periodoHasta: r.hasta });
+};
+
+describe("período: desde donde terminó el último reporte enviado", () => {
+  it("el disparo programado continúa el día siguiente al último reporte y llega hasta el día anterior al envío", async () => {
+    ultimoEnviado("2026-11-09", "2026-11-15");
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ enviadas: 1, errores: 0 });
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-16", hasta: "2026-11-22" });
+    // Se consulta el mayor periodoHasta de TODOS los envíos (manuales y automáticos).
+    expect(mocks.envioFindFirst).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ periodoHasta: "desc" }, { id: "desc" }] }));
+    expect(mocks.ejecUpdate.mock.calls[0][0].data).toMatchObject({
+      estado: "ok", periodoDesde: new Date("2026-11-16T00:00:00.000Z"), periodoHasta: new Date("2026-11-22T23:59:59.999Z"),
+    });
+  });
+
+  it("dos envíos seguidos encadenan sus períodos sin traslape ni huecos", async () => {
+    await procesarNotificacionesPendientes(AHORA); // primer envío: 16 al 22
+    const guardado = mocks.envioCreate.mock.calls[0][0].data;
+    expect(guardado.periodoHasta).toEqual(new Date("2026-11-22T23:59:59.999Z"));
+
+    vi.clearAllMocks();
+    mocks.ejecCreate.mockResolvedValue({ id: 56 });
+    mocks.progFindMany.mockResolvedValue([{ ...programacion, proximaEjecucionEn: SIGUIENTE }]);
+    mocks.progUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.destFindMany.mockResolvedValue([{ correo: "ana@x.co", nombre: null, activo: true }]);
+    mocks.conexion.mockResolvedValue(conexion);
+    mocks.logo.mockResolvedValue(LOGO);
+    mocks.generar.mockResolvedValue(reporte);
+    mocks.enviarHtml.mockResolvedValue({ ok: true, message: "1 correo(s) aceptado(s) por SMTP.", aceptados: 1, fallidos: 0 });
+    mocks.ejecUpdate.mockResolvedValue({});
+    mocks.envioCreate.mockResolvedValue({});
+    // El «hasta» guardado por el primer envío es lo que lee el segundo.
+    mocks.envioFindFirst.mockResolvedValue({ periodoDesde: guardado.periodoDesde, periodoHasta: guardado.periodoHasta });
+    await procesarNotificacionesPendientes(new Date("2026-11-30T12:05:00.000Z"));
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-23", hasta: "2026-11-29" });
+  });
+
+  it("si ya se reportó hasta ese día, el disparo queda omitido con un mensaje claro y la próxima fecha avanza igual", async () => {
+    ultimoEnviado("2026-11-16", "2026-11-22");
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ revisadas: 1, omitidas: 1, enviadas: 0, errores: 0 });
+    const creada = mocks.ejecCreate.mock.calls[0][0].data;
+    expect(creada).toMatchObject({ estado: "omitida", programadaPara: PROGRAMADA, terminadaEn: AHORA, duracionMs: 0 });
+    expect(creada.mensaje).toContain("Ya se reportó hasta el 22/Nov/2026");
+    expect(creada.mensaje).toContain("No se envió");
+    expect(mocks.progUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { proximaEjecucionEn: SIGUIENTE } }));
+    expect(mocks.generar).not.toHaveBeenCalled();
+    expect(mocks.enviarHtml).not.toHaveBeenCalled();
+    expect(mocks.envioCreate).not.toHaveBeenCalled();
+  });
+
+  it("si el último reporte llegó más allá (p. ej. un envío manual de hoy), tampoco hay período nuevo", async () => {
+    ultimoEnviado("2026-11-16", "2026-11-23");
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ omitidas: 1, enviadas: 0 });
+    expect(mocks.ejecCreate.mock.calls[0][0].data.mensaje).toContain("Ya se reportó hasta el 23/Nov/2026");
+  });
+
+  it("recorta a 366 días y lo anota en el mensaje del historial", async () => {
+    ultimoEnviado("2024-01-01", "2024-01-31");
+    await procesarNotificacionesPendientes(AHORA);
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2025-11-22", hasta: "2026-11-22" });
+    const { estado, mensaje } = mocks.ejecUpdate.mock.calls[0][0].data;
+    expect(estado).toBe("ok");
+    expect(mensaje).toContain("El período se recortó a 366 días");
+    expect(mensaje).toContain("31/Ene/2024");
+  });
+
+  it("un disparo con retraso de más de 24 h se omite sin consultar siquiera el último reporte", async () => {
+    await procesarNotificacionesPendientes(new Date("2026-11-24T12:00:01.000Z"));
+    expect(mocks.envioFindFirst).not.toHaveBeenCalled();
+    expect(mocks.ejecCreate.mock.calls[0][0].data.mensaje).toContain("más de 24 horas");
+  });
+
+  describe("envío a la lista y prueba", () => {
+    const actor = { id: 3, nombre: "Victor" };
+    const AHORA_MANUAL = new Date("2026-11-25T15:00:00.000Z"); // miércoles
+
+    it("«Enviar ahora» continúa desde el último reporte hasta ayer", async () => {
+      ultimoEnviado("2026-11-16", "2026-11-22");
+      const r = await enviarReporteAhora({ origen: "manual", actor, ahora: AHORA_MANUAL });
+      expect(r).toMatchObject({ ok: true, estado: "ok" });
+      expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-23", hasta: "2026-11-24" });
+      expect(mocks.envioCreate.mock.calls[0][0].data.periodoHasta).toEqual(new Date("2026-11-24T23:59:59.999Z"));
+    });
+
+    it("«Enviar ahora» sin período nuevo responde con un mensaje claro y no envía ni crea ejecución", async () => {
+      ultimoEnviado("2026-11-16", "2026-11-24");
+      const r = await enviarReporteAhora({ origen: "manual", actor, ahora: AHORA_MANUAL });
+      expect(r).toMatchObject({ ok: false, estado: null });
+      expect(r.message).toContain("Ya se reportó hasta el 24/Nov/2026");
+      expect(mocks.generar).not.toHaveBeenCalled();
+      expect(mocks.enviarHtml).not.toHaveBeenCalled();
+      expect(mocks.ejecCreate).not.toHaveBeenCalled();
+    });
+
+    it("la prueba usa el período del PRÓXIMO envío programado y no registra nada", async () => {
+      ultimoEnviado("2026-11-09", "2026-11-15");
+      mocks.progUpsert.mockResolvedValue({ id: 7, activa: true, proximaEjecucionEn: SIGUIENTE });
+      const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: "victor@russell.co", ahora: AHORA_MANUAL });
+      expect(r).toMatchObject({ ok: true });
+      // El próximo envío (lunes 30) cubriría del 16 al 29; la prueba muestra exactamente eso.
+      expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-16", hasta: "2026-11-29" });
+      expect(mocks.envioCreate).not.toHaveBeenCalled();
+    });
+
+    it("la prueba sin próximo envío (en pausa) usa los últimos 7 días", async () => {
+      ultimoEnviado("2026-11-09", "2026-11-15");
+      mocks.progUpsert.mockResolvedValue({ id: 7, activa: false, proximaEjecucionEn: null });
+      await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: "victor@russell.co", ahora: AHORA_MANUAL });
+      expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-18", hasta: "2026-11-24" });
+    });
+
+    it("la prueba cuyo próximo envío ya estaría cubierto cae a los últimos 7 días", async () => {
+      ultimoEnviado("2026-11-16", "2026-11-29");
+      mocks.progUpsert.mockResolvedValue({ id: 7, activa: true, proximaEjecucionEn: SIGUIENTE });
+      await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: "victor@russell.co", ahora: AHORA_MANUAL });
+      expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-18", hasta: "2026-11-24" });
+    });
+  });
+
+  describe("panel", () => {
+    it("muestra de dónde sale el período del próximo envío", async () => {
+      ultimoEnviado("2026-11-09", "2026-11-15");
+      mocks.progFindUnique.mockResolvedValue({ ...programacion, destinatarios: [], ejecuciones: [] });
+      const panel = await leerPanelEnvio({ correoPrueba: null, ahora: new Date("2026-11-20T15:00:00.000Z") });
+      expect(panel.periodoProximo).toEqual({
+        estado: "nuevo", desde: "2026-11-16", hasta: "2026-11-22", origen: "continua",
+        ultimoDesde: "2026-11-09", ultimoHasta: "2026-11-15", recortado: false, desdeSinRecorte: "2026-11-16",
+      });
+    });
+
+    it("primer envío, ya cubierto y en pausa", async () => {
+      mocks.progFindUnique.mockResolvedValue({ ...programacion, destinatarios: [], ejecuciones: [] });
+      const ahora = new Date("2026-11-20T15:00:00.000Z");
+      expect((await leerPanelEnvio({ correoPrueba: null, ahora })).periodoProximo).toMatchObject({ estado: "nuevo", origen: "primer_envio", desde: "2026-11-16", hasta: "2026-11-22", ultimoHasta: null });
+
+      ultimoEnviado("2026-11-16", "2026-11-22");
+      expect((await leerPanelEnvio({ correoPrueba: null, ahora })).periodoProximo).toEqual({ estado: "cubierto", hasta: "2026-11-22", cubiertoHasta: "2026-11-22" });
+
+      mocks.progFindUnique.mockResolvedValue({ ...programacion, activa: false, proximaEjecucionEn: null, destinatarios: [], ejecuciones: [] });
+      expect((await leerPanelEnvio({ correoPrueba: null, ahora })).periodoProximo).toBeNull();
+    });
+
+    it("si no se puede leer el último reporte, el panel sigue y no muestra período", async () => {
+      mocks.progFindUnique.mockResolvedValue({ ...programacion, destinatarios: [], ejecuciones: [] });
+      mocks.envioFindFirst.mockRejectedValue(new Error("BD"));
+      const panel = await leerPanelEnvio({ correoPrueba: null, ahora: AHORA });
+      expect(panel.periodoProximo).toBeNull();
+      expect(panel.activa).toBe(true);
+    });
   });
 });

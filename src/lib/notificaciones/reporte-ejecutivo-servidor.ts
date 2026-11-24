@@ -15,19 +15,23 @@ import { LIMITE_RECORTE_GMAIL } from "@/lib/correo/preparar-html-correo";
 import { ErrorSmtp } from "@/lib/conexiones/smtp";
 import { generarReporteEjecutivoNucleo } from "@/lib/auditoria/reporte-ejecutivo/generar-servidor";
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import { fmtCalendarDate } from "@/lib/format";
 import { correosDeEnvio, TOPE_DESTINATARIOS } from "./destinatarios";
-import { PROGRAMACION_POR_DEFECTO, type PanelEnvioAutomatico } from "./panel";
+import { PROGRAMACION_POR_DEFECTO, type PanelEnvioAutomatico, type PeriodoProximoPanel } from "./panel";
 import {
+  calcularPeriodoEnvio,
   decidirVencimiento,
   envioAtrasado,
   estadoDeEnvio,
   FRECUENCIA_SEMANAL,
+  fechaDePeriodoGuardado,
   limiteEnCurso,
   periodoEnvioSemanal,
   proximaEjecucion,
   TIPO_REPORTE_EJECUTIVO,
   type EstadoEjecucion,
   type OrigenEjecucion,
+  type PeriodoEnvio,
 } from "./programacion";
 
 /**
@@ -51,6 +55,50 @@ const SISTEMA: ActorEnvio = { id: null, nombre: ACTOR_PROGRAMADO };
 /** Error con un mensaje apto para mostrar (nunca lleva secretos ni textos de SMTP). */
 class ErrorEnvioReporte extends Error {}
 
+/* ===== Período del reporte: desde donde terminó el último reporte enviado ===== */
+
+type UltimoPeriodo = { desde: Date; hasta: Date };
+
+/**
+ * El período del último reporte enviado, manual o automático: el de mayor `periodoHasta` en
+ * «Reportes enviados». Los períodos se guardan con `parseRangoReporte`, que es lo que
+ * `fechaDePeriodoGuardado` invierte.
+ */
+async function ultimoPeriodoEnviado(): Promise<UltimoPeriodo | null> {
+  const fila = await prisma.envioReporteEjecutivo.findFirst({
+    orderBy: [{ periodoHasta: "desc" }, { id: "desc" }],
+    select: { periodoDesde: true, periodoHasta: true },
+  });
+  return fila ? { desde: fila.periodoDesde, hasta: fila.periodoHasta } : null;
+}
+
+type PeriodoCubierto = Extract<PeriodoEnvio, { estado: "cubierto" }>;
+
+function textoYaCubierto(p: PeriodoCubierto): string {
+  return `Ya se reportó hasta el ${fmtCalendarDate(p.cubiertoHasta)}: todavía no hay días nuevos que enviar.`;
+}
+
+/** Aviso del historial cuando el período se recortó al tope de 366 días; null si no hubo recorte. */
+function notaDeRecorte(p: PeriodoEnvio): string | null {
+  if (p.estado !== "nuevo" || !p.recortado || !p.ultimoHasta) return null;
+  return `El período se recortó a 366 días: el último reporte enviado terminó el ${fmtCalendarDate(p.ultimoHasta)} y arrancaba el ${fmtCalendarDate(p.desdeSinRecorte)}, pero el tope es 366 días.`;
+}
+
+/** El período de un envío con su procedencia, tal como lo muestra el panel. */
+function periodoParaPanel(periodo: PeriodoEnvio, ultimo: UltimoPeriodo | null): PeriodoProximoPanel {
+  if (periodo.estado === "cubierto") return { estado: "cubierto", hasta: periodo.hasta, cubiertoHasta: periodo.cubiertoHasta };
+  return {
+    estado: "nuevo",
+    desde: periodo.desde,
+    hasta: periodo.hasta,
+    origen: periodo.origen,
+    ultimoDesde: ultimo ? fechaDePeriodoGuardado(ultimo.desde) : null,
+    ultimoHasta: periodo.ultimoHasta,
+    recortado: periodo.recortado,
+    desdeSinRecorte: periodo.desdeSinRecorte,
+  };
+}
+
 function esConflictoUnico(e: unknown): boolean {
   return Boolean(e && typeof e === "object" && "code" in e && (e as { code?: unknown }).code === "P2002");
 }
@@ -65,8 +113,10 @@ function mensajeSeguro(e: unknown): string {
 
 type EntradaEnvio = {
   origen: OrigenEjecucion;
-  /** Desde cuándo se mide el período: el instante programado, o ahora en el manual y la prueba. */
-  referencia: Date;
+  /** Lo que cubre el reporte (AAAA-MM-DD): lo decide quien llama con `calcularPeriodoEnvio`. */
+  periodo: { desde: string; hasta: string };
+  /** Aviso sobre el período (p. ej. que se recortó al tope de 366 días), para el mensaje del historial. */
+  notaPeriodo?: string | null;
   /** Correos ya normalizados; el servidor SMTP recibe uno por destinatario. */
   destinatarios: string[];
   actor: ActorEnvio;
@@ -111,13 +161,15 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
     if (!conexion) {
       return fallo("No hay una conexión de correo para notificaciones. Márcala en Configuración › Conexiones.");
     }
-    // 2. El reporte: los 7 días que terminan el día anterior al envío, sin novedades omitidas.
-    const periodo = periodoEnvioSemanal(entrada.referencia);
+    // 2. El reporte del período recibido, sin novedades omitidas a mano.
+    const periodo = entrada.periodo;
     const rango = parseRangoReporte(periodo.desde, periodo.hasta);
     if (!rango) return fallo("No se pudo calcular el período del reporte.");
     const generado = await generarReporteEjecutivoNucleo({
       opciones: { desde: periodo.desde, hasta: periodo.hasta, actualizar: false, cambiosOmitidos: [] },
       obtenerActor: async () => entrada.actor,
+      // Una instantánea hecha antes de que el período terminara (p. ej. por una prueba) está incompleta.
+      soloReutilizarSiCompleta: true,
     });
     if (!generado.ok) return fallo(generado.message, rango);
 
@@ -145,6 +197,7 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
 
     const estado = estadoDeEnvio(resultado.aceptados, resultado.fallidos);
     const notas: string[] = [];
+    if (entrada.notaPeriodo) notas.push(entrada.notaPeriodo);
     if (!logo) notas.push("No se pudo leer el logotipo: el correo salió sin él.");
     if (fragmento.length > LIMITE_RECORTE_GMAIL) {
       notas.push("El cuerpo supera los 102.000 caracteres: Gmail podría mostrarlo recortado.");
@@ -237,8 +290,20 @@ async function procesarProgramacion(p: NotificacionProgramada, ahora: Date): Pro
   const decision = decidirVencimiento({ proximaEjecucionEn: programadaPara, ahora });
   if (decision.accion === "esperar") return "saltada";
 
-  const omitir = decision.accion === "omitir";
+  const retrasado = decision.accion === "omitir";
   const siguiente = proximaEjecucion({ ahora, diaSemana: p.diaSemana, hora: p.hora });
+
+  // El período arranca donde terminó el último reporte enviado y llega hasta el día anterior al envío
+  // programado. Si ya está cubierto, no hay nada nuevo que reportar: el disparo se omite.
+  const ultimo = retrasado ? null : await ultimoPeriodoEnviado();
+  const periodo = retrasado ? null : calcularPeriodoEnvio({ referencia: programadaPara, ultimoPeriodoHasta: ultimo?.hasta ?? null });
+  const cubierto = periodo?.estado === "cubierto" ? periodo : null;
+  const omitir = retrasado || cubierto !== null;
+  const motivoOmision = retrasado
+    ? "No se envió: el disparador llegó con más de 24 horas de retraso. Se programó el siguiente envío."
+    : cubierto
+      ? `No se envió: ${textoYaCubierto(cubierto)} Se programó el siguiente envío.`
+      : null;
 
   // Avanza la próxima fecha SOLO si nadie la cambió mientras tanto (p. ej. un guardado de la pantalla).
   const avanzar = () =>
@@ -256,9 +321,7 @@ async function procesarProgramacion(p: NotificacionProgramada, ahora: Date): Pro
         programadaPara,
         origen: "programada",
         estado: omitir ? "omitida" : "en_curso",
-        mensaje: omitir
-          ? "No se envió: el disparador llegó con más de 24 horas de retraso. Se programó el siguiente envío."
-          : null,
+        mensaje: motivoOmision,
         ejecutadoPor: ACTOR_PROGRAMADO,
         iniciadaEn: ahora,
         terminadaEn: omitir ? ahora : null,
@@ -285,8 +348,9 @@ async function procesarProgramacion(p: NotificacionProgramada, ahora: Date): Pro
       select: { correo: true, nombre: true, activo: true },
     }),
   );
+  if (periodo?.estado !== "nuevo") return "saltada"; // inalcanzable: `omitir` ya cubrió los otros casos
   const salida = await enviarReporte({
-    origen: "programada", referencia: programadaPara, destinatarios, actor: SISTEMA, registrarEnvio: true,
+    origen: "programada", periodo, notaPeriodo: notaDeRecorte(periodo), destinatarios, actor: SISTEMA, registrarEnvio: true,
   });
   await cerrarEjecucion(ejecucionId, salida, ahora, new Date());
   return salida.estado === "error" ? "error" : "enviada";
@@ -405,6 +469,27 @@ export async function enviarReporteAhora(params: {
     }
   }
 
+  // El período: el envío a la lista continúa donde terminó el último reporte; la prueba muestra el que
+  // cubriría el PRÓXIMO envío programado (o, si no lo hay o ya estaría cubierto, los últimos 7 días).
+  const ultimo = await ultimoPeriodoEnviado();
+  let periodo: { desde: string; hasta: string };
+  let notaPeriodo: string | null = null;
+  if (origen === "manual") {
+    const calculado = calcularPeriodoEnvio({ referencia: ahora, ultimoPeriodoHasta: ultimo?.hasta ?? null });
+    if (calculado.estado === "cubierto") return { ok: false, message: textoYaCubierto(calculado), estado: null };
+    periodo = calculado;
+    notaPeriodo = notaDeRecorte(calculado);
+  } else {
+    const proxima = programacion.activa ? programacion.proximaEjecucionEn : null;
+    const delProximo = proxima ? calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta: ultimo?.hasta ?? null }) : null;
+    if (delProximo?.estado === "nuevo") {
+      periodo = delProximo;
+      notaPeriodo = notaDeRecorte(delProximo);
+    } else {
+      periodo = periodoEnvioSemanal(ahora);
+    }
+  }
+
   let ejecucionId: number;
   try {
     const ejecucion = await prisma.notificacionEjecucion.create({
@@ -424,7 +509,7 @@ export async function enviarReporteAhora(params: {
     throw e;
   }
 
-  const salida = await enviarReporte({ origen, referencia: ahora, destinatarios, actor, registrarEnvio: origen === "manual" });
+  const salida = await enviarReporte({ origen, periodo, notaPeriodo, destinatarios, actor, registrarEnvio: origen === "manual" });
   await cerrarEjecucion(ejecucionId, salida, ahora, new Date());
   return { ok: salida.estado !== "error", message: salida.mensaje, estado: salida.estado };
 }
@@ -458,12 +543,24 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
 
   const activa = programacion?.activa ?? PROGRAMACION_POR_DEFECTO.activa;
   const proximaEjecucionEn = programacion?.proximaEjecucionEn ?? null;
+
+  // Qué cubrirá el próximo envío y de dónde sale ese período (null si está en pausa o no se pudo calcular).
+  let periodoProximo: PeriodoProximoPanel | null = null;
+  if (activa && proximaEjecucionEn) {
+    try {
+      const ultimo = await ultimoPeriodoEnviado();
+      periodoProximo = periodoParaPanel(calcularPeriodoEnvio({ referencia: proximaEjecucionEn, ultimoPeriodoHasta: ultimo?.hasta ?? null }), ultimo);
+    } catch (e) {
+      registrarError("notificaciones.leerPanelEnvio.periodo", e);
+    }
+  }
   return {
     existe: Boolean(programacion),
     activa,
     diaSemana: programacion?.diaSemana ?? PROGRAMACION_POR_DEFECTO.diaSemana,
     hora: programacion?.hora ?? PROGRAMACION_POR_DEFECTO.hora,
     proximaEjecucionEn: proximaEjecucionEn?.toISOString() ?? null,
+    periodoProximo,
     destinatarios: (programacion?.destinatarios ?? []).map((d) => ({ id: d.id, correo: d.correo, nombre: d.nombre, activo: d.activo })),
     ejecuciones: (programacion?.ejecuciones ?? []).map((e) => ({
       id: e.id,

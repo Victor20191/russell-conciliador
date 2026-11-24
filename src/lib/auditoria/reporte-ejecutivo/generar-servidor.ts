@@ -52,7 +52,12 @@ import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecuti
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import { construirDocumentoConsistente } from "@/lib/auditoria/reporte-ejecutivo/documento";
-import { claveAlcanceReporte, leerInstantanea, guardarInstantanea } from "@/lib/auditoria/reporte-ejecutivo/instantaneas";
+import {
+  claveAlcanceReporte,
+  guardarInstantanea,
+  instantaneaCubreElPeriodo,
+  leerInstantanea,
+} from "@/lib/auditoria/reporte-ejecutivo/instantaneas";
 import {
   MODELO_REPORTE_DETERMINISTA,
   type ReporteEjecutivoUso,
@@ -313,8 +318,14 @@ export async function generarReporteEjecutivoNucleo(params: {
   opciones: ReporteEjecutivoUsoScope;
   obtenerActor: () => Promise<ActorReporte | null>;
   signal?: AbortSignal;
+  /**
+   * Reutiliza una instantánea solo si se generó con el período ya terminado (su corte llega a la
+   * fecha final): una hecha antes, con datos parciales, se vuelve a generar. La usa el envío por
+   * correo; la acción de la pantalla no la pasa y conserva su comportamiento.
+   */
+  soloReutilizarSiCompleta?: boolean;
 }): Promise<GenerarReporteEjecutivoResult> {
-  const { opciones: datos, obtenerActor, signal } = params;
+  const { opciones: datos, obtenerActor, signal, soloReutilizarSiCompleta = false } = params;
 
   const rango = parseRango(datos.desde, datos.hasta);
   if (!rango) {
@@ -344,7 +355,7 @@ export async function generarReporteEjecutivoNucleo(params: {
     const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds, cambiosOmitidos);
     const anterior = await leerInstantanea(clave);
     signal?.throwIfAborted();
-    if (anterior && !datos.actualizar) {
+    if (anterior && !datos.actualizar && (!soloReutilizarSiCompleta || instantaneaCubreElPeriodo(anterior.corte, rango.hasta))) {
       return { ok: true, ...anterior, desdeCache: true };
     }
     const corte = new Date(Math.min(Date.now(), rango.hasta.getTime()));

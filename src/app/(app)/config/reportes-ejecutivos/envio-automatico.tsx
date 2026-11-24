@@ -21,7 +21,7 @@ import { Icon } from "@/components/icons";
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { correosDeEnvio } from "@/lib/notificaciones/destinatarios";
-import type { EjecucionPanel, PanelEnvioAutomatico } from "@/lib/notificaciones/panel";
+import type { EjecucionPanel, PanelEnvioAutomatico, PeriodoProximoPanel } from "@/lib/notificaciones/panel";
 import {
   DIAS_SEMANA,
   diaSemanaColombia,
@@ -74,7 +74,7 @@ export function EnvioAutomatico({ resultado }: { resultado: ResultadoPanelEnvio 
             <p className="max-w-3xl text-[11.5px] text-ink-500">
               La plataforma genera sola el reporte para gerencia cada semana y lo envía por correo a la lista de
               destinatarios, con el mismo formato de «Copiar formato correo» dentro del mensaje (sin PDF adjunto).
-              Cubre los 7 días que terminan el día anterior al envío.
+              Cada reporte arranca donde terminó el último reporte enviado y llega hasta el día anterior al envío.
             </p>
           </div>
         </div>
@@ -235,7 +235,40 @@ function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAu
         )}
         {cambios && <span className="text-warn-700">· Tienes cambios sin guardar.</span>}
       </p>
+      {panel.activa && panel.proximaEjecucionEn && panel.periodoProximo && <PeriodoDelProximoEnvio periodo={panel.periodoProximo} />}
     </section>
+  );
+}
+
+/** Qué cubrirá el próximo envío y de dónde sale ese período (calculado en el servidor). */
+function PeriodoDelProximoEnvio({ periodo }: { periodo: PeriodoProximoPanel }) {
+  if (periodo.estado === "cubierto") {
+    return (
+      <p className="flex items-start gap-1.5 text-[12.5px] text-warn-700" aria-live="polite">
+        <Icon name="warn" size={14} className="mt-0.5 shrink-0" />
+        <span>
+          Ya está cubierto hasta el {fmtCalendarDate(periodo.cubiertoHasta)}: ese día no se enviará.
+        </span>
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5 text-[12.5px] text-ink-700" aria-live="polite">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <Icon name="doc" size={14} className="shrink-0 text-ink-500" />
+        <span className="font-semibold">Cubrirá:</span>
+        <span>
+          del {fmtCalendarDate(periodo.desde)} al {fmtCalendarDate(periodo.hasta)}
+        </span>
+      </p>
+      <p className="pl-[21px] text-[11.5px] text-ink-500">
+        {periodo.origen === "continua" && periodo.ultimoHasta
+          ? `Continúa desde el último reporte enviado (del ${periodo.ultimoDesde ? fmtCalendarDate(periodo.ultimoDesde) : "—"} al ${fmtCalendarDate(periodo.ultimoHasta)}).`
+          : "Primer envío: últimos 7 días."}
+        {periodo.recortado &&
+          ` Se recortó a 366 días (el tope): sin él habría arrancado el ${fmtCalendarDate(periodo.desdeSinRecorte)}.`}
+      </p>
+    </div>
   );
 }
 

@@ -36,7 +36,7 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
   reenviar a mano).
 - **Retraso.** Si el cron llega con más de 24 h de retraso, el envío se marca *omitido* y
   solo se avanza la próxima fecha: un reporte de hace días ya no sirve. Con menos de 24 h
-  se envía y el período sigue siendo el del instante programado.
+  se envía y el período se mide desde el instante programado, no desde la hora real.
 - **Un fallo no frena la serie.** La próxima fecha se recalcula siempre, también si el
   envío falla; la semana siguiente se reintenta. Un fallo queda en el historial con su
   mensaje.
@@ -45,12 +45,31 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
 
 ### Qué se envía
 
-- **Período:** los 7 días de calendario que terminan el día *anterior* al envío, en hora de
-  Colombia. Enviado un lunes, cubre de lunes a domingo anteriores. Las fechas se pasan al
-  generador como `AAAA-MM-DD`, igual que cuando se elige el período en pantalla (el límite
-  de cada día es el de la regla del reporte, `rango.ts`).
+- **Período: desde donde terminó el último reporte enviado hasta el día anterior al envío.**
+  - **Hasta:** el día *anterior* al envío, en hora de Colombia (enviado un lunes, termina el
+    domingo). Así el día del envío nunca se cuenta dos veces: lo reporta el envío siguiente.
+  - **Desde:** el día *siguiente* al mayor `periodo_hasta` de `envios_reporte_ejecutivo`,
+    contando todos los envíos, manuales y automáticos (también los registrados a mano con
+    «Marcar como enviado»). Así los reportes se encadenan sin huecos ni traslapes, y si una
+    semana no salió, la siguiente cubre más días.
+  - **Sin envíos previos:** los 7 días que terminan el día anterior.
+  - **Tope:** `parseRangoReporte` admite hasta 366 días. Si el último reporte quedó más atrás,
+    el «desde» se recorta a 366 días y el mensaje de la ejecución lo anota.
+  - **Ya cubierto:** si el último reporte ya llega hasta ese día o más allá, no hay período
+    nuevo. El disparo programado queda *omitido* («Ya se reportó hasta el …») y la próxima
+    fecha avanza igual; «Enviar ahora» responde con el mismo mensaje y no envía nada.
+  - **Prueba:** usa el período que cubriría el *próximo* envío programado; si está en pausa o
+    ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
+  - **Convención de fechas:** los `periodo_desde`/`periodo_hasta` guardados son instantes que
+    producen `parseRangoReporte` (el «hasta» 2026-11-22 es 2026-11-22T23:59:59.999Z). La fecha
+    que representan se lee en UTC (`fechaDePeriodoGuardado`), la inversa exacta de esa
+    función, la misma que usa `registrarEnvioReporteEjecutivo`; leerlos en hora de Colombia
+    correría un día el «desde». Las fechas se pasan al generador como `AAAA-MM-DD`, igual que
+    cuando se elige el período en pantalla.
 - **Novedades:** ninguna omitida a mano. Reutiliza la instantánea del reporte si ya existe
-  para ese alcance (`generarReporteEjecutivoNucleo`, sin sesión).
+  para ese alcance y se generó con el período terminado (`generarReporteEjecutivoNucleo`, sin
+  sesión): una hecha antes —p. ej. por una prueba a mitad de semana, con datos parciales— se
+  vuelve a generar.
 - **Asunto:** el título del reporte (en la prueba, con «[Prueba] » delante).
 - **Cuerpo:** `htmlConEstilosEnLinea` + `prepararMarcaParaCorreo`, los mismos pasos del
   botón del navegador. En el servidor el HTML lo parsea `linkedom` (no hay `DOMParser`). El
@@ -78,8 +97,11 @@ Los instantes son `TIMESTAMPTZ`. Los pares «usuario» son FK suaves (solo el `I
 ## Pantalla
 
 `/config/reportes-ejecutivos` → «Envío automático»: activar o pausar, día y hora, «Próximo
-envío», destinatarios (agregar, pausar, quitar), «Enviar prueba a mi correo», «Enviar ahora
-a la lista» y los últimos envíos. Avisa si falta la conexión de correo
+envío» con lo que cubrirá («Cubrirá: del … al …») y de dónde sale ese período («Continúa desde
+el último reporte enviado (del … al …)», «Primer envío: últimos 7 días» o «Ya está cubierto
+hasta el …: ese día no se enviará»; calculado en el servidor con la próxima ejecución y el
+último envío), destinatarios (agregar, pausar, quitar), «Enviar prueba a mi correo», «Enviar ahora
+a la lista» y los últimos envíos, cada uno con su período. Avisa si falta la conexión de correo
 (con enlace a `/config/conexiones`; su «Dirección de Russell» es opcional), si el servidor no tiene `CRON_SECRET`, si un
 envío lleva más de 30 minutos vencido (el cron no está corriendo) y si está activo sin
 destinatarios activos.

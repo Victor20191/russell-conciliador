@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const db = vi.hoisted(() => ({ findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ default: { reporteEjecutivoUsoIA: db } }));
 import { ajustarMaquetacionReporte } from "./maquetacion";
-import { claveAlcanceReporte, guardarInstantanea, leerInstantanea } from "./instantaneas";
+import { claveAlcanceReporte, guardarInstantanea, instantaneaCubreElPeriodo, leerInstantanea } from "./instantaneas";
 const desde = new Date("2026-08-01T00:00:00Z");
 const hasta = new Date("2026-08-31T23:59:59.999Z");
 const row = {
@@ -77,5 +77,22 @@ describe("instantáneas de reportes", () => {
     await expect(guardarInstantanea(input)).rejects.toThrow("BD no disponible");
     db.findFirst.mockResolvedValue({ ...row, metadatos: null });
     await expect(leerInstantanea("alcance")).rejects.toThrow();
+  });
+});
+
+describe("instantaneaCubreElPeriodo", () => {
+  const finDelPeriodo = new Date("2026-11-22T23:59:59.999Z");
+
+  test("una instantánea hecha con el período terminado (su corte llega a la fecha final) está completa", () => {
+    expect(instantaneaCubreElPeriodo("2026-11-22T23:59:59.999Z", finDelPeriodo)).toBe(true);
+  });
+
+  test("una hecha antes de que terminara (corte anterior, p. ej. una prueba a mitad de semana) está incompleta", () => {
+    expect(instantaneaCubreElPeriodo("2026-11-18T15:00:00.000Z", finDelPeriodo)).toBe(false);
+    expect(instantaneaCubreElPeriodo("2026-11-22T23:59:59.998Z", finDelPeriodo)).toBe(false);
+  });
+
+  test("un corte ilegible no se da por completo", () => {
+    expect(instantaneaCubreElPeriodo("no-es-fecha", finDelPeriodo)).toBe(false);
   });
 });

@@ -21,6 +21,10 @@ const PANEL: PanelEnvioAutomatico = {
   hora: "07:00",
   // Lunes 30-nov-2026, 7:00 a. m. de Colombia.
   proximaEjecucionEn: "2026-11-30T12:00:00.000Z",
+  periodoProximo: {
+    estado: "nuevo", desde: "2026-11-23", hasta: "2026-11-29", origen: "continua",
+    ultimoDesde: "2026-11-16", ultimoHasta: "2026-11-22", recortado: false, desdeSinRecorte: "2026-11-23",
+  },
   destinatarios: [
     { id: 1, correo: "ana@cliente.co", nombre: "Ana Pérez", activo: true },
     { id: 2, correo: "luis@cliente.co", nombre: null, activo: false },
@@ -69,6 +73,30 @@ describe("panel «Envío automático»", () => {
     // Sin avisos cuando todo está en orden.
     expect(html).not.toContain("todavía no salió");
     expect(html).not.toContain("Ir a Conexiones");
+  });
+
+  it("dice desde cuándo hasta cuándo cubrirá el próximo envío y de dónde sale el período", () => {
+    const html = pintar(PANEL);
+    expect(html).toContain("Cubrirá:");
+    expect(html).toContain("del 23/Nov/2026 al 29/Nov/2026");
+    expect(html).toContain("Continúa desde el último reporte enviado (del 16/Nov/2026 al 22/Nov/2026).");
+
+    const primero = pintar({ ...PANEL, periodoProximo: { estado: "nuevo", desde: "2026-11-23", hasta: "2026-11-29", origen: "primer_envio", ultimoDesde: null, ultimoHasta: null, recortado: false, desdeSinRecorte: "2026-11-23" } });
+    expect(primero).toContain("del 23/Nov/2026 al 29/Nov/2026");
+    expect(primero).toContain("Primer envío: últimos 7 días.");
+
+    const recortado = pintar({ ...PANEL, periodoProximo: { estado: "nuevo", desde: "2025-11-29", hasta: "2026-11-29", origen: "continua", ultimoDesde: "2024-01-01", ultimoHasta: "2024-01-31", recortado: true, desdeSinRecorte: "2024-02-01" } });
+    expect(recortado).toContain("Se recortó a 366 días");
+    expect(recortado).toContain("habría arrancado el 01/Feb/2024");
+
+    const cubierto = pintar({ ...PANEL, periodoProximo: { estado: "cubierto", hasta: "2026-11-29", cubiertoHasta: "2026-11-29" } });
+    expect(cubierto).toContain("Ya está cubierto hasta el 29/Nov/2026: ese día no se enviará.");
+    expect(cubierto).not.toContain("Cubrirá:");
+  });
+
+  it("en pausa no anuncia ningún período", () => {
+    const html = pintar({ ...PANEL, activa: false, proximaEjecucionEn: null, periodoProximo: null });
+    expect(html).not.toContain("Cubrirá:");
   });
 
   it("ofrece prueba y envío a la lista, y no deja enviar si no hay conexión de correo (con enlace a Conexiones)", () => {

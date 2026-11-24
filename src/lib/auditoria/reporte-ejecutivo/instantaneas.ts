@@ -33,6 +33,15 @@ export function claveAlcanceReporte(
   })).digest("hex");
 }
 
+/**
+ * ¿La instantánea se generó con el período ya terminado? Su `corte` es el menor entre el momento
+ * de generarla y la fecha final del período: si llega a la fecha final, los datos están completos.
+ */
+export function instantaneaCubreElPeriodo(corte: string, hastaDelPeriodo: Date): boolean {
+  const t = Date.parse(corte);
+  return Number.isFinite(t) && t >= hastaDelPeriodo.getTime();
+}
+
 export type InstantaneaReporte = {
   id: number;
   report: ReporteEjecutivoUso;
