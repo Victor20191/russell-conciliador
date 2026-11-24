@@ -211,10 +211,10 @@ const SEGURIDAD_SMTP: CampoDefinicion = {
 };
 
 const NOTIFICACIONES_SMTP: CampoDefinicion[] = [
-  { clave: "usar_para_notificaciones", label: "Enviar notificaciones de Russell con esta conexión", tipo: "booleano", porDefecto: false,
-    ayuda: "Selecciona una sola conexión activa de Producción. Envía avisos de balances, menciones y actualizaciones de soporte a los destinatarios autorizados." },
+  { clave: "usar_para_notificaciones", label: "Enviar el reporte para gerencia con esta conexión", tipo: "booleano", porDefecto: false,
+    ayuda: "Selecciona una sola conexión activa de Producción. Es la cuenta desde la que sale el reporte para gerencia, manual y programado. Russell no envía avisos por correo de balances, menciones ni soporte." },
   { clave: "url_plataforma", label: "Dirección de Russell", tipo: "texto", placeholder: "https://russell.tuempresa.com",
-    ayuda: "Opcional. Dirección pública HTTPS de Russell, sin rutas ni parámetros; se usa para el enlace «Abrir Russell» de los avisos. Si la dejas vacía, los avisos de balances, menciones y soporte salen sin ese enlace." },
+    ayuda: "Opcional. Dirección pública HTTPS de Russell, sin rutas ni parámetros; se usa para el enlace «Abrir Russell» del correo de prueba de envío. El reporte para gerencia no la necesita. Si la dejas vacía, el correo de prueba sale sin ese enlace." },
 ];
 
 export const PROVEEDORES: ProveedorDefinicion[] = [
@@ -321,7 +321,7 @@ export const PROVEEDORES: ProveedorDefinicion[] = [
     clave: "smtp",
     label: "Servidor de correo (SMTP)",
     categoria: "CORREO",
-    descripcion: "Envío de avisos de balances y menciones a los usuarios de Russell.",
+    descripcion: "Cuenta de correo desde la que se envía el reporte para gerencia.",
     camposConfiguracion: [
       { clave: "host", label: "Servidor", tipo: "texto", requerido: true, placeholder: "smtp.cliente.com" },
       { clave: "puerto", label: "Puerto", tipo: "numero", porDefecto: 587 },

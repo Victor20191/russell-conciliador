@@ -1,6 +1,5 @@
 "use server";
 
-import { programarAvisoCorreo } from "@/lib/correo/notificaciones";
 import { randomBytes } from "node:crypto";
 import * as z from "zod";
 import { revalidatePath } from "next/cache";
@@ -463,11 +462,6 @@ export async function guardarSolucionTicket(
       entity: ticket.code,
       detail: "El ticket quedó resuelto y la solución está visible en su enlace de seguimiento.",
     });
-    if (ticket.createdById) programarAvisoCorreo({
-      titulo: "Actualización de soporte", texto: `Se registró una solución para tu ticket ${ticket.code}. Ingresa a Russell para ver el detalle.`,
-      usuarioIds: [ticket.createdById!], actorId: authz.userId, permiso: "soporte:ver",
-      ruta: `${USER_PATH}/${parsed.data.ticketId}`, referencia: `Ticket ${ticket.code}`,
-    });
     revalidatePath(ADMIN_PATH);
     revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
     revalidatePath(USER_PATH);
@@ -556,11 +550,6 @@ export async function cambiarEstadoTicket(
       action: "ACTUALIZÓ ESTADO DE REPORTE",
       entity: ticket.code,
       detail: `Estado: ${etiquetaEstadoTicket(parsed.data.status)}.`,
-    });
-    if (ticket.createdById && parsed.data.status !== ticket.status) programarAvisoCorreo({
-      titulo: "Actualización de soporte", texto: `Se actualizó el estado de tu ticket ${ticket.code}. Ingresa a Russell para ver el detalle.`,
-      usuarioIds: [ticket.createdById!], actorId: authz.userId, permiso: "soporte:ver",
-      ruta: `${USER_PATH}/${parsed.data.ticketId}`, referencia: `Ticket ${ticket.code}`,
     });
     revalidatePath(ADMIN_PATH);
     revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
@@ -691,11 +680,6 @@ export async function gestionarTicket(
             ? " Mensaje de Xentria visible para quien reportó la novedad."
             : ""),
     });
-    if (ticket.createdById) programarAvisoCorreo({
-      titulo: "Actualización de soporte", texto: `Tienes una actualización en tu ticket ${ticket.code}. Ingresa a Russell para ver el detalle.`,
-      usuarioIds: [ticket.createdById!], actorId: authz.userId, permiso: "soporte:ver",
-      ruta: `${USER_PATH}/${parsed.data.ticketId}`, referencia: `Ticket ${ticket.code}`,
-    });
     revalidatePath(ADMIN_PATH);
     revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
     revalidatePath(USER_PATH);
@@ -772,11 +756,6 @@ export async function agregarMensajeTicket(
         lado === "xentria"
           ? "Mensaje de Xentria visible para quien reportó la novedad."
           : "Respuesta de quien reportó la novedad.",
-    });
-    if (ticket.createdById && lado === "xentria") programarAvisoCorreo({
-      titulo: "Actualización de soporte", texto: `Tienes una respuesta en tu ticket ${ticket.code}. Ingresa a Russell para ver el detalle.`,
-      usuarioIds: [ticket.createdById!], actorId: authz.userId, permiso: "soporte:ver",
-      ruta: `${USER_PATH}/${parsed.data.ticketId}`, referencia: `Ticket ${ticket.code}`,
     });
     revalidatePath(ADMIN_PATH);
     revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);

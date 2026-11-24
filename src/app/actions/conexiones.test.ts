@@ -116,7 +116,7 @@ describe("acciones de parametrización", () => {
 function formularioSmtp(extra: Record<string, string> = {}) {
   return formulario({ proveedor: "smtp", categoria: "CORREO", config_host: "smtp.example.com", config_puerto: "587", config_seguridad: "STARTTLS", config_remitente: "russell@example.com", config_url_plataforma: "https://russell.example", config_usar_para_notificaciones: "on", cred_usuario: "usuario", cred_contrasena: "clave-ficticia", ...extra });
 }
-describe("SMTP de notificaciones", () => {
+describe("SMTP del reporte para gerencia", () => {
   it("impide dos selecciones activas entre SMTP y Gmail en una transacción serializable", async () => {
     mocks.findFirst.mockResolvedValueOnce({ id: 2 });
     expect((await crearConexion(undefined, formularioSmtp())).message).toContain("Ya hay un SMTP");

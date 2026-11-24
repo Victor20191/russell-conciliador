@@ -1,7 +1,6 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
-import { programarAvisoCorreo } from "@/lib/correo/notificaciones";
 import { usuariosDestinatariosAviso } from "@/lib/correo/destinatarios";
 import { registrarError } from "@/lib/errores";
 
@@ -11,14 +10,13 @@ type ProcessNotificationInput = {
   target: string;
   clientId?: number | null;
   actorId?: number | null;
-  ruta?: string;
 };
 
 export async function createProcessNotification({
   actor,
   text,
   target,
-  clientId, actorId, ruta,
+  clientId, actorId,
 }: ProcessNotificationInput): Promise<void> {
   // Efecto secundario: si la notificación falla, NO debe tumbar la operación
   // principal. Se registra el error en el servidor y se continúa.
@@ -37,11 +35,6 @@ export async function createProcessNotification({
         target,
         unread: true,
       })),
-    });
-    if (clientId) programarAvisoCorreo({
-      titulo: "Novedad en un balance", texto: `${actor?.trim() || "Sistema"} ${text} ${target}`,
-      clienteId: clientId, actorId, permiso: "balance:ver", ruta: ruta ?? "/balance",
-      referencia: "Notificación de balance",
     });
   } catch (e) {
     registrarError("createProcessNotification", e);

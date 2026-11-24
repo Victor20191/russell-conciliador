@@ -192,7 +192,7 @@ async function conflictoSeleccion(
     select: { id: true },
   });
   return otra ? (correo
-    ? "Ya hay un SMTP seleccionado para notificaciones. Desmarca la conexión anterior antes de seleccionar esta."
+    ? "Ya hay un SMTP seleccionado para el reporte para gerencia. Desmarca la conexión anterior antes de seleccionar esta."
     : "Ya hay una clave seleccionada para este proveedor. Desmarca «Usar esta clave en Russell» en la conexión anterior.") : null;
 }
 

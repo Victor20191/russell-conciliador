@@ -1,46 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ lote: vi.fn(), dato: vi.fn(), findMany: vi.fn(), update: vi.fn(), create: vi.fn(), transaction: vi.fn(), decrypt: vi.fn(), send: vi.fn(), recipients: vi.fn(), after: vi.fn() }));
-vi.mock("@/lib/prisma", () => ({ default: { moduloImportacionLote: { findUnique: mocks.lote }, moduloDatoEncabezado: { findUnique: mocks.dato }, conexionIntegracion: { findMany: mocks.findMany, update: mocks.update }, ejecucionConexion: { create: mocks.create }, $transaction: mocks.transaction } }));
+const mocks = vi.hoisted(() => ({ findMany: vi.fn(), update: vi.fn(), create: vi.fn(), transaction: vi.fn(), decrypt: vi.fn(), send: vi.fn() }));
+vi.mock("@/lib/prisma", () => ({ default: { conexionIntegracion: { findMany: mocks.findMany, update: mocks.update }, ejecucionConexion: { create: mocks.create }, $transaction: mocks.transaction } }));
 vi.mock("@/lib/conexiones/credenciales", () => ({ descifrarCredenciales: mocks.decrypt }));
 vi.mock("@/lib/conexiones/smtp", async (original) => ({ ...await original<typeof import("@/lib/conexiones/smtp")>(), enviarSmtp: mocks.send }));
-vi.mock("./destinatarios", () => ({ destinatariosAviso: mocks.recipients }));
-vi.mock("next/server", () => ({ after: mocks.after }));
-import { conexionNotificaciones, enviarAvisoCorreo, enviarCorreoRegistrado, programarAvisoCorreo } from "./notificaciones";
+import * as modulo from "./notificaciones";
+import { conexionNotificaciones, enviarCorreoRegistrado } from "./notificaciones";
 import type { ConexionIntegracion } from "@/generated/prisma/client";
 const conexion = { id: 1, activa: true, proveedor: "smtp", configuracion: { remitente: "russell@example.com", url_plataforma: "https://russell.example" }, credenciales: { contrasena: "cifrada" } } as unknown as ConexionIntegracion;
-const aviso = { titulo: "Novedad", texto: "Texto privado", ruta: "/balance/1", permiso: "balance:ver", clienteId: 12, referencia: "Notificación #1" };
+const aviso = { titulo: "Prueba de correo", texto: "Texto privado", ruta: "/config/conexiones", referencia: "Prueba de envío #1" };
 beforeEach(() => {
-  vi.clearAllMocks(); vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("AVISOS_CORREO_ACTIVOS", "1");
+  vi.clearAllMocks();
   mocks.findMany.mockResolvedValue([conexion]); mocks.decrypt.mockReturnValue({ usuario: "u", contrasena: "sensible" });
-  mocks.recipients.mockResolvedValue(["ana@example.com"]); mocks.send.mockResolvedValue(undefined); mocks.transaction.mockResolvedValue([]);
+  mocks.send.mockResolvedValue(undefined); mocks.transaction.mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllEnvs());
-describe("notificaciones conectadas al SMTP", () => {
+
+describe("correo de Russell: solo el reporte para gerencia y la prueba de envío", () => {
+  it("no expone envíos por evento (balances, menciones, soporte)", () => {
+    expect(Object.keys(modulo).sort()).toEqual(["conexionNotificaciones", "enviarCorreoRegistrado", "enviarHtmlRegistrado"]);
+  });
+});
+
+describe("conexión de correo del reporte para gerencia", () => {
   it("selecciona solamente un SMTP/Gmail de producción, activo y marcado", async () => {
     expect(await conexionNotificaciones()).toEqual(conexion);
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { categoria: "CORREO", proveedor: { in: ["smtp", "gmail"] }, activa: true, entorno: "PRODUCCION", configuracion: { path: ["usar_para_notificaciones"], equals: true } }, take: 2 }));
     mocks.findMany.mockResolvedValue([conexion, conexion]);
     await expect(conexionNotificaciones()).rejects.toThrow("varios SMTP");
   });
-  it("sin conexión seleccionada no busca destinatarios ni envía", async () => {
-    mocks.findMany.mockResolvedValue([]); await enviarAvisoCorreo(aviso);
-    expect(mocks.recipients).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
+  it("sin conexión marcada devuelve null", async () => {
+    mocks.findMany.mockResolvedValue([]);
+    expect(await conexionNotificaciones()).toBeNull();
   });
-  it("con el interruptor apagado (por defecto) no busca conexión ni envía", async () => {
-    vi.stubEnv("AVISOS_CORREO_ACTIVOS", "");
-    await enviarAvisoCorreo(aviso);
-    expect(mocks.findMany).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
-  });
-  it("no envía automáticamente en desarrollo ni deja promesas sueltas", async () => {
-    vi.stubEnv("NODE_ENV", "development"); programarAvisoCorreo(aviso); await enviarAvisoCorreo(aviso);
-    expect(mocks.after).not.toHaveBeenCalled(); expect(mocks.findMany).not.toHaveBeenCalled();
-    vi.stubEnv("NODE_ENV", "production"); programarAvisoCorreo(aviso);
-    expect(mocks.send).not.toHaveBeenCalled(); await mocks.after.mock.calls[0][0]();
-    expect(mocks.send).toHaveBeenCalledOnce();
-  });
-  it("envía por destinatario y registra aceptación sin contenido ni claves", async () => {
-    mocks.recipients.mockResolvedValue(["ana@example.com", "ana@example.com", "luis@example.com"]);
-    await enviarAvisoCorreo(aviso);
+});
+
+describe("correo de prueba de envío", () => {
+  it("envía por destinatario único y registra aceptación sin contenido ni claves", async () => {
+    await enviarCorreoRegistrado(conexion, ["ana@example.com", "ana@example.com", "luis@example.com"], aviso);
     expect(mocks.send).toHaveBeenCalledTimes(2);
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ ultimaEjecucionEstado: "ok", ultimoUsoEn: expect.any(Date) }) }));
     expect(mocks.create.mock.calls[0][0].data).toMatchObject({ tipo: "ENVIO_CORREO", estado: "ok" });
@@ -65,48 +61,28 @@ describe("notificaciones conectadas al SMTP", () => {
     expect(r.ok).toBe(true); expect(r.message).toContain("No se pudo guardar"); expect(mocks.send).toHaveBeenCalledOnce();
     log.mockRestore();
   });
-  it("sin destinatarios autorizados no hay envío", async () => {
-    mocks.recipients.mockResolvedValue([]); await enviarAvisoCorreo(aviso); expect(mocks.send).not.toHaveBeenCalled();
-  });
-});
-
-describe("destino del correo de mención", () => {
-  it("abre el UUID de un borrador aunque su conversación use el id numérico", async () => {
-    mocks.lote.mockResolvedValue({ moduloCodigo: "nomina", loteId: "8f4b9e41-a3bc-47ff-a2ac-ab5803067317" });
-    await enviarAvisoCorreo({ ...aviso, entidad: { tipo: "modulos_borrador", id: 62 } });
-    expect(mocks.recipients).toHaveBeenCalledWith(expect.objectContaining({ permisoRuta: "modulos_datos:crear", modoAlcance: "escritura" }));
-    expect(mocks.lote).toHaveBeenCalledWith({ where: { id: 62 }, select: { moduloCodigo: true, loteId: true } });
-    expect(mocks.send.mock.calls[0][2].texto).toContain("/modulos/nomina/borradores/8f4b9e41-a3bc-47ff-a2ac-ab5803067317");
-  });
-  it("los cargues confirmados conservan el id numérico en su enlace", async () => {
-    mocks.dato.mockResolvedValue({ moduloCodigo: "nomina" });
-    await enviarAvisoCorreo({ ...aviso, entidad: { tipo: "modulos_datos", id: 62 } });
-    expect(mocks.send.mock.calls[0][2].texto).toContain("/modulos/nomina/62");
-  });
-  it("no envía una mención cuyo borrador fue eliminado", async () => {
-    mocks.lote.mockResolvedValue(null);
-    await enviarAvisoCorreo({ ...aviso, entidad: { tipo: "modulos_borrador", id: 62 } });
-    expect(mocks.send).not.toHaveBeenCalled();
-  });
   it("indica la dirección inválida de Russell sin confundirla con autenticación SMTP", async () => {
     const r = await enviarCorreoRegistrado({ ...conexion, configuracion: { url_plataforma: "incorrecta" } }, ["ana@example.com"], aviso);
     expect(r.ok).toBe(false); expect(r.message).toContain("dirección de Russell"); expect(r.message).toContain("no es válida"); expect(mocks.send).not.toHaveBeenCalled();
   });
+  it("lleva el enlace «Abrir Russell» hacia la ruta indicada cuando la conexión tiene dirección", async () => {
+    await enviarCorreoRegistrado(conexion, ["ana@example.com"], aviso);
+    expect(mocks.send.mock.calls[0][2].texto).toContain("Abrir Russell: https://russell.example/config/conexiones");
+  });
 });
 
-describe("avisos sin dirección de Russell en la conexión", () => {
-  // La dirección es opcional (producción puede no tener dominio ni HTTPS): el aviso sale, sin el enlace.
+describe("correo de prueba sin dirección de Russell en la conexión", () => {
+  // La dirección es opcional (producción puede no tener dominio ni HTTPS): el correo sale, sin el enlace.
   for (const [descripcion, configuracion] of [
     ["sin la clave", { remitente: "russell@example.com" }],
     ["vacía", { remitente: "russell@example.com", url_plataforma: "" }],
   ] as const) {
     it(`sale bien y sin enlace con la dirección ${descripcion}`, async () => {
-      mocks.findMany.mockResolvedValue([{ ...conexion, configuracion }]);
-      await enviarAvisoCorreo(aviso);
+      await enviarCorreoRegistrado({ ...conexion, configuracion }, ["ana@example.com"], aviso);
       expect(mocks.send).toHaveBeenCalledOnce();
       const mensaje = mocks.send.mock.calls[0][2];
       expect(mensaje.destinatario).toBe("ana@example.com");
-      expect(mensaje.asunto).toBe("Russell · Novedad");
+      expect(mensaje.asunto).toBe("Russell · Prueba de correo");
       expect(mensaje.texto).toContain("Texto privado");
       expect(mensaje.texto).not.toContain("Abrir Russell");
       expect(mensaje.html).toContain("Texto privado");
@@ -119,12 +95,4 @@ describe("avisos sin dirección de Russell en la conexión", () => {
       expect(mocks.create.mock.calls[0][0].data).toMatchObject({ tipo: "ENVIO_CORREO", estado: "ok" });
     });
   }
-  it("las menciones con entidad también salen sin enlace cuando no hay dirección", async () => {
-    mocks.findMany.mockResolvedValue([{ ...conexion, configuracion: { remitente: "russell@example.com" } }]);
-    mocks.dato.mockResolvedValue({ moduloCodigo: "nomina" });
-    await enviarAvisoCorreo({ ...aviso, entidad: { tipo: "modulos_datos", id: 62 } });
-    expect(mocks.send).toHaveBeenCalledOnce();
-    expect(mocks.send.mock.calls[0][2].texto).not.toContain("/modulos/nomina/62");
-    expect(mocks.send.mock.calls[0][2].texto).not.toContain("Abrir Russell");
-  });
 });

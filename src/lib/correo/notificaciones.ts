@@ -1,31 +1,35 @@
 import "server-only";
-import { after } from "next/server";
 import prisma from "@/lib/prisma";
 import type { ConexionIntegracion } from "@/generated/prisma/client";
 import { descifrarCredenciales } from "@/lib/conexiones/credenciales";
 import { enviarSmtp, ErrorSmtp, mensajeErrorSmtp, type ImagenEnLinea } from "@/lib/conexiones/smtp";
 import { CID_LOGO_CORREO, mensajeNotificacion, ErrorPlantillaNotificacion } from "./plantilla-notificacion";
 import { logoCorreo } from "@/lib/marca/recursos-correo";
-import { destinatariosAviso, type AlcanceAviso } from "./destinatarios";
 
-export type AvisoCorreo = AlcanceAviso & { titulo: string; texto: string; ruta?: string; entidad?: { tipo: string; id: number }; referencia: string };
+/** El mensaje de la prueba de envío de la conexión SMTP (plantilla de notificación de Russell). */
+export type AvisoCorreo = { titulo: string; texto: string; ruta?: string; referencia: string };
 export type ResultadoCorreo = { ok: boolean; message: string };
 
+/**
+ * La conexión de correo marcada «Enviar el reporte para gerencia con esta conexión» (clave
+ * `usar_para_notificaciones`). El correo de Russell es solo para el reporte para gerencia:
+ * no hay avisos por eventos (balances, menciones, soporte).
+ */
 export async function conexionNotificaciones(): Promise<ConexionIntegracion | null> {
   const conexiones = await prisma.conexionIntegracion.findMany({
     where: { categoria: "CORREO", proveedor: { in: ["smtp", "gmail"] }, activa: true, entorno: "PRODUCCION",
       configuracion: { path: ["usar_para_notificaciones"], equals: true } },
     take: 2,
   });
-  if (conexiones.length > 1) throw new ErrorSmtp("Hay varios SMTP seleccionados. Deja solo una conexión para notificaciones.");
+  if (conexiones.length > 1) throw new ErrorSmtp("Hay varios SMTP seleccionados para el reporte para gerencia. Deja solo una conexión marcada.");
   return conexiones[0] ?? null;
 }
 
-/** No devuelve secretos ni errores originales de SMTP o de descifrado. */
+/** Envía el correo de prueba de la conexión. No devuelve secretos ni errores originales de SMTP o de descifrado. */
 export async function enviarCorreoRegistrado(
   conexion: ConexionIntegracion,
   destinatarios: string[],
-  aviso: Pick<AvisoCorreo, "titulo" | "texto" | "ruta" | "referencia">,
+  aviso: AvisoCorreo,
   actor = "Sistema",
 ): Promise<ResultadoCorreo> {
   const inicio = Date.now();
@@ -61,8 +65,8 @@ export async function enviarCorreoRegistrado(
 
 /**
  * Cierra un envío: arma el mensaje con los conteos y lo deja en la conexión y en su
- * historial (`ejecucionConexion`). Lo comparten el aviso de notificación y el correo
- * con HTML propio.
+ * historial (`ejecucionConexion`). Lo comparten el correo de prueba de envío y el correo
+ * con HTML propio (el reporte para gerencia).
  */
 async function registrarResultadoEnvio(
   conexion: ConexionIntegracion,
@@ -135,51 +139,4 @@ export async function enviarHtmlRegistrado(
   }
   const resultado = await registrarResultadoEnvio(conexion, { aceptados, fallidos, detalle, referencia: correo.referencia, inicio, actor });
   return { ...resultado, aceptados, fallidos };
-}
-
-/** Se llama después de persistir el evento; todos los destinatarios se resuelven en servidor. */
-export async function enviarAvisoCorreo(aviso: AvisoCorreo): Promise<void> {
-  if (process.env.NODE_ENV !== "production") return;
-  // Interruptor: los avisos automáticos al equipo (balances, comentarios, soporte) están
-  // APAGADOS salvo que se pida lo contrario con AVISOS_CORREO_ACTIVOS=1. La campana no depende de esto.
-  if (process.env.AVISOS_CORREO_ACTIVOS !== "1") return;
-  try {
-    const conexion = await conexionNotificaciones();
-    if (!conexion) return; // El correo es opt-in, no selecciona una cuenta implícitamente.
-    // La conversación del borrador es legible por rol, pero su página exige
-    // permiso de carga y escritura sobre el cliente. No mandar enlaces inaccesibles.
-    const destinatarios = await destinatariosAviso(aviso.entidad?.tipo === "modulos_borrador"
-      ? { ...aviso, permisoRuta: "modulos_datos:crear", modoAlcance: "escritura" }
-      : aviso);
-    if (!destinatarios.length) return;
-    if (aviso.entidad) {
-      const { tipo, id } = aviso.entidad;
-      if (tipo === "modulos_borrador") {
-        // La conversación usa el id numérico; la página del borrador usa el UUID loteId.
-        const registro = await prisma.moduloImportacionLote.findUnique({ where: { id }, select: { moduloCodigo: true, loteId: true } });
-        if (!registro) return;
-        aviso = { ...aviso, ruta: `/modulos/${encodeURIComponent(registro.moduloCodigo)}/borradores/${encodeURIComponent(registro.loteId)}` };
-      } else if (tipo === "modulos_datos") {
-        const registro = await prisma.moduloDatoEncabezado.findUnique({ where: { id }, select: { moduloCodigo: true } });
-        if (!registro) return;
-        aviso = { ...aviso, ruta: `/modulos/${encodeURIComponent(registro.moduloCodigo)}/${id}` };
-      } else {
-        const rutas: Record<string, string> = { balance: `/balance/${id}`, conciliaciones: `/conciliacion/resultados/${id}`, clientes: "/config/clientes" };
-        aviso = { ...aviso, ruta: rutas[tipo] ?? "/dashboard" };
-      }
-    }
-    await enviarCorreoRegistrado(conexion, destinatarios, aviso);
-  } catch {
-    console.error("[Russell] No se pudo preparar la notificación por correo", { referencia: aviso.referencia });
-  }
-}
-
-/** after mantiene vivo el envío después de la respuesta; nunca se deja una promesa suelta. */
-export function programarAvisoCorreo(aviso: AvisoCorreo): void {
-  if (process.env.NODE_ENV !== "production") return;
-  try {
-    after(() => enviarAvisoCorreo(aviso));
-  } catch {
-    console.error("[Russell] No se pudo programar el correo", { referencia: aviso.referencia });
-  }
 }

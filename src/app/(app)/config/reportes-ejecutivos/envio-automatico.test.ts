@@ -125,7 +125,7 @@ describe("panel «Envío automático»", () => {
     const bloqueSinActivos = sinActivos.slice(sinActivos.indexOf('id="envio-ahora"'), sinActivos.indexOf('id="envio-historial"'));
     expect(bloqueSinActivos).toContain("No hay correos activos para el envío");
 
-    const html = pintar({ ...PANEL, conexion: { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar las notificaciones de Russell." } });
+    const html = pintar({ ...PANEL, conexion: { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar el reporte para gerencia." } });
     expect(html).toContain("Ir a Conexiones");
     expect(html).toContain('href="/config/conexiones"');
     // Los dos botones de envío quedan deshabilitados.

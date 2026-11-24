@@ -593,7 +593,7 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
     const encontrada = await conexionNotificaciones();
     conexion = encontrada
       ? { estado: "lista", mensaje: null }
-      : { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar las notificaciones de Russell." };
+      : { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar el reporte para gerencia." };
   } catch (e) {
     conexion =
       e instanceof ErrorSmtp

@@ -1,5 +1,4 @@
 import "server-only";
-import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { getAsignacionesUsuario, getMatriz } from "@/lib/rbac/contexto";
 import { alcanzaCliente, tienePermiso } from "@/lib/rbac/permisos";
@@ -18,7 +17,7 @@ export type AlcanceAviso = {
   actorId?: number | null;
 };
 
-/** Identidades autorizadas, compartidas por correo y campana. No exige tener email válido. */
+/** Identidades autorizadas para recibir un aviso en la campana. No exige tener email válido. */
 export async function usuariosDestinatariosAviso(input: AlcanceAviso): Promise<{ id: number; email: string }[]> {
   if (input.clienteId === null || (!input.usuarioIds && !input.clienteId)) return [];
   let ids = input.usuarioIds;
@@ -58,9 +57,4 @@ export async function usuariosDestinatariosAviso(input: AlcanceAviso): Promise<{
     destinatarios.push({ id: usuario.id, email: usuario.email });
   }
   return destinatarios;
-}
-
-export async function destinatariosAviso(input: AlcanceAviso): Promise<string[]> {
-  const usuarios = await usuariosDestinatariosAviso(input);
-  return [...new Set(usuarios.filter((u) => z.email().safeParse(u.email).success).map((u) => u.email.toLowerCase()))];
 }

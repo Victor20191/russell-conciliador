@@ -37,7 +37,7 @@ export function mensajeNotificacion(input: {
   logoSrc?: string | null;
 }) {
   let enlace = "";
-  // La dirección de Russell es opcional: sin ella el aviso sale completo, solo que sin el enlace «Abrir Russell».
+  // La dirección de Russell es opcional: sin ella el correo de prueba de envío sale completo, solo que sin el enlace «Abrir Russell».
   // Una dirección escrita pero inválida sí es un error de configuración y no se manda un enlace dudoso.
   const direccion = typeof input.urlPlataforma === "string" ? input.urlPlataforma.trim() : input.urlPlataforma;
   if (direccion) {

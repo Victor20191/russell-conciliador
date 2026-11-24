@@ -1,6 +1,5 @@
 "use server";
 
-import { programarAvisoCorreo } from "@/lib/correo/notificaciones";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
@@ -298,11 +297,6 @@ export async function publicarComentario(input: {
           })),
         });
       } catch (error) { registrarError("notificarMenciones", error); }
-      programarAvisoCorreo({
-        titulo: "Te mencionaron en Russell", texto: `${quien} te mencionó en ${etiqueta} #${entityId}. Ingresa para leer el comentario.`,
-        usuarioIds: menciones, actorId: authz.userId, clienteId: alc.scoped ? alc.clientId : undefined,
-        permiso: `${tipo}:ver`, entidad: { tipo, id: entityId }, referencia: `Comentario #${creado.id}`,
-      });
     }
 
     return {
@@ -414,11 +408,6 @@ export async function editarComentario(input: { id: number; body: string; mencio
           })),
         });
       } catch (error) { registrarError("notificarMenciones", error); }
-      programarAvisoCorreo({
-        titulo: "Te mencionaron en Russell", texto: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}. Ingresa para leer el comentario.`,
-        usuarioIds: nuevas, actorId: userId, clienteId: clientId,
-        permiso: `${tipo}:ver`, entidad: { tipo, id: comentario.entityId }, referencia: `Comentario #${comentario.id} editado`,
-      });
     }
     await logAudit({
       user: quien,

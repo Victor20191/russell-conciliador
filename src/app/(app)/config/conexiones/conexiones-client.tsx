@@ -167,7 +167,7 @@ export default function ConexionesClient({ conexiones, envios = [], puedeAdminis
               En Claude, Gemini y OpenRouter puedes seleccionar «Usar esta clave en Russell».
               Se aplicará a los procesos que ya usan ese proveedor, con sus modelos y permisos actuales.
               Si ninguna está seleccionada, se conserva la configuración del servidor.
-              Selecciona un SMTP para enviar avisos de balances, menciones y respuestas de soporte. «Probar» verifica la conexión; «Enviar prueba a mi correo» envía un mensaje real a tu usuario. Los avisos automáticos se envían desde el servidor en producción.
+              Selecciona un SMTP para enviar el reporte para gerencia. «Probar» verifica la conexión; «Enviar prueba a mi correo» envía un mensaje real a tu usuario. Russell no envía avisos por correo de balances, menciones ni soporte.
             </p>
           </div>
         </div>
@@ -364,7 +364,7 @@ function TarjetaConexion({
         <p className="mt-2 text-[11px] font-semibold text-blue-600">Clave seleccionada para Russell</p>}
 
       {conexion.configuracion.usar_para_notificaciones === true && conexion.activa && conexion.entorno === "PRODUCCION" &&
-        <p className="mt-2 text-[11px] font-semibold text-blue-600">SMTP de notificaciones de Russell</p>}
+        <p className="mt-2 text-[11px] font-semibold text-blue-600">SMTP del reporte para gerencia</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">

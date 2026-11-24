@@ -5,6 +5,11 @@ La plataforma genera sola, en el día y la hora que se elijan, el reporte de
 Lo que viaja es **el mismo formato que «Copiar formato correo», dentro del cuerpo
 del mensaje**: no se adjunta PDF.
 
+El correo de la plataforma es solo para este reporte (manual y programado) y para la prueba
+de envío de la conexión en `/config/conexiones`. No hay avisos por correo de balances,
+menciones ni soporte: esas novedades viven en la campana. La prueba
+`src/lib/correo/solo-reporte-gerencia.test.ts` falla si otro archivo envía correo.
+
 Acceso: el mismo permiso del reporte (`auditoria:reporte_ejecutivo`, solo
 Superadministrador). No hay permiso nuevo, así que no hace falta `db:sync:rbac`.
 
@@ -76,8 +81,8 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
 - **Asunto:** el título del reporte (en la prueba, con «[Prueba] » delante).
 - **Cuerpo:** `htmlConEstilosEnLinea` + `prepararMarcaParaCorreo`, los mismos pasos del
   botón del navegador. En el servidor el HTML lo parsea `linkedom` (no hay `DOMParser`). El
-  logotipo azul (PNG de `public/marca`) viaja **incrustado por CID**, como en los avisos de
-  notificación: el correo no depende de ninguna dirección pública (producción puede no tener
+  logotipo azul (PNG de `public/marca`) viaja **incrustado por CID**, como en el correo de
+  prueba de envío de la conexión: el correo no depende de ninguna dirección pública (producción puede no tener
   dominio ni HTTPS). Si el archivo no se puede leer, el correo sale sin logotipo y la
   ejecución lo anota. Tampoco se envían las fuentes web Lato: en un correo la tipografía es
   Arial. Ninguna referencia a `/marca/` queda en el cuerpo. Más un texto plano alterno.
@@ -170,7 +175,7 @@ la página sigue funcionando y el panel avisa que falta aplicarla.
    # {"ok":true,"revisadas":0,"enviadas":0,"omitidas":0,"saltadas":0,"errores":0,"perdidasCerradas":0}
    ```
 
-   Luego, en la pantalla: confirmar que haya una conexión de correo marcada para notificaciones,
+   Luego, en la pantalla: confirmar que haya una conexión de correo marcada con «Enviar el reporte para gerencia con esta conexión»,
    agregar destinatarios, **enviar una prueba**, y recién entonces activar el envío.
 
 ## Operación y solución de problemas
@@ -180,7 +185,7 @@ la página sigue funcionando y el panel avisa que falta aplicarla.
 | Aviso «el envío debía salir… y todavía no salió» | El cron no está corriendo o recibe 401/503: mira `/home/dev/russell-notificaciones.log`. |
 | 503 en el log | Falta `CRON_SECRET` en el entorno del proceso (recargar con `--update-env`). |
 | 401 en el log | El secreto del crontab no coincide con el del proceso. |
-| Ejecución «Con error»: no hay conexión de correo | Marcar una conexión SMTP/Gmail de Producción como «Enviar notificaciones de Russell» en `/config/conexiones`. |
+| Ejecución «Con error»: no hay conexión de correo | Marcar una conexión SMTP/Gmail de Producción como «Enviar el reporte para gerencia con esta conexión» en `/config/conexiones`. |
 | Ejecución «Omitido» | El cron estuvo caído más de 24 h al llegar la hora; se saltó ese envío. Usa «Enviar ahora» si hace falta. |
 | «Parcial» | Algún destinatario fue rechazado por el SMTP; el resto lo recibió. El envío quedó registrado. |
 | «Con error» tras «el servidor se reinició» | PM2 reinició a mitad del envío. Comprueba si llegó antes de reenviar. |
