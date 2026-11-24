@@ -2525,6 +2525,22 @@ model PlatformVersion {
   @@map("versiones_plataforma")
 }
 
+/// Cada versión de package.json con la que arrancó por primera vez el servidor de
+/// producción (`src/instrumentation.ts`). Al arrancar con una versión nueva, las
+/// versiones de Novedades que entraron desde la anterior toman ese día como «Desplegada
+/// el». Los reinicios con la misma versión no agregan filas. `origen` = «servidor»
+/// (anotado al arrancar) o «historial» (cargado del reflog del servidor con
+/// `scripts/novedades-fechas-despliegue.ts`).
+model PlatformDeployment {
+  id        Int      @id @default(autoincrement()) @map("id")
+  version   String   @unique @map("version")
+  startedAt DateTime @map("arrancado_en") @db.Timestamptz(3)
+  origin    String   @default("servidor") @map("origen")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("despliegues_plataforma")
+}
+
 model VersionChange {
   id            Int             @id @default(autoincrement()) @map("id")
   versionId     Int             @map("version_id")

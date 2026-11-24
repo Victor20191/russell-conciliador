@@ -38,6 +38,10 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: process.env.PORT || "3001",
+        // Marca el proceso de producción: al arrancar con una versión nueva de
+        // package.json, la app anota el despliegue y la fecha «Desplegada el» de las
+        // versiones de Novedades (src/instrumentation.ts). La app local no la tiene.
+        RUSSELL_INSTALACION: "produccion",
       },
     },
   ],

@@ -117,8 +117,9 @@ export default async function ReportesEjecutivosPage({
       _count: { path: true },
       orderBy: { path: "asc" },
     }),
+    // Publicadas y borradores ya desplegados: el reporte cuenta lo que llegó a producción.
     prisma.platformVersion.findMany({
-      where: { status: "publicada" },
+      where: { OR: [{ status: "publicada" }, { deployedAt: { not: null } }] },
       orderBy: [{ order: "desc" }, { id: "desc" }],
       include: {
         changes: {

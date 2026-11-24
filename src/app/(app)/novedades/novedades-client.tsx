@@ -34,6 +34,8 @@ export type VersionRow = {
   /** Día de despliegue (AAAA-MM-DD); null si aún no tiene. */
   deployedOn: string | null;
   createdAt: string; // ISO — cuándo se registró la versión
+  /** ISO — última vez que se tocó la versión o cualquiera de sus cambios. */
+  updatedAt: string;
   order: number;
   changes: ChangeRow[];
 };

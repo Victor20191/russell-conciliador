@@ -337,10 +337,10 @@ export async function generarReporteEjecutivoNucleo(params: {
 
   try {
     signal?.throwIfAborted();
-    // Avances del reporte: las versiones publicadas DESPLEGADAS en el período
-    // (ver `novedades-periodo.ts`); dos períodos distintos no repiten avances.
-    // Entran en la clave: si después se publica una versión desplegada en este
-    // período, el reporte guardado deja de ser el del alcance y se recalcula.
+    // Avances del reporte: las versiones DESPLEGADAS en el período, publicadas o en
+    // borrador (ver `novedades-periodo.ts`); dos períodos distintos no repiten
+    // avances. Entran en la clave: si después se fecha otra versión desplegada en
+    // este período, el reporte guardado deja de ser el del alcance y se recalcula.
     const filtroVersiones = filtroVersionesDelPeriodo(rango.desde, rango.hasta);
     const versionesDelPeriodo = await prisma.platformVersion.findMany({
       where: filtroVersiones,
@@ -395,8 +395,9 @@ export async function generarReporteEjecutivoNucleo(params: {
         _count: { path: true },
         orderBy: { path: "asc" },
       }),
+      // Las del período, publicadas o en borrador (ver `novedades-periodo.ts`).
       tx.platformVersion.findMany({
-        where: { id: { in: versionIds }, status: "publicada" },
+        where: { id: { in: versionIds } },
         orderBy: [{ order: "desc" }, { id: "desc" }],
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),

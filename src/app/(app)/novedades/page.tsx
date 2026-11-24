@@ -28,6 +28,11 @@ export default async function NovedadesPage() {
     releasedAt: v.releasedAt ? v.releasedAt.toISOString() : null,
     deployedOn: fechaDespliegueTexto(v.deployedAt),
     createdAt: v.createdAt.toISOString(),
+    // «Actualizada el»: lo último que se tocó, la versión o cualquiera de sus cambios
+    // (los cargados por script no tocan la versión, pero sí traen su propia fecha).
+    updatedAt: new Date(
+      Math.max(v.updatedAt.getTime(), ...v.changes.map((c) => c.updatedAt.getTime())),
+    ).toISOString(),
     order: v.order,
     changes: v.changes.map((c) => ({
       id: c.id,

@@ -894,8 +894,11 @@ export async function deleteChange(
     await prisma.versionChange.delete({ where: { id: parsed.data.id } });
 
     const user = await getCurrentUser();
-    const version = await prisma.platformVersion.findUnique({
+    // Quitar un cambio también actualiza la versión: «Actualizada el» lo refleja
+    // (agregar o editar uno ya se ve en la fecha del propio cambio).
+    const version = await prisma.platformVersion.update({
       where: { id: before.versionId },
+      data: { updatedAt: new Date() },
       select: { number: true },
     });
     await logAudit({

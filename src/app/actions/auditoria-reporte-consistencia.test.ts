@@ -74,7 +74,7 @@ describe("consistencia de generación del reporte", () => {
     }));
   });
 
-  test("las novedades son las versiones publicadas desplegadas en el período, no una selección", async () => {
+  test("las novedades son las versiones desplegadas en el período (también borradores), no una selección", async () => {
     mocks.leer.mockResolvedValue(null);
     mocks.versiones.mockResolvedValue([]);
     const result = await generarReporteEjecutivoUso(scope);
@@ -83,10 +83,10 @@ describe("consistencia de generación del reporte", () => {
     const hasta = new Date("2026-09-07T23:59:59.999Z");
     expect(mocks.versiones).toHaveBeenCalledWith(expect.objectContaining({
       where: {
-        status: "publicada",
         OR: [
           { deployedAt: { gte: desde, lte: hasta } },
-          { deployedAt: null, releasedAt: { gte: desde, lte: hasta } },
+          // Sin fecha de despliegue solo cuenta la publicada, por su día de publicación.
+          { deployedAt: null, status: "publicada", releasedAt: { gte: desde, lte: hasta } },
         ],
       },
     }));
@@ -198,6 +198,14 @@ describe("consistencia de generación del reporte", () => {
       expect(guardado.totalNovedades).toBe(1);
       expect(guardado.fuente.adopcion.items.map((i: { titulo: string }) => i.titulo)).toEqual(["Panel que sí se muestra"]);
       expect(mocks.audit.mock.calls[0][0].detail).toContain("2 novedades omitidas a pedido");
+    });
+
+    test("un borrador desplegado en el período entra al documento", async () => {
+      mocks.versiones.mockResolvedValue([{ ...version, status: "borrador", releasedAt: null }]);
+      await generarReporteEjecutivoUso({ ...scope, actualizar: true });
+      const guardado = mocks.guardar.mock.calls[0][0];
+      expect(guardado.report.html).toContain("Panel que sí se muestra");
+      expect(guardado.versionIdsIncluidos).toEqual([5]);
     });
 
     test("sin omisiones entran todos los cambios y la clave no cambia", async () => {

@@ -32,6 +32,10 @@ describe("fecha de despliegue", () => {
   it("sin fecha de despliegue vale la de publicación", () => {
     expect(fechaQueCuenta({ deployedAt: null, releasedAt: "2026-10-03T15:00:00.000Z" })?.toISOString()).toBe("2026-10-03T15:00:00.000Z");
     expect(fechaQueCuenta({ deployedAt: null, releasedAt: null })).toBeNull();
+    // Un borrador cuenta solo por su fecha de despliegue, nunca por una publicación vieja.
+    expect(fechaQueCuenta({ status: "borrador", deployedAt: null, releasedAt: "2026-10-03T15:00:00.000Z" })).toBeNull();
+    expect(fechaQueCuenta({ status: "borrador", deployedAt: instanteDespliegue("2026-11-12") })?.toISOString())
+      .toBe("2026-11-12T12:00:00.000Z");
   });
 });
 

@@ -70,6 +70,13 @@ export function VersionCard({
                 Desplegada el {fmtCalendarDate(version.deployedOn)}
               </span>
             )}
+            <span
+              className="inline-flex items-center gap-1 text-[11.5px] text-ink-500"
+              title="Última vez que se editó la versión o alguno de sus cambios"
+            >
+              <Icon name="edit" size={12} className="text-ink-400" />
+              Actualizada el {fmtDateTime(version.updatedAt)}
+            </span>
           </div>
           <h2 className="mt-1 text-lg text-navy-800">{version.title}</h2>
           {version.summary && (

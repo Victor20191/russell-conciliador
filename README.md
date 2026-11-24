@@ -83,6 +83,19 @@ debe recrear el proceso (un `reload` no cambia el script ni los argumentos de No
 pm2 delete russell-lfm && pm2 start ecosystem.config.js && pm2 save
 ```
 
+Fecha de despliegue de Novedades: al arrancar, el proceso de PM2 (marcado con
+`RUSSELL_INSTALACION=produccion` en `ecosystem.config.js`) anota la versión de
+`package.json` en `despliegues_plataforma`. Si es una versión nueva, las versiones
+de Novedades que entraron desde la anterior toman ese día como «Desplegada el»,
+y el reporte para gerencia las cuenta en ese período, publicadas o en borrador.
+Los reinicios no cambian fechas, y el primer arranque solo anota su versión. El
+log de PM2 muestra `[despliegue] …`. La app local no anota nada, aunque use la
+misma base. Las fechas anteriores se cargan del historial del servidor (salida
+del comando en la cabecera de `scripts/novedades-fechas-despliegue.ts`, corrido
+en la carpeta de la app del servidor) con
+`npm run db:novedades:fechas-despliegue -- historial.txt`, que simula por
+defecto y escribe con `--aplicar`.
+
 `npm ci` no es opcional: sin él, `git pull` y el build siguen usando las
 dependencias anteriores. El log de PM2 muestra la versión de Next que arrancó
 (`▲ Next.js x.y.z`); debe ser la del lock.

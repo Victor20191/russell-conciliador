@@ -83,7 +83,7 @@ export function VersionForm({
 
           <Campo
             label="Desplegada el"
-            hint="Día en que quedó en producción. El reporte para gerencia la cuenta en ese período. Si se publica sin fecha, toma la de publicación."
+            hint="Día en que llegó al servidor de producción: lo anota solo el servidor al arrancar con esta versión, y aquí se corrige. El reporte para gerencia la cuenta en ese período, aunque siga en borrador. Si se publica sin fecha, toma la de publicación."
           >
             <input
               name="deployedOn"

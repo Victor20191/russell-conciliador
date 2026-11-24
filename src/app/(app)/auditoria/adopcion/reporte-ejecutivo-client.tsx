@@ -591,15 +591,15 @@ export function ReporteEjecutivoClient({
         <div className="border-b border-ink-100 px-4 py-3 lg:px-5">
           <h2 className="text-[13px] font-semibold text-navy-800">Novedades del período</h2>
           <p className="text-[11.5px] text-ink-500">
-            Versiones publicadas en Novedades con fecha de despliegue entre el {fmtCalendarDate(desde)} y
-            el {fmtCalendarDate(hasta)}: son los avances que lleva el reporte para gerencia.
+            Versiones de Novedades, publicadas o en borrador, que llegaron al servidor de producción
+            entre el {fmtCalendarDate(desde)} y el {fmtCalendarDate(hasta)}: son los avances que lleva el
+            reporte para gerencia.
           </p>
         </div>
         {versionesDelPeriodo.length === 0 ? (
           <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
             No se desplegaron versiones en este período: el reporte saldrá sin avances. Si algo se
-            desplegó y no aparece, revisa en Novedades que la versión esté publicada y tenga su fecha
-            «Desplegada el».
+            desplegó y no aparece, revisa en Novedades que la versión tenga su fecha «Desplegada el».
           </p>
         ) : (
           <>
