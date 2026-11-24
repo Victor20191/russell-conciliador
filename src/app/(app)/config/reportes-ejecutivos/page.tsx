@@ -361,6 +361,9 @@ export default async function ReportesEjecutivosPage({
           <SelectorPeriodoTablero key={`${tableroDesde}|${tableroHasta}`} periodo={periodoIndicadores} />
         }
       />
+      <div className="mb-4">
+        <EnvioAutomatico resultado={panelEnvio} />
+      </div>
       <ReporteEjecutivoClient
         versions={versions}
         kpis={kpis}
@@ -369,9 +372,6 @@ export default async function ReportesEjecutivosPage({
         envios={envios}
         generados={generados}
       />
-      <div className="mt-4">
-        <EnvioAutomatico resultado={panelEnvio} />
-      </div>
     </div>
   );
 }

@@ -54,6 +54,22 @@ export type PeriodoProximoPanel =
   /** El último reporte ya llega hasta ese día: el próximo envío se omitirá. */
   | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
 
+/**
+ * Rango sugerido por defecto cuando la persona abre «Enviar ahora a la lista» (desde el día
+ * siguiente al último reporte enviado hasta hoy en hora de Colombia). El usuario puede ajustarlo.
+ */
+export type PeriodoManualSugerido = {
+  desde: string;
+  hasta: string;
+  hoy: string;
+  origen: "continua" | "primer_envio";
+  ultimoDesde: string | null;
+  ultimoHasta: string | null;
+  recortado: boolean;
+  desdeSinRecorte: string;
+  yaCubiertoHoy: boolean;
+};
+
 export type PanelEnvioAutomatico = {
   /** `false` mientras nadie ha guardado nada: se muestran los valores por defecto. */
   existe: boolean;
@@ -64,6 +80,8 @@ export type PanelEnvioAutomatico = {
   proximaEjecucionEn: string | null;
   /** Lo que cubrirá ese próximo envío; null si está en pausa. */
   periodoProximo: PeriodoProximoPanel | null;
+  /** Período sugerido por defecto para el envío manual desde la pantalla (siempre disponible). */
+  periodoManualSugerido: PeriodoManualSugerido;
   destinatarios: DestinatarioPanel[];
   ejecuciones: EjecucionPanel[];
   conexion: ConexionCorreoPanel;

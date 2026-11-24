@@ -45,19 +45,22 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
 
 ### Qué se envía
 
-- **Período: desde donde terminó el último reporte enviado hasta el día anterior al envío.**
+- **Período: primer envío de 7 días; los siguientes continúan desde el último envío (máximo 30 días).**
+  - **Primer envío por correo:** mientras no exista una ejecución exitosa previa en
+    `notificacion_ejecucion` (`programada` o `manual`), siempre cubre los **7 días** que
+    terminan el día anterior (no arrastra registros históricos antiguos de `envios_reporte_ejecutivo`).
   - **Hasta:** el día *anterior* al envío, en hora de Colombia (enviado un lunes, termina el
     domingo). Así el día del envío nunca se cuenta dos veces: lo reporta el envío siguiente.
-  - **Desde:** el día *siguiente* al mayor `periodo_hasta` de `envios_reporte_ejecutivo`,
-    contando todos los envíos, manuales y automáticos (también los registrados a mano con
-    «Marcar como enviado»). Así los reportes se encadenan sin huecos ni traslapes, y si una
-    semana no salió, la siguiente cubre más días.
-  - **Sin envíos previos:** los 7 días que terminan el día anterior.
-  - **Tope:** `parseRangoReporte` admite hasta 366 días. Si el último reporte quedó más atrás,
-    el «desde» se recorta a 366 días y el mensaje de la ejecución lo anota.
+  - **Desde (siguientes envíos):** el día *siguiente* al mayor `periodo_hasta` entre los envíos
+    exitosos por correo y los registros posteriores de `envios_reporte_ejecutivo`. Así los
+    reportes se encadenan sin huecos ni traslapes.
+  - **Tope:** el envío automático y el rango sugerido en el envío manual se recortan a **30 días**
+    (`TOPE_DIAS_ENVIO_AUTOMATICO`) y el mensaje de la ejecución lo anota. En el envío manual desde
+    la pantalla la persona puede ajustar libremente `Desde` y `Hasta` (hasta 366 días), generar
+    la vista previa y luego confirmar el envío.
   - **Ya cubierto:** si el último reporte ya llega hasta ese día o más allá, no hay período
     nuevo. El disparo programado queda *omitido* («Ya se reportó hasta el …») y la próxima
-    fecha avanza igual; «Enviar ahora» responde con el mismo mensaje y no envía nada.
+    fecha avanza igual.
   - **Prueba:** usa el período que cubriría el *próximo* envío programado; si está en pausa o
     ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
   - **Convención de fechas:** los `periodo_desde`/`periodo_hasta` guardados son instantes que

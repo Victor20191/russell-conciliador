@@ -17,18 +17,26 @@ import { generarReporteEjecutivoNucleo } from "@/lib/auditoria/reporte-ejecutivo
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { fmtCalendarDate } from "@/lib/format";
 import { correosDeEnvio, TOPE_DESTINATARIOS } from "./destinatarios";
-import { PROGRAMACION_POR_DEFECTO, type PanelEnvioAutomatico, type PeriodoProximoPanel } from "./panel";
+import {
+  PROGRAMACION_POR_DEFECTO,
+  type PanelEnvioAutomatico,
+  type PeriodoManualSugerido,
+  type PeriodoProximoPanel,
+} from "./panel";
 import {
   calcularPeriodoEnvio,
+  calcularPeriodoEnvioManual,
   decidirVencimiento,
   envioAtrasado,
   estadoDeEnvio,
   FRECUENCIA_SEMANAL,
+  fechaColombia,
   fechaDePeriodoGuardado,
   limiteEnCurso,
   periodoEnvioSemanal,
   proximaEjecucion,
   TIPO_REPORTE_EJECUTIVO,
+  TOPE_DIAS_ENVIO_AUTOMATICO,
   type EstadoEjecucion,
   type OrigenEjecucion,
   type PeriodoEnvio,
@@ -60,16 +68,36 @@ class ErrorEnvioReporte extends Error {}
 type UltimoPeriodo = { desde: Date; hasta: Date };
 
 /**
- * El período del último reporte enviado, manual o automático: el de mayor `periodoHasta` en
- * «Reportes enviados». Los períodos se guardan con `parseRangoReporte`, que es lo que
- * `fechaDePeriodoGuardado` invierte.
+ * El período del último reporte enviado por correo (programado o manual a la lista).
+ *
+ * - Mientras nunca haya salido un correo exitoso desde «Envío automático» (`notificacion_ejecucion`),
+ *   devuelve `null`: el primer envío cubre solo los últimos 7 días y NO arrastra registros antiguos
+ *   de «Reportes enviados».
+ * - Cuando ya hubo al menos un envío por correo, toma el mayor `periodoHasta` entre los envíos por
+ *   correo y los registros posteriores de «Reportes enviados», para no repetir días ya comunicados.
  */
 async function ultimoPeriodoEnviado(): Promise<UltimoPeriodo | null> {
-  const fila = await prisma.envioReporteEjecutivo.findFirst({
+  const ultimoCorreo = await prisma.notificacionEjecucion.findFirst({
+    where: {
+      programacion: { tipo: TIPO_REPORTE_EJECUTIVO },
+      origen: { in: ["programada", "manual"] },
+      estado: { in: ["ok", "parcial"] },
+      periodoDesde: { not: null },
+      periodoHasta: { not: null },
+    },
     orderBy: [{ periodoHasta: "desc" }, { id: "desc" }],
     select: { periodoDesde: true, periodoHasta: true },
   });
-  return fila ? { desde: fila.periodoDesde, hasta: fila.periodoHasta } : null;
+  if (!ultimoCorreo?.periodoDesde || !ultimoCorreo.periodoHasta) return null;
+
+  const ultimoRegistro = await prisma.envioReporteEjecutivo.findFirst({
+    orderBy: [{ periodoHasta: "desc" }, { id: "desc" }],
+    select: { periodoDesde: true, periodoHasta: true },
+  });
+  if (ultimoRegistro && ultimoRegistro.periodoHasta.getTime() > ultimoCorreo.periodoHasta.getTime()) {
+    return { desde: ultimoRegistro.periodoDesde, hasta: ultimoRegistro.periodoHasta };
+  }
+  return { desde: ultimoCorreo.periodoDesde, hasta: ultimoCorreo.periodoHasta };
 }
 
 type PeriodoCubierto = Extract<PeriodoEnvio, { estado: "cubierto" }>;
@@ -78,10 +106,10 @@ function textoYaCubierto(p: PeriodoCubierto): string {
   return `Ya se reportó hasta el ${fmtCalendarDate(p.cubiertoHasta)}: todavía no hay días nuevos que enviar.`;
 }
 
-/** Aviso del historial cuando el período se recortó al tope de 366 días; null si no hubo recorte. */
+/** Aviso del historial cuando el período se recortó al tope de 30 días; null si no hubo recorte. */
 function notaDeRecorte(p: PeriodoEnvio): string | null {
   if (p.estado !== "nuevo" || !p.recortado || !p.ultimoHasta) return null;
-  return `El período se recortó a 366 días: el último reporte enviado terminó el ${fmtCalendarDate(p.ultimoHasta)} y arrancaba el ${fmtCalendarDate(p.desdeSinRecorte)}, pero el tope es 366 días.`;
+  return `El período se recortó a ${TOPE_DIAS_ENVIO_AUTOMATICO} días: el último reporte enviado terminó el ${fmtCalendarDate(p.ultimoHasta)} y arrancaba el ${fmtCalendarDate(p.desdeSinRecorte)}, pero el tope es ${TOPE_DIAS_ENVIO_AUTOMATICO} días.`;
 }
 
 /** El período de un envío con su procedencia, tal como lo muestra el panel. */
@@ -113,7 +141,7 @@ function mensajeSeguro(e: unknown): string {
 
 type EntradaEnvio = {
   origen: OrigenEjecucion;
-  /** Lo que cubre el reporte (AAAA-MM-DD): lo decide quien llama con `calcularPeriodoEnvio`. */
+  /** Lo que cubre el reporte (AAAA-MM-DD): lo decide quien llama con `calcularPeriodoEnvio` o el rango elegido en envío manual. */
   periodo: { desde: string; hasta: string };
   /** Aviso sobre el período (p. ej. que se recortó al tope de 366 días), para el mensaje del historial. */
   notaPeriodo?: string | null;
@@ -122,6 +150,11 @@ type EntradaEnvio = {
   actor: ActorEnvio;
   /** Deja constancia en «Reportes enviados» (el reporte llegó al cliente); la prueba no. */
   registrarEnvio: boolean;
+  /**
+   * Reutiliza una instantánea solo si el período ya terminó al generarla. En envío manual con rango
+   * elegido tras vista previa (`false`) se reutiliza exactamente la instantánea recién generada.
+   */
+  soloReutilizarSiCompleta?: boolean;
 };
 
 type SalidaEnvio = {
@@ -169,7 +202,7 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
       opciones: { desde: periodo.desde, hasta: periodo.hasta, actualizar: false, cambiosOmitidos: [] },
       obtenerActor: async () => entrada.actor,
       // Una instantánea hecha antes de que el período terminara (p. ej. por una prueba) está incompleta.
-      soloReutilizarSiCompleta: true,
+      soloReutilizarSiCompleta: entrada.soloReutilizarSiCompleta ?? true,
     });
     if (!generado.ok) return fallo(generado.message, rango);
 
@@ -432,6 +465,11 @@ export async function enviarReporteAhora(params: {
   actor: ActorEnvio;
   /** Solo para la prueba: el correo de quien la pide. */
   correoPrueba?: string | null;
+  /**
+   * Solo para `manual`: rango explícito elegido por la persona al generar y revisar el reporte
+   * antes de enviarlo (AAAA-MM-DD). Si se omite, continúa automáticamente desde el último envío hasta ayer.
+   */
+  periodoManual?: { desde: string; hasta: string };
   ahora?: Date;
 }): Promise<ResultadoEnvioManual> {
   const { origen, actor } = params;
@@ -469,24 +507,39 @@ export async function enviarReporteAhora(params: {
     }
   }
 
-  // El período: el envío a la lista continúa donde terminó el último reporte; la prueba muestra el que
-  // cubriría el PRÓXIMO envío programado (o, si no lo hay o ya estaría cubierto, los últimos 7 días).
-  const ultimo = await ultimoPeriodoEnviado();
+  // El período: si en envío manual llegó un rango elegido por la persona tras generar el reporte,
+  // se valida y se envía ese; si no, continúa donde terminó el último reporte. La prueba muestra el
+  // que cubriría el PRÓXIMO envío programado (o, si no lo hay o ya estaría cubierto, los últimos 7 días).
   let periodo: { desde: string; hasta: string };
   let notaPeriodo: string | null = null;
-  if (origen === "manual") {
-    const calculado = calcularPeriodoEnvio({ referencia: ahora, ultimoPeriodoHasta: ultimo?.hasta ?? null });
-    if (calculado.estado === "cubierto") return { ok: false, message: textoYaCubierto(calculado), estado: null };
-    periodo = calculado;
-    notaPeriodo = notaDeRecorte(calculado);
+  let soloReutilizarSiCompleta = true;
+  if (origen === "manual" && params.periodoManual) {
+    const { desde, hasta } = params.periodoManual;
+    if (!parseRangoReporte(desde, hasta)) {
+      return { ok: false, message: "El rango de fechas no es válido o supera 366 días. Ajusta el período e inténtalo de nuevo.", estado: null };
+    }
+    if (hasta > fechaColombia(ahora)) {
+      return { ok: false, message: "La fecha final no puede ser posterior a hoy.", estado: null };
+    }
+    periodo = { desde, hasta };
+    // Reutiliza la instantánea recién generada en la vista previa (aunque `hasta` sea hoy).
+    soloReutilizarSiCompleta = false;
   } else {
-    const proxima = programacion.activa ? programacion.proximaEjecucionEn : null;
-    const delProximo = proxima ? calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta: ultimo?.hasta ?? null }) : null;
-    if (delProximo?.estado === "nuevo") {
-      periodo = delProximo;
-      notaPeriodo = notaDeRecorte(delProximo);
+    const ultimo = await ultimoPeriodoEnviado();
+    if (origen === "manual") {
+      const calculado = calcularPeriodoEnvio({ referencia: ahora, ultimoPeriodoHasta: ultimo?.hasta ?? null });
+      if (calculado.estado === "cubierto") return { ok: false, message: textoYaCubierto(calculado), estado: null };
+      periodo = calculado;
+      notaPeriodo = notaDeRecorte(calculado);
     } else {
-      periodo = periodoEnvioSemanal(ahora);
+      const proxima = programacion.activa ? programacion.proximaEjecucionEn : null;
+      const delProximo = proxima ? calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta: ultimo?.hasta ?? null }) : null;
+      if (delProximo?.estado === "nuevo") {
+        periodo = delProximo;
+        notaPeriodo = notaDeRecorte(delProximo);
+      } else {
+        periodo = periodoEnvioSemanal(ahora);
+      }
     }
   }
 
@@ -509,7 +562,15 @@ export async function enviarReporteAhora(params: {
     throw e;
   }
 
-  const salida = await enviarReporte({ origen, periodo, notaPeriodo, destinatarios, actor, registrarEnvio: origen === "manual" });
+  const salida = await enviarReporte({
+    origen,
+    periodo,
+    notaPeriodo,
+    destinatarios,
+    actor,
+    registrarEnvio: origen === "manual",
+    soloReutilizarSiCompleta,
+  });
   await cerrarEjecucion(ejecucionId, salida, ahora, new Date());
   return { ok: salida.estado !== "error", message: salida.mensaje, estado: salida.estado };
 }
@@ -544,16 +605,31 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
   const activa = programacion?.activa ?? PROGRAMACION_POR_DEFECTO.activa;
   const proximaEjecucionEn = programacion?.proximaEjecucionEn ?? null;
 
-  // Qué cubrirá el próximo envío y de dónde sale ese período (null si está en pausa o no se pudo calcular).
-  let periodoProximo: PeriodoProximoPanel | null = null;
-  if (activa && proximaEjecucionEn) {
-    try {
-      const ultimo = await ultimoPeriodoEnviado();
-      periodoProximo = periodoParaPanel(calcularPeriodoEnvio({ referencia: proximaEjecucionEn, ultimoPeriodoHasta: ultimo?.hasta ?? null }), ultimo);
-    } catch (e) {
-      registrarError("notificaciones.leerPanelEnvio.periodo", e);
-    }
+  // Último reporte enviado: sirve tanto para el próximo envío programado como para el rango por defecto del envío manual.
+  let ultimo: UltimoPeriodo | null = null;
+  let ultimoLeido = false;
+  try {
+    ultimo = await ultimoPeriodoEnviado();
+    ultimoLeido = true;
+  } catch (e) {
+    registrarError("notificaciones.leerPanelEnvio.periodo", e);
   }
+
+  // Qué cubrirá el próximo envío y de dónde sale ese período (null si está en pausa o no se pudo leer el último reporte).
+  let periodoProximo: PeriodoProximoPanel | null = null;
+  if (activa && proximaEjecucionEn && ultimoLeido) {
+    periodoProximo = periodoParaPanel(
+      calcularPeriodoEnvio({ referencia: proximaEjecucionEn, ultimoPeriodoHasta: ultimo?.hasta ?? null }),
+      ultimo,
+    );
+  }
+
+  const manualCalculado = calcularPeriodoEnvioManual({ ahora, ultimoPeriodoHasta: ultimo?.hasta ?? null });
+  const periodoManualSugerido: PeriodoManualSugerido = {
+    ...manualCalculado,
+    ultimoDesde: ultimo ? fechaDePeriodoGuardado(ultimo.desde) : null,
+  };
+
   return {
     existe: Boolean(programacion),
     activa,
@@ -561,6 +637,7 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
     hora: programacion?.hora ?? PROGRAMACION_POR_DEFECTO.hora,
     proximaEjecucionEn: proximaEjecucionEn?.toISOString() ?? null,
     periodoProximo,
+    periodoManualSugerido,
     destinatarios: (programacion?.destinatarios ?? []).map((d) => ({ id: d.id, correo: d.correo, nombre: d.nombre, activo: d.activo })),
     ejecuciones: (programacion?.ejecuciones ?? []).map((e) => ({
       id: e.id,

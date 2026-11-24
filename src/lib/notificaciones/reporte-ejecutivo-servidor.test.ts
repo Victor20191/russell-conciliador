@@ -376,19 +376,35 @@ describe("panel", () => {
   });
 });
 
-/** El último reporte enviado, tal como lo guarda el envío: período con los límites de parseRangoReporte. */
+/** El último reporte enviado por correo, tal como lo guarda el envío: período con los límites de parseRangoReporte. */
 const ultimoEnviado = (desde: string, hasta: string) => {
   const r = parseRangoReporte(desde, hasta)!;
+  mocks.ejecFindFirst.mockImplementation(async (args?: { where?: { estado?: unknown } }) => {
+    if (args?.where?.estado === "en_curso") return null;
+    return { periodoDesde: r.desde, periodoHasta: r.hasta };
+  });
   mocks.envioFindFirst.mockResolvedValue({ periodoDesde: r.desde, periodoHasta: r.hasta });
 };
 
 describe("período: desde donde terminó el último reporte enviado", () => {
+  it("en el primer envío por correo ignora registros antiguos de «Reportes enviados» y cubre solo los últimos 7 días", async () => {
+    // Registro histórico viejo en «Reportes enviados», pero ninguna ejecución exitosa en «Envío automático».
+    const viejo = parseRangoReporte("2026-08-25", "2026-08-28")!;
+    mocks.envioFindFirst.mockResolvedValue({ periodoDesde: viejo.desde, periodoHasta: viejo.hasta });
+    mocks.ejecFindFirst.mockResolvedValue(null);
+
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ enviadas: 1, errores: 0 });
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-16", hasta: "2026-11-22" });
+  });
+
   it("el disparo programado continúa el día siguiente al último reporte y llega hasta el día anterior al envío", async () => {
     ultimoEnviado("2026-11-09", "2026-11-15");
     const r = await procesarNotificacionesPendientes(AHORA);
     expect(r).toMatchObject({ enviadas: 1, errores: 0 });
     expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-16", hasta: "2026-11-22" });
-    // Se consulta el mayor periodoHasta de TODOS los envíos (manuales y automáticos).
+    // Consulta los envíos exitosos por correo y también registros posteriores en «Reportes enviados».
+    expect(mocks.ejecFindFirst).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ periodoHasta: "desc" }, { id: "desc" }] }));
     expect(mocks.envioFindFirst).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ periodoHasta: "desc" }, { id: "desc" }] }));
     expect(mocks.ejecUpdate.mock.calls[0][0].data).toMatchObject({
       estado: "ok", periodoDesde: new Date("2026-11-16T00:00:00.000Z"), periodoHasta: new Date("2026-11-22T23:59:59.999Z"),
@@ -412,6 +428,7 @@ describe("período: desde donde terminó el último reporte enviado", () => {
     mocks.ejecUpdate.mockResolvedValue({});
     mocks.envioCreate.mockResolvedValue({});
     // El «hasta» guardado por el primer envío es lo que lee el segundo.
+    mocks.ejecFindFirst.mockResolvedValue({ periodoDesde: guardado.periodoDesde, periodoHasta: guardado.periodoHasta });
     mocks.envioFindFirst.mockResolvedValue({ periodoDesde: guardado.periodoDesde, periodoHasta: guardado.periodoHasta });
     await procesarNotificacionesPendientes(new Date("2026-11-30T12:05:00.000Z"));
     expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-23", hasta: "2026-11-29" });
@@ -438,18 +455,19 @@ describe("período: desde donde terminó el último reporte enviado", () => {
     expect(mocks.ejecCreate.mock.calls[0][0].data.mensaje).toContain("Ya se reportó hasta el 23/Nov/2026");
   });
 
-  it("recorta a 366 días y lo anota en el mensaje del historial", async () => {
+  it("recorta a 30 días y lo anota en el mensaje del historial", async () => {
     ultimoEnviado("2024-01-01", "2024-01-31");
     await procesarNotificacionesPendientes(AHORA);
-    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2025-11-22", hasta: "2026-11-22" });
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-10-24", hasta: "2026-11-22" });
     const { estado, mensaje } = mocks.ejecUpdate.mock.calls[0][0].data;
     expect(estado).toBe("ok");
-    expect(mensaje).toContain("El período se recortó a 366 días");
+    expect(mensaje).toContain("El período se recortó a 30 días");
     expect(mensaje).toContain("31/Ene/2024");
   });
 
   it("un disparo con retraso de más de 24 h se omite sin consultar siquiera el último reporte", async () => {
     await procesarNotificacionesPendientes(new Date("2026-11-24T12:00:01.000Z"));
+    expect(mocks.ejecFindFirst).not.toHaveBeenCalled();
     expect(mocks.envioFindFirst).not.toHaveBeenCalled();
     expect(mocks.ejecCreate.mock.calls[0][0].data.mensaje).toContain("más de 24 horas");
   });
@@ -473,6 +491,51 @@ describe("período: desde donde terminó el último reporte enviado", () => {
       expect(r.message).toContain("Ya se reportó hasta el 24/Nov/2026");
       expect(mocks.generar).not.toHaveBeenCalled();
       expect(mocks.enviarHtml).not.toHaveBeenCalled();
+      expect(mocks.ejecCreate).not.toHaveBeenCalled();
+    });
+
+    it("«Enviar ahora» con rango manual elegido envía ese período, reutiliza la instantánea recién generada y registra la constancia", async () => {
+      ultimoEnviado("2026-11-16", "2026-11-24");
+      const r = await enviarReporteAhora({
+        origen: "manual",
+        actor,
+        ahora: AHORA_MANUAL,
+        periodoManual: { desde: "2026-11-25", hasta: "2026-11-25" },
+      });
+      expect(r).toMatchObject({ ok: true, estado: "ok" });
+      expect(mocks.generar.mock.calls[0][0].opciones).toEqual({
+        desde: "2026-11-25",
+        hasta: "2026-11-25",
+        actualizar: false,
+        cambiosOmitidos: [],
+      });
+      expect(mocks.generar.mock.calls[0][0].soloReutilizarSiCompleta).toBe(false);
+      expect(mocks.envioCreate.mock.calls[0][0].data).toMatchObject({
+        periodoDesde: new Date("2026-11-25T00:00:00.000Z"),
+        periodoHasta: new Date("2026-11-25T23:59:59.999Z"),
+      });
+    });
+
+    it("«Enviar ahora» con rango manual inválido o futuro se rechaza antes de generar o crear ejecución", async () => {
+      const invertido = await enviarReporteAhora({
+        origen: "manual",
+        actor,
+        ahora: AHORA_MANUAL,
+        periodoManual: { desde: "2026-11-25", hasta: "2026-11-20" },
+      });
+      expect(invertido).toMatchObject({ ok: false, estado: null });
+      expect(invertido.message).toContain("rango de fechas no es válido");
+
+      const futuro = await enviarReporteAhora({
+        origen: "manual",
+        actor,
+        ahora: AHORA_MANUAL,
+        periodoManual: { desde: "2026-11-25", hasta: "2026-11-26" },
+      });
+      expect(futuro).toMatchObject({ ok: false, estado: null });
+      expect(futuro.message).toContain("posterior a hoy");
+
+      expect(mocks.generar).not.toHaveBeenCalled();
       expect(mocks.ejecCreate).not.toHaveBeenCalled();
     });
 
@@ -510,6 +573,10 @@ describe("período: desde donde terminó el último reporte enviado", () => {
         estado: "nuevo", desde: "2026-11-16", hasta: "2026-11-22", origen: "continua",
         ultimoDesde: "2026-11-09", ultimoHasta: "2026-11-15", recortado: false, desdeSinRecorte: "2026-11-16",
       });
+      expect(panel.periodoManualSugerido).toEqual({
+        desde: "2026-11-16", hasta: "2026-11-20", hoy: "2026-11-20", origen: "continua",
+        ultimoDesde: "2026-11-09", ultimoHasta: "2026-11-15", recortado: false, desdeSinRecorte: "2026-11-16", yaCubiertoHoy: false,
+      });
     });
 
     it("primer envío, ya cubierto y en pausa", async () => {
@@ -526,7 +593,7 @@ describe("período: desde donde terminó el último reporte enviado", () => {
 
     it("si no se puede leer el último reporte, el panel sigue y no muestra período", async () => {
       mocks.progFindUnique.mockResolvedValue({ ...programacion, destinatarios: [], ejecuciones: [] });
-      mocks.envioFindFirst.mockRejectedValue(new Error("BD"));
+      mocks.ejecFindFirst.mockRejectedValue(new Error("BD"));
       const panel = await leerPanelEnvio({ correoPrueba: null, ahora: AHORA });
       expect(panel.periodoProximo).toBeNull();
       expect(panel.activa).toBe(true);

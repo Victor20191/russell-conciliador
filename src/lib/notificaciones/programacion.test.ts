@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import {
   calcularPeriodoEnvio,
+  calcularPeriodoEnvioManual,
   calcularProximaAlGuardar,
   decidirVencimiento,
   describirFrecuencia,
@@ -294,21 +295,20 @@ describe("calcularPeriodoEnvio", () => {
     expect(calcularPeriodoEnvio({ referencia: new Date("2026-11-23T04:59:00.000Z"), ultimoPeriodoHasta: null })).toMatchObject({ hasta: "2026-11-21" });
   });
 
-  it("recorta a 366 días cuando el último reporte quedó muy atrás", () => {
-    // Último reporte hasta 2024-01-31; el período querría empezar el 2024-02-01 (más de 366 días).
+  it("recorta a 30 días cuando el último reporte quedó muy atrás", () => {
+    // Último reporte hasta 2024-01-31; el período querría empezar el 2024-02-01 (más de 30 días).
     const r = calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2024-01-31") });
     expect(r).toMatchObject({ estado: "nuevo", hasta: "2026-11-29", recortado: true, desdeSinRecorte: "2024-02-01", ultimoHasta: "2024-01-31" });
     if (r.estado !== "nuevo") throw new Error("se esperaba un período nuevo");
-    // 366 días exactos, que es lo que acepta parseRangoReporte.
-    expect(r.desde).toBe("2025-11-29");
+    // 30 días exactos (del 31-oct al 29-nov).
+    expect(r.desde).toBe("2026-10-31");
     expect(parseRangoReporte(r.desde, r.hasta)).not.toBeNull();
-    expect(parseRangoReporte("2025-11-28", r.hasta)).toBeNull();
   });
 
-  it("el tope: 366 días justos no se recortan y 367 sí", () => {
-    // hasta = 2026-11-29. Con desde = 2025-11-29 son 366 días: sin recorte. Con desde = 2025-11-28 son 367.
-    expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2025-11-28") })).toMatchObject({ desde: "2025-11-29", recortado: false });
-    expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2025-11-27") })).toMatchObject({ desde: "2025-11-29", recortado: true, desdeSinRecorte: "2025-11-28" });
+  it("el tope: 30 días justos no se recortan y 31 sí", () => {
+    // hasta = 2026-11-29. Con desde = 2026-10-31 son 30 días: sin recorte. Con desde = 2026-10-30 son 31.
+    expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2026-10-30") })).toMatchObject({ desde: "2026-10-31", recortado: false });
+    expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2026-10-29") })).toMatchObject({ desde: "2026-10-31", recortado: true, desdeSinRecorte: "2026-10-30" });
   });
 
   it("ya cubierto: si el último reporte llega al día que se iba a reportar o más allá, no hay período nuevo", () => {
@@ -324,5 +324,69 @@ describe("calcularPeriodoEnvio", () => {
     expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2026-11-28") })).toMatchObject({
       estado: "nuevo", desde: "2026-11-29", hasta: "2026-11-29",
     });
+  });
+});
+
+describe("calcularPeriodoEnvioManual", () => {
+  const martes24 = new Date("2026-11-24T15:30:00.000Z"); // 10:30 a. m. Colombia
+  const guardado = (hasta: string) => parseRangoReporte(hasta, hasta)!.hasta;
+
+  it("sin envíos previos sugiere los últimos 7 días incluyendo hoy (hora de Colombia)", () => {
+    expect(calcularPeriodoEnvioManual({ ahora: martes24, ultimoPeriodoHasta: null })).toEqual({
+      desde: "2026-11-18",
+      hasta: "2026-11-24",
+      hoy: "2026-11-24",
+      origen: "primer_envio",
+      ultimoHasta: null,
+      recortado: false,
+      desdeSinRecorte: "2026-11-18",
+      yaCubiertoHoy: false,
+    });
+  });
+
+  it("con un último reporte anterior a hoy arranca al día siguiente hasta hoy", () => {
+    expect(calcularPeriodoEnvioManual({ ahora: martes24, ultimoPeriodoHasta: guardado("2026-11-23") })).toEqual({
+      desde: "2026-11-24",
+      hasta: "2026-11-24",
+      hoy: "2026-11-24",
+      origen: "continua",
+      ultimoHasta: "2026-11-23",
+      recortado: false,
+      desdeSinRecorte: "2026-11-24",
+      yaCubiertoHoy: false,
+    });
+    expect(calcularPeriodoEnvioManual({ ahora: martes24, ultimoPeriodoHasta: guardado("2026-11-10") })).toMatchObject({
+      desde: "2026-11-11",
+      hasta: "2026-11-24",
+      origen: "continua",
+      ultimoHasta: "2026-11-10",
+      recortado: false,
+      yaCubiertoHoy: false,
+    });
+  });
+
+  it("si el último reporte ya cubrió hasta hoy, marca yaCubiertoHoy y deja hoy..hoy como punto de partida editable", () => {
+    expect(calcularPeriodoEnvioManual({ ahora: martes24, ultimoPeriodoHasta: guardado("2026-11-24") })).toEqual({
+      desde: "2026-11-24",
+      hasta: "2026-11-24",
+      hoy: "2026-11-24",
+      origen: "continua",
+      ultimoHasta: "2026-11-24",
+      recortado: false,
+      desdeSinRecorte: "2026-11-24",
+      yaCubiertoHoy: true,
+    });
+  });
+
+  it("recorta a 30 días cuando el último reporte quedó muy atrás", () => {
+    const r = calcularPeriodoEnvioManual({ ahora: martes24, ultimoPeriodoHasta: guardado("2026-08-28") });
+    expect(r).toMatchObject({
+      desde: "2026-10-26",
+      hasta: "2026-11-24",
+      recortado: true,
+      desdeSinRecorte: "2026-08-29",
+      yaCubiertoHoy: false,
+    });
+    expect(parseRangoReporte(r.desde, r.hasta)).not.toBeNull();
   });
 });

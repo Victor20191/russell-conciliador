@@ -6,7 +6,8 @@
 // Diseño y despliegue: docs/notificaciones/reporte-ejecutivo-programado.md.
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import type { GenerarReporteEjecutivoResult } from "@/app/actions/auditoria-reporte";
 import {
   agregarDestinatarioReporte,
   cambiarEstadoDestinatarioReporte,
@@ -20,14 +21,16 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
+import { MAX_DIAS_RANGO, parseRangoReporte, periodoAnteriorEnFechas } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
-import { destinatariosDeEnvio, etiquetaDestinatario } from "@/lib/notificaciones/destinatarios";
+import { destinatariosDeEnvio } from "@/lib/notificaciones/destinatarios";
 import type { DestinatarioPanel, EjecucionPanel, PanelEnvioAutomatico, PeriodoProximoPanel } from "@/lib/notificaciones/panel";
 import {
   DIAS_SEMANA,
   diaSemanaColombia,
   etiquetaDiaSemana,
+  TOPE_DIAS_ENVIO_AUTOMATICO,
   type EstadoEjecucion,
   type OrigenEjecucion,
 } from "@/lib/notificaciones/programacion";
@@ -76,7 +79,8 @@ export function EnvioAutomatico({ resultado }: { resultado: ResultadoPanelEnvio 
             <p className="max-w-3xl text-[11.5px] text-ink-500">
               La plataforma genera sola el reporte para gerencia cada semana y lo envía por correo a la lista de
               destinatarios, con el mismo formato de «Copiar formato correo» dentro del mensaje (sin PDF adjunto).
-              Cada reporte arranca donde terminó el último reporte enviado y llega hasta el día anterior al envío.
+              El primer envío cubre los últimos 7 días; los siguientes continúan desde el último envío hasta el día
+              anterior (máximo {fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días).
             </p>
           </div>
         </div>
@@ -269,7 +273,7 @@ function PeriodoDelProximoEnvio({ periodo }: { periodo: PeriodoProximoPanel }) {
           ? `Continúa desde el último reporte enviado (del ${periodo.ultimoDesde ? fmtCalendarDate(periodo.ultimoDesde) : "—"} al ${fmtCalendarDate(periodo.ultimoHasta)}).`
           : "Primer envío: últimos 7 días."}
         {periodo.recortado &&
-          ` Se recortó a 366 días (el tope): sin él habría arrancado el ${fmtCalendarDate(periodo.desdeSinRecorte)}.`}
+          ` Se recortó a ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días (el tope): sin él habría arrancado el ${fmtCalendarDate(periodo.desdeSinRecorte)}.`}
       </p>
     </div>
   );
@@ -463,23 +467,150 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
   );
 }
 
+type ReporteManualGenerado = Extract<GenerarReporteEjecutivoResult, { ok: true }> & {
+  desde: string;
+  hasta: string;
+};
+
+function validarRangoManual(desde: string, hasta: string, hoy: string): string | null {
+  if (!desde || !hasta) return "Selecciona la fecha inicial y la fecha final.";
+  if (desde > hasta) return "La fecha inicial no puede ser posterior a la fecha final.";
+  if (hasta > hoy) return "La fecha final no puede ser posterior a hoy.";
+  if (!parseRangoReporte(desde, hasta)) {
+    return `El rango no puede superar ${fmtNum(MAX_DIAS_RANGO)} días. Acorta las fechas.`;
+  }
+  return null;
+}
+
+function EtiquetasDestinatarios({ destinatarios }: { destinatarios: DestinatarioPanel[] }) {
+  return (
+    <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Correos que recibirán el reporte">
+      {destinatarios.map((d) => (
+        <li
+          key={d.id}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-0.5 text-[11.5px] text-ink-700"
+        >
+          {d.nombre ? <span className="truncate font-medium text-ink-800">{d.nombre}</span> : null}
+          {d.nombre ? <span className="text-ink-400">·</span> : null}
+          <span className="truncate">{d.correo}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; destinatariosActivos: DestinatarioPanel[] }) {
   const [pendiente, setPendiente] = useState<"prueba" | "lista" | null>(null);
-  const [confirmar, setConfirmar] = useState(false);
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [desde, setDesde] = useState(panel.periodoManualSugerido.desde);
+  const [hasta, setHasta] = useState(panel.periodoManualSugerido.hasta);
+  const [actualizarDatos, setActualizarDatos] = useState(false);
+  const [generando, setGenerando] = useState(false);
+  const [generado, setGenerado] = useState<ReporteManualGenerado | null>(null);
+  const [errorModal, setErrorModal] = useState<string | null>(null);
+  const solicitudRef = useRef<AbortController | null>(null);
+  useEffect(() => () => solicitudRef.current?.abort(), []);
+
   const ocupado = pendiente !== null;
   const sinConexion = panel.conexion.estado !== "lista";
   const totalActivos = destinatariosActivos.length;
+  const sugerido = panel.periodoManualSugerido;
+  const errorRango = validarRangoManual(desde, hasta, sugerido.hoy);
+  const periodoComparado = !errorRango ? periodoAnteriorEnFechas(desde, hasta) : null;
+  const rangoEditado = desde !== sugerido.desde || hasta !== sugerido.hasta;
 
-  const ejecutar = async (cual: "prueba" | "lista") => {
-    if (ocupado) return;
-    setConfirmar(false);
-    setPendiente(cual);
+  const cancelarGeneracion = () => {
+    solicitudRef.current?.abort();
+    solicitudRef.current = null;
+    setGenerando(false);
+  };
+
+  const abrirModal = () => {
+    setDesde(sugerido.desde);
+    setHasta(sugerido.hasta);
+    setActualizarDatos(false);
+    setGenerado(null);
+    setErrorModal(null);
+    setModalAbierto(true);
+  };
+
+  const cerrarModal = () => {
+    if (pendiente === "lista") return;
+    if (solicitudRef.current) cancelarGeneracion();
+    setModalAbierto(false);
+    setErrorModal(null);
+  };
+
+  const generarParaEnviar = async () => {
+    if (solicitudRef.current || errorRango) return;
+    setErrorModal(null);
+    const solicitud = new AbortController();
+    solicitudRef.current = solicitud;
+    setGenerando(true);
     try {
-      const r = cual === "prueba" ? await enviarPruebaDelReporte() : await enviarReporteAhoraALista();
-      if (r.ok) notifySuccess(cual === "prueba" ? "Prueba enviada" : "Reporte enviado", r.message ?? "");
-      else notifyError(cual === "prueba" ? "No se pudo enviar la prueba" : "No se pudo enviar el reporte", r.message ?? "Inténtalo de nuevo.");
+      const response = await fetch("/api/auditoria/reporte-ejecutivo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          desde,
+          hasta,
+          actualizar: actualizarDatos,
+          cambiosOmitidos: [],
+        }),
+        signal: solicitud.signal,
+      });
+      const res = (await response.json()) as GenerarReporteEjecutivoResult;
+      if (solicitud.signal.aborted || solicitudRef.current !== solicitud) return;
+      if (!res.ok) {
+        setErrorModal(res.message);
+        return;
+      }
+      setGenerado({ ...res, desde, hasta });
+    } catch (e) {
+      if (!solicitud.signal.aborted && solicitudRef.current === solicitud) {
+        setErrorModal(e instanceof Error ? e.message : "No se pudo generar el reporte.");
+      }
+    } finally {
+      if (solicitudRef.current === solicitud) {
+        solicitudRef.current = null;
+        setGenerando(false);
+      }
+    }
+  };
+
+  const enviarPrueba = async () => {
+    if (ocupado) return;
+    setPendiente("prueba");
+    try {
+      const r = await enviarPruebaDelReporte();
+      if (r.ok) notifySuccess("Prueba enviada", r.message ?? "");
+      else notifyError("No se pudo enviar la prueba", r.message ?? "Inténtalo de nuevo.");
     } catch {
       notifyError("No se pudo enviar", "La solicitud no terminó. Revisa el historial antes de reintentar.");
+    } finally {
+      setPendiente(null);
+    }
+  };
+
+  const enviarALista = async () => {
+    if (ocupado || !generado) return;
+    setErrorModal(null);
+    setPendiente("lista");
+    try {
+      const r = await enviarReporteAhoraALista({ desde: generado.desde, hasta: generado.hasta });
+      if (r.ok) {
+        notifySuccess("Reporte enviado", r.message ?? "");
+        setModalAbierto(false);
+        setGenerado(null);
+      } else {
+        const msg = r.message ?? "Inténtalo de nuevo.";
+        setErrorModal(msg);
+        notifyError("No se pudo enviar el reporte", msg);
+      }
+    } catch {
+      const msg = "La solicitud no terminó. Revisa el historial antes de reintentar.";
+      setErrorModal(msg);
+      notifyError("No se pudo enviar", msg);
     } finally {
       setPendiente(null);
     }
@@ -495,18 +626,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           <p className="font-medium text-ink-800">
             El reporte llegará a {fmtNum(totalActivos)} {totalActivos === 1 ? "correo activo" : "correos activos"}:
           </p>
-          <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Correos que recibirán el reporte">
-            {destinatariosActivos.map((d) => (
-              <li
-                key={d.id}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-0.5 text-[11.5px] text-ink-700"
-              >
-                {d.nombre ? <span className="truncate font-medium text-ink-800">{d.nombre}</span> : null}
-                {d.nombre ? <span className="text-ink-400">·</span> : null}
-                <span className="truncate">{d.correo}</span>
-              </li>
-            ))}
-          </ul>
+          <EtiquetasDestinatarios destinatarios={destinatariosActivos} />
         </div>
       ) : (
         <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
@@ -516,7 +636,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => ejecutar("prueba")}
+          onClick={enviarPrueba}
           disabled={ocupado || sinConexion || !panel.correoPrueba}
           className={BTN_SECUNDARIO}
           title={panel.correoPrueba ? `Envía solo a ${panel.correoPrueba}` : "Tu cuenta no tiene correo registrado"}
@@ -524,44 +644,239 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           <Icon name="send" size={13} />
           {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba a mi correo"}
         </button>
-        {!confirmar && (
-          <button
-            type="button"
-            onClick={() => setConfirmar(true)}
-            disabled={ocupado || sinConexion || totalActivos === 0}
-            className={BTN_PRIMARIO}
-          >
-            <Icon name="send" size={13} />
-            {pendiente === "lista" ? "Enviando a la lista…" : "Enviar ahora a la lista"}
-          </button>
-        )}
-      </div>
-      {confirmar && totalActivos > 0 && (
-        <div
-          role="status"
-          className="flex flex-col gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-[12px] text-ink-700"
+        <button
+          type="button"
+          onClick={abrirModal}
+          disabled={ocupado || sinConexion || totalActivos === 0}
+          className={BTN_PRIMARIO}
         >
-          <p className="font-medium text-navy-800">
-            ¿Enviar el reporte ahora a {fmtNum(totalActivos)} {totalActivos === 1 ? "destinatario" : "destinatarios"}?
-          </p>
-          <p className="break-words text-[11.5px] text-ink-700">
-            {destinatariosActivos.map((d) => etiquetaDestinatario(d)).join(", ")}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => ejecutar("lista")} className={BTN_PRIMARIO}>
-              Sí, enviar
-            </button>
-            <button type="button" onClick={() => setConfirmar(false)} className={BTN_SECUNDARIO}>
-              No
-            </button>
-          </div>
-        </div>
-      )}
+          <Icon name="send" size={13} />
+          {pendiente === "lista" ? "Enviando a la lista…" : "Enviar ahora a la lista"}
+        </button>
+      </div>
       <p className="text-[11.5px] text-ink-500">
         La prueba llega solo a tu correo{panel.correoPrueba ? ` (${panel.correoPrueba})` : ""} con «[Prueba]» en el asunto y no
-        cuenta como entregada al cliente. El envío a la lista queda registrado en «Reportes enviados»: el siguiente
-        reporte no repetirá esas novedades. Con un reporte grande puede tardar un momento.
+        cuenta como entregada al cliente. Al pulsar «Enviar ahora a la lista» seleccionas el rango (por defecto desde el
+        último reporte enviado hasta hoy), generas el reporte para revisarlo y confirmas el envío; queda registrado en
+        «Reportes enviados» para que el envío automático no repita esas novedades.
       </p>
+
+      <Modal
+        open={modalAbierto}
+        onClose={cerrarModal}
+        title={generado ? "Revisar y enviar reporte para gerencia" : "Generar reporte para gerencia"}
+        size={generado ? "4xl" : "2xl"}
+        footer={
+          generado ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerado(null);
+                  setErrorModal(null);
+                }}
+                disabled={pendiente === "lista"}
+                className={BTN_SECUNDARIO}
+              >
+                Cambiar rango
+              </button>
+              <button
+                type="button"
+                onClick={enviarALista}
+                disabled={pendiente === "lista" || sinConexion || totalActivos === 0}
+                className={BTN_PRIMARIO}
+              >
+                <Icon name="send" size={14} />
+                {pendiente === "lista" ? (
+                  <EstadoProcesando>Enviando a la lista</EstadoProcesando>
+                ) : (
+                  `Enviar ahora a la lista (${fmtNum(totalActivos)})`
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              {generando && (
+                <button type="button" onClick={cancelarGeneracion} className={BTN_SECUNDARIO}>
+                  Cancelar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={generarParaEnviar}
+                disabled={generando || Boolean(errorRango) || totalActivos === 0}
+                className={BTN_PRIMARIO}
+              >
+                <Icon name="ai" size={14} />
+                {generando ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar reporte para gerencia"}
+              </button>
+            </>
+          )
+        }
+      >
+        {generado ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-500">
+              <span className="font-medium text-ink-700">
+                Período:{" "}
+                {generado.desde === generado.hasta
+                  ? fmtCalendarDate(generado.desde)
+                  : `${fmtCalendarDate(generado.desde)} al ${fmtCalendarDate(generado.hasta)}`}
+              </span>
+              <span>·</span>
+              <span>
+                {fmtNum(generado.totalAcciones)} acciones · {fmtNum(generado.totalUsuarios)} usuarios ·{" "}
+                {fmtNum(generado.totalNovedades)} novedades
+                {generado.porcentajeAdopcion != null ? ` · ${generado.porcentajeAdopcion}% adopción` : ""}
+                {generado.desdeCache ? " · reutilizado de caché" : ""}
+              </span>
+            </div>
+            <h4 className="text-lg font-light text-navy-800">{generado.report.titulo}</h4>
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-ink-700">
+              <p className="font-medium text-navy-800">
+                Listo para enviar a {fmtNum(totalActivos)} {totalActivos === 1 ? "destinatario activo" : "destinatarios activos"}:
+              </p>
+              <EtiquetasDestinatarios destinatarios={destinatariosActivos} />
+              <p className="mt-1.5 text-[11.5px] text-ink-600">
+                Al enviar quedará constancia en «Reportes enviados» hasta el {fmtCalendarDate(generado.hasta)} para que el
+                envío automático continúe desde el día siguiente.
+              </p>
+            </div>
+            {errorModal && (
+              <p role="alert" className="text-[12.5px] text-err-700">
+                {errorModal}
+              </p>
+            )}
+            <iframe
+              title="Vista previa del reporte para gerencia"
+              srcDoc={generado.report.html}
+              sandbox=""
+              className="h-[52vh] w-full rounded-md border border-ink-150 bg-white"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              Selecciona el rango de fechas del reporte, genéralo para revisar su contenido y luego envíalo a la lista de
+              destinatarios activos.
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h4 className="text-[12.5px] font-semibold text-navy-800">Rango de fechas</h4>
+                {rangoEditado && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDesde(sugerido.desde);
+                      setHasta(sugerido.hasta);
+                    }}
+                    disabled={generando}
+                    className={BTN_MINI}
+                  >
+                    Restablecer sugerido
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
+                  Desde
+                  <input
+                    type="date"
+                    value={desde}
+                    max={sugerido.hoy}
+                    onChange={(e) => setDesde(e.target.value)}
+                    disabled={generando}
+                    className={CAMPO}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
+                  Hasta
+                  <input
+                    type="date"
+                    value={hasta}
+                    max={sugerido.hoy}
+                    onChange={(e) => setHasta(e.target.value)}
+                    disabled={generando}
+                    className={CAMPO}
+                  />
+                </label>
+              </div>
+
+              {sugerido.yaCubiertoHoy && (
+                <Aviso>
+                  Ya existe un reporte enviado hasta el {fmtCalendarDate(sugerido.ultimoHasta ?? sugerido.hoy)}. Puedes
+                  ajustar las fechas si necesitas volver a generar o enviar otro período.
+                </Aviso>
+              )}
+
+              <p className="text-[11.5px] text-ink-500">
+                {sugerido.origen === "continua" && sugerido.ultimoHasta
+                  ? `Por defecto arranca el día siguiente al último reporte enviado (${sugerido.ultimoDesde ? `${fmtCalendarDate(sugerido.ultimoDesde)} al ` : ""}${fmtCalendarDate(sugerido.ultimoHasta)}) hasta hoy (${fmtCalendarDate(sugerido.hoy)}).`
+                  : `Sin reportes enviados previos: por defecto cubre los últimos 7 días hasta hoy (${fmtCalendarDate(sugerido.hoy)}).`}
+                {sugerido.recortado &&
+                  ` Se recortó a ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días (el tope sugerido): sin él habría arrancado el ${fmtCalendarDate(sugerido.desdeSinRecorte)}.`}
+              </p>
+
+              {errorRango && (
+                <p role="alert" className="text-[12px] text-err-700">
+                  {errorRango}
+                </p>
+              )}
+
+              {periodoComparado && (
+                <p className="rounded-md bg-navy-50 px-3 py-2 text-[12px] text-navy-800">
+                  Cubre{" "}
+                  <strong>
+                    {desde === hasta
+                      ? fmtCalendarDate(desde)
+                      : `${fmtCalendarDate(desde)} al ${fmtCalendarDate(hasta)}`}
+                  </strong>{" "}
+                  ({periodoComparado.dias} {periodoComparado.dias === 1 ? "día" : "días"}). Se comparará con{" "}
+                  {periodoComparado.dias === 1 ? "el día anterior" : `los ${periodoComparado.dias} días anteriores`}:{" "}
+                  <strong>
+                    {periodoComparado.desde === periodoComparado.hasta
+                      ? fmtCalendarDate(periodoComparado.desde)
+                      : `${fmtCalendarDate(periodoComparado.desde)} al ${fmtCalendarDate(periodoComparado.hasta)}`}
+                  </strong>
+                  .
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">
+              <p>
+                El mismo período recupera el reporte guardado con sus cifras y fecha de corte originales, salvo que
+                marques actualizarlo.
+              </p>
+              <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium text-ink-800">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-navy-700"
+                  checked={actualizarDatos}
+                  disabled={generando}
+                  onChange={(e) => setActualizarDatos(e.target.checked)}
+                />
+                Actualizar con datos nuevos y guardar otra revisión
+              </label>
+            </div>
+
+            <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
+              <p className="font-medium text-ink-800">
+                Destinatarios activos ({fmtNum(totalActivos)}):
+              </p>
+              <EtiquetasDestinatarios destinatarios={destinatariosActivos} />
+            </div>
+
+            {errorModal && (
+              <p role="alert" className="text-[12.5px] text-err-700">
+                {errorModal}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
     </section>
   );
 }

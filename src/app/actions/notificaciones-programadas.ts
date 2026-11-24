@@ -12,6 +12,7 @@ import {
   ProgramacionNotificacionSchema,
   type ActionState,
 } from "@/lib/definitions";
+import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { puedeAgregarDestinatario, TOPE_DESTINATARIOS } from "@/lib/notificaciones/destinatarios";
 import type { PanelEnvioAutomatico } from "@/lib/notificaciones/panel";
 import {
@@ -35,6 +36,11 @@ import {
  */
 
 const IdSchema = z.coerce.number({ error: "El registro no es válido." }).int({ error: "El registro no es válido." }).positive({ error: "El registro no es válido." });
+const FECHA_CALENDARIO = /^\d{4}-\d{2}-\d{2}$/;
+const PeriodoManualEnvioSchema = z.object({
+  desde: z.string().regex(FECHA_CALENDARIO, "Selecciona una fecha inicial válida."),
+  hasta: z.string().regex(FECHA_CALENDARIO, "Selecciona una fecha final válida."),
+});
 
 /** Quién actúa: la persona de la sesión (la acción ya comprobó el permiso). */
 async function actorDeSesion(userId: number): Promise<ActorEnvio> {
@@ -247,12 +253,32 @@ export async function enviarPruebaDelReporte(): Promise<ActionState> {
 }
 
 /** Envía el reporte ahora a toda la lista activa y deja constancia en «Reportes enviados». */
-export async function enviarReporteAhoraALista(): Promise<ActionState> {
+export async function enviarReporteAhoraALista(periodo?: { desde: string; hasta: string }): Promise<ActionState> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
+
+  let periodoManual: { desde: string; hasta: string } | undefined;
+  if (periodo !== undefined) {
+    const parsed = PeriodoManualEnvioSchema.safeParse(periodo);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        errors: z.flattenError(parsed.error).fieldErrors,
+        message: parsed.error.issues[0]?.message ?? "Revisa el rango de fechas.",
+      };
+    }
+    if (!parseRangoReporte(parsed.data.desde, parsed.data.hasta)) {
+      return {
+        ok: false,
+        message: "El rango de fechas no es válido o supera 366 días. Ajusta el período e inténtalo de nuevo.",
+      };
+    }
+    periodoManual = parsed.data;
+  }
+
   try {
     const actor = await actorDeSesion(authz.userId);
-    const r = await enviarReporteAhora({ origen: "manual", actor });
+    const r = await enviarReporteAhora({ origen: "manual", actor, periodoManual });
     revalidatePath(RUTA_REPORTES_EJECUTIVOS);
     return { ok: r.ok, message: r.message };
   } catch (e) {

@@ -25,6 +25,10 @@ const PANEL: PanelEnvioAutomatico = {
     estado: "nuevo", desde: "2026-11-23", hasta: "2026-11-29", origen: "continua",
     ultimoDesde: "2026-11-16", ultimoHasta: "2026-11-22", recortado: false, desdeSinRecorte: "2026-11-23",
   },
+  periodoManualSugerido: {
+    desde: "2026-11-23", hasta: "2026-11-24", hoy: "2026-11-24", origen: "continua",
+    ultimoDesde: "2026-11-16", ultimoHasta: "2026-11-22", recortado: false, desdeSinRecorte: "2026-11-23", yaCubiertoHoy: false,
+  },
   destinatarios: [
     { id: 1, correo: "ana@cliente.co", nombre: "Ana Pérez", activo: true },
     { id: 2, correo: "luis@cliente.co", nombre: null, activo: false },
@@ -67,9 +71,9 @@ describe("panel «Envío automático»", () => {
     expect(html).toContain("Correos en la lista (2)");
     expect(html).toContain("1 recibirá el reporte");
     expect(html).toContain("1 en pausa");
-    // El formulario de agregar queda arriba y la lista de correos agregados justo debajo.
-    expect(html.indexOf("<form")).toBeGreaterThan(-1);
-    expect(html.indexOf("Correos en la lista (2)")).toBeGreaterThan(html.indexOf("</form>"));
+    // El botón «+» de agregar destinatario queda en el encabezado y la lista debajo.
+    expect(html).toContain('aria-label="Agregar destinatario"');
+    expect(html.indexOf("Correos en la lista (2)")).toBeGreaterThan(html.indexOf('aria-label="Agregar destinatario"'));
     // Historial con estado, origen y período en fechas de calendario.
     expect(html).toContain("Enviado");
     expect(html).toContain("Programado");
@@ -92,8 +96,8 @@ describe("panel «Envío automático»", () => {
     expect(primero).toContain("del 23/Nov/2026 al 29/Nov/2026");
     expect(primero).toContain("Primer envío: últimos 7 días.");
 
-    const recortado = pintar({ ...PANEL, periodoProximo: { estado: "nuevo", desde: "2025-11-29", hasta: "2026-11-29", origen: "continua", ultimoDesde: "2024-01-01", ultimoHasta: "2024-01-31", recortado: true, desdeSinRecorte: "2024-02-01" } });
-    expect(recortado).toContain("Se recortó a 366 días");
+    const recortado = pintar({ ...PANEL, periodoProximo: { estado: "nuevo", desde: "2026-10-31", hasta: "2026-11-29", origen: "continua", ultimoDesde: "2024-01-01", ultimoHasta: "2024-01-31", recortado: true, desdeSinRecorte: "2024-02-01" } });
+    expect(recortado).toContain("Se recortó a 30 días");
     expect(recortado).toContain("habría arrancado el 01/Feb/2024");
 
     const cubierto = pintar({ ...PANEL, periodoProximo: { estado: "cubierto", hasta: "2026-11-29", cubiertoHasta: "2026-11-29" } });

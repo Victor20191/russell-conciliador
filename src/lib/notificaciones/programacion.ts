@@ -7,11 +7,16 @@
 // Diseño y despliegue: docs/notificaciones/reporte-ejecutivo-programado.md.
 
 import { sumarDias, ultimosDias } from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
-import { MAX_DIAS_RANGO } from "@/lib/auditoria/reporte-ejecutivo/rango";
 
 /** Tipo de la notificación del reporte para gerencia (`notificacion_programada.tipo`). */
 export const TIPO_REPORTE_EJECUTIVO = "reporte_ejecutivo";
 export const FRECUENCIA_SEMANAL = "semanal";
+
+/**
+ * Tope máximo de días que cubre automáticamente un envío por correo al continuar desde el último
+ * reporte enviado (evita arrastrar meses enteros tras una pausa larga y evita correos recortados).
+ */
+export const TOPE_DIAS_ENVIO_AUTOMATICO = 30;
 
 export type OrigenEjecucion = "programada" | "manual" | "prueba";
 export type EstadoEjecucion = "en_curso" | "ok" | "parcial" | "error" | "omitida";
@@ -134,17 +139,16 @@ export type PeriodoEnvio =
   | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
 
 /**
- * El período del reporte de un envío: arranca donde terminó el último reporte enviado y
+ * El período del reporte de un envío: arranca donde terminó el último reporte enviado por correo y
  * llega hasta el día ANTERIOR al envío (en hora de Colombia), para no contar medio día dos
  * veces.
  *
- * - Sin reportes previos: los 7 días que terminan el día anterior.
- * - Con un último reporte (manual o automático, el mayor `periodoHasta` de «Reportes
- *   enviados»): desde el día siguiente a su fecha final.
- * - Más de 366 días (el tope de `parseRangoReporte`): `desde` se recorta a 366 días.
+ * - Primer envío por correo (`ultimoPeriodoHasta === null`): los 7 días que terminan el día anterior.
+ * - Con un último envío previo: desde el día siguiente a su fecha final.
+ * - Más de `TOPE_DIAS_ENVIO_AUTOMATICO` días (30): `desde` se recorta al tope.
  * - Si el último reporte ya llega hasta ese día o después: `cubierto`, no hay período nuevo.
  *
- * `referencia` es el instante del envío (el programado, o ahora en el envío manual).
+ * `referencia` es el instante del envío (el programado, o ahora en el envío manual sin rango explícito).
  */
 export function calcularPeriodoEnvio(params: { referencia: Date; ultimoPeriodoHasta: Date | null }): PeriodoEnvio {
   const hasta = sumarDias(fechaColombia(params.referencia), -1);
@@ -158,9 +162,78 @@ export function calcularPeriodoEnvio(params: { referencia: Date; ultimoPeriodoHa
   if (ultimoHasta >= hasta) return { estado: "cubierto", hasta, cubiertoHasta: ultimoHasta };
 
   const desdeSinRecorte = sumarDias(ultimoHasta, 1);
-  const recortado = diasInclusive(desdeSinRecorte, hasta) > MAX_DIAS_RANGO;
-  const desde = recortado ? sumarDias(hasta, -(MAX_DIAS_RANGO - 1)) : desdeSinRecorte;
+  const recortado = diasInclusive(desdeSinRecorte, hasta) > TOPE_DIAS_ENVIO_AUTOMATICO;
+  const desde = recortado ? sumarDias(hasta, -(TOPE_DIAS_ENVIO_AUTOMATICO - 1)) : desdeSinRecorte;
   return { estado: "nuevo", desde, hasta, origen: "continua", ultimoHasta, recortado, desdeSinRecorte };
+}
+
+export type PeriodoEnvioManual = {
+  desde: string;
+  hasta: string;
+  hoy: string;
+  /** `continua`: arranca el día siguiente al último reporte enviado; `primer_envio`: aún no hay envíos previos por correo. */
+  origen: "continua" | "primer_envio";
+  /** Hasta dónde llegó el último reporte enviado (null en el primer envío). */
+  ultimoHasta: string | null;
+  /** El período pasaba de 30 días y `desde` se acercó a `hasta` para respetar el tope sugerido. */
+  recortado: boolean;
+  /** El `desde` que habría tenido sin el tope. */
+  desdeSinRecorte: string;
+  /** El último reporte enviado ya llega hasta hoy o después (el usuario igual puede elegir otro rango). */
+  yaCubiertoHoy: boolean;
+};
+
+/**
+ * Rango sugerido por defecto al abrir el envío manual «Enviar ahora a la lista»:
+ * - Primer envío por correo (`ultimoPeriodoHasta === null`): los últimos 7 días incluyendo hoy.
+ * - Con un último reporte anterior a hoy: desde el día siguiente a su fecha final hasta hoy (Colombia).
+ * - Si ya existe un reporte enviado que cubre hasta hoy: sugiere hoy..hoy y marca `yaCubiertoHoy = true`.
+ * - Más de `TOPE_DIAS_ENVIO_AUTOMATICO` días (30): recorta `desde` a 30 días (el usuario puede ampliarlo a mano).
+ */
+export function calcularPeriodoEnvioManual(params: { ahora: Date; ultimoPeriodoHasta: Date | null }): PeriodoEnvioManual {
+  const hoy = fechaColombia(params.ahora);
+
+  if (!params.ultimoPeriodoHasta) {
+    const desde = sumarDias(hoy, -6);
+    return {
+      desde,
+      hasta: hoy,
+      hoy,
+      origen: "primer_envio",
+      ultimoHasta: null,
+      recortado: false,
+      desdeSinRecorte: desde,
+      yaCubiertoHoy: false,
+    };
+  }
+
+  const ultimoHasta = fechaDePeriodoGuardado(params.ultimoPeriodoHasta);
+  if (ultimoHasta >= hoy) {
+    return {
+      desde: hoy,
+      hasta: hoy,
+      hoy,
+      origen: "continua",
+      ultimoHasta,
+      recortado: false,
+      desdeSinRecorte: hoy,
+      yaCubiertoHoy: true,
+    };
+  }
+
+  const desdeSinRecorte = sumarDias(ultimoHasta, 1);
+  const recortado = diasInclusive(desdeSinRecorte, hoy) > TOPE_DIAS_ENVIO_AUTOMATICO;
+  const desde = recortado ? sumarDias(hoy, -(TOPE_DIAS_ENVIO_AUTOMATICO - 1)) : desdeSinRecorte;
+  return {
+    desde,
+    hasta: hoy,
+    hoy,
+    origen: "continua",
+    ultimoHasta,
+    recortado,
+    desdeSinRecorte,
+    yaCubiertoHoy: false,
+  };
 }
 
 export type DecisionVencimiento =
