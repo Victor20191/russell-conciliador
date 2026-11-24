@@ -821,10 +821,13 @@ export function ReporteEjecutivoClient({
           </div>
           <div>
             <h3 className="mb-2 text-[12.5px] font-semibold text-navy-800">Período de uso</h3>
-            <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Atajos de período">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Atajos de período">
+              {/* Igual que el selector del tablero: los atajos son los últimos N días, hasta hoy. */}
+              <span className="text-[11.5px] text-ink-600">Últimos:</span>
               {(
                 [
                   ["7 días", 7],
+                  ["15 días", 15],
                   ["30 días", 30],
                   ["90 días", 90],
                 ] as const

@@ -72,7 +72,9 @@ export function SelectorPeriodoTablero({ periodo }: { periodo: PeriodoIndicadore
   return (
     <div className="flex flex-col items-start gap-1.5 lg:items-end">
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Período de los indicadores">
-        <span className="mr-0.5 text-[11.5px] font-semibold text-ink-600">Período</span>
+        <span className="mr-1.5 text-[11.5px] font-semibold text-ink-600">Período</span>
+        {/* «Últimos» deja claro que los atajos terminan hoy: «Últimos: 7 días». */}
+        <span className="text-[11.5px] text-ink-600">Últimos:</span>
         {ATAJOS.map(([etiqueta, dias]) => {
           const rango = ultimosDias(periodo.hoy, dias);
           const activo = rango.desde === periodo.desde && rango.hasta === periodo.hasta;
@@ -81,6 +83,7 @@ export function SelectorPeriodoTablero({ periodo }: { periodo: PeriodoIndicadore
               key={etiqueta}
               type="button"
               aria-pressed={activo}
+              aria-label={`Últimos ${etiqueta}`}
               disabled={cargando}
               className={activo ? BTN_ATAJO_ACTIVO : BTN_ATAJO}
               // Los 30 días son la vista por defecto: se vuelve a ella en vez de fijarla en la URL.
@@ -95,7 +98,9 @@ export function SelectorPeriodoTablero({ periodo }: { periodo: PeriodoIndicadore
             </button>
           );
         })}
-        <label className="ml-1 flex items-center gap-1 text-[11.5px] text-ink-600">
+        {/* Separa los atajos del rango que se escribe a mano. */}
+        <span aria-hidden className="mx-1.5 h-5 w-px bg-ink-300" />
+        <label className="flex items-center gap-1 text-[11.5px] text-ink-600">
           Desde
           <input
             type="date"
