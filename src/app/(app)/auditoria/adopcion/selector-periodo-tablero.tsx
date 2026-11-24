@@ -27,6 +27,7 @@ export type PeriodoIndicadores = {
 
 const ATAJOS = [
   ["7 días", 7],
+  ["15 días", 15],
   ["30 días", 30],
   ["90 días", 90],
 ] as const;
