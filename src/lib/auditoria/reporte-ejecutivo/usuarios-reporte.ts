@@ -155,6 +155,36 @@ export function actorUnificado(nombre: string, alias: ReadonlyMap<string, string
   return alias.get(normalizarNombre(nombre)) ?? nombre;
 }
 
+/**
+ * Ids de las cuentas cuyas VISITAS cuentan en el uso: las del reporte y las de
+ * prueba que se le suman a una persona. Las visitas se agrupan por ruta y no
+ * traen nombre, así que se filtran por `userId` (como en el comparativo).
+ */
+export function idsDelUso<T extends UsuarioPlataforma & { id: number }>(usuarios: readonly T[]): Set<number> {
+  return new Set([
+    ...usuariosDelReporte(usuarios).map((u) => u.id),
+    ...cuentasSumadas(usuarios).map((s) => s.cuenta.id),
+  ]);
+}
+
+/**
+ * Visitas por ruta de las cuentas que cuentan (`idsDelUso`): recibe filas por ruta
+ * y cuenta, y devuelve el total por ruta. Las de Xentria, las de prueba y las
+ * visitas sin cuenta quedan fuera: antes entraban todas y, del 9 al 15-nov/2026,
+ * 188 de 490 eran de cuentas que no son del equipo.
+ */
+export function visitasDeCuentas(
+  filas: ReadonlyArray<{ ruta: string; userId: number | null; total: number }>,
+  ids: ReadonlySet<number>,
+): Array<{ ruta: string; total: number }> {
+  const porRuta = new Map<string, number>();
+  for (const f of filas) {
+    if (f.userId === null || !ids.has(f.userId)) continue;
+    porRuta.set(f.ruta, (porRuta.get(f.ruta) ?? 0) + f.total);
+  }
+  return [...porRuta].map(([ruta, total]) => ({ ruta, total }));
+}
+
 /** Los mismos eventos, con el actor de las cuentas que se suman ya pasado a la persona. */
 export function unificarActores<T extends { user: string }>(
   eventos: readonly T[],

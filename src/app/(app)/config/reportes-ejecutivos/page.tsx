@@ -36,9 +36,11 @@ import {
   actorUnificado,
   aliasDeActores,
   correosDelReporte,
+  idsDelUso,
   nombresDelGastoIA,
   nombresDelReporte,
   unificarActores,
+  visitasDeCuentas,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import {
@@ -124,8 +126,9 @@ export default async function ReportesEjecutivosPage({
       _count: { userName: true },
       orderBy: { userName: "asc" },
     }),
+    // Por ruta Y cuenta: las visitas se filtran por `userId` a las cuentas del uso.
     prisma.accessLog.groupBy({
-      by: ["path"],
+      by: ["path", "userId"],
       where: { kind: "navegacion", createdAt: { gte: desde, lte: hasta } },
       _count: { path: true },
       orderBy: { path: "asc" },
@@ -151,7 +154,7 @@ export default async function ReportesEjecutivosPage({
       },
     }),
     prisma.client.findMany({ select: { id: true, name: true } }),
-    prisma.user.findMany({ select: { name: true, email: true } }),
+    prisma.user.findMany({ select: { id: true, name: true, email: true } }),
     modulosPublicadosParaTodos(),
     listarEnviosReporteEjecutivo(50),
     listarReportesGenerados(50),
@@ -192,8 +195,12 @@ export default async function ReportesEjecutivosPage({
   const uso = calcularResumenUso({
     eventos,
     conexiones: conexionesRaw.map((c) => ({ usuario: actorUnificado(c.userName, alias), total: c._count.userName })),
+    // Visitas solo de las cuentas del uso, como las operaciones (sin Xentria ni pruebas).
     navegaciones: filtrarNavegacionesPublicadas({
-      navegaciones: navegacionesRaw.map((n) => ({ ruta: n.path, total: n._count.path })),
+      navegaciones: visitasDeCuentas(
+        navegacionesRaw.map((n) => ({ ruta: n.path, userId: n.userId, total: n._count.path })),
+        idsDelUso(usuarios),
+      ),
       filtro,
     }).navegaciones,
     periodoDesde: desde,

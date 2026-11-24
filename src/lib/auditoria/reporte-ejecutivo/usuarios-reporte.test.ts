@@ -6,12 +6,14 @@ import {
   cuentasSumadas,
   esCuentaDePrueba,
   esCuentaInterna,
+  idsDelUso,
   nombresDelGastoIA,
   nombresDelReporte,
   normalizarNombre,
   unificarActores,
   usuariosDelComparativo,
   usuariosDelReporte,
+  visitasDeCuentas,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 
 const usuarios = [
@@ -158,6 +160,38 @@ describe("cuentas de prueba que se suman a una persona", () => {
     ]);
     const conHomonimo = [...equipo, { name: "Camilo Perez Rojo", email: "otro@rbcol.co" }];
     expect(cuentasSumadas(conHomonimo)[0]?.nombres).toEqual(["camilo perez rojo pruebas"]);
+  });
+});
+
+describe("visitas que cuentan en el uso", () => {
+  const cuentas = [
+    { id: 1, name: "Ana Real", email: "ana@rbcol.co" },
+    { id: 2, name: "DUVAN CAMILO PÉREZ ROJO", email: "camiloperez@rbcol.co" },
+    { id: 3, name: "Camilo Perez Rojo Pruebas", email: "russell4@rbcol.co" },
+    { id: 4, name: "Russell 3", email: "russell3@russellbedford.com.co" },
+    { id: 5, name: "Victor Rivera", email: "admin@xentria.co" },
+  ];
+
+  it("cuentan las del equipo y la de prueba que se suma a una persona; Xentria y las genéricas no", () => {
+    expect([...idsDelUso(cuentas)].sort()).toEqual([1, 2, 3]);
+  });
+
+  it("suma por ruta solo las visitas de esas cuentas", () => {
+    const visitas = visitasDeCuentas(
+      [
+        { ruta: "/modulos/car", userId: 1, total: 10 },
+        { ruta: "/modulos/car", userId: 3, total: 5 }, // Camilo desde su cuenta «Pruebas»
+        { ruta: "/modulos/car", userId: 5, total: 40 }, // Xentria
+        { ruta: "/balance", userId: 4, total: 7 }, // genérica
+        { ruta: "/balance", userId: null, total: 2 }, // sin cuenta
+        { ruta: "/balance", userId: 2, total: 3 },
+      ],
+      idsDelUso(cuentas),
+    );
+    expect(visitas).toEqual([
+      { ruta: "/modulos/car", total: 15 },
+      { ruta: "/balance", total: 3 },
+    ]);
   });
 });
 

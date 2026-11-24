@@ -212,7 +212,7 @@ export function construirSeccionGraficosHtml(params: {
   const modulosConsultados = graficoBarrasHorizontales({
     id: "rd-chart-modulos-consultados",
     titulo: "Módulos más consultados",
-    subtitulo: "Visitas de navegación a familias operativas publicadas; no se suman a las operaciones",
+    subtitulo: "Páginas abiertas por el equipo en cada módulo (cada página abierta es una visita); no se suman a las operaciones",
     items: uso.navegacionesPorFamilia.slice(0, 10).map((f) => ({
       etiqueta: f.nombre,
       valor: f.total,

@@ -33,9 +33,11 @@ import {
   actorUnificado,
   aliasDeActores,
   correosDelReporte,
+  idsDelUso,
   nombresDelGastoIA,
   nombresDelReporte,
   unificarActores,
+  visitasDeCuentas,
 } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { construirUsuariosActivos } from "@/lib/auditoria/reporte-ejecutivo/usuarios-activos-servidor";
 import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
@@ -346,8 +348,9 @@ export async function generarReporteEjecutivoUso(
         _count: { userName: true },
         orderBy: { userName: "asc" },
       }),
+      // Por ruta Y cuenta: las visitas se filtran por `userId` a las cuentas del uso.
       tx.accessLog.groupBy({
-        by: ["path"],
+        by: ["path", "userId"],
         where: {
           kind: "navegacion",
           createdAt: { gte: rango.desde, lte: corte },
@@ -365,7 +368,7 @@ export async function generarReporteEjecutivoUso(
       tx.client.findMany({
         select: { id: true, name: true },
       }),
-      tx.user.findMany({ select: { name: true, email: true } }),
+      tx.user.findMany({ select: { id: true, name: true, email: true } }),
       ]), { isolationLevel: "RepeatableRead" }),
       modulosPublicadosParaTodos(),
     ]);
@@ -402,11 +405,16 @@ export async function generarReporteEjecutivoUso(
     // personal (ver `CUENTAS_QUE_SE_SUMAN`).
     const alias = aliasDeActores(usuarios);
     const eventos = unificarActores(alcanceUso.eventos, alias);
+    // Visitas solo de las cuentas del uso, como las operaciones (sin Xentria ni pruebas).
     const alcanceNavegaciones = filtrarNavegacionesPublicadas({
-      navegaciones: navegacionesRaw.map((navegacion) => ({
-        ruta: navegacion.path,
-        total: navegacion._count.path,
-      })),
+      navegaciones: visitasDeCuentas(
+        navegacionesRaw.map((navegacion) => ({
+          ruta: navegacion.path,
+          userId: navegacion.userId,
+          total: navegacion._count.path,
+        })),
+        idsDelUso(usuarios),
+      ),
       filtro,
     });
 
@@ -580,7 +588,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         orderBy: { userName: "asc" },
       }),
       prisma.accessLog.groupBy({
-        by: ["path"],
+        by: ["path", "userId"],
         where: {
           kind: "navegacion",
           createdAt: { gte: rango.desde, lte: rango.hasta },
@@ -594,7 +602,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),
       prisma.client.findMany({ select: { id: true, name: true } }),
-      prisma.user.findMany({ select: { name: true, email: true } }),
+      prisma.user.findMany({ select: { id: true, name: true, email: true } }),
       modulosPublicadosParaTodos(),
     ]);
 
@@ -616,10 +624,14 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       alias,
     );
     const navegaciones = filtrarNavegacionesPublicadas({
-      navegaciones: navegacionesRaw.map((navegacion) => ({
-        ruta: navegacion.path,
-        total: navegacion._count.path,
-      })),
+      navegaciones: visitasDeCuentas(
+        navegacionesRaw.map((navegacion) => ({
+          ruta: navegacion.path,
+          userId: navegacion.userId,
+          total: navegacion._count.path,
+        })),
+        idsDelUso(usuarios),
+      ),
       filtro,
     }).navegaciones;
 

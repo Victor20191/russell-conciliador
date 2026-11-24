@@ -27,7 +27,10 @@
 //     contra el último reporte generado. Las cifras guardadas en
 //     `fuente.usoComparable` quedan como constancia y no se leen para comparar
 //     (23/Nov/2026).
-export const METODOLOGIA_USO_VIGENTE = 5;
+// 6 — las visitas a módulos del reporte y del tablero se cuentan solo de las
+//     cuentas del uso (sin Xentria ni cuentas de prueba), como ya hacía el
+//     comparativo; del 9 al 15-nov/2026 bajan de 490 a 302 (23/Nov/2026).
+export const METODOLOGIA_USO_VIGENTE = 6;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

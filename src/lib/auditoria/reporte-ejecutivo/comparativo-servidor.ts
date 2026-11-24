@@ -23,7 +23,7 @@ import { calcularResumenUso, clasificarFamilia, type EventoAuditoria, type Resum
 import {
   actorUnificado,
   aliasDeActores,
-  cuentasSumadas,
+  idsDelUso,
   unificarActores,
   usuariosDelComparativo,
 } from "./usuarios-reporte";
@@ -55,7 +55,7 @@ async function calcularUsoComparable(params: {
   // Las cuentas de prueba que usa una persona del equipo se le suman: sus visitas
   // entran por id y sus acciones e ingresos pasan al nombre de la persona.
   const alias = aliasDeActores(todas);
-  const idsMedidos = [...cuentas.map((c) => c.id), ...cuentasSumadas(todas).map((s) => s.cuenta.id)];
+  const idsMedidos = [...idsDelUso(todas)];
 
   const [eventosRaw, conexiones, navegacionesRaw] = await Promise.all([
     prisma.auditEntry.findMany({
