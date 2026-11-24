@@ -5,9 +5,11 @@ import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
 import {
   alertasComparativo,
+  diasDePeriodo,
   NOTA_SIN_CUENTAS_DE_PRUEBA,
   notaCorteMismoPunto,
   soloFecha,
+  textoDias,
   type AlertaUso,
   type ComparativoUso,
   type VariacionUso,
@@ -216,11 +218,16 @@ function filaVariacion(v: VariacionUso, formato: (n: number) => string = numero,
  * anterior o, cuando no había ninguno, el período anterior— con sus fechas
  * debajo: leídas sueltas, «Anterior» y «Actual» no decían contra qué.
  */
-function columnaFechas(titulo: string, p: { desde: string; hasta: string }): string {
-  return `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:${NEUTRO.k75}">${escapeHtml(p.desde)} – ${escapeHtml(p.hasta)}</span></th>`;
+function columnaFechas(titulo: string, p: { desde: string; hasta: string; dias?: number }): string {
+  const dias = p.dias ? ` (${textoDias(p.dias)})` : "";
+  return `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:${NEUTRO.k75}">${escapeHtml(p.desde)} – ${escapeHtml(p.hasta)}${dias}</span></th>`;
 }
 
-function encabezadosComparados(que: string, previo: { desde: string; hasta: string }, actual: { desde: string; hasta: string }): string {
+function encabezadosComparados(
+  que: string,
+  previo: { desde: string; hasta: string; dias?: number },
+  actual: { desde: string; hasta: string; dias?: number },
+): string {
   return `${columnaFechas(`${que} anterior`, previo)}${columnaFechas(`${que} actual`, actual)}<th>Variación</th>`;
 }
 
@@ -276,7 +283,7 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const alertas = alertasComparativo(c);
   const referencia = c.base === "reporte_anterior"
     ? `reporte anterior (${c.previo.desde} – ${c.previo.hasta}${c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""})`
-    : `período anterior de igual duración (${c.previo.desde} – ${c.previo.hasta})`;
+    : `período anterior de igual duración (${c.previo.desde} – ${c.previo.hasta}, ${textoDias(c.previo.dias)})`;
   const notaCorte = notaCorteMismoPunto(c);
   const aviso = (c.comparable
     ? ""
@@ -285,7 +292,7 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const familias = c.porFamilia.slice(0, 8).map((v) => filaVariacion(v)).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}
-<p>Comparación del período actual (${escapeHtml(c.actual.desde)} – ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p><p class="nota">${escapeHtml(NOTA_SIN_CUENTAS_DE_PRUEBA)}</p>${aviso}
+<p>Comparación del período actual (${escapeHtml(c.actual.desde)} – ${escapeHtml(c.actual.hasta)}, ${textoDias(c.actual.dias)}) contra el ${escapeHtml(referencia)}.</p><p class="nota">${escapeHtml(NOTA_SIN_CUENTAS_DE_PRUEBA)}</p>${aviso}
 <table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map((v) => filaVariacion(v)).join("")}</tbody></table>
 <h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
 ${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map((v) => filaVariacion(v)).join("")}</tbody></table>` : ""}
@@ -400,7 +407,7 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     // Lato (con Arial de respaldo) se declara una sola vez, con la marca `rb-tipografia`.
     html: forzarTipografiaMarca(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
 @page{size:letter;margin:25mm 30mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:${NEUTRO.k90};font:13px/1.55 ${FUENTE_PANTALLA}}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid ${SPACE_BLUE[100]};padding-bottom:16px;margin-bottom:24px}h1,h2{color:${SPACE_BLUE[100]}}h1{font-size:28px;font-weight:300;margin:0 0 8px}h2{font-size:20px;font-weight:400;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid ${NEUTRO.k20};overflow-wrap:anywhere;font-variant-numeric:tabular-nums}th{background:${SPACE_BLUE[20]};color:${SPACE_BLUE[100]}}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:${NEUTRO.k75};font-size:11px}footer{margin-top:24px;padding-top:10px}.rb-franja{margin-top:12px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
-</style></head><body><main><header>${logoHtml({ ancho: 180 })}<h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} – ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
+</style></head><body><main><header>${logoHtml({ ancho: 180 })}<h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} – ${escapeHtml(uso.periodoHasta.slice(0, 10))} (${textoDias(diasDePeriodo(uso.periodoDesde, uso.periodoHasta))})</p>${comparativo ? `<p>Período anterior (comparación): ${escapeHtml(comparativo.previo.desde)} – ${escapeHtml(comparativo.previo.hasta)} (${textoDias(comparativo.previo.dias)})</p>` : ""}${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(fechaEnColombia(corte))}</p>` : ""}</header>
 <section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li>${uso.usuariosActivos ? `<li>Usuarios activos: <strong>${escapeHtml(textoFraccionUsuariosActivos(uso.usuariosActivos))}</strong>. ${escapeHtml(textoNuncaIngresaron(uso.usuariosActivos))}.</li>` : ""}<li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li>${resumenAvances}${resumenTickets}${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionUsuariosActivos(uso.usuariosActivos)}${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>

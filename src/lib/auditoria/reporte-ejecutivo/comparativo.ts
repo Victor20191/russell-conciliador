@@ -158,6 +158,11 @@ export function diasDePeriodo(desdeIso: string, hastaIso: string): number {
   return Math.max(1, Math.round((hasta - desde) / DIA_MS));
 }
 
+/** «1 día» / «7 días»: la duración que acompaña a cada período en pantalla y en el documento. */
+export function textoDias(dias: number): string {
+  return dias === 1 ? "1 día" : `${dias} días`;
+}
+
 const redondear2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Operaciones por persona: distingue «más gente» de «la misma gente trabajando más». */

@@ -7,6 +7,7 @@ import {
   alertasComparativo,
   NOTA_SIN_CUENTAS_DE_PRUEBA,
   notaCorteMismoPunto,
+  textoDias,
   soloFecha,
   type ComparativoUso,
   type VariacionUso,
@@ -238,7 +239,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
       ? `Reporte anterior (${c.previo.desde} → ${c.previo.hasta}${
           c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""
         })`
-      : `Período anterior de igual duración (${c.previo.desde} → ${c.previo.hasta})`;
+      : `Período anterior de igual duración (${c.previo.desde} → ${c.previo.hasta}, ${textoDias(c.previo.dias)})`;
 
   return (
     <Card className="p-4">
@@ -246,7 +247,7 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
         <div>
           <h2 className="text-[13px] font-semibold text-navy-800">¿Subió o bajó el uso?</h2>
           <p className="mt-0.5 text-[11.5px] text-ink-500">
-            {origen} vs. actual ({c.actual.desde} → {c.actual.hasta})
+            {origen} vs. actual ({c.actual.desde} → {c.actual.hasta}, {textoDias(c.actual.dias)})
           </p>
           {notaCorte && <p className="mt-0.5 text-[11.5px] text-ink-500">{notaCorte}</p>}
           <p className="mt-0.5 text-[11.5px] text-ink-500">{NOTA_SIN_CUENTAS_DE_PRUEBA}</p>

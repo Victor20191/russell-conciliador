@@ -232,6 +232,17 @@ describe("lectura honesta del comparativo en el documento", () => {
     // que el uso no incluye las cuentas de prueba: desde la metodología 4 rige para todo.)
     expect(construirDocumentoConsistente(contexto).html).not.toContain("Este comparativo se hace sin");
   });
+
+  test("el encabezado dice el período actual y el anterior, cada uno con sus días", () => {
+    const anterior = compararUso({ actual: diezOperaciones, previo: unaOperacion, base: "periodo_anterior" });
+    const html = construirDocumentoConsistente({ ...contexto, uso: diezOperaciones, comparativo: anterior }).html;
+    const encabezado = html.slice(html.indexOf("<header>"), html.indexOf("</header>"));
+    expect(encabezado).toContain("Período: 2026-09-01 – 2026-09-07 (7 días)");
+    expect(encabezado).toContain("Período anterior (comparación): 2026-08-25 – 2026-08-31 (7 días)");
+    // Sin comparativo solo va el período actual.
+    const solo = construirDocumentoConsistente(contexto).html;
+    expect(solo.slice(solo.indexOf("<header>"), solo.indexOf("</header>"))).not.toContain("Período anterior");
+  });
 });
 
 describe("colores del comparativo", () => {
