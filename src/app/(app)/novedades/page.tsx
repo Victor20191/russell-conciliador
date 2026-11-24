@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import NovedadesClient, { type VersionRow } from "./novedades-client";
+import { fechaDespliegueTexto } from "@/lib/novedades/despliegue";
 
 // Módulo de NOVEDADES (changelog + control de versiones), admin-only. El guard
 // es `novedades:ver` (SOLO_ADMIN); `canManage` (gate `novedades:administrar`)
@@ -25,6 +26,7 @@ export default async function NovedadesPage() {
     summary: v.summary,
     status: v.status,
     releasedAt: v.releasedAt ? v.releasedAt.toISOString() : null,
+    deployedOn: fechaDespliegueTexto(v.deployedAt),
     createdAt: v.createdAt.toISOString(),
     order: v.order,
     changes: v.changes.map((c) => ({

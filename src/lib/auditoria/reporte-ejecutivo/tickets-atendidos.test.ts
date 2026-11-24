@@ -3,6 +3,7 @@ import {
   construirTicketsAtendidos,
   desgloseTicketsAtendidos,
   esEstadoAtendido,
+  esMovimientoDeAtencion,
   esTicketDelCliente,
   fechaDeAtencion,
   fraseSinRespuesta,
@@ -69,7 +70,7 @@ describe("qué tickets entran", () => {
     expect(construir([tarde], { corte: "2026-10-03T21:00:00.000Z" }).total).toBe(1);
   });
 
-  it("un ticket resuelto y luego cerrado en el mismo período cuenta UNA vez, con el estado actual", () => {
+  it("un ticket resuelto y luego cerrado en el mismo período cuenta UNA vez, con el último estado del período", () => {
     const r = construir([
       ticket({
         estado: "cerrado",
@@ -80,7 +81,7 @@ describe("qué tickets entran", () => {
       }),
     ]);
     expect(r.total).toBe(1);
-    expect(r.tickets[0]).toMatchObject({ estado: "cerrado", atendidoEn: "2026-10-01T22:17:07.000Z" });
+    expect(r.tickets[0]).toMatchObject({ estado: "cerrado", atendidoEn: "2026-10-01T22:17:32.000Z" });
   });
 
   it("resuelto en un período anterior y cerrado en este NO se vuelve a contar", () => {
@@ -92,11 +93,39 @@ describe("qué tickets entran", () => {
       ],
     });
     expect(construir([t]).total).toBe(0);
-    // ...y sí aparece en el período en que se resolvió, ya como cerrado.
+    // ...y sí aparece en el período en que se resolvió, con el estado que tuvo en él.
     const septiembre = construirTicketsAtendidos({
       candidatos: [t], desde: "2026-09-01T00:00:00.000Z", hasta: "2026-09-30T23:59:59.999Z",
     });
-    expect(septiembre.tickets.map((x) => [x.codigo, x.estado])).toEqual([["TKT-1", "cerrado"]]);
+    expect(septiembre.tickets.map((x) => [x.codigo, x.estado])).toEqual([["TKT-1", "resuelto"]]);
+  });
+
+  it("pasar a «En proceso» dentro del período también es atenderlo", () => {
+    const t = ticket({ estado: "en_proceso", solucion: null, eventos: [ev("abierto", "en_proceso", "2026-10-02T09:00:00.000Z")] });
+    const r = construir([t]);
+    expect(r.tickets[0]).toMatchObject({ estado: "en_proceso", atendidoEn: "2026-10-02T09:00:00.000Z" });
+    expect(r.tickets[0].solucion).toBe("En proceso: todavía sin respuesta documentada");
+    expect([r.total, r.enProceso]).toEqual([1, 1]);
+  });
+
+  it("empezado en un período y resuelto en otro sale en los dos, cada uno con lo que se hizo en él", () => {
+    const t = ticket({
+      estado: "resuelto",
+      eventos: [
+        ev("abierto", "en_proceso", "2026-09-28T09:00:00.000Z"),
+        ev("en_proceso", "resuelto", "2026-10-02T15:00:00.000Z"),
+      ],
+    });
+    const septiembre = construirTicketsAtendidos({
+      candidatos: [t], desde: "2026-09-01T00:00:00.000Z", hasta: "2026-09-30T23:59:59.999Z",
+    });
+    expect(septiembre.tickets.map((x) => x.estado)).toEqual(["en_proceso"]);
+    expect(construir([t]).tickets.map((x) => x.estado)).toEqual(["resuelto"]);
+  });
+
+  it("un período en que el ticket no se movió no lo trae, aunque esté en proceso", () => {
+    const t = ticket({ estado: "en_proceso", eventos: [ev("abierto", "en_proceso", "2026-09-28T09:00:00.000Z")] });
+    expect(construir([t]).total).toBe(0);
   });
 
   it("un ticket reabierto y vuelto a resolver se atiende de nuevo en el período del segundo cierre", () => {
@@ -111,7 +140,7 @@ describe("qué tickets entran", () => {
     expect(construir([t]).tickets[0]).toMatchObject({ estado: "resuelto", atendidoEn: "2026-10-02T15:00:00.000Z" });
   });
 
-  it("un ticket que hoy está reabierto no está atendido, aunque se haya cerrado dentro del período", () => {
+  it("cerrado y vuelto a abrir para trabajarlo dentro del período sale con el último estado al que llegó", () => {
     const t = ticket({
       estado: "en_proceso",
       eventos: [
@@ -119,12 +148,23 @@ describe("qué tickets entran", () => {
         ev("cerrado", "en_proceso", "2026-10-02T15:00:00.000Z"),
       ],
     });
-    expect(construir([t]).total).toBe(0);
+    expect(construir([t]).tickets[0]).toMatchObject({ estado: "en_proceso", atendidoEn: "2026-10-02T15:00:00.000Z" });
   });
 
-  it("los estados pendientes nunca cuentan", () => {
-    for (const estado of ["abierto", "en_evaluacion", "en_proceso"]) {
-      expect(construir([ticket({ estado, resueltoEn: "2026-10-02T15:00:00.000Z", eventos: [] })]).total).toBe(0);
+  it("un reporte pasado no cambia porque el ticket se reabra después", () => {
+    const t = ticket({
+      estado: "abierto",
+      eventos: [
+        ev("en_proceso", "resuelto", "2026-10-02T15:00:00.000Z"),
+        ev("resuelto", "abierto", "2026-10-20T15:00:00.000Z"),
+      ],
+    });
+    expect(construir([t]).tickets.map((x) => x.estado)).toEqual(["resuelto"]);
+  });
+
+  it("abrir o pasar a evaluación no es atenderlo", () => {
+    for (const estado of ["abierto", "en_evaluacion"]) {
+      expect(construir([ticket({ estado, eventos: [ev(null, estado, "2026-10-02T15:00:00.000Z")] })]).total).toBe(0);
     }
   });
 });
@@ -245,8 +285,9 @@ describe("presentación de los datos", () => {
       ticket({ codigo: "TKT-2" }),
       ticket({ codigo: "TKT-3", estado: "resuelto", eventos: [ev("abierto", "resuelto", "2026-10-01T10:00:00.000Z")] }),
     ]);
-    expect([r.total, r.cerrados, r.resueltos]).toEqual([3, 2, 1]);
+    expect([r.total, r.cerrados, r.resueltos, r.enProceso]).toEqual([3, 2, 1, 0]);
     expect(desgloseTicketsAtendidos(r)).toBe("2 cerrados, 1 resuelto");
+    expect(desgloseTicketsAtendidos({ cerrados: 0, resueltos: 1, enProceso: 2 })).toBe("1 resuelto, 2 en proceso");
     expect(desgloseTicketsAtendidos({ cerrados: 1, resueltos: 0 })).toBe("1 cerrado");
     expect(desgloseTicketsAtendidos({ cerrados: 0, resueltos: 0 })).toBe("");
   });
@@ -280,17 +321,28 @@ describe("presentación de los datos", () => {
 });
 
 describe("piezas sueltas", () => {
-  it("solo resuelto y cerrado son estados atendidos", () => {
+  it("en proceso, resuelto y cerrado son estados atendidos; abierto y en evaluación no", () => {
+    expect(esEstadoAtendido("en_proceso")).toBe(true);
     expect(esEstadoAtendido("resuelto")).toBe(true);
     expect(esEstadoAtendido("cerrado")).toBe(true);
-    expect(esEstadoAtendido("en_proceso")).toBe(false);
+    expect(esEstadoAtendido("abierto")).toBe(false);
+    expect(esEstadoAtendido("en_evaluacion")).toBe(false);
     expect(esEstadoAtendido(null)).toBe(false);
   });
 
-  it("fechaDeAtencion elige la primera entrada dentro de la ventana", () => {
+  it("pasar de resuelto a cerrado (o al revés) es trámite, no atención", () => {
+    expect(esMovimientoDeAtencion(ev("resuelto", "cerrado", DESDE))).toBe(false);
+    expect(esMovimientoDeAtencion(ev("cerrado", "resuelto", DESDE))).toBe(false);
+    expect(esMovimientoDeAtencion(ev("en_proceso", "resuelto", DESDE))).toBe(true);
+    expect(esMovimientoDeAtencion(ev("abierto", "en_proceso", DESDE))).toBe(true);
+    expect(esMovimientoDeAtencion(ev("en_proceso", "en_proceso", DESDE))).toBe(false);
+  });
+
+  it("fechaDeAtencion da el último estado atendido dentro de la ventana", () => {
     const ventana = { desde: Date.parse(DESDE), hasta: Date.parse(HASTA) };
     const t = {
       resueltoEn: null,
+      estado: "cerrado",
       eventos: [
         ev("abierto", "resuelto", "2026-09-01T10:00:00.000Z"),
         ev("resuelto", "en_proceso", "2026-09-02T10:00:00.000Z"),
@@ -299,6 +351,6 @@ describe("piezas sueltas", () => {
         ev("en_proceso", "cerrado", "2026-10-03T10:00:00.000Z"),
       ],
     };
-    expect(new Date(fechaDeAtencion(t, ventana)!).toISOString()).toBe("2026-10-01T10:00:00.000Z");
+    expect(new Date(fechaDeAtencion(t, ventana)!).toISOString()).toBe("2026-10-03T10:00:00.000Z");
   });
 });

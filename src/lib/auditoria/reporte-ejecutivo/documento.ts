@@ -106,10 +106,11 @@ export function elegirLecturaConsistente({ uso, adopcion }: Contexto): LecturaCo
  * pendiente, el formulario caía a «todas las publicadas» y dos reportes seguidos
  * traían los mismos avances (y la adopción se medía sobre funcionalidades viejas).
  */
-export const SIN_AVANCES_NUEVOS = "No hay avances nuevos en este reporte: lo publicado ya se comunicó en reportes anteriores.";
+export const SIN_AVANCES_NUEVOS = "No se desplegaron avances de la plataforma en este período.";
 /** Cada sección tiene su propio vacío: un período puede traer mejoras y ningún módulo nuevo. */
-export const SIN_FUNCIONALIDADES_NUEVAS = "No se publicaron funcionalidades nuevas en el alcance de este reporte.";
-export const SIN_MEJORAS = "No se publicaron mejoras ni correcciones en el alcance de este reporte.";
+// Las novedades del reporte son las versiones desplegadas en el período (`novedades-periodo.ts`).
+export const SIN_FUNCIONALIDADES_NUEVAS = "No se desplegaron funcionalidades nuevas en este período.";
+export const SIN_MEJORAS = "No se desplegaron mejoras ni correcciones en este período.";
 export const SIN_TICKETS_ATENDIDOS = "No se atendieron tickets reportados por el equipo en el período de este reporte.";
 
 const ETIQUETA_TIPO_MEJORA: Record<string, string> = {
@@ -367,7 +368,7 @@ function filaTicket(t: TicketAtendido): string {
 function seccionTicketsAtendidos(tickets?: TicketsAtendidos | null): string {
   if (!tickets) return "";
   const rango = `${escapeHtml(soloFecha(tickets.desde))} – ${escapeHtml(soloFecha(tickets.hasta))}`;
-  const nota = `<p class="nota">Tickets que el equipo de Russell reportó desde la plataforma y que pasaron a «Resuelto» o «Cerrado» dentro del período. Un ticket resuelto y luego cerrado aparece una sola vez, con su estado actual. La solución es la respuesta que se le dio a quien lo reportó.</p>`;
+  const nota = `<p class="nota">Tickets que el equipo de Russell reportó desde la plataforma y que dentro del período pasaron a «En proceso», «Resuelto» o «Cerrado». Cada ticket aparece una sola vez, con el último estado al que llegó en el período; si se empezó en un período y se resolvió en otro, aparece en los dos. La solución es la respuesta que se le dio a quien lo reportó.</p>`;
   if (tickets.total === 0) {
     return `\n<section id="tickets-atendidos"><h2>Tickets atendidos</h2><p>${SIN_TICKETS_ATENDIDOS}</p>${nota}</section>`;
   }
@@ -416,7 +417,7 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
       : nuevas.length > 0
         ? `<li>Funcionalidades nuevas en este reporte: <strong>${numero(nuevas.length)}</strong>.</li>`
         : "",
-    mejoras.length > 0 ? `<li>Mejoras y correcciones en este reporte: <strong>${numero(mejoras.length)}</strong>.</li>` : "",
+    mejoras.length > 0 ? `<li>Mejoras y correcciones desplegadas en el período: <strong>${numero(mejoras.length)}</strong>.</li>` : "",
   ].join("") || `<li>${SIN_AVANCES_NUEVOS}</li>`;
   const resumenTickets = tickets
     ? `<li>Tickets atendidos: <strong>${numero(tickets.total)}</strong>${tickets.total > 0 ? ` (${escapeHtml(desgloseTicketsAtendidos(tickets))})` : ""}.</li>`

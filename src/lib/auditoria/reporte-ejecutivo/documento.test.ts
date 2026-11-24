@@ -120,7 +120,7 @@ describe("documento consistente", () => {
     // Agrupadas por módulo, en el orden del menú: Balance antes que los módulos.
     expect(mejoras.indexOf("Balance de comprobación")).toBeLessThan(mejoras.indexOf("Módulos de conciliación"));
     expect(mejoras.indexOf("Filtro de alertas")).toBeLessThan(mejoras.indexOf("Lectura más rápida"));
-    expect(html).toContain("Mejoras y correcciones en este reporte: <strong>3</strong>");
+    expect(html).toContain("Mejoras y correcciones desplegadas en el período: <strong>3</strong>");
   });
 
   test("con mejoras y sin funcionalidades nuevas, cada sección dice lo suyo", () => {

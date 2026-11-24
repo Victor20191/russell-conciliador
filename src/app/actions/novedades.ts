@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { VERSION_APP_CACHE_TAG } from "@/lib/version-app-servidor";
+import { despliegueAlPublicar, fechaDespliegueTexto, instanteDespliegue } from "@/lib/novedades/despliegue";
 import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
 import {
   MODELO_REPORTE_NOVEDADES,
@@ -631,8 +632,18 @@ function leerVersion(formData: FormData) {
     title: formData.get("title"),
     summary: formData.get("summary"),
     status: formData.get("status"),
+    deployedOn: formData.get("deployedOn") ?? undefined,
     order: formData.get("order"),
   };
+}
+
+/**
+ * Día de despliegue que se guarda: el escrito; si no hay y la versión está
+ * publicada, el día de su publicación en Colombia; en borrador sin fecha, ninguno.
+ */
+function despliegueAGuardar(deployedOn: string | null, releasedAt: Date | null): Date | null {
+  if (deployedOn) return instanteDespliegue(deployedOn);
+  return releasedAt ? despliegueAlPublicar(releasedAt) : null;
 }
 
 /** Lee del FormData los campos de un cambio para validarlos con Zod. */
@@ -673,7 +684,9 @@ export async function createVersion(
     if (dup) return { ok: false, message: `Ya existe una versión con el número ${parsed.data.number}.` };
 
     const user = await getCurrentUser();
-    const { number, title, summary, status, order } = parsed.data;
+    const { number, title, summary, status, order, deployedOn } = parsed.data;
+    // Al publicar, sella la fecha de lanzamiento; en borrador queda sin fecha.
+    const releasedAt = status === "publicada" ? new Date() : null;
     const created = await prisma.platformVersion.create({
       data: {
         number,
@@ -681,8 +694,8 @@ export async function createVersion(
         summary,
         status,
         order,
-        // Al publicar, sella la fecha de lanzamiento; en borrador queda sin fecha.
-        releasedAt: status === "publicada" ? new Date() : null,
+        releasedAt,
+        deployedAt: despliegueAGuardar(deployedOn, releasedAt),
         createdById: user?.id ?? null,
       },
     });
@@ -722,21 +735,26 @@ export async function updateVersion(
       if (dup) return { ok: false, message: `Ya existe otra versión con el número ${parsed.data.number}.` };
     }
 
-    const { id, number, title, summary, status, order } = parsed.data;
+    const { id, number, title, summary, status, order, deployedOn } = parsed.data;
     // Conserva la fecha si ya estaba publicada; la sella al publicar por 1ª vez;
     // la limpia si vuelve a borrador.
     const releasedAt = status === "publicada" ? before.releasedAt ?? new Date() : null;
+    const deployedAt = despliegueAGuardar(deployedOn, releasedAt);
     const after = await prisma.platformVersion.update({
       where: { id },
-      data: { number, title, summary, status, order, releasedAt },
+      data: { number, title, summary, status, order, releasedAt, deployedAt },
     });
 
     const user = await getCurrentUser();
+    const antes = fechaDespliegueTexto(before.deployedAt);
+    const despues = fechaDespliegueTexto(deployedAt);
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "EDITÓ VERSIÓN",
       entity: `Novedades · v${after.number}`,
-      detail: `Editó la versión ${after.number} · ${after.title}`,
+      detail: `Editó la versión ${after.number} · ${after.title}${
+        antes !== despues ? ` · desplegada el ${despues ?? "(sin fecha)"} (antes ${antes ?? "sin fecha"})` : ""
+      }`,
     });
     revalidarVersionApp();
     return { ok: true, message: "Versión actualizada." };

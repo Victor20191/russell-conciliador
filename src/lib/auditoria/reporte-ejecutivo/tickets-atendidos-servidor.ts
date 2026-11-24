@@ -1,10 +1,10 @@
 // Lectura de los tickets de soporte para la sección «Tickets atendidos».
 //
 // Solo lee. La consulta es deliberadamente más ancha que la regla (trae todo
-// ticket que ahora está resuelto o cerrado y que tuvo algún movimiento hacia
-// esos estados, o un `resolvedAt`, dentro de la ventana) y la decisión final de
-// qué cuenta como «atendido» la toma `construirTicketsAtendidos`, que es pura y
-// está probada: la regla vive en un solo lugar.
+// ticket que tuvo algún movimiento hacia «En proceso», «Resuelto» o «Cerrado»,
+// o un `resolvedAt`, dentro de la ventana, esté como esté hoy) y la decisión
+// final de qué cuenta como «atendido» la toma `construirTicketsAtendidos`, que
+// es pura y está probada: la regla vive en un solo lugar.
 //
 // Las fechas se comparan EXACTAMENTE como las demás consultas del reporte
 // (bitácora, accesos, consumo de IA): mismos extremos `gte desde` / `lte corte`,
@@ -37,7 +37,7 @@ export async function construirTicketsAtendidosReporte(params: {
       where: {
         // Bandeja interna: los públicos (sin creador) se ven solo por su token.
         createdById: { not: null },
-        status: { in: estados },
+        // Sin filtrar por el estado de hoy: el reporte de un período dice lo que se hizo EN él.
         OR: [
           { events: { some: { newStatus: { in: estados }, createdAt: { gte: params.desde, lte: corte } } } },
           { resolvedAt: { gte: params.desde, lte: corte } },

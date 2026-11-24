@@ -73,16 +73,23 @@ describe("consistencia de generación del reporte", () => {
     }));
   });
 
-  test("rechaza versiones seleccionadas ausentes o no publicadas antes de construir el documento", async () => {
+  test("las novedades son las versiones publicadas desplegadas en el período, no una selección", async () => {
     mocks.leer.mockResolvedValue(null);
-    mocks.versiones.mockResolvedValue([{ id: 3 }]);
-    const result = await generarReporteEjecutivoUso({ ...scope, versionIds: [3, 5] });
-    expect(result).toMatchObject({ ok: false });
+    mocks.versiones.mockResolvedValue([]);
+    const result = await generarReporteEjecutivoUso(scope);
+    expect(result).toMatchObject({ ok: true, desdeCache: false });
+    const desde = new Date("2026-09-01T00:00:00.000Z");
+    const hasta = new Date("2026-09-07T23:59:59.999Z");
     expect(mocks.versiones).toHaveBeenCalledWith(expect.objectContaining({
-      where: { status: "publicada", id: { in: [3, 5] } },
+      where: {
+        status: "publicada",
+        OR: [
+          { deployedAt: { gte: desde, lte: hasta } },
+          { deployedAt: null, releasedAt: { gte: desde, lte: hasta } },
+        ],
+      },
     }));
     expect(mocks.ia).not.toHaveBeenCalled();
-    expect(mocks.guardar).not.toHaveBeenCalled();
   });
 
   test("cancelar mientras se consulta la actividad evita auditoría y guardado", async () => {
@@ -127,10 +134,12 @@ describe("consistencia de generación del reporte", () => {
       );
       await generarReporteEjecutivoUso({ ...scope, actualizar: true });
 
-      // Solo la bandeja interna (los públicos se ven por token) y solo lo ya atendido.
-      expect(mocks.tickets).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ createdById: { not: null }, status: { in: ["resuelto", "cerrado"] } }),
-      }));
+      // Solo la bandeja interna (los públicos se ven por token); el estado de hoy no filtra:
+      // cuenta lo que se movió a «En proceso», «Resuelto» o «Cerrado» dentro del período.
+      const consulta = mocks.tickets.mock.calls[0][0];
+      expect(consulta.where.createdById).toEqual({ not: null });
+      expect(consulta.where.status).toBeUndefined();
+      expect(consulta.where.OR[0].events.some.newStatus).toEqual({ in: ["en_proceso", "resuelto", "cerrado"] });
       const guardado = mocks.guardar.mock.calls[0][0];
       expect(guardado.report.html).toContain('id="tickets-atendidos"');
       expect(guardado.report.html).toContain("TKT-56");

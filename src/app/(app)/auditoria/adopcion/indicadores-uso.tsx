@@ -451,7 +451,7 @@ export function TicketsAtendidosCard({ tickets }: { tickets?: TicketsAtendidosVi
     <Card className="p-4">
       <h2 className="text-[13px] font-semibold text-navy-800">Tickets atendidos</h2>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
-        Tickets del equipo que pasaron a «Resuelto» o «Cerrado» entre {soloFecha(tickets.desde)} y{" "}
+        Tickets del equipo que pasaron a «En proceso», «Resuelto» o «Cerrado» entre {soloFecha(tickets.desde)} y{" "}
         {soloFecha(tickets.hasta)}.
       </p>
 

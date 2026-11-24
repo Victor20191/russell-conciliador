@@ -81,6 +81,18 @@ export function VersionForm({
             />
           </Campo>
 
+          <Campo
+            label="Desplegada el"
+            hint="Día en que quedó en producción. El reporte para gerencia la cuenta en ese período. Si se publica sin fecha, toma la de publicación."
+          >
+            <input
+              name="deployedOn"
+              type="date"
+              defaultValue={version?.deployedOn ?? ""}
+              className={INPUT_CLS}
+            />
+          </Campo>
+
           <Campo label="Orden" hint="Mayor = más arriba en el timeline.">
             <input
               name="order"

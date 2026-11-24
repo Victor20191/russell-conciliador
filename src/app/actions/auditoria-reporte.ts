@@ -29,6 +29,7 @@ import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
 import type { TicketsAtendidos } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos";
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import { filtroVersionesDelPeriodo } from "@/lib/auditoria/reporte-ejecutivo/novedades-periodo";
 import {
   actorUnificado,
   aliasDeActores,
@@ -307,14 +308,18 @@ export async function generarReporteEjecutivoUso(
     };
   }
 
-  // Ausente → todas las publicadas; lista vacía → ninguna (no hay avances nuevos
-  // desde el último envío y el reporte NO debe repetir los ya comunicados).
-  const versionIds = parsed.data.versionIds
-    ? Array.from(new Set(parsed.data.versionIds)).sort((a, b) => a - b)
-    : null;
-
   try {
     signal?.throwIfAborted();
+    // Avances del reporte: las versiones publicadas DESPLEGADAS en el período
+    // (ver `novedades-periodo.ts`); dos períodos distintos no repiten avances.
+    // Entran en la clave: si después se publica una versión desplegada en este
+    // período, el reporte guardado deja de ser el del alcance y se recalcula.
+    const filtroVersiones = filtroVersionesDelPeriodo(rango.desde, rango.hasta);
+    const versionIds = (
+      await prisma.platformVersion.findMany({ where: filtroVersiones, select: { id: true } })
+    )
+      .map((v) => v.id)
+      .sort((a, b) => a - b);
     const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds);
     const anterior = await leerInstantanea(clave);
     signal?.throwIfAborted();
@@ -359,9 +364,7 @@ export async function generarReporteEjecutivoUso(
         orderBy: { path: "asc" },
       }),
       tx.platformVersion.findMany({
-        where: versionIds
-          ? { id: { in: versionIds }, status: "publicada" }
-          : { status: "publicada" },
+        where: { id: { in: versionIds }, status: "publicada" },
         orderBy: [{ order: "desc" }, { id: "desc" }],
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),
@@ -377,12 +380,7 @@ export async function generarReporteEjecutivoUso(
     if (eventosRaw.length > MAX_EVENTOS_AUDITORIA) {
       return { ok: false, message: "El período supera el límite de movimientos del reporte. Reduce el rango para obtener cifras completas." };
     }
-    if (versionIds && versiones.length !== versionIds.length) {
-      return { ok: false, message: "Una o más versiones seleccionadas no están publicadas. Revisa el alcance." };
-    }
-
-    // Ids realmente usados (aunque el alcance haya sido «todas las publicadas»):
-    // es lo que se guarda al marcar el reporte como enviado.
+    // Ids realmente usados: es lo que se guarda al marcar el reporte como enviado.
     const versionIdsIncluidos = versiones.map((v) => v.id);
 
     const eventosCrudos: EventoAuditoria[] = eventosRaw.map((e) => ({
@@ -527,7 +525,7 @@ export async function generarReporteEjecutivoUso(
       action: "GENERÓ REPORTE IA",
       entity: "Uso y adopción",
       detail: `Generó reporte para gerencia (documento ${MODELO_REPORTE_DETERMINISTA}: ${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
-        versionIds ? `${versiones.length} versiones` : "versiones publicadas"
+        `${versiones.length} versiones desplegadas en el período`
       }). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
     return { ok: true, ...final, desdeCache: false };
@@ -596,8 +594,9 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         _count: { path: true },
         orderBy: { path: "asc" },
       }),
+      // Solo las desplegadas en el período, igual que el reporte generado.
       prisma.platformVersion.findMany({
-        where: { status: "publicada" },
+        where: filtroVersionesDelPeriodo(rango.desde, rango.hasta),
         orderBy: [{ order: "desc" }, { id: "desc" }],
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),

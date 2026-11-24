@@ -2510,6 +2510,10 @@ model PlatformVersion {
   summary     String?   @map("resumen")
   status      String    @default("borrador") @map("estado") // borrador | publicada
   releasedAt  DateTime? @map("publicado_en") @db.Timestamptz(3) // instante de publicación
+  // Día en que la versión quedó desplegada (mediodía UTC de esa fecha de calendario). Editable en
+  // Novedades; al publicar sin fecha toma la de publicación. El reporte para gerencia cuenta como
+  // avances del período las versiones publicadas cuya fecha de despliegue cae en él.
+  deployedAt  DateTime? @map("desplegado_en") @db.Timestamptz(3)
   order       Int       @default(0) @map("orden") // orden manual del timeline
   createdById Int?      @map("creado_por_id") // FK lógica a User.id (autor)
   createdAt   DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)

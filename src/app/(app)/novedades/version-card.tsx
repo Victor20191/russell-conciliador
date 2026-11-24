@@ -8,7 +8,7 @@ import {
   PaginationFooter,
   usePagination,
 } from "@/components/pagination-controls";
-import { fmtDateTime } from "@/lib/format";
+import { fmtCalendarDate, fmtDateTime } from "@/lib/format";
 import {
   parsePasos,
   esRutaInternaSegura,
@@ -62,6 +62,12 @@ export function VersionCard({
               <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-500">
                 <Icon name="calendar" size={12} className="text-ink-400" />
                 Publicada el {fmtDateTime(version.releasedAt)}
+              </span>
+            )}
+            {version.deployedOn && (
+              <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-500">
+                <Icon name="calendar" size={12} className="text-ink-400" />
+                Desplegada el {fmtCalendarDate(version.deployedOn)}
               </span>
             )}
           </div>

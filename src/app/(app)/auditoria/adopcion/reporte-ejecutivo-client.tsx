@@ -15,6 +15,8 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtCalendarDate, fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
 import { periodoAnteriorEnFechas } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { despliegueEnFechas } from "@/lib/auditoria/reporte-ejecutivo/novedades-periodo";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import {
   hacerBarrasCompatiblesCorreo,
@@ -26,7 +28,6 @@ import { FUENTE_CORREO, NEUTRO } from "@/lib/marca/paleta";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import type {
   EnvioReportePrevio,
-  ResumenPendienteEnvio,
 } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import {
   IndicadoresUso,
@@ -51,6 +52,8 @@ export type VersionOpcion = {
   title: string;
   changesCount: number;
   releasedAt: string | null;
+  /** Día que cuenta para el reporte (AAAA-MM-DD): el de despliegue o, sin él, el de publicación. */
+  deployedOn: string | null;
   createdAt: string;
 };
 
@@ -258,7 +261,6 @@ export function ReporteEjecutivoClient({
   periodoTablero,
   notaPeriodo,
   envios,
-  pendiente,
   generados = [],
 }: {
   versions: VersionOpcion[];
@@ -271,7 +273,6 @@ export function ReporteEjecutivoClient({
   /** Explicación de por qué el modal propone ese período. */
   notaPeriodo?: string | null;
   envios: EnvioReportePrevio[];
-  pendiente: ResumenPendienteEnvio;
   /** Historial de reportes generados; borrarlos reinicia el período sugerido. */
   generados?: ReporteGeneradoPrevio[];
 }) {
@@ -291,10 +292,6 @@ export function ReporteEjecutivoClient({
 
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
-  // Siempre arranca en «solo lo nuevo»: si no hay nada pendiente el reporte sale
-  // sin avances en vez de repetir los ya comunicados.
-  const [modoVersiones, setModoVersiones] = useState<"nuevas" | "publicadas" | "seleccion">("nuevas");
-  const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
   const [envioPendiente, setEnvioPendiente] = useState(false);
   const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
   const [canalUsado, setCanalUsado] = useState<CanalEnvio>("correo");
@@ -304,10 +301,13 @@ export function ReporteEjecutivoClient({
   // Contra qué días se comparará el uso: se dice antes de generar para que nadie lo busque en otra opción.
   const periodoComparado = useMemo(() => periodoAnteriorEnFechas(desde, hasta), [desde, hasta]);
 
-  const cambiosSeleccionados = useMemo(
-    () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
-    [versions, seleccion],
+  // Avances del reporte: las versiones desplegadas en el período elegido (la misma
+  // regla que aplica el servidor al generar, ver `novedades-periodo.ts`).
+  const versionesDelPeriodo = useMemo(
+    () => versions.filter((v) => despliegueEnFechas(v.deployedOn, desde, hasta)),
+    [versions, desde, hasta],
   );
+  const cambiosDelPeriodo = versionesDelPeriodo.reduce((acc, v) => acc + v.changesCount, 0);
 
   const cancelarGeneracion = () => {
     solicitudRef.current?.abort();
@@ -320,17 +320,6 @@ export function ReporteEjecutivoClient({
   const generar = async () => {
     if (solicitudRef.current) return;
     setError(null);
-    const versionIds =
-      modoVersiones === "seleccion"
-        ? versions.filter((v) => seleccion.has(v.id)).map((v) => v.id)
-        : modoVersiones === "nuevas"
-          ? pendiente.versionIds
-          : undefined;
-
-    if (modoVersiones === "seleccion" && (!versionIds || versionIds.length === 0)) {
-      setError("Selecciona al menos una versión de Novedades.");
-      return;
-    }
 
     const solicitud = new AbortController();
     solicitudRef.current = solicitud;
@@ -339,7 +328,7 @@ export function ReporteEjecutivoClient({
       const response = await fetch("/api/auditoria/reporte-ejecutivo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desde, hasta, versionIds, actualizar: actualizarDatos }),
+        body: JSON.stringify({ desde, hasta, actualizar: actualizarDatos }),
         signal: solicitud.signal,
       });
       const res = (await response.json()) as GenerarReporteEjecutivoResult;
@@ -381,21 +370,7 @@ export function ReporteEjecutivoClient({
     setConfigAbierto(true);
   };
 
-  const toggle = (id: number) =>
-    setSeleccion((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const puedeConfirmar =
-    !generando &&
-    Boolean(desde && hasta) &&
-    (modoVersiones === "publicadas" ||
-      modoVersiones === "nuevas" ||
-      cambiosSeleccionados > 0 ||
-      seleccion.size > 0);
+  const puedeConfirmar = !generando && Boolean(desde && hasta);
 
   const descargarPdfActual = async () => {
     if (!reporte || pdfPendiente) return;
@@ -470,15 +445,19 @@ export function ReporteEjecutivoClient({
       notifySuccess(
         "Envío registrado",
         res.envio.versionIds.length === 0
-          ? "Quedó registrado el envío de este reporte sin avances nuevos."
-          : `Estas ${res.envio.versionIds.length} versiones no se volverán a proponer en el próximo reporte.`,
+          ? "Quedó registrado el envío de este reporte, sin avances del período."
+          : `Quedó registrado el envío, con ${res.envio.versionIds.length} ${
+              res.envio.versionIds.length === 1 ? "versión desplegada" : "versiones desplegadas"
+            } en el período.`,
       );
     });
   };
 
   // Confirmación en dos pasos: el borrado del historial mueve hacia atrás el
-  // período sugerido y la base del comparativo, así que no basta un clic.
+  // período que propone el modal, así que no basta un clic.
   const [confirmarBorrado, setConfirmarBorrado] = useState<number | "todos" | null>(null);
+  // El historial de reportes generados es largo y se consulta poco: arranca cerrado.
+  const [historialAbierto, setHistorialAbierto] = useState(false);
 
   const borrarGenerado = (id: number) => {
     setConfirmarBorrado(null);
@@ -488,7 +467,7 @@ export function ReporteEjecutivoClient({
         notifyError("No se pudo eliminar", res.message);
         return;
       }
-      notifySuccess("Reporte eliminado", "El período sugerido y el comparativo vuelven al reporte anterior.");
+      notifySuccess("Reporte eliminado", "El período que se propone al generar vuelve a partir del reporte anterior.");
     });
   };
 
@@ -515,7 +494,7 @@ export function ReporteEjecutivoClient({
         return;
       }
       if (envioRegistrado?.id === id) setEnvioRegistrado(null);
-      notifyInfo("Registro eliminado", "Sus novedades vuelven a considerarse pendientes de enviar.");
+      notifyInfo("Registro eliminado", "Se quitó el registro de ese envío.");
     });
   };
 
@@ -553,10 +532,10 @@ export function ReporteEjecutivoClient({
           }
         />
         <StatCard
-          label="Novedades publicadas"
+          label="Novedades desplegadas en el período"
           value={fmtNum(kpis.totalNovedades)}
           tone="ink"
-          hint={`${kpis.totalVersionesPublicadas} versiones`}
+          hint={`${kpis.totalVersionesPublicadas} ${kpis.totalVersionesPublicadas === 1 ? "versión" : "versiones"}`}
         />
         {kpis.usuariosActivos && (
           <div className="col-span-2 lg:col-span-4">
@@ -631,21 +610,44 @@ export function ReporteEjecutivoClient({
               novedades.
             </span>
           ) : (
-            "El reporte para gerencia se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
+            "El reporte para gerencia se genera bajo demanda. Elige el período: incluye las versiones de Novedades desplegadas en esas fechas."
           )}
         </div>
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 lg:px-5 ${
+            historialAbierto ? "border-b border-ink-100" : ""
+          }`}
+        >
           <div className="min-w-0">
-            <h2 className="text-[13px] font-semibold text-navy-800">Reportes generados</h2>
-            <p className="text-[11.5px] text-ink-500">
-              Historial de la plataforma. Al borrar uno, el período sugerido y el comparativo de uso
-              vuelven al reporte anterior.
+            <h2 className="text-[13px] font-semibold text-navy-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setHistorialAbierto((abierto) => !abierto);
+                  setConfirmarBorrado(null);
+                }}
+                aria-expanded={historialAbierto}
+                aria-controls="historial-reportes-generados"
+                className="inline-flex items-center gap-1.5 rounded text-left transition hover:text-navy-600"
+                title={historialAbierto ? "Ocultar el historial" : "Mostrar el historial"}
+              >
+                <Icon name={chevronDivulgacion(historialAbierto)} size={13} className="shrink-0 text-ink-500" />
+                Reportes generados
+                <span className="rounded-full bg-ink-100 px-1.5 py-px text-[10.5px] font-semibold text-ink-600">
+                  {fmtNum(generados.length)}
+                </span>
+              </button>
+            </h2>
+            <p className="pl-[19px] text-[11.5px] text-ink-500">
+              Historial de la plataforma. Al borrar uno, el período que propone «Generar reporte para
+              gerencia» vuelve a partir del reporte anterior.
             </p>
           </div>
-          {generados.length > 0 &&
+          {historialAbierto &&
+            generados.length > 0 &&
             (confirmarBorrado === "todos" ? (
               <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-600">
                 ¿Borrar los {generados.length}?
@@ -675,12 +677,12 @@ export function ReporteEjecutivoClient({
               </button>
             ))}
         </div>
-        {generados.length === 0 ? (
-          <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
+        {!historialAbierto ? null : generados.length === 0 ? (
+          <p id="historial-reportes-generados" className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
             Aún no se ha generado ningún reporte. El primero tomará los últimos 30 días.
           </p>
         ) : (
-          <ul className="divide-y divide-ink-100">
+          <ul id="historial-reportes-generados" className="divide-y divide-ink-100">
             {generados.map((reporte) => (
               <li
                 key={reporte.id}
@@ -734,22 +736,15 @@ export function ReporteEjecutivoClient({
           <div className="min-w-0">
             <h2 className="text-[13px] font-semibold text-navy-800">Reportes enviados</h2>
             <p className="text-[11.5px] text-ink-500">
-              Control de lo ya comunicado al cliente. Lo registrado aquí no se vuelve a proponer como
-              avance nuevo.
+              Constancia de lo comunicado al cliente: cuándo se envió cada reporte, de qué período y
+              con qué versiones.
             </p>
           </div>
-          <span className="shrink-0 text-[11.5px] text-ink-500">
-            {pendiente.versionIds.length === 0
-              ? "Sin avances pendientes por comunicar"
-              : `${pendiente.totalVersiones} ${
-                  pendiente.totalVersiones === 1 ? "versión pendiente" : "versiones pendientes"
-                } · ${pendiente.totalCambios} cambios`}
-          </span>
         </div>
         {enviosVisibles.length === 0 ? (
           <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
             Aún no hay envíos registrados. Genera el reporte, envíalo y usa «Marcar como enviado»
-            para que el siguiente solo cuente lo nuevo.
+            para dejar constancia.
           </p>
         ) : (
           <ul className="divide-y divide-ink-100">
@@ -773,7 +768,7 @@ export function ReporteEjecutivoClient({
                   type="button"
                   onClick={() => deshacerEnvio(envio.id)}
                   className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
-                  title="Deshacer: sus novedades vuelven a considerarse pendientes"
+                  title="Deshacer: quita el registro de este envío"
                 >
                   Deshacer
                 </button>
@@ -903,160 +898,41 @@ export function ReporteEjecutivoClient({
 
           <div>
             <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">
-              Novedades a incluir (avances de la plataforma)
+              Novedades del período (avances de la plataforma)
             </h3>
-            <p className="mb-1 text-[11.5px] leading-relaxed text-ink-600">
-              Qué mejoras de la plataforma, publicadas en Novedades, se le cuentan a gerencia en el
-              reporte. No cambia las cifras de uso ni la comparación.
+            <p className="mb-2 text-[11.5px] leading-relaxed text-ink-600">
+              Entran solas: las versiones publicadas en Novedades cuya fecha de despliegue cae entre
+              Desde y Hasta. Así dos reportes de fechas distintas no repiten avances. No cambian las
+              cifras de uso ni la comparación.
             </p>
-            <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
-              Lo que ya marcaste como enviado no se vuelve a proponer. Las cifras se conservan al recuperar un reporte guardado; solo se recalculan si solicitas actualizarlo.
-            </p>
-            <div className="flex flex-col gap-2.5">
-              <label
-                className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                  modoVersiones === "nuevas"
-                    ? "border-navy-600 bg-navy-50"
-                    : "border-ink-150 hover:bg-ink-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="alcance-novedades"
-                  checked={modoVersiones === "nuevas"}
-                  onChange={() => setModoVersiones("nuevas")}
-                  className="mt-0.5 accent-navy-700"
-                />
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink-800">
-                    Solo lo nuevo desde el último reporte enviado
-                    <span className="ml-1.5 rounded bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700">
-                      Recomendado
-                    </span>
-                  </span>
-                  <span className="block text-[11.5px] text-ink-500">
-                    {pendiente.versionIds.length === 0
-                      ? `Ya enviaste todas las versiones publicadas${
-                          pendiente.ultimoEnvioEn ? ` (último envío ${fmtDate(pendiente.ultimoEnvioEn)})` : ""
-                        }: el reporte saldrá sin avances. Publica en Novedades lo que falte comunicar.`
-                      : `${pendiente.totalVersiones} ${
-                          pendiente.totalVersiones === 1 ? "versión" : "versiones"
-                        } · ${pendiente.totalCambios} cambios · ${
-                          pendiente.ultimoEnvioEn
-                            ? `último envío ${fmtDate(pendiente.ultimoEnvioEn)}`
-                            : "aún sin envíos registrados"
-                        }`}
-                  </span>
-                </span>
-              </label>
-
-              <label
-                className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                  modoVersiones === "publicadas"
-                    ? "border-navy-600 bg-navy-50"
-                    : "border-ink-150 hover:bg-ink-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="alcance-novedades"
-                  checked={modoVersiones === "publicadas"}
-                  onChange={() => setModoVersiones("publicadas")}
-                  className="mt-0.5 accent-navy-700"
-                />
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink-800">
-                    Todas las versiones publicadas
-                  </span>
-                  <span className="block text-[11.5px] text-ink-500">
-                    {versions.length} versiones ·{" "}
-                    {versions.reduce((s, v) => s + v.changesCount, 0)} cambios
-                  </span>
-                </span>
-              </label>
-
-              <label
-                className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
-                  modoVersiones === "seleccion"
-                    ? "border-navy-600 bg-navy-50"
-                    : "border-ink-150 hover:bg-ink-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="alcance-novedades"
-                  checked={modoVersiones === "seleccion"}
-                  onChange={() => setModoVersiones("seleccion")}
-                  className="mt-0.5 accent-navy-700"
-                />
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink-800">Elegir versiones</span>
-                  <span className="block text-[11.5px] text-ink-500">
-                    Limita el detalle de novedades a un subconjunto.
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            {modoVersiones === "seleccion" && (
-              <div className="mt-2 flex flex-col gap-2 rounded-md border border-ink-150 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSeleccion(versions[0] ? new Set([versions[0].id]) : new Set())}
-                    className={BTN_ATAJO}
-                  >
-                    Solo la última
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSeleccion(new Set(versions.map((v) => v.id)))}
-                    className={BTN_ATAJO}
-                  >
-                    Seleccionar todas
-                  </button>
-                  <button type="button" onClick={() => setSeleccion(new Set())} className={BTN_ATAJO}>
-                    Limpiar
-                  </button>
-                  <span className="ml-auto text-[11.5px] text-ink-500">
-                    {seleccion.size} versiones · {cambiosSeleccionados} cambios
-                  </span>
-                </div>
-                {seleccion.size === 0 && (
-                  <p className="text-[11.5px] text-warn-700">
-                    Marca al menos una versión, o elige otra opción de arriba, para poder generar el reporte.
-                  </p>
-                )}
-                <div className="max-h-56 divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-100">
-                  {versions.length === 0 ? (
-                    <p className="px-3 py-4 text-center text-[12.5px] text-ink-400">
-                      No hay versiones publicadas en Novedades.
-                    </p>
-                  ) : (
-                    versions.map((v) => (
-                      <label
-                        key={v.id}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-[12.5px] transition hover:bg-ink-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={seleccion.has(v.id)}
-                          onChange={() => toggle(v.id)}
-                          className="accent-navy-700"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-ink-800">
-                          <span className="font-medium">v{v.number}</span> · {v.title}
-                        </span>
-                        <span className="shrink-0 tabular-nums text-[11px] text-ink-400">
-                          {fmtDate(v.releasedAt ?? v.createdAt)}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-ink-500">
-                          {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
+            {versionesDelPeriodo.length === 0 ? (
+              <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5 text-[12px] text-ink-600">
+                No hay versiones desplegadas en este período: el reporte saldrá sin avances. Si algo se
+                desplegó y no aparece, revisa en Novedades que la versión esté publicada y tenga su
+                fecha «Desplegada el».
+              </p>
+            ) : (
+              <div className="rounded-md border border-ink-150">
+                <p className="border-b border-ink-100 px-3 py-2 text-[11.5px] text-ink-500">
+                  {versionesDelPeriodo.length}{" "}
+                  {versionesDelPeriodo.length === 1 ? "versión desplegada" : "versiones desplegadas"} ·{" "}
+                  {cambiosDelPeriodo} {cambiosDelPeriodo === 1 ? "cambio" : "cambios"}
+                </p>
+                <ul className="max-h-56 divide-y divide-ink-100 overflow-y-auto">
+                  {versionesDelPeriodo.map((v) => (
+                    <li key={v.id} className="flex items-center gap-2.5 px-3 py-2 text-[12.5px]">
+                      <span className="min-w-0 flex-1 truncate text-ink-800">
+                        <span className="font-medium">v{v.number}</span> · {v.title}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-[11px] text-ink-400">
+                        Desplegada el {v.deployedOn ? fmtCalendarDate(v.deployedOn) : "—"}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-ink-500">
+                        {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
@@ -1143,15 +1019,15 @@ export function ReporteEjecutivoClient({
           <p className="mt-2 rounded-md bg-ink-50 px-3 py-2 text-[12px] leading-relaxed text-ink-600">
             {envioRegistrado ? (
               <>
-                Envío registrado el {fmtDate(envioRegistrado.enviadoEn)}: las{" "}
+                Envío registrado el {fmtDate(envioRegistrado.enviadoEn)}, con{" "}
                 {envioRegistrado.versionIds.length}{" "}
-                {envioRegistrado.versionIds.length === 1 ? "versión" : "versiones"} incluidas no se
-                volverán a proponer en el próximo reporte.
+                {envioRegistrado.versionIds.length === 1 ? "versión desplegada" : "versiones desplegadas"} en
+                el período.
               </>
             ) : (
               <>
-                Cuando lo envíes al cliente, usa <strong>Marcar como enviado</strong>: el próximo
-                reporte propondrá solo los avances que aún no se han comunicado.
+                Cuando lo envíes al cliente, usa <strong>Marcar como enviado</strong> para dejar
+                constancia del envío.
               </>
             )}
           </p>

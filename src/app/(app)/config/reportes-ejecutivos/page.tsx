@@ -23,7 +23,7 @@ import {
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
-import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
+import { desplegadaEnPeriodo, fechaDespliegueTexto, fechaQueCuenta } from "@/lib/novedades/despliegue";
 import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import { construirTicketsAtendidosReporte } from "@/lib/auditoria/reporte-ejecutivo/tickets-atendidos-servidor";
@@ -237,6 +237,8 @@ export default async function ReportesEjecutivosPage({
 
   const cambiosPublicadosPorVersion = new Map<number, number>();
   const planos: CambioNovedadContexto[] = [];
+  // El tablero, como el reporte, solo cuenta las versiones desplegadas en su período.
+  const versionesDelPeriodo = versiones.filter((v) => desplegadaEnPeriodo(v, desde, hasta));
   for (const v of versiones) {
     const publicables = filtrarCambiosPublicados({
       cambios: v.changes.map((c) => ({
@@ -248,6 +250,7 @@ export default async function ReportesEjecutivosPage({
       clavesConocidas: MODULOS_PLATAFORMA_KEYS,
     });
     cambiosPublicadosPorVersion.set(v.id, publicables.cambios.length);
+    if (!versionesDelPeriodo.includes(v)) continue;
     for (const c of publicables.cambios) {
       planos.push({
         versionNumero: v.number,
@@ -275,14 +278,10 @@ export default async function ReportesEjecutivosPage({
     title: v.title,
     changesCount: cambiosPublicadosPorVersion.get(v.id) ?? 0,
     releasedAt: v.releasedAt?.toISOString() ?? null,
+    // El día que cuenta para el reporte: el de despliegue (o el de publicación si no lo tiene).
+    deployedOn: fechaDespliegueTexto(fechaQueCuenta(v)),
     createdAt: v.createdAt.toISOString(),
   }));
-
-  // Qué avances aún no se le han contado al cliente (según los envíos registrados).
-  const pendiente = resumirPendienteDeEnvio({
-    versiones: versions.map((v) => ({ id: v.id, changesCount: v.changesCount })),
-    envios,
-  });
 
   const kpis: KpisIniciales = {
     comparativo,
@@ -297,8 +296,9 @@ export default async function ReportesEjecutivosPage({
     sinEvidencia: adopcion.sinEvidencia,
     noMedibles: adopcion.noMedibles,
     porcentajeAdopcion: adopcion.porcentajeAdopcion,
-    totalNovedades: adopcion.totalCambios,
-    totalVersionesPublicadas: versiones.length,
+    // Cambios publicables de las versiones desplegadas en el período (todos los tipos).
+    totalNovedades: planos.length,
+    totalVersionesPublicadas: versionesDelPeriodo.length,
     porFamilia: uso.porFamilia.map((f) => ({ etiqueta: f.nombre, total: f.total })),
     topUsuarios: uso.topUsuarios.map((u) => ({
       etiqueta: u.usuario,
@@ -365,7 +365,6 @@ export default async function ReportesEjecutivosPage({
         periodoTablero={periodoTablero}
         notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
         envios={envios}
-        pendiente={pendiente}
         generados={generados}
       />
     </div>

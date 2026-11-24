@@ -12,13 +12,15 @@
 //     reporte: no hay forma de probar que era del cliente, y en producción los
 //     49 tickets de una cuenta borrada parecen hallazgos de pruebas cargados en
 //     bloque, y contarlos le atribuiría al cliente un trabajo que no pidió.
-//  2. **Un ticket cuenta cuando ENTRA a «Resuelto» o «Cerrado».** La fecha de
-//     atención es la del primer evento que lo lleva a uno de esos estados desde
-//     otro que no lo es. Pasar de «Resuelto» a «Cerrado» no es una atención
-//     nueva: sin esa regla, el ticket resuelto en un reporte reaparecería como
-//     «atendido» en el siguiente apenas alguien lo cierre, y el cliente vería la
-//     misma solución dos veces. Un ticket resuelto y luego cerrado dentro del
-//     mismo período cuenta una sola vez, con el estado en que está hoy.
+//  2. **Un ticket cuenta en el período en que se TRABAJÓ**: si dentro de él pasó
+//     a «En proceso», o pasó a «Resuelto» o «Cerrado» desde un estado sin
+//     resolver (23/Nov/2026: «atendido» incluye empezar a trabajarlo). Pasar de
+//     «Resuelto» a «Cerrado» no es una atención nueva: sin esa regla, el ticket
+//     resuelto en un reporte reaparecería en el siguiente apenas alguien lo
+//     cierre. El ticket que se empezó en un período y se resolvió en otro sale en
+//     los dos, cada uno con lo que se hizo en él. Dentro del período sale una sola
+//     vez, con el último estado al que llegó en él (no el de hoy: un reporte
+//     pasado no cambia porque el ticket se reabra después).
 //  3. **Los tickets anteriores a la tabla de eventos** no tienen historia: su
 //     atención se deriva de `resolvedAt`, igual que hace el hilo del ticket
 //     (`construirHistorialTicket`). Sin esa marca no se puede ubicar en ningún
@@ -30,17 +32,33 @@
 // Módulo PURO: recibe los tickets ya leídos y no toca BD ni reloj.
 import {
   ESTADO_TICKET_CERRADO,
+  ESTADO_TICKET_EN_PROCESO,
   ESTADO_TICKET_RESUELTO,
   etiquetaEstadoTicket,
 } from "@/lib/soporte-estados";
 import { esCuentaInterna } from "./usuarios-reporte";
 
-/** Los dos estados en los que un ticket cuenta como atendido. */
-export const ESTADOS_ATENDIDOS = [ESTADO_TICKET_RESUELTO, ESTADO_TICKET_CERRADO] as const;
+/** Los estados que muestran que un ticket se atendió: se empezó, se resolvió o se cerró. */
+export const ESTADOS_ATENDIDOS = [ESTADO_TICKET_EN_PROCESO, ESTADO_TICKET_RESUELTO, ESTADO_TICKET_CERRADO] as const;
 export type EstadoAtendido = (typeof ESTADOS_ATENDIDOS)[number];
 
 export function esEstadoAtendido(estado: string | null | undefined): estado is EstadoAtendido {
   return typeof estado === "string" && (ESTADOS_ATENDIDOS as readonly string[]).includes(estado);
+}
+
+/** «Resuelto» o «Cerrado»: el ticket ya tiene una salida. */
+function esEstadoFinal(estado: string | null | undefined): boolean {
+  return estado === ESTADO_TICKET_RESUELTO || estado === ESTADO_TICKET_CERRADO;
+}
+
+/**
+ * ¿Este cambio de estado es una atención? Entrar a «En proceso» desde otro
+ * estado, o entrar a «Resuelto»/«Cerrado» desde uno sin resolver. Pasar de
+ * «Resuelto» a «Cerrado» (o al revés) es trámite, no atención.
+ */
+export function esMovimientoDeAtencion(e: Pick<EventoTicketReporte, "estadoAnterior" | "estadoNuevo">): boolean {
+  if (e.estadoNuevo === ESTADO_TICKET_EN_PROCESO) return e.estadoAnterior !== ESTADO_TICKET_EN_PROCESO;
+  return esEstadoFinal(e.estadoNuevo) && !esEstadoFinal(e.estadoAnterior);
 }
 
 /** Cambio de estado de un ticket (`eventos_ticket_soporte`), con la fecha ya en ISO. */
@@ -77,9 +95,9 @@ export type TicketAtendido = {
   /** «Módulo · pantalla» como lo ve quien reporta; null si el ticket no lo trae. */
   ubicacion: string | null;
   reportante: string;
-  /** Instante de la atención (ISO); el documento la presenta en el calendario de Colombia. */
+  /** Instante del estado que se muestra (ISO); el documento lo presenta en el calendario de Colombia. */
   atendidoEn: string;
-  /** Estado final: el que tiene hoy. */
+  /** Último estado al que llegó dentro del período (no el de hoy). */
   estado: EstadoAtendido;
   /** Texto ya resuelto: la respuesta, el último mensaje o la frase de «sin respuesta». */
   solucion: string;
@@ -91,6 +109,7 @@ export type TicketsAtendidos = {
   desde: string;
   hasta: string;
   total: number;
+  enProceso: number;
   cerrados: number;
   resueltos: number;
   tickets: TicketAtendido[];
@@ -114,29 +133,46 @@ function ms(iso: string | null | undefined): number | null {
 }
 
 /**
- * Instante (ms) en que el ticket fue atendido dentro de `[desde, hasta]`, o
- * null si no lo fue.
+ * Cómo se atendió el ticket dentro de `[desde, hasta]`, o null si no se trabajó
+ * en ese período.
  *
- * Con historia, solo cuentan las ENTRADAS a un estado atendido (el estado
- * anterior no lo era); con varias dentro de la ventana manda la primera. Sin
- * ninguna entrada registrada —un ticket anterior a la tabla de eventos— la
- * atención es `resolvedAt`.
+ * Con historia: cuenta si hubo al menos un movimiento de atención en la ventana
+ * (`esMovimientoDeAtencion`); el estado y el instante que se muestran son los
+ * del ÚLTIMO cambio a un estado atendido dentro de ella (así, resuelto y luego
+ * cerrado en el mismo período sale «Cerrado»). Sin historia —un ticket anterior
+ * a la tabla de eventos— la atención es `resolvedAt`, con su estado de hoy.
  */
-export function fechaDeAtencion(
-  ticket: Pick<TicketCandidato, "eventos" | "resueltoEn">,
+export function atencionEnPeriodo(
+  ticket: Pick<TicketCandidato, "eventos" | "resueltoEn" | "estado">,
   ventana: { desde: number; hasta: number },
-): number | null {
+): { instante: number; estado: EstadoAtendido } | null {
   const dentro = (t: number) => t >= ventana.desde && t <= ventana.hasta;
-  const entradas = ticket.eventos
-    .filter((e) => esEstadoAtendido(e.estadoNuevo) && !esEstadoAtendido(e.estadoAnterior))
-    .map((e) => ms(e.creadoEn))
-    .filter((t): t is number => t !== null)
-    .sort((a, b) => a - b);
+  const eventos = ticket.eventos
+    .map((e) => ({ ...e, t: ms(e.creadoEn) }))
+    .filter((e): e is typeof e & { t: number } => e.t !== null)
+    .sort((a, b) => a.t - b.t);
 
-  if (entradas.length > 0) return entradas.find(dentro) ?? null;
+  // Con algún movimiento de atención registrado, la historia manda. Si no hay
+  // ninguno (se resolvió antes de que existiera la tabla y solo se registró el
+  // cierre), vale `resolvedAt`, como en los tickets sin historia.
+  if (eventos.some(esMovimientoDeAtencion)) {
+    const enVentana = eventos.filter((e) => dentro(e.t));
+    if (!enVentana.some(esMovimientoDeAtencion)) return null;
+    const ultimo = [...enVentana].reverse().find((e) => esEstadoAtendido(e.estadoNuevo));
+    return ultimo ? { instante: ultimo.t, estado: ultimo.estadoNuevo as EstadoAtendido } : null;
+  }
 
   const resuelto = ms(ticket.resueltoEn);
-  return resuelto !== null && dentro(resuelto) ? resuelto : null;
+  if (resuelto === null || !dentro(resuelto)) return null;
+  return { instante: resuelto, estado: esEstadoFinal(ticket.estado) ? (ticket.estado as EstadoAtendido) : ESTADO_TICKET_RESUELTO };
+}
+
+/** Instante (ms) de la atención dentro de la ventana, o null (ver `atencionEnPeriodo`). */
+export function fechaDeAtencion(
+  ticket: Pick<TicketCandidato, "eventos" | "resueltoEn" | "estado">,
+  ventana: { desde: number; hasta: number },
+): number | null {
+  return atencionEnPeriodo(ticket, ventana)?.instante ?? null;
 }
 
 /** Texto de usuario: sin retornos de carro, sin blancos en los bordes. */
@@ -146,6 +182,7 @@ export function limpiarTextoTicket(texto: string | null | undefined): string {
 
 /** Frase para el ticket atendido sin nada que mostrar como respuesta. */
 export function fraseSinRespuesta(estado: EstadoAtendido): string {
+  if (estado === ESTADO_TICKET_EN_PROCESO) return "En proceso: todavía sin respuesta documentada";
   return `${estado === ESTADO_TICKET_CERRADO ? "Cerrado" : "Resuelto"} sin respuesta documentada`;
 }
 
@@ -191,19 +228,18 @@ export function construirTicketsAtendidos(params: {
 
   const tickets: TicketAtendido[] = [];
   for (const candidato of params.candidatos) {
-    // El estado de hoy decide: un ticket que se reabrió ya no está atendido.
-    if (!esEstadoAtendido(candidato.estado)) continue;
     if (!esTicketDelCliente(candidato.correoCreador)) continue;
-    const atendido = fechaDeAtencion(candidato, ventana);
-    if (atendido === null) continue;
-    const solucion = solucionDelTicket(candidato, candidato.estado);
+    // Lo que se hizo EN el período: un reporte pasado no cambia si el ticket se reabre después.
+    const atencion = atencionEnPeriodo(candidato, ventana);
+    if (atencion === null) continue;
+    const solucion = solucionDelTicket(candidato, atencion.estado);
     tickets.push({
       codigo: candidato.codigo,
       asunto: limpiarTextoTicket(candidato.asunto),
       ubicacion: ubicacionDelTicket(candidato.rutaEtiqueta, candidato.menuEtiqueta),
       reportante: candidato.reportante.trim(),
-      atendidoEn: new Date(atendido).toISOString(),
-      estado: candidato.estado,
+      atendidoEn: new Date(atencion.instante).toISOString(),
+      estado: atencion.estado,
       solucion: solucion.texto,
       origenSolucion: solucion.origen,
     });
@@ -219,21 +255,27 @@ export function construirTicketsAtendidos(params: {
     desde: params.desde,
     hasta: params.hasta,
     total: tickets.length,
+    enProceso: tickets.filter((t) => t.estado === ESTADO_TICKET_EN_PROCESO).length,
     cerrados: tickets.filter((t) => t.estado === ESTADO_TICKET_CERRADO).length,
     resueltos: tickets.filter((t) => t.estado === ESTADO_TICKET_RESUELTO).length,
     tickets,
   };
 }
 
-/** «5 cerrados, 2 resueltos»; vacío si no hubo ninguno. Singular cuando es uno. */
-export function desgloseTicketsAtendidos(t: Pick<TicketsAtendidos, "cerrados" | "resueltos">): string {
+/** «5 cerrados, 2 resueltos, 1 en proceso»; vacío si no hubo ninguno. Singular cuando es uno. */
+export function desgloseTicketsAtendidos(
+  t: Pick<TicketsAtendidos, "cerrados" | "resueltos"> & { enProceso?: number },
+): string {
   const partes: string[] = [];
   if (t.cerrados > 0) partes.push(`${t.cerrados} ${t.cerrados === 1 ? "cerrado" : "cerrados"}`);
   if (t.resueltos > 0) partes.push(`${t.resueltos} ${t.resueltos === 1 ? "resuelto" : "resueltos"}`);
+  // Las instantáneas anteriores no traen el conteo de «en proceso».
+  const enProceso = t.enProceso ?? 0;
+  if (enProceso > 0) partes.push(`${enProceso} en proceso`);
   return partes.join(", ");
 }
 
-/** Estado como lo ve el lector («Cerrado», «Resuelto»). */
+/** Estado como lo ve el lector («En proceso», «Cerrado», «Resuelto»). */
 export function etiquetaEstadoAtendido(estado: EstadoAtendido): string {
   return etiquetaEstadoTicket(estado);
 }

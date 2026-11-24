@@ -5,6 +5,7 @@ import { esUrlHttp } from "@/lib/soporte-estados";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { motivoFechaFutura } from "@/lib/fecha-cargue";
+import { esFechaDespliegueValida } from "@/lib/novedades/despliegue";
 import { CLAVES_CALENDARIO, type FormularioCalendario } from "@/lib/impuestos/calendario";
 
 export const LoginSchema = z.object({
@@ -827,6 +828,13 @@ const VersionBase = {
     .max(200, { error: "El título es demasiado largo." }),
   summary: textoOpcionalNovedad,
   status: z.enum(["borrador", "publicada"], { error: "Selecciona el estado de la versión." }),
+  // «Desplegada el»: día (AAAA-MM-DD) en que la versión quedó en producción; vacío = sin fecha.
+  deployedOn: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : null))
+    .refine((v) => v === null || esFechaDespliegueValida(v), { error: "La fecha de despliegue no es válida." }),
   order: ordenOpcional,
 };
 
@@ -876,14 +884,13 @@ export type ReporteNovedadesScope = z.infer<typeof ReporteNovedadesScopeSchema>;
 
 // Alcance del reporte ejecutivo de uso y adopción (Auditoría).
 // `desde`/`hasta` en ISO (fecha o datetime); se normalizan en la Server Action.
-// `versionIds` ausente → todas las versiones publicadas de Novedades; vacío →
-// ninguna (reporte sin avances nuevos: no repite lo ya enviado).
+// Las novedades no se eligen: son las versiones publicadas desplegadas en el
+// período (`filtroVersionesDelPeriodo`).
 export const ReporteEjecutivoUsoScopeSchema = z
   .object({
     actualizar: z.boolean().optional(),
     desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
     hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
-    versionIds: z.array(z.coerce.number().int().positive()).max(1000).optional(),
   })
   .superRefine((val, ctx) => {
     const d = Date.parse(val.desde);
