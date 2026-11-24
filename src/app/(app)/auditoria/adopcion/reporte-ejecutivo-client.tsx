@@ -23,6 +23,7 @@ import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notificatio
 import {
   hacerBarrasCompatiblesCorreo,
   htmlConEstilosEnLinea,
+  LIMITE_RECORTE_GMAIL,
 } from "@/lib/correo/preparar-html-correo";
 import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
 import { absolutizarRecursosMarca, prepararMarcaParaCorreo } from "@/lib/marca/html";
@@ -214,9 +215,6 @@ function htmlATextoPlano(html: string): string {
     .trim();
   return texto;
 }
-
-/** A partir de este tamaño Gmail corta el cuerpo con «[Mensaje recortado]». */
-const LIMITE_RECORTE_GMAIL = 102_000;
 
 type ResultadoCopiaCorreo = { conFormato: boolean; caracteres: number };
 

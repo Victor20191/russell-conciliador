@@ -25,6 +25,8 @@ import {
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
+import { obtenerPanelEnvioAutomatico } from "@/app/actions/notificaciones-programadas";
+import { EnvioAutomatico } from "./envio-automatico";
 import { desplegadaEnPeriodo, fechaDespliegueTexto, fechaQueCuenta } from "@/lib/novedades/despliegue";
 import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
@@ -52,6 +54,9 @@ import {
   SelectorPeriodoTablero,
   type PeriodoIndicadores,
 } from "@/app/(app)/auditoria/adopcion/selector-periodo-tablero";
+
+// El envío manual del panel «Envío automático» genera y envía el reporte dentro de la solicitud.
+export const maxDuration = 300;
 
 const MAX_EVENTOS = 25_000;
 const ETIQUETA_MODULO = new Map<string, string>(MODULOS_PLATAFORMA.map((m) => [m.key, m.label]));
@@ -83,7 +88,7 @@ export default async function ReportesEjecutivosPage({
   const { desde, hasta } =
     elegido.estado === "valido" ? elegido : parseRangoReporte(porDefecto.desde, porDefecto.hasta)!;
 
-  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados, usuariosActivos] = await Promise.all([
+  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados, usuariosActivos, panelEnvio] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -139,6 +144,8 @@ export default async function ReportesEjecutivosPage({
     listarReportesGenerados(50),
     // «Usuarios activos: X de Y» de la misma ventana del tablero (null si no se pudo medir).
     construirUsuariosActivos({ desde, hasta }),
+    // Envío automático semanal por correo: nunca lanza (si falta la migración, el panel avisa).
+    obtenerPanelEnvioAutomatico(),
   ]);
 
   // Alcance del tablero y del reporte: solo módulos publicados para todos los
@@ -361,6 +368,9 @@ export default async function ReportesEjecutivosPage({
         envios={envios}
         generados={generados}
       />
+      <div className="mt-4">
+        <EnvioAutomatico resultado={panelEnvio} />
+      </div>
     </div>
   );
 }

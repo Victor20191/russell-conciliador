@@ -2610,6 +2610,80 @@ model EnvioReporteEjecutivo {
   @@map("envios_reporte_ejecutivo")
 }
 
+// ===== Notificaciones programadas por correo =====
+// La plataforma envía sola, por correo, una notificación con día y hora fijos
+// (hoy: el reporte para gerencia, cada semana). Diseño GENÉRICO (campo `tipo`)
+// para servir a otras notificaciones futuras. Detalle en
+// docs/notificaciones/reporte-ejecutivo-programado.md.
+//
+// `creadoPorId` y `actualizadoPorId` son FK lógicas a User (sin @relation): el
+// historial sobrevive al borrado de la cuenta. Los instantes van en TIMESTAMPTZ y
+// la lógica de «lo que ya toca» se calcula en la aplicación (nunca con now() de SQL).
+
+/// Una fila por tipo de notificación (`reporte_ejecutivo`): si está activa, cuándo
+/// toca la próxima y a quiénes se manda (`destinatarios`). La hora es la de Colombia.
+model NotificacionProgramada {
+  id                 Int                        @id @default(autoincrement()) @map("id")
+  tipo               String                     @unique @map("tipo") // reporte_ejecutivo
+  activa             Boolean                    @default(false) @map("activa")
+  frecuencia         String                     @default("semanal") @map("frecuencia") // semanal
+  diaSemana          Int                        @default(1) @map("dia_semana") // 1 = lunes … 7 = domingo
+  hora               String                     @default("07:00") @map("hora") // HH:mm, hora de Colombia
+  proximaEjecucionEn DateTime?                  @map("proxima_ejecucion_en") @db.Timestamptz(3) // null mientras está pausada
+  creadoPor          String                     @map("creado_por")
+  creadoPorId        Int?                       @map("creado_por_id")
+  creadoEn           DateTime                   @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoPor     String                     @map("actualizado_por")
+  actualizadoPorId   Int?                       @map("actualizado_por_id")
+  actualizadoEn      DateTime                   @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  destinatarios      NotificacionDestinatario[]
+  ejecuciones        NotificacionEjecucion[]
+
+  @@map("notificacion_programada")
+}
+
+/// Personas que reciben la notificación: cualquier correo válido, no tienen que ser
+/// usuarios de la plataforma. El correo se guarda en minúsculas.
+model NotificacionDestinatario {
+  id             Int                    @id @default(autoincrement()) @map("id")
+  programacionId Int                    @map("programacion_id")
+  correo         String                 @map("correo")
+  nombre         String?                @map("nombre")
+  activo         Boolean                @default(true) @map("activo")
+  creadoPor      String                 @map("creado_por")
+  creadoPorId    Int?                   @map("creado_por_id")
+  creadoEn       DateTime               @default(now()) @map("creado_en") @db.Timestamptz(3)
+  programacion   NotificacionProgramada @relation(fields: [programacionId], references: [id], onDelete: Cascade)
+
+  @@unique([programacionId, correo])
+  @@map("notificacion_destinatario")
+}
+
+/// Historial de envíos: uno por disparo programado, envío manual o prueba. El único
+/// (programacionId, programadaPara) es lo que impide que un disparo programado se
+/// envíe dos veces aunque dos llamadas del cron se crucen.
+model NotificacionEjecucion {
+  id             Int                    @id @default(autoincrement()) @map("id")
+  programacionId Int                    @map("programacion_id")
+  programadaPara DateTime               @map("programada_para") @db.Timestamptz(3)
+  origen         String                 @map("origen") // programada | manual | prueba
+  estado         String                 @map("estado") // en_curso | ok | parcial | error | omitida
+  aceptados      Int                    @default(0) @map("aceptados")
+  fallidos       Int                    @default(0) @map("fallidos")
+  mensaje        String?                @map("mensaje")
+  periodoDesde   DateTime?              @map("periodo_desde") @db.Timestamptz(3)
+  periodoHasta   DateTime?              @map("periodo_hasta") @db.Timestamptz(3)
+  ejecutadoPor   String?                @map("ejecutado_por")
+  iniciadaEn     DateTime               @map("iniciada_en") @db.Timestamptz(3)
+  terminadaEn    DateTime?              @map("terminada_en") @db.Timestamptz(3)
+  duracionMs     Int?                   @map("duracion_ms")
+  programacion   NotificacionProgramada @relation(fields: [programacionId], references: [id], onDelete: Cascade)
+
+  @@unique([programacionId, programadaPara])
+  @@index([programacionId, iniciadaEn], map: "notificacion_ejecucion_historial_idx")
+  @@map("notificacion_ejecucion")
+}
+
 // ===== Consumo de IA (tokens y costos de escaneos con Claude) =====
 // Registro de uso de la API de Claude (Anthropic): UNA fila por LLAMADA a la API
 // durante el escaneo/extracción de documentos (extracción tabular, extracción de

@@ -57,6 +57,9 @@ Variables esenciales:
 - Variables S3/R2 del almacenamiento de fotos y de evidencias de tickets, cuando
   se habiliten esas funciones; consultar sus nombres en `CLAUDE.md` y en el código.
 - `NEXT_DEPLOYMENT_ID`: mismo identificador al construir y arrancar la aplicación.
+- `CRON_SECRET`: secreto del disparador `/api/tareas/notificaciones`, que llama el crontab
+  del servidor para el envío automático del reporte para gerencia; sin él no se envía nada
+  solo (ver `docs/notificaciones/reporte-ejecutivo-programado.md`).
 
 Para actualizar una instalación existente, con un respaldo previo y la revisión
 correcta del código:

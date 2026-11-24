@@ -56,6 +56,19 @@ export async function enviarCorreoRegistrado(
     fallidos = Math.max(1, destinatarios.length - aceptados);
     detalle = error instanceof ErrorPlantillaNotificacion ? error.message : mensajeErrorSmtp(error);
   }
+  return registrarResultadoEnvio(conexion, { aceptados, fallidos, detalle, referencia: aviso.referencia, inicio, actor });
+}
+
+/**
+ * Cierra un envío: arma el mensaje con los conteos y lo deja en la conexión y en su
+ * historial (`ejecucionConexion`). Lo comparten el aviso de notificación y el correo
+ * con HTML propio.
+ */
+async function registrarResultadoEnvio(
+  conexion: ConexionIntegracion,
+  r: { aceptados: number; fallidos: number; detalle: string; referencia: string; inicio: number; actor: string },
+): Promise<ResultadoCorreo> {
+  const { aceptados, fallidos, detalle, referencia, inicio, actor } = r;
   const ok = aceptados > 0 && fallidos === 0;
   const message = `${aceptados} correo(s) aceptado(s) por SMTP${fallidos ? `; ${fallidos} con error. ${detalle}` : ". La aceptación no confirma la llegada a la bandeja."}`;
   try {
@@ -65,7 +78,7 @@ export async function enviarCorreoRegistrado(
       } }),
       prisma.ejecucionConexion.create({ data: {
         conexionId: conexion.id, tipo: "ENVIO_CORREO", estado: ok ? "ok" : "error",
-        mensaje: `${aviso.referencia} · ${message}`, duracionMs: Date.now() - inicio, ejecutadoPor: actor,
+        mensaje: `${referencia} · ${message}`, duracionMs: Date.now() - inicio, ejecutadoPor: actor,
       } }),
     ]);
   } catch {
@@ -74,6 +87,51 @@ export async function enviarCorreoRegistrado(
     return { ok, message: `${message} No se pudo guardar el resultado en el historial; no repitas el envío sin comprobar tu correo.` };
   }
   return { ok, message };
+}
+
+/** Un correo con HTML completo propio (sin la plantilla de notificación de Russell). */
+export type CorreoHtml = { asunto: string; html: string; texto: string; referencia: string };
+export type ResultadoEnvioHtml = ResultadoCorreo & { aceptados: number; fallidos: number };
+
+/**
+ * Envía un correo con HTML propio, uno por destinatario y sin revelar a los demás, y
+ * registra el resultado en `ejecucionConexion` igual que `enviarCorreoRegistrado`
+ * (conteos, nunca el contenido ni las direcciones). Con el texto plano como alterno.
+ * No devuelve secretos ni errores originales de SMTP o de descifrado.
+ */
+export async function enviarHtmlRegistrado(
+  conexion: ConexionIntegracion,
+  destinatarios: string[],
+  correo: CorreoHtml,
+  actor = "Sistema",
+): Promise<ResultadoEnvioHtml> {
+  const inicio = Date.now();
+  const unicos = [...new Set(destinatarios.map((d) => d.trim().toLowerCase()).filter(Boolean))];
+  let aceptados = 0;
+  let fallidos = 0;
+  let detalle = "";
+  try {
+    if (!conexion.activa || !["smtp", "gmail"].includes(conexion.proveedor)) throw new ErrorSmtp("Activa una conexión SMTP o Gmail antes de enviar.");
+    if (!unicos.length) throw new ErrorSmtp("No hay destinatarios para este correo.");
+    const config = (conexion.configuracion ?? {}) as Record<string, unknown>;
+    const credenciales = descifrarCredenciales(conexion.credenciales);
+    // Los saltos de línea en el asunto abrirían la puerta a inyectar cabeceras; `enviarSmtp` también lo rechaza.
+    const asunto = correo.asunto.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
+    for (const destinatario of unicos) {
+      try {
+        await enviarSmtp(config, credenciales, { destinatario, asunto, texto: correo.texto, html: correo.html });
+        aceptados++;
+      } catch (error) {
+        fallidos++;
+        detalle = mensajeErrorSmtp(error);
+      }
+    }
+  } catch (error) {
+    fallidos = Math.max(1, unicos.length - aceptados);
+    detalle = mensajeErrorSmtp(error);
+  }
+  const resultado = await registrarResultadoEnvio(conexion, { aceptados, fallidos, detalle, referencia: correo.referencia, inicio, actor });
+  return { ...resultado, aceptados, fallidos };
 }
 
 /** Se llama después de persistir el evento; todos los destinatarios se resuelven en servidor. */

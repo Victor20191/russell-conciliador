@@ -1,6 +1,8 @@
 /**
  * Prepara el HTML de un documento (reporte ejecutivo) para pegarlo en el
- * cuerpo de un correo. Requiere DOM: se usa solo desde componentes cliente.
+ * cuerpo de un correo. Requiere un DOM: en el navegador usa `DOMParser`; el envío
+ * automático del servidor le pasa su propio parseador (`linkedom`, ver
+ * `formato-correo-servidor.ts`) para que el correo salga con el MISMO formato.
  *
  * La lógica de cascada vive en `estilos-en-linea.ts` (pura y probada); aquí
  * solo se parsea el documento, se aplica el volcado y se arma el fragmento.
@@ -15,6 +17,19 @@ import {
   type Declaracion,
 } from "./estilos-en-linea";
 import { FUENTE_CORREO, NEUTRO } from "@/lib/marca/paleta";
+
+/** A partir de este tamaño Gmail corta el cuerpo con «[Mensaje recortado]». */
+export const LIMITE_RECORTE_GMAIL = 102_000;
+
+/** Convierte un documento HTML completo en un `Document`: el del navegador o el de `linkedom`. */
+export type ParseadorHtml = (html: string) => Document;
+
+function parseadorDelNavegador(html: string): Document {
+  if (typeof DOMParser === "undefined") {
+    throw new Error("El navegador no permite preparar el formato correo.");
+  }
+  return new DOMParser().parseFromString(html, "text/html");
+}
 
 /** Tipografía (Arial en el correo, Manual de Marca §2.2) y color base por si el documento no los define en <body>. */
 const BASE: Declaracion[] = [
@@ -138,12 +153,8 @@ export function fijarColorEnTexto(raiz: Element): void {
  * Es lo que hace el navegador al copiar una página ya renderizada, y lo único
  * que Gmail respeta: sus etiquetas <style> se descartan al pegar.
  */
-export function htmlConEstilosEnLinea(htmlCompleto: string): string {
-  if (typeof DOMParser === "undefined") {
-    throw new Error("El navegador no permite preparar el formato correo.");
-  }
-
-  const doc = new DOMParser().parseFromString(htmlCompleto, "text/html");
+export function htmlConEstilosEnLinea(htmlCompleto: string, parsear: ParseadorHtml = parseadorDelNavegador): string {
+  const doc = parsear(htmlCompleto);
   if (!doc.body) throw new Error("El reporte no tiene contenido para copiar.");
 
   const css = [...doc.querySelectorAll("style")].map((s) => s.textContent ?? "").join("\n");

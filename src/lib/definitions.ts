@@ -7,6 +7,7 @@ import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { motivoFechaFutura } from "@/lib/fecha-cargue";
 import { esFechaDespliegueValida } from "@/lib/novedades/despliegue";
 import { CLAVES_CALENDARIO, type FormularioCalendario } from "@/lib/impuestos/calendario";
+import { tieneCaracteresDeControl } from "@/lib/notificaciones/destinatarios";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -925,3 +926,39 @@ export const RegistroEnvioReporteSchema = z.object({
   nota: z.string().trim().max(500).optional(),
 });
 export type RegistroEnvioReporte = z.input<typeof RegistroEnvioReporteSchema>;
+
+/* ===== Envío automático del reporte para gerencia (notificaciones programadas) ===== */
+
+/** Día (1 = lunes … 7 = domingo) y hora de Colombia (HH:mm) del envío semanal, y si está activo. */
+export const ProgramacionNotificacionSchema = z.object({
+  activa: z.boolean({ error: "Indica si el envío automático está activo." }),
+  diaSemana: z.coerce
+    .number({ error: "Elige el día de la semana." })
+    .int({ error: "Elige el día de la semana." })
+    .min(1, { error: "Elige el día de la semana." })
+    .max(7, { error: "Elige el día de la semana." }),
+  hora: z
+    .string({ error: "Indica la hora del envío." })
+    .trim()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, { error: "Indica la hora en formato HH:mm, de 00:00 a 23:59." }),
+});
+export type ProgramacionNotificacion = z.infer<typeof ProgramacionNotificacionSchema>;
+
+/** Un destinatario: cualquier correo válido (no tiene que ser usuario de la plataforma). Se guarda en minúsculas. */
+export const DestinatarioNotificacionSchema = z.object({
+  correo: z
+    .string({ error: "Escribe el correo del destinatario." })
+    .trim()
+    .toLowerCase()
+    .max(254, { error: "El correo es demasiado largo." })
+    .pipe(z.email({ error: "Escribe un correo válido." })),
+  nombre: z
+    .string()
+    .trim()
+    .max(100, { error: "El nombre no puede pasar de 100 caracteres." })
+    // Sin saltos de línea ni caracteres de control: el nombre solo se muestra en la lista.
+    .refine((n) => !tieneCaracteresDeControl(n), { error: "El nombre tiene caracteres no permitidos." })
+    .optional()
+    .transform((n) => (n ? n : null)),
+});
+export type DestinatarioNotificacion = z.output<typeof DestinatarioNotificacionSchema>;
