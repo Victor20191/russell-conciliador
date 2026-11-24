@@ -1,12 +1,10 @@
 // Aviso de TRASLAPE entre el período que se va a generar y los reportes ya
 // generados.
 //
-// Dos reportes que comparten días cuentan esos días dos veces ante gerencia, y el
-// comparativo de uso (`comparativo-servidor.ts`) solo acepta como período anterior
-// a uno que TERMINA antes de que empiece el actual: contra el traslapado se salta
-// al anterior y deja un hueco en la serie. En el reporte del 30-oct → 10-nov, el
-// del 28 → 30-oct se descartó así y el 28 y el 29-oct se quedaron fuera de la
-// comparación.
+// Dos reportes que comparten días le muestran esos días dos veces a gerencia. El
+// comparativo de uso no se afecta: desde la metodología 5 se mide siempre contra el
+// período anterior de igual duración (`comparativo-servidor.ts`), no contra los
+// reportes generados.
 //
 // Es solo un AVISO: el modal no bloquea. Y si el período elegido es EXACTAMENTE el
 // de un reporte guardado, no es un traslape: es el que se recupera.
@@ -104,5 +102,5 @@ export function describirTraslape(t: TraslapeReporte): string {
 /** Qué pasa si se genera igual. Habla de «ese reporte» o «esos reportes» según cuántos sean. */
 export function consecuenciaTraslape(cantidad: number): string {
   const ese = cantidad === 1 ? "ese reporte" : "esos reportes";
-  return `Esos días quedarán contados dos veces y el comparativo de uso no podrá usar ${ese} como período anterior. Puedes generar el reporte de todas formas.`;
+  return `Esos días también aparecen en ${ese}, así que gerencia los verá dos veces. El comparativo no cambia: siempre se mide contra los días anteriores de igual duración. Puedes generar el reporte de todas formas.`;
 }

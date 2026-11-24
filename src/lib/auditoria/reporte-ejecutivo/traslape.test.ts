@@ -106,7 +106,7 @@ describe("texto del aviso", () => {
 
   it("explica que los días se cuentan dos veces y que el comparativo no podrá usarlo", () => {
     expect(consecuenciaTraslape(1)).toBe(
-      "Esos días quedarán contados dos veces y el comparativo de uso no podrá usar ese reporte como período anterior. Puedes generar el reporte de todas formas.",
+      "Esos días también aparecen en ese reporte, así que gerencia los verá dos veces. El comparativo no cambia: siempre se mide contra los días anteriores de igual duración. Puedes generar el reporte de todas formas.",
     );
     expect(consecuenciaTraslape(2)).toContain("esos reportes");
   });
