@@ -531,9 +531,13 @@ export function IndicadoresUso({
             siempre disponibles en la plataforma.
           </p>
           <p className="mt-1 text-[12px] text-ink-500">
-            Se cuentan operaciones, no clics: lo que se registra cuenta por cuenta (homologar,
-            validar alertas, marcar diferencias, ajustar el Consolidado) vale una operación por
-            persona, cliente y día. No se incluyen las cuentas de prueba ni las genéricas.
+            Qué es una operación: cargar o aprobar un borrador, crear una marca y cerrar o abrir un
+            balance o una conciliación cuentan cada vez; homologar cuentas y los cambios del
+            Consolidado cuentan una por cada 10; los demás pasos (validar alertas, cargar o aprobar
+            formularios, exportar…) cuentan una vez por persona, documento (el balance, la
+            conciliación o la revisión) y día.
+            Descartar o eliminar algo, y lo que la plataforma anota sola, no cuentan. No se
+            incluyen las cuentas de prueba ni las genéricas.
           </p>
         </div>
       </div>

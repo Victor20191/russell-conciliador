@@ -294,13 +294,15 @@ describe("uso sin cuentas de prueba", () => {
     { id: 1, name: "Ana Real", email: "ana@rbcol.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
     { id: 3, name: "Russell 1", email: "russell1@russellbedford.com.co", active: true, lastLoginAt: null, createdAt: new Date("2026-06-22T15:00:00Z") },
   ];
-  const evento = (user: string) => ({
-    user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7, createdAt: new Date("2026-09-03T10:00:00Z"),
+  // Cada carga de un cliente distinto: tres operaciones (la misma carga del mismo
+  // cliente el mismo día sería una sola, metodología 7).
+  const evento = (user: string, clientId = 7) => ({
+    user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId, createdAt: new Date("2026-09-03T10:00:00Z"),
   });
 
   beforeEach(() => {
     mocks.usuarios.mockImplementation(async (args?: { where?: { id?: unknown } }) => (args?.where?.id ? [] : cuentas));
-    mocks.eventos.mockResolvedValue([evento("Ana Real"), evento("Ana Real"), evento("Ana Real"), evento("Russell 1"), evento("Russell 1")]);
+    mocks.eventos.mockResolvedValue([evento("Ana Real", 7), evento("Ana Real", 8), evento("Ana Real", 9), evento("Russell 1", 7), evento("Russell 1", 8)]);
   });
 
   test("ni el reporte ni las cifras comparables cuentan las cuentas de prueba", async () => {

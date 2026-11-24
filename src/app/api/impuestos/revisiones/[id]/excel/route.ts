@@ -10,6 +10,8 @@ import { descripcionCorte, impuestoPorClave, RETENCION } from "@/lib/impuestos/i
 import { cargarResultadosRevision } from "@/lib/impuestos/retencion/resultados-servidor";
 import type { ResultadosExcel } from "@/lib/export/retencion";
 import { excelRetencion } from "@/lib/export/retencion";
+import { registrarExportacion } from "@/lib/auditoria/exportaciones-servidor";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +74,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     );
     const prefijo = { RET: "Retencion", IVA: "IVA", RST: "Anticipos RST" }[impuesto.clave];
     const nombre = `${prefijo} ${revision.nombreCliente} ${revision.anio}-${String(revision.mesCorte).padStart(2, "0")}.xlsx`;
+    await registrarExportacion({
+      accion: `EXPORTÓ EXCEL DE LA REVISIÓN DE ${impuesto.nombreCorto.toUpperCase()}`,
+      entidad: `${impuesto.nombre} · ${revision.nombreCliente} · ${revision.anio}`,
+      detalle: corte,
+      clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
+    });
     return new Response(cuerpoBinario(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

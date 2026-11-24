@@ -6,6 +6,7 @@ import { Prisma, type FormularioDianCargado } from "@/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { iaDisponible } from "@/lib/anthropic";
@@ -298,6 +299,7 @@ export async function importarFormularioDian(formData: FormData): Promise<Result
       entity: `${imp.nombre} · ${revision.nombreCliente} · F${lectura.formulario} ${numero}`,
       detail: `${periodoDe(revision, lectura.periodo as number)} ${lectura.anio} · ${archivo.name}${tipo.esImagen ? ` (imagen ${tipo.nombre})` : ""} · leído con ${leida.modelo}${pendientes ? ` · ${pendientes} control(es) por corregir` : ""}${claveObjeto ? "" : " · sin original (almacén no disponible)"}`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return {
@@ -376,6 +378,7 @@ async function confirmarFila(revision: RevisionEscritura, fila: FormularioDianCa
     entity: `${imp.nombre} · ${revision.nombreCliente} · F${fila.formulario} ${fila.numero}`,
     detail: `${periodoDe(revision, fila.periodo)} ${fila.anio}${final.codigoCorreccion === 1 ? ` · corrige al ${final.numeroAnterior}` : ""}${final.concepto ? ` · concepto ${final.concepto}` : ""}${corregidos.length ? ` · corregidos a mano: ${corregidos.join(", ")}` : ""}${enBloque ? " · confirmado en bloque" : ""}`,
     clientId: revision.clienteId,
+    documento: documentoAuditoria("revision", revision.id),
   });
   return null;
 }
@@ -491,6 +494,7 @@ export async function descartarFormularioDian(_prev: ActionState, formData: Form
       entity: `${imp.nombre} · ${revision.nombreCliente} · F${fila.formulario} ${fila.numero}`,
       detail: `${periodoDe(revision, fila.periodo)} ${fila.anio} · estaba ${fila.estado === "confirmado" ? "confirmado" : "por confirmar"}`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return { ok: true, message: "Formulario descartado." };
@@ -539,6 +543,7 @@ export async function descartarFormulariosDian(_prev: ActionState, formData: For
         entity: `${imp.nombre} · ${revision.nombreCliente} · F${f.formulario} ${f.numero}`,
         detail: `${periodoDe(revision, f.periodo)} ${revision.anio} · estaba ${f.estado === "confirmado" ? "confirmado" : "por confirmar"} · descartado en bloque (${filas.length})`,
         clientId: revision.clienteId,
+        documento: documentoAuditoria("revision", revision.id),
       });
     }
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
@@ -574,6 +579,7 @@ export async function registrarPeriodoSinFormulario(_prev: ActionState, formData
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${periodoDe(revision, periodo)} ${revision.anio}`,
       detail: causal,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return { ok: true, message: "Causal registrada." };
@@ -601,6 +607,7 @@ export async function quitarPeriodoSinFormulario(_prev: ActionState, formData: F
         entity: `${imp.nombre} · ${revision.nombreCliente} · ${periodoDe(revision, periodo)} ${revision.anio}`,
         detail: `Se espera de nuevo el ${imp.declaracion.codigo} del período`,
         clientId: revision.clienteId,
+        documento: documentoAuditoria("revision", revision.id),
       });
     }
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
@@ -627,6 +634,7 @@ export async function eliminarRevisionImpuesto(_prev: ActionState, formData: For
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaMes(revision.mesCorte)}`,
       detail: "Los formularios del año se conservan",
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(rutaDe(imp));
     return { ok: true, message: "Revisión eliminada." };
@@ -692,6 +700,7 @@ export async function guardarMarcaImpuesto(_prev: ActionState, formData: FormDat
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaMes(revision.mesCorte)}`,
       detail: `Marca ${numero} · ${etiqueta} · diferencia ${diferencia} · ${nota}`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return { ok: true, message: `Marca ${numero} guardada.` };
@@ -764,6 +773,7 @@ export async function quitarMarcaImpuesto(_prev: ActionState, formData: FormData
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaMes(revision.mesCorte)}`,
       detail: `Marca ${marca.numero} · ${clave} · ${marca.nota}`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return { ok: true, message: "Marca quitada." };
@@ -816,6 +826,7 @@ export async function escogerBalanceImpuesto(_prev: ActionState, formData: FormD
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaMes(revision.mesCorte)}`,
       detail: `Revisión #${revision.id} · balance #${balance.id} ${describirBalanceCruce(balance)} (${sirven.length} balances servían)`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     return { ok: true, message: `El cruce se concilia contra el balance ${describirBalanceCruce(balance)}.` };
@@ -1045,6 +1056,7 @@ export async function desbloquearRevisionImpuesto(_prev: ActionState, formData: 
       entity: `${imp.nombre} · ${revision.nombreCliente} · ${revision.anio} corte ${etiquetaMes(revision.mesCorte)}`,
       detail: `Revisión #${revision.id}${resultado.cierre ? ` · balance #${resultado.cierre.balanceEncabezadoId} (${resultado.cierre.balancePeriodo}) · cerró ${resultado.cierre.cerradoPor}` : ""} · ${resultado.cuentas} cuenta(s) liberada(s) · Justificación: ${validacion.justificacion}`,
       clientId: revision.clienteId,
+      documento: documentoAuditoria("revision", revision.id),
     });
     revalidatePath(`${rutaDe(imp)}/${revision.id}`);
     revalidatePath(rutaDe(imp));

@@ -9,6 +9,8 @@ import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
 import { cargarContextoPrevalidadorBalance, cargarHistorialRevisionesPrevalidador } from "@/lib/balance/prevalidador/servidor";
 import { construirHistorialRevisiones } from "@/lib/balance/prevalidador/historial";
+import { registrarExportacion } from "@/lib/auditoria/exportaciones-servidor";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +68,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       );
       const base = balance.nombreCliente.replace(/[^\w.-]+/g, "_").slice(0, 40);
       const nombreArchivo = `Balance_Prevalidador_${base}_v${balance.version}_${fechaColombiaISO(generadoEn)}.xlsx`;
+      await registrarExportacion({
+        accion: "EXPORTÓ EXCEL DEL BALANCE",
+        entidad: balance.nombreCliente,
+        detalle: `Prevalidador · ${balance.periodo} v${balance.version}`,
+        clientId: referencia.clienteId,
+        documento: documentoAuditoria("balance", id),
+      });
       const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
       return new Response(body, {
         headers: {
@@ -98,6 +107,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const suf = tipo === "comparativo" ? "Comparativo" : "Homologado";
     const nombreArchivo = `Balance_${suf}_${base}_v${balance.version}_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+    await registrarExportacion({
+      accion: "EXPORTÓ EXCEL DEL BALANCE",
+      entidad: balance.nombreCliente,
+      detalle: `${suf} · ${balance.periodo} v${balance.version}`,
+      clientId: referencia.clienteId,
+      documento: documentoAuditoria("balance", id),
+    });
 
     return new Response(body, {
       headers: {

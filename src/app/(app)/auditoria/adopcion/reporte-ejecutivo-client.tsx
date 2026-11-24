@@ -78,10 +78,12 @@ export type KpisIniciales = {
   costos?: CostosIA | null;
   /** Tickets atendidos en el período; null cuando no se pudieron leer. */
   tickets?: TicketsAtendidosVista | null;
-  /** Operaciones: las acciones por fila valen una por persona, acción, cliente y día. */
+  /** Operaciones según la metodología 7 (definición en `metricas.ts`). */
   totalAcciones: number;
   /** Registros de la bitácora detrás de esas operaciones. */
   totalRegistros?: number;
+  /** Volumen de trabajo detrás de las operaciones (cuentas homologadas, alertas, marcas…). */
+  volumen?: BarraUso[];
   /** Personas con acciones auditadas en el período (no es «usuarios activos»). */
   totalUsuarios: number;
   /** «Usuarios activos: X de Y»; null cuando no se pudo medir. */
@@ -570,6 +572,23 @@ export function ReporteEjecutivoClient({
           <div className="col-span-2 lg:col-span-4">
             <TarjetaUsuariosActivos indicador={kpis.usuariosActivos} />
           </div>
+        )}
+        {kpis.volumen && kpis.volumen.length > 0 && (
+          <Card className="col-span-2 px-4 py-3 lg:col-span-4 lg:px-5">
+            <h2 className="text-[11.5px] font-semibold uppercase tracking-wide text-ink-500">Volumen de trabajo</h2>
+            <ul className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1.5">
+              {kpis.volumen.map((v) => (
+                <li key={v.etiqueta} className="flex items-baseline gap-1.5">
+                  <span className="text-lg font-semibold tabular-nums text-navy-800">{fmtNum(v.total)}</span>
+                  <span className="text-[12.5px] text-ink-600">{v.etiqueta}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[11.5px] text-ink-500">
+              Lo que hay detrás de las operaciones del período: no se suma a ellas, dice cuánto trabajo hubo
+              en cada paso.
+            </p>
+          </Card>
         )}
       </div>
 

@@ -374,6 +374,7 @@ export async function generarReporteEjecutivoNucleo(params: {
           detail: true,
           clientId: true,
           createdAt: true,
+          document: true,
         },
       }),
       tx.accessLog.groupBy({
@@ -423,6 +424,7 @@ export async function generarReporteEjecutivoNucleo(params: {
       detail: e.detail,
       clientId: e.clientId,
       createdAt: e.createdAt,
+      document: e.document,
     }));
 
     // Alcance: la bitácora de módulos aún no publicados no se le reporta al cliente.

@@ -100,6 +100,7 @@ export default async function ReportesEjecutivosPage({
         detail: true,
         clientId: true,
         createdAt: true,
+        document: true,
       },
     }),
     // Inicios de sesión y visitas: se cuentan aparte de las operaciones, y el
@@ -165,6 +166,7 @@ export default async function ReportesEjecutivosPage({
         detail: e.detail,
         clientId: e.clientId,
         createdAt: e.createdAt,
+        document: e.document,
       })),
       clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
       filtro,
@@ -293,6 +295,7 @@ export default async function ReportesEjecutivosPage({
     tickets,
     totalAcciones: uso.totalAcciones,
     totalRegistros: uso.totalRegistros,
+    volumen: (uso.volumen ?? []).map((v) => ({ etiqueta: v.nombre, total: v.total })),
     totalUsuarios: uso.totalUsuarios,
     usuariosActivos: uso.usuariosActivos ?? null,
     totalClientes: uso.totalClientes,
@@ -321,7 +324,7 @@ export default async function ReportesEjecutivosPage({
     topAcciones: uso.topAcciones.map((a) => ({
       etiqueta: a.nombre,
       total: a.total,
-      detalle: a.registros ? `${fmtNum(a.registros)} registros agrupados por persona, cliente y día` : undefined,
+      detalle: a.registros ? `${fmtNum(a.registros)} registros agrupados en pasos por persona, documento y día` : undefined,
     })),
     topClientes: uso.topClientes.map((c) => ({ etiqueta: c.nombre, total: c.total })),
     serieDiaria: uso.serieDiaria.map((d) => ({

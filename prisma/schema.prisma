@@ -557,6 +557,10 @@ model AuditEntry {
   // inferir la empresa a partir de textos libres.
   clientId  Int?     @map("cliente_id")
   ip        String?  @map("ip")
+  // Documento trabajado («balance:12», «cargue:34», «revision:5», «lote:<id>»): el
+  // reporte para gerencia agrupa por él los pasos repetidos del mismo día. Null en
+  // los registros anteriores al 24/Nov/2026 y en los pasos que no son sobre uno.
+  document  String?  @map("documento")
   createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([createdAt])

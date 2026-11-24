@@ -11,6 +11,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { documentoAuditoria, documentoConciliacion } from "@/lib/auditoria/documento-auditoria";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
@@ -2145,6 +2146,21 @@ export async function aplicarCambiosBorradorModulo(
           ]
         : []),
     ]);
+    // Editar el borrador es trabajo: queda en la bitácora (el reporte para gerencia lo
+    // cuenta una vez por borrador y día, como los cambios del borrador de balance).
+    const user = await getCurrentUser();
+    const omitidas = validos.filter((c) => c.omitida === true).length;
+    const incluidas = validos.filter((c) => c.omitida === false || c.tipoFila === "movimiento").length;
+    const reclasificadas = validos.filter((c) => c.tipoFila === "agrupadora" || c.tipoFila === "total").length;
+    const agrupadas = [...porAgrupador.values()].reduce((s, filas) => s + filas.length, 0);
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "GUARDÓ cambios en borrador de módulo",
+      entity: lote.moduloCodigo,
+      detail: `${validos.length} fila(s): ${omitidas} omitida(s), ${incluidas} incluida(s), ${reclasificadas} reclasificada(s), ${agrupadas} con agrupador cambiado${periodo !== undefined ? ` · período ${periodoNormalizado}` : ""}`,
+      clientId: lote.clienteId,
+      documento: documentoAuditoria("lote", id),
+    });
     revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${id}`);
     revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, message: "Cambios guardados." };
@@ -2199,6 +2215,7 @@ export async function nombrarAgrupadorBorrador(input: { loteId: string; grupo: G
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "NOMBRÓ agrupador del borrador",
+      documento: documentoAuditoria("lote", id),
       entity: cliente?.name ?? `Cliente ${lote.clienteId}`,
       detail: `${lote.moduloCodigo} · ${filas} fila(s) «${etiqueta}» → «${nombre.nombre}»`
         + (destino ? ` · anexo a la v${destino.version} de ${destino.periodo}` : ""),
@@ -3086,6 +3103,7 @@ async function auditarConsolidacion(
     detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`
       + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : ""),
     clientId: clienteId,
+    documento: documentoAuditoria("consolidado", `${clienteId}-${moduloCodigo}`),
   });
 }
 
@@ -3454,6 +3472,7 @@ export async function cambiarAgruparPorBorrador(input: { loteId: string; agrupar
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "CAMBIÓ LA AGRUPACIÓN DEL BORRADOR",
+      documento: documentoAuditoria("lote", loteId),
       entity: cliente?.name ?? `Cliente ${lote.clienteId}`,
       detail: `${lote.moduloCodigo} · ${lote.archivoNombre} · de ${etiquetaAgruparPor(actual)} a ${etiquetaAgruparPor(agruparPor)}`,
       clientId: lote.clienteId,
@@ -3504,6 +3523,7 @@ export async function cambiarAgruparPorConsolidado(input: { encabezadoId: number
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} ${encabezado.periodo} v${encabezado.version} · de ${etiquetaAgruparPor(actual)} a ${etiquetaAgruparPor(agruparPor)}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(rutaModulo(encabezado.moduloCodigo));
     return { ok: true, message: `El Consolidado ahora se agrupa por ${etiquetaAgruparPor(agruparPor).toLocaleLowerCase("es")}.` };
@@ -3634,6 +3654,7 @@ async function auditarMarcaCruce(
     entity: encabezado.nombreCliente,
     detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · ${objetivo}${detalleExtra}`,
     clientId: encabezado.clienteId,
+    documento: documentoConciliacion(encabezado),
   });
 }
 
@@ -4454,6 +4475,7 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · ${anterior?.fechaCorte ? fechaCalendarioISO(anterior.fechaCorte) : "fin del período"} → ${fechaCorte}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Fecha de corte del cargue: ${fechaCorte.split("-").reverse().join("/")}.` };
@@ -4657,6 +4679,7 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveModulo, nombreModulo)} → ${describirTercero(claveBalance, nombreBalance)}${porQue}${nota ? ` · ${nota}` : ""}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Emparejado con ${nombreBalance ?? claveBalance}.` };
@@ -4734,6 +4757,7 @@ export async function emparejarTerceroContable(input: z.input<typeof EmparejarCo
         ? `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveDestino, nombreDestino)} → ${describirTercero(claveContable, nombreContable)} (desde la contabilidad)${nota ? ` · ${nota}` : ""}`
         : `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveContable, nombreContable)} de la contabilidad → ${describirTercero(claveDestino, nombreDestino)}${nota ? ` · ${nota}` : ""}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Emparejado con ${nombreDestino ?? claveDestino}.` };
@@ -4818,6 +4842,7 @@ export async function aplicarEmparejamientosSugeridos(input: z.input<typeof Apli
         .map((s) => `${describirTercero(s.claveModulo, s.nombreModulo)} → ${describirTercero(s.claveBalance, s.nombreBalance)} [${s.senales.map((x) => ETIQUETA_SENAL[x]).join(", ")}]`)
         .join("; ")}${rechazados.length > 0 ? ` · no aplicados: ${rechazados.join("; ")}` : ""}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     const resumen = `${aceptados.length === 1 ? "Se emparejó 1 tercero" : `Se emparejaron ${aceptados.length} terceros`}.`;
@@ -4876,6 +4901,7 @@ export async function separarTerceroAutomatico(input: z.input<typeof SepararTerc
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${claveModulo} ≠ ${describirTercero(claveBalance, fila?.nombre ?? null)} · estaban unidos por ${como}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Separados: ${claveModulo} ya no se une con ${claveBalance}.` };
@@ -4917,6 +4943,7 @@ export async function quitarEmparejamientoTercero(input: { encabezadoId: number;
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo}${esContable ? " de la contabilidad" : ""} ${esSeparacion ? "≠" : "→"} ${emparejamiento.claveBalance}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: esSeparacion ? "Separación retirada: vuelven a unirse." : "Emparejamiento deshecho." };
@@ -5176,6 +5203,7 @@ export async function escogerBalanceCruceModulo(input: { encabezadoId: number; b
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · balance #${balance.id} ${describirBalanceCruce(balance)} (${sirven.length} balances servían)`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `El cruce se concilia contra el balance ${describirBalanceCruce(balance)}.` };
@@ -5434,6 +5462,7 @@ export async function cerrarConciliacionModulo(input: {
       entity: encabezado.nombreCliente,
       detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${(cuentasRussell6 ?? cuentasRussell).join(", ")}${evidenciaTercero ? ` · cruce por tercero: ${evidenciaTercero.terceros} tercero(s), ${evidenciaTercero.marcas.marcadas} marca(s), huella ${evidenciaTercero.huella.slice(0, 12)}` : ""} · copia congelada ${copiaCongelada.huella.slice(0, 12)}`,
       clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     revalidatePath(`/balance/${balance.id}`);

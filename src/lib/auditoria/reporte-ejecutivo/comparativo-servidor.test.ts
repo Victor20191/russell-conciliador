@@ -40,9 +40,11 @@ let bitacora: Evento[] = [];
 let visitas: Array<{ userId: number; path: string; createdAt: Date }> = [];
 let ingresos: Array<{ userName: string; createdAt: Date }> = [];
 
+// Cada carga de un cliente distinto: n operaciones (metodología 7 agrupa el mismo
+// paso de la misma persona sobre el mismo cliente el mismo día).
 const eventosDe = (user: string, n: number, dia: string): Evento[] =>
-  Array.from({ length: n }, () => ({
-    user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: new Date(`${dia}T15:00:00Z`),
+  Array.from({ length: n }, (_, i) => ({
+    user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: i + 1, createdAt: new Date(`${dia}T15:00:00Z`),
   }));
 
 const dentro = (fecha: Date, where: { createdAt: { gte: Date; lte: Date } }) =>

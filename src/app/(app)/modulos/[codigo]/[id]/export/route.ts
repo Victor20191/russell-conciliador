@@ -15,6 +15,8 @@ import { cuentasEfectivasRenglon } from "@/lib/modulos/nomina/consolidado-nomina
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
+import { registrarExportacion } from "@/lib/auditoria/exportaciones-servidor";
+import { documentoConciliacion } from "@/lib/auditoria/documento-auditoria";
 import { INFO_CONTENIDO_ARCHIVO, leerContenidoArchivos } from "@/lib/modulos/ingresos/contenido-archivo";
 
 export const runtime = "nodejs";
@@ -155,6 +157,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     const cliente = encabezado.nombreCliente.replace(/[^\w.-]+/g, "_").slice(0, 40);
     const nombreArchivo = `${descriptor.label.replace(/\s+/g, "")}_${cliente}_${encabezado.periodo}_v${encabezado.version}_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+    await registrarExportacion({
+      accion: "EXPORTÓ EXCEL DEL MÓDULO",
+      entidad: encabezado.nombreCliente,
+      detalle: `${descriptor.label} · ${encabezado.periodo} v${encabezado.version}`,
+      clientId: encabezado.clienteId,
+      documento: documentoConciliacion(encabezado),
+    });
     return new Response(body, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

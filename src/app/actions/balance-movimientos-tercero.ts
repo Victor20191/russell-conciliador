@@ -14,6 +14,8 @@ import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fmtDateTime, fmtNum } from "@/lib/format";
 import { crearExcelDescuadreMovimientos } from "@/lib/export/movimientos-tercero-descuadre";
+import { registrarExportacion } from "@/lib/auditoria/exportaciones-servidor";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { tomarCandadoTransaccion } from "@/lib/candados";
 import { siguienteVersionCargue } from "@/lib/balance/version-cargue";
@@ -303,7 +305,7 @@ export async function exportarDescuadreMovimientos(input: unknown): Promise<Acti
   try {
     const balance = await prisma.balancePruebaEncabezado.findUnique({
       where: { id: parsed.data.balanceId },
-      select: { nombreCliente: true, periodo: true, version: true },
+      select: { nombreCliente: true, periodo: true, version: true, clienteId: true },
     });
     if (!balance) return { ok: false, message: "No se encontró el balance." };
     const buffer = await crearExcelDescuadreMovimientos({
@@ -320,6 +322,13 @@ export async function exportarDescuadreMovimientos(input: unknown): Promise<Acti
       sinCuentaEnBalance: parsed.data.sinCuentaEnBalance,
     });
     const nombre = `Descuadre terceros agregados - ${balance.nombreCliente} - ${balance.periodo}.xlsx`.replace(/[\\/:*?"<>|]/g, "-");
+    await registrarExportacion({
+      accion: "EXPORTÓ EXCEL DEL BALANCE",
+      entidad: balance.nombreCliente,
+      detalle: `Descuadre de terceros agregados · ${balance.periodo} v${balance.version}`,
+      clientId: balance.clienteId,
+      documento: documentoAuditoria("balance", parsed.data.balanceId),
+    });
     return { ok: true, nombre, base64: buffer.toString("base64") };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("exportarDescuadreMovimientos", e) };

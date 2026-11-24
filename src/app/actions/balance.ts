@@ -12,6 +12,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
@@ -1646,7 +1647,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     const detalleAlcance = resultado.aplicarAlGrupo
       ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo) → ${std.code} · memoria del grupo`
       : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → ${std.code} · memoria de la cuenta ${resultado.cuenta8}`;
-    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId, documento: documentoAuditoria("balance", resultado.encId) });
     revalidatePath(`/balance/${resultado.encId}`);
     revalidatePath("/config/mapeo-cliente");
     return {
@@ -1829,7 +1830,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
     const detalleAlcance = resultado.aplicarAlGrupo
       ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo) → pendiente por asignar`
       : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → pendiente por asignar`;
-    await logAudit({ user: user?.name ?? "Sistema", action: "MARCÓ CUENTA PENDIENTE POR ASIGNAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
+    await logAudit({ user: user?.name ?? "Sistema", action: "MARCÓ CUENTA PENDIENTE POR ASIGNAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId, documento: documentoAuditoria("balance", resultado.encId) });
     revalidatePath(`/balance/${resultado.encId}`);
     revalidatePath("/config/mapeo-cliente");
     return {
@@ -1900,6 +1901,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
       entity: fila.cuenta6,
       detail: alcanceMapeo === "grupo" ? `${fila.cuenta6} (${afectadas} cuenta(s) del grupo)` : fila.cuenta8,
       clientId: fila.encabezado.clienteId,
+      documento: documentoAuditoria("balance", fila.encabezado.id),
     });
     revalidatePath(`/balance/${fila.encabezado.id}`);
     revalidatePath("/config/mapeo-cliente");
@@ -2107,7 +2109,7 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
       `${resultado.rehomologadas} re-homologada(s)`,
       `${resultado.retiradas} mapeo(s) fuera de clase retirado(s)`,
     ].join(" · ");
-    await logAudit({ user: user?.name ?? "Sistema", action: "RE-HOMOLOGÓ BALANCE", entity: String(id), detail: detalle, clientId: resultado.clienteId });
+    await logAudit({ user: user?.name ?? "Sistema", action: "RE-HOMOLOGÓ BALANCE", entity: String(id), detail: detalle, clientId: resultado.clienteId, documento: documentoAuditoria("balance", id) });
     revalidatePath(`/balance/${id}`);
     return {
       ok: true,
@@ -4011,7 +4013,17 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       confianza: extr.confianza ?? null,
       diag: diagInicial,
     });
-
+    // Para el reporte para gerencia (metodología 7), cada borrador cargado es una
+    // operación; volver a leer el MISMO borrador para corregir la lectura no es un
+    // borrador nuevo: se anota aparte y cuenta como cualquier corrección del día.
+    const autor = await getCurrentUser();
+    await logAudit({
+      user: autor?.name ?? "Sistema",
+      action: p.loteIdAnterior ? "RELEYÓ BORRADOR de balance" : "CREÓ BORRADOR de balance",
+      entity: loteId,
+      detail: `${p.archivoNombre} · ${extr.importReady.length} cuentas${p.loteIdAnterior ? ` · reemplaza la lectura del borrador ${p.loteIdAnterior}` : ""}`,
+      clientId: p.clienteDetectadoId,
+    });
   }
 
   const payload: PayloadCargaBalance = {
@@ -5293,6 +5305,7 @@ export async function agregarParteBorrador(formData: FormData): Promise<ActionSt
         entity: loteId,
         detail: `Parte ${resultado.numero} · ${archivo.name} · ${resultado.filas} filas`,
         clientId: clienteId,
+        documento: documentoAuditoria("lote", loteId),
       });
     }
     revalidatePath(`/balance/borradores/${loteId}`);
@@ -5570,6 +5583,7 @@ export async function aplicarCambiosBorrador(
     await logAudit({
       user: user?.name ?? "—",
       action: "GUARDÓ cambios en balance borrador",
+      documento: documentoAuditoria("lote", id),
       entity: id,
       detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} corrección(es) actualizadas en el perfil` : ""}${cuentasNoMemorizadas.size > 0 ? ` · ${cuentasNoMemorizadas.size} reubicación(es) marcadas para no repetir` : ""}${detalleRiesgos ? ` · Revisiones: ${detalleRiesgos}` : ""}`,
       clientId: cid,
@@ -5695,6 +5709,7 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "ASOCIÓ CLIENTE y perfil a borrador de balance",
+      documento: documentoAuditoria("lote", id),
       entity: cliente.name,
       detail: `${id} · perfil base${lote?.huella && lote.specJson ? " + perfil estructural" : ""} · ${aplicadas} corrección(es) aplicadas`,
       clientId: cid,
@@ -5750,7 +5765,7 @@ export async function validarAlerta(input: { balanceId: number; anchor: string; 
       return { ok: true as const };
     });
     if (!resultado.ok) return resultado;
-    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: TIPO_VALIDACION_NATURALEZA, clientId: bal.clienteId });
+    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: TIPO_VALIDACION_NATURALEZA, clientId: bal.clienteId, documento: documentoAuditoria("balance", balanceId) });
     revalidatePath(`/balance/${balanceId}`);
     return { ok: true, message: "Alerta validada." };
   } catch (e) {
@@ -5778,7 +5793,7 @@ export async function revertirValidacionAlerta(input: { balanceId: number; ancho
       return borradas;
     });
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)`, clientId: bal.clienteId });
+    await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)`, clientId: bal.clienteId, documento: documentoAuditoria("balance", balanceId) });
     revalidatePath(`/balance/${balanceId}`);
     return { ok: true, message: "Validación revertida." };
   } catch (e) {

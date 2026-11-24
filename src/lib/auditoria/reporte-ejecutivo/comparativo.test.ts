@@ -271,9 +271,11 @@ describe("comparativo sin cuentas de prueba, base pequeña y concentración", ()
     { name: "Russell 3", email: "russell3@russellbedford.com.co" },
     { name: "Victor Rivera", email: "admin@xentria.co" },
   ];
+  // Cada registro sobre un cliente distinto: son operaciones distintas (metodología 7
+  // agrupa el mismo paso de la misma persona sobre el mismo cliente el mismo día).
   const eventosDe = (user: string, n: number, dia: string) =>
-    Array.from({ length: n }, () => ({
-      user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: `${dia}T15:00:00Z`,
+    Array.from({ length: n }, (_, i) => ({
+      user, action: "CARGÓ BALANCE", entity: "", detail: "", clientId: i + 1, createdAt: `${dia}T15:00:00Z`,
     }));
   const resumir = (periodo: { desde: string; hasta: string }, conteos: Array<[string, number]>, sinPrueba: boolean) => {
     const permitidas = sinPrueba ? usuariosDelComparativo(cuentas) : cuentas.filter((c) => !c.email.endsWith("@xentria.co"));

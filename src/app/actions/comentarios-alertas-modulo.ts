@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { documentoConciliacion } from "@/lib/auditoria/documento-auditoria";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fmt } from "@/lib/format";
 import type { ActionState } from "@/lib/definitions";
@@ -126,6 +127,8 @@ export async function guardarComentarioAlerta(input: { encabezadoId: number; tip
       detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · «${alerta.etiqueta}» (${alerta.detalle ?? contarAlerta(alerta.referencias, alerta.unidad)}${alerta.muestraValor ? `, ${fmt(alerta.valor)}` : ""})`
         + (previo && previo.comentario !== validado.texto ? ` · antes: «${previo.comentario}»` : ""),
       clientId: encabezado.clienteId,
+      // La conciliación del período, como las marcas del cruce.
+      documento: documentoConciliacion(encabezado),
     });
     revalidatePath(`/modulos/${encabezado.moduloCodigo.toLowerCase()}/${encabezado.id}`);
     if (aprobacion) return { ok: true, message: previo ? "Aprobación actualizada." : "Alerta aprobada." };

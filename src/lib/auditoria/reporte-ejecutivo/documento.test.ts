@@ -196,9 +196,11 @@ describe("sección de comparativo", () => {
 });
 
 describe("lectura honesta del comparativo en el documento", () => {
+  // Diez operaciones: cada una de un cliente distinto (el mismo paso sobre el mismo
+  // cliente el mismo día sería una sola).
   const diezOperaciones = calcularResumenUso({
     eventos: Array.from({ length: 10 }, (_, i) => ({
-      user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7,
+      user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7 + i,
       createdAt: `2026-09-0${(i % 7) + 1}T10:00:00Z`,
     })),
     periodoDesde: "2026-09-01T00:00:00Z", periodoHasta: "2026-09-07T23:59:59Z",

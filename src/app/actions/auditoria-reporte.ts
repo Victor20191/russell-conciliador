@@ -123,6 +123,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
           detail: true,
           clientId: true,
           createdAt: true,
+          document: true,
         },
       }),
       prisma.accessLog.groupBy({
@@ -165,6 +166,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
           detail: e.detail,
           clientId: e.clientId,
           createdAt: e.createdAt,
+          document: e.document,
         })),
         clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
         filtro,

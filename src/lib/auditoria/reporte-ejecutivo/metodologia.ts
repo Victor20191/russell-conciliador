@@ -30,7 +30,20 @@
 // 6 — las visitas a módulos del reporte y del tablero se cuentan solo de las
 //     cuentas del uso (sin Xentria ni cuentas de prueba), como ya hacía el
 //     comparativo; del 9 al 15-nov/2026 bajan de 490 a 302 (23/Nov/2026).
-export const METODOLOGIA_USO_VIGENTE = 6;
+// 7 — definición de OPERACIÓN acordada con el usuario (24/Nov/2026, ver
+//     `metricas.ts`): cargar o aprobar un borrador, crear una marca, cerrar o abrir
+//     un balance y cerrar o desbloquear una conciliación o un impuesto cuentan CADA
+//     VEZ; homologar cuentas y los cambios del Consolidado, una por cada 10 (35 →
+//     4); los demás pasos, una vez por persona, documento y día (validar 5 alertas
+//     = 1; cargar o aprobar 10 formularios DIAN de una revisión = 1; exportar un
+//     papel de trabajo = 1). Se anotan además la edición del borrador de un módulo
+//     y las exportaciones a Excel, y el reporte muestra el volumen de trabajo
+//     (cuentas homologadas, alertas validadas, marcas…). El documento lo anota la bitácora
+//     (`registros_auditoria.documento`); sin él, el cliente; descartar,
+//     eliminar o borrar y lo que la plataforma anota sola no cuentan. Crear el
+//     borrador de balance se anota («CREÓ BORRADOR de balance»; volver a leerlo,
+//     «RELEYÓ…»), y las alertas de los módulos pasan a «Módulos de conciliación».
+export const METODOLOGIA_USO_VIGENTE = 7;
 
 /** ¿La instantánea se calculó con la metodología vigente? Sin marca, no. */
 export function metodologiaAlDia(metadatos: unknown): boolean {

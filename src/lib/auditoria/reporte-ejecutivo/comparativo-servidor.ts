@@ -62,7 +62,7 @@ async function calcularUsoComparable(params: {
       where: { createdAt: ventana },
       orderBy: { createdAt: "desc" },
       take: MAX_EVENTOS_PERIODO,
-      select: { user: true, action: true, entity: true, detail: true, clientId: true, createdAt: true },
+      select: { user: true, action: true, entity: true, detail: true, clientId: true, createdAt: true, document: true },
     }),
     prisma.accessLog.groupBy({
       by: ["userName"],

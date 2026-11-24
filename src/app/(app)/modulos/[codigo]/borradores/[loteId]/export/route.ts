@@ -11,6 +11,8 @@ import { mensajeErrorBD } from "@/lib/errores";
 import { fechaCalendarioISO, fechaColombiaISO } from "@/lib/fecha-hora";
 import { agruparPorDeLote, etiquetaAgruparPor } from "@/lib/modulos/nomina/agrupar-por";
 import { baseClaveNomina } from "@/lib/modulos/nomina/consolidado-nomina";
+import { registrarExportacion } from "@/lib/auditoria/exportaciones-servidor";
+import { documentoAuditoria } from "@/lib/auditoria/documento-auditoria";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,6 +113,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     const base = lote.archivoNombre.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 60);
     const nombreArchivo = `Borrador_${descriptor.label.replace(/\s+/g, "")}_${base}_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+    await registrarExportacion({
+      accion: "EXPORTÓ EXCEL DEL BORRADOR DE MÓDULO",
+      entidad: cliente?.name ?? `Cliente ${lote.clienteId}`,
+      detalle: `${descriptor.label} · ${periodo} · ${lote.archivoNombre}`,
+      clientId: lote.clienteId,
+      documento: documentoAuditoria("lote", loteId),
+    });
     return new Response(body, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

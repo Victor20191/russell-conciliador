@@ -44,6 +44,8 @@ export type EventoAuditoria = {
   detail: string;
   clientId: number | null;
   createdAt: Date | string;
+  /** Documento trabajado («balance:12», «conciliacion:7-CAR-2026-09»…); null en los registros viejos. */
+  document?: string | null;
 };
 
 export type ConteoNombrado = {
@@ -51,8 +53,8 @@ export type ConteoNombrado = {
   total: number;
   /**
    * Registros de la bitácora detrás de `total`. Solo viene cuando son más que las
-   * operaciones, es decir, cuando la acción se registra una vez por fila y se
-   * agrupó (ver `ACCIONES_POR_FILA`).
+   * operaciones, es decir, cuando el paso se repitió el mismo día sobre el mismo
+   * documento y se agrupó (ver `agruparOperaciones`).
    */
   registros?: number;
 };
@@ -114,9 +116,8 @@ export type ResumenUsoFactual = {
   periodoDesde: string;
   periodoHasta: string;
   /**
-   * OPERACIONES del período: las acciones que se registran una vez por fila
-   * (homologar una cuenta, validar una alerta, marcar una diferencia…) cuentan
-   * una sola vez por persona, acción, cliente y día. Ver `agruparOperaciones`.
+   * OPERACIONES del período: pasos de trabajo por persona, documento y día, sin
+   * los registros automáticos. Ver `agruparOperaciones`.
    */
   totalAcciones: number;
   /**
@@ -124,6 +125,12 @@ export type ResumenUsoFactual = {
    * instantáneas anteriores a la metodología 4 no lo traen (contaban registros).
    */
   totalRegistros?: number;
+  /**
+   * Volumen de trabajo detrás de las operaciones (cuentas homologadas, alertas
+   * validadas, marcas…), solo lo que no es cero. No se suma a las operaciones: dice
+   * cuánto trabajo hubo en cada paso. Opcional: las instantáneas anteriores no lo traen.
+   */
+  volumen?: ConteoNombrado[];
   /** Visitas de navegación; nunca se suman a totalAcciones. */
   totalNavegaciones: number;
   totalConexiones: number;
@@ -155,6 +162,11 @@ const PREFIJOS_BALANCE = [
   "CERRÓ BALANCE",
   "ABRIÓ BALANCE",
   "ASIGNÓ CUENTA ESTÁNDAR",
+  // Antes que las acciones genéricas «CREÓ…» de administración.
+  "CREÓ BORRADOR de balance",
+  "RELEYÓ BORRADOR de balance",
+  "EXPORTÓ EXCEL DEL BALANCE",
+  "EXPORTÓ EXCEL DEL BORRADOR de balance",
   "DESCARTÓ BORRADOR",
   "GUARDÓ cambios en balance",
   "ASOCIÓ CLIENTE y perfil a borrador",
@@ -218,6 +230,8 @@ const PREFIJOS_MODULOS = [
   "EMPAREJÓ",
   "SEPARÓ un tercero",
   "RETIRÓ la separación de un tercero",
+  "DESHIZO el emparejamiento de un tercero",
+  "SUMÓ un tercero de la contabilidad",
   "ELIMINÓ DATOS DE MÓDULO",
   "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
   "DOCUMENTÓ archivo original de módulo",
@@ -239,6 +253,15 @@ const PREFIJOS_MODULOS = [
   "QUITÓ SUBGRUPO DE CONCILIACIÓN",
   "QUITÓ PAREJA DE DEPRECIACIÓN",
   "ELIMINÓ concepto de nómina",
+  // Editar y exportar el borrador o el cargue de un módulo.
+  "GUARDÓ cambios en borrador de módulo",
+  "EXPORTÓ EXCEL DEL MÓDULO",
+  "EXPORTÓ EXCEL DEL BORRADOR DE MÓDULO",
+  // Alertas de Novedades del cargue (antes caían en «Otras acciones» y en administración).
+  "COMENTÓ ALERTA",
+  "APROBÓ ALERTA",
+  "EDITÓ COMENTARIO DE ALERTA",
+  "EDITÓ APROBACIÓN DE ALERTA",
 ];
 
 /** Conexiones e integraciones: configuración técnica, no conciliación. */
@@ -375,93 +398,271 @@ export function clasificarFamilia(
   return "otros";
 }
 
+// ── QUÉ ES UNA OPERACIÓN (metodología 7, definida con el usuario el 24/Nov/2026) ─
+//
+// Una OPERACIÓN es un paso de trabajo de una persona. Hay tres clases:
+//
+//   · CUENTAN CADA VEZ (`ACCIONES_CADA_VEZ`): cargar un borrador (balance o
+//     módulo), aprobar un borrador, crear una marca en un cruce, crear una cuenta
+//     del Plan Estándar Russell, reportar un incidente en la Mesa de ayuda, cerrar
+//     o abrir un balance, cerrar o desbloquear una conciliación o un impuesto en firme. Dos
+//     borradores del mismo cliente el mismo día son dos operaciones; cerrar dos
+//     veces, dos; cinco marcas nuevas, cinco.
+//   · CUENTAN POR BLOQUES DE 10 (`REGISTROS_POR_BLOQUE`), por persona, documento
+//     y día: homologar cuentas y los cambios del Consolidado (35 → 4).
+//   · CUENTAN UNA VEZ POR PERSONA, DOCUMENTO Y DÍA: todo lo demás. Validar 5
+//     alertas, editar marcas, cargar 10 formularios DIAN, aprobar 10 (en bloque o
+//     no) o volver a leer el mismo borrador para corregirlo son una operación ese
+//     día; validar alertas de dos balances del mismo cliente son dos. El
+//     documento lo anota la bitácora desde el 24/Nov/2026 (`registros_auditoria.
+//     documento`: el balance, el borrador, la conciliación del módulo en el
+//     período o la revisión de impuestos; en los pasos de patrones, el patrón);
+//     en los registros anteriores y en los pasos que no son sobre un documento
+//     hace sus veces el cliente (`documentoDeOperacion`). Quitar o retirar algo
+//     dentro del trabajo (una marca, un pendiente, una cuenta del Consolidado) es
+//     parte de su paso.
+//   · NO CUENTAN: descartar, eliminar o borrar cualquier cosa, y lo que la
+//     plataforma anota sola mientras la persona hace otra cosa (avisos, muestras
+//     automáticas, intentos bloqueados).
+
 /**
- * Acciones que la bitácora registra UNA VEZ POR FILA: homologar las 80 cuentas de
- * un balance deja 80 «ASIGNÓ CUENTA ESTÁNDAR», validar sus alertas otros tantos
- * «VALIDÓ alerta de balance», y cada cambio del Consolidado se autoguarda con su
- * propio registro. Contadas una a una, el reporte medía clics y no trabajo: en
- * nov/2026, 777 de las 1.019 acciones de «Balance de comprobación» eran
- * homologaciones cuenta por cuenta.
- *
- * Para medir uso, cada una cuenta como UNA operación por persona, acción, cliente
- * y día (`agruparOperaciones`). Se comparan por prefijo, como las familias.
+ * Registros que la plataforma anota sola como consecuencia de otro paso (aprobar
+ * un borrador, guardar un formato) o que no son trabajo (un intento bloqueado, el
+ * registro de un despliegue). Se quedan en la bitácora, pero no son operaciones.
  */
-export const ACCIONES_POR_FILA: readonly string[] = [
-  // Balance: homologación, pendientes y alertas, cuenta por cuenta.
-  "ASIGNÓ CUENTA ESTÁNDAR",
-  "MARCÓ CUENTA PENDIENTE POR ASIGNAR",
-  "QUITÓ PENDIENTE POR ASIGNAR",
-  "VALIDÓ alerta de balance",
-  "REVIRTIÓ validación de alerta",
-  "ELIMINÓ cuenta del balance",
-  // Mapeo del cliente y plan estándar, cuenta por cuenta.
-  "HOMOLOGÓ CUENTA CLIENTE",
-  "CREÓ MAPEO CLIENTE",
-  "EDITÓ MAPEO CLIENTE",
-  "CONFIRMÓ MAPEO CLIENTE",
-  "REASIGNÓ MAPEO CLIENTE",
-  "ELIMINÓ MAPEO CLIENTE",
-  "CREÓ CUENTA ESTÁNDAR",
-  "EDITÓ CUENTA ESTÁNDAR",
-  "ELIMINÓ CUENTA ESTÁNDAR",
-  // Módulos: cada cambio del Consolidado, cada marca, cada tercero emparejado.
-  "ACTUALIZÓ consolidación de módulo",
-  "MARCÓ una diferencia del",
-  "EDITÓ la marca del",
-  "RETIRÓ la marca del",
-  "ELIMINÓ un soporte de la marca del",
-  "CAMBIÓ lo que explica una marca",
-  "USÓ en otro renglón una marca",
-  "QUITÓ de un renglón una marca",
-  "RELACIONÓ terceros con una marca",
-  "QUITÓ un tercero de la relación con una marca",
-  "EMPAREJÓ",
-  "SEPARÓ un tercero",
-  "RETIRÓ la separación de un tercero",
-  "QUITÓ CUENTA DE CONCILIACIÓN",
-  // Impuestos: marcas de los renglones.
-  "MARCÓ DIFERENCIA DE",
-  "QUITÓ MARCA DE",
-  // Comentarios: cada mensaje de una conversación.
-  "COMENTÓ",
-  "EDITÓ un comentario",
-  "ELIMINÓ un comentario",
+export const ACCIONES_AUTOMATICAS: readonly string[] = [
+  "CONVENCIÓN RELATIVA A LA CLASE",
+  "CAPTURÓ BALANCE POR TERCERO",
+  "DETALLE POR TERCERO INCOMPLETO",
+  "SIN DETALLE POR TERCERO",
+  "DETECTÓ DIFERENCIAS ENTRE BALANCES DEL CORTE",
+  "PROPUSO PATRÓN DE ARCHIVO",
+  "GENERÓ MUESTRA DE PATRÓN",
+  "SIN MUESTRA AUTOMÁTICA DE PATRÓN",
+  "CONCILIACIÓN EN FIRME · INTENTO BLOQUEADO",
+  "REGISTRÓ DESPLIEGUE",
+  "GENERÓ REPORTE IA",
 ];
 
-/** ¿La acción se registra una vez por fila (cuenta, alerta, marca…)? */
-export function esAccionPorFila(action: string): boolean {
-  return coincidePrefijo(action, ACCIONES_POR_FILA as string[]);
+/** ¿La plataforma anotó el registro sola (no es una operación de la persona)? */
+export function esAccionAutomatica(action: string): boolean {
+  return coincidePrefijo(action, ACCIONES_AUTOMATICAS as string[]);
 }
 
-/** Una operación de uso: el primer registro del grupo y cuántos registros agrupa. */
-export type OperacionUso = EventoAuditoria & { registros: number };
+/** Descartar, eliminar o borrar algo no es una operación (pedido del usuario, 24/Nov/2026). */
+const PREFIJOS_QUE_DESHACEN = ["DESCARTÓ", "ELIMINÓ", "BORRÓ"];
+
+/** ¿El registro NO es una operación (automático, o descarta / elimina / borra algo)? */
+export function noEsOperacion(action: string): boolean {
+  return esAccionAutomatica(action) || coincidePrefijo(action, PREFIJOS_QUE_DESHACEN);
+}
 
 /**
- * Convierte registros de bitácora en OPERACIONES. Las acciones por fila
- * (`ACCIONES_POR_FILA`) se agrupan en una sola por persona, acción, cliente y día
- * (UTC, el mismo día con el que se arma la serie diaria); el resto queda una a una.
- * Cada operación conserva el primer registro del grupo, así que el orden de
- * entrada se mantiene. No modifica los eventos recibidos.
+ * Pasos que cuentan CADA VEZ, aunque se repitan el mismo día sobre el mismo
+ * cliente: cargar un borrador (balance o módulo), aprobarlo, y cerrar o abrir un
+ * balance, una conciliación o un impuesto en firme. «CERRÓ IVA (EN FIRME)»,
+ * «DESBLOQUEÓ RETENCIÓN EN LA FUENTE»… salen del nombre del impuesto.
+ */
+const ACCIONES_CADA_VEZ = [
+  // Cada marca nueva explica una diferencia con su monto y su nota (editarla o
+  // retirarla sigue agrupado en su paso).
+  "MARCÓ una diferencia del",
+  "MARCÓ DIFERENCIA DE",
+  // Cada cuenta nueva del Plan Estándar Russell y cada incidente reportado en la
+  // Mesa de ayuda es algo distinto, con su propio contenido (pedido del usuario).
+  "CREÓ CUENTA ESTÁNDAR",
+  "REPORTÓ NOVEDAD",
+  "CREÓ BORRADOR de balance",
+  "PREPARÓ BORRADOR DE INVENTARIOS",
+  "LEYÓ archivo de",
+  "CARGÓ BALANCE",
+  "AGREGÓ ítems a",
+  "CERRÓ BALANCE",
+  "ABRIÓ BALANCE",
+  "CONGELÓ BALANCE",
+  "CERRÓ CONCILIACIÓN (EN FIRME)",
+  "DESBLOQUEÓ CONCILIACIÓN",
+];
+const PATRON_CIERRE_IMPUESTO = /^(?:CERRÓ|DESBLOQUEÓ) (?:RETENCIÓN EN LA FUENTE|IVA|ANTICIPOS BIMESTRALES)/;
+
+/** ¿El paso cuenta cada vez (no se agrupa por día)? */
+export function cuentaCadaVez(action: string): boolean {
+  const a = action.trim();
+  return (
+    coincidePrefijo(a, ACCIONES_CADA_VEZ)
+    // Aprobar el borrador de un módulo: «CARGÓ Cartera», «CARGÓ Nómina»…
+    || NOMBRES_MODULOS.some((m) => a === `CARGÓ ${m}`)
+    || PATRON_CIERRE_IMPUESTO.test(a)
+  );
+}
+
+/**
+ * Pasos que reúnen varias acciones de la bitácora: homologar una cuenta o dejarla
+ * pendiente es el mismo paso; poner, editar o retirar marcas, también. Lo que no
+ * está aquí es un paso por sí mismo (su acción). El orden importa: «COMENTÓ
+ * ALERTA» es de las alertas del módulo antes que de los comentarios.
+ */
+const PASOS: ReadonlyArray<{ paso: string; prefijos: readonly string[] }> = [
+  {
+    paso: "HOMOLOGÓ CUENTAS DEL BALANCE",
+    prefijos: ["ASIGNÓ CUENTA ESTÁNDAR", "MARCÓ CUENTA PENDIENTE POR ASIGNAR", "QUITÓ PENDIENTE POR ASIGNAR"],
+  },
+  { paso: "VALIDÓ ALERTAS DEL BALANCE", prefijos: ["VALIDÓ alerta de balance", "REVIRTIÓ validación de alerta"] },
+  {
+    paso: "ATENDIÓ ALERTAS DEL MÓDULO",
+    prefijos: ["COMENTÓ ALERTA", "APROBÓ ALERTA", "EDITÓ COMENTARIO DE ALERTA", "EDITÓ APROBACIÓN DE ALERTA"],
+  },
+  {
+    paso: "MARCÓ DIFERENCIAS DEL CRUCE",
+    prefijos: [
+      "MARCÓ una diferencia del",
+      "EDITÓ la marca del",
+      "RETIRÓ la marca del",
+      "CAMBIÓ lo que explica una marca",
+      "USÓ en otro renglón una marca",
+      "QUITÓ de un renglón una marca",
+      "RELACIONÓ terceros con una marca",
+      "QUITÓ un tercero de la relación con una marca",
+    ],
+  },
+  { paso: "MARCÓ DIFERENCIAS DE IMPUESTOS", prefijos: ["MARCÓ DIFERENCIA DE", "QUITÓ MARCA DE"] },
+  {
+    paso: "TRABAJÓ EL CRUCE POR TERCERO",
+    prefijos: [
+      "EMPAREJÓ",
+      "SEPARÓ un tercero",
+      "RETIRÓ la separación de un tercero",
+      "DESHIZO el emparejamiento de un tercero",
+      "SUMÓ un tercero de la contabilidad",
+    ],
+  },
+  // Eliminar un comentario o un soporte no cuenta (`noEsOperacion`).
+  { paso: "COMENTÓ", prefijos: ["COMENTÓ", "EDITÓ un comentario"] },
+];
+
+/** Paso de los patrones de archivo: crear, subir la muestra, editar, aprobar… */
+export const PASO_PATRON = "TRABAJÓ UN PATRÓN DE ARCHIVO";
+
+/**
+ * Pasos que se hacen renglón por renglón y cuentan una operación por cada N
+ * registros del mismo documento y día, redondeando hacia arriba: homologar 1 a 10
+ * cuentas es 1, 11 a 20 es 2, 35 es 4. Se cuentan asignaciones: asignar de una vez
+ * todo un grupo de cuentas es un registro.
+ */
+export const REGISTROS_POR_BLOQUE: Readonly<Record<string, number>> = {
+  "HOMOLOGÓ CUENTAS DEL BALANCE": 10,
+  "ACTUALIZÓ consolidación de módulo": 10,
+};
+
+/** El paso de trabajo al que pertenece una acción de la bitácora. */
+export function pasoDeAccion(action: string): string {
+  const a = action.trim();
+  for (const { paso, prefijos } of PASOS) {
+    if (coincidePrefijo(a, prefijos as string[])) return paso;
+  }
+  if (a.includes("PATRÓN")) return PASO_PATRON;
+  return a;
+}
+
+const MODULO_POR_CODIGO: Record<string, string> = {
+  INV: "Inventarios",
+  AFI: "Activos Fijos",
+  CAR: "Cartera",
+  CXP: "Cuentas por Pagar",
+  ING: "Ingresos",
+  NOM: "Nómina",
+};
+
+/** «12:fila-3» → 12: las validaciones de alertas anotan el balance en la entidad desde siempre. */
+const BALANCE_EN_ENTIDAD = /^(\d+):/;
+
+/**
+ * El documento del paso: el que anotó la bitácora (el balance, el borrador, la
+ * conciliación del período o la revisión de impuestos); en los pasos de patrones,
+ * el patrón («Cartera · SIESA v2»; algunas acciones lo anotan con el código del
+ * módulo); en las validaciones de alertas viejas, el balance de su entidad; y si no
+ * hay nada de eso (registros anteriores al 24/Nov/2026), el cliente.
+ */
+export function documentoDeOperacion(e: EventoAuditoria, paso: string): string {
+  if (paso === PASO_PATRON) {
+    const [primero = "", ...resto] = e.entity.split(" · ").map((s) => s.trim());
+    return ["patron", MODULO_POR_CODIGO[primero] ?? primero, ...resto].join("|");
+  }
+  const anotado = e.document?.trim();
+  if (anotado) return anotado;
+  if (paso === "VALIDÓ ALERTAS DEL BALANCE") {
+    const balance = BALANCE_EN_ENTIDAD.exec(e.entity.trim())?.[1];
+    if (balance) return `balance:${balance}`;
+  }
+  return e.clientId != null ? `cliente|${e.clientId}` : "sin-cliente";
+}
+
+/**
+ * Una operación de uso: el primer registro del grupo, su paso de trabajo y
+ * cuántos registros de la bitácora reúne.
+ */
+export type OperacionUso = EventoAuditoria & { paso: string; registros: number };
+
+/**
+ * Convierte registros de bitácora en OPERACIONES (ver arriba): quita lo que no es
+ * operación, deja una a una las que cuentan cada vez y agrupa las demás por
+ * persona, paso, documento y día (UTC, el mismo día con el que se arma la serie
+ * diaria). Cada operación conserva el primer registro del grupo, así que el orden
+ * de entrada se mantiene. No modifica los eventos.
  */
 export function agruparOperaciones(eventos: readonly EventoAuditoria[]): OperacionUso[] {
   const operaciones: OperacionUso[] = [];
   const grupos = new Map<string, OperacionUso>();
   for (const e of eventos) {
-    if (!esAccionPorFila(e.action)) {
-      operaciones.push({ ...e, registros: 1 });
+    if (noEsOperacion(e.action)) continue;
+    const paso = pasoDeAccion(e.action);
+    if (cuentaCadaVez(e.action)) {
+      operaciones.push({ ...e, paso, registros: 1 });
       continue;
     }
-    const clave = [e.user.trim(), e.action.trim(), e.clientId ?? "-", diaClave(e.createdAt)].join("|");
+    const clave = [e.user.trim(), paso, documentoDeOperacion(e, paso), diaClave(e.createdAt)].join("|");
     const grupo = grupos.get(clave);
-    if (grupo) {
+    // Los pasos por bloque abren una operación nueva cada N registros: 35 cuentas
+    // homologadas son 4 operaciones (10 + 10 + 10 + 5).
+    if (grupo && grupo.registros < (REGISTROS_POR_BLOQUE[paso] ?? Infinity)) {
       grupo.registros += 1;
       continue;
     }
-    const operacion = { ...e, registros: 1 };
+    const operacion = { ...e, paso, registros: 1 };
     grupos.set(clave, operacion);
     operaciones.push(operacion);
   }
   return operaciones;
+}
+
+/**
+ * Qué se cuenta en el volumen de trabajo: cada registro de estas acciones es una
+ * unidad (una cuenta homologada, una alerta validada, una marca…).
+ */
+const VOLUMEN_DE_TRABAJO: ReadonlyArray<{ etiqueta: string; singular: string; prefijos: readonly string[] }> = [
+  { etiqueta: "cuentas homologadas", singular: "cuenta homologada", prefijos: ["ASIGNÓ CUENTA ESTÁNDAR"] },
+  {
+    etiqueta: "alertas validadas",
+    singular: "alerta validada",
+    prefijos: ["VALIDÓ alerta de balance", "APROBÓ ALERTA", "COMENTÓ ALERTA"],
+  },
+  { etiqueta: "marcas", singular: "marca", prefijos: ["MARCÓ una diferencia del", "MARCÓ DIFERENCIA DE"] },
+  { etiqueta: "cambios del Consolidado", singular: "cambio del Consolidado", prefijos: ["ACTUALIZÓ consolidación de módulo"] },
+  { etiqueta: "formularios DIAN cargados", singular: "formulario DIAN cargado", prefijos: ["IMPORTÓ FORMULARIO DIAN"] },
+  { etiqueta: "formularios DIAN confirmados", singular: "formulario DIAN confirmado", prefijos: ["CONFIRMÓ FORMULARIO DIAN"] },
+];
+
+/** Volumen de trabajo de los registros dados, en el orden fijo de arriba y sin ceros. */
+export function volumenDeTrabajo(eventos: readonly EventoAuditoria[]): ConteoNombrado[] {
+  return VOLUMEN_DE_TRABAJO.map(({ etiqueta, singular, prefijos }) => {
+    const total = eventos.filter((e) => coincidePrefijo(e.action, prefijos as string[])).length;
+    return { nombre: total === 1 ? singular : etiqueta, total };
+  }).filter((v) => v.total > 0);
+}
+
+/** «779 cuentas homologadas · 159 alertas validadas · 35 marcas» (vacío si no hay volumen). */
+export function textoVolumen(volumen: readonly ConteoNombrado[] | null | undefined): string {
+  return (volumen ?? []).map((v) => `${new Intl.NumberFormat("es-CO").format(v.total)} ${v.nombre}`).join(" · ");
 }
 
 /** Mapea moduleKey de Novedades → familia medible de adopción. */
@@ -625,7 +826,8 @@ export function calcularResumenUso(params: {
     if (!ultima || iso > ultima) ultima = iso;
   }
 
-  // Desde aquí se cuentan OPERACIONES, no registros (ver `ACCIONES_POR_FILA`).
+  // Desde aquí se cuentan OPERACIONES, no registros (ver `agruparOperaciones`):
+  // las acciones se nombran por su paso de trabajo.
   const operaciones = agruparOperaciones(ordenados);
 
   for (const e of operaciones) {
@@ -634,8 +836,8 @@ export function calcularResumenUso(params: {
 
     usuarios.add(e.user);
     porFamilia.set(etiquetaFamilia, (porFamilia.get(etiquetaFamilia) ?? 0) + 1);
-    porAccion.set(e.action, (porAccion.get(e.action) ?? 0) + 1);
-    registrosPorAccion.set(e.action, (registrosPorAccion.get(e.action) ?? 0) + e.registros);
+    porAccion.set(e.paso, (porAccion.get(e.paso) ?? 0) + 1);
+    registrosPorAccion.set(e.paso, (registrosPorAccion.get(e.paso) ?? 0) + e.registros);
     porUsuario.set(e.user, (porUsuario.get(e.user) ?? 0) + 1);
 
     let ua = porUsuarioAccion.get(e.user);
@@ -643,7 +845,7 @@ export function calcularResumenUso(params: {
       ua = new Map();
       porUsuarioAccion.set(e.user, ua);
     }
-    ua.set(e.action, (ua.get(e.action) ?? 0) + 1);
+    ua.set(e.paso, (ua.get(e.paso) ?? 0) + 1);
 
     let uf = porUsuarioFamilia.get(e.user);
     if (!uf) {
@@ -754,7 +956,7 @@ export function calcularResumenUso(params: {
       return {
         fecha: aIso(e.createdAt),
         usuario: e.user,
-        accion: e.action,
+        accion: e.paso,
         entidad: recortar(e.entity, 120),
         detalle: recortar(e.detail, 200),
         familia,
@@ -774,6 +976,7 @@ export function calcularResumenUso(params: {
     periodoHasta: aIso(params.periodoHasta),
     totalAcciones: operaciones.length,
     totalRegistros: ordenados.length,
+    volumen: volumenDeTrabajo(ordenados),
     totalNavegaciones,
     totalConexiones,
     totalUsuarios: usuarios.size,
