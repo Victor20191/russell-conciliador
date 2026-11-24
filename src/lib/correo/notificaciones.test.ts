@@ -85,6 +85,41 @@ describe("destino del correo de mención", () => {
   });
   it("indica la dirección inválida de Russell sin confundirla con autenticación SMTP", async () => {
     const r = await enviarCorreoRegistrado({ ...conexion, configuracion: { url_plataforma: "incorrecta" } }, ["ana@example.com"], aviso);
-    expect(r.ok).toBe(false); expect(r.message).toContain("dirección HTTPS de Russell"); expect(mocks.send).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false); expect(r.message).toContain("dirección de Russell"); expect(r.message).toContain("no es válida"); expect(mocks.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("avisos sin dirección de Russell en la conexión", () => {
+  // La dirección es opcional (producción puede no tener dominio ni HTTPS): el aviso sale, sin el enlace.
+  for (const [descripcion, configuracion] of [
+    ["sin la clave", { remitente: "russell@example.com" }],
+    ["vacía", { remitente: "russell@example.com", url_plataforma: "" }],
+  ] as const) {
+    it(`sale bien y sin enlace con la dirección ${descripcion}`, async () => {
+      mocks.findMany.mockResolvedValue([{ ...conexion, configuracion }]);
+      await enviarAvisoCorreo(aviso);
+      expect(mocks.send).toHaveBeenCalledOnce();
+      const mensaje = mocks.send.mock.calls[0][2];
+      expect(mensaje.destinatario).toBe("ana@example.com");
+      expect(mensaje.asunto).toBe("Russell · Novedad");
+      expect(mensaje.texto).toContain("Texto privado");
+      expect(mensaje.texto).not.toContain("Abrir Russell");
+      expect(mensaje.html).toContain("Texto privado");
+      expect(mensaje.html).not.toContain("Abrir Russell");
+      expect(mensaje.html).not.toContain("href=");
+      // El logotipo sigue viajando incrustado: no depende de ninguna dirección.
+      expect(mensaje.html).toContain("cid:logo-russell-bedford");
+      // Resultado registrado como correcto, no como error de configuración.
+      expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ ultimaEjecucionEstado: "ok" }) }));
+      expect(mocks.create.mock.calls[0][0].data).toMatchObject({ tipo: "ENVIO_CORREO", estado: "ok" });
+    });
+  }
+  it("las menciones con entidad también salen sin enlace cuando no hay dirección", async () => {
+    mocks.findMany.mockResolvedValue([{ ...conexion, configuracion: { remitente: "russell@example.com" } }]);
+    mocks.dato.mockResolvedValue({ moduloCodigo: "nomina" });
+    await enviarAvisoCorreo({ ...aviso, entidad: { tipo: "modulos_datos", id: 62 } });
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(mocks.send.mock.calls[0][2].texto).not.toContain("/modulos/nomina/62");
+    expect(mocks.send.mock.calls[0][2].texto).not.toContain("Abrir Russell");
   });
 });

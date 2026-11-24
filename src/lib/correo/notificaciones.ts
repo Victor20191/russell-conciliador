@@ -3,7 +3,7 @@ import { after } from "next/server";
 import prisma from "@/lib/prisma";
 import type { ConexionIntegracion } from "@/generated/prisma/client";
 import { descifrarCredenciales } from "@/lib/conexiones/credenciales";
-import { enviarSmtp, ErrorSmtp, mensajeErrorSmtp } from "@/lib/conexiones/smtp";
+import { enviarSmtp, ErrorSmtp, mensajeErrorSmtp, type ImagenEnLinea } from "@/lib/conexiones/smtp";
 import { CID_LOGO_CORREO, mensajeNotificacion, ErrorPlantillaNotificacion } from "./plantilla-notificacion";
 import { logoCorreo } from "@/lib/marca/recursos-correo";
 import { destinatariosAviso, type AlcanceAviso } from "./destinatarios";
@@ -89,8 +89,11 @@ async function registrarResultadoEnvio(
   return { ok, message };
 }
 
-/** Un correo con HTML completo propio (sin la plantilla de notificación de Russell). */
-export type CorreoHtml = { asunto: string; html: string; texto: string; referencia: string };
+/**
+ * Un correo con HTML completo propio (sin la plantilla de notificación de Russell).
+ * `imagenes` son los adjuntos en línea que el HTML cita con `cid:` (p. ej. el logotipo).
+ */
+export type CorreoHtml = { asunto: string; html: string; texto: string; referencia: string; imagenes?: ImagenEnLinea[] };
 export type ResultadoEnvioHtml = ResultadoCorreo & { aceptados: number; fallidos: number };
 
 /**
@@ -119,7 +122,7 @@ export async function enviarHtmlRegistrado(
     const asunto = correo.asunto.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
     for (const destinatario of unicos) {
       try {
-        await enviarSmtp(config, credenciales, { destinatario, asunto, texto: correo.texto, html: correo.html });
+        await enviarSmtp(config, credenciales, { destinatario, asunto, texto: correo.texto, html: correo.html, imagenes: correo.imagenes });
         aceptados++;
       } catch (error) {
         fallidos++;

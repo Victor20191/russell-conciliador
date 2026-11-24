@@ -18,4 +18,25 @@ describe("correo de Russell", () => {
       expect(() => mensajeNotificacion({ titulo: "Aviso", texto: "Mensaje", urlPlataforma: "https://russell.example", ruta })).toThrow();
     }
   });
+  it("sin dirección de Russell el aviso sale completo, sin enlace «Abrir Russell» y sin error", () => {
+    // La dirección es opcional: vacía, ausente o solo espacios equivalen a «no configurada».
+    for (const urlPlataforma of [undefined, null, "", "   "]) {
+      const r = mensajeNotificacion({ titulo: "Balance listo", texto: "El balance quedó cargado.", urlPlataforma, ruta: "/balance/12" });
+      expect(r.html).toContain("Balance listo");
+      expect(r.html).toContain("El balance quedó cargado.");
+      expect(r.html).not.toContain("Abrir Russell");
+      expect(r.html).not.toContain("<a ");
+      expect(r.html).not.toContain("href=");
+      expect(r.texto).toBe("El balance quedó cargado.\n\nAviso automático de Russell Conciliador.");
+      expect(r.asunto).toBe("Russell · Balance listo");
+    }
+    // Sin la clave `urlPlataforma` tampoco hay enlace.
+    expect(mensajeNotificacion({ titulo: "Aviso", texto: "Mensaje" }).texto).not.toContain("Abrir Russell");
+  });
+  it("con dirección válida sí lleva el enlace; con una escrita pero inválida falla con un mensaje claro", () => {
+    const con = mensajeNotificacion({ titulo: "Aviso", texto: "Mensaje", urlPlataforma: " https://russell.example ", ruta: "/balance/12" });
+    expect(con.texto).toContain("Abrir Russell: https://russell.example/balance/12");
+    expect(con.html).toContain("Abrir Russell");
+    expect(() => mensajeNotificacion({ titulo: "Aviso", texto: "Mensaje", urlPlataforma: "http://russell.example" })).toThrow(/no es válida/);
+  });
 });

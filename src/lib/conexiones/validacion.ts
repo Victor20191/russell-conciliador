@@ -39,12 +39,14 @@ export function validarConfiguracion(
     if ((datos.remitente || datos.usar_para_notificaciones) && !z.email().safeParse(datos.remitente).success) {
       errores.config_remitente = ["Ingresa un correo válido para el remitente."];
     }
-    if (datos.url_plataforma || datos.usar_para_notificaciones) {
+    // La dirección de Russell es OPCIONAL, también al usar la conexión para notificaciones: sin ella los
+    // avisos salen sin el enlace «Abrir Russell». Si se escribe una, debe ser una dirección HTTPS limpia.
+    if (datos.url_plataforma) {
       try {
-        const url = new URL(String(datos.url_plataforma ?? ""));
+        const url = new URL(String(datos.url_plataforma));
         if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) throw new Error();
       } catch {
-        errores.config_url_plataforma = ["Ingresa la dirección HTTPS de Russell, sin rutas, parámetros ni credenciales."];
+        errores.config_url_plataforma = ["Ingresa la dirección HTTPS de Russell, sin rutas, parámetros ni credenciales, o déjala vacía."];
       }
     }
     if (!/^[a-zA-Z0-9.-]+$/.test(String(datos.host ?? ""))) {

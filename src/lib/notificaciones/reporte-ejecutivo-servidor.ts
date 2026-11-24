@@ -4,13 +4,18 @@ import type { NotificacionProgramada } from "@/generated/prisma/client";
 import { logAudit } from "@/lib/audit";
 import { registrarError } from "@/lib/errores";
 import { conexionNotificaciones, enviarHtmlRegistrado } from "@/lib/correo/notificaciones";
-import { documentoCorreo, htmlATextoPlano, htmlCorreoDeReporte } from "@/lib/correo/formato-correo-servidor";
+import {
+  CID_LOGO_REPORTE,
+  documentoCorreo,
+  htmlATextoPlano,
+  htmlCorreoDeReporte,
+} from "@/lib/correo/formato-correo-servidor";
+import { logoAzulCorreo } from "@/lib/marca/recursos-correo";
 import { LIMITE_RECORTE_GMAIL } from "@/lib/correo/preparar-html-correo";
 import { ErrorSmtp } from "@/lib/conexiones/smtp";
 import { generarReporteEjecutivoNucleo } from "@/lib/auditoria/reporte-ejecutivo/generar-servidor";
 import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { correosDeEnvio, TOPE_DESTINATARIOS } from "./destinatarios";
-import { origenDePlataforma } from "./origen-plataforma";
 import { PROGRAMACION_POR_DEFECTO, type PanelEnvioAutomatico } from "./panel";
 import {
   decidirVencimiento,
@@ -106,12 +111,6 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
     if (!conexion) {
       return fallo("No hay una conexión de correo para notificaciones. Márcala en Configuración › Conexiones.");
     }
-    const config = (conexion.configuracion ?? {}) as Record<string, unknown>;
-    const origen = origenDePlataforma(config.url_plataforma);
-    if (!origen) {
-      return fallo("Falta la dirección HTTPS de Russell en la conexión de correo (se usa para el logotipo del reporte). Configúrala en Configuración › Conexiones.");
-    }
-
     // 2. El reporte: los 7 días que terminan el día anterior al envío, sin novedades omitidas.
     const periodo = periodoEnvioSemanal(entrada.referencia);
     const rango = parseRangoReporte(periodo.desde, periodo.hasta);
@@ -122,8 +121,11 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
     });
     if (!generado.ok) return fallo(generado.message, rango);
 
-    // 3. El mismo formato que «Copiar formato correo», en el cuerpo del mensaje.
-    const fragmento = htmlCorreoDeReporte(generado.report.html, origen);
+    // 3. El mismo formato que «Copiar formato correo», en el cuerpo del mensaje. El logotipo viaja
+    //    incrustado (CID), como en los avisos: no depende de ninguna dirección pública. Sin logotipo
+    //    legible, el correo sale sin él.
+    const logo = await logoAzulCorreo();
+    const fragmento = htmlCorreoDeReporte(generado.report.html, { logoCid: logo ? CID_LOGO_REPORTE : null });
     const titulo = generado.report.titulo;
     const prefijo = entrada.origen === "prueba" ? "[Prueba] " : "";
     const resultado = await enviarHtmlRegistrado(
@@ -134,12 +136,16 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
         html: documentoCorreo(fragmento, titulo),
         texto: `${titulo}\n\n${htmlATextoPlano(fragmento)}`,
         referencia: REFERENCIA_ENVIO[entrada.origen],
+        imagenes: logo
+          ? [{ cid: CID_LOGO_REPORTE, nombre: "russell-bedford-azul.png", contenido: logo, tipo: "image/png" as const }]
+          : undefined,
       },
       entrada.actor.nombre,
     );
 
     const estado = estadoDeEnvio(resultado.aceptados, resultado.fallidos);
     const notas: string[] = [];
+    if (!logo) notas.push("No se pudo leer el logotipo: el correo salió sin él.");
     if (fragmento.length > LIMITE_RECORTE_GMAIL) {
       notas.push("El cuerpo supera los 102.000 caracteres: Gmail podría mostrarlo recortado.");
     }
@@ -439,14 +445,9 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
   let conexion: PanelEnvioAutomatico["conexion"];
   try {
     const encontrada = await conexionNotificaciones();
-    if (!encontrada) {
-      conexion = { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar las notificaciones de Russell." };
-    } else {
-      const config = (encontrada.configuracion ?? {}) as Record<string, unknown>;
-      conexion = origenDePlataforma(config.url_plataforma)
-        ? { estado: "lista", mensaje: null }
-        : { estado: "sin_direccion", mensaje: "La conexión de correo no tiene la dirección HTTPS de Russell: sin ella el logotipo del reporte no se vería." };
-    }
+    conexion = encontrada
+      ? { estado: "lista", mensaje: null }
+      : { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar las notificaciones de Russell." };
   } catch (e) {
     conexion =
       e instanceof ErrorSmtp

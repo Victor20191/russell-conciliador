@@ -123,10 +123,34 @@ describe("SMTP de notificaciones", () => {
     expect(mocks.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ proveedor: { in: ["smtp", "gmail"] }, configuracion: { path: ["usar_para_notificaciones"], equals: true } }) }));
     expect(mocks.create).not.toHaveBeenCalled();
   });
-  it("no acepta seleccionar SMTP de pruebas ni sin remitente/dirección de Russell", async () => {
+  it("no acepta seleccionar SMTP de pruebas ni sin remitente", async () => {
     expect((await crearConexion(undefined, formularioSmtp({ entorno: "PRUEBAS" }))).ok).toBe(false);
-    expect((await crearConexion(undefined, formularioSmtp({ config_remitente: "", config_url_plataforma: "" }))).errors).toMatchObject({ config_remitente: expect.any(Array), config_url_plataforma: expect.any(Array) });
+    const sinRemitente = (await crearConexion(undefined, formularioSmtp({ config_remitente: "" }))).errors;
+    expect(sinRemitente).toMatchObject({ config_remitente: expect.any(Array) });
+    expect(sinRemitente).not.toHaveProperty("config_url_plataforma");
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("la dirección de Russell es opcional: se puede usar para notificaciones sin ella (SMTP y Gmail)", async () => {
+    const smtp = await crearConexion(undefined, formularioSmtp({ config_url_plataforma: "" }));
+    expect(smtp.ok).toBe(true);
+    expect(mocks.create.mock.calls[0][0].data.configuracion).toMatchObject({ usar_para_notificaciones: true, remitente: "russell@example.com" });
+    expect(mocks.create.mock.calls[0][0].data.configuracion).not.toHaveProperty("url_plataforma");
+
+    const gmail = await crearConexion(undefined, formularioSmtp({
+      proveedor: "gmail", codigo: "gmail_russell", config_host: "smtp.gmail.com", config_remitente: "cuenta@gmail.com", config_url_plataforma: "",
+    }));
+    expect(gmail.ok).toBe(true);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create.mock.calls[1][0].data.configuracion).toMatchObject({ usar_para_notificaciones: true });
+  });
+  it("si se escribe una dirección de Russell, sigue debiendo ser HTTPS limpia", async () => {
+    for (const direccion of ["http://85.239.249.103:3001", "https://russell.example/app", "https://russell.example?x=1", "https://u:p@russell.example", "russell"]) {
+      const r = await crearConexion(undefined, formularioSmtp({ config_url_plataforma: direccion }));
+      expect(r.ok, direccion).toBe(false);
+      expect(r.errors, direccion).toMatchObject({ config_url_plataforma: [expect.stringContaining("o déjala vacía")] });
+    }
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect((await crearConexion(undefined, formularioSmtp({ config_url_plataforma: "https://russell.example" }))).ok).toBe(true);
   });
   it("activar otra cuenta Gmail no elude el control", async () => {
     mocks.findUnique.mockResolvedValue({ proveedor: "gmail", entorno: "PRODUCCION", configuracion: { usar_para_notificaciones: true } });

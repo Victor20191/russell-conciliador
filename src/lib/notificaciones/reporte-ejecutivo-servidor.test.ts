@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   ejecUpdateMany: vi.fn(), ejecCreate: vi.fn(), ejecUpdate: vi.fn(), ejecFindFirst: vi.fn(),
   progFindMany: vi.fn(), progUpdateMany: vi.fn(), progUpsert: vi.fn(), progFindUnique: vi.fn(),
   destFindMany: vi.fn(), envioCreate: vi.fn(),
-  logAudit: vi.fn(), conexion: vi.fn(), enviarHtml: vi.fn(), generar: vi.fn(),
+  logAudit: vi.fn(), conexion: vi.fn(), enviarHtml: vi.fn(), generar: vi.fn(), logo: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({
   default: {
@@ -17,6 +17,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
 vi.mock("@/lib/errores", () => ({ registrarError: vi.fn() }));
 vi.mock("@/lib/correo/notificaciones", () => ({ conexionNotificaciones: mocks.conexion, enviarHtmlRegistrado: mocks.enviarHtml }));
+vi.mock("@/lib/marca/recursos-correo", () => ({ logoAzulCorreo: mocks.logo }));
 vi.mock("@/lib/auditoria/reporte-ejecutivo/generar-servidor", () => ({ generarReporteEjecutivoNucleo: mocks.generar }));
 import {
   ACTOR_PROGRAMADO,
@@ -31,7 +32,9 @@ const AHORA = new Date("2026-11-23T12:05:00.000Z");
 const SIGUIENTE = new Date("2026-11-30T12:00:00.000Z");
 
 const programacion = { id: 7, tipo: "reporte_ejecutivo", activa: true, diaSemana: 1, hora: "07:00", proximaEjecucionEn: PROGRAMADA };
-const conexion = { id: 1, configuracion: { url_plataforma: "https://russell.example", remitente: "r@example.com" } };
+// Sin `url_plataforma`: la dirección de Russell es opcional y el reporte no depende de ella.
+const conexion = { id: 1, configuracion: { remitente: "r@example.com" } };
+const LOGO = Buffer.from("png-azul");
 const reporte = {
   ok: true as const,
   report: { titulo: "Reporte de uso y avances", html: "<!DOCTYPE html><html><head><style>p{color:#001871}</style></head><body><p>Hola &amp; adiós</p></body></html>" },
@@ -53,6 +56,7 @@ beforeEach(() => {
     { correo: "eva@x.co", nombre: null, activo: true },
   ]);
   mocks.conexion.mockResolvedValue(conexion);
+  mocks.logo.mockResolvedValue(LOGO);
   mocks.generar.mockResolvedValue(reporte);
   mocks.enviarHtml.mockResolvedValue({ ok: true, message: "2 correo(s) aceptado(s) por SMTP.", aceptados: 2, fallidos: 0 });
   mocks.envioCreate.mockResolvedValue({});
@@ -173,12 +177,49 @@ describe("disparo programado", () => {
     expect(mocks.ejecUpdate.mock.calls[0][0].data.mensaje).toContain("Configuración › Conexiones");
   });
 
-  it("sin la dirección HTTPS de Russell no envía: el logotipo del correo no se vería", async () => {
-    mocks.conexion.mockResolvedValue({ id: 1, configuracion: { url_plataforma: "http://russell.example" } });
-    await procesarNotificacionesPendientes(AHORA);
-    expect(mocks.generar).not.toHaveBeenCalled();
-    expect(mocks.enviarHtml).not.toHaveBeenCalled();
-    expect(mocks.ejecUpdate.mock.calls[0][0].data.mensaje).toContain("dirección HTTPS de Russell");
+  it("no depende de la dirección de Russell: envía igual, con el logotipo azul incrustado por CID", async () => {
+    // Ni `url_plataforma` ausente, ni una dirección inválida o con HTTP, impiden el envío.
+    for (const configuracion of [{ remitente: "r@example.com" }, { url_plataforma: "" }, { url_plataforma: "http://85.239.249.103:3001" }]) {
+      vi.clearAllMocks();
+      mocks.ejecCreate.mockResolvedValue({ id: 55 });
+      mocks.progFindMany.mockResolvedValue([programacion]);
+      mocks.progUpdateMany.mockResolvedValue({ count: 1 });
+      mocks.destFindMany.mockResolvedValue([{ correo: "ana@x.co", nombre: null, activo: true }]);
+      mocks.conexion.mockResolvedValue({ id: 1, configuracion });
+      mocks.logo.mockResolvedValue(LOGO);
+      mocks.generar.mockResolvedValue({
+        ...reporte,
+        report: { titulo: "Reporte", html: '<!DOCTYPE html><html><head><style>@font-face{font-family:Lato;src:url(/marca/fuentes/lato-400-normal.woff2) format("woff2")}</style></head><body><div class="rb-logo" style="padding:0"><img src="/marca/russell-bedford-azul.svg" width="180" height="39" alt="Logo"></div><p>Hola</p></body></html>' },
+      });
+      mocks.enviarHtml.mockResolvedValue({ ok: true, message: "1 correo(s) aceptado(s) por SMTP.", aceptados: 1, fallidos: 0 });
+      mocks.ejecUpdate.mockResolvedValue({});
+      mocks.envioCreate.mockResolvedValue({});
+      const r = await procesarNotificacionesPendientes(AHORA);
+      expect(r).toMatchObject({ enviadas: 1, errores: 0 });
+      const correo = mocks.enviarHtml.mock.calls[0][2];
+      expect(correo.html).toContain('src="cid:logo-russell-bedford-azul"');
+      expect(correo.html).not.toContain("/marca/");
+      expect(correo.html).not.toContain("@font-face");
+      expect(correo.imagenes).toEqual([{ cid: "logo-russell-bedford-azul", nombre: "russell-bedford-azul.png", contenido: LOGO, tipo: "image/png" }]);
+      expect(mocks.ejecUpdate.mock.calls[0][0].data).toMatchObject({ estado: "ok" });
+    }
+  });
+
+  it("si no se puede leer el logotipo, el correo sale sin él y lo avisa en el historial", async () => {
+    mocks.logo.mockResolvedValue(null);
+    mocks.generar.mockResolvedValue({
+      ...reporte,
+      report: { titulo: "Reporte", html: '<!DOCTYPE html><html><body><div class="rb-logo"><img src="/marca/russell-bedford-azul.svg" width="180" height="39" alt="Logo"></div><p>Hola</p></body></html>' },
+    });
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ enviadas: 1, errores: 0 });
+    const correo = mocks.enviarHtml.mock.calls[0][2];
+    expect(correo.imagenes).toBeUndefined();
+    expect(correo.html).not.toContain("<img");
+    expect(correo.html).not.toContain("/marca/");
+    expect(correo.html).toContain("Hola");
+    expect(mocks.ejecUpdate.mock.calls[0][0].data).toMatchObject({ estado: "ok" });
+    expect(mocks.ejecUpdate.mock.calls[0][0].data.mensaje).toContain("sin él");
   });
 
   it("si el reporte no se puede generar, no envía y conserva el mensaje del generador", async () => {
@@ -309,6 +350,13 @@ describe("panel", () => {
       destinatarios: [], ejecuciones: [], atrasado: false, correoPrueba: "yo@x.co", disparadorConfigurado: true,
       conexion: { estado: "lista" },
     });
+  });
+
+  it("la conexión sin dirección de Russell cuenta como lista", async () => {
+    mocks.progFindUnique.mockResolvedValue(null);
+    mocks.conexion.mockResolvedValue({ id: 1, configuracion: { remitente: "r@example.com" } });
+    const panel = await leerPanelEnvio({ correoPrueba: null, ahora: AHORA });
+    expect(panel.conexion).toEqual({ estado: "lista", mensaje: null });
   });
 
   it("avisa cuando el envío debía haber salido hace más de 30 minutos y no hay cron, y cuando falta la conexión", async () => {

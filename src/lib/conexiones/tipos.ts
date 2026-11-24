@@ -170,7 +170,7 @@ const NOTIFICACIONES_SMTP: CampoDefinicion[] = [
   { clave: "usar_para_notificaciones", label: "Enviar notificaciones de Russell con esta conexión", tipo: "booleano", porDefecto: false,
     ayuda: "Selecciona una sola conexión activa de Producción. Envía avisos de balances, menciones y actualizaciones de soporte a los destinatarios autorizados." },
   { clave: "url_plataforma", label: "Dirección de Russell", tipo: "texto", placeholder: "https://russell.tuempresa.com",
-    ayuda: "Dirección pública HTTPS que se incluirá en los correos para abrir Russell." },
+    ayuda: "Opcional. Dirección pública HTTPS de Russell, sin rutas ni parámetros; se usa para el enlace «Abrir Russell» de los avisos. Si la dejas vacía, los avisos de balances, menciones y soporte salen sin ese enlace." },
 ];
 
 export const PROVEEDORES: ProveedorDefinicion[] = [

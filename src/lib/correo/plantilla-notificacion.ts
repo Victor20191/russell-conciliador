@@ -37,12 +37,16 @@ export function mensajeNotificacion(input: {
   logoSrc?: string | null;
 }) {
   let enlace = "";
-  if (input.urlPlataforma) {
+  // La dirección de Russell es opcional: sin ella el aviso sale completo, solo que sin el enlace «Abrir Russell».
+  // Una dirección escrita pero inválida sí es un error de configuración y no se manda un enlace dudoso.
+  const direccion = typeof input.urlPlataforma === "string" ? input.urlPlataforma.trim() : input.urlPlataforma;
+  if (direccion) {
+    const invalida = "La dirección de Russell de la conexión SMTP no es válida: usa una dirección HTTPS sin rutas ni parámetros, o déjala vacía.";
     let base: URL;
-    try { base = new URL(String(input.urlPlataforma)); }
-    catch { throw new ErrorPlantillaNotificacion("Configura la dirección HTTPS de Russell en la conexión SMTP."); }
+    try { base = new URL(String(direccion)); }
+    catch { throw new ErrorPlantillaNotificacion(invalida); }
     if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash || base.pathname !== "/") {
-      throw new ErrorPlantillaNotificacion("Configura la dirección HTTPS de Russell en la conexión SMTP.");
+      throw new ErrorPlantillaNotificacion(invalida);
     }
     const ruta = input.ruta ?? "/dashboard";
     if (!ruta.startsWith("/") || ruta.startsWith("//") || /[\\\r\n]/.test(ruta)) throw new ErrorPlantillaNotificacion("Ruta de notificación inválida.");

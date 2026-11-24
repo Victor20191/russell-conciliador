@@ -111,7 +111,7 @@ function PanelEnvio({ panel }: { panel: PanelEnvioAutomatico }) {
       <div className="flex flex-col gap-2">
         {panel.conexion.estado !== "lista" && (
           <Aviso>
-            {panel.conexion.mensaje} Sin ella no se puede enviar el reporte.{" "}
+            {panel.conexion.mensaje} Mientras tanto no se puede enviar el reporte.{" "}
             <Link href="/config/conexiones" className="font-semibold underline">
               Ir a Conexiones
             </Link>

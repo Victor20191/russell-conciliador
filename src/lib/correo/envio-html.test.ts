@@ -30,6 +30,13 @@ describe("enviarHtmlRegistrado", () => {
     expect(mocks.send.mock.calls[1][2].destinatario).toBe("luis@x.co");
   });
 
+  it("pasa los adjuntos en línea (CID) a cada mensaje, para que el HTML no dependa de ninguna dirección", async () => {
+    const imagenes = [{ cid: "logo-russell-bedford-azul", nombre: "russell-bedford-azul.png", contenido: Buffer.from("png"), tipo: "image/png" as const }];
+    await enviarHtmlRegistrado(conexion, ["ana@x.co", "luis@x.co"], { ...correo, html: '<img src="cid:logo-russell-bedford-azul">', imagenes });
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    for (const llamada of mocks.send.mock.calls) expect(llamada[2].imagenes).toEqual(imagenes);
+  });
+
   it("registra el resultado en la conexión y en su historial, sin contenido ni direcciones", async () => {
     await enviarHtmlRegistrado(conexion, ["ana@x.co"], correo, "Sistema (envío programado)");
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 }, data: expect.objectContaining({ ultimaEjecucionEstado: "ok" }) }));

@@ -53,9 +53,12 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
   para ese alcance (`generarReporteEjecutivoNucleo`, sin sesión).
 - **Asunto:** el título del reporte (en la prueba, con «[Prueba] » delante).
 - **Cuerpo:** `htmlConEstilosEnLinea` + `prepararMarcaParaCorreo`, los mismos pasos del
-  botón del navegador. En el servidor el HTML lo parsea `linkedom` (no hay `DOMParser`); el
-  logotipo sale de la dirección `url_plataforma` de la conexión de correo (PNG de
-  `/marca/`, que es público). Más un texto plano alterno.
+  botón del navegador. En el servidor el HTML lo parsea `linkedom` (no hay `DOMParser`). El
+  logotipo azul (PNG de `public/marca`) viaja **incrustado por CID**, como en los avisos de
+  notificación: el correo no depende de ninguna dirección pública (producción puede no tener
+  dominio ni HTTPS). Si el archivo no se puede leer, el correo sale sin logotipo y la
+  ejecución lo anota. Tampoco se envían las fuentes web Lato: en un correo la tipografía es
+  Arial. Ninguna referencia a `/marca/` queda en el cuerpo. Más un texto plano alterno.
 - **Uno por destinatario**, sin mostrar a los demás. Gmail recorta cuerpos de más de
   102 000 caracteres; si pasa, el mensaje de la ejecución lo advierte.
 - **Constancia:** si al menos un correo fue aceptado, se registra en
@@ -76,8 +79,8 @@ Los instantes son `TIMESTAMPTZ`. Los pares «usuario» son FK suaves (solo el `I
 
 `/config/reportes-ejecutivos` → «Envío automático»: activar o pausar, día y hora, «Próximo
 envío», destinatarios (agregar, pausar, quitar), «Enviar prueba a mi correo», «Enviar ahora
-a la lista» y los últimos envíos. Avisa si falta la conexión de correo o su dirección de
-Russell (con enlace a `/config/conexiones`), si el servidor no tiene `CRON_SECRET`, si un
+a la lista» y los últimos envíos. Avisa si falta la conexión de correo
+(con enlace a `/config/conexiones`; su «Dirección de Russell» es opcional), si el servidor no tiene `CRON_SECRET`, si un
 envío lleva más de 30 minutos vencido (el cron no está corriendo) y si está activo sin
 destinatarios activos.
 
@@ -142,8 +145,8 @@ la página sigue funcionando y el panel avisa que falta aplicarla.
    # {"ok":true,"revisadas":0,"enviadas":0,"omitidas":0,"saltadas":0,"errores":0,"perdidasCerradas":0}
    ```
 
-   Luego, en la pantalla: confirmar que la conexión de correo tenga la dirección HTTPS de
-   Russell, agregar destinatarios, **enviar una prueba**, y recién entonces activar el envío.
+   Luego, en la pantalla: confirmar que haya una conexión de correo marcada para notificaciones,
+   agregar destinatarios, **enviar una prueba**, y recién entonces activar el envío.
 
 ## Operación y solución de problemas
 
@@ -153,7 +156,6 @@ la página sigue funcionando y el panel avisa que falta aplicarla.
 | 503 en el log | Falta `CRON_SECRET` en el entorno del proceso (recargar con `--update-env`). |
 | 401 en el log | El secreto del crontab no coincide con el del proceso. |
 | Ejecución «Con error»: no hay conexión de correo | Marcar una conexión SMTP/Gmail de Producción como «Enviar notificaciones de Russell» en `/config/conexiones`. |
-| Ejecución «Con error»: falta la dirección HTTPS | Completar «Dirección de Russell» en esa conexión (la usa el logotipo del correo). |
 | Ejecución «Omitido» | El cron estuvo caído más de 24 h al llegar la hora; se saltó ese envío. Usa «Enviar ahora» si hace falta. |
 | «Parcial» | Algún destinatario fue rechazado por el SMTP; el resto lo recibió. El envío quedó registrado. |
 | «Con error» tras «el servidor se reinició» | PM2 reinició a mitad del envío. Comprueba si llegó antes de reenviar. |
@@ -163,7 +165,7 @@ Un correo «aceptado» por el SMTP no garantiza que llegue a la bandeja.
 ## Código
 
 - Pura y con pruebas: `src/lib/notificaciones/` (`programacion.ts`, `destinatarios.ts`,
-  `origen-plataforma.ts`).
+  `panel.ts`).
 - Orquestación (BD, correo): `src/lib/notificaciones/reporte-ejecutivo-servidor.ts`.
 - Disparador: `src/app/api/tareas/notificaciones/route.ts`.
 - Acciones de la pantalla: `src/app/actions/notificaciones-programadas.ts`; panel en

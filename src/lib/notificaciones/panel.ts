@@ -27,9 +27,9 @@ export type EjecucionPanel = {
   ejecutadoPor: string | null;
 };
 
-/** ¿Hay con qué enviar correo? `lista` solo si hay UNA conexión de notificaciones con la dirección de Russell. */
+/** ¿Hay con qué enviar correo? `lista` si hay UNA conexión de notificaciones activa en Producción. */
 export type ConexionCorreoPanel = {
-  estado: "lista" | "sin_conexion" | "varias" | "sin_direccion" | "error";
+  estado: "lista" | "sin_conexion" | "varias" | "error";
   mensaje: string | null;
 };
 

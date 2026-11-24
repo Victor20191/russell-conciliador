@@ -377,10 +377,15 @@ export function absolutizarRecursosMarca(html: string, origen: string): string {
  */
 export function prepararMarcaParaCorreo(html: string, origen: string): string {
   const conPng = html.replace(/\/marca\/russell-bedford-(?:azul|blanco)\.svg/g, (ruta) => PNG_CORREO[ruta] ?? ruta);
-  return absolutizarRecursosMarca(conPng, origen).replace(
-    /Lato\s*,\s*Arial\s*,\s*Helvetica\s*,\s*sans-serif/gi,
-    FUENTE_CORREO,
-  );
+  return tipografiaParaCorreo(absolutizarRecursosMarca(conPng, origen));
+}
+
+/**
+ * La tipografía de un correo es Arial (Manual §2.2): quien lo abre puede no tener Lato.
+ * También la usa el envío del servidor, que no tiene dirección pública a la cual apuntar.
+ */
+export function tipografiaParaCorreo(html: string): string {
+  return html.replace(/Lato\s*,\s*Arial\s*,\s*Helvetica\s*,\s*sans-serif/gi, FUENTE_CORREO);
 }
 
 /**
