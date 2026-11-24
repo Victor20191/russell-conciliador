@@ -140,6 +140,9 @@ export async function enviarHtmlRegistrado(
 /** Se llama después de persistir el evento; todos los destinatarios se resuelven en servidor. */
 export async function enviarAvisoCorreo(aviso: AvisoCorreo): Promise<void> {
   if (process.env.NODE_ENV !== "production") return;
+  // Interruptor: los avisos automáticos al equipo (balances, comentarios, soporte) están
+  // APAGADOS salvo que se pida lo contrario con AVISOS_CORREO_ACTIVOS=1. La campana no depende de esto.
+  if (process.env.AVISOS_CORREO_ACTIVOS !== "1") return;
   try {
     const conexion = await conexionNotificaciones();
     if (!conexion) return; // El correo es opt-in, no selecciona una cuenta implícitamente.

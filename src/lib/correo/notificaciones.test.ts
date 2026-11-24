@@ -10,7 +10,7 @@ import type { ConexionIntegracion } from "@/generated/prisma/client";
 const conexion = { id: 1, activa: true, proveedor: "smtp", configuracion: { remitente: "russell@example.com", url_plataforma: "https://russell.example" }, credenciales: { contrasena: "cifrada" } } as unknown as ConexionIntegracion;
 const aviso = { titulo: "Novedad", texto: "Texto privado", ruta: "/balance/1", permiso: "balance:ver", clienteId: 12, referencia: "Notificación #1" };
 beforeEach(() => {
-  vi.clearAllMocks(); vi.stubEnv("NODE_ENV", "production");
+  vi.clearAllMocks(); vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("AVISOS_CORREO_ACTIVOS", "1");
   mocks.findMany.mockResolvedValue([conexion]); mocks.decrypt.mockReturnValue({ usuario: "u", contrasena: "sensible" });
   mocks.recipients.mockResolvedValue(["ana@example.com"]); mocks.send.mockResolvedValue(undefined); mocks.transaction.mockResolvedValue([]);
 });
@@ -25,6 +25,11 @@ describe("notificaciones conectadas al SMTP", () => {
   it("sin conexión seleccionada no busca destinatarios ni envía", async () => {
     mocks.findMany.mockResolvedValue([]); await enviarAvisoCorreo(aviso);
     expect(mocks.recipients).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("con el interruptor apagado (por defecto) no busca conexión ni envía", async () => {
+    vi.stubEnv("AVISOS_CORREO_ACTIVOS", "");
+    await enviarAvisoCorreo(aviso);
+    expect(mocks.findMany).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
   });
   it("no envía automáticamente en desarrollo ni deja promesas sueltas", async () => {
     vi.stubEnv("NODE_ENV", "development"); programarAvisoCorreo(aviso); await enviarAvisoCorreo(aviso);
