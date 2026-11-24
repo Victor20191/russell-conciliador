@@ -79,6 +79,13 @@ export async function GET() {
         erpsPorProceso,
         sectorName: c.sector?.name ?? null,
         regimenSimple: c.regimenSimple,
+        excepcionSinTerceros: c.balancePorTerceros
+          ? null
+          : {
+              por: c.balanceTercerosPor != null ? (nombrePorId.get(c.balanceTercerosPor) ?? null) : null,
+              fecha: c.balanceTercerosEn ? fechaColombiaISO(c.balanceTercerosEn) : null,
+              nota: c.balanceTercerosNota,
+            },
         // El Socio NO se asigna en asignaciones_cliente: vive en Client.socioId.
         socio: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
         gerente: r.gerente,

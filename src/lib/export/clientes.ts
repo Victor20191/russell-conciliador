@@ -25,6 +25,8 @@ export type FilaClienteExport = {
   sectorName: string | null;
   /** Régimen Simple de Tributación (sin dato = No). */
   regimenSimple?: boolean;
+  /** Excepción «no maneja balance por terceros» (sin dato = el cliente sí maneja terceros). */
+  excepcionSinTerceros?: { por: string | null; fecha: string | null; nota: string | null } | null;
   socio: string | null;
   gerente: string | null;
   senior: string | null;
@@ -59,12 +61,25 @@ const FIJAS = [
   ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Régimen Simple",
+  "Balance por terceros",
+  "Visto bueno de la excepción",
   "Socio (firma)",
   "Gerente (valida)",
   "Senior (revisa)",
   "Staff (ejecuta)",
 ];
-const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 16, 24, 24, 24, 38];
+const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 16, 26, 48, 24, 24, 24, 38];
+
+/** Lo que dice la marca «Excepción · Sin terceros» de la lista de clientes. */
+const ETIQUETA_SIN_TERCEROS = "Excepción · Sin terceros";
+
+/** «Visto bueno de Fulano (2026-11-03): anotación», como el aviso de la ficha del cliente. */
+function vistoBuenoExcepcion(cliente: FilaClienteExport): string {
+  const e = cliente.excepcionSinTerceros;
+  if (!e) return "";
+  const quien = [e.por, e.fecha ? `(${e.fecha})` : null].filter(Boolean).join(" ");
+  return [quien, e.nota?.trim()].filter(Boolean).join(": ");
+}
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -159,6 +174,7 @@ function agregarResumen(
     ["Reporte", "Clientes de la plataforma"],
     ["Generado el", fmtDate(generadoEn)],
     ["Total de clientes", clientes.length],
+    [ETIQUETA_SIN_TERCEROS, clientes.filter((c) => c.excepcionSinTerceros).length],
     ["", ""],
     ["Por tipo de cliente", ""],
   ];
@@ -216,6 +232,8 @@ export async function crearExportacionClientes(
       ),
       c.sectorName ?? "Sin sector",
       c.regimenSimple ? "Sí" : "No",
+      c.excepcionSinTerceros ? ETIQUETA_SIN_TERCEROS : "Sí",
+      vistoBuenoExcepcion(c),
       c.socio ?? "—",
       c.gerente ?? "—",
       c.senior ?? "—",
@@ -243,6 +261,8 @@ export async function crearExportacionClientes(
   // Estilos por celda en el cuerpo: zebra, bordes, alineación y color de estado.
   const colStaff = FIJAS.indexOf("Staff (ejecuta)") + 1;
   const colRegimen = FIJAS.indexOf("Régimen Simple") + 1;
+  const colTerceros = FIJAS.indexOf("Balance por terceros") + 1;
+  const colVistoBueno = FIJAS.indexOf("Visto bueno de la excepción") + 1;
   for (let i = 0; i < clientes.length; i++) {
     const c = clientes[i];
     const fila = i + 2; // fila 1 = encabezado
@@ -253,17 +273,20 @@ export async function crearExportacionClientes(
       cell.border = BORDE;
       cell.alignment = {
         vertical: "middle",
-        wrapText: col === 2 || col === colStaff, // razón social y staff
-        horizontal: col === 1 || col === 4 || col === colRegimen ? "center" : col >= primeraColModulo ? "center" : "left",
+        wrapText: col === 2 || col === colStaff || col === colVistoBueno, // razón social, staff y anotación
+        horizontal: col === 1 || col === 4 || col === colRegimen || col === colTerceros ? "center" : col >= primeraColModulo ? "center" : "left",
       };
       if (col >= primeraColModulo && col < primeraColDian) {
         cell.fill = relleno(estadoModulo(c, modulos[col - primeraColModulo].id).color);
       } else if (col >= primeraColDian) {
         cell.fill = relleno(estadoDian(c, dianForms[col - primeraColDian].id).color);
+      } else if (c.excepcionSinTerceros && (col === colTerceros || col === colVistoBueno)) {
+        cell.fill = relleno(COLOR_WARN); // la excepción resalta como en la pantalla
       } else {
         cell.fill = relleno(fondo);
       }
     }
+    if (c.excepcionSinTerceros) row.getCell(colTerceros).font = { bold: true };
     // Código y NIT en negrita para que se lean como identificadores (Arial, la del manual en documentos editables).
     row.getCell(1).font = { bold: true, size: 10.5 };
     row.getCell(3).font = { bold: true, size: 10.5 };

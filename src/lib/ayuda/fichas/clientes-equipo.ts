@@ -24,7 +24,7 @@ export const FICHA_CLIENTES: FichaAyuda = {
           regla: REGLAS.verClientes,
         },
         { nombre: "Abrir el cliente", queHace: "Al hacer clic en el nombre o el NIT se abre su información.", regla: REGLAS.verClientes },
-        { nombre: "Exportar a Excel", queHace: "Descarga todos los clientes con su configuración.", regla: REGLAS.verClientes },
+        { nombre: "Exportar a Excel", queHace: "Descarga todos los clientes con su configuración, incluida la marca «Excepción · Sin terceros» con su visto bueno.", regla: REGLAS.verClientes },
       ],
     },
     {

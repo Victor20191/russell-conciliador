@@ -41,6 +41,7 @@ const CLIENTES: FilaClienteExport[] = [
     erpName: "SIESA legado",
     erpsPorProceso: { CONT: null }, // pendiente explícito: no hereda el legado
     sectorName: null,
+    excepcionSinTerceros: { por: "Gerente Uno", fecha: "2026-11-03", nota: "Solicitada para este cliente." },
     socio: null,
     gerente: "Gerente Uno",
     senior: "Senior Uno",
@@ -104,6 +105,11 @@ test("exporta una hoja Clientes con encabezados, estado de módulos y DIAN", asy
 
   // Cliente B (fila 3): sin ERP, módulo pendiente, sin socio; sin dato de Régimen Simple = No.
   expect(cel(3, "Régimen Simple")).toBe("No");
+  // La excepción «Sin terceros» sale con su visto bueno; quien maneja terceros queda en «Sí».
+  expect(cel(2, "Balance por terceros")).toBe("Sí");
+  expect(cel(2, "Visto bueno de la excepción")).toBe("");
+  expect(cel(3, "Balance por terceros")).toBe("Excepción · Sin terceros");
+  expect(cel(3, "Visto bueno de la excepción")).toBe("Gerente Uno (2026-11-03): Solicitada para este cliente.");
   expect(cel(3, "ERP · CONT · Contabilidad")).toBe("Pendiente / sin definir");
   expect(cel(3, "Cartera")).toBe("Pendiente");
   expect(cel(3, "Inventarios")).toBe("No activo");
