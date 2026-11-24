@@ -5,7 +5,7 @@ import { F350, RENGLON_PAGADO_POR_CONCEPTO_490 } from "./formularios/f350";
 import { NOMBRES_MES, type FormularioCalendario } from "./calendario";
 import type { Periodicidad } from "./periodicidad";
 import { TABS_REVISION_IMPUESTO, type TabRevisionImpuesto } from "./pestanas-revision";
-import { SECCIONES_MAPEO_F2593 } from "./rst/mapeo-f2593";
+import { CUENTAS_IVA_RST, SECCIONES_MAPEO_F2593 } from "./rst/mapeo-f2593";
 
 /**
  * Impuestos · DIAN: un descriptor por impuesto (puro, se puede importar desde el cliente).
@@ -418,8 +418,8 @@ export const RST: ImpuestoDian = {
         titulo: "IVA por pagar",
         renglon: 74,
         etiquetaRenglon: "casilla 74",
-        cuentas: ["240805", "240810", "240815", "240820", "240899", "135517"],
-        contabilidad: "el neto de la 240805, la 240810, la 240815, la 240820 y la 240899 (pagos), menos la retención de IVA que sigue en la 135517",
+        cuentas: [...CUENTAS_IVA_RST.generado, ...CUENTAS_IVA_RST.descontable, "240899", "135517"],
+        contabilidad: "el neto de las cuentas de IVA del Régimen Simple (240855, 240856, 240857 y 240858) y la 240899 (pagos), menos la retención de IVA que sigue en la 135517",
       },
       {
         clave: "ica",
@@ -437,14 +437,14 @@ export const RST: ImpuestoDian = {
         "Controles: no exigen marca ni impiden cerrar; si uno no cuadra, sale un aviso en Novedades. Cada uno compara lo que falta pagar al corte según los recibos 2593 del año que a esa fecha no se habían pagado (sin 490, o con el 490 pagado después) contra el saldo final neto de sus cuentas en la contabilidad. El recibo se paga meses después del bimestre (enero y febrero, en mayo), así que lo normal es que quede por pagar el último bimestre. Se compara el neto y no lo pagado porque en enero se paga el último bimestre del año anterior, que no está en la revisión.",
       fueraDelMapeo: {
         titulo: "Otras cuentas de IVA del cliente",
-        explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2408 distinta de las genéricas del recibo (240805, 240810, 240815 y 240820), por ejemplo 240830 o 240840. En un cliente del Régimen Simple el IVA se homologa a las genéricas: si su saldo explica la diferencia del IVA, revisa la homologación. Se informan y no suman al cruce.",
+        explicacion: "Cuentas del cliente homologadas a una cuenta Russell de 2408 distinta de las del Régimen Simple (240855, 240856, 240857 y 240858), por ejemplo las genéricas 240805 y 240810 o las detalladas 240830 y 240840. En un cliente del Régimen Simple el IVA se homologa a las cuentas del Régimen Simple: si su saldo explica la diferencia del IVA, revisa la homologación. Se informan y no suman al cruce.",
       },
       fueraDe: "IVA",
       notaEnFirme: "La 135595, la 249505, la 2408 y la 135517 quedan enteras, fijas en el sistema; las cuentas de ingresos del 39 y la 511505 del ICA, una por una.",
       mapeo: {
         pestana: "RST · 2593",
         titulo: "Casillas del recibo 2593",
-        explicacion: "Solo estas casillas se comparan con el saldo final de su cuenta Russell. Los excedentes, saldos a favor y retenciones de antes del SIMPLE (50, 51, 52, 57, 60, 65, 68, 69, 75, 100 y 105) se controlan con avisos; lo que falta pagar (64, 74 y 76) se controla aparte, debajo del cruce, y las bases (58, 84, 85 y 86) no se cruzan. El 43 es la suma de las 99 de la hoja 2. Una casilla puede ir contra varias cuentas (sepáralas con +): en el 39, la 417505 (devoluciones) resta por su naturaleza débito. El 67 resta en el subtotal del IVA. En los clientes del Régimen Simple el IVA se homologa a las cuentas genéricas (240805, 240810, 240815 y 240820).",
+        explicacion: "Solo estas casillas se comparan con el saldo final de su cuenta Russell. Los excedentes, saldos a favor y retenciones de antes del SIMPLE (50, 51, 52, 57, 60, 65, 68, 69, 75, 100 y 105) se controlan con avisos; lo que falta pagar (64, 74 y 76) se controla aparte, debajo del cruce, y las bases (58, 84, 85 y 86) no se cruzan. El 43 es la suma de las 99 de la hoja 2. Una casilla puede ir contra varias cuentas (sepáralas con +): en el 39, la 417505 (devoluciones) resta por su naturaleza débito. El 67 resta en el subtotal del IVA. En los clientes del Régimen Simple el IVA se homologa a las cuentas del Régimen Simple (240855, 240856, 240857 y 240858).",
         terceroDian: "El pago del recibo 2593 suele quedar en las mismas cuentas con la DIAN como tercero. En las cuentas marcadas (2408, 249505 y 135517), su saldo se muestra tachado y no suma. En la 135595 no se resta: el anticipo es justamente lo pagado a la DIAN. Las cuentas de ingresos y la 511505 no aparecen aquí: se concilian por el saldo de la cuenta, sin terceros.",
       },
     },

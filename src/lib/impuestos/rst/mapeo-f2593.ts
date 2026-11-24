@@ -8,8 +8,9 @@ import type { FilaMapeoDian } from "../mapeo-dian";
  * - 44 (anticipo componente SIMPLE nacional) contra la 135595: lo pagado como anticipo. En esa cuenta el
  *   tercero DIAN NO se tacha (el anticipo es lo pagado a la DIAN; ver `CUENTAS_SIN_RESTA_DIAN_FABRICA`).
  * - 59 (impuesto al consumo) contra la 249505, que en el plan solo recibe ese impuesto.
- * - 66 (IVA generado) contra 240805 + 240815 y 67 (descontables) contra 240810 + 240820: las genéricas,
- *   como se homologa el IVA de un cliente del Régimen Simple. El 67 resta en el subtotal del IVA.
+ * - 66 (IVA generado) contra 240855 + 240856 y 67 (descontables) contra 240857 + 240858: las cuentas de IVA
+ *   del Régimen Simple en el plan Russell (24/Nov/2026; antes, las genéricas 240805, 240815, 240810 y
+ *   240820). Así se homologa el IVA de un cliente del Régimen Simple. El 67 resta en el subtotal del IVA.
  * - 39 (ingresos brutos) contra los ingresos operacionales y no operacionales, por el saldo de la cuenta y
  *   sin terceros; la 417505 (devoluciones, débito) resta dentro de la misma fila por su naturaleza.
  * - 70 (retenciones de IVA que le practicaron) contra la 135517, por tercero, como el renglón 85 del 300.
@@ -32,6 +33,15 @@ export const SECCIONES_MAPEO_F2593 = {
   ingresos: "Ingresos brutos",
 } as const;
 
+/**
+ * Las cuentas de IVA del Régimen Simple en el plan Russell: generado (240855) y devoluciones en compras
+ * (240856) para el 66; descontable (240857) y devoluciones en ventas (240858) para el 67.
+ */
+export const CUENTAS_IVA_RST = {
+  generado: ["240855", "240856"],
+  descontable: ["240857", "240858"],
+} as const;
+
 /** Las cuentas del renglón 39: ingresos de la matriz más 421020, 424515 y 425005, menos la 417505. */
 export const CUENTAS_INGRESOS_F2593 = [
   "410505", "410510", "410515", "410520", "410525", "410530", "417505",
@@ -45,8 +55,8 @@ const fila = (renglon: number, concepto: string, etiqueta: string, seccion: stri
 export const MAPEO_F2593_FABRICA: readonly FilaMapeoDian[] = [
   fila(44, "anticipo_nacional", "Valor del anticipo componente SIMPLE nacional", SECCIONES_MAPEO_F2593.anticipo, "135595"),
   fila(59, "consumo_impuesto", "Impuesto nacional al consumo 8%", SECCIONES_MAPEO_F2593.consumo, "249505"),
-  fila(66, "iva_generado", "IVA generado en el bimestre por operaciones gravadas", SECCIONES_MAPEO_F2593.iva, "240805+240815"),
-  fila(67, "iva_descontable", "Impuestos descontables del bimestre", SECCIONES_MAPEO_F2593.iva, "240810+240820", "-"),
+  fila(66, "iva_generado", "IVA generado en el bimestre por operaciones gravadas", SECCIONES_MAPEO_F2593.iva, CUENTAS_IVA_RST.generado.join("+")),
+  fila(67, "iva_descontable", "Impuestos descontables del bimestre", SECCIONES_MAPEO_F2593.iva, CUENTAS_IVA_RST.descontable.join("+"), "-"),
   fila(39, "ingresos_brutos", "Ingresos brutos bimestrales (26 a 35)", SECCIONES_MAPEO_F2593.ingresos, CUENTAS_INGRESOS_F2593.join("+")),
   fila(70, "iva_retenciones", "Retenciones por IVA que le practicaron en el bimestre", SECCIONES_MAPEO_F2593.reteiva, "135517"),
   fila(43, "ica_consolidado", "Componente ICA consolidado (suma de las 99 de la hoja 2)", SECCIONES_MAPEO_F2593.ica, "511505"),

@@ -11,6 +11,7 @@ const SQL = leer("20261031120000_impuestos_configuracion");
 const SQL_IVA = leer("20261108120000_impuestos_iva");
 const SQL_RST = leer("20261119120000_rst_mapeo_2593");
 const SQL_RST_RETEIVA_ICA = leer("20261121120000_rst_mapeo_2593_reteiva_ica");
+const SQL_RST_IVA = leer("20261124190000_rst_iva_cuentas_regimen_simple");
 const SQL_NIT_MEDELLIN = leer("20261119180000_tercero_dian_medellin");
 const SQL_NIT_MEDELLIN_NOMBRE = leer("20261123120000_tercero_dian_medellin_nombre");
 
@@ -86,13 +87,26 @@ describe("semillas de la migración de IVA", () => {
 });
 
 describe("semillas de la migración del cruce del RST", () => {
-  it("el mapeo del 2593 sembrado es el de fábrica: las cinco casillas del 19/Nov y la 70 y la 43 del 21/Nov", () => {
-    expect([...mapeoSembrado(SQL_RST, "2593"), ...mapeoSembrado(SQL_RST_RETEIVA_ICA, "2593")]).toEqual([...MAPEO_F2593_FABRICA]);
+  it("el mapeo del 2593 sembrado es el de fábrica: las cinco casillas del 19/Nov, la 70 y la 43 del 21/Nov y el IVA del Régimen Simple del 24/Nov", () => {
+    // Los cambios de cuenta del 24/Nov, en orden, sobre lo sembrado.
+    const cambios = [...SQL_RST_IVA.matchAll(/SET "cuenta_russell" = '([\d+]+)'[^;]*"concepto" = '([a-z_]+)' AND "cuenta_russell" = '([\d+]+)';/g)];
+    expect(cambios.map((m) => [m[2], m[3], m[1]])).toEqual([
+      ["iva_generado", "240805+240815", "240855+240856"],
+      ["iva_descontable", "240810+240820", "240857+240858"],
+    ]);
+    const sembrado = [...mapeoSembrado(SQL_RST, "2593"), ...mapeoSembrado(SQL_RST_RETEIVA_ICA, "2593")].map((f) => {
+      const cambio = cambios.find((m) => m[2] === f.concepto && m[3] === f.cuentaRussell);
+      return cambio ? { ...f, cuentaRussell: cambio[1] } : f;
+    });
+    expect(sembrado).toEqual([...MAPEO_F2593_FABRICA]);
   });
 
-  it("solo inserta datos y respeta lo que ya se editó", () => {
+  it("solo cambian datos y respetan lo que ya se editó", () => {
     for (const sql of [SQL_RST, SQL_RST_RETEIVA_ICA]) expect(sql).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bUPDATE\b/i);
     expect(SQL_RST.match(/ON CONFLICT \("[a-z_]+"/g)).toHaveLength(2);
     expect(SQL_RST_RETEIVA_ICA.match(/ON CONFLICT \("[a-z_]+"/g)).toHaveLength(1);
+    // El cambio de cuentas del IVA solo toca las filas que siguen con las genéricas.
+    expect(SQL_RST_IVA).not.toMatch(/\bDROP\b|\bDELETE\b|\bTRUNCATE\b|\bALTER\b|\bINSERT\b/i);
+    expect(SQL_RST_IVA.match(/WHERE "formulario" = '2593' AND "concepto" = '[a-z_]+' AND "cuenta_russell" = '[\d+]+';/g)).toHaveLength(2);
   });
 });

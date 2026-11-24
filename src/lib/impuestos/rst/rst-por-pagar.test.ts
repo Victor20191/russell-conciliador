@@ -84,7 +84,7 @@ describe("impuesto al consumo por pagar (64 contra 249505 − 249510)", () => {
       { cuenta: "24951001", nombre: "Cuenta 24951001", cuentaRussell: "249510", nombreRussell: "Pago impuesto nacional al consumo", saldo: -600_000 },
     ]);
     // Otra cuenta del balance no entra al control.
-    expect(control({ filas: [cuenta("24950501", "249505", -1_000_000), cuenta("24951001", "249510", 600_000), cuenta("24080501", "240805", -9_000)] }).cuentas).toHaveLength(2);
+    expect(control({ filas: [cuenta("24950501", "249505", -1_000_000), cuenta("24951001", "249510", 600_000), cuenta("24080501", "240855", -9_000)] }).cuentas).toHaveLength(2);
   });
 
   it("un recibo sin 490, o con el 490 sin fecha de pago, queda por pagar", () => {
@@ -141,8 +141,8 @@ describe("los tres controles dentro del cruce del 2593: consumo (64), IVA (74) e
     // Consumo: causado 1.000.000 sin pagos registrados en la 249510 (falta registrar 600.000).
     cuenta("24950501", "249505", -1_000_000),
     // IVA: generado 30 M, descontable 16 M, pagos de los bimestres 1 a 3 (6 M) y la retención del bimestre 4 aún en la 135517.
-    cuenta("24080501", "240805", -30_000_000),
-    cuenta("24081001", "240810", 16_000_000),
+    cuenta("24080501", "240855", -30_000_000),
+    cuenta("24081001", "240857", 16_000_000),
     cuenta("24089901", "240899", 6_000_000),
     cuenta("13551701", "135517", 4_000_000),
     // ICA: lo que falta pagar del bimestre 4.
@@ -234,7 +234,7 @@ describe("los tres controles dentro del cruce del 2593: consumo (64), IVA (74) e
     expect(cruceRetencion(entrada({ fechaCorte: undefined })).controlesPorPagar).toBeUndefined();
     expect(RST.cruce.controlesPorPagar?.map((c) => [c.clave, c.renglon, c.cuentas])).toEqual([
       ["consumo", 64, ["249505", "249510"]],
-      ["iva", 74, ["240805", "240810", "240815", "240820", "240899", "135517"]],
+      ["iva", 74, ["240855", "240856", "240857", "240858", "240899", "135517"]],
       ["ica", 76, ["241205"]],
     ]);
     expect(RETENCION.cruce.controlesPorPagar).toBeUndefined();

@@ -24,7 +24,7 @@ const tercero = (cuentaCliente: string, cuentaRussell: string, nit: string, sald
 const cuenta = (cuentaCliente: string, cuentaRussell: string, saldoFinal: number) => ({ cuentaCliente, nombreCuenta: `Cuenta ${cuentaCliente}`, cuentaRussell, saldoInicial: 0, saldoFinal });
 
 const NATURALEZAS = new Map<string, "D" | "C">([
-  ["135595", "D"], ["249505", "C"], ["240805", "C"], ["240815", "C"], ["240810", "D"], ["240820", "D"], ["240830", "C"], ["135517", "D"], ["511505", "D"],
+  ["135595", "D"], ["249505", "C"], ["240855", "C"], ["240856", "C"], ["240857", "D"], ["240858", "D"], ["240805", "C"], ["240830", "C"], ["135517", "D"], ["511505", "D"],
   ...CUENTAS_INGRESOS_F2593.map((c) => [c, c === "417505" ? "D" : "C"] as [string, "D" | "C"]),
 ]);
 
@@ -44,11 +44,12 @@ function entrada(cambios: Partial<EntradaCruce> = {}): EntradaCruce {
       // Consumo: crédito causado y el pago a la DIAN débito en la misma cuenta, que se tacha.
       tercero("24950501", "249505", "900111222", -1_000_000),
       tercero("24950501", "249505", DIAN, 400_000),
-      // IVA generado y descontable en las genéricas; la DIAN tachada.
-      tercero("24080501", "240805", "900111222", -34_200_000),
-      tercero("24080501", "240805", DIAN, 12_000_000),
-      tercero("24081001", "240810", "900333444", 7_200_000),
-      // Una 2408 detallada (no genérica): queda fuera del cruce y se informa.
+      // IVA generado y descontable en las cuentas del Régimen Simple; la DIAN tachada.
+      tercero("24080501", "240855", "900111222", -34_200_000),
+      tercero("24080501", "240855", DIAN, 12_000_000),
+      tercero("24081001", "240857", "900333444", 7_200_000),
+      // Una 2408 genérica y una detallada (no del Régimen Simple): quedan fuera del cruce y se informan.
+      tercero("24080599", "240805", "900111222", -2_000),
       tercero("24083001", "240830", "900111222", -5_000),
       // Retenciones de IVA que le practicaron (débito, por cliente) y su aplicación con la DIAN, que se tacha.
       tercero("13551701", "135517", "900333444", 800_000),
@@ -112,18 +113,21 @@ describe("cruce contable del 2593", () => {
     expect([f.declarado, f.contable, f.diferencia, f.dianRestado]).toEqual([1_000_000, 1_000_000, 0, -400_000]);
   });
 
-  it("el IVA va contra las genéricas: el 66 contra 240805 + 240815, el 67 contra 240810 + 240820, y el 67 resta en el subtotal", () => {
+  it("el IVA va contra las cuentas del Régimen Simple: el 66 contra 240855 + 240856, el 67 contra 240857 + 240858, y el 67 resta en el subtotal", () => {
     const generado = fila(66);
     const descontable = fila(67);
-    expect(generado.cuentaRussell).toBe("240805+240815");
-    expect(descontable.cuentaRussell).toBe("240810+240820");
+    expect(generado.cuentaRussell).toBe("240855+240856");
+    expect(descontable.cuentaRussell).toBe("240857+240858");
     expect([generado.declarado, generado.contable, generado.diferencia]).toEqual([34_200_000, 34_200_000, 0]);
     expect([descontable.declarado, descontable.contable, descontable.diferencia]).toEqual([7_200_000, 7_200_000, 0]);
     expect(r.grupos.find((g) => g.grupo === "iva")!.subtotal).toEqual({ declarado: 27_000_000, contable: 27_000_000, diferencia: 0 });
   });
 
   it("las demás 2408 del cliente se informan fuera del cruce y no suman", () => {
-    expect(r.fueraDelMapeo).toEqual([{ cuentaRussell: "240830", cuentas: ["24083001"], saldo: 5_000 }]);
+    expect(r.fueraDelMapeo).toEqual([
+      { cuentaRussell: "240805", cuentas: ["24080599"], saldo: 2_000 },
+      { cuentaRussell: "240830", cuentas: ["24083001"], saldo: 5_000 },
+    ]);
   });
 
   it("los ingresos brutos (39) van por el saldo de la cuenta y la 417505 (débito) resta dentro de la fila", () => {
