@@ -100,12 +100,18 @@ function fechaEfectivaVersion(v: {
   }
 }
 
+/** Partes numéricas de un número de versión "X.Y.Z"; null si no lo es (p. ej. `dev-…`). */
+function partesSemver(numero: string): number[] | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(numero.trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
 /**
- * Ordena las versiones de la MÁS RECIENTE a la más antigua por fecha efectiva
- * (ver `fechaEfectivaVersion`), descendente. A igualdad de fecha respeta el
- * `order` manual del admin y, por último, `id` (ambos desc). Así las versiones
- * autogeneradas (sin `order`) quedan en su lugar cronológico y no siempre al
- * final. NO muta el arreglo de entrada.
+ * Ordena las versiones de la MÁS NUEVA a la más antigua por NÚMERO de versión
+ * (3.9.0 antes que 3.8.0, y 3.10.0 antes que 3.9.0). Las que no tienen número
+ * "X.Y.Z" (las autogeneradas `dev-AAAA-MM-DD`) van después, por fecha efectiva
+ * desc (ver `fechaEfectivaVersion`). Desempata `order` e `id` (ambos desc).
+ * NO muta el arreglo de entrada.
  */
 export function ordenarVersiones<
   T extends {
@@ -116,9 +122,21 @@ export function ordenarVersiones<
     createdAt: string;
   },
 >(versiones: readonly T[]): T[] {
-  return [...versiones].sort(
-    (a, b) => fechaEfectivaVersion(b) - fechaEfectivaVersion(a) || b.order - a.order || b.id - a.id,
-  );
+  return [...versiones].sort((a, b) => {
+    const pa = partesSemver(a.number);
+    const pb = partesSemver(b.number);
+    if (pa && pb) {
+      for (let i = 0; i < 3; i++) {
+        if (pa[i] !== pb[i]) return pb[i] - pa[i];
+      }
+    } else if (pa || pb) {
+      return pa ? -1 : 1; // con número primero, `dev-…` al final
+    } else {
+      const dif = fechaEfectivaVersion(b) - fechaEfectivaVersion(a);
+      if (dif !== 0) return dif;
+    }
+    return b.order - a.order || b.id - a.id;
+  });
 }
 
 /**
