@@ -61,8 +61,15 @@ describe("panel «Envío automático»", () => {
     expect(html).toContain("lunes 30/Nov/2026 7:00 a. m. (hora de Colombia)");
     expect(html).toContain("Ana Pérez");
     expect(html).toContain("luis@cliente.co");
+    expect(html).toContain("Recibe el reporte");
     expect(html).toContain("En pausa");
     expect(html).toContain("2 de 50");
+    expect(html).toContain("Correos en la lista (2)");
+    expect(html).toContain("1 recibirá el reporte");
+    expect(html).toContain("1 en pausa");
+    // El formulario de agregar queda arriba y la lista de correos agregados justo debajo.
+    expect(html.indexOf("<form")).toBeGreaterThan(-1);
+    expect(html.indexOf("Correos en la lista (2)")).toBeGreaterThan(html.indexOf("</form>"));
     // Historial con estado, origen y período en fechas de calendario.
     expect(html).toContain("Enviado");
     expect(html).toContain("Programado");
@@ -99,11 +106,20 @@ describe("panel «Envío automático»", () => {
     expect(html).not.toContain("Cubrirá:");
   });
 
-  it("ofrece prueba y envío a la lista, y no deja enviar si no hay conexión de correo (con enlace a Conexiones)", () => {
+  it("ofrece prueba y envío a la lista, muestra los correos activos en «Enviar ahora» y no deja enviar sin conexión", () => {
     const listo = pintar(PANEL);
     expect(listo).toContain("Enviar prueba a mi correo");
     expect(listo).toContain("Enviar ahora a la lista");
     expect(listo).toContain("victor@russell.co");
+    // En «Enviar ahora» se listan solo los correos activos que recibirán el reporte (no los pausados).
+    const bloqueEnvio = listo.slice(listo.indexOf('id="envio-ahora"'), listo.indexOf('id="envio-historial"'));
+    expect(bloqueEnvio).toContain("El reporte llegará a 1 correo activo:");
+    expect(bloqueEnvio).toContain("ana@cliente.co");
+    expect(bloqueEnvio).not.toContain("luis@cliente.co");
+
+    const sinActivos = pintar({ ...PANEL, destinatarios: [{ id: 2, correo: "luis@cliente.co", nombre: null, activo: false }] });
+    const bloqueSinActivos = sinActivos.slice(sinActivos.indexOf('id="envio-ahora"'), sinActivos.indexOf('id="envio-historial"'));
+    expect(bloqueSinActivos).toContain("No hay correos activos para el envío");
 
     const html = pintar({ ...PANEL, conexion: { estado: "sin_conexion", mensaje: "No hay una conexión de correo marcada para enviar las notificaciones de Russell." } });
     expect(html).toContain("Ir a Conexiones");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DestinatarioNotificacionSchema, ProgramacionNotificacionSchema } from "@/lib/definitions";
 import {
   correosDeEnvio,
+  destinatariosDeEnvio,
   etiquetaDestinatario,
   normalizarCorreo,
   puedeAgregarDestinatario,
@@ -47,6 +48,10 @@ describe("destinatarios: lista de envío", () => {
       { correo: "eva@x.co", nombre: "Eva", activo: true },
     ];
     expect(correosDeEnvio(lista)).toEqual(["ana@x.co", "eva@x.co"]);
+    expect(destinatariosDeEnvio(lista)).toEqual([
+      { correo: "ana@x.co", activo: true },
+      { correo: "eva@x.co", nombre: "Eva", activo: true },
+    ]);
   });
 
   it("una lista vacía o toda pausada no envía a nadie", () => {

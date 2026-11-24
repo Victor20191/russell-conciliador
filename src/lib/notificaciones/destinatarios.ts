@@ -10,18 +10,23 @@ export function normalizarCorreo(correo: string): string {
 
 export type DestinatarioGuardado = { correo: string; nombre?: string | null; activo: boolean };
 
-/** Correos a los que se envía: los activos, sin repetir (sin distinguir mayúsculas), en el orden de la lista. */
-export function correosDeEnvio(destinatarios: readonly DestinatarioGuardado[]): string[] {
+/** Destinatarios activos a los que se envía, sin repetir correo (sin distinguir mayúsculas), en el orden de la lista. */
+export function destinatariosDeEnvio<T extends DestinatarioGuardado>(destinatarios: readonly T[]): T[] {
   const vistos = new Set<string>();
-  const salida: string[] = [];
+  const salida: T[] = [];
   for (const d of destinatarios) {
     if (!d.activo) continue;
     const correo = normalizarCorreo(d.correo);
     if (!correo || vistos.has(correo)) continue;
     vistos.add(correo);
-    salida.push(correo);
+    salida.push(d);
   }
   return salida;
+}
+
+/** Correos a los que se envía: los activos, sin repetir (sin distinguir mayúsculas), en el orden de la lista. */
+export function correosDeEnvio(destinatarios: readonly DestinatarioGuardado[]): string[] {
+  return destinatariosDeEnvio(destinatarios).map((d) => normalizarCorreo(d.correo));
 }
 
 /** ¿Cabe un destinatario más? Se mide sobre todos los guardados, activos o no. */

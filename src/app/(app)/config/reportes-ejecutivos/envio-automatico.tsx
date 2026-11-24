@@ -20,8 +20,8 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
-import { correosDeEnvio } from "@/lib/notificaciones/destinatarios";
-import type { EjecucionPanel, PanelEnvioAutomatico, PeriodoProximoPanel } from "@/lib/notificaciones/panel";
+import { destinatariosDeEnvio, etiquetaDestinatario } from "@/lib/notificaciones/destinatarios";
+import type { DestinatarioPanel, EjecucionPanel, PanelEnvioAutomatico, PeriodoProximoPanel } from "@/lib/notificaciones/panel";
 import {
   DIAS_SEMANA,
   diaSemanaColombia,
@@ -105,7 +105,8 @@ function Aviso({ children, tono = "warn" }: { children: React.ReactNode; tono?: 
 }
 
 function PanelEnvio({ panel }: { panel: PanelEnvioAutomatico }) {
-  const activos = correosDeEnvio(panel.destinatarios).length;
+  const destinatariosActivos = destinatariosDeEnvio(panel.destinatarios);
+  const activos = destinatariosActivos.length;
   return (
     <div className="flex flex-col gap-5 px-4 py-4 lg:px-5">
       <div className="flex flex-col gap-2">
@@ -140,8 +141,8 @@ function PanelEnvio({ panel }: { panel: PanelEnvioAutomatico }) {
 
       {/* La clave remonta el formulario cuando cambia lo guardado, para que muestre lo del servidor. */}
       <ProgramacionForm key={`${panel.activa}|${panel.diaSemana}|${panel.hora}`} panel={panel} destinatariosActivos={activos} />
-      <Destinatarios panel={panel} />
-      <Envios panel={panel} destinatariosActivos={activos} />
+      <Destinatarios panel={panel} activos={activos} />
+      <Envios panel={panel} destinatariosActivos={destinatariosActivos} />
       <Historial ejecuciones={panel.ejecuciones} />
     </div>
   );
@@ -272,13 +273,14 @@ function PeriodoDelProximoEnvio({ periodo }: { periodo: PeriodoProximoPanel }) {
   );
 }
 
-function Destinatarios({ panel }: { panel: PanelEnvioAutomatico }) {
+function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activos: number }) {
   const [pendiente, startTransition] = useTransition();
   const [correo, setCorreo] = useState("");
   const [nombre, setNombre] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmarQuitar, setConfirmarQuitar] = useState<number | null>(null);
   const lleno = panel.destinatarios.length >= panel.topeDestinatarios;
+  const pausados = panel.destinatarios.length - activos;
 
   const agregar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -327,47 +329,6 @@ function Destinatarios({ panel }: { panel: PanelEnvioAutomatico }) {
         <p className="text-[11.5px] text-ink-500">Cualquier correo válido; no tiene que ser usuario de la plataforma.</p>
       </div>
 
-      {panel.destinatarios.length === 0 ? (
-        <p className="text-[12.5px] text-ink-500">Aún no hay destinatarios. Agrega el primero abajo.</p>
-      ) : (
-        <ul className="divide-y divide-ink-100 rounded-md border border-ink-150">
-          {panel.destinatarios.map((d) => (
-            <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[12.5px]">
-              <label className="flex min-w-0 flex-1 items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={d.activo}
-                  disabled={pendiente}
-                  onChange={(e) => alternar(d.id, e.target.checked)}
-                  aria-label={`Recibe el reporte: ${d.correo}`}
-                  className="h-4 w-4 shrink-0 rounded border-ink-300 accent-navy-700"
-                />
-                <span className={`min-w-0 truncate ${d.activo ? "text-ink-800" : "text-ink-400 line-through"}`}>
-                  {d.nombre ? <span className="font-medium">{d.nombre} · </span> : null}
-                  {d.correo}
-                </span>
-                {!d.activo && <Chip label="En pausa" tone="ink" />}
-              </label>
-              {confirmarQuitar === d.id ? (
-                <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-600">
-                  ¿Quitar?
-                  <button type="button" onClick={() => quitar(d.id)} disabled={pendiente} className={BTN_MINI_PELIGRO}>
-                    Sí
-                  </button>
-                  <button type="button" onClick={() => setConfirmarQuitar(null)} className={BTN_MINI}>
-                    No
-                  </button>
-                </span>
-              ) : (
-                <button type="button" onClick={() => setConfirmarQuitar(d.id)} disabled={pendiente} className={BTN_MINI}>
-                  Quitar
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
       <form onSubmit={agregar} className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
           Correo
@@ -375,7 +336,7 @@ function Destinatarios({ panel }: { panel: PanelEnvioAutomatico }) {
             type="email"
             value={correo}
             onChange={(e) => setCorreo(e.target.value)}
-            placeholder="gerencia@cliente.co"
+            placeholder="Ej.: gerencia@cliente.co"
             autoComplete="off"
             maxLength={254}
             required
@@ -389,7 +350,7 @@ function Destinatarios({ panel }: { panel: PanelEnvioAutomatico }) {
             type="text"
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            placeholder="Ana Pérez"
+            placeholder="Ej.: Ana Pérez"
             autoComplete="off"
             maxLength={100}
             disabled={pendiente || lleno}
@@ -407,15 +368,72 @@ function Destinatarios({ panel }: { panel: PanelEnvioAutomatico }) {
           {error}
         </p>
       )}
+
+      {panel.destinatarios.length === 0 ? (
+        <p className="rounded-md border border-dashed border-ink-200 px-3 py-2.5 text-[12.5px] text-ink-500">
+          Aún no hay destinatarios. Agrega arriba el primer correo al que le llegará el reporte.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-ink-150">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[11.5px] text-ink-600">
+            <span className="font-medium text-ink-700">
+              Correos en la lista ({fmtNum(panel.destinatarios.length)})
+            </span>
+            <span className={activos === 0 ? "font-medium text-warn-700" : "text-ink-500"}>
+              {activos === 0
+                ? "Ninguno activo para envío"
+                : `${fmtNum(activos)} ${activos === 1 ? "recibirá" : "recibirán"} el reporte`}
+              {pausados > 0 ? ` · ${fmtNum(pausados)} en pausa` : ""}
+            </span>
+          </div>
+          <ul className="divide-y divide-ink-100 bg-white">
+            {panel.destinatarios.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[12.5px]">
+                <label className="flex min-w-0 flex-1 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={d.activo}
+                    disabled={pendiente}
+                    onChange={(e) => alternar(d.id, e.target.checked)}
+                    aria-label={`Recibe el reporte: ${d.correo}`}
+                    className="h-4 w-4 shrink-0 rounded border-ink-300 accent-navy-700"
+                  />
+                  <span className={`min-w-0 truncate ${d.activo ? "text-ink-800" : "text-ink-400 line-through"}`}>
+                    {d.nombre ? <span className="font-medium">{d.nombre} · </span> : null}
+                    {d.correo}
+                  </span>
+                  <Chip label={d.activo ? "Recibe el reporte" : "En pausa"} tone={d.activo ? "ok" : "ink"} />
+                </label>
+                {confirmarQuitar === d.id ? (
+                  <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-600">
+                    ¿Quitar?
+                    <button type="button" onClick={() => quitar(d.id)} disabled={pendiente} className={BTN_MINI_PELIGRO}>
+                      Sí
+                    </button>
+                    <button type="button" onClick={() => setConfirmarQuitar(null)} className={BTN_MINI}>
+                      No
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setConfirmarQuitar(d.id)} disabled={pendiente} className={BTN_MINI}>
+                    Quitar
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
 
-function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; destinatariosActivos: number }) {
+function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; destinatariosActivos: DestinatarioPanel[] }) {
   const [pendiente, setPendiente] = useState<"prueba" | "lista" | null>(null);
   const [confirmar, setConfirmar] = useState(false);
   const ocupado = pendiente !== null;
   const sinConexion = panel.conexion.estado !== "lista";
+  const totalActivos = destinatariosActivos.length;
 
   const ejecutar = async (cual: "prueba" | "lista") => {
     if (ocupado) return;
@@ -437,6 +455,29 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
       <h3 id="envio-ahora" className="text-[12.5px] font-semibold text-navy-800">
         Enviar ahora
       </h3>
+      {totalActivos > 0 ? (
+        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
+          <p className="font-medium text-ink-800">
+            El reporte llegará a {fmtNum(totalActivos)} {totalActivos === 1 ? "correo activo" : "correos activos"}:
+          </p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Correos que recibirán el reporte">
+            {destinatariosActivos.map((d) => (
+              <li
+                key={d.id}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-0.5 text-[11.5px] text-ink-700"
+              >
+                {d.nombre ? <span className="truncate font-medium text-ink-800">{d.nombre}</span> : null}
+                {d.nombre ? <span className="text-ink-400">·</span> : null}
+                <span className="truncate">{d.correo}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
+          No hay correos activos para el envío. Agrega o activa al menos un destinatario arriba para habilitar el envío a la lista.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -448,21 +489,11 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           <Icon name="send" size={13} />
           {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba a mi correo"}
         </button>
-        {confirmar ? (
-          <span className="flex flex-wrap items-center gap-2 text-[12px] text-ink-700">
-            ¿Enviar el reporte ahora a {fmtNum(destinatariosActivos)} {destinatariosActivos === 1 ? "destinatario" : "destinatarios"}?
-            <button type="button" onClick={() => ejecutar("lista")} className={BTN_PRIMARIO}>
-              Sí, enviar
-            </button>
-            <button type="button" onClick={() => setConfirmar(false)} className={BTN_SECUNDARIO}>
-              No
-            </button>
-          </span>
-        ) : (
+        {!confirmar && (
           <button
             type="button"
             onClick={() => setConfirmar(true)}
-            disabled={ocupado || sinConexion || destinatariosActivos === 0}
+            disabled={ocupado || sinConexion || totalActivos === 0}
             className={BTN_PRIMARIO}
           >
             <Icon name="send" size={13} />
@@ -470,6 +501,27 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           </button>
         )}
       </div>
+      {confirmar && totalActivos > 0 && (
+        <div
+          role="status"
+          className="flex flex-col gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-[12px] text-ink-700"
+        >
+          <p className="font-medium text-navy-800">
+            ¿Enviar el reporte ahora a {fmtNum(totalActivos)} {totalActivos === 1 ? "destinatario" : "destinatarios"}?
+          </p>
+          <p className="break-words text-[11.5px] text-ink-700">
+            {destinatariosActivos.map((d) => etiquetaDestinatario(d)).join(", ")}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => ejecutar("lista")} className={BTN_PRIMARIO}>
+              Sí, enviar
+            </button>
+            <button type="button" onClick={() => setConfirmar(false)} className={BTN_SECUNDARIO}>
+              No
+            </button>
+          </div>
+        </div>
+      )}
       <p className="text-[11.5px] text-ink-500">
         La prueba llega solo a tu correo{panel.correoPrueba ? ` (${panel.correoPrueba})` : ""} con «[Prueba]» en el asunto y no
         cuenta como entregada al cliente. El envío a la lista queda registrado en «Reportes enviados»: el siguiente
