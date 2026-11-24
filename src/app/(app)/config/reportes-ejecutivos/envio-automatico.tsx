@@ -18,6 +18,8 @@ import {
 } from "@/app/actions/notificaciones-programadas";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { Modal } from "@/components/modal";
+import { EstadoProcesando } from "@/components/estado-procesando";
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { destinatariosDeEnvio, etiquetaDestinatario } from "@/lib/notificaciones/destinatarios";
@@ -279,6 +281,7 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
   const [nombre, setNombre] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmarQuitar, setConfirmarQuitar] = useState<number | null>(null);
+  const [modalAbierto, setModalAbierto] = useState(false);
   const lleno = panel.destinatarios.length >= panel.topeDestinatarios;
   const pausados = panel.destinatarios.length - activos;
 
@@ -294,8 +297,16 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
       }
       setCorreo("");
       setNombre("");
+      setModalAbierto(false);
       notifySuccess("Destinatario agregado", correo.trim().toLowerCase());
     });
+  };
+
+  const abrirModal = () => {
+    setCorreo("");
+    setNombre("");
+    setError(null);
+    setModalAbierto(true);
   };
 
   const alternar = (id: number, activo: boolean) => {
@@ -319,59 +330,83 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
 
   return (
     <section aria-labelledby="envio-destinatarios" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <h3 id="envio-destinatarios" className="text-[12.5px] font-semibold text-navy-800">
           Destinatarios
           <span className="ml-2 rounded-full bg-ink-100 px-1.5 py-px text-[10.5px] font-semibold text-ink-600">
             {fmtNum(panel.destinatarios.length)} de {fmtNum(panel.topeDestinatarios)}
           </span>
         </h3>
-        <p className="text-[11.5px] text-ink-500">Cualquier correo válido; no tiene que ser usuario de la plataforma.</p>
-      </div>
-
-      <form onSubmit={agregar} className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
-          Correo
-          <input
-            type="email"
-            value={correo}
-            onChange={(e) => setCorreo(e.target.value)}
-            placeholder="Ej.: gerencia@cliente.co"
-            autoComplete="off"
-            maxLength={254}
-            required
-            disabled={pendiente || lleno}
-            className={CAMPO}
-          />
-        </label>
-        <label className="flex min-w-[11rem] flex-1 flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
-          Nombre (opcional)
-          <input
-            type="text"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Ej.: Ana Pérez"
-            autoComplete="off"
-            maxLength={100}
-            disabled={pendiente || lleno}
-            className={CAMPO}
-          />
-        </label>
-        <button type="submit" disabled={pendiente || lleno || !correo.trim()} className={BTN_SECUNDARIO}>
-          <Icon name="plus" size={13} />
-          Agregar
+        <button
+          type="button"
+          onClick={abrirModal}
+          disabled={lleno}
+          aria-label="Agregar destinatario"
+          title={lleno ? "La lista llegó al tope" : "Agregar destinatario"}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-ink-150 bg-white text-navy-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Icon name="plus" size={15} />
         </button>
-      </form>
+      </div>
       {lleno && <p className="text-[11.5px] text-warn-700">La lista llegó al tope. Quita a alguien para agregar otro correo.</p>}
-      {error && (
-        <p role="alert" className="text-[11.5px] text-err-700">
-          {error}
-        </p>
-      )}
+
+      <Modal
+        open={modalAbierto}
+        onClose={() => setModalAbierto(false)}
+        title="Agregar destinatario"
+        size="md"
+        footer={
+          <button
+            type="submit"
+            form="form-destinatario"
+            disabled={pendiente || lleno || !correo.trim()}
+            className={BTN_PRIMARIO}
+          >
+            {pendiente ? <EstadoProcesando>Agregando</EstadoProcesando> : "Agregar"}
+          </button>
+        }
+      >
+        <form id="form-destinatario" onSubmit={agregar} className="flex flex-col gap-3">
+          <p className="text-[11.5px] text-ink-500">Cualquier correo válido; no tiene que ser usuario de la plataforma.</p>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
+            Correo
+            <input
+              type="email"
+              value={correo}
+              onChange={(e) => setCorreo(e.target.value)}
+              placeholder="Ej.: gerencia@cliente.co"
+              autoComplete="off"
+              maxLength={254}
+              required
+              autoFocus
+              disabled={pendiente}
+              className={CAMPO}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
+            Nombre (opcional)
+            <input
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Ej.: Ana Pérez"
+              autoComplete="off"
+              maxLength={100}
+              disabled={pendiente}
+              className={CAMPO}
+            />
+          </label>
+          {error && (
+            <p role="alert" className="text-[11.5px] text-err-700">
+              {error}
+            </p>
+          )}
+        </form>
+      </Modal>
 
       {panel.destinatarios.length === 0 ? (
         <p className="rounded-md border border-dashed border-ink-200 px-3 py-2.5 text-[12.5px] text-ink-500">
-          Aún no hay destinatarios. Agrega arriba el primer correo al que le llegará el reporte.
+          Aún no hay destinatarios. Usa el botón «+» para agregar el primer correo al que le llegará el reporte.
         </p>
       ) : (
         <div className="overflow-hidden rounded-md border border-ink-150">
