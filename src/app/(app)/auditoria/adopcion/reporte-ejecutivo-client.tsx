@@ -13,7 +13,8 @@ import {
 import { Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
-import { fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
+import { fmtCalendarDate, fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
+import { periodoAnteriorEnFechas } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import {
   hacerBarrasCompatiblesCorreo,
@@ -300,6 +301,8 @@ export function ReporteEjecutivoClient({
 
   // Reportes ya generados con los que se traslapa el período elegido (solo avisa).
   const traslapes = useMemo(() => detectarTraslapes({ desde, hasta, generados }), [desde, hasta, generados]);
+  // Contra qué días se comparará el uso: se dice antes de generar para que nadie lo busque en otra opción.
+  const periodoComparado = useMemo(() => periodoAnteriorEnFechas(desde, hasta), [desde, hasta]);
 
   const cambiosSeleccionados = useMemo(
     () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
@@ -881,10 +884,28 @@ export function ReporteEjecutivoClient({
             {notaPeriodo && desde === defaultDesde && hasta === defaultHasta && (
               <p className="mt-1.5 text-[11.5px] text-ink-500">{notaPeriodo}</p>
             )}
+            {periodoComparado && (
+              <p className="mt-1.5 rounded-md bg-navy-50 px-3 py-2 text-[12px] text-navy-800">
+                El uso de este período se compara con{" "}
+                {periodoComparado.dias === 1 ? "el día anterior" : `los ${periodoComparado.dias} días anteriores`}:{" "}
+                <strong>
+                  {periodoComparado.desde === periodoComparado.hasta
+                    ? fmtCalendarDate(periodoComparado.desde)
+                    : `${fmtCalendarDate(periodoComparado.desde)} al ${fmtCalendarDate(periodoComparado.hasta)}`}
+                </strong>
+                . No tienes que elegir nada más para la comparación.
+              </p>
+            )}
           </div>
 
           <div>
-            <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">Novedades a incluir</h3>
+            <h3 className="mb-1 text-[12.5px] font-semibold text-navy-800">
+              Novedades a incluir (avances de la plataforma)
+            </h3>
+            <p className="mb-1 text-[11.5px] leading-relaxed text-ink-600">
+              Qué mejoras de la plataforma, publicadas en Novedades, se le cuentan a gerencia en el
+              reporte. No cambia las cifras de uso ni la comparación.
+            </p>
             <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
               Lo que ya marcaste como enviado no se vuelve a proponer. Las cifras se conservan al recuperar un reporte guardado; solo se recalculan si solicitas actualizarlo.
             </p>
@@ -906,6 +927,9 @@ export function ReporteEjecutivoClient({
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium text-ink-800">
                     Solo lo nuevo desde el último reporte enviado
+                    <span className="ml-1.5 rounded bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700">
+                      Recomendado
+                    </span>
                   </span>
                   <span className="block text-[11.5px] text-ink-500">
                     {pendiente.versionIds.length === 0
@@ -995,6 +1019,11 @@ export function ReporteEjecutivoClient({
                     {seleccion.size} versiones · {cambiosSeleccionados} cambios
                   </span>
                 </div>
+                {seleccion.size === 0 && (
+                  <p className="text-[11.5px] text-warn-700">
+                    Marca al menos una versión, o elige otra opción de arriba, para poder generar el reporte.
+                  </p>
+                )}
                 <div className="max-h-56 divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-100">
                   {versions.length === 0 ? (
                     <p className="px-3 py-4 text-center text-[12.5px] text-ink-400">

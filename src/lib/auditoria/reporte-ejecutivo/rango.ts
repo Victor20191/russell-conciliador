@@ -32,6 +32,26 @@ export function parseRangoReporte(desdeRaw: string, hastaRaw: string): { desde: 
   return { desde, hasta };
 }
 
+/** Suma días a una fecha de calendario AAAA-MM-DD. */
+function sumarDiasCalendario(fecha: string, dias: number): string {
+  return new Date(Date.parse(`${fecha}T00:00:00Z`) + dias * DIA_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Los días de calendario contra los que se compara un período (la misma regla que
+ * `periodoAnteriorIgual`, en fechas): del 9 al 15-nov (7 días) → del 2 al 8-nov.
+ * Sirve para decirlo en pantalla antes de generar. null si las fechas no sirven.
+ */
+export function periodoAnteriorEnFechas(
+  desde: string,
+  hasta: string,
+): { desde: string; hasta: string; dias: number } | null {
+  if (!FECHA.test(desde) || !FECHA.test(hasta) || desde > hasta) return null;
+  const dias = Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / DIA_MS) + 1;
+  if (!Number.isFinite(dias) || dias < 1) return null;
+  return { desde: sumarDiasCalendario(desde, -dias), hasta: sumarDiasCalendario(desde, -1), dias };
+}
+
 /** Primer valor de un parámetro de la URL, sin espacios; null si no vino. */
 function parametro(valor: string | string[] | undefined): string | null {
   const v = (Array.isArray(valor) ? valor[0] : valor)?.trim();

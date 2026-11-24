@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { leerRangoElegido, MAX_DIAS_RANGO, parseRangoReporte } from "./rango";
+import { leerRangoElegido, MAX_DIAS_RANGO, parseRangoReporte, periodoAnteriorEnFechas } from "./rango";
+
+describe("periodoAnteriorEnFechas", () => {
+  it("del 9 al 15-nov (7 días) se compara con el 2 al 8-nov", () => {
+    expect(periodoAnteriorEnFechas("2026-11-09", "2026-11-15")).toEqual({ desde: "2026-11-02", hasta: "2026-11-08", dias: 7 });
+  });
+
+  it("10 días contra los 10 anteriores, cruzando de mes", () => {
+    expect(periodoAnteriorEnFechas("2026-11-03", "2026-11-12")).toEqual({ desde: "2026-10-24", hasta: "2026-11-02", dias: 10 });
+  });
+
+  it("un solo día se compara con el día anterior", () => {
+    expect(periodoAnteriorEnFechas("2026-11-15", "2026-11-15")).toEqual({ desde: "2026-11-14", hasta: "2026-11-14", dias: 1 });
+  });
+
+  it("sin fechas válidas no hay período anterior", () => {
+    expect(periodoAnteriorEnFechas("", "2026-11-15")).toBeNull();
+    expect(periodoAnteriorEnFechas("2026-11-15", "2026-11-09")).toBeNull();
+  });
+});
 
 describe("parseRangoReporte", () => {
   it("toma los días completos en UTC cuando llegan solo fechas", () => {
