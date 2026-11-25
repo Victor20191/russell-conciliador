@@ -42,14 +42,10 @@ const LECTURAS = [
   "Las operaciones, las visitas y los inicios de sesión describen aspectos distintos del uso y deben interpretarse por separado.",
   "La actividad de un módulo ofrece evidencia relacionada, pero no confirma el uso de cada funcionalidad individual.",
 ] as const;
-const RECOMENDACIONES = [
-  "Revisar el detalle de actividad junto con el contexto operativo del equipo.",
-  "Validar con el equipo el uso de las funcionalidades sin actividad relacionada.",
-  "Distinguir falta de evidencia de falta de uso antes de tomar decisiones.",
-] as const;
+// Sin «Próximos pasos» (25/Nov/2026, pedido del usuario): eran frases fijas que no
+// salían de los datos; las cifras del reporte ya dicen qué conviene atender.
 const LecturaSchema = z.object({
   lectura: z.enum(LECTURAS),
-  recomendaciones: z.array(z.enum(RECOMENDACIONES)).max(3),
 }).strict();
 export type LecturaConsistente = z.infer<typeof LecturaSchema>;
 
@@ -70,7 +66,7 @@ type Contexto = {
 };
 
 /**
- * Lectura editorial y recomendaciones, elegidas EN CÓDIGO.
+ * Lectura editorial, elegida EN CÓDIGO.
  *
  * Antes las escogía un modelo entre este mismo vocabulario cerrado, a partir de
  * tres señales que ya se calculan aquí. Con temperatura 0 igual variaba: tres
@@ -90,15 +86,7 @@ export function elegirLecturaConsistente({ uso, adopcion }: Contexto): LecturaCo
       ? LECTURAS[1] // conviven operaciones, visitas e inicios de sesión
       : LECTURAS[0];
 
-  const recomendaciones: LecturaConsistente["recomendaciones"] = [RECOMENDACIONES[0]];
-  if (hayFuncionalidadesSinEvidencia) {
-    recomendaciones.push(RECOMENDACIONES[1], RECOMENDACIONES[2]);
-  } else if (uso.totalAcciones === 0) {
-    // Sin operaciones registradas, lo que toca es no confundir ausencia de
-    // evidencia con ausencia de uso.
-    recomendaciones.push(RECOMENDACIONES[2]);
-  }
-  return { lectura, recomendaciones };
+  return { lectura };
 }
 
 /**
@@ -426,7 +414,6 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     ? `Hay ${numero(adopcion.sinEvidencia)} funcionalidades sin actividad relacionada. Conviene revisar su contexto operativo antes de concluir que no se utilizan.`
     : "No se identificaron asuntos críticos con la información disponible. Los registros de actividad no permiten evaluar por sí solos la calidad del trabajo.";
   const orientacion = lectura.success ? `<p>${escapeHtml(lectura.data.lectura)}</p>` : "";
-  const recomendaciones = lectura.success ? [...new Set(lectura.data.recomendaciones)] : [];
   const graficos = construirSeccionGraficosHtml({ uso, adopcion });
   return {
     titulo,
@@ -438,6 +425,6 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionUsuariosActivos(uso.usuariosActivos)}${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
 ${seccionesAvances(nuevas, mejoras)}${seccionTicketsAtendidos(tickets)}
-<section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer>${franjaHtml(4)}</main></body></html>`),
+<footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer>${franjaHtml(4)}</main></body></html>`),
   };
 }

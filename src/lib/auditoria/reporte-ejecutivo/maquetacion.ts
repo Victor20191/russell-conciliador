@@ -2,6 +2,8 @@ import { ajustarHtmlAMarca, logoHtml } from "@/lib/marca/html";
 import { signosDeMarca } from "./signos";
 
 const MARCA = "rd-maquetacion-graficos";
+/** La sección no anida otras `<section>`: basta cortar en su primer cierre. */
+const SECCION_PROXIMOS_PASOS = /<section\b[^>]*\bid=["']proximos-pasos["'][^>]*>[\s\S]*?<\/section>/i;
 const ESTILOS = `<style id="${MARCA}">
 /* Las tablas de las barras reservan a las cifras su ancho real. */
 #rd-graficos-uso table[role="presentation"] {
@@ -30,11 +32,13 @@ const ESTILOS = `<style id="${MARCA}">
  * Los reportes generados antes de aplicar el Manual de Marca llevaban el nombre
  * de la plataforma escrito como rótulo: se cambia por el logotipo oficial, y sus
  * colores y tipografías se llevan a la paleta y a Lato, y sus ▲, ▼ y «→» a los
- * glifos actuales (`signosDeMarca`).
+ * glifos actuales (`signosDeMarca`). Los guardados antes del 25/Nov/2026 traían
+ * «Próximos pasos» (frases fijas, sin datos): se quitan como en los nuevos.
  */
 export function ajustarMaquetacionReporte(html: string): string {
   if (!html.trim()) return html;
-  const conMarca = ajustarHtmlAMarca(signosDeMarca(html).replace(/<div class="marca">[^<]*<\/div>/i, logoHtml({ ancho: 180 })));
+  const sinProximosPasos = html.replace(SECCION_PROXIMOS_PASOS, "");
+  const conMarca = ajustarHtmlAMarca(signosDeMarca(sinProximosPasos).replace(/<div class="marca">[^<]*<\/div>/i, logoHtml({ ancho: 180 })));
   if (conMarca.includes(`id="${MARCA}"`)) return conMarca;
   return /<\/head>/i.test(conMarca)
     ? conMarca.replace(/<\/head>/i, `${ESTILOS}\n</head>`)

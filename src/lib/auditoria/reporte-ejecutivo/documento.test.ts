@@ -24,7 +24,7 @@ describe("documento consistente", () => {
   test("repite exactamente el documento y mantiene el orden de sus secciones", () => {
     const a = construirDocumentoConsistente(contexto);
     expect(a).toEqual(construirDocumentoConsistente(contexto));
-    const ids = ["lo-mas-importante", "decisiones", "indicadores", "nuevas-funcionalidades", "mejoras", "proximos-pasos"];
+    const ids = ["lo-mas-importante", "decisiones", "indicadores", "nuevas-funcionalidades", "mejoras"];
     const posiciones = ids.map((id) => a.html.indexOf(`id="${id}"`));
     expect(posiciones.every((posicion) => posicion >= 0)).toBe(true);
     expect(posiciones).toEqual([...posiciones].sort((x, y) => x - y));
@@ -112,7 +112,7 @@ describe("documento consistente", () => {
     expect(separarAvances(mixtas).nuevas.map((c) => c.titulo)).toEqual(["Probar el mapeo"]);
     const html = construirDocumentoConsistente({ ...contexto, novedades: mixtas }).html;
     const nuevas = html.slice(html.indexOf('id="nuevas-funcionalidades"'), html.indexOf('id="mejoras"'));
-    const mejoras = html.slice(html.indexOf('id="mejoras"'), html.indexOf('id="proximos-pasos"'));
+    const mejoras = html.slice(html.indexOf('id="mejoras"'), html.indexOf("<footer"));
     expect(nuevas).toContain("Probar el mapeo");
     expect(nuevas).not.toContain("Lectura más rápida");
     expect(mejoras).toContain("<td>Corrección</td><td>Signo de deducciones</td>");
@@ -149,7 +149,14 @@ describe("documento consistente", () => {
     const lectura = elegirLecturaConsistente(contexto);
     expect(lectura.lectura).toContain("La actividad");
     expect(construirDocumentoConsistente(contexto).html).toContain(lectura.lectura);
-    for (const r of lectura.recomendaciones) expect(construirDocumentoConsistente(contexto).html).toContain(r);
+  });
+
+  test("no trae «Próximos pasos»: el documento termina en la fuente", () => {
+    const html = construirDocumentoConsistente({ ...contexto, uso: { ...uso, totalAcciones: 0 } }).html;
+    expect(html).not.toContain("proximos-pasos");
+    expect(html).not.toContain("Próximos pasos");
+    expect(html).not.toContain("contexto operativo del período");
+    expect(html).toContain('<footer class="nota">Fuente: registros de actividad');
   });
 
   test("la lectura depende de las señales del período, y siempre es la misma para las mismas", () => {
@@ -159,7 +166,6 @@ describe("documento consistente", () => {
     });
     const conPendientes = elegirLecturaConsistente({ ...contexto, adopcion: sinEvidencia });
     expect(conPendientes.lectura).toContain("no confirma el uso de cada funcionalidad");
-    expect(conPendientes.recomendaciones).toHaveLength(3);
 
     // Mismas señales, misma salida: el documento no cambia entre generaciones.
     expect(elegirLecturaConsistente(contexto)).toEqual(elegirLecturaConsistente(contexto));
@@ -329,18 +335,18 @@ describe("sección de tickets atendidos", () => {
     expect(construirDocumentoConsistente(contexto).html).not.toContain("Tickets atendidos");
   });
 
-  test("con tickets agrega la sección, después de los avances y antes de los próximos pasos", () => {
+  test("con tickets agrega la sección, después de los avances y antes de la fuente", () => {
     const html = construirDocumentoConsistente({ ...contexto, tickets: tickets([candidato()]) }).html;
-    const ids = ["mejoras", "tickets-atendidos", "proximos-pasos"].map((id) => html.indexOf(`id="${id}"`));
-    expect(ids.every((i) => i >= 0)).toBe(true);
-    expect(ids).toEqual([...ids].sort((a, b) => a - b));
+    const posiciones = [html.indexOf('id="mejoras"'), html.indexOf('id="tickets-atendidos"'), html.indexOf("<footer")];
+    expect(posiciones.every((i) => i >= 0)).toBe(true);
+    expect(posiciones).toEqual([...posiciones].sort((a, b) => a - b));
     expect(html).toContain("<h2>Tickets atendidos</h2>");
     expect(html).toContain("En el período 2026-09-01 – 2026-09-07 se atendió <strong>1</strong> ticket (1 cerrado).");
   });
 
   test("cada fila trae código, estado, asunto, pantalla, quién reportó, fecha y solución", () => {
     const html = construirDocumentoConsistente({ ...contexto, tickets: tickets([candidato()]) }).html;
-    const seccion = html.slice(html.indexOf('id="tickets-atendidos"'), html.indexOf('id="proximos-pasos"'));
+    const seccion = html.slice(html.indexOf('id="tickets-atendidos"'), html.indexOf("<footer"));
     expect(seccion).toContain(
       '<tr><td><strong>TKT-56</strong><br><span class="nota">Cerrado</span></td>' +
       '<td>Cierre de asignación de cuenta automático<br><span class="nota">Módulos de conciliación · Inventarios</span></td>' +
