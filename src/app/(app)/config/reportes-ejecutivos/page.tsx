@@ -26,7 +26,6 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
 import { obtenerPanelEnvioAutomatico } from "@/app/actions/notificaciones-programadas";
-import { EnvioAutomatico } from "./envio-automatico";
 import { desplegadaEnPeriodo, fechaDespliegueTexto, fechaQueCuenta } from "@/lib/novedades/despliegue";
 import { construirComparativoUso, construirUsoComparable } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
@@ -364,9 +363,7 @@ export default async function ReportesEjecutivosPage({
           <SelectorPeriodoTablero key={`${tableroDesde}|${tableroHasta}`} periodo={periodoIndicadores} />
         }
       />
-      <div className="mb-4">
-        <EnvioAutomatico resultado={panelEnvio} />
-      </div>
+      {/* El panel de envío va primero y lleva dentro la tarjeta para generar el reporte. */}
       <ReporteEjecutivoClient
         versions={versions}
         kpis={kpis}
@@ -374,6 +371,7 @@ export default async function ReportesEjecutivosPage({
         periodoHasta={tableroHasta}
         envios={envios}
         generados={generados}
+        panelEnvio={panelEnvio}
       />
     </div>
   );

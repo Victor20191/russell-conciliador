@@ -68,7 +68,17 @@ function fechaEnvio(iso: string): string {
   return `${etiquetaDiaSemana(diaSemanaColombia(fecha)).toLowerCase()} ${fmtDateTime(fecha)}`;
 }
 
-export function EnvioAutomatico({ resultado }: { resultado: ResultadoPanelEnvio }) {
+export function EnvioAutomatico({
+  resultado,
+  generarReporte,
+}: {
+  resultado: ResultadoPanelEnvio;
+  /**
+   * La tarjeta para generar el reporte (la arma `ReporteEjecutivoClient`): va junto a «Enviar ahora»,
+   * antes de «Últimos envíos». Si el panel no se pudo cargar, se muestra igual debajo del aviso.
+   */
+  generarReporte?: React.ReactNode;
+}) {
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
@@ -88,11 +98,14 @@ export function EnvioAutomatico({ resultado }: { resultado: ResultadoPanelEnvio 
         </div>
       </div>
       {resultado.ok ? (
-        <PanelEnvio panel={resultado.panel} />
+        <PanelEnvio panel={resultado.panel} generarReporte={generarReporte} />
       ) : (
-        <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
-          {resultado.message}
-        </p>
+        <>
+          <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
+            {resultado.message}
+          </p>
+          {generarReporte ? <div className="px-4 pb-4 lg:px-5">{generarReporte}</div> : null}
+        </>
       )}
     </Card>
   );
@@ -112,7 +125,7 @@ function Aviso({ children, tono = "warn" }: { children: React.ReactNode; tono?: 
   );
 }
 
-function PanelEnvio({ panel }: { panel: PanelEnvioAutomatico }) {
+function PanelEnvio({ panel, generarReporte }: { panel: PanelEnvioAutomatico; generarReporte?: React.ReactNode }) {
   const destinatariosActivos = destinatariosDeEnvio(panel.destinatarios);
   const activos = destinatariosActivos.length;
   return (
@@ -151,6 +164,7 @@ function PanelEnvio({ panel }: { panel: PanelEnvioAutomatico }) {
       <ProgramacionForm key={`${panel.activa}|${panel.diaSemana}|${panel.hora}`} panel={panel} destinatariosActivos={activos} />
       <Destinatarios panel={panel} activos={activos} />
       <Envios panel={panel} destinatariosActivos={destinatariosActivos} />
+      {generarReporte}
       <Historial ejecuciones={panel.ejecuciones} />
     </div>
   );
