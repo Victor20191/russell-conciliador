@@ -112,9 +112,11 @@ describe("panel «Envío automático»", () => {
 
   it("ofrece prueba y envío a la lista, muestra los correos activos en «Enviar ahora» y no deja enviar sin conexión", () => {
     const listo = pintar(PANEL);
-    expect(listo).toContain("Enviar prueba a mi correo");
+    expect(listo).toContain("Enviar prueba");
     expect(listo).toContain("Enviar ahora a la lista");
-    expect(listo).toContain("victor@russell.co");
+    // El correo de la prueba se puede escribir; arranca con el de quien mira la pantalla.
+    expect(listo).toMatch(/<input[^>]*id="correo-prueba"[^>]*value="victor@russell.co"/);
+    expect(listo).toContain("La prueba llega solo al correo que escribas");
     // En «Enviar ahora» se listan solo los correos activos que recibirán el reporte (no los pausados).
     const bloqueEnvio = listo.slice(listo.indexOf('id="envio-ahora"'), listo.indexOf('id="envio-historial"'));
     expect(bloqueEnvio).toContain("El reporte llegará a 1 correo activo:");
@@ -129,7 +131,7 @@ describe("panel «Envío automático»", () => {
     expect(html).toContain("Ir a Conexiones");
     expect(html).toContain('href="/config/conexiones"');
     // Los dos botones de envío quedan deshabilitados.
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar prueba a mi correo/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar prueba/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar ahora a la lista/);
   });
 

@@ -179,12 +179,39 @@ describe("destinatarios", () => {
 });
 
 describe("envíos desde la pantalla", () => {
-  it("la prueba usa el correo de la sesión, no uno que mande el cliente", async () => {
+  it("sin correo escrito, la prueba va al correo de la sesión", async () => {
     const r = await enviarPruebaDelReporte();
     expect(r.ok).toBe(true);
     expect(mocks.enviarReporteAhora).toHaveBeenCalledWith({
       origen: "prueba", actor: { id: 3, nombre: "Victor" }, correoPrueba: "victor@russell.co",
     });
+    expect(await enviarPruebaDelReporte({ correo: "   " })).toMatchObject({ ok: true });
+    expect(mocks.enviarReporteAhora).toHaveBeenLastCalledWith(expect.objectContaining({ correoPrueba: "victor@russell.co" }));
+  });
+
+  it("la prueba va al correo escrito, normalizado, y la bitácora anota a dónde fue", async () => {
+    const r = await enviarPruebaDelReporte({ correo: "  Gerencia@Cliente.CO " });
+    expect(r.ok).toBe(true);
+    expect(mocks.enviarReporteAhora).toHaveBeenCalledWith({
+      origen: "prueba", actor: { id: 3, nombre: "Victor" }, correoPrueba: "gerencia@cliente.co",
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ENVIÓ PRUEBA DEL REPORTE", detail: expect.stringContaining("gerencia@cliente.co"),
+    }));
+  });
+
+  it("un correo inválido no envía nada", async () => {
+    const r = await enviarPruebaDelReporte({ correo: "no-es-correo" });
+    expect(r).toMatchObject({ ok: false, message: "Escribe un correo válido." });
+    expect(mocks.enviarReporteAhora).not.toHaveBeenCalled();
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
+  it("sin correo escrito ni en la cuenta, pide escribirlo", async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: 3, name: "Victor", email: null });
+    const r = await enviarPruebaDelReporte();
+    expect(r).toMatchObject({ ok: false, message: "Escribe el correo al que quieres enviar la prueba." });
+    expect(mocks.enviarReporteAhora).not.toHaveBeenCalled();
   });
 
   it("el envío a la lista pasa como manual a nombre de la persona", async () => {

@@ -237,14 +237,37 @@ export async function quitarDestinatarioReporte(id: number): Promise<ActionState
   }
 }
 
-/** Envía el reporte SOLO al correo de quien lo pide. No cuenta como entregado al cliente. */
-export async function enviarPruebaDelReporte(): Promise<ActionState> {
+const CorreoPruebaSchema = DestinatarioNotificacionSchema.pick({ correo: true });
+
+/**
+ * Envía el reporte SOLO al correo que escribe quien lo pide (sin escribir ninguno, al de su
+ * cuenta). No cuenta como entregado al cliente; la bitácora anota a qué correo fue.
+ */
+export async function enviarPruebaDelReporte(datos?: { correo?: string | null }): Promise<ActionState> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
+
+  let correo: string | null = null;
+  if (datos?.correo?.trim()) {
+    const parsed = CorreoPruebaSchema.safeParse({ correo: datos.correo });
+    if (!parsed.success) {
+      return { ok: false, message: parsed.error.issues[0]?.message ?? "Escribe un correo válido." };
+    }
+    correo = parsed.data.correo;
+  }
+
   try {
     const user = await getCurrentUser();
+    correo ??= user?.email?.trim().toLowerCase() || null;
+    if (!correo) return { ok: false, message: "Escribe el correo al que quieres enviar la prueba." };
     const actor = await actorDeSesion(authz.userId);
-    const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: user?.email ?? null });
+    const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: correo });
+    await logAudit({
+      user: actor.nombre,
+      action: "ENVIÓ PRUEBA DEL REPORTE",
+      entity: "Uso y adopción",
+      detail: `Envió una prueba del reporte para gerencia a ${correo}${r.ok ? "" : ` (no salió: ${r.message ?? "sin detalle"})`}.`,
+    });
     revalidatePath(RUTA_REPORTES_EJECUTIVOS);
     return { ok: r.ok, message: r.message };
   } catch (e) {

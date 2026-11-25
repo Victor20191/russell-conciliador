@@ -108,13 +108,15 @@ Los instantes son `TIMESTAMPTZ`. Los pares «usuario» son FK suaves (solo el `I
 envío» con lo que cubrirá («Cubrirá: del … al …») y de dónde sale ese período («Continúa desde
 el último reporte enviado (del … al …)», «Primer envío: últimos 7 días» o «Ya está cubierto
 hasta el …: ese día no se enviará»; calculado en el servidor con la próxima ejecución y el
-último envío), destinatarios (agregar, pausar, quitar), «Enviar prueba a mi correo», «Enviar ahora
+último envío), destinatarios (agregar, pausar, quitar), «Enviar prueba» (con el correo de destino), «Enviar ahora
 a la lista» y los últimos envíos, cada uno con su período. Avisa si falta la conexión de correo
 (con enlace a `/config/conexiones`; su «Dirección de Russell» es opcional), si el servidor no tiene `CRON_SECRET`, si un
 envío lleva más de 30 minutos vencido (el cron no está corriendo) y si está activo sin
 destinatarios activos.
 
-- La **prueba** va solo al correo de la persona que la pide.
+- La **prueba** va solo al correo que escribe la persona que la pide (de entrada, el de su
+  cuenta). No deja constancia en «Reportes enviados»; la bitácora anota a qué correo fue
+  («ENVIÓ PRUEBA DEL REPORTE»).
 - «Enviar ahora» va a toda la lista activa, deja constancia a nombre de quien lo pidió y no
   corre si ya hay otro envío a la lista en curso.
 - Guardar sin cambiar el día ni la hora conserva la próxima fecha (no se come un envío

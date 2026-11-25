@@ -90,7 +90,7 @@ export type PanelEnvioAutomatico = {
   /** Debía haber salido hace más de 30 minutos y no salió: el cron no está corriendo. */
   atrasado: boolean;
   topeDestinatarios: number;
-  /** Correo de la persona que mira la pantalla: a donde va «Enviar prueba». */
+  /** Correo de la persona que mira la pantalla: el que «Enviar prueba» propone (se puede cambiar). */
   correoPrueba: string | null;
 };
 

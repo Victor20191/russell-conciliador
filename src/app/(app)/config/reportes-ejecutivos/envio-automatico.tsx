@@ -45,6 +45,8 @@ const BTN_MINI_PELIGRO =
   "rounded-md border border-err-200 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100 disabled:cursor-not-allowed disabled:opacity-60";
 const CAMPO =
   "w-full rounded-md border border-ink-150 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800 placeholder:text-ink-400 disabled:opacity-60";
+/** Revisión ligera para habilitar «Enviar prueba»; la acción valida el correo de verdad. */
+const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ETIQUETA_ORIGEN: Record<OrigenEjecucion, string> = {
   programada: "Programado",
@@ -508,10 +510,13 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   const [generando, setGenerando] = useState(false);
   const [generado, setGenerado] = useState<ReporteManualGenerado | null>(null);
   const [errorModal, setErrorModal] = useState<string | null>(null);
+  // A dónde va la prueba: arranca con el correo de quien mira la pantalla y se puede cambiar.
+  const [correoPrueba, setCorreoPrueba] = useState(panel.correoPrueba ?? "");
   const solicitudRef = useRef<AbortController | null>(null);
   useEffect(() => () => solicitudRef.current?.abort(), []);
 
   const ocupado = pendiente !== null;
+  const correoPruebaValido = CORREO_VALIDO.test(correoPrueba.trim());
   const sinConexion = panel.conexion.estado !== "lista";
   const totalActivos = destinatariosActivos.length;
   const sugerido = panel.periodoManualSugerido;
@@ -579,10 +584,10 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   };
 
   const enviarPrueba = async () => {
-    if (ocupado) return;
+    if (ocupado || !correoPruebaValido) return;
     setPendiente("prueba");
     try {
-      const r = await enviarPruebaDelReporte();
+      const r = await enviarPruebaDelReporte({ correo: correoPrueba.trim() });
       if (r.ok) notifySuccess("Prueba enviada", r.message ?? "");
       else notifyError("No se pudo enviar la prueba", r.message ?? "Inténtalo de nuevo.");
     } catch {
@@ -634,16 +639,38 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={enviarPrueba}
-          disabled={ocupado || sinConexion || !panel.correoPrueba}
-          className={BTN_SECUNDARIO}
-          title={panel.correoPrueba ? `Envía solo a ${panel.correoPrueba}` : "Tu cuenta no tiene correo registrado"}
-        >
-          <Icon name="send" size={13} />
-          {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba a mi correo"}
-        </button>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <label htmlFor="correo-prueba" className="sr-only">
+            Correo al que va la prueba
+          </label>
+          <input
+            id="correo-prueba"
+            type="email"
+            value={correoPrueba}
+            onChange={(e) => setCorreoPrueba(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void enviarPrueba();
+              }
+            }}
+            placeholder="Correo para la prueba"
+            autoComplete="off"
+            maxLength={254}
+            disabled={ocupado}
+            className={`${CAMPO} min-w-0 flex-1 sm:w-64 sm:flex-none`}
+          />
+          <button
+            type="button"
+            onClick={enviarPrueba}
+            disabled={ocupado || sinConexion || !correoPruebaValido}
+            className={BTN_SECUNDARIO}
+            title={correoPruebaValido ? `Envía solo a ${correoPrueba.trim()}` : "Escribe un correo válido"}
+          >
+            <Icon name="send" size={13} />
+            {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba"}
+          </button>
+        </div>
         <button
           type="button"
           onClick={abrirModal}
@@ -655,7 +682,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
         </button>
       </div>
       <p className="text-[11.5px] text-ink-500">
-        La prueba llega solo a tu correo{panel.correoPrueba ? ` (${panel.correoPrueba})` : ""} con «[Prueba]» en el asunto y no
+        La prueba llega solo al correo que escribas (de entrada, el tuyo) con «[Prueba]» en el asunto y no
         cuenta como entregada al cliente. Al pulsar «Enviar ahora a la lista» seleccionas el rango (por defecto desde el
         último reporte enviado hasta hoy), generas el reporte para revisarlo y confirmas el envío; queda registrado en
         «Reportes enviados» para que el envío automático no repita esas novedades.

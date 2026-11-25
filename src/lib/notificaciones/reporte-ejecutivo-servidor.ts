@@ -463,7 +463,7 @@ export async function obtenerOCrearProgramacion(actor: ActorEnvio): Promise<Noti
 export async function enviarReporteAhora(params: {
   origen: Extract<OrigenEjecucion, "manual" | "prueba">;
   actor: ActorEnvio;
-  /** Solo para la prueba: el correo de quien la pide. */
+  /** Solo para la prueba: el correo al que va (el que escribió quien la pide, o el de su cuenta). */
   correoPrueba?: string | null;
   /**
    * Solo para `manual`: rango explícito elegido por la persona al generar y revisar el reporte
