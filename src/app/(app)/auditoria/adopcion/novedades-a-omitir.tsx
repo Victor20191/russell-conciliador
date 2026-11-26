@@ -21,7 +21,8 @@ export type CambioAOmitir = {
 /**
  * Los cambios de las versiones desplegadas en el período de la página, en tres
  * secciones que arrancan cerradas. Cada cambio se puede marcar «Omitir»: lo
- * marcado no entra al reporte que se genere (ver `omitir-novedades.ts`).
+ * marcado no entra al reporte que se genere ni al correo que se envíe desde la
+ * página (prueba o lista; ver `omitir-novedades.ts`).
  */
 export function NovedadesAOmitir({
   cambios,
@@ -46,7 +47,8 @@ export function NovedadesAOmitir({
     <div className="border-t border-ink-100">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-[11.5px] lg:px-5">
         <span className="text-ink-600">
-          Marca «Omitir» en lo que no quieras mostrar a gerencia: no saldrá en el reporte que generes.
+          Marca «Omitir» en lo que no quieras mostrar a gerencia: no saldrá en el reporte que generes ni en el
+          correo que envíes.
         </span>
         {totalOmitidos > 0 && (
           <span className="flex items-center gap-2">

@@ -59,25 +59,30 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
   - **Desde (siguientes envíos):** el día *siguiente* al mayor `periodo_hasta` entre los envíos
     exitosos por correo y los registros posteriores de `envios_reporte_ejecutivo`. Así los
     reportes se encadenan sin huecos ni traslapes.
-  - **Tope:** el envío automático y el rango sugerido en el envío manual se recortan a **30 días**
-    (`TOPE_DIAS_ENVIO_AUTOMATICO`) y el mensaje de la ejecución lo anota. En el envío manual desde
-    la pantalla la persona puede ajustar libremente `Desde` y `Hasta` (hasta 366 días), generar
-    la vista previa y luego confirmar el envío.
+  - **Tope:** el envío automático se recorta a **30 días** (`TOPE_DIAS_ENVIO_AUTOMATICO`) y el
+    mensaje de la ejecución lo anota.
+  - **Envío desde la pantalla (prueba y lista):** usa el período elegido arriba, junto al título
+    de la página (hasta 366 días, sin pasar de hoy), y deja fuera las novedades marcadas «Omitir»
+    en «Novedades del período»: es el mismo reporte de «Resumen de uso y avances». No vuelve a
+    pedir fechas; para otro período se cambia el de arriba. Reutiliza la instantánea de ese
+    alcance aunque el período siga abierto, así el correo lleva las cifras que se vieron.
   - **Ya cubierto:** si el último reporte ya llega hasta ese día o más allá, no hay período
     nuevo. El disparo programado queda *omitido* («Ya se reportó hasta el …») y la próxima
     fecha avanza igual.
-  - **Prueba:** usa el período que cubriría el *próximo* envío programado; si está en pausa o
-    ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
+  - **Prueba:** desde la pantalla, el período y las omisiones de la página (como el envío a la
+    lista). Llamada sin ellos, usa el período que cubriría el *próximo* envío programado; si está
+    en pausa o ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
   - **Convención de fechas:** los `periodo_desde`/`periodo_hasta` guardados son instantes que
     producen `parseRangoReporte` (el «hasta» 2026-11-22 es 2026-11-22T23:59:59.999Z). La fecha
     que representan se lee en UTC (`fechaDePeriodoGuardado`), la inversa exacta de esa
     función, la misma que usa `registrarEnvioReporteEjecutivo`; leerlos en hora de Colombia
     correría un día el «desde». Las fechas se pasan al generador como `AAAA-MM-DD`, igual que
     cuando se elige el período en pantalla.
-- **Novedades:** ninguna omitida a mano. Reutiliza la instantánea del reporte si ya existe
-  para ese alcance y se generó con el período terminado (`generarReporteEjecutivoNucleo`, sin
-  sesión): una hecha antes —p. ej. por una prueba a mitad de semana, con datos parciales— se
-  vuelve a generar.
+- **Novedades:** el envío programado no omite ninguna. Reutiliza la instantánea del reporte si
+  ya existe para ese alcance y se generó con el período terminado (`generarReporteEjecutivoNucleo`,
+  sin sesión): una hecha antes —p. ej. por una prueba a mitad de semana, con datos parciales— se
+  vuelve a generar. La prueba y el envío a la lista desde la pantalla dejan fuera las marcadas
+  «Omitir» en la página; la bitácora anota cuántas quedaron fuera.
 - **Asunto:** el título del reporte (en la prueba, con «[Prueba] » delante).
 - **Cuerpo:** `htmlConEstilosEnLinea` + `prepararMarcaParaCorreo`, los mismos pasos del
   botón del navegador. En el servidor el HTML lo parsea `linkedom` (no hay `DOMParser`). El
@@ -114,11 +119,16 @@ a la lista» y los últimos envíos, cada uno con su período. Avisa si falta la
 envío lleva más de 30 minutos vencido (el cron no está corriendo) y si está activo sin
 destinatarios activos.
 
+- La **prueba** y **«Enviar ahora a la lista»** llevan el período elegido arriba y las
+  novedades no marcadas «Omitir»; con un período que termina después de hoy, los dos botones
+  quedan deshabilitados y la pantalla lo dice.
 - La **prueba** va solo al correo que escribe la persona que la pide (de entrada, el de su
-  cuenta). No deja constancia en «Reportes enviados»; la bitácora anota a qué correo fue
-  («ENVIÓ PRUEBA DEL REPORTE»).
-- «Enviar ahora» va a toda la lista activa, deja constancia a nombre de quien lo pidió y no
-  corre si ya hay otro envío a la lista en curso.
+  cuenta). No deja constancia en «Reportes enviados»; la bitácora anota el período y a qué
+  correo fue («ENVIÓ PRUEBA DEL REPORTE»).
+- «Enviar ahora a la lista» abre una ventana con el período, lo que queda fuera y la casilla
+  «Actualizar con datos nuevos»; genera el reporte para revisarlo y luego lo envía a toda la
+  lista activa. Avisa si el período repite días del último reporte enviado (no lo impide), deja
+  constancia a nombre de quien lo pidió y no corre si ya hay otro envío a la lista en curso.
 - Guardar sin cambiar el día ni la hora conserva la próxima fecha (no se come un envío
   vencido que el cron aún no atendió).
 

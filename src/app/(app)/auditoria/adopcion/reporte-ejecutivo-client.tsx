@@ -48,7 +48,7 @@ import {
   TITULO_TRASLAPE,
 } from "@/lib/auditoria/reporte-ejecutivo/traslape";
 import { TarjetaUsuariosActivos } from "./usuarios-activos-tarjeta";
-import { EnvioAutomatico } from "@/app/(app)/config/reportes-ejecutivos/envio-automatico";
+import { EnvioAutomatico, type AlcanceDelEnvio } from "@/app/(app)/config/reportes-ejecutivos/envio-automatico";
 import type { ResultadoPanelEnvio } from "@/app/actions/notificaciones-programadas";
 
 /** Un cambio publicable de una versión, tal como lo verá gerencia (para elegir qué omitir). */
@@ -327,6 +327,17 @@ export function ReporteEjecutivoClient({
   const omitidosParaEnviar = useMemo(
     () => cambiosAOmitir.filter((c) => omitidos.has(c.id)).map((c) => c.id),
     [cambiosAOmitir, omitidos],
+  );
+  // La prueba y el envío a la lista llevan el mismo período y las mismas omisiones que el reporte de aquí.
+  const alcanceEnvio = useMemo<AlcanceDelEnvio>(
+    () => ({
+      desde,
+      hasta,
+      omitidos: cambiosAOmitir
+        .filter((c) => omitidos.has(c.id))
+        .map((c) => ({ id: c.id, titulo: c.titulo, version: c.version })),
+    }),
+    [desde, hasta, cambiosAOmitir, omitidos],
   );
   const alternarOmitido = (id: number) =>
     setOmitidos((previos) => {
@@ -614,7 +625,7 @@ export function ReporteEjecutivoClient({
 
   return (
     <div className="flex flex-col gap-4">
-      {panelEnvio && <EnvioAutomatico resultado={panelEnvio} generarReporte={tarjetaReporte} />}
+      {panelEnvio && <EnvioAutomatico resultado={panelEnvio} alcance={alcanceEnvio} generarReporte={tarjetaReporte} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard

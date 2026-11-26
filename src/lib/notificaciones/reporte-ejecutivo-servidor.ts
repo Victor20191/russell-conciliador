@@ -150,6 +150,8 @@ type EntradaEnvio = {
   actor: ActorEnvio;
   /** Deja constancia en «Reportes enviados» (el reporte llegó al cliente); la prueba no. */
   registrarEnvio: boolean;
+  /** Novedades que quedan fuera: las marcadas «Omitir» en la página. El programado no omite ninguna. */
+  cambiosOmitidos?: number[];
   /**
    * Reutiliza una instantánea solo si el período ya terminó al generarla. En envío manual con rango
    * elegido tras vista previa (`false`) se reutiliza exactamente la instantánea recién generada.
@@ -194,12 +196,13 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
     if (!conexion) {
       return fallo("No hay una conexión de correo para notificaciones. Márcala en Configuración › Conexiones.");
     }
-    // 2. El reporte del período recibido, sin novedades omitidas a mano.
+    // 2. El reporte del período recibido, sin las novedades omitidas en la página (si las hay):
+    //    con el mismo período y las mismas omisiones es el reporte que se vio allí.
     const periodo = entrada.periodo;
     const rango = parseRangoReporte(periodo.desde, periodo.hasta);
     if (!rango) return fallo("No se pudo calcular el período del reporte.");
     const generado = await generarReporteEjecutivoNucleo({
-      opciones: { desde: periodo.desde, hasta: periodo.hasta, actualizar: false, cambiosOmitidos: [] },
+      opciones: { desde: periodo.desde, hasta: periodo.hasta, actualizar: false, cambiosOmitidos: entrada.cambiosOmitidos ?? [] },
       obtenerActor: async () => entrada.actor,
       // Una instantánea hecha antes de que el período terminara (p. ej. por una prueba) está incompleta.
       soloReutilizarSiCompleta: entrada.soloReutilizarSiCompleta ?? true,
@@ -259,11 +262,12 @@ async function enviarReporte(entrada: EntradaEnvio): Promise<SalidaEnvio> {
       }
     }
 
+    const omitidas = generado.cambiosOmitidos.length;
     await logAudit({
       user: entrada.actor.nombre,
       action: entrada.origen === "prueba" ? "ENVIÓ PRUEBA DE REPORTE" : "ENVIÓ REPORTE POR CORREO",
       entity: "Uso y adopción",
-      detail: `${REFERENCIA_ENVIO[entrada.origen]}: «${titulo}» del ${periodo.desde} al ${periodo.hasta}; ${resultado.aceptados} destinatario(s) aceptado(s) y ${resultado.fallidos} con error.`,
+      detail: `${REFERENCIA_ENVIO[entrada.origen]}: «${titulo}» del ${periodo.desde} al ${periodo.hasta}${omitidas > 0 ? `, sin ${omitidas} novedad(es) omitida(s)` : ""}; ${resultado.aceptados} destinatario(s) aceptado(s) y ${resultado.fallidos} con error.`,
     });
 
     return {
@@ -466,10 +470,13 @@ export async function enviarReporteAhora(params: {
   /** Solo para la prueba: el correo al que va (el que escribió quien la pide, o el de su cuenta). */
   correoPrueba?: string | null;
   /**
-   * Solo para `manual`: rango explícito elegido por la persona al generar y revisar el reporte
-   * antes de enviarlo (AAAA-MM-DD). Si se omite, continúa automáticamente desde el último envío hasta ayer.
+   * El período elegido arriba en la página (AAAA-MM-DD): el mismo del reporte que se ve allí.
+   * Sin él, `manual` continúa desde el último envío hasta ayer y `prueba` toma el del próximo
+   * envío programado.
    */
-  periodoManual?: { desde: string; hasta: string };
+  periodoElegido?: { desde: string; hasta: string };
+  /** Las novedades marcadas «Omitir» en la página: quedan fuera del correo como del reporte visto. */
+  cambiosOmitidos?: number[];
   ahora?: Date;
 }): Promise<ResultadoEnvioManual> {
   const { origen, actor } = params;
@@ -507,14 +514,14 @@ export async function enviarReporteAhora(params: {
     }
   }
 
-  // El período: si en envío manual llegó un rango elegido por la persona tras generar el reporte,
-  // se valida y se envía ese; si no, continúa donde terminó el último reporte. La prueba muestra el
-  // que cubriría el PRÓXIMO envío programado (o, si no lo hay o ya estaría cubierto, los últimos 7 días).
+  // El período: si llegó el elegido en la página (envío a la lista o prueba), se valida y se envía
+  // ese; si no, el manual continúa donde terminó el último reporte y la prueba muestra el que
+  // cubriría el PRÓXIMO envío programado (o, si no lo hay o ya estaría cubierto, los últimos 7 días).
   let periodo: { desde: string; hasta: string };
   let notaPeriodo: string | null = null;
   let soloReutilizarSiCompleta = true;
-  if (origen === "manual" && params.periodoManual) {
-    const { desde, hasta } = params.periodoManual;
+  if (params.periodoElegido) {
+    const { desde, hasta } = params.periodoElegido;
     if (!parseRangoReporte(desde, hasta)) {
       return { ok: false, message: "El rango de fechas no es válido o supera 366 días. Ajusta el período e inténtalo de nuevo.", estado: null };
     }
@@ -522,7 +529,8 @@ export async function enviarReporteAhora(params: {
       return { ok: false, message: "La fecha final no puede ser posterior a hoy.", estado: null };
     }
     periodo = { desde, hasta };
-    // Reutiliza la instantánea recién generada en la vista previa (aunque `hasta` sea hoy).
+    // Reutiliza la instantánea que se generó en la página (aunque `hasta` sea hoy): el correo
+    // lleva las mismas cifras que el reporte visto.
     soloReutilizarSiCompleta = false;
   } else {
     const ultimo = await ultimoPeriodoEnviado();
@@ -570,6 +578,7 @@ export async function enviarReporteAhora(params: {
     actor,
     registrarEnvio: origen === "manual",
     soloReutilizarSiCompleta,
+    cambiosOmitidos: params.cambiosOmitidos,
   });
   await cerrarEjecucion(ejecucionId, salida, ahora, new Date());
   return { ok: salida.estado !== "error", message: salida.mensaje, estado: salida.estado };

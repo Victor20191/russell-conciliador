@@ -37,10 +37,45 @@ import {
 
 const IdSchema = z.coerce.number({ error: "El registro no es válido." }).int({ error: "El registro no es válido." }).positive({ error: "El registro no es válido." });
 const FECHA_CALENDARIO = /^\d{4}-\d{2}-\d{2}$/;
-const PeriodoManualEnvioSchema = z.object({
+/** Lo que lleva el correo: el período elegido arriba en la página y las novedades marcadas «Omitir». */
+const AlcanceEnvioSchema = z.object({
   desde: z.string().regex(FECHA_CALENDARIO, "Selecciona una fecha inicial válida."),
   hasta: z.string().regex(FECHA_CALENDARIO, "Selecciona una fecha final válida."),
+  cambiosOmitidos: z.array(z.number().int().positive()).max(5000).default([]),
 });
+type AlcanceEnvio = z.input<typeof AlcanceEnvioSchema>;
+
+/** Valida el alcance que manda la pantalla; sin alcance, el envío decide su propio período. */
+function leerAlcanceEnvio(
+  alcance: AlcanceEnvio | undefined,
+): { ok: true; alcance: z.output<typeof AlcanceEnvioSchema> | null } | { ok: false; estado: ActionState } {
+  if (alcance === undefined) return { ok: true, alcance: null };
+  const parsed = AlcanceEnvioSchema.safeParse(alcance);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      estado: {
+        ok: false,
+        errors: z.flattenError(parsed.error).fieldErrors,
+        message: parsed.error.issues[0]?.message ?? "Revisa el período del reporte.",
+      },
+    };
+  }
+  if (!parseRangoReporte(parsed.data.desde, parsed.data.hasta)) {
+    return {
+      ok: false,
+      estado: { ok: false, message: "El rango de fechas no es válido o supera 366 días. Ajusta el período e inténtalo de nuevo." },
+    };
+  }
+  return { ok: true, alcance: parsed.data };
+}
+
+/** Período y omisiones para `enviarReporteAhora`; nada si la pantalla no mandó alcance. */
+function alcanceParaEnviar(alcance: z.output<typeof AlcanceEnvioSchema> | null) {
+  return alcance
+    ? { periodoElegido: { desde: alcance.desde, hasta: alcance.hasta }, cambiosOmitidos: alcance.cambiosOmitidos }
+    : {};
+}
 
 /** Quién actúa: la persona de la sesión (la acción ya comprobó el permiso). */
 async function actorDeSesion(userId: number): Promise<ActorEnvio> {
@@ -241,9 +276,13 @@ const CorreoPruebaSchema = DestinatarioNotificacionSchema.pick({ correo: true })
 
 /**
  * Envía el reporte SOLO al correo que escribe quien lo pide (sin escribir ninguno, al de su
- * cuenta). No cuenta como entregado al cliente; la bitácora anota a qué correo fue.
+ * cuenta), con el período y las omisiones de la página. No cuenta como entregado al cliente;
+ * la bitácora anota a qué correo fue.
  */
-export async function enviarPruebaDelReporte(datos?: { correo?: string | null }): Promise<ActionState> {
+export async function enviarPruebaDelReporte(datos?: {
+  correo?: string | null;
+  alcance?: AlcanceEnvio;
+}): Promise<ActionState> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
@@ -255,18 +294,21 @@ export async function enviarPruebaDelReporte(datos?: { correo?: string | null })
     }
     correo = parsed.data.correo;
   }
+  const alcance = leerAlcanceEnvio(datos?.alcance);
+  if (!alcance.ok) return alcance.estado;
 
   try {
     const user = await getCurrentUser();
     correo ??= user?.email?.trim().toLowerCase() || null;
     if (!correo) return { ok: false, message: "Escribe el correo al que quieres enviar la prueba." };
     const actor = await actorDeSesion(authz.userId);
-    const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: correo });
+    const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: correo, ...alcanceParaEnviar(alcance.alcance) });
+    const periodo = alcance.alcance ? ` del ${alcance.alcance.desde} al ${alcance.alcance.hasta}` : "";
     await logAudit({
       user: actor.nombre,
       action: "ENVIÓ PRUEBA DEL REPORTE",
       entity: "Uso y adopción",
-      detail: `Envió una prueba del reporte para gerencia a ${correo}${r.ok ? "" : ` (no salió: ${r.message ?? "sin detalle"})`}.`,
+      detail: `Envió una prueba del reporte para gerencia${periodo} a ${correo}${r.ok ? "" : ` (no salió: ${r.message ?? "sin detalle"})`}.`,
     });
     revalidatePath(RUTA_REPORTES_EJECUTIVOS);
     return { ok: r.ok, message: r.message };
@@ -275,33 +317,20 @@ export async function enviarPruebaDelReporte(datos?: { correo?: string | null })
   }
 }
 
-/** Envía el reporte ahora a toda la lista activa y deja constancia en «Reportes enviados». */
-export async function enviarReporteAhoraALista(periodo?: { desde: string; hasta: string }): Promise<ActionState> {
+/**
+ * Envía el reporte ahora a toda la lista activa, con el período y las omisiones de la página,
+ * y deja constancia en «Reportes enviados».
+ */
+export async function enviarReporteAhoraALista(alcance?: AlcanceEnvio): Promise<ActionState> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  let periodoManual: { desde: string; hasta: string } | undefined;
-  if (periodo !== undefined) {
-    const parsed = PeriodoManualEnvioSchema.safeParse(periodo);
-    if (!parsed.success) {
-      return {
-        ok: false,
-        errors: z.flattenError(parsed.error).fieldErrors,
-        message: parsed.error.issues[0]?.message ?? "Revisa el rango de fechas.",
-      };
-    }
-    if (!parseRangoReporte(parsed.data.desde, parsed.data.hasta)) {
-      return {
-        ok: false,
-        message: "El rango de fechas no es válido o supera 366 días. Ajusta el período e inténtalo de nuevo.",
-      };
-    }
-    periodoManual = parsed.data;
-  }
+  const leido = leerAlcanceEnvio(alcance);
+  if (!leido.ok) return leido.estado;
 
   try {
     const actor = await actorDeSesion(authz.userId);
-    const r = await enviarReporteAhora({ origen: "manual", actor, periodoManual });
+    const r = await enviarReporteAhora({ origen: "manual", actor, ...alcanceParaEnviar(leido.alcance) });
     revalidatePath(RUTA_REPORTES_EJECUTIVOS);
     return { ok: r.ok, message: r.message };
   } catch (e) {

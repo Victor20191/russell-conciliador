@@ -214,11 +214,57 @@ describe("envíos desde la pantalla", () => {
     expect(mocks.enviarReporteAhora).not.toHaveBeenCalled();
   });
 
+  it("la prueba lleva el período de la página y las novedades omitidas, y la bitácora anota el período", async () => {
+    const r = await enviarPruebaDelReporte({
+      correo: "gerencia@cliente.co",
+      alcance: { desde: "2026-11-18", hasta: "2026-11-24", cambiosOmitidos: [31, 32] },
+    });
+    expect(r.ok).toBe(true);
+    expect(mocks.enviarReporteAhora).toHaveBeenCalledWith({
+      origen: "prueba", actor: { id: 3, nombre: "Victor" }, correoPrueba: "gerencia@cliente.co",
+      periodoElegido: { desde: "2026-11-18", hasta: "2026-11-24" }, cambiosOmitidos: [31, 32],
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: "Envió una prueba del reporte para gerencia del 2026-11-18 al 2026-11-24 a gerencia@cliente.co.",
+    }));
+  });
+
+  it("la prueba con un período que no sirve no envía nada", async () => {
+    for (const alcance of [
+      { desde: "18/11/2026", hasta: "2026-11-24" },
+      { desde: "2026-11-24", hasta: "2026-11-18" },
+      { desde: "2026-11-18", hasta: "2026-11-24", cambiosOmitidos: [0] },
+    ]) {
+      expect(await enviarPruebaDelReporte({ correo: "gerencia@cliente.co", alcance })).toMatchObject({ ok: false });
+    }
+    expect(mocks.enviarReporteAhora).not.toHaveBeenCalled();
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
   it("el envío a la lista pasa como manual a nombre de la persona", async () => {
     const r = await enviarReporteAhoraALista();
     expect(r).toMatchObject({ ok: true, message: "2 correo(s) aceptado(s) por SMTP." });
     expect(mocks.enviarReporteAhora).toHaveBeenCalledWith({ origen: "manual", actor: { id: 3, nombre: "Victor" } });
     expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it("el envío a la lista lleva el período de la página y las novedades omitidas", async () => {
+    const r = await enviarReporteAhoraALista({ desde: "2026-11-18", hasta: "2026-11-24", cambiosOmitidos: [31] });
+    expect(r.ok).toBe(true);
+    expect(mocks.enviarReporteAhora).toHaveBeenCalledWith({
+      origen: "manual", actor: { id: 3, nombre: "Victor" },
+      periodoElegido: { desde: "2026-11-18", hasta: "2026-11-24" }, cambiosOmitidos: [31],
+    });
+    // Sin omisiones, viaja la lista vacía.
+    await enviarReporteAhoraALista({ desde: "2026-11-18", hasta: "2026-11-24" });
+    expect(mocks.enviarReporteAhora).toHaveBeenLastCalledWith(expect.objectContaining({ cambiosOmitidos: [] }));
+  });
+
+  it("el envío a la lista con un período de más de 366 días no envía", async () => {
+    const r = await enviarReporteAhoraALista({ desde: "2024-01-01", hasta: "2026-11-24" });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.message).toContain("366 días");
+    expect(mocks.enviarReporteAhora).not.toHaveBeenCalled();
   });
 
   it("un fallo del envío vuelve como ok=false con el mensaje", async () => {

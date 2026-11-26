@@ -70,9 +70,12 @@ function fechaEnvio(iso: string): string {
 
 export function EnvioAutomatico({
   resultado,
+  alcance,
   generarReporte,
 }: {
   resultado: ResultadoPanelEnvio;
+  /** Período de la página y novedades marcadas «Omitir»: lo que llevan la prueba y el envío a la lista. */
+  alcance: AlcanceDelEnvio;
   /**
    * La tarjeta para generar el reporte (la arma `ReporteEjecutivoClient`): va junto a «Enviar ahora»,
    * antes de «Últimos envíos». Si el panel no se pudo cargar, se muestra igual debajo del aviso.
@@ -98,7 +101,7 @@ export function EnvioAutomatico({
         </div>
       </div>
       {resultado.ok ? (
-        <PanelEnvio panel={resultado.panel} generarReporte={generarReporte} />
+        <PanelEnvio panel={resultado.panel} alcance={alcance} generarReporte={generarReporte} />
       ) : (
         <>
           <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
@@ -125,7 +128,15 @@ function Aviso({ children, tono = "warn" }: { children: React.ReactNode; tono?: 
   );
 }
 
-function PanelEnvio({ panel, generarReporte }: { panel: PanelEnvioAutomatico; generarReporte?: React.ReactNode }) {
+function PanelEnvio({
+  panel,
+  alcance,
+  generarReporte,
+}: {
+  panel: PanelEnvioAutomatico;
+  alcance: AlcanceDelEnvio;
+  generarReporte?: React.ReactNode;
+}) {
   const destinatariosActivos = destinatariosDeEnvio(panel.destinatarios);
   const activos = destinatariosActivos.length;
   return (
@@ -163,7 +174,7 @@ function PanelEnvio({ panel, generarReporte }: { panel: PanelEnvioAutomatico; ge
       {/* La clave remonta el formulario cuando cambia lo guardado, para que muestre lo del servidor. */}
       <ProgramacionForm key={`${panel.activa}|${panel.diaSemana}|${panel.hora}`} panel={panel} destinatariosActivos={activos} />
       <Destinatarios panel={panel} activos={activos} />
-      <Envios panel={panel} destinatariosActivos={destinatariosActivos} />
+      <Envios panel={panel} destinatariosActivos={destinatariosActivos} alcance={alcance} />
       {generarReporte}
       <Historial ejecuciones={panel.ejecuciones} />
     </div>
@@ -483,19 +494,35 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
   );
 }
 
+/**
+ * Lo que llevan la prueba y el envío a la lista: el período elegido arriba, junto al título de
+ * la página, y las novedades de ese período marcadas «Omitir». Es lo mismo con que se genera
+ * «Resumen de uso y avances», así que el correo es el reporte que se vio.
+ */
+export type AlcanceDelEnvio = {
+  desde: string;
+  hasta: string;
+  omitidos: Array<{ id: number; titulo: string; version: string }>;
+};
+
 type ReporteManualGenerado = Extract<GenerarReporteEjecutivoResult, { ok: true }> & {
   desde: string;
   hasta: string;
 };
 
-function validarRangoManual(desde: string, hasta: string, hoy: string): string | null {
-  if (!desde || !hasta) return "Selecciona la fecha inicial y la fecha final.";
-  if (desde > hasta) return "La fecha inicial no puede ser posterior a la fecha final.";
-  if (hasta > hoy) return "La fecha final no puede ser posterior a hoy.";
-  if (!parseRangoReporte(desde, hasta)) {
-    return `El rango no puede superar ${fmtNum(MAX_DIAS_RANGO)} días. Acorta las fechas.`;
+/** El período de arriba sirve para enviar si es válido y no termina después de hoy (hora de Colombia). */
+function validarPeriodoDeEnvio(desde: string, hasta: string, hoy: string): string | null {
+  if (!desde || !hasta || desde > hasta || !parseRangoReporte(desde, hasta)) {
+    return `El período elegido arriba no es válido o supera ${fmtNum(MAX_DIAS_RANGO)} días: elige otro junto al título de la página.`;
+  }
+  if (hasta > hoy) {
+    return "El período elegido arriba termina después de hoy: elige uno que termine hoy o antes para enviarlo.";
   }
   return null;
+}
+
+function textoPeriodo(desde: string, hasta: string): string {
+  return desde === hasta ? fmtCalendarDate(desde) : `${fmtCalendarDate(desde)} al ${fmtCalendarDate(hasta)}`;
 }
 
 function EtiquetasDestinatarios({ destinatarios }: { destinatarios: DestinatarioPanel[] }) {
@@ -515,11 +542,17 @@ function EtiquetasDestinatarios({ destinatarios }: { destinatarios: Destinatario
   );
 }
 
-function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; destinatariosActivos: DestinatarioPanel[] }) {
+function Envios({
+  panel,
+  destinatariosActivos,
+  alcance,
+}: {
+  panel: PanelEnvioAutomatico;
+  destinatariosActivos: DestinatarioPanel[];
+  alcance: AlcanceDelEnvio;
+}) {
   const [pendiente, setPendiente] = useState<"prueba" | "lista" | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
-  const [desde, setDesde] = useState(panel.periodoManualSugerido.desde);
-  const [hasta, setHasta] = useState(panel.periodoManualSugerido.hasta);
   const [actualizarDatos, setActualizarDatos] = useState(false);
   const [generando, setGenerando] = useState(false);
   const [generado, setGenerado] = useState<ReporteManualGenerado | null>(null);
@@ -533,10 +566,14 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   const correoPruebaValido = CORREO_VALIDO.test(correoPrueba.trim());
   const sinConexion = panel.conexion.estado !== "lista";
   const totalActivos = destinatariosActivos.length;
-  const sugerido = panel.periodoManualSugerido;
-  const errorRango = validarRangoManual(desde, hasta, sugerido.hoy);
-  const periodoComparado = !errorRango ? periodoAnteriorEnFechas(desde, hasta) : null;
-  const rangoEditado = desde !== sugerido.desde || hasta !== sugerido.hasta;
+  const { desde, hasta, omitidos } = alcance;
+  const cambiosOmitidos = omitidos.map((o) => o.id);
+  // Del panel solo se usan hoy (hora de Colombia) y el último reporte enviado a la lista.
+  const { hoy, ultimoDesde, ultimoHasta } = panel.periodoManualSugerido;
+  const errorPeriodo = validarPeriodoDeEnvio(desde, hasta, hoy);
+  const periodoComparado = !errorPeriodo ? periodoAnteriorEnFechas(desde, hasta) : null;
+  // Volver a enviar días ya enviados se permite (p. ej. para corregir), pero se avisa.
+  const repiteUltimo = Boolean(ultimoHasta && desde <= ultimoHasta && (!ultimoDesde || hasta >= ultimoDesde));
 
   const cancelarGeneracion = () => {
     solicitudRef.current?.abort();
@@ -545,8 +582,6 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   };
 
   const abrirModal = () => {
-    setDesde(sugerido.desde);
-    setHasta(sugerido.hasta);
     setActualizarDatos(false);
     setGenerado(null);
     setErrorModal(null);
@@ -561,7 +596,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   };
 
   const generarParaEnviar = async () => {
-    if (solicitudRef.current || errorRango) return;
+    if (solicitudRef.current || errorPeriodo) return;
     setErrorModal(null);
     const solicitud = new AbortController();
     solicitudRef.current = solicitud;
@@ -574,7 +609,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           desde,
           hasta,
           actualizar: actualizarDatos,
-          cambiosOmitidos: [],
+          cambiosOmitidos,
         }),
         signal: solicitud.signal,
       });
@@ -598,10 +633,10 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
   };
 
   const enviarPrueba = async () => {
-    if (ocupado || !correoPruebaValido) return;
+    if (ocupado || !correoPruebaValido || errorPeriodo) return;
     setPendiente("prueba");
     try {
-      const r = await enviarPruebaDelReporte({ correo: correoPrueba.trim() });
+      const r = await enviarPruebaDelReporte({ correo: correoPrueba.trim(), alcance: { desde, hasta, cambiosOmitidos } });
       if (r.ok) notifySuccess("Prueba enviada", r.message ?? "");
       else notifyError("No se pudo enviar la prueba", r.message ?? "Inténtalo de nuevo.");
     } catch {
@@ -616,7 +651,12 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
     setErrorModal(null);
     setPendiente("lista");
     try {
-      const r = await enviarReporteAhoraALista({ desde: generado.desde, hasta: generado.hasta });
+      // Las omisiones que aplicó el reporte revisado: el correo reutiliza exactamente ese reporte.
+      const r = await enviarReporteAhoraALista({
+        desde: generado.desde,
+        hasta: generado.hasta,
+        cambiosOmitidos: generado.cambiosOmitidos,
+      });
       if (r.ok) {
         notifySuccess("Reporte enviado", r.message ?? "");
         setModalAbierto(false);
@@ -677,9 +717,11 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
           <button
             type="button"
             onClick={enviarPrueba}
-            disabled={ocupado || sinConexion || !correoPruebaValido}
+            disabled={ocupado || sinConexion || !correoPruebaValido || Boolean(errorPeriodo)}
             className={BTN_SECUNDARIO}
-            title={correoPruebaValido ? `Envía solo a ${correoPrueba.trim()}` : "Escribe un correo válido"}
+            title={
+              errorPeriodo ?? (correoPruebaValido ? `Envía solo a ${correoPrueba.trim()}` : "Escribe un correo válido")
+            }
           >
             <Icon name="send" size={13} />
             {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba"}
@@ -688,18 +730,28 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
         <button
           type="button"
           onClick={abrirModal}
-          disabled={ocupado || sinConexion || totalActivos === 0}
+          disabled={ocupado || sinConexion || totalActivos === 0 || Boolean(errorPeriodo)}
           className={BTN_PRIMARIO}
         >
           <Icon name="send" size={13} />
           {pendiente === "lista" ? "Enviando a la lista…" : "Enviar ahora a la lista"}
         </button>
       </div>
+      {errorPeriodo && (
+        <p role="alert" className="text-[12px] text-err-700">
+          {errorPeriodo}
+        </p>
+      )}
       <p className="text-[11.5px] text-ink-500">
-        La prueba llega solo al correo que escribas (de entrada, el tuyo) con «[Prueba]» en el asunto y no
-        cuenta como entregada al cliente. Al pulsar «Enviar ahora a la lista» seleccionas el rango (por defecto desde el
-        último reporte enviado hasta hoy), generas el reporte para revisarlo y confirmas el envío; queda registrado en
-        «Reportes enviados» para que el envío automático no repita esas novedades.
+        La prueba y el envío a la lista llevan el período elegido arriba (
+        <strong className="font-semibold text-ink-700">{textoPeriodo(desde, hasta)}</strong>) y{" "}
+        {omitidos.length === 0
+          ? "todas sus novedades"
+          : `dejan fuera ${omitidos.length === 1 ? "la novedad marcada" : `las ${fmtNum(omitidos.length)} novedades marcadas`} «Omitir»`}
+        : es el mismo reporte de «Resumen de uso y avances». La prueba llega solo al correo que escribas (de entrada,
+        el tuyo) con «[Prueba]» en el asunto y no cuenta como entregada al cliente. «Enviar ahora a la lista» genera el
+        reporte para que lo revises y confirmes el envío; queda registrado en «Reportes enviados» para que el envío
+        automático no repita esas novedades.
       </p>
 
       <Modal
@@ -719,7 +771,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
                 disabled={pendiente === "lista"}
                 className={BTN_SECUNDARIO}
               >
-                Cambiar rango
+                Volver
               </button>
               <button
                 type="button"
@@ -745,7 +797,7 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
               <button
                 type="button"
                 onClick={generarParaEnviar}
-                disabled={generando || Boolean(errorRango) || totalActivos === 0}
+                disabled={generando || Boolean(errorPeriodo) || totalActivos === 0}
                 className={BTN_PRIMARIO}
               >
                 <Icon name="ai" size={14} />
@@ -758,16 +810,14 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
         {generado ? (
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-500">
-              <span className="font-medium text-ink-700">
-                Período:{" "}
-                {generado.desde === generado.hasta
-                  ? fmtCalendarDate(generado.desde)
-                  : `${fmtCalendarDate(generado.desde)} al ${fmtCalendarDate(generado.hasta)}`}
-              </span>
+              <span className="font-medium text-ink-700">Período: {textoPeriodo(generado.desde, generado.hasta)}</span>
               <span>·</span>
               <span>
                 {fmtNum(generado.totalAcciones)} acciones · {fmtNum(generado.totalUsuarios)} usuarios ·{" "}
                 {fmtNum(generado.totalNovedades)} novedades
+                {generado.cambiosOmitidos.length > 0
+                  ? ` · ${fmtNum(generado.cambiosOmitidos.length)} ${generado.cambiosOmitidos.length === 1 ? "omitida" : "omitidas"}`
+                  : ""}
                 {generado.porcentajeAdopcion != null ? ` · ${generado.porcentajeAdopcion}% adopción` : ""}
                 {generado.desdeCache ? " · reutilizado de caché" : ""}
               </span>
@@ -798,92 +848,71 @@ function Envios({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; 
         ) : (
           <div className="flex flex-col gap-4">
             <p className="text-[13px] leading-relaxed text-ink-600">
-              Selecciona el rango de fechas del reporte, genéralo para revisar su contenido y luego envíalo a la lista de
-              destinatarios activos.
+              El correo lleva el mismo reporte de «Resumen de uso y avances»: el período elegido arriba y sin las
+              novedades marcadas «Omitir». Genéralo para revisarlo y luego envíalo a la lista de destinatarios activos.
             </p>
 
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h4 className="text-[12.5px] font-semibold text-navy-800">Rango de fechas</h4>
-                {rangoEditado && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDesde(sugerido.desde);
-                      setHasta(sugerido.hasta);
-                    }}
-                    disabled={generando}
-                    className={BTN_MINI}
-                  >
-                    Restablecer sugerido
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
-                  Desde
-                  <input
-                    type="date"
-                    value={desde}
-                    max={sugerido.hoy}
-                    onChange={(e) => setDesde(e.target.value)}
-                    disabled={generando}
-                    className={CAMPO}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-ink-600">
-                  Hasta
-                  <input
-                    type="date"
-                    value={hasta}
-                    max={sugerido.hoy}
-                    onChange={(e) => setHasta(e.target.value)}
-                    disabled={generando}
-                    className={CAMPO}
-                  />
-                </label>
-              </div>
-
-              {sugerido.yaCubiertoHoy && (
-                <Aviso>
-                  Ya existe un reporte enviado hasta el {fmtCalendarDate(sugerido.ultimoHasta ?? sugerido.hoy)}. Puedes
-                  ajustar las fechas si necesitas volver a generar o enviar otro período.
-                </Aviso>
-              )}
-
-              <p className="text-[11.5px] text-ink-500">
-                {sugerido.origen === "continua" && sugerido.ultimoHasta
-                  ? `Por defecto arranca el día siguiente al último reporte enviado (${sugerido.ultimoDesde ? `${fmtCalendarDate(sugerido.ultimoDesde)} al ` : ""}${fmtCalendarDate(sugerido.ultimoHasta)}) hasta hoy (${fmtCalendarDate(sugerido.hoy)}).`
-                  : `Sin reportes enviados previos: por defecto cubre los últimos 7 días hasta hoy (${fmtCalendarDate(sugerido.hoy)}).`}
-                {sugerido.recortado &&
-                  ` Se recortó a ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días (el tope sugerido): sin él habría arrancado el ${fmtCalendarDate(sugerido.desdeSinRecorte)}.`}
+              <h4 className="text-[12.5px] font-semibold text-navy-800">Período</h4>
+              <p className="text-[12.5px] text-ink-700">
+                <strong>{textoPeriodo(desde, hasta)}</strong>
+                {periodoComparado ? ` (${periodoComparado.dias} ${periodoComparado.dias === 1 ? "día" : "días"})` : ""}.
+                Es el que elegiste arriba, junto al título de la página; para cambiarlo, cierra esta ventana y elige
+                otro.
               </p>
 
-              {errorRango && (
+              {errorPeriodo && (
                 <p role="alert" className="text-[12px] text-err-700">
-                  {errorRango}
+                  {errorPeriodo}
                 </p>
               )}
 
               {periodoComparado && (
                 <p className="rounded-md bg-navy-50 px-3 py-2 text-[12px] text-navy-800">
-                  Cubre{" "}
-                  <strong>
-                    {desde === hasta
-                      ? fmtCalendarDate(desde)
-                      : `${fmtCalendarDate(desde)} al ${fmtCalendarDate(hasta)}`}
-                  </strong>{" "}
-                  ({periodoComparado.dias} {periodoComparado.dias === 1 ? "día" : "días"}). Se comparará con{" "}
+                  Se comparará con{" "}
                   {periodoComparado.dias === 1 ? "el día anterior" : `los ${periodoComparado.dias} días anteriores`}:{" "}
-                  <strong>
-                    {periodoComparado.desde === periodoComparado.hasta
-                      ? fmtCalendarDate(periodoComparado.desde)
-                      : `${fmtCalendarDate(periodoComparado.desde)} al ${fmtCalendarDate(periodoComparado.hasta)}`}
-                  </strong>
-                  .
+                  <strong>{textoPeriodo(periodoComparado.desde, periodoComparado.hasta)}</strong>.
                 </p>
               )}
+
+              {ultimoHasta &&
+                (repiteUltimo ? (
+                  <Aviso>
+                    El último reporte enviado a la lista cubrió{" "}
+                    {ultimoDesde ? `del ${textoPeriodo(ultimoDesde, ultimoHasta)}` : `hasta el ${fmtCalendarDate(ultimoHasta)}`}: este
+                    período repite días ya enviados.
+                  </Aviso>
+                ) : (
+                  <p className="text-[11.5px] text-ink-500">
+                    Último reporte enviado a la lista:{" "}
+                    {ultimoDesde ? `del ${textoPeriodo(ultimoDesde, ultimoHasta)}` : `hasta el ${fmtCalendarDate(ultimoHasta)}`}.
+                  </p>
+                ))}
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <h4 className="text-[12.5px] font-semibold text-navy-800">Novedades del período</h4>
+              {omitidos.length === 0 ? (
+                <p className="text-[12.5px] text-ink-700">Ninguna está marcada «Omitir»: entran todas las del período.</p>
+              ) : (
+                <>
+                  <p className="text-[12.5px] text-ink-700">
+                    {omitidos.length === 1
+                      ? "Queda fuera la novedad marcada «Omitir»:"
+                      : `Quedan fuera las ${fmtNum(omitidos.length)} novedades marcadas «Omitir»:`}
+                  </p>
+                  <ul className="max-h-32 list-disc overflow-y-auto pl-5 text-[12px] text-ink-500">
+                    {omitidos.map((o) => (
+                      <li key={o.id}>
+                        {o.titulo} <span className="text-ink-400">(v{o.version})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className="text-[11.5px] text-ink-500">
+                Lo que entra y lo que queda fuera se elige en «Novedades del período», en la página.
+              </p>
             </div>
 
             <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">

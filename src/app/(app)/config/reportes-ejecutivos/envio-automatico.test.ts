@@ -11,8 +11,11 @@ vi.mock("@/app/actions/notificaciones-programadas", () => ({
   guardarProgramacionReporte: vi.fn(),
   quitarDestinatarioReporte: vi.fn(),
 }));
-import { EnvioAutomatico } from "./envio-automatico";
+import { EnvioAutomatico, type AlcanceDelEnvio } from "./envio-automatico";
 import type { PanelEnvioAutomatico } from "@/lib/notificaciones/panel";
+
+// El período elegido arriba en la página y lo marcado «Omitir».
+const ALCANCE: AlcanceDelEnvio = { desde: "2026-11-18", hasta: "2026-11-24", omitidos: [] };
 
 const PANEL: PanelEnvioAutomatico = {
   existe: true,
@@ -55,7 +58,8 @@ const PANEL: PanelEnvioAutomatico = {
   correoPrueba: "victor@russell.co",
 };
 
-const pintar = (panel: PanelEnvioAutomatico) => renderToStaticMarkup(createElement(EnvioAutomatico, { resultado: { ok: true, panel } }));
+const pintar = (panel: PanelEnvioAutomatico, alcance: AlcanceDelEnvio = ALCANCE) =>
+  renderToStaticMarkup(createElement(EnvioAutomatico, { resultado: { ok: true, panel }, alcance }));
 
 describe("panel «Envío automático»", () => {
   it("muestra el próximo envío en hora de Colombia, los destinatarios y el historial", () => {
@@ -135,6 +139,32 @@ describe("panel «Envío automático»", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar ahora a la lista/);
   });
 
+  it("la prueba y el envío a la lista dicen el período de la página y lo que queda fuera, sin pedir fechas", () => {
+    const html = pintar(PANEL);
+    const bloqueEnvio = html.slice(html.indexOf('id="envio-ahora"'), html.indexOf('id="envio-historial"'));
+    expect(bloqueEnvio).toContain("llevan el período elegido arriba (");
+    expect(bloqueEnvio).toContain("18/Nov/2026 al 24/Nov/2026");
+    expect(bloqueEnvio).toContain("y todas sus novedades");
+    expect(bloqueEnvio).not.toContain('type="date"');
+
+    const conOmitidas = pintar(PANEL, {
+      ...ALCANCE,
+      omitidos: [
+        { id: 31, titulo: "RST: cruce contable", version: "3.9.0" },
+        { id: 32, titulo: "Calendario tributario", version: "3.9.0" },
+      ],
+    });
+    expect(conOmitidas).toContain("dejan fuera las 2 novedades marcadas «Omitir»");
+  });
+
+  it("un período de la página que termina después de hoy no se puede enviar", () => {
+    // Hoy (en el panel) es el 24/Nov/2026.
+    const html = pintar(PANEL, { ...ALCANCE, hasta: "2026-11-30" });
+    expect(html).toContain("El período elegido arriba termina después de hoy");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar prueba/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar ahora a la lista/);
+  });
+
   it("avisa cuando falta el disparador, cuando el envío está atrasado y cuando no hay destinatarios activos", () => {
     const html = pintar({
       ...PANEL,
@@ -157,7 +187,10 @@ describe("panel «Envío automático»", () => {
 
   it("si el panel no se pudo cargar (falta la migración) la página sigue y el panel avisa", () => {
     const html = renderToStaticMarkup(
-      createElement(EnvioAutomatico, { resultado: { ok: false, message: "El envío automático aún no está disponible en este entorno: falta aplicar la migración de notificaciones." } }),
+      createElement(EnvioAutomatico, {
+        resultado: { ok: false, message: "El envío automático aún no está disponible en este entorno: falta aplicar la migración de notificaciones." },
+        alcance: ALCANCE,
+      }),
     );
     expect(html).toContain("falta aplicar la migración de notificaciones");
     expect(html).not.toContain("Destinatarios");

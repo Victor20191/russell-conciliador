@@ -39,7 +39,7 @@ const LOGO = Buffer.from("png-azul");
 const reporte = {
   ok: true as const,
   report: { titulo: "Reporte de uso y avances", html: "<!DOCTYPE html><html><head><style>p{color:#001871}</style></head><body><p>Hola &amp; adiós</p></body></html>" },
-  versionIdsIncluidos: [9, 4, 9], totalNovedades: 3, totalAcciones: 120,
+  versionIdsIncluidos: [9, 4, 9], totalNovedades: 3, totalAcciones: 120, cambiosOmitidos: [] as number[],
 };
 
 beforeEach(() => {
@@ -494,13 +494,13 @@ describe("período: desde donde terminó el último reporte enviado", () => {
       expect(mocks.ejecCreate).not.toHaveBeenCalled();
     });
 
-    it("«Enviar ahora» con rango manual elegido envía ese período, reutiliza la instantánea recién generada y registra la constancia", async () => {
+    it("«Enviar ahora» con el período de la página envía ese período, reutiliza la instantánea de la página y registra la constancia", async () => {
       ultimoEnviado("2026-11-16", "2026-11-24");
       const r = await enviarReporteAhora({
         origen: "manual",
         actor,
         ahora: AHORA_MANUAL,
-        periodoManual: { desde: "2026-11-25", hasta: "2026-11-25" },
+        periodoElegido: { desde: "2026-11-25", hasta: "2026-11-25" },
       });
       expect(r).toMatchObject({ ok: true, estado: "ok" });
       expect(mocks.generar.mock.calls[0][0].opciones).toEqual({
@@ -516,12 +516,52 @@ describe("período: desde donde terminó el último reporte enviado", () => {
       });
     });
 
+    it("«Enviar ahora» deja fuera las novedades marcadas «Omitir» en la página y lo anota en la bitácora", async () => {
+      mocks.generar.mockResolvedValue({ ...reporte, cambiosOmitidos: [31, 32] });
+      const r = await enviarReporteAhora({
+        origen: "manual",
+        actor,
+        ahora: AHORA_MANUAL,
+        periodoElegido: { desde: "2026-11-18", hasta: "2026-11-24" },
+        cambiosOmitidos: [31, 32],
+      });
+      expect(r).toMatchObject({ ok: true, estado: "ok" });
+      // Mismo período y mismas omisiones que el reporte de la página: se reutiliza esa instantánea.
+      expect(mocks.generar.mock.calls[0][0].opciones).toEqual({
+        desde: "2026-11-18", hasta: "2026-11-24", actualizar: false, cambiosOmitidos: [31, 32],
+      });
+      expect(mocks.generar.mock.calls[0][0].soloReutilizarSiCompleta).toBe(false);
+      expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: "ENVIÓ REPORTE POR CORREO", detail: expect.stringContaining("sin 2 novedad(es) omitida(s)"),
+      }));
+    });
+
+    it("la prueba con el período de la página y sus omisiones lleva lo mismo que el envío a la lista", async () => {
+      ultimoEnviado("2026-11-09", "2026-11-15");
+      mocks.progUpsert.mockResolvedValue({ id: 7, activa: true, proximaEjecucionEn: SIGUIENTE });
+      const r = await enviarReporteAhora({
+        origen: "prueba",
+        actor,
+        correoPrueba: "victor@russell.co",
+        ahora: AHORA_MANUAL,
+        periodoElegido: { desde: "2026-11-18", hasta: "2026-11-24" },
+        cambiosOmitidos: [31],
+      });
+      expect(r).toMatchObject({ ok: true });
+      // No toma el período del próximo envío programado (16 al 29): manda el de la página.
+      expect(mocks.generar.mock.calls[0][0].opciones).toEqual({
+        desde: "2026-11-18", hasta: "2026-11-24", actualizar: false, cambiosOmitidos: [31],
+      });
+      expect(mocks.generar.mock.calls[0][0].soloReutilizarSiCompleta).toBe(false);
+      expect(mocks.envioCreate).not.toHaveBeenCalled();
+    });
+
     it("«Enviar ahora» con rango manual inválido o futuro se rechaza antes de generar o crear ejecución", async () => {
       const invertido = await enviarReporteAhora({
         origen: "manual",
         actor,
         ahora: AHORA_MANUAL,
-        periodoManual: { desde: "2026-11-25", hasta: "2026-11-20" },
+        periodoElegido: { desde: "2026-11-25", hasta: "2026-11-20" },
       });
       expect(invertido).toMatchObject({ ok: false, estado: null });
       expect(invertido.message).toContain("rango de fechas no es válido");
@@ -530,7 +570,7 @@ describe("período: desde donde terminó el último reporte enviado", () => {
         origen: "manual",
         actor,
         ahora: AHORA_MANUAL,
-        periodoManual: { desde: "2026-11-25", hasta: "2026-11-26" },
+        periodoElegido: { desde: "2026-11-25", hasta: "2026-11-26" },
       });
       expect(futuro).toMatchObject({ ok: false, estado: null });
       expect(futuro.message).toContain("posterior a hoy");
@@ -539,7 +579,7 @@ describe("período: desde donde terminó el último reporte enviado", () => {
       expect(mocks.ejecCreate).not.toHaveBeenCalled();
     });
 
-    it("la prueba usa el período del PRÓXIMO envío programado y no registra nada", async () => {
+    it("la prueba sin período de la página usa el del PRÓXIMO envío programado y no registra nada", async () => {
       ultimoEnviado("2026-11-09", "2026-11-15");
       mocks.progUpsert.mockResolvedValue({ id: 7, activa: true, proximaEjecucionEn: SIGUIENTE });
       const r = await enviarReporteAhora({ origen: "prueba", actor, correoPrueba: "victor@russell.co", ahora: AHORA_MANUAL });
