@@ -250,9 +250,9 @@ describe("panel «Envío automático»", () => {
   it("la prueba y el envío a la lista dicen el período de la página y lo que queda fuera, sin pedir fechas", () => {
     const html = pintar(PANEL);
     const bloqueEnvio = html.slice(html.indexOf('id="envio-ahora"'), html.indexOf('id="envio-historial"'));
-    expect(bloqueEnvio).toContain("llevan el período elegido arriba (");
+    expect(bloqueEnvio).toContain("Los dos envíos llevan el mismo reporte: el período elegido arriba (");
     expect(bloqueEnvio).toContain("18/Nov/2026 al 24/Nov/2026");
-    expect(bloqueEnvio).toContain("y todas sus novedades");
+    expect(bloqueEnvio).toContain("y todas sus novedades.");
     expect(bloqueEnvio).not.toContain('type="date"');
 
     const conOmitidas = pintar(PANEL, {
@@ -262,7 +262,18 @@ describe("panel «Envío automático»", () => {
         { id: 32, titulo: "Calendario tributario", version: "3.9.0" },
       ],
     });
-    expect(conOmitidas).toContain("dejan fuera las 2 novedades marcadas «Omitir»");
+    expect(conOmitidas).toContain("sin las 2 novedades marcadas «Omitir».");
+  });
+
+  it("«Ver o descargar» va como tercer recuadro de «Enviar ahora», después de la prueba y la lista", () => {
+    const verReporte = createElement("div", { id: "envio-ver" }, "Ver o descargar");
+    const html = renderToStaticMarkup(createElement(EnvioAutomatico, { resultado: { ok: true, panel: PANEL }, alcance: ALCANCE, verReporte }));
+    expect(html).toContain("Los tres llevan el mismo reporte");
+    const posiciones = ['id="envio-ahora"', 'id="envio-prueba"', 'id="envio-lista"', 'id="envio-ver"', 'id="envio-historial"'].map((id) =>
+      html.indexOf(id),
+    );
+    expect(posiciones.every((p) => p >= 0)).toBe(true);
+    expect([...posiciones].sort((a, b) => a - b)).toEqual(posiciones);
   });
 
   it("un período de la página que termina después de hoy no se puede enviar", () => {

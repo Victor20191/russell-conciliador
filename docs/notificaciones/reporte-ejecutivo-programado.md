@@ -80,7 +80,7 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
     mensaje de la ejecución lo anota.
   - **Envío desde la pantalla (prueba y lista):** usa el período elegido arriba, junto al título
     de la página (hasta 366 días, sin pasar de hoy), y deja fuera las novedades marcadas «Omitir»
-    en «Novedades del período»: es el mismo reporte de «Resumen de uso y avances». No vuelve a
+    en «Novedades del período»: es el mismo reporte de «Ver o descargar». No vuelve a
     pedir fechas; para otro período se cambia el de arriba. Reutiliza la instantánea de ese
     alcance aunque el período siga abierto, así el correo lleva las cifras que se vieron.
   - **Ya cubierto:** si el último reporte ya llega hasta ese día o más allá, no hay período
@@ -141,9 +141,14 @@ destinatarios activos.
 
 - La **prueba** y **«Enviar ahora a la lista»** llevan el período elegido arriba y las
   novedades no marcadas «Omitir»; con un período que termina después de hoy, los dos botones
-  quedan deshabilitados y la pantalla lo dice. Van en recuadros separados: arriba «Enviar una
-  prueba» (el campo del correo y su botón) y abajo «Enviar a la lista» (los correos activos y
-  su botón), para que no se confunda a quién va cada uno.
+  quedan deshabilitados y la pantalla lo dice. Van en recuadros separados: «Enviar una
+  prueba» (el campo del correo y su botón), «Enviar a la lista» (los correos activos y
+  su botón), para que no se confunda a quién va cada uno, y «Ver o descargar».
+- **«Ver o descargar»** (tercer recuadro de «Enviar ahora»): «Ver reporte» genera el mismo
+  reporte (período de arriba, sin lo marcado «Omitir») y abre la vista previa con «Copiar
+  formato correo», «Descargar HTML», «Descargar PDF» y «Marcar como enviado» (constancia de una
+  entrega por fuera de la plataforma). Ya generado en la visita, «Ver reporte» lo abre directo y
+  «Generar de nuevo» deja marcar «Actualizar con datos nuevos».
 - La **prueba** va solo al correo que escribe la persona que la pide (de entrada, el de su
   cuenta). No deja constancia en «Reportes enviados»; la bitácora anota el período y a qué
   correo fue («ENVIÓ PRUEBA DEL REPORTE»).

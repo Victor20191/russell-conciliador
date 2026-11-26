@@ -10,7 +10,7 @@ import {
   type ReporteGeneradoPrevio,
   registrarEnvioReporteEjecutivo,
 } from "@/app/actions/auditoria-reporte";
-import { Card, Chip, StatCard } from "@/components/ui";
+import { Card, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtCalendarDate, fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
@@ -124,8 +124,6 @@ type CanalEnvio = "correo" | "pdf" | "html";
 
 const BTN_PRIMARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60";
-const BTN_REPORTE_PRINCIPAL =
-  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md ring-1 ring-ink-150 transition hover:bg-navy-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 function fechaLarga(iso: string): string {
@@ -557,75 +555,61 @@ export function ReporteEjecutivoClient({
   const adopcionLabel =
     kpis.porcentajeAdopcion == null ? "—" : `${kpis.porcentajeAdopcion}%`;
 
-  // Generar el reporte: con el panel de envío va dentro de él, junto a «Enviar ahora».
-  const tarjetaReporte = (
-    <Card className="overflow-hidden">
-      <div className="flex flex-col gap-4 border-b border-ink-100 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-5">
-        <div className="flex min-w-0 gap-3">
-          <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-ai-100 text-ai-700">
-            <Icon name="ai" size={18} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip label="Reporte para gerencia" tone="ai" />
-              <span className="text-[11.5px] text-ink-500">{periodoTexto}</span>
-            </div>
-            <h2 className="mt-1 text-lg text-navy-800">
-              Resumen de uso y avances
-            </h2>
-            <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
-              Lo más importante del período: cómo se usó la plataforma, qué cambió y qué conviene
-              atender. Preparado con la actividad registrada y listo para enviar en PDF.
-            </p>
-          </div>
-        </div>
-        <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-          <button onClick={abrirConfig} className={BTN_REPORTE_PRINCIPAL}>
-            <Icon name="ai" size={15} />
-            {reporteVigente ? "Consultar o actualizar reporte" : "Generar reporte para gerencia"}
-          </button>
-          {reporteVigente && (
-            <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
+  // «Ver o descargar»: el mismo reporte de la prueba y la lista, para verlo, bajarlo en PDF o HTML
+  // o copiarlo. Con el panel de envío va dentro de «Enviar ahora», tras la prueba y la lista.
+  const verODescargar = (
+    <div role="group" aria-labelledby="envio-ver" className="flex flex-col gap-2 rounded-md border border-ink-150 px-3 py-3">
+      <div>
+        <h4 id="envio-ver" className="text-[12px] font-semibold text-navy-800">
+          Ver o descargar
+        </h4>
+        <p className="text-[11.5px] text-ink-500">
+          El mismo reporte, para verlo, descargarlo en PDF o HTML o copiarlo en formato correo. Si lo entregas por
+          fuera de la plataforma, usa «Marcar como enviado» para dejar constancia.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {reporteVigente ? (
+          <>
+            <button type="button" onClick={() => setModalAbierto(true)} className={BTN_PRIMARIO}>
               <Icon name="eye" size={14} />
               Ver reporte
             </button>
-          )}
-        </div>
-      </div>
-
-      {error && !configAbierto && !modalAbierto && (
-        <div className="border-b border-err-100 bg-err-100 px-4 py-3 text-[13px] text-err-700">
-          {error}
-        </div>
-      )}
-
-      <div className="px-4 py-5 text-[13px] text-ink-500">
-        {reporteVigente && meta ? (
-          <span className="inline-flex flex-wrap items-center gap-2">
-            <Icon name="check" size={14} className="text-ok-700" />
-            Reporte generado el {fechaLarga(meta.generatedAt)}
-            {meta.desdeCache ? " (reutilizado de caché)" : ""} · {fmtNum(meta.totalAcciones)}{" "}
-            acciones · {fmtNum(meta.totalUsuarios)} usuarios · {fmtNum(meta.totalNovedades)}{" "}
-            novedades
-            {meta.cambiosOmitidos.length > 0
-              ? ` · ${fmtNum(meta.cambiosOmitidos.length)} ${
-                  meta.cambiosOmitidos.length === 1 ? "omitida" : "omitidas"
-                }`
-              : ""}
-            .
-          </span>
-        ) : panelEnvio ? (
-          "El reporte para gerencia se genera bajo demanda con el período elegido arriba y las novedades del período (más abajo) que no marques «Omitir»."
+            <button type="button" onClick={abrirConfig} className={BTN_SECUNDARIO}>
+              <Icon name="ai" size={14} />
+              Generar de nuevo
+            </button>
+          </>
         ) : (
-          "El reporte para gerencia se genera bajo demanda con el período elegido arriba y las novedades del período que no marques «Omitir»."
+          <button type="button" onClick={abrirConfig} className={BTN_PRIMARIO}>
+            <Icon name="eye" size={14} />
+            Ver reporte
+          </button>
         )}
       </div>
-    </Card>
+      {reporteVigente && meta && (
+        <p className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-500">
+          <Icon name="check" size={13} className="text-ok-700" />
+          Generado el {fechaLarga(meta.generatedAt)}
+          {meta.desdeCache ? " (reutilizado de caché)" : ""} · {fmtNum(meta.totalAcciones)} operaciones ·{" "}
+          {fmtNum(meta.totalUsuarios)} usuarios · {fmtNum(meta.totalNovedades)} novedades
+          {meta.cambiosOmitidos.length > 0
+            ? ` · ${fmtNum(meta.cambiosOmitidos.length)} ${meta.cambiosOmitidos.length === 1 ? "omitida" : "omitidas"}`
+            : ""}
+          .
+        </p>
+      )}
+      {error && !configAbierto && !modalAbierto && (
+        <p role="alert" className="text-[12px] text-err-700">
+          {error}
+        </p>
+      )}
+    </div>
   );
 
   return (
     <div className="flex flex-col gap-4">
-      {panelEnvio && <EnvioAutomatico resultado={panelEnvio} alcance={alcanceEnvio} generarReporte={tarjetaReporte} />}
+      {panelEnvio && <EnvioAutomatico resultado={panelEnvio} alcance={alcanceEnvio} verReporte={verODescargar} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
@@ -737,7 +721,7 @@ export function ReporteEjecutivoClient({
         )}
       </Card>
 
-      {!panelEnvio && tarjetaReporte}
+      {!panelEnvio && <Card className="px-4 py-4 lg:px-5">{verODescargar}</Card>}
 
       <Card className="overflow-hidden">
         <div
@@ -908,7 +892,7 @@ export function ReporteEjecutivoClient({
           if (solicitudRef.current) cancelarGeneracion();
           setConfigAbierto(false);
         }}
-        title="Generar reporte para gerencia"
+        title="Ver reporte para gerencia"
         size="2xl"
         footer={
           <>
@@ -919,7 +903,7 @@ export function ReporteEjecutivoClient({
             )}
             <button onClick={generar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
               <Icon name="ai" size={14} />
-              {generando ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar reporte"}
+              {generando ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar y ver"}
             </button>
           </>
         }

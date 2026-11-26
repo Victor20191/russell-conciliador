@@ -89,16 +89,16 @@ function fechaEnvio(iso: string): string {
 export function EnvioAutomatico({
   resultado,
   alcance,
-  generarReporte,
+  verReporte,
 }: {
   resultado: ResultadoPanelEnvio;
   /** Período de la página y novedades marcadas «Omitir»: lo que llevan la prueba y el envío a la lista. */
   alcance: AlcanceDelEnvio;
   /**
-   * La tarjeta para generar el reporte (la arma `ReporteEjecutivoClient`): va junto a «Enviar ahora»,
-   * antes de «Últimos envíos». Si el panel no se pudo cargar, se muestra igual debajo del aviso.
+   * El recuadro «Ver o descargar» (lo arma `ReporteEjecutivoClient`): va en «Enviar ahora», tras la
+   * prueba y la lista. Si el panel no se pudo cargar, se muestra igual debajo del aviso.
    */
-  generarReporte?: React.ReactNode;
+  verReporte?: React.ReactNode;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -118,13 +118,13 @@ export function EnvioAutomatico({
         </div>
       </div>
       {resultado.ok ? (
-        <PanelEnvio panel={resultado.panel} alcance={alcance} generarReporte={generarReporte} />
+        <PanelEnvio panel={resultado.panel} alcance={alcance} verReporte={verReporte} />
       ) : (
         <>
           <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
             {resultado.message}
           </p>
-          {generarReporte ? <div className="px-4 pb-4 lg:px-5">{generarReporte}</div> : null}
+          {verReporte ? <div className="px-4 pb-4 lg:px-5">{verReporte}</div> : null}
         </>
       )}
     </Card>
@@ -148,11 +148,11 @@ function Aviso({ children, tono = "warn" }: { children: React.ReactNode; tono?: 
 function PanelEnvio({
   panel,
   alcance,
-  generarReporte,
+  verReporte,
 }: {
   panel: PanelEnvioAutomatico;
   alcance: AlcanceDelEnvio;
-  generarReporte?: React.ReactNode;
+  verReporte?: React.ReactNode;
 }) {
   const destinatariosActivos = destinatariosDeEnvio(panel.destinatarios);
   const activos = destinatariosActivos.length;
@@ -195,8 +195,7 @@ function PanelEnvio({
         destinatariosActivos={activos}
       />
       <Destinatarios panel={panel} activos={activos} />
-      <Envios panel={panel} destinatariosActivos={destinatariosActivos} alcance={alcance} />
-      {generarReporte}
+      <Envios panel={panel} destinatariosActivos={destinatariosActivos} alcance={alcance} verReporte={verReporte} />
       <Historial ejecuciones={panel.ejecuciones} />
     </div>
   );
@@ -764,8 +763,8 @@ function Destinatarios({ panel, activos }: { panel: PanelEnvioAutomatico; activo
 
 /**
  * Lo que llevan la prueba y el envío a la lista: el período elegido arriba, junto al título de
- * la página, y las novedades de ese período marcadas «Omitir». Es lo mismo con que se genera
- * «Resumen de uso y avances», así que el correo es el reporte que se vio.
+ * la página, y las novedades de ese período marcadas «Omitir». Es lo mismo con que se genera el
+ * reporte de «Ver o descargar», así que el correo es el reporte que se vio.
  */
 export type AlcanceDelEnvio = {
   desde: string;
@@ -814,10 +813,13 @@ function Envios({
   panel,
   destinatariosActivos,
   alcance,
+  verReporte,
 }: {
   panel: PanelEnvioAutomatico;
   destinatariosActivos: DestinatarioPanel[];
   alcance: AlcanceDelEnvio;
+  /** «Ver o descargar»: tercer recuadro, tras la prueba y la lista. */
+  verReporte?: React.ReactNode;
 }) {
   const [pendiente, setPendiente] = useState<"prueba" | "lista" | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -950,12 +952,11 @@ function Envios({
           Enviar ahora
         </h3>
         <p className="text-[11.5px] text-ink-500">
-          Los dos envíos llevan el período elegido arriba (
+          {verReporte ? "Los tres llevan" : "Los dos envíos llevan"} el mismo reporte: el período elegido arriba (
           <strong className="font-semibold text-ink-700">{textoPeriodo(desde, hasta)}</strong>) y{" "}
           {omitidos.length === 0
-            ? "todas sus novedades"
-            : `dejan fuera ${omitidos.length === 1 ? "la novedad marcada" : `las ${fmtNum(omitidos.length)} novedades marcadas`} «Omitir»`}
-          : es el mismo reporte de «Resumen de uso y avances».
+            ? "todas sus novedades."
+            : `sin ${omitidos.length === 1 ? "la novedad marcada" : `las ${fmtNum(omitidos.length)} novedades marcadas`} «Omitir».`}
         </p>
       </div>
       {errorPeriodo && (
@@ -1045,6 +1046,8 @@ function Envios({
           </button>
         </div>
       </div>
+
+      {verReporte}
 
       <Modal
         open={modalAbierto}
@@ -1140,8 +1143,8 @@ function Envios({
         ) : (
           <div className="flex flex-col gap-4">
             <p className="text-[13px] leading-relaxed text-ink-600">
-              El correo lleva el mismo reporte de «Resumen de uso y avances»: el período elegido arriba y sin las
-              novedades marcadas «Omitir». Genéralo para revisarlo y luego envíalo a la lista de destinatarios activos.
+              El correo lleva el mismo reporte de «Ver o descargar»: el período elegido arriba y sin las novedades
+              marcadas «Omitir». Genéralo para revisarlo y luego envíalo a la lista de destinatarios activos.
             </p>
 
             <div className="flex flex-col gap-2">
