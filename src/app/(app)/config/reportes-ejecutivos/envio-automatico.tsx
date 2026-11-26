@@ -677,23 +677,37 @@ function Envios({
 
   return (
     <section aria-labelledby="envio-ahora" className="flex flex-col gap-3">
-      <h3 id="envio-ahora" className="text-[12.5px] font-semibold text-navy-800">
-        Enviar ahora
-      </h3>
-      {totalActivos > 0 ? (
-        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
-          <p className="font-medium text-ink-800">
-            El reporte llegará a {fmtNum(totalActivos)} {totalActivos === 1 ? "correo activo" : "correos activos"}:
-          </p>
-          <EtiquetasDestinatarios destinatarios={destinatariosActivos} />
-        </div>
-      ) : (
-        <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
-          No hay correos activos para el envío. Agrega o activa al menos un destinatario arriba para habilitar el envío a la lista.
+      <div>
+        <h3 id="envio-ahora" className="text-[12.5px] font-semibold text-navy-800">
+          Enviar ahora
+        </h3>
+        <p className="text-[11.5px] text-ink-500">
+          Los dos envíos llevan el período elegido arriba (
+          <strong className="font-semibold text-ink-700">{textoPeriodo(desde, hasta)}</strong>) y{" "}
+          {omitidos.length === 0
+            ? "todas sus novedades"
+            : `dejan fuera ${omitidos.length === 1 ? "la novedad marcada" : `las ${fmtNum(omitidos.length)} novedades marcadas`} «Omitir»`}
+          : es el mismo reporte de «Resumen de uso y avances».
+        </p>
+      </div>
+      {errorPeriodo && (
+        <p role="alert" className="text-[12px] text-err-700">
+          {errorPeriodo}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+
+      {/* La prueba y el envío a la lista van en recuadros separados: cada botón con sus correos. */}
+      <div role="group" aria-labelledby="envio-prueba" className="flex flex-col gap-2 rounded-md border border-ink-150 px-3 py-3">
+        <div>
+          <h4 id="envio-prueba" className="text-[12px] font-semibold text-navy-800">
+            Enviar una prueba
+          </h4>
+          <p className="text-[11.5px] text-ink-500">
+            La prueba llega solo al correo que escribas aquí (de entrada, el tuyo), con «[Prueba]» en el asunto. No va
+            a la lista ni cuenta como entregada al cliente.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="correo-prueba" className="sr-only">
             Correo al que va la prueba
           </label>
@@ -712,7 +726,7 @@ function Envios({
             autoComplete="off"
             maxLength={254}
             disabled={ocupado}
-            className={`${CAMPO} min-w-0 flex-1 sm:w-64 sm:flex-none`}
+            className={`${CAMPO} min-w-0 flex-1 sm:w-72 sm:flex-none`}
           />
           <button
             type="button"
@@ -727,32 +741,42 @@ function Envios({
             {pendiente === "prueba" ? "Enviando prueba…" : "Enviar prueba"}
           </button>
         </div>
-        <button
-          type="button"
-          onClick={abrirModal}
-          disabled={ocupado || sinConexion || totalActivos === 0 || Boolean(errorPeriodo)}
-          className={BTN_PRIMARIO}
-        >
-          <Icon name="send" size={13} />
-          {pendiente === "lista" ? "Enviando a la lista…" : "Enviar ahora a la lista"}
-        </button>
       </div>
-      {errorPeriodo && (
-        <p role="alert" className="text-[12px] text-err-700">
-          {errorPeriodo}
-        </p>
-      )}
-      <p className="text-[11.5px] text-ink-500">
-        La prueba y el envío a la lista llevan el período elegido arriba (
-        <strong className="font-semibold text-ink-700">{textoPeriodo(desde, hasta)}</strong>) y{" "}
-        {omitidos.length === 0
-          ? "todas sus novedades"
-          : `dejan fuera ${omitidos.length === 1 ? "la novedad marcada" : `las ${fmtNum(omitidos.length)} novedades marcadas`} «Omitir»`}
-        : es el mismo reporte de «Resumen de uso y avances». La prueba llega solo al correo que escribas (de entrada,
-        el tuyo) con «[Prueba]» en el asunto y no cuenta como entregada al cliente. «Enviar ahora a la lista» genera el
-        reporte para que lo revises y confirmes el envío; queda registrado en «Reportes enviados» para que el envío
-        automático no repita esas novedades.
-      </p>
+
+      <div role="group" aria-labelledby="envio-lista" className="flex flex-col gap-2 rounded-md border border-ink-150 px-3 py-3">
+        <div>
+          <h4 id="envio-lista" className="text-[12px] font-semibold text-navy-800">
+            Enviar a la lista
+          </h4>
+          <p className="text-[11.5px] text-ink-500">
+            Va a los correos marcados en «Destinatarios». Antes de enviarlo generas el reporte para revisarlo; queda
+            registrado en «Reportes enviados» para que el envío automático no repita esas novedades.
+          </p>
+        </div>
+        {totalActivos > 0 ? (
+          <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
+            <p className="font-medium text-ink-800">
+              El reporte llegará a {fmtNum(totalActivos)} {totalActivos === 1 ? "correo activo" : "correos activos"}:
+            </p>
+            <EtiquetasDestinatarios destinatarios={destinatariosActivos} />
+          </div>
+        ) : (
+          <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
+            No hay correos activos para el envío. Agrega o activa al menos un destinatario arriba para habilitar el envío a la lista.
+          </p>
+        )}
+        <div>
+          <button
+            type="button"
+            onClick={abrirModal}
+            disabled={ocupado || sinConexion || totalActivos === 0 || Boolean(errorPeriodo)}
+            className={BTN_PRIMARIO}
+          >
+            <Icon name="send" size={13} />
+            {pendiente === "lista" ? "Enviando a la lista…" : "Enviar ahora a la lista"}
+          </button>
+        </div>
+      </div>
 
       <Modal
         open={modalAbierto}

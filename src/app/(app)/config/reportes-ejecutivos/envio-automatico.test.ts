@@ -139,6 +139,24 @@ describe("panel «Envío automático»", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Enviar ahora a la lista/);
   });
 
+  it("la prueba y el envío a la lista van en recuadros separados, cada uno con sus correos", () => {
+    const html = pintar(PANEL);
+    const prueba = html.slice(html.indexOf('id="envio-prueba"'), html.indexOf('id="envio-lista"'));
+    const lista = html.slice(html.indexOf('id="envio-lista"'), html.indexOf('id="envio-historial"'));
+    // Arriba la prueba: solo el correo escrito, sin la lista de destinatarios.
+    expect(html.indexOf('id="envio-prueba"')).toBeLessThan(html.indexOf('id="envio-lista"'));
+    expect(prueba).toContain('id="correo-prueba"');
+    expect(prueba).toContain("Enviar prueba");
+    expect(prueba).toContain("No va a la lista");
+    expect(prueba).not.toContain("ana@cliente.co");
+    expect(prueba).not.toContain("Enviar ahora a la lista");
+    // Abajo la lista: los correos activos junto a su botón.
+    expect(lista).toContain("El reporte llegará a 1 correo activo:");
+    expect(lista).toContain("ana@cliente.co");
+    expect(lista).toContain("Enviar ahora a la lista");
+    expect(lista).not.toContain('id="correo-prueba"');
+  });
+
   it("la prueba y el envío a la lista dicen el período de la página y lo que queda fuera, sin pedir fechas", () => {
     const html = pintar(PANEL);
     const bloqueEnvio = html.slice(html.indexOf('id="envio-ahora"'), html.indexOf('id="envio-historial"'));

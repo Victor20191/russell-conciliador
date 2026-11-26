@@ -121,7 +121,9 @@ destinatarios activos.
 
 - La **prueba** y **«Enviar ahora a la lista»** llevan el período elegido arriba y las
   novedades no marcadas «Omitir»; con un período que termina después de hoy, los dos botones
-  quedan deshabilitados y la pantalla lo dice.
+  quedan deshabilitados y la pantalla lo dice. Van en recuadros separados: arriba «Enviar una
+  prueba» (el campo del correo y su botón) y abajo «Enviar a la lista» (los correos activos y
+  su botón), para que no se confunda a quién va cada uno.
 - La **prueba** va solo al correo que escribe la persona que la pide (de entrada, el de su
   cuenta). No deja constancia en «Reportes enviados»; la bitácora anota el período y a qué
   correo fue («ENVIÓ PRUEBA DEL REPORTE»).
