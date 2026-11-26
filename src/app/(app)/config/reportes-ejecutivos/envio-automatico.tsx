@@ -22,6 +22,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { MAX_DIAS_RANGO, parseRangoReporte, periodoAnteriorEnFechas } from "@/lib/auditoria/reporte-ejecutivo/rango";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { destinatariosDeEnvio } from "@/lib/notificaciones/destinatarios";
@@ -100,34 +101,82 @@ export function EnvioAutomatico({
    */
   verReporte?: React.ReactNode;
 }) {
+  // Arranca plegado: la página abre en los indicadores. El cuerpo queda montado (solo oculto) para
+  // no perder lo que se esté editando al plegarlo.
+  const [abierto, setAbierto] = useState(false);
+  const panel = resultado.ok ? resultado.panel : null;
+  const avisos = panel ? contarAvisos(panel) : 0;
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
-        <div className="flex min-w-0 gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-100 text-navy-700">
-            <Icon name="send" size={16} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-[13px] font-semibold text-navy-800">Envío automático</h2>
-            <p className="max-w-3xl text-[11.5px] text-ink-500">
-              La plataforma genera sola el reporte para gerencia cada semana y lo envía por correo a la lista de
-              destinatarios, con el mismo formato de «Copiar formato correo» dentro del mensaje (sin PDF adjunto).
-              En «Cuándo se envía» eliges el día, la hora y qué período cubre cada envío.
-            </p>
-          </div>
-        </div>
-      </div>
-      {resultado.ok ? (
-        <PanelEnvio panel={resultado.panel} alcance={alcance} verReporte={verReporte} />
-      ) : (
-        <>
-          <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
-            {resultado.message}
+      <div className={`px-4 py-3 lg:px-5 ${abierto ? "border-b border-ink-100" : ""}`}>
+        <h2 className="text-[13px] font-semibold text-navy-800">
+          <button
+            type="button"
+            onClick={() => setAbierto((a) => !a)}
+            aria-expanded={abierto}
+            aria-controls="envio-automatico-cuerpo"
+            className="flex w-full min-w-0 items-center gap-3 rounded text-left transition hover:text-navy-600"
+            title={abierto ? "Ocultar el envío automático" : "Mostrar el envío automático"}
+          >
+            <Icon name={chevronDivulgacion(abierto)} size={13} className="shrink-0 text-ink-500" />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-100 text-navy-700">
+              <Icon name="send" size={16} />
+            </span>
+            <span className="flex min-w-0 flex-wrap items-center gap-2">
+              Envío automático
+              <EstadoDelEnvio panel={panel} />
+              {avisos > 0 && !abierto && (
+                <Chip label={`${fmtNum(avisos)} ${avisos === 1 ? "aviso" : "avisos"}`} tone="warn" />
+              )}
+            </span>
+          </button>
+        </h2>
+        {abierto && (
+          <p className="mt-1 max-w-3xl pl-[73px] text-[11.5px] text-ink-500">
+            La plataforma genera sola el reporte para gerencia cada semana y lo envía por correo a la lista de
+            destinatarios, con el mismo formato de «Copiar formato correo» dentro del mensaje (sin PDF adjunto).
+            En «Cuándo se envía» eliges el día, la hora y qué período cubre cada envío.
           </p>
-          {verReporte ? <div className="px-4 pb-4 lg:px-5">{verReporte}</div> : null}
-        </>
-      )}
+        )}
+      </div>
+      <div id="envio-automatico-cuerpo" hidden={!abierto}>
+        {resultado.ok ? (
+          <PanelEnvio panel={resultado.panel} alcance={alcance} verReporte={verReporte} />
+        ) : (
+          <>
+            <p role="status" className="px-4 py-4 text-[12.5px] text-warn-700 lg:px-5">
+              {resultado.message}
+            </p>
+            {verReporte ? <div className="px-4 pb-4 lg:px-5">{verReporte}</div> : null}
+          </>
+        )}
+      </div>
     </Card>
+  );
+}
+
+/** Cuántos avisos muestra el panel abierto: con el panel plegado se anuncian en el encabezado. */
+function contarAvisos(panel: PanelEnvioAutomatico): number {
+  const activos = destinatariosDeEnvio(panel.destinatarios).length;
+  return [
+    panel.conexion.estado !== "lista",
+    !panel.disparadorConfigurado,
+    panel.atrasado && Boolean(panel.proximaEjecucionEn),
+    panel.activa && activos === 0,
+  ].filter(Boolean).length;
+}
+
+/** «Activo · próximo envío: …» o «En pausa»: lo que se ve aun con el panel plegado. */
+function EstadoDelEnvio({ panel }: { panel: PanelEnvioAutomatico | null }) {
+  if (!panel) return <Chip label="No disponible" tone="warn" />;
+  if (!panel.activa || !panel.proximaEjecucionEn) return <Chip label="En pausa" tone="ink" />;
+  return (
+    <>
+      <Chip label="Activo" tone="ok" />
+      <span className="text-[11.5px] font-normal text-ink-500">
+        Próximo envío: {fechaEnvio(panel.proximaEjecucionEn)} (hora de Colombia)
+      </span>
+    </>
   );
 }
 

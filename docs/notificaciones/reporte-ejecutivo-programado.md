@@ -126,7 +126,9 @@ Los instantes son `TIMESTAMPTZ`. Los pares «usuario» son FK suaves (solo el `I
 
 ## Pantalla
 
-`/config/reportes-ejecutivos` → «Envío automático»: activar o pausar, día, hora y «Qué período
+`/config/reportes-ejecutivos` → «Envío automático», que arranca plegado (la página abre en los
+indicadores): plegado muestra si está activo, con la fecha del próximo envío, o en pausa, y
+cuántos avisos tiene. Abierto: activar o pausar, día, hora y «Qué período
 cubre cada envío» (los últimos N días o desde el último reporte enviado, con una explicación
 de lo que significa para el envío semanal), «Próximo envío» con lo que cubrirá («Cubrirá: del
 … al …») y de dónde sale ese período («Los últimos 7 días antes del envío…», «Continúa desde

@@ -95,6 +95,26 @@ describe("panel «Envío automático»", () => {
     expect(html).not.toContain("Ir a Conexiones");
   });
 
+  it("arranca plegado y aun así dice si el envío automático está activo o en pausa", () => {
+    const activo = pintar(PANEL);
+    expect(activo).toContain('aria-expanded="false"');
+    expect(activo).toMatch(/<div id="envio-automatico-cuerpo" hidden="">/);
+    expect(activo).toContain(">Activo<");
+    expect(activo).toContain("Próximo envío: lunes 30/Nov/2026 7:00 a. m. (hora de Colombia)");
+    expect(activo).not.toContain("aviso");
+
+    const pausa = pintar({ ...PANEL, activa: false, proximaEjecucionEn: null, periodoProximo: null });
+    expect(pausa).toContain(">En pausa<");
+
+    // Los avisos del panel abierto se anuncian en el encabezado plegado.
+    expect(pintar({ ...PANEL, disparadorConfigurado: false, atrasado: true })).toContain("2 avisos");
+
+    const sinPanel = renderToStaticMarkup(
+      createElement(EnvioAutomatico, { resultado: { ok: false, message: "Falta la migración." }, alcance: ALCANCE }),
+    );
+    expect(sinPanel).toContain(">No disponible<");
+  });
+
   it("dice desde cuándo hasta cuándo cubrirá el próximo envío y de dónde sale el período", () => {
     const html = pintar(PANEL);
     expect(html).toContain("Cubrirá:");
