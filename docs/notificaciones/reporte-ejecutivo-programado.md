@@ -50,7 +50,24 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
 
 ### Qué se envía
 
-- **Período: primer envío de 7 días; los siguientes continúan desde el último envío (máximo 30 días).**
+- **Período: se elige en «Cuándo se envía» → «Qué período cubre cada envío»** (`modo_periodo` y
+  `dias_periodo` de `notificacion_programada`; cálculo en `calcularPeriodoEnvio`):
+  - **«Los últimos N días, sin contar el día del envío»** (`ultimos_dias`, N de 1 a 30, por
+    defecto 7): los N días que terminan el día *anterior* al envío. Enviado un miércoles con 7
+    días, del miércoles anterior al martes (el 25-nov cubre del 18 al 24). Es siempre la misma
+    ventana: no depende del último reporte enviado, así un envío manual en medio no acorta la
+    semana. Si alguien ya envió (a mano) un reporte que llega hasta ese día anterior o más allá,
+    el disparo queda *omitido*. Con envío semanal, N distinto de 7 deja días sin reportar
+    (menos) o los repite (más); la pantalla lo advierte.
+  - **«Desde el último reporte enviado»** (`continua`, el valor de las programaciones guardadas
+    antes de poder elegir): lo que se describe a continuación.
+  - **«Contar también el día del envío»** (`incluir_dia_envio`, para las dos opciones; por
+    defecto no): el período llega hasta el MISMO día del envío en vez del anterior (miércoles
+    con 7 días: del jueves anterior al miércoles). Ese día solo trae lo registrado hasta la hora
+    del envío y el período siguiente arranca al día siguiente, así que lo que pase después de esa
+    hora no sale en ningún reporte (salvo con más de 7 días, donde lo recoge el envío
+    siguiente). La pantalla lo advierte al marcarla.
+- **Período en modo «continua»: primer envío de 7 días; los siguientes continúan desde el último envío (máximo 30 días).**
   - **Primer envío por correo:** mientras no exista una ejecución exitosa previa en
     `notificacion_ejecucion` (`programada` o `manual`), siempre cubre los **7 días** que
     terminan el día anterior (no arrastra registros históricos antiguos de `envios_reporte_ejecutivo`).
@@ -70,8 +87,8 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
     nuevo. El disparo programado queda *omitido* («Ya se reportó hasta el …») y la próxima
     fecha avanza igual.
   - **Prueba:** desde la pantalla, el período y las omisiones de la página (como el envío a la
-    lista). Llamada sin ellos, usa el período que cubriría el *próximo* envío programado; si está
-    en pausa o ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
+    lista). Llamada sin ellos, usa el período que cubriría el *próximo* envío programado (con
+    su regla); si está en pausa o ese envío ya estaría cubierto, los últimos 7 días. No registra nada.
   - **Convención de fechas:** los `periodo_desde`/`periodo_hasta` guardados son instantes que
     producen `parseRangoReporte` (el «hasta» 2026-11-22 es 2026-11-22T23:59:59.999Z). La fecha
     que representan se lee en UTC (`fechaDePeriodoGuardado`), la inversa exacta de esa
@@ -101,7 +118,7 @@ sistema; la aplicación solo responde «¿hay algo que enviar?» y lo hace una v
 
 | Tabla | Para qué |
 | --- | --- |
-| `notificacion_programada` | Una fila por tipo (`reporte_ejecutivo`): activa, día (1 = lunes … 7), hora `HH:mm` de Colombia, `proxima_ejecucion_en`. |
+| `notificacion_programada` | Una fila por tipo (`reporte_ejecutivo`): activa, día (1 = lunes … 7), hora `HH:mm` de Colombia, qué período cubre (`modo_periodo`: `ultimos_dias` o `continua`; `dias_periodo`: 1 a 30; `incluir_dia_envio`), `proxima_ejecucion_en`. |
 | `notificacion_destinatario` | Correos de la lista (minúsculas, únicos por programación), con nombre opcional y activo/en pausa. Tope: 50. |
 | `notificacion_ejecucion` | Historial: origen (`programada`, `manual`, `prueba`), estado (`en_curso`, `ok`, `parcial`, `error`, `omitida`), conteos, período y mensaje. |
 
@@ -109,11 +126,14 @@ Los instantes son `TIMESTAMPTZ`. Los pares «usuario» son FK suaves (solo el `I
 
 ## Pantalla
 
-`/config/reportes-ejecutivos` → «Envío automático»: activar o pausar, día y hora, «Próximo
-envío» con lo que cubrirá («Cubrirá: del … al …») y de dónde sale ese período («Continúa desde
+`/config/reportes-ejecutivos` → «Envío automático»: activar o pausar, día, hora y «Qué período
+cubre cada envío» (los últimos N días o desde el último reporte enviado, con una explicación
+de lo que significa para el envío semanal), «Próximo envío» con lo que cubrirá («Cubrirá: del
+… al …») y de dónde sale ese período («Los últimos 7 días antes del envío…», «Continúa desde
 el último reporte enviado (del … al …)», «Primer envío: últimos 7 días» o «Ya está cubierto
 hasta el …: ese día no se enviará»; calculado en el servidor con la próxima ejecución y el
-último envío), destinatarios (agregar, pausar, quitar), «Enviar prueba» (con el correo de destino), «Enviar ahora
+último envío). Al cambiar algo, antes de guardar, «Al guardar:» muestra la próxima fecha y lo
+que cubriría con la misma cuenta. Luego destinatarios (agregar, pausar, quitar), «Enviar prueba» (con el correo de destino), «Enviar ahora
 a la lista» y los últimos envíos, cada uno con su período. Avisa si falta la conexión de correo
 (con enlace a `/config/conexiones`; su «Dirección de Russell» es opcional), si el servidor no tiene `CRON_SECRET`, si un
 envío lleva más de 30 minutos vencido (el cron no está corriendo) y si está activo sin
@@ -132,7 +152,12 @@ destinatarios activos.
   lista activa. Avisa si el período repite días del último reporte enviado (no lo impide), deja
   constancia a nombre de quien lo pidió y no corre si ya hay otro envío a la lista en curso.
 - Guardar sin cambiar el día ni la hora conserva la próxima fecha (no se come un envío
-  vencido que el cron aún no atendió).
+  vencido que el cron aún no atendió); cambiar solo el período tampoco la mueve. La bitácora
+  anota el día, la hora y el período que cubre.
+- Las migraciones `20261126120000_notificacion_periodo_envio` (`modo_periodo`, `dias_periodo`,
+  por defecto `continua` y 7) y `20261126150000_notificacion_incluir_dia_envio`
+  (`incluir_dia_envio`, por defecto `false`) solo agregan columnas: el código anterior las
+  ignora, así que se aplican antes de desplegar.
 
 ## Despliegue en el VPS
 

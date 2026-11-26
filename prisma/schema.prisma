@@ -2649,6 +2649,12 @@ model NotificacionProgramada {
   frecuencia         String                     @default("semanal") @map("frecuencia") // semanal
   diaSemana          Int                        @default(1) @map("dia_semana") // 1 = lunes … 7 = domingo
   hora               String                     @default("07:00") @map("hora") // HH:mm, hora de Colombia
+  /// Qué período cubre cada envío: `ultimos_dias` (los `diasPeriodo` días antes del envío) o
+  /// `continua` (desde el día siguiente al último reporte enviado). Ver `programacion.ts`.
+  modoPeriodo        String                     @default("continua") @map("modo_periodo")
+  diasPeriodo        Int                        @default(7) @map("dias_periodo") // 1 … 30, para `ultimos_dias`
+  /// El período llega hasta el mismo día del envío (hasta la hora en que sale) en vez del anterior.
+  incluirDiaEnvio    Boolean                    @default(false) @map("incluir_dia_envio")
   proximaEjecucionEn DateTime?                  @map("proxima_ejecucion_en") @db.Timestamptz(3) // null mientras está pausada
   creadoPor          String                     @map("creado_por")
   creadoPorId        Int?                       @map("creado_por_id")

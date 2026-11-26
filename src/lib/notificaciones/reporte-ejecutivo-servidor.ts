@@ -18,6 +18,7 @@ import { parseRangoReporte } from "@/lib/auditoria/reporte-ejecutivo/rango";
 import { fmtCalendarDate } from "@/lib/format";
 import { correosDeEnvio, TOPE_DESTINATARIOS } from "./destinatarios";
 import {
+  periodoProximoParaPanel,
   PROGRAMACION_POR_DEFECTO,
   type PanelEnvioAutomatico,
   type PeriodoManualSugerido,
@@ -35,6 +36,7 @@ import {
   limiteEnCurso,
   periodoEnvioSemanal,
   proximaEjecucion,
+  reglaDePeriodo,
   TIPO_REPORTE_EJECUTIVO,
   TOPE_DIAS_ENVIO_AUTOMATICO,
   type EstadoEjecucion,
@@ -110,21 +112,6 @@ function textoYaCubierto(p: PeriodoCubierto): string {
 function notaDeRecorte(p: PeriodoEnvio): string | null {
   if (p.estado !== "nuevo" || !p.recortado || !p.ultimoHasta) return null;
   return `El período se recortó a ${TOPE_DIAS_ENVIO_AUTOMATICO} días: el último reporte enviado terminó el ${fmtCalendarDate(p.ultimoHasta)} y arrancaba el ${fmtCalendarDate(p.desdeSinRecorte)}, pero el tope es ${TOPE_DIAS_ENVIO_AUTOMATICO} días.`;
-}
-
-/** El período de un envío con su procedencia, tal como lo muestra el panel. */
-function periodoParaPanel(periodo: PeriodoEnvio, ultimo: UltimoPeriodo | null): PeriodoProximoPanel {
-  if (periodo.estado === "cubierto") return { estado: "cubierto", hasta: periodo.hasta, cubiertoHasta: periodo.cubiertoHasta };
-  return {
-    estado: "nuevo",
-    desde: periodo.desde,
-    hasta: periodo.hasta,
-    origen: periodo.origen,
-    ultimoDesde: ultimo ? fechaDePeriodoGuardado(ultimo.desde) : null,
-    ultimoHasta: periodo.ultimoHasta,
-    recortado: periodo.recortado,
-    desdeSinRecorte: periodo.desdeSinRecorte,
-  };
 }
 
 function esConflictoUnico(e: unknown): boolean {
@@ -330,10 +317,13 @@ async function procesarProgramacion(p: NotificacionProgramada, ahora: Date): Pro
   const retrasado = decision.accion === "omitir";
   const siguiente = proximaEjecucion({ ahora, diaSemana: p.diaSemana, hora: p.hora });
 
-  // El período arranca donde terminó el último reporte enviado y llega hasta el día anterior al envío
-  // programado. Si ya está cubierto, no hay nada nuevo que reportar: el disparo se omite.
+  // El período llega hasta el día anterior al envío programado y arranca según la regla elegida
+  // (los últimos N días, o donde terminó el último reporte enviado). Si ya está cubierto, no hay
+  // nada nuevo que reportar: el disparo se omite.
   const ultimo = retrasado ? null : await ultimoPeriodoEnviado();
-  const periodo = retrasado ? null : calcularPeriodoEnvio({ referencia: programadaPara, ultimoPeriodoHasta: ultimo?.hasta ?? null });
+  const periodo = retrasado
+    ? null
+    : calcularPeriodoEnvio({ referencia: programadaPara, ultimoPeriodoHasta: ultimo?.hasta ?? null, regla: reglaDePeriodo(p) });
   const cubierto = periodo?.estado === "cubierto" ? periodo : null;
   const omitir = retrasado || cubierto !== null;
   const motivoOmision = retrasado
@@ -541,7 +531,9 @@ export async function enviarReporteAhora(params: {
       notaPeriodo = notaDeRecorte(calculado);
     } else {
       const proxima = programacion.activa ? programacion.proximaEjecucionEn : null;
-      const delProximo = proxima ? calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta: ultimo?.hasta ?? null }) : null;
+      const delProximo = proxima
+        ? calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta: ultimo?.hasta ?? null, regla: reglaDePeriodo(programacion) })
+        : null;
       if (delProximo?.estado === "nuevo") {
         periodo = delProximo;
         notaPeriodo = notaDeRecorte(delProximo);
@@ -613,6 +605,7 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
 
   const activa = programacion?.activa ?? PROGRAMACION_POR_DEFECTO.activa;
   const proximaEjecucionEn = programacion?.proximaEjecucionEn ?? null;
+  const regla = reglaDePeriodo(programacion ?? PROGRAMACION_POR_DEFECTO);
 
   // Último reporte enviado: sirve tanto para el próximo envío programado como para el rango por defecto del envío manual.
   let ultimo: UltimoPeriodo | null = null;
@@ -627,9 +620,9 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
   // Qué cubrirá el próximo envío y de dónde sale ese período (null si está en pausa o no se pudo leer el último reporte).
   let periodoProximo: PeriodoProximoPanel | null = null;
   if (activa && proximaEjecucionEn && ultimoLeido) {
-    periodoProximo = periodoParaPanel(
-      calcularPeriodoEnvio({ referencia: proximaEjecucionEn, ultimoPeriodoHasta: ultimo?.hasta ?? null }),
-      ultimo,
+    periodoProximo = periodoProximoParaPanel(
+      calcularPeriodoEnvio({ referencia: proximaEjecucionEn, ultimoPeriodoHasta: ultimo?.hasta ?? null, regla }),
+      ultimo ? fechaDePeriodoGuardado(ultimo.desde) : null,
     );
   }
 
@@ -644,6 +637,9 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
     activa,
     diaSemana: programacion?.diaSemana ?? PROGRAMACION_POR_DEFECTO.diaSemana,
     hora: programacion?.hora ?? PROGRAMACION_POR_DEFECTO.hora,
+    modoPeriodo: regla.modo,
+    diasPeriodo: regla.dias,
+    incluirDiaEnvio: regla.incluirDiaEnvio,
     proximaEjecucionEn: proximaEjecucionEn?.toISOString() ?? null,
     periodoProximo,
     periodoManualSugerido,
@@ -667,5 +663,6 @@ export async function leerPanelEnvio(params: { correoPrueba: string | null; ahor
     atrasado: envioAtrasado({ activa, proximaEjecucionEn, ahora }),
     topeDestinatarios: TOPE_DESTINATARIOS,
     correoPrueba: params.correoPrueba,
+    ahora: ahora.toISOString(),
   };
 }

@@ -8,6 +8,13 @@ import { motivoFechaFutura } from "@/lib/fecha-cargue";
 import { esFechaDespliegueValida } from "@/lib/novedades/despliegue";
 import { CLAVES_CALENDARIO, type FormularioCalendario } from "@/lib/impuestos/calendario";
 import { tieneCaracteresDeControl } from "@/lib/notificaciones/destinatarios";
+import {
+  DIAS_PERIODO_MAXIMO,
+  DIAS_PERIODO_MINIMO,
+  DIAS_PERIODO_POR_DEFECTO,
+  MODO_PERIODO_POR_DEFECTO,
+  MODOS_PERIODO,
+} from "@/lib/notificaciones/programacion";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -929,7 +936,12 @@ export type RegistroEnvioReporte = z.input<typeof RegistroEnvioReporteSchema>;
 
 /* ===== Envío automático del reporte para gerencia (notificaciones programadas) ===== */
 
-/** Día (1 = lunes … 7 = domingo) y hora de Colombia (HH:mm) del envío semanal, y si está activo. */
+const MENSAJE_DIAS_PERIODO = `Indica cuántos días cubre el envío, de ${DIAS_PERIODO_MINIMO} a ${DIAS_PERIODO_MAXIMO}.`;
+
+/**
+ * Día (1 = lunes … 7 = domingo) y hora de Colombia (HH:mm) del envío semanal, si está activo
+ * y qué período cubre (`programacion.ts`: los últimos N días o desde el último reporte enviado).
+ */
 export const ProgramacionNotificacionSchema = z.object({
   activa: z.boolean({ error: "Indica si el envío automático está activo." }),
   diaSemana: z.coerce
@@ -941,6 +953,14 @@ export const ProgramacionNotificacionSchema = z.object({
     .string({ error: "Indica la hora del envío." })
     .trim()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, { error: "Indica la hora en formato HH:mm, de 00:00 a 23:59." }),
+  modoPeriodo: z.enum(MODOS_PERIODO, { error: "Elige qué período cubre el envío." }).default(MODO_PERIODO_POR_DEFECTO),
+  diasPeriodo: z.coerce
+    .number({ error: MENSAJE_DIAS_PERIODO })
+    .int({ error: MENSAJE_DIAS_PERIODO })
+    .min(DIAS_PERIODO_MINIMO, { error: MENSAJE_DIAS_PERIODO })
+    .max(DIAS_PERIODO_MAXIMO, { error: MENSAJE_DIAS_PERIODO })
+    .default(DIAS_PERIODO_POR_DEFECTO),
+  incluirDiaEnvio: z.boolean({ error: "Indica si se cuenta el día del envío." }).default(false),
 });
 export type ProgramacionNotificacion = z.infer<typeof ProgramacionNotificacionSchema>;
 

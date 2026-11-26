@@ -6,6 +6,8 @@ import {
   calcularProximaAlGuardar,
   decidirVencimiento,
   describirFrecuencia,
+  describirPeriodo,
+  diasDelPeriodo,
   diaSemanaColombia,
   ejecucionEnCursoVencida,
   envioAtrasado,
@@ -17,6 +19,8 @@ import {
   limiteEnCurso,
   periodoEnvioSemanal,
   proximaEjecucion,
+  reglaDePeriodo,
+  type ReglaPeriodo,
 } from "./programacion";
 
 // Referencias: el 23-nov-2026 es lunes (7:00 a. m. de Colombia = 12:00 UTC).
@@ -324,6 +328,107 @@ describe("calcularPeriodoEnvio", () => {
     expect(calcularPeriodoEnvio({ referencia: lunes30, ultimoPeriodoHasta: guardado("2026-11-28") })).toMatchObject({
       estado: "nuevo", desde: "2026-11-29", hasta: "2026-11-29",
     });
+  });
+});
+
+describe("calcularPeriodoEnvio con «los últimos N días»", () => {
+  const guardado = (hasta: string) => parseRangoReporte(hasta, hasta)!.hasta;
+  const semana: ReglaPeriodo = { modo: "ultimos_dias", dias: 7 };
+  // Miércoles 25-nov-2026 y miércoles 2-dic-2026, 7:00 a. m. de Colombia.
+  const miercoles25 = new Date("2026-11-25T12:00:00.000Z");
+  const miercoles2 = new Date("2026-12-02T12:00:00.000Z");
+
+  it("enviado un miércoles con 7 días: del miércoles anterior al martes (el ejemplo del usuario)", () => {
+    expect(calcularPeriodoEnvio({ referencia: miercoles25, ultimoPeriodoHasta: null, regla: semana })).toEqual({
+      estado: "nuevo", desde: "2026-11-18", hasta: "2026-11-24", origen: "ultimos_dias",
+      ultimoHasta: null, recortado: false, desdeSinRecorte: "2026-11-18",
+    });
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-24"), regla: semana })).toMatchObject({
+      estado: "nuevo", desde: "2026-11-25", hasta: "2026-12-01", origen: "ultimos_dias", ultimoHasta: "2026-11-24",
+    });
+  });
+
+  it("no depende del último reporte: un envío manual en medio no acorta la semana", () => {
+    // Con «continua» cubriría del 27-nov al 1-dic (5 días); con los últimos 7 días, la semana completa.
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-26") })).toMatchObject({ desde: "2026-11-27" });
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-26"), regla: semana })).toMatchObject({
+      estado: "nuevo", desde: "2026-11-25", hasta: "2026-12-01",
+    });
+    // Tampoco arrastra días cuando el último reporte quedó muy atrás.
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-09-01"), regla: semana })).toMatchObject({
+      desde: "2026-11-25", hasta: "2026-12-01", recortado: false,
+    });
+  });
+
+  it("si alguien ya envió hasta ese martes (o más allá), el envío queda cubierto y no se repite", () => {
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-12-01"), regla: semana })).toEqual({
+      estado: "cubierto", hasta: "2026-12-01", cubiertoHasta: "2026-12-01",
+    });
+  });
+
+  it("otros números de días: 14 cubren dos semanas y 1 solo el día anterior", () => {
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: null, regla: { modo: "ultimos_dias", dias: 14 } })).toMatchObject({
+      desde: "2026-11-18", hasta: "2026-12-01",
+    });
+    expect(calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: null, regla: { modo: "ultimos_dias", dias: 1 } })).toMatchObject({
+      desde: "2026-12-01", hasta: "2026-12-01",
+    });
+  });
+
+  it("contando el día del envío, el período llega hasta ese mismo día", () => {
+    // Miércoles 2-dic con 7 días contando el día: del jueves 26-nov al miércoles 2-dic.
+    expect(
+      calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-24"), regla: { ...semana, incluirDiaEnvio: true } }),
+    ).toMatchObject({ estado: "nuevo", desde: "2026-11-26", hasta: "2026-12-02", origen: "ultimos_dias" });
+    // Con «continua»: desde el día siguiente al último reporte hasta el mismo miércoles.
+    expect(
+      calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-24"), regla: { modo: "continua", dias: 7, incluirDiaEnvio: true } }),
+    ).toMatchObject({ estado: "nuevo", desde: "2026-11-25", hasta: "2026-12-02", origen: "continua" });
+    // Primer envío contando el día: los 7 días que terminan el día del envío.
+    expect(
+      calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: null, regla: { modo: "continua", dias: 7, incluirDiaEnvio: true } }),
+    ).toMatchObject({ desde: "2026-11-26", hasta: "2026-12-02", origen: "primer_envio" });
+    // Si alguien ya envió hasta ese miércoles, queda cubierto.
+    expect(
+      calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-12-02"), regla: { ...semana, incluirDiaEnvio: true } }),
+    ).toMatchObject({ estado: "cubierto", hasta: "2026-12-02" });
+    // El día del envío se lee en hora de Colombia: miércoles 11:30 p. m. (jueves 04:30 UTC) sigue siendo miércoles.
+    expect(
+      calcularPeriodoEnvio({ referencia: new Date("2026-12-03T04:30:00.000Z"), ultimoPeriodoHasta: null, regla: { ...semana, incluirDiaEnvio: true } }),
+    ).toMatchObject({ hasta: "2026-12-02" });
+  });
+
+  it("la regla «continua» explícita se comporta como sin regla", () => {
+    const sin = calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-24") });
+    const con = calcularPeriodoEnvio({ referencia: miercoles2, ultimoPeriodoHasta: guardado("2026-11-24"), regla: { modo: "continua", dias: 3 } });
+    expect(con).toEqual(sin);
+  });
+});
+
+describe("regla del período guardada", () => {
+  it("lee lo guardado y sanea un modo desconocido o días fuera de rango", () => {
+    const sinDia = { incluirDiaEnvio: false };
+    expect(reglaDePeriodo({ modoPeriodo: "ultimos_dias", diasPeriodo: 7 })).toEqual({ modo: "ultimos_dias", dias: 7, ...sinDia });
+    expect(reglaDePeriodo({ modoPeriodo: "otro", diasPeriodo: 7 })).toEqual({ modo: "continua", dias: 7, ...sinDia });
+    expect(reglaDePeriodo({ modoPeriodo: "ultimos_dias", diasPeriodo: 0 })).toEqual({ modo: "ultimos_dias", dias: 1, ...sinDia });
+    expect(reglaDePeriodo({ modoPeriodo: "ultimos_dias", diasPeriodo: 90 })).toEqual({ modo: "ultimos_dias", dias: 30, ...sinDia });
+    expect(reglaDePeriodo({ modoPeriodo: "ultimos_dias", diasPeriodo: 2.5 })).toEqual({ modo: "ultimos_dias", dias: 7, ...sinDia });
+    expect(reglaDePeriodo({ modoPeriodo: "continua", diasPeriodo: 7, incluirDiaEnvio: true })).toEqual({
+      modo: "continua", dias: 7, incluirDiaEnvio: true,
+    });
+  });
+
+  it("la describe para la bitácora", () => {
+    expect(describirPeriodo({ modo: "ultimos_dias", dias: 7 })).toBe("los últimos 7 días antes del envío");
+    expect(describirPeriodo({ modo: "ultimos_dias", dias: 1 })).toBe("el día anterior al envío");
+    expect(describirPeriodo({ modo: "continua", dias: 7 })).toContain("desde el último reporte enviado");
+    expect(describirPeriodo({ modo: "ultimos_dias", dias: 7, incluirDiaEnvio: true })).toBe("los últimos 7 días, contando el día del envío");
+    expect(describirPeriodo({ modo: "continua", dias: 7, incluirDiaEnvio: true })).toContain("hasta el día del envío");
+  });
+
+  it("cuenta los días de un período con los dos extremos", () => {
+    expect(diasDelPeriodo("2026-11-18", "2026-11-24")).toBe(7);
+    expect(diasDelPeriodo("2026-11-24", "2026-11-24")).toBe(1);
   });
 });
 

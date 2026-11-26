@@ -351,7 +351,8 @@ describe("panel", () => {
     mocks.progFindUnique.mockResolvedValue(null);
     const panel = await leerPanelEnvio({ correoPrueba: "yo@x.co", ahora: AHORA });
     expect(panel).toMatchObject({
-      existe: false, activa: false, diaSemana: 1, hora: "07:00", proximaEjecucionEn: null,
+      existe: false, activa: false, diaSemana: 1, hora: "07:00", modoPeriodo: "continua", diasPeriodo: 7, incluirDiaEnvio: false,
+      proximaEjecucionEn: null,
       destinatarios: [], ejecuciones: [], atrasado: false, correoPrueba: "yo@x.co", disparadorConfigurado: true,
       conexion: { estado: "lista" },
     });
@@ -446,6 +447,31 @@ describe("período: desde donde terminó el último reporte enviado", () => {
     expect(mocks.generar).not.toHaveBeenCalled();
     expect(mocks.enviarHtml).not.toHaveBeenCalled();
     expect(mocks.envioCreate).not.toHaveBeenCalled();
+  });
+
+  it("con «los últimos 7 días» el disparo cubre la semana completa aunque el último reporte llegue a mitad de ella", async () => {
+    ultimoEnviado("2026-11-13", "2026-11-19");
+    mocks.progFindMany.mockResolvedValue([{ ...programacion, modoPeriodo: "ultimos_dias", diasPeriodo: 7 }]);
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ enviadas: 1, errores: 0 });
+    // Lunes 23: del lunes 16 al domingo 22 (con «continua» habría sido del 20 al 22).
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-16", hasta: "2026-11-22" });
+  });
+
+  it("contando el día del envío, el disparo llega hasta ese mismo día", async () => {
+    ultimoEnviado("2026-11-09", "2026-11-15");
+    mocks.progFindMany.mockResolvedValue([{ ...programacion, modoPeriodo: "ultimos_dias", diasPeriodo: 7, incluirDiaEnvio: true }]);
+    await procesarNotificacionesPendientes(AHORA);
+    // Lunes 23: del martes 17 al lunes 23 (hasta la hora del envío).
+    expect(mocks.generar.mock.calls[0][0].opciones).toMatchObject({ desde: "2026-11-17", hasta: "2026-11-23" });
+  });
+
+  it("con «los últimos 7 días», si alguien ya envió hasta el día anterior, el disparo se omite", async () => {
+    ultimoEnviado("2026-11-16", "2026-11-22");
+    mocks.progFindMany.mockResolvedValue([{ ...programacion, modoPeriodo: "ultimos_dias", diasPeriodo: 7 }]);
+    const r = await procesarNotificacionesPendientes(AHORA);
+    expect(r).toMatchObject({ omitidas: 1, enviadas: 0 });
+    expect(mocks.generar).not.toHaveBeenCalled();
   });
 
   it("si el último reporte llegó más allá (p. ej. un envío manual de hoy), tampoco hay período nuevo", async () => {
@@ -629,6 +655,20 @@ describe("período: desde donde terminó el último reporte enviado", () => {
 
       mocks.progFindUnique.mockResolvedValue({ ...programacion, activa: false, proximaEjecucionEn: null, destinatarios: [], ejecuciones: [] });
       expect((await leerPanelEnvio({ correoPrueba: null, ahora })).periodoProximo).toBeNull();
+    });
+
+    it("con «los últimos 7 días» el panel trae la regla y el próximo envío cubre esa semana", async () => {
+      // El último reporte llegó hasta el jueves 19: con «continua» cubriría del 20 al 22.
+      ultimoEnviado("2026-11-13", "2026-11-19");
+      mocks.progFindUnique.mockResolvedValue({
+        ...programacion, modoPeriodo: "ultimos_dias", diasPeriodo: 7, destinatarios: [], ejecuciones: [],
+      });
+      const panel = await leerPanelEnvio({ correoPrueba: null, ahora: new Date("2026-11-20T15:00:00.000Z") });
+      expect(panel).toMatchObject({ modoPeriodo: "ultimos_dias", diasPeriodo: 7 });
+      expect(panel.periodoProximo).toEqual({
+        estado: "nuevo", desde: "2026-11-16", hasta: "2026-11-22", origen: "ultimos_dias",
+        ultimoDesde: "2026-11-13", ultimoHasta: "2026-11-19", recortado: false, desdeSinRecorte: "2026-11-16",
+      });
     });
 
     it("si no se puede leer el último reporte, el panel sigue y no muestra período", async () => {

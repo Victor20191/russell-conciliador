@@ -18,7 +18,9 @@ import type { PanelEnvioAutomatico } from "@/lib/notificaciones/panel";
 import {
   calcularProximaAlGuardar,
   describirFrecuencia,
+  describirPeriodo,
   TIPO_REPORTE_EJECUTIVO,
+  type ModoPeriodo,
 } from "@/lib/notificaciones/programacion";
 import {
   enviarReporteAhora,
@@ -108,11 +110,14 @@ export async function obtenerPanelEnvioAutomatico(): Promise<ResultadoPanelEnvio
   }
 }
 
-/** Activa o pausa el envío y guarda el día y la hora (hora de Colombia). */
+/** Activa o pausa el envío y guarda el día, la hora (hora de Colombia) y qué período cubre. */
 export async function guardarProgramacionReporte(datos: {
   activa: boolean;
   diaSemana: number;
   hora: string;
+  modoPeriodo?: ModoPeriodo;
+  diasPeriodo?: number;
+  incluirDiaEnvio?: boolean;
 }): Promise<ActionState> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -140,15 +145,18 @@ export async function guardarProgramacionReporte(datos: {
       }
     }
 
+    // Cambiar solo el período no mueve la próxima fecha: esa depende del día y la hora.
     const proximaEjecucionEn = calcularProximaAlGuardar({ previa: existente, nueva, ahora: new Date() });
+    const configuracion = {
+      activa: nueva.activa, diaSemana: nueva.diaSemana, hora: nueva.hora,
+      modoPeriodo: nueva.modoPeriodo, diasPeriodo: nueva.diasPeriodo, incluirDiaEnvio: nueva.incluirDiaEnvio,
+      proximaEjecucionEn,
+    };
     await prisma.notificacionProgramada.upsert({
       where: { tipo: TIPO_REPORTE_EJECUTIVO },
-      update: {
-        activa: nueva.activa, diaSemana: nueva.diaSemana, hora: nueva.hora, proximaEjecucionEn,
-        actualizadoPor: actor.nombre, actualizadoPorId: actor.id,
-      },
+      update: { ...configuracion, actualizadoPor: actor.nombre, actualizadoPorId: actor.id },
       create: {
-        tipo: TIPO_REPORTE_EJECUTIVO, activa: nueva.activa, diaSemana: nueva.diaSemana, hora: nueva.hora, proximaEjecucionEn,
+        tipo: TIPO_REPORTE_EJECUTIVO, ...configuracion,
         creadoPor: actor.nombre, creadoPorId: actor.id, actualizadoPor: actor.nombre, actualizadoPorId: actor.id,
       },
     });
@@ -157,7 +165,7 @@ export async function guardarProgramacionReporte(datos: {
       user: actor.nombre,
       action: nueva.activa ? "ACTIVÓ ENVÍO AUTOMÁTICO DE REPORTE" : "PAUSÓ ENVÍO AUTOMÁTICO DE REPORTE",
       entity: "Uso y adopción",
-      detail: `${nueva.activa ? "Envío semanal del reporte para gerencia activo" : "Envío semanal del reporte para gerencia en pausa"}: ${describirFrecuencia(nueva.diaSemana, nueva.hora).toLowerCase()}.`,
+      detail: `${nueva.activa ? "Envío semanal del reporte para gerencia activo" : "Envío semanal del reporte para gerencia en pausa"}: ${describirFrecuencia(nueva.diaSemana, nueva.hora).toLowerCase()}; cubre ${describirPeriodo({ modo: nueva.modoPeriodo, dias: nueva.diasPeriodo, incluirDiaEnvio: nueva.incluirDiaEnvio })}.`,
     });
     revalidatePath(RUTA_REPORTES_EJECUTIVOS);
     return { ok: true, message: nueva.activa ? "Envío automático guardado y activo." : "Envío automático guardado en pausa." };

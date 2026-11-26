@@ -111,6 +111,39 @@ describe("guardarProgramacionReporte", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/config/reportes-ejecutivos");
   });
 
+  it("guarda qué período cubre y lo anota en la bitácora", async () => {
+    mocks.progFindUnique.mockResolvedValue({ id: 7, activa: true, diaSemana: 3, hora: "07:00", proximaEjecucionEn: new Date("2026-12-02T12:00:00.000Z") });
+    mocks.destCount.mockResolvedValue(2);
+    const r = await guardarProgramacionReporte({ activa: true, diaSemana: 3, hora: "07:00", modoPeriodo: "ultimos_dias", diasPeriodo: 7 });
+    expect(r.ok).toBe(true);
+    const { update, create } = mocks.progUpsert.mock.calls[0][0];
+    expect(update).toMatchObject({ modoPeriodo: "ultimos_dias", diasPeriodo: 7, incluirDiaEnvio: false });
+    expect(create).toMatchObject({ modoPeriodo: "ultimos_dias", diasPeriodo: 7, incluirDiaEnvio: false });
+    // Cambiar solo el período no mueve la próxima fecha.
+    expect(update.proximaEjecucionEn).toEqual(new Date("2026-12-02T12:00:00.000Z"));
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining("cubre los últimos 7 días antes del envío"),
+    }));
+  });
+
+  it("guarda si se cuenta el día del envío", async () => {
+    mocks.progFindUnique.mockResolvedValue({ id: 7, activa: false, diaSemana: 3, hora: "07:00", proximaEjecucionEn: null });
+    const r = await guardarProgramacionReporte({
+      activa: false, diaSemana: 3, hora: "07:00", modoPeriodo: "ultimos_dias", diasPeriodo: 7, incluirDiaEnvio: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(mocks.progUpsert.mock.calls[0][0].update).toMatchObject({ incluirDiaEnvio: true });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining("contando el día del envío"),
+    }));
+  });
+
+  it("rechaza días fuera de 1 a 30 sin tocar la BD", async () => {
+    const r = await guardarProgramacionReporte({ activa: true, diaSemana: 3, hora: "07:00", modoPeriodo: "ultimos_dias", diasPeriodo: 45 });
+    expect(r).toMatchObject({ ok: false, message: "Indica cuántos días cubre el envío, de 1 a 30." });
+    expect(mocks.progUpsert).not.toHaveBeenCalled();
+  });
+
   it("pausar borra la próxima ejecución y no exige destinatarios", async () => {
     const r = await guardarProgramacionReporte({ activa: false, diaSemana: 1, hora: "07:00" });
     expect(r.ok).toBe(true);

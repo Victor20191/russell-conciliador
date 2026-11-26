@@ -25,14 +25,30 @@ import { MAX_DIAS_RANGO, parseRangoReporte, periodoAnteriorEnFechas } from "@/li
 import { fmtCalendarDate, fmtDateTime, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { destinatariosDeEnvio } from "@/lib/notificaciones/destinatarios";
-import type { DestinatarioPanel, EjecucionPanel, PanelEnvioAutomatico, PeriodoProximoPanel } from "@/lib/notificaciones/panel";
+import type {
+  DestinatarioPanel,
+  EjecucionPanel,
+  PanelEnvioAutomatico,
+  PeriodoProximoPanel,
+} from "@/lib/notificaciones/panel";
 import {
+  calcularPeriodoEnvio,
+  calcularProximaAlGuardar,
+  DIAS_PERIODO_MAXIMO,
+  DIAS_PERIODO_MINIMO,
+  DIAS_PERIODO_POR_DEFECTO,
   DIAS_SEMANA,
+  diasDelPeriodo,
   diaSemanaColombia,
+  esHoraValida,
   etiquetaDiaSemana,
+  fechaColombia,
   TOPE_DIAS_ENVIO_AUTOMATICO,
   type EstadoEjecucion,
+  type ModoPeriodo,
   type OrigenEjecucion,
+  type PeriodoEnvio,
+  type ReglaPeriodo,
 } from "@/lib/notificaciones/programacion";
 
 const BTN_PRIMARIO =
@@ -43,8 +59,10 @@ const BTN_MINI =
   "shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_MINI_PELIGRO =
   "rounded-md border border-err-200 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100 disabled:cursor-not-allowed disabled:opacity-60";
-const CAMPO =
-  "w-full rounded-md border border-ink-150 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800 placeholder:text-ink-400 disabled:opacity-60";
+/** Campo sin ancho: para los que van dentro de una frase (los días del período). */
+const CAMPO_EN_LINEA =
+  "rounded-md border border-ink-150 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800 placeholder:text-ink-400 disabled:opacity-60";
+const CAMPO = `w-full ${CAMPO_EN_LINEA}`;
 /** Revisión ligera para habilitar «Enviar prueba»; la acción valida el correo de verdad. */
 const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -94,8 +112,7 @@ export function EnvioAutomatico({
             <p className="max-w-3xl text-[11.5px] text-ink-500">
               La plataforma genera sola el reporte para gerencia cada semana y lo envía por correo a la lista de
               destinatarios, con el mismo formato de «Copiar formato correo» dentro del mensaje (sin PDF adjunto).
-              El primer envío cubre los últimos 7 días; los siguientes continúan desde el último envío hasta el día
-              anterior (máximo {fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días).
+              En «Cuándo se envía» eliges el día, la hora y qué período cubre cada envío.
             </p>
           </div>
         </div>
@@ -172,7 +189,11 @@ function PanelEnvio({
       </div>
 
       {/* La clave remonta el formulario cuando cambia lo guardado, para que muestre lo del servidor. */}
-      <ProgramacionForm key={`${panel.activa}|${panel.diaSemana}|${panel.hora}`} panel={panel} destinatariosActivos={activos} />
+      <ProgramacionForm
+        key={`${panel.activa}|${panel.diaSemana}|${panel.hora}|${panel.modoPeriodo}|${panel.diasPeriodo}|${panel.incluirDiaEnvio}`}
+        panel={panel}
+        destinatariosActivos={activos}
+      />
       <Destinatarios panel={panel} activos={activos} />
       <Envios panel={panel} destinatariosActivos={destinatariosActivos} alcance={alcance} />
       {generarReporte}
@@ -181,19 +202,157 @@ function PanelEnvio({
   );
 }
 
+type ProximoPorOpcion = {
+  /** El próximo envío con el día y la hora del formulario, si quedara activo. */
+  proxima: Date;
+  /** Lo que cubriría con «Los últimos N días» (null si los días no son válidos). */
+  ultimosDias: PeriodoEnvio | null;
+  /** Lo que cubriría con «Desde el último reporte enviado». */
+  continua: PeriodoEnvio;
+};
+
+/**
+ * El próximo envío con lo que hay en el formulario y lo que cubriría con cada opción del
+ * período: la misma cuenta del servidor (`calcularProximaAlGuardar` + `calcularPeriodoEnvio`)
+ * con el último reporte enviado que trae el panel. `ahora` es el instante en que el servidor
+ * armó el panel (o el del último cambio): así el servidor y el navegador pintan lo mismo.
+ */
+function proximoEnvioPorOpcion(params: {
+  panel: PanelEnvioAutomatico;
+  diaSemana: number;
+  hora: string;
+  dias: number | null;
+  incluirDiaEnvio: boolean;
+  ahora: Date;
+}): ProximoPorOpcion | null {
+  const { panel, diaSemana, hora, dias, incluirDiaEnvio, ahora } = params;
+  if (!esHoraValida(hora) || Number.isNaN(ahora.getTime())) return null;
+  const proxima = calcularProximaAlGuardar({
+    previa: {
+      activa: panel.activa,
+      diaSemana: panel.diaSemana,
+      hora: panel.hora,
+      proximaEjecucionEn: panel.proximaEjecucionEn ? new Date(panel.proximaEjecucionEn) : null,
+    },
+    nueva: { activa: true, diaSemana, hora },
+    ahora,
+  });
+  if (!proxima) return null;
+  const { ultimoHasta } = panel.periodoManualSugerido;
+  // Así se guarda el «hasta» de un período (ver `fechaDePeriodoGuardado`).
+  const ultimoPeriodoHasta = ultimoHasta ? new Date(`${ultimoHasta}T23:59:59.999Z`) : null;
+  const periodo = (regla: ReglaPeriodo) => calcularPeriodoEnvio({ referencia: proxima, ultimoPeriodoHasta, regla });
+  return {
+    proxima,
+    ultimosDias: dias === null ? null : periodo({ modo: "ultimos_dias", dias, incluirDiaEnvio }),
+    continua: periodo({ modo: "continua", dias: DIAS_PERIODO_POR_DEFECTO, incluirDiaEnvio }),
+  };
+}
+
+/** «Próximo envío (miércoles 02/Dic/2026): del 25/Nov/2026 al 01/Dic/2026», junto a cada opción. */
+function PeriodoDeLaOpcion({ proxima, periodo, activa }: { proxima: Date; periodo: PeriodoEnvio; activa: boolean }) {
+  const cuando = `${etiquetaDiaSemana(diaSemanaColombia(proxima)).toLowerCase()} ${fmtCalendarDate(fechaColombia(proxima))}`;
+  const cubierto = periodo.estado === "cubierto";
+  const que = cubierto
+    ? `ya está cubierto hasta el ${fmtCalendarDate(periodo.cubiertoHasta)}, no se enviaría`
+    : periodo.desde === periodo.hasta
+      ? `el ${fmtCalendarDate(periodo.desde)}`
+      : `del ${fmtCalendarDate(periodo.desde)} al ${fmtCalendarDate(periodo.hasta)}`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] ${
+        cubierto ? "border-warn-200 bg-warn-100 text-warn-700" : "border-blue-200 bg-blue-50 text-navy-800"
+      }`}
+    >
+      <Icon name="calendar" size={12} className="shrink-0" />
+      <span>
+        Próximo envío ({cuando}
+        {activa ? "" : ", si lo activas"}): <strong className="font-semibold">{que}</strong>
+      </span>
+    </span>
+  );
+}
+
+/** El día de la semana a `delta` días de `diaSemana` (1 = lunes … 7 = domingo), en minúsculas. */
+function diaDesplazado(diaSemana: number, delta: number): string {
+  return etiquetaDiaSemana(((((diaSemana - 1 + delta) % 7) + 7) % 7) + 1).toLowerCase();
+}
+
+/** «Enviado un miércoles, cubre del miércoles anterior al martes…»: qué significa la regla elegida. */
+function explicarUltimosDias(diaSemana: number, dias: number, incluirDiaEnvio: boolean): string {
+  const dia = diaDesplazado(diaSemana, 0);
+  // Último día que cubre: el mismo del envío o el anterior.
+  const ultimo = incluirDiaEnvio ? `ese mismo ${dia}` : `el ${diaDesplazado(diaSemana, -1)}`;
+  const cubre =
+    dias === 7
+      ? incluirDiaEnvio
+        ? `Enviado el ${dia}, cubre del ${diaDesplazado(diaSemana, 1)} anterior al ${dia} (hasta la hora del envío).`
+        : `Enviado el ${dia}, cubre del ${dia} anterior al ${diaDesplazado(diaSemana, -1)}: cada día se reporta una sola vez.`
+      : dias === 1
+        ? `Enviado el ${dia}, cubre solo ${ultimo}.`
+        : `Enviado el ${dia}, cubre los ${dias} días que terminan ${ultimo}.`;
+  const semanal =
+    dias < 7
+      ? ` Con envío semanal, ${7 - dias} ${7 - dias === 1 ? "día" : "días"} de cada semana no ${7 - dias === 1 ? "sale" : "salen"} en ningún reporte.`
+      : dias > 7
+        ? ` Con envío semanal, ${dias - 7} ${dias - 7 === 1 ? "día se repite" : "días se repiten"} en el envío siguiente.`
+        : "";
+  return `${cubre}${semanal} Si alguien ya envió a mano un reporte que llega hasta ${ultimo}, ese envío se omite.`;
+}
+
+/** Lo que implica contar el día del envío: ese día solo trae lo registrado hasta la hora en que sale. */
+function avisoDiaEnvio(hora: string, regla: ReglaPeriodo): string {
+  const resto =
+    regla.modo === "ultimos_dias" && regla.dias > 7
+      ? "el resto de ese día sale en el envío siguiente."
+      : "lo que pase después ese día no sale en ningún reporte, porque el siguiente arranca al día siguiente.";
+  return `El día del envío entra solo con lo registrado hasta las ${hora} (hora de Colombia): ${resto}`;
+}
+
 function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAutomatico; destinatariosActivos: number }) {
   const [pendiente, startTransition] = useTransition();
   const [activa, setActiva] = useState(panel.activa);
   const [diaSemana, setDiaSemana] = useState(panel.diaSemana);
   const [hora, setHora] = useState(panel.hora);
+  const [modoPeriodo, setModoPeriodo] = useState<ModoPeriodo>(panel.modoPeriodo);
+  const [diasTexto, setDiasTexto] = useState(String(panel.diasPeriodo));
+  const [incluirDiaEnvio, setIncluirDiaEnvio] = useState(panel.incluirDiaEnvio);
+  // Momento del último cambio: con él se recalcula el próximo envío de cada opción (antes de
+  // cualquier cambio se usa el instante del panel, el mismo en el servidor y en el navegador).
+  const [cambiadoEn, setCambiadoEn] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const cambios = activa !== panel.activa || diaSemana !== panel.diaSemana || hora !== panel.hora;
+  const dias = Number(diasTexto);
+  const diasValidos = Number.isInteger(dias) && dias >= DIAS_PERIODO_MINIMO && dias <= DIAS_PERIODO_MAXIMO;
+  // En «desde el último reporte enviado» los días no se usan: cambiarlos no es un cambio.
+  const cambiaPeriodo =
+    modoPeriodo !== panel.modoPeriodo ||
+    (modoPeriodo === "ultimos_dias" && dias !== panel.diasPeriodo) ||
+    incluirDiaEnvio !== panel.incluirDiaEnvio;
+  const cambios = activa !== panel.activa || diaSemana !== panel.diaSemana || hora !== panel.hora || cambiaPeriodo;
+  const periodoValido = modoPeriodo !== "ultimos_dias" || diasValidos;
+  const regla: ReglaPeriodo = { modo: modoPeriodo, dias: diasValidos ? dias : panel.diasPeriodo, incluirDiaEnvio };
+  const proximo = proximoEnvioPorOpcion({
+    panel,
+    diaSemana,
+    hora,
+    dias: diasValidos ? dias : null,
+    incluirDiaEnvio,
+    ahora: cambiadoEn ?? new Date(panel.ahora),
+  });
+
+  /** Cada cambio del formulario anota cuándo ocurrió, para la vista previa. */
+  const cambiar = <T,>(fijar: (valor: T) => void) => (valor: T) => {
+    fijar(valor);
+    setCambiadoEn(new Date());
+  };
 
   const guardar = () => {
     setError(null);
     startTransition(async () => {
-      const r = await guardarProgramacionReporte({ activa, diaSemana, hora });
+      const r = await guardarProgramacionReporte({
+        activa, diaSemana, hora, modoPeriodo, diasPeriodo: regla.dias, incluirDiaEnvio,
+      });
       if (!r.ok) {
         setError(r.message ?? "No se pudo guardar.");
         notifyError("No se pudo guardar", r.message ?? "Revisa el día y la hora.");
@@ -213,7 +372,7 @@ function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAu
           <input
             type="checkbox"
             checked={activa}
-            onChange={(e) => setActiva(e.target.checked)}
+            onChange={(e) => cambiar(setActiva)(e.target.checked)}
             disabled={pendiente}
             className="h-4 w-4 rounded border-ink-300 accent-navy-700"
           />
@@ -223,7 +382,7 @@ function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAu
           Día de la semana
           <select
             value={diaSemana}
-            onChange={(e) => setDiaSemana(Number(e.target.value))}
+            onChange={(e) => cambiar(setDiaSemana)(Number(e.target.value))}
             disabled={pendiente}
             className={`${CAMPO} min-w-[9rem]`}
           >
@@ -239,13 +398,96 @@ function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAu
           <input
             type="time"
             value={hora}
-            onChange={(e) => setHora(e.target.value)}
+            onChange={(e) => cambiar(setHora)(e.target.value)}
             disabled={pendiente}
             required
             className={`${CAMPO} w-[7.5rem]`}
           />
         </label>
-        <button type="button" onClick={guardar} disabled={pendiente || !cambios || !hora} className={BTN_PRIMARIO}>
+      </div>
+
+      <fieldset className="flex flex-col gap-1.5" disabled={pendiente}>
+        <legend className="mb-1 text-[11.5px] font-semibold text-ink-600">Qué período cubre cada envío</legend>
+        <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-700">
+          <input
+            id="periodo-ultimos-dias"
+            type="radio"
+            name="modo-periodo"
+            checked={modoPeriodo === "ultimos_dias"}
+            onChange={() => cambiar(setModoPeriodo)("ultimos_dias")}
+            className="h-4 w-4 accent-navy-700"
+          />
+          <label htmlFor="periodo-ultimos-dias">Los últimos</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={DIAS_PERIODO_MINIMO}
+            max={DIAS_PERIODO_MAXIMO}
+            step={1}
+            value={diasTexto}
+            onChange={(e) => cambiar(setDiasTexto)(e.target.value)}
+            onFocus={() => {
+              if (modoPeriodo !== "ultimos_dias") cambiar(setModoPeriodo)("ultimos_dias");
+            }}
+            aria-label="Días que cubre cada envío"
+            className={`${CAMPO_EN_LINEA} w-16 text-center`}
+          />
+          <label htmlFor="periodo-ultimos-dias">
+            {incluirDiaEnvio ? "días, contando el día del envío" : "días, sin contar el día del envío"}
+          </label>
+          {proximo?.ultimosDias && (
+            <PeriodoDeLaOpcion proxima={proximo.proxima} periodo={proximo.ultimosDias} activa={activa} />
+          )}
+        </div>
+        {/* La explicación va bajo la opción que explica. */}
+        {modoPeriodo === "ultimos_dias" &&
+          (diasValidos ? (
+            <p className="pl-6 text-[11.5px] text-ink-500">{explicarUltimosDias(diaSemana, dias, incluirDiaEnvio)}</p>
+          ) : (
+            <p role="alert" className="pl-6 text-[11.5px] text-err-700">
+              Indica de {DIAS_PERIODO_MINIMO} a {fmtNum(DIAS_PERIODO_MAXIMO)} días.
+            </p>
+          ))}
+        <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-700">
+          <input
+            id="periodo-continua"
+            type="radio"
+            name="modo-periodo"
+            checked={modoPeriodo === "continua"}
+            onChange={() => cambiar(setModoPeriodo)("continua")}
+            className="h-4 w-4 accent-navy-700"
+          />
+          <label htmlFor="periodo-continua">
+            {incluirDiaEnvio
+              ? `Desde el último reporte enviado (máximo ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días)`
+              : `Desde el último reporte enviado (sin huecos ni días repetidos; máximo ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días)`}
+          </label>
+          {proximo && <PeriodoDeLaOpcion proxima={proximo.proxima} periodo={proximo.continua} activa={activa} />}
+        </div>
+
+        {/* Vale para las dos opciones: hasta qué día llega cada envío. */}
+        <label className="mt-1.5 flex items-center gap-2 text-[12.5px] font-medium text-ink-700">
+          <input
+            id="incluir-dia-envio"
+            type="checkbox"
+            checked={incluirDiaEnvio}
+            onChange={(e) => cambiar(setIncluirDiaEnvio)(e.target.checked)}
+            className="h-4 w-4 rounded border-ink-300 accent-navy-700"
+          />
+          Contar también el día del envío (hasta la hora en que sale)
+        </label>
+        {incluirDiaEnvio && esHoraValida(hora) && (
+          <p className="pl-6 text-[11.5px] text-warn-700">{avisoDiaEnvio(hora, regla)}</p>
+        )}
+      </fieldset>
+
+      <div>
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={pendiente || !cambios || !hora || !periodoValido}
+          className={BTN_PRIMARIO}
+        >
           {pendiente ? "Guardando…" : "Guardar"}
         </button>
       </div>
@@ -269,13 +511,36 @@ function ProgramacionForm({ panel, destinatariosActivos }: { panel: PanelEnvioAu
         )}
         {cambios && <span className="text-warn-700">· Tienes cambios sin guardar.</span>}
       </p>
-      {panel.activa && panel.proximaEjecucionEn && panel.periodoProximo && <PeriodoDelProximoEnvio periodo={panel.periodoProximo} />}
+      {/* Lo que cubre cada opción ya se ve junto a ella; aquí solo cuándo saldría al guardar. */}
+      {cambios && activa && proximo ? (
+        <p className="text-[12.5px] text-navy-800" aria-live="polite">
+          <span className="font-semibold">Al guardar:</span> el próximo envío sería el{" "}
+          {fechaEnvio(proximo.proxima.toISOString())} (hora de Colombia), con el período de la opción elegida.
+        </p>
+      ) : (
+        !cambios &&
+        panel.activa &&
+        panel.proximaEjecucionEn &&
+        panel.periodoProximo && (
+          <PeriodoDelProximoEnvio periodo={panel.periodoProximo} incluyeDiaEnvio={panel.incluirDiaEnvio} />
+        )
+      )}
     </section>
   );
 }
 
-/** Qué cubrirá el próximo envío y de dónde sale ese período (calculado en el servidor). */
-function PeriodoDelProximoEnvio({ periodo }: { periodo: PeriodoProximoPanel }) {
+/** «Los últimos 7 días antes del envío…» del próximo envío, según cuente o no el día del envío. */
+function textoUltimosDias(dias: number, incluyeDiaEnvio: boolean): string {
+  if (incluyeDiaEnvio) {
+    return dias === 1
+      ? "El día del envío, hasta la hora en que sale."
+      : `Los últimos ${fmtNum(dias)} días, contando el día del envío hasta la hora en que sale.`;
+  }
+  return dias === 1 ? "El día anterior al envío." : `Los últimos ${fmtNum(dias)} días antes del envío, sin contar ese día.`;
+}
+
+/** Qué cubrirá el próximo envío y de dónde sale ese período (del servidor, o la vista previa al editar). */
+function PeriodoDelProximoEnvio({ periodo, incluyeDiaEnvio }: { periodo: PeriodoProximoPanel; incluyeDiaEnvio: boolean }) {
   if (periodo.estado === "cubierto") {
     return (
       <p className="flex items-start gap-1.5 text-[12.5px] text-warn-700" aria-live="polite">
@@ -296,9 +561,12 @@ function PeriodoDelProximoEnvio({ periodo }: { periodo: PeriodoProximoPanel }) {
         </span>
       </p>
       <p className="pl-[21px] text-[11.5px] text-ink-500">
-        {periodo.origen === "continua" && periodo.ultimoHasta
-          ? `Continúa desde el último reporte enviado (del ${periodo.ultimoDesde ? fmtCalendarDate(periodo.ultimoDesde) : "—"} al ${fmtCalendarDate(periodo.ultimoHasta)}).`
-          : "Primer envío: últimos 7 días."}
+        {periodo.origen === "ultimos_dias"
+          ? textoUltimosDias(diasDelPeriodo(periodo.desde, periodo.hasta), incluyeDiaEnvio)
+          : periodo.origen === "continua" && periodo.ultimoHasta
+            ? `Continúa desde el último reporte enviado (del ${periodo.ultimoDesde ? fmtCalendarDate(periodo.ultimoDesde) : "—"} al ${fmtCalendarDate(periodo.ultimoHasta)}).`
+            : "Primer envío: últimos 7 días."}
+        {periodo.origen !== "ultimos_dias" && incluyeDiaEnvio && " Llega hasta el día del envío, a la hora en que sale."}
         {periodo.recortado &&
           ` Se recortó a ${fmtNum(TOPE_DIAS_ENVIO_AUTOMATICO)} días (el tope): sin él habría arrancado el ${fmtCalendarDate(periodo.desdeSinRecorte)}.`}
       </p>

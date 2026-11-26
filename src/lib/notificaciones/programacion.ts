@@ -18,6 +18,61 @@ export const FRECUENCIA_SEMANAL = "semanal";
  */
 export const TOPE_DIAS_ENVIO_AUTOMATICO = 30;
 
+/**
+ * Qué período cubre el envío automático (`notificacion_programada.modo_periodo`):
+ * - `ultimos_dias`: los N días que terminan el día ANTERIOR al envío (enviado un miércoles con
+ *   7 días: del miércoles anterior al martes). Siempre la misma ventana, aunque haya envíos
+ *   manuales en medio.
+ * - `continua`: desde el día siguiente al último reporte enviado hasta el día anterior al
+ *   envío (sin huecos ni repeticiones; tope de 30 días).
+ *
+ * Con `incluirDiaEnvio` (`incluir_dia_envio`), el período llega hasta el MISMO día del envío en
+ * vez del anterior (miércoles con 7 días: del jueves anterior al miércoles). Ese día solo trae lo
+ * registrado hasta la hora del envío, y como el siguiente período arranca al día siguiente, lo
+ * que pase después de esa hora no sale en ningún reporte; la pantalla lo advierte.
+ */
+export const MODOS_PERIODO = ["ultimos_dias", "continua"] as const;
+export type ModoPeriodo = (typeof MODOS_PERIODO)[number];
+/** El de las programaciones guardadas antes de poder elegirlo: así nada cambia hasta que alguien elija. */
+export const MODO_PERIODO_POR_DEFECTO: ModoPeriodo = "continua";
+/** Días de `ultimos_dias` (`dias_periodo`): con envío semanal, 7 cubren cada día una sola vez. */
+export const DIAS_PERIODO_POR_DEFECTO = 7;
+export const DIAS_PERIODO_MINIMO = 1;
+export const DIAS_PERIODO_MAXIMO = TOPE_DIAS_ENVIO_AUTOMATICO;
+
+/** `incluirDiaEnvio` ausente = no se cuenta el día del envío (lo de siempre). */
+export type ReglaPeriodo = { modo: ModoPeriodo; dias: number; incluirDiaEnvio?: boolean };
+
+export function esModoPeriodo(valor: unknown): valor is ModoPeriodo {
+  return typeof valor === "string" && (MODOS_PERIODO as readonly string[]).includes(valor);
+}
+
+/** La regla guardada, sana: un modo desconocido cae al de por defecto y los días al rango 1–30. */
+export function reglaDePeriodo(guardada: {
+  modoPeriodo: string;
+  diasPeriodo: number;
+  incluirDiaEnvio?: boolean;
+}): Required<ReglaPeriodo> {
+  const dias = Number.isInteger(guardada.diasPeriodo)
+    ? Math.min(DIAS_PERIODO_MAXIMO, Math.max(DIAS_PERIODO_MINIMO, guardada.diasPeriodo))
+    : DIAS_PERIODO_POR_DEFECTO;
+  return {
+    modo: esModoPeriodo(guardada.modoPeriodo) ? guardada.modoPeriodo : MODO_PERIODO_POR_DEFECTO,
+    dias,
+    incluirDiaEnvio: guardada.incluirDiaEnvio === true,
+  };
+}
+
+/** Texto corto de la regla, para la bitácora: «los últimos 7 días antes del envío». */
+export function describirPeriodo(regla: ReglaPeriodo): string {
+  const conDia = regla.incluirDiaEnvio === true;
+  if (regla.modo === "continua") {
+    return `desde el último reporte enviado hasta ${conDia ? "el día del envío" : "el día anterior al envío"} (máximo ${TOPE_DIAS_ENVIO_AUTOMATICO} días)`;
+  }
+  if (conDia) return regla.dias === 1 ? "el día del envío" : `los últimos ${regla.dias} días, contando el día del envío`;
+  return regla.dias === 1 ? "el día anterior al envío" : `los últimos ${regla.dias} días antes del envío`;
+}
+
 export type OrigenEjecucion = "programada" | "manual" | "prueba";
 export type EstadoEjecucion = "en_curso" | "ok" | "parcial" | "error" | "omitida";
 
@@ -116,7 +171,8 @@ export function fechaDePeriodoGuardado(instante: Date): string {
   return instante.toISOString().slice(0, 10);
 }
 
-function diasInclusive(desde: string, hasta: string): number {
+/** Días de calendario de un período, contando los dos extremos (del 18 al 24 son 7). */
+export function diasDelPeriodo(desde: string, hasta: string): number {
   return Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000) + 1;
 }
 
@@ -126,8 +182,11 @@ export type PeriodoEnvio =
       estado: "nuevo";
       desde: string;
       hasta: string;
-      /** `continua`: arranca el día siguiente al último reporte enviado; `primer_envio`: no hay reportes previos. */
-      origen: "continua" | "primer_envio";
+      /**
+       * `ultimos_dias`: los N días antes del envío (regla elegida); `continua`: arranca el día
+       * siguiente al último reporte enviado; `primer_envio`: no hay reportes previos.
+       */
+      origen: "ultimos_dias" | "continua" | "primer_envio";
       /** Hasta dónde llegó el último reporte enviado (null en el primer envío). */
       ultimoHasta: string | null;
       /** El período pasaba de 366 días y `desde` se acercó a `hasta` para respetar el tope. */
@@ -139,19 +198,35 @@ export type PeriodoEnvio =
   | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
 
 /**
- * El período del reporte de un envío: arranca donde terminó el último reporte enviado por correo y
- * llega hasta el día ANTERIOR al envío (en hora de Colombia), para no contar medio día dos
- * veces.
+ * El período del reporte de un envío: llega hasta el día ANTERIOR al envío (en hora de Colombia),
+ * para no contar medio día dos veces, o hasta el mismo día si la regla pide `incluirDiaEnvio`.
+ * Desde dónde arranca lo decide la regla (`continua` si no se pasa, la de los envíos manuales
+ * sin rango):
  *
- * - Primer envío por correo (`ultimoPeriodoHasta === null`): los 7 días que terminan el día anterior.
- * - Con un último envío previo: desde el día siguiente a su fecha final.
- * - Más de `TOPE_DIAS_ENVIO_AUTOMATICO` días (30): `desde` se recorta al tope.
- * - Si el último reporte ya llega hasta ese día o después: `cubierto`, no hay período nuevo.
+ * - `ultimos_dias`: los N días que terminan en ese último día, haya o no envíos previos.
+ * - `continua`, primer envío por correo (`ultimoPeriodoHasta === null`): los 7 días que terminan el día anterior.
+ * - `continua` con un último envío previo: desde el día siguiente a su fecha final; más de
+ *   `TOPE_DIAS_ENVIO_AUTOMATICO` días (30) se recortan al tope.
+ * - Con cualquier regla, si el último reporte ya llega hasta ese día o después: `cubierto`, no hay
+ *   período nuevo (alguien ya lo envió; no se repite).
  *
  * `referencia` es el instante del envío (el programado, o ahora en el envío manual sin rango explícito).
  */
-export function calcularPeriodoEnvio(params: { referencia: Date; ultimoPeriodoHasta: Date | null }): PeriodoEnvio {
-  const hasta = sumarDias(fechaColombia(params.referencia), -1);
+export function calcularPeriodoEnvio(params: {
+  referencia: Date;
+  ultimoPeriodoHasta: Date | null;
+  regla?: ReglaPeriodo;
+}): PeriodoEnvio {
+  const diaEnvio = fechaColombia(params.referencia);
+  const hasta = params.regla?.incluirDiaEnvio ? diaEnvio : sumarDias(diaEnvio, -1);
+
+  if (params.regla?.modo === "ultimos_dias") {
+    const { dias } = reglaDePeriodo({ modoPeriodo: params.regla.modo, diasPeriodo: params.regla.dias });
+    const ultimoHasta = params.ultimoPeriodoHasta ? fechaDePeriodoGuardado(params.ultimoPeriodoHasta) : null;
+    if (ultimoHasta && ultimoHasta >= hasta) return { estado: "cubierto", hasta, cubiertoHasta: ultimoHasta };
+    const desde = sumarDias(hasta, -(dias - 1));
+    return { estado: "nuevo", desde, hasta, origen: "ultimos_dias", ultimoHasta, recortado: false, desdeSinRecorte: desde };
+  }
 
   if (!params.ultimoPeriodoHasta) {
     const desde = sumarDias(hasta, -6);
@@ -162,7 +237,7 @@ export function calcularPeriodoEnvio(params: { referencia: Date; ultimoPeriodoHa
   if (ultimoHasta >= hasta) return { estado: "cubierto", hasta, cubiertoHasta: ultimoHasta };
 
   const desdeSinRecorte = sumarDias(ultimoHasta, 1);
-  const recortado = diasInclusive(desdeSinRecorte, hasta) > TOPE_DIAS_ENVIO_AUTOMATICO;
+  const recortado = diasDelPeriodo(desdeSinRecorte, hasta) > TOPE_DIAS_ENVIO_AUTOMATICO;
   const desde = recortado ? sumarDias(hasta, -(TOPE_DIAS_ENVIO_AUTOMATICO - 1)) : desdeSinRecorte;
   return { estado: "nuevo", desde, hasta, origen: "continua", ultimoHasta, recortado, desdeSinRecorte };
 }
@@ -222,7 +297,7 @@ export function calcularPeriodoEnvioManual(params: { ahora: Date; ultimoPeriodoH
   }
 
   const desdeSinRecorte = sumarDias(ultimoHasta, 1);
-  const recortado = diasInclusive(desdeSinRecorte, hoy) > TOPE_DIAS_ENVIO_AUTOMATICO;
+  const recortado = diasDelPeriodo(desdeSinRecorte, hoy) > TOPE_DIAS_ENVIO_AUTOMATICO;
   const desde = recortado ? sumarDias(hoy, -(TOPE_DIAS_ENVIO_AUTOMATICO - 1)) : desdeSinRecorte;
   return {
     desde,

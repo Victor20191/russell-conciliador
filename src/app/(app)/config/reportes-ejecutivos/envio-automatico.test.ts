@@ -22,6 +22,9 @@ const PANEL: PanelEnvioAutomatico = {
   activa: true,
   diaSemana: 1,
   hora: "07:00",
+  modoPeriodo: "continua",
+  diasPeriodo: 7,
+  incluirDiaEnvio: false,
   // Lunes 30-nov-2026, 7:00 a. m. de Colombia.
   proximaEjecucionEn: "2026-11-30T12:00:00.000Z",
   periodoProximo: {
@@ -56,6 +59,8 @@ const PANEL: PanelEnvioAutomatico = {
   atrasado: false,
   topeDestinatarios: 50,
   correoPrueba: "victor@russell.co",
+  // Martes 24-nov-2026, 10:00 a. m. de Colombia.
+  ahora: "2026-11-24T15:00:00.000Z",
 };
 
 const pintar = (panel: PanelEnvioAutomatico, alcance: AlcanceDelEnvio = ALCANCE) =>
@@ -107,6 +112,91 @@ describe("panel «Envío automático»", () => {
     const cubierto = pintar({ ...PANEL, periodoProximo: { estado: "cubierto", hasta: "2026-11-29", cubiertoHasta: "2026-11-29" } });
     expect(cubierto).toContain("Ya está cubierto hasta el 29/Nov/2026: ese día no se enviará.");
     expect(cubierto).not.toContain("Cubrirá:");
+  });
+
+  it("deja elegir qué período cubre cada envío, con lo guardado marcado", () => {
+    const continua = pintar(PANEL);
+    expect(continua).toContain("Qué período cubre cada envío");
+    expect(continua).toMatch(/<input[^>]*id="periodo-continua"[^>]*checked=""/);
+    expect(continua).toContain("Desde el último reporte enviado");
+    expect(continua).toMatch(/<input[^>]*aria-label="Días que cubre cada envío"[^>]*value="7"/);
+
+    // Miércoles con los últimos 7 días: lo que pidió el usuario, con su explicación.
+    const semana = pintar({
+      ...PANEL,
+      diaSemana: 3,
+      modoPeriodo: "ultimos_dias",
+      diasPeriodo: 7,
+      periodoProximo: {
+        estado: "nuevo", desde: "2026-11-25", hasta: "2026-12-01", origen: "ultimos_dias",
+        ultimoDesde: "2026-11-18", ultimoHasta: "2026-11-24", recortado: false, desdeSinRecorte: "2026-11-25",
+      },
+    });
+    expect(semana).toMatch(/<input[^>]*id="periodo-ultimos-dias"[^>]*checked=""/);
+    expect(semana).toContain("Enviado el miércoles, cubre del miércoles anterior al martes: cada día se reporta una sola vez.");
+    expect(semana).toContain("del 25/Nov/2026 al 01/Dic/2026");
+    expect(semana).toContain("Los últimos 7 días antes del envío, sin contar ese día.");
+  });
+
+  it("deja contar el día del envío y advierte que ese día llega solo hasta la hora en que sale", () => {
+    expect(pintar(PANEL)).toMatch(/<input[^>]*id="incluir-dia-envio"[^>]*>\s*Contar también el día del envío/);
+    expect(pintar(PANEL)).not.toMatch(/<input[^>]*id="incluir-dia-envio"[^>]*checked=""/);
+
+    const conDia = pintar({
+      ...PANEL,
+      diaSemana: 3,
+      modoPeriodo: "ultimos_dias",
+      diasPeriodo: 7,
+      incluirDiaEnvio: true,
+      periodoProximo: {
+        estado: "nuevo", desde: "2026-11-26", hasta: "2026-12-02", origen: "ultimos_dias",
+        ultimoDesde: "2026-11-18", ultimoHasta: "2026-11-24", recortado: false, desdeSinRecorte: "2026-11-26",
+      },
+    });
+    expect(conDia).toMatch(/<input[^>]*id="incluir-dia-envio"[^>]*checked=""/);
+    expect(conDia).toContain("días, contando el día del envío");
+    expect(conDia).toContain("Enviado el miércoles, cubre del jueves anterior al miércoles (hasta la hora del envío).");
+    expect(conDia).toContain("El día del envío entra solo con lo registrado hasta las 07:00 (hora de Colombia)");
+    expect(conDia).toContain("no sale en ningún reporte");
+    expect(conDia).toContain("del 26/Nov/2026 al 02/Dic/2026");
+    expect(conDia).toContain("Los últimos 7 días, contando el día del envío hasta la hora en que sale.");
+  });
+
+  it("desde que carga, junto a cada opción dice qué cubriría el próximo envío", () => {
+    // En pausa, miércoles 7:00; jueves 26-nov 9:00 a. m.; el último reporte enviado llegó al jueves 26.
+    const html = pintar({
+      ...PANEL,
+      activa: false,
+      proximaEjecucionEn: null,
+      periodoProximo: null,
+      diaSemana: 3,
+      modoPeriodo: "ultimos_dias",
+      diasPeriodo: 7,
+      periodoManualSugerido: { ...PANEL.periodoManualSugerido, ultimoDesde: "2026-11-25", ultimoHasta: "2026-11-26", hoy: "2026-11-26" },
+      ahora: "2026-11-26T14:00:00.000Z",
+    });
+    const ultimos = html.slice(html.indexOf('id="periodo-ultimos-dias"'), html.indexOf('id="periodo-continua"'));
+    const continua = html.slice(html.indexOf('id="periodo-continua"'), html.indexOf('id="incluir-dia-envio"'));
+    // Los últimos 7 días: la semana completa, del miércoles 25 al martes 1.
+    expect(ultimos).toContain("Próximo envío (miércoles 02/Dic/2026, si lo activas)");
+    expect(ultimos).toContain("del 25/Nov/2026 al 01/Dic/2026");
+    // Desde el último reporte enviado: arranca el viernes 27.
+    expect(continua).toContain("Próximo envío (miércoles 02/Dic/2026, si lo activas)");
+    expect(continua).toContain("del 27/Nov/2026 al 01/Dic/2026");
+
+    // Activo, con su próxima fecha guardada: sin «si lo activas».
+    const activo = pintar({ ...PANEL, diaSemana: 1 });
+    expect(activo).toContain("Próximo envío (lunes 30/Nov/2026)");
+    expect(activo).not.toContain("si lo activas");
+  });
+
+  it("con otro número de días avisa qué pasa con el envío semanal", () => {
+    const cinco = pintar({ ...PANEL, diaSemana: 3, modoPeriodo: "ultimos_dias", diasPeriodo: 5 });
+    expect(cinco).toContain("Enviado el miércoles, cubre los 5 días que terminan el martes.");
+    expect(cinco).toContain("2 días de cada semana no salen en ningún reporte");
+    const diez = pintar({ ...PANEL, diaSemana: 1, modoPeriodo: "ultimos_dias", diasPeriodo: 10 });
+    expect(diez).toContain("Enviado el lunes, cubre los 10 días que terminan el domingo.");
+    expect(diez).toContain("3 días se repiten en el envío siguiente");
   });
 
   it("en pausa no anuncia ningún período", () => {

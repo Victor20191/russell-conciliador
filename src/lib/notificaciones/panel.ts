@@ -2,7 +2,7 @@
 // (fechas en ISO), sin tipos de Prisma. Compartido por la acción que lo arma y por la
 // pantalla que lo pinta.
 
-import type { EstadoEjecucion, OrigenEjecucion } from "./programacion";
+import type { EstadoEjecucion, ModoPeriodo, OrigenEjecucion, PeriodoEnvio } from "./programacion";
 
 export type DestinatarioPanel = {
   id: number;
@@ -42,8 +42,11 @@ export type PeriodoProximoPanel =
       estado: "nuevo";
       desde: string;
       hasta: string;
-      /** `continua`: arranca el día siguiente al último reporte enviado; `primer_envio`: aún no hay reportes enviados. */
-      origen: "continua" | "primer_envio";
+      /**
+       * `ultimos_dias`: los N días antes del envío; `continua`: arranca el día siguiente al último
+       * reporte enviado; `primer_envio`: aún no hay reportes enviados.
+       */
+      origen: "ultimos_dias" | "continua" | "primer_envio";
       /** Período del último reporte enviado (null en el primer envío). */
       ultimoDesde: string | null;
       ultimoHasta: string | null;
@@ -53,6 +56,21 @@ export type PeriodoProximoPanel =
     }
   /** El último reporte ya llega hasta ese día: el próximo envío se omitirá. */
   | { estado: "cubierto"; hasta: string; cubiertoHasta: string };
+
+/** El período de un envío tal como lo pinta el panel (lo usan el servidor y la vista previa al editar). */
+export function periodoProximoParaPanel(periodo: PeriodoEnvio, ultimoDesde: string | null): PeriodoProximoPanel {
+  if (periodo.estado === "cubierto") return { estado: "cubierto", hasta: periodo.hasta, cubiertoHasta: periodo.cubiertoHasta };
+  return {
+    estado: "nuevo",
+    desde: periodo.desde,
+    hasta: periodo.hasta,
+    origen: periodo.origen,
+    ultimoDesde: periodo.ultimoHasta ? ultimoDesde : null,
+    ultimoHasta: periodo.ultimoHasta,
+    recortado: periodo.recortado,
+    desdeSinRecorte: periodo.desdeSinRecorte,
+  };
+}
 
 /**
  * Rango que continuaría el último reporte enviado (desde el día siguiente hasta hoy en hora de
@@ -78,6 +96,11 @@ export type PanelEnvioAutomatico = {
   activa: boolean;
   diaSemana: number;
   hora: string;
+  /** Qué período cubre cada envío automático y, en `ultimos_dias`, cuántos días. */
+  modoPeriodo: ModoPeriodo;
+  diasPeriodo: number;
+  /** El período llega hasta el día del envío (hasta la hora en que sale) en vez del anterior. */
+  incluirDiaEnvio: boolean;
   /** Próximo envío (ISO); null si está pausado. */
   proximaEjecucionEn: string | null;
   /** Lo que cubrirá ese próximo envío; null si está en pausa. */
@@ -94,7 +117,26 @@ export type PanelEnvioAutomatico = {
   topeDestinatarios: number;
   /** Correo de la persona que mira la pantalla: el que «Enviar prueba» propone (se puede cambiar). */
   correoPrueba: string | null;
+  /**
+   * Instante (ISO) en que se armó el panel: con él la pantalla calcula el próximo envío de cada
+   * opción del período al cargar, igual en el servidor y en el navegador.
+   */
+  ahora: string;
 };
 
-/** Valores de una programación que todavía no se ha guardado. */
-export const PROGRAMACION_POR_DEFECTO = { activa: false, diaSemana: 1, hora: "07:00" } as const;
+/** Valores de una programación que todavía no se ha guardado (los mismos por defecto de la tabla). */
+export const PROGRAMACION_POR_DEFECTO = {
+  activa: false,
+  diaSemana: 1,
+  hora: "07:00",
+  modoPeriodo: "continua",
+  diasPeriodo: 7,
+  incluirDiaEnvio: false,
+} as const satisfies {
+  activa: boolean;
+  diaSemana: number;
+  hora: string;
+  modoPeriodo: ModoPeriodo;
+  diasPeriodo: number;
+  incluirDiaEnvio: boolean;
+};

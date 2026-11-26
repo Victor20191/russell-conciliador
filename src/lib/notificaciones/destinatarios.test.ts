@@ -71,12 +71,30 @@ describe("destinatarios: lista de envío", () => {
 });
 
 describe("programación: validación", () => {
-  it("acepta día 1 a 7 y hora HH:mm", () => {
+  it("acepta día 1 a 7 y hora HH:mm; sin período, el de siempre (desde el último reporte, 7 días)", () => {
     expect(ProgramacionNotificacionSchema.parse({ activa: true, diaSemana: "3", hora: " 08:30 " })).toEqual({
       activa: true,
       diaSemana: 3,
       hora: "08:30",
+      modoPeriodo: "continua",
+      diasPeriodo: 7,
+      incluirDiaEnvio: false,
     });
+  });
+
+  it("acepta «los últimos N días» de 1 a 30 y rechaza otro modo u otros días", () => {
+    expect(
+      ProgramacionNotificacionSchema.parse({ activa: true, diaSemana: 3, hora: "07:00", modoPeriodo: "ultimos_dias", diasPeriodo: "14" }),
+    ).toMatchObject({ modoPeriodo: "ultimos_dias", diasPeriodo: 14 });
+    for (const periodo of [
+      { modoPeriodo: "semanal", diasPeriodo: 7 },
+      { modoPeriodo: "ultimos_dias", diasPeriodo: 0 },
+      { modoPeriodo: "ultimos_dias", diasPeriodo: 31 },
+      { modoPeriodo: "ultimos_dias", diasPeriodo: 6.5 },
+      { modoPeriodo: "ultimos_dias", diasPeriodo: 7, incluirDiaEnvio: "si" },
+    ]) {
+      expect(ProgramacionNotificacionSchema.safeParse({ activa: true, diaSemana: 3, hora: "07:00", ...periodo }).success).toBe(false);
+    }
   });
 
   it("rechaza día fuera de rango, hora mal formada y activa no booleana", () => {
