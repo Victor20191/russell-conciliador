@@ -9,7 +9,7 @@
 // Si el archivo no trae con qué comparar, el control queda «no validado» y lo dice: no se da por
 // bueno lo que no se pudo revisar. Ninguno bloquea. Se calculan igual en el borrador (en vivo) y
 // en el dato cargado (con el detalle, donde las cabeceras y los totales por cliente se conservan).
-import { CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, CLAVE_TRM, filaCarteraDesdeDetalle, leerEdades } from "./detalle-cartera";
+import { CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, CLAVE_TOTAL_IMPRESO, CLAVE_TRM, filaCarteraDesdeDetalle, leerEdades } from "./detalle-cartera";
 import {
   compararSaldosTercero,
   materializarSaldosTercero,
@@ -148,6 +148,21 @@ const terceroDeFila = (fila: { datos: Record<string, unknown>; nitCanonico?: str
 type FilaEdades = { filaNum: number; imputable: boolean; datos: Record<string, unknown>; nitCanonico?: string | null };
 
 const totalDe = (f: FilaEdades): number => numero(f.datos[CLAVE_SALDO_REPORTADO]) ?? 0;
+/**
+ * Fila de total (no imputa) con el importe que imprime el archivo en la columna de los totales
+ * (`subtotalesImporteColumna`): INDAER trae en cada «Total Cliente» el total en la M y sus edades.
+ * Sus edades se comparan contra ese importe, fila a fila.
+ */
+const esTotalImpreso = (f: FilaEdades): boolean => !f.imputable && f.datos?.[CLAVE_TOTAL_IMPRESO] === true;
+/** Las filas de total con importe impreso, comparadas contra sus propias edades. */
+function diferenciasTotalesImpresos(filas: readonly FilaEdades[]): { comparadas: number; diferencias: DiferenciaEdadesFila[] } {
+  const totales = filas.filter(esTotalImpreso);
+  return {
+    comparadas: totales.filter((f) => comparableEdades(f.datos)).length,
+    diferencias: totales.map(diferenciaEdadesDeFila).filter((d): d is DiferenciaEdadesFila => d != null),
+  };
+}
+const porFila = (a: DiferenciaEdadesFila, b: DiferenciaEdadesFila): number => a.filaNum - b.filaNum;
 const sumaEdadesDe = (f: FilaEdades): number => numero(f.datos[CLAVE_SUMA_EDADES]) ?? 0;
 
 /**
@@ -213,16 +228,17 @@ export function diferenciasEdadesVsTotal(filas: readonly FilaEdades[]): {
   diferencias: DiferenciaEdadesFila[];
 } {
   const bloques = bloquesDeCliente(filas);
+  const totales = diferenciasTotalesImpresos(filas);
   if (!saldoClienteEnPrimeraFila(bloques)) {
     const imputables = filas.filter((f) => f.imputable);
     return {
       saldoEnPrimeraFila: false,
-      comparadas: imputables.filter((f) => comparableEdades(f.datos)).length,
-      diferencias: imputables.map(diferenciaEdadesDeFila).filter((d): d is DiferenciaEdadesFila => d != null),
+      comparadas: imputables.filter((f) => comparableEdades(f.datos)).length + totales.comparadas,
+      diferencias: [...imputables.map(diferenciaEdadesDeFila).filter((d): d is DiferenciaEdadesFila => d != null), ...totales.diferencias].sort(porFila),
     };
   }
-  let comparadas = 0;
-  const diferencias: DiferenciaEdadesFila[] = [];
+  let comparadas = totales.comparadas;
+  const diferencias: DiferenciaEdadesFila[] = [...totales.diferencias];
   for (const bloque of bloques) {
     const primera = bloque[0];
     const total = totalDe(primera);
@@ -241,7 +257,7 @@ export function diferenciasEdadesVsTotal(filas: readonly FilaEdades[]): {
       documentos: bloque.length,
     });
   }
-  return { saldoEnPrimeraFila: true, comparadas, diferencias };
+  return { saldoEnPrimeraFila: true, comparadas, diferencias: diferencias.sort(porFila) };
 }
 
 // Roles de Cartera y CxP que nombran la cuenta que agrupa a los terceros y el saldo de la fila

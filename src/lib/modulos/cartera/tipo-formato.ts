@@ -124,12 +124,15 @@ export type FormatoArchivoCartera = {
 
 /** Formato del archivo de un lote a partir de su spec (tal como quedó en `specJson`). */
 export function formatoArchivoCartera(
-  spec: Partial<SpecFormato> & { columnas?: Record<string, number> },
+  spec: Partial<SpecFormato> & { columnas?: Record<string, number> } & Pick<Partial<SpecModulo>, "subtotales" | "subtotalesImporteColumna">,
   datos: { loteId: string; archivo: string; rolTotal: string },
 ): FormatoArchivoCartera {
   const columnas = spec.columnas ?? {};
   const { tipo, declarado } = tipoFormatoCartera({ ...spec, columnas });
-  return { loteId: datos.loteId, archivo: datos.archivo, tipo, declarado, conColumnaTotal: (columnas[datos.rolTotal] ?? 0) >= 1 };
+  // La columna del total puede ser la del saldo de cada fila o la que trae el importe de las filas
+  // de total (INDAER: el total de cada cliente en la M de su «Total Cliente»).
+  const importeTotales = spec.subtotales !== "nunca" && (spec.subtotalesImporteColumna ?? 0) >= 1;
+  return { loteId: datos.loteId, archivo: datos.archivo, tipo, declarado, conColumnaTotal: (columnas[datos.rolTotal] ?? 0) >= 1 || importeTotales };
 }
 
 /** Lee `formatos_cartera`; null si el cargue es anterior o el JSON no es legible. */

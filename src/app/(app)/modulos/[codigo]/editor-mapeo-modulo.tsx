@@ -52,6 +52,7 @@ import { esCodigoDeduccion, parsearRangosCodigos, textoRangosCodigos } from "@/l
 import { IconoEnTexto } from "@/components/icons";
 import { avisosColumnaDoble, type AvisoColumnaDoble, type SumaDelRol } from "@/lib/modulos/columna-doble";
 import { AvisosColumnaDoble } from "./avisos-columna-doble";
+import { conModoTercero, modoTerceroDe, muestraPareceCabecera, type ModoTercero } from "@/lib/modulos/cartera/modo-tercero";
 
 export type RolModulo = {
   nombre: string;
@@ -403,6 +404,8 @@ export function EditorMapeoModulo({
             // La columna marcadora solo existe en el modo manual; al salir se retira.
             subtotalesColumna: m === "manual" ? (s.subtotalesColumna ?? 0) : undefined,
             subtotalesTexto: m === "manual" ? s.subtotalesTexto : undefined,
+            // El importe de las filas de total se declara junto con ellas, en el modo manual.
+            subtotalesImporteColumna: m === "manual" ? s.subtotalesImporteColumna : undefined,
             subtotalesFila: undefined,
           }
         : s,
@@ -428,6 +431,14 @@ export function EditorMapeoModulo({
     return vals.filter((v) => !v).length / vals.length >= 0.3;
   })();
   const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
+  // Cartera y CxP: ¿el NIT viene en cada fila o en una fila del cliente con sus documentos debajo?
+  const modoTercero = modoTerceroDe(spec);
+  const terceroPareceCabecera = conNivelCartera && muestraPareceCabecera(analisis.muestraFilas ?? [], spec.columnas);
+  const etiquetaNit = roles.find((rol) => rol.nombre === "nit")?.etiqueta ?? "NIT / cédula del tercero";
+  // En renglones de sección, si la sección se lee en la columna del NIT, la fila del cliente se toma
+  // como sección y sus documentos nunca heredan el NIT (le pasó a INDAER con la cuenta en la F).
+  const seccionTapaCabecera = modoTercero === "cabecera" && modo === "seccion"
+    && (spec.columnas[clasificadorRol] ?? 0) >= 1 && spec.columnas[clasificadorRol] === spec.columnas.nit;
   const colSubtotales = spec.subtotalesColumna ?? 0;
   // Dos importes que se suman leyendo la misma columna: el valor quedaría duplicado. Solo avisa.
   const avisosDoble = avisosColumnaDobleAnalisis(analisis, spec, roles, rolValor);
@@ -655,6 +666,43 @@ export function EditorMapeoModulo({
             </select>
           </label>
         )}
+        {conNivelCartera && (
+          <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+            <span className="text-[11px] font-medium text-ink-600">¿Cómo viene «{etiquetaNit}» en el archivo?</span>
+            <select
+              value={modoTercero}
+              onChange={(e) => setSpec((s) => (s ? conModoTercero(s, e.target.value as ModoTercero) : s))}
+              className={claseCampo}
+            >
+              <option value="columna">En cada fila</option>
+              <option value="cabecera">
+                En una fila del cliente, con sus documentos debajo{terceroPareceCabecera ? " · recomendado" : ""}
+              </option>
+            </select>
+            {modoTercero === "cabecera" ? (
+              (spec.columnas.documento ?? 0) < 1 ? (
+                <span className="text-[11px] font-semibold leading-snug text-err-700">
+                  <IconoEnTexto name="warn" />Mapea «Documento / factura»: sin esa columna no se distingue la fila del cliente de sus documentos.
+                </span>
+              ) : (
+                <>
+                  <span className="text-[11px] leading-snug text-ink-500">
+                    Los documentos heredan «{etiquetaNit}» y el nombre de la fila del cliente, que no suma. Si el nombre comparte columna con otro campo (por ejemplo la fecha), en los documentos se toma el de esa fila.
+                  </span>
+                  {seccionTapaCabecera && (
+                    <span className="text-[11px] font-semibold leading-snug text-err-700">
+                      <IconoEnTexto name="warn" />«{clasificadorEtiqueta}» está en la misma columna, en renglones de sección: la fila del cliente se toma como sección y los documentos quedan sin «{etiquetaNit}». Lee «{clasificadorEtiqueta}» de otra columna, o elige un único clasificador para todo el archivo.
+                    </span>
+                  )}
+                </>
+              )
+            ) : terceroPareceCabecera ? (
+              <span className="text-[11px] font-semibold leading-snug text-warn-700">
+                <IconoEnTexto name="warn" />En la muestra, «{etiquetaNit}» viene en filas sin documento y los documentos vienen sin él: parece una fila del cliente con sus documentos debajo. Así, los documentos quedarían sin tercero.
+              </span>
+            ) : null}
+          </label>
+        )}
         {/* Activos fijos: el grupo trae pegada la cuenta del cliente. Lo que sobra al inicio es del
             FORMATO, así que se declara aquí y viaja con el patrón; la lectura la extrae y el
             Consolidado la homologa como el balance, sin guardarla sola. */}
@@ -755,6 +803,25 @@ export function EditorMapeoModulo({
                 />
               </label>
             )}
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Columna con el importe de las filas de total (opcional)</span>
+              <select
+                value={spec.subtotalesImporteColumna ?? 0}
+                onChange={(e) => {
+                  const columna = Number(e.target.value);
+                  setSpec((s) => (s ? { ...s, subtotalesImporteColumna: columna >= 1 ? columna : undefined } : s));
+                }}
+                className={claseCampo}
+              >
+                <option value={0}>— la suma de la misma fila —</option>
+                {opciones.map((opcion) => (
+                  <option key={opcion.index1} value={opcion.index1}>{opcion.label}</option>
+                ))}
+              </select>
+              <span className="text-[11px] leading-snug text-ink-500">
+                Si la fila de total trae su importe en otra columna (por ejemplo «Total Cliente» con el total del cliente en la M), indícala. Solo se lee en las filas de total: ese importe se compara contra la suma de sus documentos y la de sus edades.
+              </span>
+            </label>
           </div>
         )}
       </div>

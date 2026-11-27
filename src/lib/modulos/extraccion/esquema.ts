@@ -59,6 +59,11 @@ export const SpecModuloSchema = z.object({
   // celda pisaba la marcadora y los «Total cliente» entraban como documentos. Es del cargue:
   // el perfil reutilizable la devuelve a `subtotalesColumna`/`subtotalesTexto` en modo «manual».
   subtotalesMarcaColumna: z.number().int().min(1).optional(),
+  // Columna con el IMPORTE de las filas de total, cuando no es la del valor (INDAER: «Total
+  // Cliente» en la E y su total en la M, que en las facturas trae días). Solo se lee en las filas
+  // que terminan como total: es el total que declaran, y la Σ de sus edades se compara contra él.
+  // Es del FORMATO: viaja con el patrón y con el perfil.
+  subtotalesImporteColumna: z.number().int().min(1).optional(),
   subtotalesMarcaTexto: z.string().max(80).optional(),
 
   // ===== Columnas cuyo número y rótulos los pone el ARCHIVO (ver `FamiliaDinamica`) =====

@@ -526,3 +526,20 @@ describe("«Valor» cuando el archivo trae devengo y deducción (SIESA, 24/Sep/2
     expect(rolesRequeridosFaltantes(NOM, specNom({ columnas: { codigo: 16, concepto: 17 } }))).toEqual(["valor"]);
   });
 });
+
+describe("columna con el importe de las filas de total", () => {
+  const base: SpecModulo = { hoja: "Sheet1", filaEncabezado: 6, primeraFilaDatos: 7, columnas: { cuenta: 5, nit: 5, documento: 4 } };
+  it("es del formato: queda en el patrón y en el lote, en cualquier modo que detecte totales", () => {
+    const manual = { ...base, subtotales: "manual" as const, subtotalesColumna: 4, subtotalesTexto: "Total cliente", subtotalesImporteColumna: 12 };
+    expect(normalizarSpecModulo(CAR, manual).subtotalesImporteColumna).toBe(12);
+    expect(normalizarSpecModuloArchivo(CAR, manual).subtotalesImporteColumna).toBe(12);
+    expect(normalizarSpecModulo(CAR, { ...base, subtotales: "rotulo", subtotalesImporteColumna: 12 }).subtotalesImporteColumna).toBe(12);
+    expect(normalizarSpecModulo(CAR, { ...base, subtotales: "nunca", subtotalesImporteColumna: 12 }).subtotalesImporteColumna).toBeUndefined();
+    expect(normalizarSpecModulo(CAR, { ...base, subtotalesImporteColumna: 0 }).subtotalesImporteColumna).toBeUndefined();
+  });
+
+  it("la descripción de los totales dice dónde está el importe", () => {
+    expect(descripcionSubtotalesModulo({ subtotales: "manual", subtotalesColumna: 4, subtotalesTexto: "Total cliente", subtotalesImporteColumna: 12 }))
+      .toBe("Manual: los marca la columna D cuando contiene «Total cliente» · su importe en la columna L");
+  });
+});

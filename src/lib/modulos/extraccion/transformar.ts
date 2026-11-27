@@ -89,6 +89,12 @@ export type FilaModulo = {
   /** Ingresos: la fila vino de un archivo declarado «solo notas crédito» (y si se invirtió su signo). */
   contenido?: ContenidoArchivo;
   signoInvertido?: boolean;
+  /**
+   * Fila de total cuyo importe se leyó de la columna que el mapeo declara para los totales
+   * (`subtotalesImporteColumna`): `valor` es lo que imprime el archivo, y la Σ de sus edades se
+   * compara contra él en «Edades vs total».
+   */
+  totalImpreso?: boolean;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -377,6 +383,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   const colMarcaSeccion = spec.columnas.marcaSeccion ?? 0;
   const colDocumento = spec.columnas.documento ?? 0;
   const rolNombre = descriptor.crucePorTercero.rolNombre ?? "";
+  // Reporte de cabecera con el NOMBRE en la columna de otro campo (INDAER: la razón social en la
+  // fila del cliente y la FECHA en la de cada factura, las dos en la J). Fuera de la cabecera esa
+  // celda es del otro campo, no un nombre: el documento hereda el de su cliente.
+  const colNombreTercero = rolNombre ? (spec.columnas[rolNombre] ?? 0) : 0;
+  const nombreCompartido = spec.terceroModo === "cabecera"
+    && colNombreTercero >= 1
+    && descriptor.columnas.some((rc) => rc.nombre !== rolNombre && (spec.columnas[rc.nombre] ?? 0) === colNombreTercero);
   const formatoSiesa = descriptor.crucePorTercero.detalleTercero === true
     && colIdentidad >= 1
     && colMarcaSeccion >= 1;
@@ -420,7 +433,10 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // Fila rotulada de proveedor (SEVEN): el identificador solo existe en esas filas.
   const filaTercero = conDetalleTercero && rolIdentificador && !filaTerceroObsoleta ? spec.filaTercero ?? null : null;
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
-  const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean }[] = [];
+  const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean; importeTotal?: number | null }[] = [];
+  // Columna con el importe de las filas de total (INDAER: la M, que en las facturas trae días). Se
+  // lee en todas las filas, pero solo se usa en las que la detección deja como total.
+  const colImporteTotal = spec.subtotales !== "nunca" ? (spec.subtotalesImporteColumna ?? 0) : 0;
   // Filas en negrita cuya clasificación se decide DESPUÉS de detectar subtotales (ver
   // «negrita diferida» más abajo). Solo en módulos con `usarNegritaComoEstructura`.
   const negritaDiferida = new Set<number>();
@@ -469,6 +485,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // convierten a pesos con la TRM de cierre del cargue (D3 de Cartera). Sin TRM no se inventa.
   const trmCierre = conDetalleTercero && spec.trmCierre != null && spec.trmCierre > 0 ? spec.trmCierre : null;
   const monedaArchivo = conDetalleTercero && esMonedaExtranjera(spec.monedaArchivo) ? (spec.monedaArchivo as string) : null;
+  /** El importe que la fila trae en la columna de los totales, con el signo y la moneda del archivo. */
+  const importeDeTotal = (fila: CeldaCruda[]): number | null => {
+    if (colImporteTotal < 1) return null;
+    const v = conSigno(aNumero(celda(fila, colImporteTotal)));
+    return v == null ? null : monedaArchivo && trmCierre ? aPesos(v, trmCierre) : v;
+  };
   if (monedaArchivo && !trmCierre) {
     excepciones.push({
       filaNum: spec.primeraFilaDatos,
@@ -843,6 +865,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      —el auditor tiene que verlo— pero no entra en la suma: ya está contado en los otros.
     let familias: Record<string, Record<string, number>> | undefined;
     let sumaFamilia: number | undefined;
+    // ¿Algún balde trae una cifra? Un cero escrito cuenta; una celda vacía no.
+    let algunBalde = false;
     if (hayFamilias) {
       familias = {};
       let suma = 0;
@@ -857,6 +881,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
           const v = conDivisa !== undefined ? (conDivisa?.valor ?? null) : conSigno(aNumero(raw));
           if (conDivisa && !divisaFila) divisaFila = conDivisa.divisa;
           baldes[c.etiqueta] = v == null ? 0 : v;
+          if (v != null) algunBalde = true;
           if (v != null && c.clase !== "excluir") suma += v;
         }
         familias[f.nombre] = baldes;
@@ -954,6 +979,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // fila sin dueño, y no siembra el arrastre.
     const esFilaDeTotal = marcaManualExacta || (rotuloDeFila != null && esTotal(rotuloDeFila));
     const esCabeceraTercero = modoCabecera && !esFilaDeTotal && !esPieErp && claveEnLaFila != null && documentoEnLaFila == null;
+    if (nombreCompartido && modoCabecera && !esCabeceraTercero) datos[rolNombre] = null;
     for (const rol of rolesArrastrados) {
       const propio = aTexto(datos[rol]);
       if (propio != null) {
@@ -1112,7 +1138,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         tipoFila: "agrupadora",
         motivo: "subtotal_tercero:cabecera",
         // La fila rotulada de SEVEN solo nombra al proveedor: no declara su saldo.
-        ...(esFilaRotuladaTercero ? {} : { saldoDeclarado: valor }),
+        // Solo si la cabecera trae un importe: la de INDAER no trae ninguno, y un «saldo 0» inventado
+        // descuadraba a todos los clientes y tapaba los «Total Cliente» que sí lo declaran.
+        ...(esFilaRotuladaTercero || (valorColumna == null && !algunBalde) ? {} : { saldoDeclarado: valor }),
         ...apartado,
         ...(familias ? { familias, sumaFamilia } : {}),
       });
@@ -1229,6 +1257,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         && coincideMarcaSubtotal(celda(fila, colMarcaSubtotal), spec.subtotalesTexto)
       ) || (marcaPatron != null && coincideMarcaSubtotal(celda(fila, marcaPatron.columna), marcaPatron.texto)),
       marcaManualExacta,
+      importeTotal: importeDeTotal(fila),
     });
   }
 
@@ -1266,8 +1295,15 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       filas[d.indice] = { ...resto, tipoFila: "agrupadora", motivo: motivoDe(d) };
       continue;
     }
+    // Con la columna del importe de los totales, la fila declara lo que imprime el archivo en ella;
+    // sus edades se conservan y «Edades vs total» las compara contra ese importe.
+    const importe = crudo[d.indice]?.importeTotal;
+    const impreso = importe != null
+      ? { valor: redondear(importe), valorReportado: redondear(importe), origenValor: "columna" as const, totalImpreso: true }
+      : {};
     filas[d.indice] = {
       ...resto,
+      ...impreso,
       clasificador: grupo,
       datos: modo === "global" ? f.datos : { ...f.datos, [descriptor.clasificador]: grupo },
       tipoFila: "total",

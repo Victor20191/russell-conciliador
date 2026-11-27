@@ -9,12 +9,14 @@ import { celdaDeTexto, mapeoDeCarga, preguntasCargaDeModulo, respuestasCargaDeFo
 import { revisarMapeoMuestra } from "./patrones/revision-mapeo";
 import { normalizarSpecModulo, normalizarSpecModuloArchivo } from "./perfil-modulo";
 import { camposRespuestasPrueba, RESPUESTAS_PRUEBA_INICIALES } from "./respuestas-carga-prueba";
+import { conModoTercero } from "./cartera/modo-tercero";
 
 const CAR = descriptorModulo("CAR")!;
 const INV = descriptorModulo("INV")!;
 const NOM = descriptorModulo("NOM")!;
 const ING = descriptorModulo("ING")!;
 const AFI = descriptorModulo("AFI")!;
+const CXP = descriptorModulo("CXP")!;
 
 const hoja = (nombre: string, filas: CeldaCruda[][], columnaInicial?: number): GridHoja =>
   ({ nombre, filas, ...(columnaInicial ? { columnaInicial } : {}) });
@@ -65,6 +67,33 @@ const PATRON_CARTERA: SpecModulo = normalizarSpecModulo(CAR, {
   subtotalesColumna: 4,
   subtotalesTexto: "Total cliente",
 });
+
+// CxP: el mismo reporte, con el NIT en la fila del proveedor y el total en su propia columna (I).
+const PROVEEDORES = hoja("Proveedores", [
+  [null, "Tipo", null, "Documento", null, "Fecha", "Sin Vencer", "0 a 30", null],
+  [null, null, null, null, 800111222, "PROVEEDOR UNO SAS", null, null, null],
+  [null, "FC", null, 101, null, "Sep.22/2026", 100, 0, 36],
+  [null, "FC", null, 102, null, "Ago.23/2026", 0, 200, 40],
+  [null, null, null, "Total Proveedor .....", null, null, 100, 200, 300],
+  [null, null, null, null, 900333444, "PROVEEDOR DOS SAS", null, null, null],
+  [null, "FC", null, 7, null, "Dic.29/2025", 50, 0, 29],
+  [null, null, null, "Total Proveedor .....", null, null, 50, 0, 50],
+  [null, null, null, "Totales ...............", null, null, 150, 200, 350],
+]);
+const PATRON_CXP: SpecModulo = normalizarSpecModulo(CXP, conModoTercero({
+  hoja: "Proveedores",
+  filaEncabezado: 1,
+  primeraFilaDatos: 2,
+  columnas: { cuenta: 5, nit: 5, nombre: 6, documento: 4, tipoDocumento: 2, fecha: 6, total: 0 },
+  clasificadorModo: "arrastrar",
+  familias: { edades: [{ columna: 7, etiqueta: "Sin Vencer", clase: "corriente" }, { columna: 8, etiqueta: "0 a 30", clase: "vencido" }] },
+  edadesModo: "ancho",
+  tipoFormato: "documento_edades",
+  subtotales: "manual",
+  subtotalesColumna: 4,
+  subtotalesTexto: "Total proveedor",
+  subtotalesImporteColumna: 9,
+}, "cabecera"));
 
 const KARDEX = hoja("Kardex", [
   ["Tipo", "Referencia", "Descripción", "Cantidad", "Unitario", "Total"],
@@ -139,6 +168,16 @@ describe("paridad: la prueba del mapeo lee exactamente como la carga", () => {
       spec: { ...PATRON_CARTERA, subtotalesColumna: 4, subtotalesFila: 10, subtotalesTexto: "Total cliente" },
     },
     {
+      nombre: "Cuentas por pagar con patrón · NIT en la fila del proveedor, importe de los totales y «Sí» al total",
+      descriptor: CXP, spec: PATRON_CXP, hoja: PROVEEDORES, conPatron: true,
+      respuestas: { fechaCorte: "2026-09-30", total: { trae: true, columna: 9, fila: 9 } },
+    },
+    {
+      nombre: "Cuentas por pagar con patrón · «No» al total",
+      descriptor: CXP, spec: PATRON_CXP, hoja: PROVEEDORES, conPatron: true,
+      respuestas: { fechaCorte: "2026-09-30", total: { trae: false } },
+    },
+    {
       nombre: "Inventarios con patrón · clasificador confirmado y «No» al total",
       descriptor: INV, spec: PATRON_INV, hoja: KARDEX, conPatron: true,
       respuestas: { clasificador: { columna: 1, modo: "columna" }, total: { trae: false } },
@@ -174,6 +213,17 @@ describe("paridad: la prueba del mapeo lee exactamente como la carga", () => {
     const suman = carga.filter((f) => f.tipoFila === "movimiento" && f.valor !== 0).map((f) => f.valor);
     expect(suman).toEqual([100, 200, 50]);
     expect(carga.filter((f) => f.tipoFila === "total").map((f) => f.filaNum)).toEqual([6, 9, 10]);
+  });
+
+  it("CxP: los documentos heredan el proveedor y cada «Total Proveedor» toma su importe de la I", () => {
+    const carga = leerComoCarga(CXP, PATRON_CXP, PROVEEDORES, { fechaCorte: "2026-09-30", total: { trae: true, columna: 9, fila: 9 } }, true);
+    const documentos = carga.filter((f) => f.tipoFila === "movimiento" && f.valor !== 0);
+    expect(documentos.map((f) => [f.filaNum, f.datos.nit, f.datos.nombre, f.valor])).toEqual([
+      [3, "800111222", "PROVEEDOR UNO SAS", 100],
+      [4, "800111222", "PROVEEDOR UNO SAS", 200],
+      [7, "900333444", "PROVEEDOR DOS SAS", 50],
+    ]);
+    expect(carga.filter((f) => f.tipoFila === "total").map((f) => [f.filaNum, f.valor, f.totalImpreso])).toEqual([[5, 300, true], [8, 50, true], [9, 350, true]]);
   });
 
   it("la celda escrita como en Excel («D10») es la misma respuesta que columna + fila del modal", () => {

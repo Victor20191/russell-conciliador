@@ -4,6 +4,7 @@ import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { normalizarSpecModulo, normalizarSpecModuloArchivo } from "../perfil-modulo";
 import { aplicarTotalDeCarga } from "../patrones/aplicar";
+import { conModoTercero } from "../cartera/modo-tercero";
 import { controlSubtotales } from "../subtotales";
 import { detectarFilaTercero, sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
@@ -795,5 +796,130 @@ describe("patrón manual con marcadora de filas y la pregunta del total en la ca
     const r = leer({ trae: false });
     expect(movimientos(r).filter((f) => f.valor !== 0).map((f) => f.valor)).toEqual([100, 200, 50]);
     expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => f.filaNum)).toEqual([6, 9, 10]);
+  });
+});
+
+// INDAER: el NIT solo viene en la fila del cliente y la razón social comparte la columna de la
+// FECHA (J). Con «En una fila del cliente, con sus documentos debajo» los documentos heredan los
+// dos; la fila del cliente no trae importe, así que no declara un saldo en cero.
+describe("NIT en la fila del cliente y nombre en la columna de la fecha", () => {
+  const VENCIMIENTOS_CLIENTE = hoja("Sheet1", [
+    [null, "Tipo", null, "Documento", null, "Fecha", "Sin Vencer", "0 a 30"],
+    [null, null, "BOGOTA", null, null, null, 300, 50],
+    [null, null, null, null, 800111222, "CLIENTE UNO SAS", null, null],
+    [null, "FE", null, 101, null, "Sep.22/2026", 100, 0],
+    [null, "FE", null, 102, null, "Ago.23/2026", 0, 200],
+    [null, null, null, "Total Cliente .....", null, null, 100, 200],
+    [null, null, null, null, 900333444, "CLIENTE DOS SAS", null, null],
+    [null, "FN", null, 7, null, "Dic.29/2025", 50, 0],
+    [null, null, null, "Total Cliente .....", null, null, 50, 0],
+    [null, null, null, "Totales ...............", null, null, 150, 250],
+  ]);
+  const spec = (modo: "columna" | "cabecera"): SpecModulo => normalizarSpecModulo(CAR, conModoTercero({
+    hoja: "Sheet1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { cuenta: 3, nit: 5, nombre: 6, documento: 4, tipoDocumento: 2, fecha: 6, total: 0 },
+    clasificadorModo: "arrastrar",
+    familias: { edades: [{ columna: 7, etiqueta: "Sin Vencer", clase: "corriente" }, { columna: 8, etiqueta: "0 a 30", clase: "vencido" }] },
+    edadesModo: "ancho",
+    tipoFormato: "documento_edades",
+    subtotales: "manual",
+    subtotalesColumna: 4,
+    subtotalesTexto: "Total cliente",
+  }, modo));
+  const leer = (modo: "columna" | "cabecera") => {
+    const r = aplicarTotalDeCarga(CAR, spec(modo), { trae: true, columna: 4, fila: 10 }, 8);
+    if (!r.ok) throw new Error(r.message);
+    return transformarModulo(CAR, normalizarSpecModuloArchivo(CAR, { ...r.spec, subtotalesTexto: "Totales ..............." }), VENCIMIENTOS_CLIENTE);
+  };
+  const documentos = (r: ReturnType<typeof transformarModulo>) => movimientos(r).filter((f) => f.valor !== 0);
+
+  it("los documentos heredan el NIT y la razón social; la fecha sigue siendo la fecha", () => {
+    expect(documentos(leer("cabecera")).map((f) => [f.filaNum, f.datos.nit, f.datos.nombre, f.datos.fecha, f.clasificador])).toEqual([
+      [4, "800111222", "CLIENTE UNO SAS", "2026-09-22", "BOGOTA"],
+      [5, "800111222", "CLIENTE UNO SAS", "2026-08-23", "BOGOTA"],
+      [8, "900333444", "CLIENTE DOS SAS", "2025-12-29", "BOGOTA"],
+    ]);
+  });
+
+  it("sin el modo cabecera los documentos quedaban sin NIT y con la fecha como nombre", () => {
+    const sinModo = documentos(leer("columna"));
+    expect(sinModo.map((f) => f.datos.nombre)).toEqual(["Sep.22/2026", "Ago.23/2026", "Dic.29/2025"]);
+  });
+
+  it("la fila del cliente no suma ni declara saldo; el «Total Cliente» sí lo declara", () => {
+    const r = leer("cabecera");
+    const cabeceras = r.filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+    expect(cabeceras.map((f) => [f.filaNum, f.saldoDeclarado])).toEqual([[3, undefined], [7, undefined]]);
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => [f.filaNum, f.saldoDeclarado ?? null])).toEqual([
+      [6, 300],
+      [9, 50],
+      [10, null],
+    ]);
+  });
+});
+
+// INDAER: cada «Total Cliente» trae el total del cliente en la M; en las facturas esa columna trae
+// días. Con «Columna con el importe de las filas de total» = M, el total se lee de ahí solo en las
+// filas de total, y la Σ de los documentos y la de las edades de esa fila se comparan contra él.
+describe("importe de las filas de total en su propia columna", () => {
+  const grilla = (totalUno: number) => hoja("Sheet1", [
+    [null, "Tipo", null, "Documento", null, "Fecha", "Sin Vencer", "0 a 30", null],
+    [null, null, null, null, 800111222, "CLIENTE UNO SAS", null, null, null],
+    [null, "FE", null, 101, null, "Sep.22/2026", 100, 0, 36],
+    [null, "FE", null, 102, null, "Ago.23/2026", 0, 200, 40],
+    [null, null, null, "Total Cliente .....", null, null, 100, 200, totalUno],
+    [null, null, null, null, 900333444, "CLIENTE DOS SAS", null, null, null],
+    [null, "FN", null, 7, null, "Dic.29/2025", 50, 0, 29],
+    [null, null, null, "Total Cliente .....", null, null, 50, 0, 50],
+    [null, null, null, "Totales ...............", null, null, 150, 200, 350],
+  ]);
+  const leer = (totalUno: number, importe = 9) => {
+    const spec = normalizarSpecModulo(CAR, conModoTercero({
+      hoja: "Sheet1",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { cuenta: 5, nit: 5, nombre: 6, documento: 4, tipoDocumento: 2, fecha: 6, total: 0 },
+      clasificadorModo: "arrastrar",
+      familias: { edades: [{ columna: 7, etiqueta: "Sin Vencer", clase: "corriente" }, { columna: 8, etiqueta: "0 a 30", clase: "vencido" }] },
+      edadesModo: "ancho",
+      tipoFormato: "documento_edades",
+      subtotales: "manual",
+      subtotalesColumna: 4,
+      subtotalesTexto: "Total cliente",
+      subtotalesImporteColumna: importe,
+    }, "cabecera"));
+    const r = aplicarTotalDeCarga(CAR, spec, { trae: true, columna: 9, fila: 9 }, 9);
+    if (!r.ok) throw new Error(r.message);
+    return transformarModulo(CAR, normalizarSpecModuloArchivo(CAR, { ...r.spec, subtotalesTexto: "350" }), grilla(totalUno));
+  };
+
+  it("las facturas siguen saliendo de sus edades: los días de esa columna no son plata", () => {
+    expect(movimientos(leer(300)).filter((f) => f.valor !== 0).map((f) => [f.filaNum, f.valor, f.origenValor])).toEqual([
+      [3, 100, "familia"],
+      [4, 200, "familia"],
+      [7, 50, "familia"],
+    ]);
+  });
+
+  it("cada fila de total declara lo que imprime la columna y conserva la Σ de sus edades", () => {
+    const totales = leer(300).filas.filter((f) => f.tipoFila === "total");
+    expect(totales.map((f) => [f.filaNum, f.valor, f.sumaFamilia, f.totalImpreso, f.saldoDeclarado ?? null])).toEqual([
+      [5, 300, 300, true, 300],
+      [8, 50, 50, true, 50],
+      [9, 350, 350, true, null],
+    ]);
+  });
+
+  it("si el total impreso no coincide, lo acusan el control del grupo y el del gran total", () => {
+    const control = controlSubtotales(leer(310).filas);
+    expect(control.grupos.find((g) => g.filaSubtotal === 5)).toMatchObject({ subtotalArchivo: 310, sumaMovimientos: 300, estado: "descuadre" });
+    expect(control.granTotal).toMatchObject({ subtotalArchivo: 350, sumaMovimientos: 350, estado: "cuadra" });
+  });
+
+  it("sin la columna, la fila de total vale la suma de sus edades, como antes", () => {
+    const totales = leer(310, 0).filas.filter((f) => f.tipoFila === "total");
+    expect(totales.map((f) => [f.filaNum, f.valor, f.totalImpreso ?? false])).toEqual([[5, 300, false], [8, 50, false], [9, 350, false]]);
   });
 });

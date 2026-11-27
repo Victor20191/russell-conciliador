@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { controlesFormatoCartera, nivelDeFilas, tipoFormatoDeFilas, type FilaControlFormato } from "./controles-formato";
-import { CLAVE_EDADES, CLAVE_SALDO_DECLARADO, CLAVE_SALDO_DIVISA, CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, CLAVE_TRM } from "./detalle-cartera";
+import { CLAVE_EDADES, CLAVE_SALDO_DECLARADO, CLAVE_SALDO_DIVISA, CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, CLAVE_TOTAL_IMPRESO, CLAVE_TRM } from "./detalle-cartera";
 
 let fila = 0;
 const documento = (nit: string, valor: number, extra: Record<string, unknown> = {}): FilaControlFormato => ({
@@ -249,5 +249,49 @@ describe("control del formato por cuenta y NIT", () => {
     const r = controlesFormatoCartera({ filas, nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero" });
     expect(r.tercerosVsCuenta).toMatchObject({ estado: "cuadra", comparadas: 1 });
     expect(r.tercerosVsCuenta?.totales.declarado).toBe(40000000);
+  });
+});
+
+// INDAER: las facturas traen su saldo solo en las edades y el «Total Cliente» trae el total en su
+// propia columna (`subtotalesImporteColumna`). Las edades de esa fila se comparan contra él.
+describe("edades vs total en las filas de total con importe impreso", () => {
+  const soloEdades = (nit: string, suma: number): FilaControlFormato =>
+    documento(nit, suma, { [CLAVE_SUMA_EDADES]: suma, [CLAVE_EDADES]: { "Sin Vencer": suma } });
+  const totalImpreso = (nit: string, impreso: number, sumaEdades: number): FilaControlFormato => ({
+    filaNum: ++fila, valor: impreso, imputable: false, nivel: "documento",
+    datos: {
+      nit,
+      nombre: `Cliente ${nit}`,
+      documento: "Total Cliente .....",
+      [CLAVE_SALDO_DECLARADO]: impreso,
+      [CLAVE_SALDO_REPORTADO]: impreso,
+      [CLAVE_SUMA_EDADES]: sumaEdades,
+      [CLAVE_TOTAL_IMPRESO]: true,
+    },
+  });
+
+  it("cuadra cuando el total impreso es la suma de las edades de su fila", () => {
+    const filas = [soloEdades("860042945", 100), soloEdades("860042945", 200), totalImpreso("860042945", 300, 300)];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento_edades" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "cuadra", comparadas: 1, diferencias: { cantidad: 0 } });
+    expect(r.documentosVsCliente).toMatchObject({ estado: "cuadra", comparados: 1 });
+  });
+
+  it("acusa la fila de total cuyas edades no suman lo que imprime", () => {
+    const filas = [soloEdades("860042945", 100), soloEdades("860042945", 200), totalImpreso("860042945", 310, 300)];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento_edades" });
+    expect(r.edadesVsTotal?.estado).toBe("descuadre");
+    expect(r.edadesVsTotal?.diferencias.filas).toEqual([
+      expect.objectContaining({ documento: "Total Cliente .....", total: 310, sumaEdades: 300, diferencia: 10 }),
+    ]);
+    expect(r.documentosVsCliente?.estado).toBe("descuadre");
+  });
+
+  it("un total sin la marca de impreso no entra a «Edades vs total» (cabeceras de SAP y SIESA)", () => {
+    const cabecera = totalImpreso("860042945", 310, 300);
+    delete cabecera.datos[CLAVE_TOTAL_IMPRESO];
+    const filas = [soloEdades("860042945", 100), soloEdades("860042945", 200), cabecera];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "documento", formatos: formato("documento_edades"), tipoDeducido: "documento_edades" });
+    expect(r.edadesVsTotal).toMatchObject({ estado: "no_validado", comparadas: 0 });
   });
 });

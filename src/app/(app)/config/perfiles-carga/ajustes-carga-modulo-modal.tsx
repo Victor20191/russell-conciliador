@@ -30,6 +30,7 @@ import {
   type ModoClasificador,
   type ModoSubtotales,
 } from "@/lib/modulos/perfil-modulo";
+import { conModoTercero, modoTerceroDe, type ModoTercero } from "@/lib/modulos/cartera/modo-tercero";
 import { avisosColumnaDoble } from "@/lib/modulos/columna-doble";
 import { AvisosColumnaDoble } from "@/app/(app)/modulos/[codigo]/avisos-columna-doble";
 
@@ -403,7 +404,22 @@ function PerfilCargaModuloDetalle({
       // La columna marcadora solo vive en el modo manual: al salir se retira del perfil.
       subtotalesColumna: siguiente === "manual" ? actual.subtotalesColumna ?? 0 : undefined,
       subtotalesTexto: siguiente === "manual" ? actual.subtotalesTexto : undefined,
+      // El importe de las filas de total se declara junto con ellas, en el modo manual.
+      subtotalesImporteColumna: siguiente === "manual" ? actual.subtotalesImporteColumna : undefined,
     }));
+  // Cartera y CxP (los módulos con NIT y documento): ¿el NIT viene en cada fila o en una fila del
+  // cliente con sus documentos debajo?
+  const rolNit = roles.find((r) => r.nombre === "nit");
+  const conTercero = rolNit != null && roles.some((r) => r.nombre === "documento");
+  const etiquetaNit = rolNit?.etiqueta ?? "NIT / cédula del tercero";
+  const modoTercero = modoTerceroDe(estructura);
+  const textoModoTercero = (m: ModoTercero) => (m === "cabecera"
+    ? "En una fila del cliente, con sus documentos debajo: los documentos heredan el NIT y el nombre de esa fila, que no suma"
+    : "En cada fila");
+  // En renglones de sección sobre la columna del NIT, la fila del cliente se toma como sección y los
+  // documentos nunca heredan el NIT.
+  const seccionTapaCabecera = conTercero && modoTercero === "cabecera" && modo === "seccion"
+    && (estructura.columnas[clasificadorRol] ?? 0) >= 1 && estructura.columnas[clasificadorRol] === estructura.columnas.nit;
 
   // Dos importes que se suman en la misma columna: el valor quedaría duplicado. Solo avisa.
   const columnaDoble = (spec: SpecModulo) =>
@@ -552,6 +568,14 @@ function PerfilCargaModuloDetalle({
                 {descripcionModoClasificador(modoGuardado, etiquetaClasificador)}
               </div>
             </div>
+            {conTercero && (
+              <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Cómo viene «{etiquetaNit}»</div>
+                <div className="mt-1 text-[11.5px] font-semibold leading-relaxed text-ink-700">
+                  {textoModoTercero(modoTerceroDe(perfil.estructura))}
+                </div>
+              </div>
+            )}
             <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Totales del archivo</div>
               <div className="mt-1 text-[11.5px] font-semibold leading-relaxed text-ink-700">
@@ -691,6 +715,26 @@ function PerfilCargaModuloDetalle({
                 </span>
               </label>
             )}
+            {conTercero && (
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">¿Cómo viene «{etiquetaNit}» en el archivo?</span>
+                <select
+                  value={modoTercero}
+                  onChange={(evento) => setEstructura((actual) => conModoTercero(actual, evento.target.value as ModoTercero))}
+                  className={CLASE_INPUT}
+                >
+                  <option value="columna">En cada fila</option>
+                  <option value="cabecera">En una fila del cliente, con sus documentos debajo</option>
+                </select>
+                <span className={`text-[10.5px] leading-relaxed ${seccionTapaCabecera ? "font-medium text-err-600" : "text-ink-400"}`}>
+                  {seccionTapaCabecera
+                    ? `El ${etiquetaClasificador.toLowerCase()} está en la misma columna, en renglones de sección: la fila del cliente se toma como sección y los documentos quedan sin «${etiquetaNit}». Usa otro modo para el ${etiquetaClasificador.toLowerCase()}.`
+                    : modoTercero === "cabecera"
+                      ? "Los documentos heredan el NIT y el nombre de la fila del cliente, que no suma. Si el nombre comparte columna con otro campo (por ejemplo la fecha), en los documentos se toma el de esa fila."
+                      : "Cada fila de documento trae su propio NIT."}
+                </span>
+              </label>
+            )}
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-ink-600">Totales del archivo</span>
               <select
@@ -736,6 +780,25 @@ function PerfilCargaModuloDetalle({
                   />
                   <span className="text-[10.5px] leading-relaxed text-ink-400">
                     Sin texto basta con que esa celda traiga algún valor; con texto, la celda debe contenerlo (sin distinguir tildes ni mayúsculas).
+                  </span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Columna con el importe de las filas de total <span className="font-normal text-ink-400">(opcional)</span></span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={estructura.subtotalesImporteColumna ?? 0}
+                    onChange={(evento) => {
+                      const columna = Number(evento.target.value);
+                      setEstructura((actual) => ({ ...actual, subtotalesImporteColumna: Number.isInteger(columna) && columna >= 1 ? columna : undefined }));
+                    }}
+                    aria-label="Número de columna con el importe de las filas de total"
+                    className={`${CLASE_INPUT} tabular-nums`}
+                  />
+                  <span className={`text-[10.5px] leading-relaxed ${(estructura.subtotalesImporteColumna ?? 0) > 0 ? "font-medium text-blue-600" : "text-ink-400"}`}>
+                    {(estructura.subtotalesImporteColumna ?? 0) > 0
+                      ? `${ubicacionColumna(estructura.subtotalesImporteColumna ?? 0)} · solo en las filas de total`
+                      : "0 = la fila de total vale la suma de su propia fila. Si trae su importe en otra columna (por ejemplo «Total Cliente» con el total en la M), indícala."}
                   </span>
                 </label>
               </>

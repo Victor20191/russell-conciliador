@@ -58,6 +58,7 @@ function columnasLeidas(descriptor: DescriptorModulo, spec: SpecModulo): Map<num
     for (const columna of spec.familias?.[familia.nombre] ?? []) anotar(columna.columna, familia.etiqueta);
   }
   if (spec.subtotales === "manual") anotar(spec.subtotalesColumna, "Marca de los totales");
+  if (spec.subtotales !== "nunca") anotar(spec.subtotalesImporteColumna, "Importe de los totales");
   if (spec.filaTercero) {
     anotar(spec.filaTercero.columnaRotulo, "Rótulo del tercero");
     anotar(spec.filaTercero.columnaClave, "Identificación del tercero");

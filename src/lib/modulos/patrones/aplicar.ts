@@ -227,6 +227,14 @@ export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: Ubic
       advertencias.push("No se encontró la columna que marca los totales: se detectarán automáticamente.");
     }
   }
+  if (base.subtotalesImporteColumna) {
+    const destino = mapa[base.subtotalesImporteColumna];
+    if (destino != null) spec.subtotalesImporteColumna = destino;
+    else {
+      delete spec.subtotalesImporteColumna;
+      advertencias.push("No se encontró la columna con el importe de las filas de total: se usa la suma de la fila.");
+    }
+  }
 
   if (base.filaTercero) {
     const rotulo = mapa[base.filaTercero.columnaRotulo];

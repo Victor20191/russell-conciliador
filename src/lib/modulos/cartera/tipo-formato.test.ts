@@ -6,6 +6,7 @@ import {
   esTipoFormatoCartera,
   esTipoFormatoDeclarable,
   faltantesTipoFormato,
+  formatoArchivoCartera,
   MENSAJE_FORMATO_NO_CONCILIABLE,
   nivelCarteraDeSpec,
   tipoFormatoCartera,
@@ -88,5 +89,13 @@ describe("tipo de formato de cartera", () => {
     const normalizado = normalizarSpecModulo(INV, inventario);
     expect(normalizado.tipoFormato).toBeUndefined();
     expect(validarSpecModulo(INV, normalizado)).toBeNull();
+  });
+});
+
+describe("formatoArchivoCartera · columna de total", () => {
+  it("cuenta la columna con el importe de las filas de total (el «Total Cliente» de INDAER)", () => {
+    const spec = { tipoFormato: "documento_edades" as const, columnas: { total: 0 }, subtotales: "manual" as const, subtotalesImporteColumna: 12 };
+    expect(formatoArchivoCartera(spec, { loteId: "l", archivo: "a.xls", rolTotal: "total" }).conColumnaTotal).toBe(true);
+    expect(formatoArchivoCartera({ ...spec, subtotalesImporteColumna: undefined }, { loteId: "l", archivo: "a.xls", rolTotal: "total" }).conColumnaTotal).toBe(false);
   });
 });

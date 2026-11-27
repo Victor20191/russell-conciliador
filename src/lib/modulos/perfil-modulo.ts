@@ -214,6 +214,12 @@ function normalizarSpecModuloInterno(
       if (texto) normalizado.subtotalesTexto = texto;
     }
   }
+  // La columna con el importe de las filas de total: del formato, en cualquier modo que detecte
+  // totales («nunca» no tiene filas de total).
+  const importeTotales = spec.subtotalesImporteColumna;
+  if (spec.subtotales !== "nunca" && Number.isInteger(importeTotales) && (importeTotales as number) > 0) {
+    normalizado.subtotalesImporteColumna = importeTotales;
+  }
   // La marcadora del patrón que el cargue conservó aparte de la celda del total. En el spec del
   // archivo sigue aparte; en el reutilizable vuelve a ser lo que era en el patrón: modo «manual»
   // con su columna y su rótulo (la celda del total es de ESTE archivo y no se guarda).
@@ -433,14 +439,17 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
  * sí solo no dice nada útil: hay que ver qué columna marca las filas y con qué texto.
  */
 export function descripcionSubtotalesModulo(
-  spec: Pick<SpecModulo, "subtotales" | "subtotalesColumna" | "subtotalesTexto">,
+  spec: Pick<SpecModulo, "subtotales" | "subtotalesColumna" | "subtotalesTexto" | "subtotalesImporteColumna">,
 ): string {
   const modo = spec.subtotales ?? "auto";
-  if (modo !== "manual") return descripcionModoSubtotales(modo);
+  const importe = (spec.subtotalesImporteColumna ?? 0) > 0 && modo !== "nunca"
+    ? ` · su importe en la columna ${letraColumnaModulo(spec.subtotalesImporteColumna ?? 0)}`
+    : "";
+  if (modo !== "manual") return descripcionModoSubtotales(modo) + importe;
   const columna = spec.subtotalesColumna ?? 0;
   const donde = columna > 0 ? `la columna ${letraColumnaModulo(columna)}` : "una columna sin definir";
   const texto = spec.subtotalesTexto?.trim();
-  return `Manual: los marca ${donde} ${texto ? `cuando contiene «${texto}»` : "cuando trae algún valor"}`;
+  return `Manual: los marca ${donde} ${texto ? `cuando contiene «${texto}»` : "cuando trae algún valor"}${importe}`;
 }
 
 /** Descripción del modo del clasificador para la UI, con la etiqueta del rol clasificador. */

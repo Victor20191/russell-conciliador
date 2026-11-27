@@ -14,6 +14,7 @@ const esAfi: AplicaModulo = (d) => d.codigo === "AFI";
 const esNomina: AplicaModulo = (d) => !!d.nomina;
 const noNomina: AplicaModulo = (d) => !d.nomina;
 const porTercero: AplicaModulo = (d) => d.crucePorTercero.habilitado;
+const conDetalleTercero: AplicaModulo = (d) => d.crucePorTercero.detalleTercero === true;
 const conVerificaciones: AplicaModulo = (d) => (d.verificaciones?.length ?? 0) > 0;
 
 function requisitoBalance(d: DescriptorModulo): string {
@@ -434,6 +435,17 @@ export function fichaModuloPatrones(d: DescriptorModulo): FichaAyuda {
           {
             nombre: "Nuevo patrón · Nueva versión · Nueva a partir de esta",
             queHace: "Crea una versión a partir de una muestra, con el mapeo de columnas y la prueba de lectura.",
+            regla: REGLAS.administrarPatrones,
+          },
+          {
+            nombre: "¿Cómo viene «NIT / cédula del tercero» en el archivo?",
+            queHace: "«En cada fila» o «En una fila del cliente, con sus documentos debajo»; esta última va marcada como recomendada cuando la muestra lo parece. Con la segunda, los documentos heredan el NIT y el nombre de la fila del cliente, que no suma; si el nombre comparte columna con otro campo, como la fecha, en los documentos se toma el de esa fila.",
+            regla: REGLAS.administrarPatrones,
+            aplica: conDetalleTercero,
+          },
+          {
+            nombre: "Columna con el importe de las filas de total",
+            queHace: "Con «Indicarlas yo», si la fila de total trae su importe en otra columna (por ejemplo «Total Cliente» con el total del cliente en la M), se indica aquí. Solo se lee en las filas de total: ese importe es el que se compara contra la suma de los documentos y la de las edades de esa fila. Sin ella, la fila de total vale la suma de su propia fila.",
             regla: REGLAS.administrarPatrones,
           },
           {
