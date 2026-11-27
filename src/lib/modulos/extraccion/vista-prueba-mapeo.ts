@@ -67,6 +67,10 @@ export type VistaPruebaMapeo = {
   avisos: string[];
   /** Cuando la prueba no leyó el archivo entero (ver `FILAS_MAXIMAS_PRUEBA`). */
   recorte: RecorteMuestra | null;
+  /** Las respuestas de la carga con que se leyó (`mapeoDeCarga`), en palabras del modal. */
+  respuestasCarga: string[];
+  /** Lo que la carga pediría o no aceptaría con esas respuestas: el borrador no se crearía así. */
+  pendientesCarga: string[];
 };
 
 /** De qué archivo se probó: la muestra recién subida, la guardada de la versión, o la del cliente. */
@@ -81,15 +85,16 @@ export type ResultadoPruebaMapeo =
  * son del cargue—, así que en la prueba Nómina trae todos los meses y una hoja en divisa se ve
  * sin convertir. Sin decirlo, las dos cosas se leen como errores del mapeo.
  */
-function avisosDeLaPrueba(descriptor: DescriptorModulo, spec: SpecModulo, encabezado: readonly unknown[]): string[] {
+function avisosDeLaPrueba(descriptor: DescriptorModulo, spec: SpecModulo, encabezado: readonly unknown[], conCarga: boolean): string[] {
   const avisos: string[] = [];
   // Ingresos: lo que el usuario confirmó al mapear queda a la vista en la prueba.
   const { rotulo, confirmado } = confirmacionValor(descriptor, spec, encabezado);
   if (rotulo && confirmado) avisos.push(`El valor se lee de «${rotulo}», confirmado sin IVA.`);
-  if (descriptor.nomina?.periodoPorFila) {
+  if (descriptor.nomina?.periodoPorFila && !spec.periodoHasta) {
     avisos.push("El patrón no fija el período: aquí entran todas las filas del archivo. El mes de corte se declara en cada carga.");
   }
-  if (spec.monedaArchivo && spec.monedaArchivo !== "COP" && spec.trmCierre == null) {
+  // Con las respuestas de la carga, la TRM que falta ya aparece entre lo que la carga pediría.
+  if (!conCarga && spec.monedaArchivo && spec.monedaArchivo !== "COP" && spec.trmCierre == null) {
     avisos.push(`Los importes están en ${spec.monedaArchivo}. La TRM de cierre se indica en cada carga, no en el patrón: aquí se ven sin convertir a pesos.`);
   }
   return avisos;
@@ -175,8 +180,13 @@ export function vistaPruebaMapeo(input: {
   lectura: ResultadoTransformModulo | null;
   impedimentos: readonly string[];
   recorte?: RecorteMuestra | null;
+  /** La lectura se hizo con las respuestas de la carga (`revisarMapeoMuestra` con `carga`). */
+  carga?: { spec: SpecModulo; aplicadas: string[]; pendientes: string[] } | null;
 }): VistaPruebaMapeo {
-  const { descriptor, spec, hoja, lectura } = input;
+  const { descriptor, hoja, lectura } = input;
+  // Columnas y avisos salen del mapeo con que se LEYÓ: con «No» al centro de costo, por ejemplo,
+  // esa columna ya no se lee.
+  const spec = input.carga?.spec ?? input.spec;
   const encabezado = hoja?.filas[spec.filaEncabezado - 1] ?? [];
   const columnas = columnasPruebaMapeo(descriptor, spec, hoja?.columnaInicial ?? 0, encabezado);
   const todas = lectura?.filas ?? [];
@@ -231,7 +241,9 @@ export function vistaPruebaMapeo(input: {
     columnas,
     filas,
     impedimentos: [...input.impedimentos],
-    avisos: avisosDeLaPrueba(descriptor, spec, encabezado),
+    avisos: avisosDeLaPrueba(descriptor, spec, encabezado, input.carga != null),
     recorte: input.recorte ?? null,
+    respuestasCarga: input.carga?.aplicadas ?? [],
+    pendientesCarga: input.carga?.pendientes ?? [],
   };
 }

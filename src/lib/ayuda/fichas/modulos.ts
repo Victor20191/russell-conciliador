@@ -438,7 +438,7 @@ export function fichaModuloPatrones(d: DescriptorModulo): FichaAyuda {
           },
           {
             nombre: "Probar el mapeo",
-            queHace: "Muestra las primeras filas tal como las leería el sistema, antes de guardar.",
+            queHace: "Muestra las primeras filas tal como quedarían en el borrador, antes de guardar. Lee con las respuestas de la carga que se indican en el mismo panel (si el archivo trae el valor total y en qué celda, qué trae, cómo se agrupa, la TRM, el mes de corte), ya respondidas con lo más habitual; también dice qué faltaría responder para que la carga cree el borrador.",
             regla: REGLAS.administrarPatrones,
           },
           {

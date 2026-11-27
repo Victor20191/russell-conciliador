@@ -962,6 +962,41 @@ function CargarModal({
     });
   };
 
+  // Las respuestas de ESTE cargue, con los campos que lee el servidor (`respuestasCargaDeFormulario`).
+  // Las mandan «Leer y crear borrador» y la prueba del mapeo: así la prueba lee igual que la carga.
+  const camposRespuestasCarga = (): Record<string, string> => {
+    const campos: Record<string, string> = {};
+    if (!spec || !analisis) return campos;
+    const porPatron = analisis.modo === "patron" && analisis.coincidencia != null;
+    if (porPatron) {
+      campos.fechaCorte = spec.fechaCorte ?? fechaCorteSugerida;
+      if (spec.trmCierre) campos.trmCierre = String(spec.trmCierre);
+      if (confirmarTotal != null) {
+        if (totalArchivo) campos.totalArchivo = totalArchivo;
+        if (totalArchivo === "si") {
+          campos.subtotalesColumna = String(spec.subtotalesColumna);
+          campos.subtotalesFila = String(spec.subtotalesFila);
+        }
+      } else if (spec.subtotalesFila) campos.subtotalesFila = String(spec.subtotalesFila);
+      if (confirmarClasificador) {
+        const modo = modoClasificadorSpec(spec);
+        campos.clasificadorColumna = String(modo === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0);
+        campos.clasificadorModo = modo;
+      }
+    }
+    if (confirmarAgrupador && colCentro >= 1 && respuestaCentro) campos.separarAgrupador = respuestaCentro;
+    if (opcionesAgruparPor != null && !anexo && agruparPor) campos.agruparPor = agruparPor;
+    if (mes) {
+      campos.periodoInicio = `${mes}-01`;
+      campos.periodoFin = `${mes}-01`;
+    }
+    if (confirmarContenido && contenido) campos.contenidoArchivo = contenido;
+    if (confirmarContenido && exigeSignoVentas(contenido) && signoVentas) campos.signoVentas = signoVentas;
+    if (confirmarContenido && exigeSignoNotasCredito(contenido) && signoNotasCredito) campos.signoNotasCredito = signoNotasCredito;
+    if (confirmarContenidoActivos && contenidoActivos) campos.contenidoActivos = contenidoActivos;
+    return campos;
+  };
+
   const leer = () => {
     const aplicativo = analisis?.aplicativo;
     if (!archivoRef.current || !spec || !analisis || !aplicativo) { notifyError("Falta analizar el archivo."); return; }
@@ -1049,35 +1084,17 @@ function CargarModal({
       if (porPatron) {
         // Con patrón el mapeo lo arma el servidor: solo viajan los datos de ESTE cargue.
         fd.set("patronVersionId", String(analisis.coincidencia!.versionId));
-        fd.set("fechaCorte", spec.fechaCorte ?? fechaCorteSugerida);
-        if (spec.trmCierre) fd.set("trmCierre", String(spec.trmCierre));
-        if (pedirTotal) {
-          fd.set("totalArchivo", totalArchivo!);
-          if (totalArchivo === "si") {
-            fd.set("subtotalesColumna", String(spec.subtotalesColumna));
-            fd.set("subtotalesFila", String(spec.subtotalesFila));
-          }
-        } else if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
-        if (pedirClasificador) {
-          fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
-          fd.set("clasificadorModo", modoClasificadorCargue);
-        }
       } else {
         fd.set("specJson", JSON.stringify(spec));
         if (configurando) fd.set("configurarEnCarga", "1");
         // «No usar este formato» propio: el servidor no lo vuelve a aplicar ni lo anota en el lote.
         if (sinFormatoManual) fd.set("formatoManual", "ninguno");
       }
-      if (pedirCentro && respuestaCentro) fd.set("separarAgrupador", respuestaCentro);
-      if (pedirAgruparPor && agruparPor) fd.set("agruparPor", agruparPor);
-      fd.set("periodoInicio", `${mes}-01`);
-      fd.set("periodoFin", `${mes}-01`);
+      // Fecha de corte, TRM, total, clasificador, centro de costo, agrupación, período, contenido y
+      // signos: los mismos campos que manda la prueba del mapeo.
+      for (const [clave, valor] of Object.entries(camposRespuestasCarga())) fd.set(clave, valor);
       fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
-      if (confirmarContenido && contenido) fd.set("contenidoArchivo", contenido);
-      if (confirmarContenido && exigeSignoVentas(contenido) && signoVentas) fd.set("signoVentas", signoVentas);
-      if (confirmarContenido && exigeSignoNotasCredito(contenido) && signoNotasCredito) fd.set("signoNotasCredito", signoNotasCredito);
-      if (confirmarContenidoActivos && contenidoActivos) fd.set("contenidoActivos", contenidoActivos);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       else if ((oferta.ofrecer || ofertaActivos.ofrecer) && destinoCarga === "agregar" && vigentePeriodo) fd.set("anexoEncabezadoId", String(vigentePeriodo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
@@ -1722,6 +1739,7 @@ function CargarModal({
               fuente={() => (recepcionLoteId ? { tipo: "original", recepcionLoteId } : null)}
               puedeProbar={recepcionLoteId != null}
               accion={probarEnCarga}
+              respuestas={camposRespuestasCarga}
             />
           )}
         </div>

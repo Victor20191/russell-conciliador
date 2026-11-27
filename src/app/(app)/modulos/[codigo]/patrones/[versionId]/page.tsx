@@ -6,6 +6,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { sumaDelRol } from "@/lib/modulos/columna-doble";
 import { esVersionEditable } from "@/lib/modulos/patrones/version";
 import EditorPatronClient from "../editor-patron-client";
+import { preguntasCargaDeModulo } from "@/lib/modulos/mapeo-de-carga";
 
 // Edición de una versión PENDIENTE sobre su muestra (Administrador). Una aprobada no se edita:
 // se crea otra versión a partir de ella.
@@ -47,6 +48,7 @@ export default async function EditarPatronPage({ params }: { params: Promise<{ c
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
         cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
           conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
+          preguntasCarga={preguntasCargaDeModulo(descriptor)}
           erps={[]}
           edicion={{
             id: version.id,

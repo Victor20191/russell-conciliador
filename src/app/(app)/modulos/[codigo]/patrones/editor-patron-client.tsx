@@ -30,6 +30,7 @@ import { motivoNoGuardarPatron } from "./motivo-no-guardar";
 import { MENSAJE_TIPO_FORMATO_EDITOR } from "../campo-error-mapeo";
 import { EditorMapeoModulo, type EditorMapeoModuloHandle, type RolModulo } from "../editor-mapeo-modulo";
 import { PruebaMapeoPatron, type FuentePrueba } from "./prueba-mapeo-patron";
+import type { PreguntasCarga } from "@/lib/modulos/mapeo-de-carga";
 import { ResumenLecturaEstructurada } from "../resumen-lectura-estructurada";
 import { CampoClienteMuestra, type ClienteMuestra } from "./campo-cliente-muestra";
 
@@ -47,6 +48,7 @@ export default function EditorPatronClient({
   confirmarValorSinImpuestos,
   cuentaEnClasificador,
   conNivelCartera,
+  preguntasCarga,
   erps,
   erpInicial,
   recepcionLoteId,
@@ -64,6 +66,8 @@ export default function EditorPatronClient({
   /** Activos fijos: el clasificador trae pegada la cuenta del cliente. */
   cuentaEnClasificador: boolean;
   conNivelCartera: boolean;
+  /** Lo que pregunta la carga de este módulo: la prueba del mapeo lo supone, como leerá la carga. */
+  preguntasCarga?: PreguntasCarga;
   erps: { id: number; nombre: string }[];
   erpInicial?: number | null;
   /** Archivo de un cliente que no coincidió: prellena el mapeo (no es la muestra). */
@@ -485,6 +489,7 @@ export default function EditorPatronClient({
           fuente={fuentePrueba}
           puedeProbar={muestraLista || edicion != null || recepcionLoteId != null}
           onError={enfocarErrorPrueba}
+          simularCarga={preguntasCarga}
         />
       )}
 

@@ -7,6 +7,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { sumaDelRol } from "@/lib/modulos/columna-doble";
 import { ERP_MANUAL_CODE } from "@/lib/erp-procesos";
 import EditorPatronClient, { type BasePatron } from "../editor-patron-client";
+import { preguntasCargaDeModulo } from "@/lib/modulos/mapeo-de-carga";
 
 // Nueva versión de patrón de archivo (Administrador). `?erp=` preselecciona el aplicativo,
 // `?recepcion=` prellena con el archivo de un cliente que no coincidió y `?base=` parte de otra
@@ -75,6 +76,7 @@ export default async function NuevoPatronPage({
         confirmarValorSinImpuestos={descriptor.confirmarValorSinImpuestos === true}
         cuentaEnClasificador={descriptor.cuentaDesdeClasificador === true}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
+        preguntasCarga={preguntasCargaDeModulo(descriptor)}
         erps={erps.map((e) => ({ id: e.id, nombre: e.name }))}
         erpInicial={erpInicial}
         recepcionLoteId={recepcion}

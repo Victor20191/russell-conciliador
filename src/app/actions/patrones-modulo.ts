@@ -28,6 +28,7 @@ import { mejorVersion, type VersionCandidata } from "@/lib/modulos/patrones/mejo
 import { guardarMuestraRecortada } from "@/lib/modulos/patrones/muestra-recortada-servidor";
 import { FILAS_MAXIMAS_PRUEBA, MENSAJE_SIN_FILAS, MENSAJE_TIPO_FORMATO, revisarMapeoMuestra } from "@/lib/modulos/patrones/revision-mapeo";
 import { vistaPruebaMapeo, type ResultadoPruebaMapeo, type OrigenPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
+import { respuestasCargaDeFormulario } from "@/lib/modulos/mapeo-de-carga";
 import {
   esVersionEditable,
   motivoNoAprobable,
@@ -499,9 +500,12 @@ export async function probarMapeoPatron(formData: FormData): Promise<ResultadoPr
     const { hojas, origen } = await hojasParaProbar(descriptor, formData);
     // Con tope de filas: la lectura es sincrónica y una muestra grande dejaría al servidor
     // entero sin responder mientras corre. El guardado sí lee el archivo completo.
+    // Con las respuestas que el panel supone para la carga, por la misma puerta que la carga:
+    // lo que se ve aquí es lo que saldría en el borrador con esas respuestas.
     const revision = revisarMapeoMuestra(descriptor, hojas, spec, {
       exigirTipoFormato: true,
       maxFilasDatos: FILAS_MAXIMAS_PRUEBA,
+      carga: { respuestas: respuestasCargaDeFormulario(formData), conPatron: true },
     });
     return {
       ok: true,
@@ -513,6 +517,7 @@ export async function probarMapeoPatron(formData: FormData): Promise<ResultadoPr
         lectura: revision.lectura,
         impedimentos: revision.impedimentos,
         recorte: revision.recorte,
+        carga: revision.carga,
       }),
     };
   } catch (e) {

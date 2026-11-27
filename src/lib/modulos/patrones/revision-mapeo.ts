@@ -16,6 +16,7 @@ import { normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } 
 import { impedimentoValorSinConfirmar } from "../extraccion/valor-sin-impuestos";
 import { validarLecturaInventario } from "../asistencia/validar";
 import { encabezadoParaGuardar, normalizarRotulo } from "./rotulos";
+import { mapeoDeCarga, type RespuestasCarga } from "../mapeo-de-carga";
 
 /** Mínimo de rótulos con texto para que el encabezado sirva de huella del formato. */
 const MINIMO_ROTULOS = 2;
@@ -57,6 +58,18 @@ export type RevisionMapeoMuestra = {
   impedimentos: string[];
   /** Solo con `maxFilasDatos`: qué parte del archivo se leyó, cuando no se leyó entero. */
   recorte: RecorteMuestra | null;
+  /**
+   * Solo en las PRUEBAS (`opciones.carga`): la lectura se hizo con el mapeo que armaría la carga
+   * con esas respuestas (`mapeoDeCarga`), no con el mapeo solo.
+   */
+  carga: {
+    /** El mapeo con que se leyó: el de la versión más las respuestas de la carga. */
+    spec: SpecModulo;
+    /** Las respuestas que se aplicaron, en palabras del modal. */
+    aplicadas: string[];
+    /** Lo que la carga pediría o no aceptaría con esas respuestas. */
+    pendientes: string[];
+  } | null;
 };
 
 /** La misma hoja hasta la fila `hasta`, conservando negrita y numeración física. */
@@ -77,10 +90,17 @@ export function revisarMapeoMuestra(
     exigirTipoFormato: boolean;
     /** Tope de filas de DATOS a leer (solo la prueba lo usa; el guardado lee todo). */
     maxFilasDatos?: number;
+    /**
+     * Solo las PRUEBAS: leer con las respuestas de la carga, por la misma puerta que la carga
+     * (`mapeoDeCarga`). Sin esto la prueba mostraría el mapeo solo, y el borrador sale del mapeo
+     * MÁS las respuestas. `conPatron`: la prueba del editor de patrones (las respuestas llegan
+     * aparte); sin patrón, el mapeo del modal ya trae la TRM, la fecha de corte y la celda del total.
+     */
+    carga?: { respuestas: RespuestasCarga; conPatron: boolean };
   },
 ): RevisionMapeoMuestra {
   const spec = normalizarSpecModulo(descriptor, specEntrada);
-  const vacia: RevisionMapeoMuestra = { spec, hoja: null, encabezado: null, lectura: null, impedimentos: [], recorte: null };
+  const vacia: RevisionMapeoMuestra = { spec, hoja: null, encabezado: null, lectura: null, impedimentos: [], recorte: null, carga: null };
 
   // Cartera y CxP: el tipo de formato decide qué controles se validan en cada cargue.
   if (opciones.exigirTipoFormato && descriptor.crucePorTercero.detalleTercero && !spec.tipoFormato) {
@@ -109,7 +129,22 @@ export function revisarMapeoMuestra(
   // De aquí en adelante la lectura SÍ significa algo: los impedimentos que falten se devuelven
   // junto con ella, que es justo donde el administrador necesita ver por qué.
   const encabezado = encabezadoParaGuardar(hoja.filas[spec.filaEncabezado - 1] ?? []);
-  const lectura = transformarModulo(descriptor, normalizarSpecModuloArchivo(descriptor, spec), hoja);
+  // La celda del total se busca en la hoja ENTERA (puede quedar debajo del recorte); la lectura,
+  // sobre la parte recortada.
+  const carga = opciones.carga
+    ? (() => {
+      const base = opciones.carga.conPatron ? spec : normalizarSpecModuloArchivo(descriptor, specEntrada);
+      const mapeo = mapeoDeCarga(descriptor, base, completa, opciones.carga.respuestas, {
+        conPatron: opciones.carga.conPatron,
+        faltantes: "seguir",
+      });
+      // Con «seguir» nunca falla; el tipo lo admite por la carga, que sí corta.
+      return mapeo.ok
+        ? { spec: mapeo.spec, aplicadas: mapeo.aplicadas, pendientes: mapeo.pendientes }
+        : { spec: normalizarSpecModuloArchivo(descriptor, base), aplicadas: [], pendientes: [mapeo.message] };
+    })()
+    : null;
+  const lectura = transformarModulo(descriptor, carga?.spec ?? normalizarSpecModuloArchivo(descriptor, spec), hoja);
   const impedimentos: string[] = [];
   const estructurada = descriptor.codigo === "INV" && spec.lecturaEstructurada != null;
   if (encabezado.filter((rotulo) => normalizarRotulo(rotulo) !== "").length < (estructurada ? 1 : MINIMO_ROTULOS)) {
@@ -127,5 +162,5 @@ export function revisarMapeoMuestra(
   const sinConfirmar = impedimentoValorSinConfirmar(descriptor, spec, hoja.filas[spec.filaEncabezado - 1] ?? []);
   if (sinConfirmar) impedimentos.push(sinConfirmar);
   if (!lectura.filas.some((f) => f.tipoFila === "movimiento")) impedimentos.push(MENSAJE_SIN_FILAS);
-  return { spec, hoja, encabezado, lectura, impedimentos: [...new Set(impedimentos)], recorte };
+  return { spec, hoja, encabezado, lectura, impedimentos: [...new Set(impedimentos)], recorte, carga };
 }

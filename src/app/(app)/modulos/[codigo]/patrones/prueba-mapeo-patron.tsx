@@ -16,6 +16,9 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { OrigenPruebaMapeo, ResultadoPruebaMapeo } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
 import { LIMITE_FILAS_PRUEBA } from "@/lib/modulos/extraccion/vista-prueba-mapeo";
 import { textoCeldaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import type { PreguntasCarga } from "@/lib/modulos/mapeo-de-carga";
+import { camposRespuestasPrueba, RESPUESTAS_PRUEBA_INICIALES, type RespuestasPrueba } from "@/lib/modulos/respuestas-carga-prueba";
+import { RespuestasCargaPrueba } from "./respuestas-carga-prueba";
 
 /** De dónde sale el archivo que se prueba: lo que el editor tenga a mano en ese momento. */
 export type FuentePrueba =
@@ -46,6 +49,8 @@ export function PruebaMapeoPatron({
   puedeProbar,
   onError,
   accion,
+  respuestas,
+  simularCarga,
 }: {
   moduloCodigo: string;
   /** Cómo llama el módulo a lo que agrupa el archivo («Tipo de inventario», «Concepto»). */
@@ -69,13 +74,28 @@ export function PruebaMapeoPatron({
    * la carga pasa `probarMapeoCarga`, que prueba sobre el original con el permiso de cargar.
    */
   accion?: (fd: FormData) => Promise<ResultadoPruebaMapeo>;
+  /**
+   * En la CARGA: las respuestas que ya tiene el modal, con los mismos campos que «Leer y crear
+   * borrador». La prueba lee con ellas, por la misma puerta que la carga (`mapeoDeCarga`).
+   */
+  respuestas?: () => Record<string, string>;
+  /**
+   * En el EDITOR DE PATRONES: las preguntas que hace la carga de este módulo. El panel las pide
+   * (ya respondidas con lo más habitual) y la prueba lee con ellas, como leerá la carga.
+   */
+  simularCarga?: PreguntasCarga;
 }) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [specProbado, setSpecProbado] = useState<string | null>(null);
   const [probando, startProbar] = useTransition();
+  const [supuestas, setSupuestas] = useState<RespuestasPrueba>(RESPUESTAS_PRUEBA_INICIALES);
 
+  // Las respuestas con que se probaría AHORA: las del modal o las que supone el panel.
+  const campos = simularCarga ? camposRespuestasPrueba(simularCarga, spec, supuestas) : respuestas?.() ?? {};
+  // Lo probado vale mientras no cambien ni el mapeo ni las respuestas.
   const actual = JSON.stringify(spec);
-  const obsoleto = resultado != null && specProbado !== actual;
+  const firma = JSON.stringify({ spec, campos });
+  const obsoleto = resultado != null && specProbado !== firma;
 
   const probar = () => {
     const origen = fuente();
@@ -87,6 +107,7 @@ export function PruebaMapeoPatron({
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("specJson", actual);
+      for (const [clave, valor] of Object.entries(campos)) fd.set(clave, valor);
       fd.set("fuente", origen.tipo);
       if (origen.tipo === "muestra") fd.set("archivo", origen.archivo);
       if (origen.tipo === "version") fd.set("versionId", String(origen.id));
@@ -99,7 +120,7 @@ export function PruebaMapeoPatron({
         return;
       }
       setResultado(r);
-      setSpecProbado(actual);
+      setSpecProbado(firma);
       const [primerImpedimento] = r.impedimentos;
       if (primerImpedimento) onError?.(primerImpedimento);
     });
@@ -113,7 +134,7 @@ export function PruebaMapeoPatron({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Prueba del mapeo</span>
           {obsoleto
-            ? <Chip label="el mapeo cambió desde esta prueba" tone="warn" />
+            ? <Chip label="el mapeo o las respuestas cambiaron desde esta prueba" tone="warn" />
             : resultado?.impedimentos.length === 0 && (
               <Chip
                 label={resultado.recorte ? `sin problemas en las primeras ${resultado.recorte.filasLeidas.toLocaleString("es-CO")} filas` : "el mapeo se puede guardar"}
@@ -139,8 +160,24 @@ export function PruebaMapeoPatron({
         </p>
       )}
 
+      {simularCarga && <RespuestasCargaPrueba preguntas={simularCarga} spec={spec} valor={supuestas} onCambio={setSupuestas} />}
+
       {resultado && (
         <div className={`flex flex-col gap-3 ${probando ? "opacity-60" : ""}`}>
+          {resultado.pendientesCarga.length > 0 && (
+            <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[11.5px] leading-relaxed text-warn-800">
+              <p className="font-semibold">Con estas respuestas, la carga no crearía el borrador hasta resolver:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {resultado.pendientesCarga.map((m) => <li key={m}>{m}</li>)}
+              </ul>
+              <p className="mt-1">La tabla muestra la lectura sin esas respuestas.</p>
+            </div>
+          )}
+          {resultado.respuestasCarga.length > 0 && (
+            <p className="text-[11.5px] leading-snug text-ink-600">
+              <span className="font-semibold">Leído como en la carga, con:</span> {resultado.respuestasCarga.join(" · ")}.
+            </p>
+          )}
           {resultado.impedimentos.length > 0 && (
             <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] leading-relaxed text-err-700">
               <p className="font-semibold">Con este mapeo no se puede guardar:</p>

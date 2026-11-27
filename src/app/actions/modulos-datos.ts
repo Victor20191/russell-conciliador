@@ -52,13 +52,14 @@ import { proponerPatronDesdeCarga } from "@/lib/modulos/patrones/proponer-desde-
 import { guardarMuestraRecortada } from "@/lib/modulos/patrones/muestra-recortada-servidor";
 import { debeGuardarPatron, motivoNoProponible, type PropuestaPatronLote } from "@/lib/modulos/patrones/propuesta-lote";
 import { leerAsistenciaInventario } from "@/lib/modulos/asistencia-inventario-estado";
-import { confirmacionValor, detalleAuditoriaValor, impedimentoValorSinConfirmar } from "@/lib/modulos/extraccion/valor-sin-impuestos";
+import { confirmacionValor, detalleAuditoriaValor } from "@/lib/modulos/extraccion/valor-sin-impuestos";
 import { textoValorFormula, tieneValorFormula } from "@/lib/modulos/extraccion/valor-formula";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo, validarSpecModulo } from "@/lib/modulos/perfil-modulo";
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarAgrupadorDeCarga, aplicarAgruparPorDeCarga, aplicarClasificadorDeCarga, aplicarContenidoActivosDeCarga, aplicarContenidoDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, MENSAJE_SIGNO_NOTAS_CREDITO, MENSAJE_SIGNO_VENTAS } from "@/lib/modulos/patrones/aplicar";
+import { aplicarPatronASpec, MENSAJE_SIGNO_NOTAS_CREDITO, MENSAJE_SIGNO_VENTAS } from "@/lib/modulos/patrones/aplicar";
+import { mapeoDeCarga, respuestasCargaDeFormulario } from "@/lib/modulos/mapeo-de-carga";
 import { esContenidoActivos, INFO_CONTENIDO_ACTIVOS } from "@/lib/modulos/activos/contenido-archivo";
 import {
   agregarContenidoArchivo,
@@ -114,7 +115,7 @@ import { agruparPorDisponiblesLote, conteoDelGrupo, filasDelGrupo, filasDelLote 
 import { agruparPorDisponibles, ladosDelCargueActivos, nombresConceptoDelCargue, nombresCuentasCliente, paginaDetalleCargue, type FilaDetalleCargue } from "@/lib/modulos/cargue-servidor";
 import { planEscrituraConsolidacion } from "@/lib/modulos/consolidacion-escritura";
 import { esTipoFormatoCartera, esTipoFormatoDeclarable, formatoArchivoCartera, leerFormatosCartera, MENSAJE_FORMATO_NO_CONCILIABLE, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
-import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
+import { validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda } from "@/lib/modulos/cartera/fecha-corte";
 import { fechaCorteSugeridaDe, motivoFechaFutura, motivoPeriodoFuturo } from "@/lib/fecha-cargue";
 import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
@@ -1070,9 +1071,12 @@ export async function probarMapeoCarga(formData: FormData): Promise<ResultadoPru
     }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
     // Con tope de filas: la lectura es sincrónica (ver `FILAS_MAXIMAS_PRUEBA`).
+    // Con las respuestas que ya tiene el modal, por la misma puerta que «Leer y crear borrador»
+    // (`mapeoDeCarga`): la prueba no puede leer distinto de lo que leerá la carga.
     const revision = revisarMapeoMuestra(descriptor, ingesta.hojas, specEntrada, {
       exigirTipoFormato: true,
       maxFilasDatos: FILAS_MAXIMAS_PRUEBA,
+      carga: { respuestas: respuestasCargaDeFormulario(formData), conPatron: false },
     });
     return {
       ok: true,
@@ -1084,6 +1088,7 @@ export async function probarMapeoCarga(formData: FormData): Promise<ResultadoPru
         lectura: revision.lectura,
         impedimentos: revision.impedimentos,
         recorte: revision.recorte,
+        carga: revision.carga,
       }),
     };
   } catch (e) {
@@ -1440,7 +1445,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       hoja: GridHoja;
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
-      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null } | null;
+      patron: { versionId: number; version: number; porcentaje: number } | null;
       /** Lectura configurada en la carga: el formato que se podrá guardar como patrón al confirmar. */
       propuesta?: PropuestaPatronLote | null;
       /** …o por qué no se podrá (el cargue sigue igual). */
@@ -1548,64 +1553,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       }
       const hoja = ingesta.hojas.find((h) => h.nombre === ubicacion.hoja);
       if (!hoja) return "El archivo no tiene hojas legibles.";
-      let spec = aplicarPatronASpec(descriptor, ubicacion, hoja).spec;
-      const fechaCorte = String(formData.get("fechaCorte") ?? "").trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) spec = { ...spec, fechaCorte };
-      const trm = Number(String(formData.get("trmCierre") ?? "").trim());
-      if (Number.isFinite(trm) && trm > 0) spec = { ...spec, trmCierre: trm };
-      const filaTotal = Number(formData.get("subtotalesFila"));
-      if (!descriptor.confirmarTotalEnCarga && spec.subtotales === "manual" && Number.isInteger(filaTotal) && filaTotal > 0) {
-        spec = { ...spec, subtotalesFila: filaTotal };
-      }
-      const ancho = hoja.filas.reduce((max, fila) => Math.max(max, fila?.length ?? 0), 0);
-      // Inventarios: el analista confirma el clasificador en cada cargue. Vale solo para este
-      // archivo (queda en el spec del lote); la versión del patrón no se toca.
-      let clasificadorCambiado = false;
-      if (descriptor.confirmarClasificadorEnCarga) {
-        // Sin respuesta, `Number("")` es 0 y el helper la rechaza con su mensaje.
-        const eleccion = aplicarClasificadorDeCarga(
-          descriptor,
-          spec,
-          {
-            columna: Number(String(formData.get("clasificadorColumna") ?? "").trim()),
-            modo: String(formData.get("clasificadorModo") ?? "").trim() || null,
-          },
-          ancho,
-        );
-        if (!eleccion.ok) return eleccion.message;
-        spec = eleccion.spec;
-        clasificadorCambiado = eleccion.cambio;
-      }
-      // «¿El archivo trae el valor total?» (los seis módulos desde el 19/Oct/2026; antes solo
-      // Inventarios) — Sí con su celda (columna + fila), o No. También es de este cargue; la celda
-      // se vuelve a leer del original más abajo.
-      let totalDelCargue: string | null = null;
-      if (descriptor.confirmarTotalEnCarga) {
-        const respuesta = String(formData.get("totalArchivo") ?? "").trim();
-        const total = aplicarTotalDeCarga(
-          descriptor,
-          spec,
-          {
-            trae: respuesta === "si" ? true : respuesta === "no" ? false : null,
-            columna: Number(String(formData.get("subtotalesColumna") ?? "").trim()),
-            fila: filaTotal,
-          },
-          ancho,
-        );
-        // Es un dato del formulario, como las demás preguntas de la carga: el original no se
-        // marca como no procesable.
-        if (!total.ok) return { rechazo: total.message };
-        spec = total.spec;
-        totalDelCargue = spec.subtotalesFila != null
-          ? `total del archivo en ${letraColumnaModulo((spec.subtotalesColumna ?? 0) + (hoja.columnaInicial ?? 0))}${spec.subtotalesFila}`
-          : "el archivo no trae total";
-      }
-      // Nómina: «¿Separar por centro de costo?» se aplica abajo, igual para las tres lecturas.
+      // Las respuestas de ESTE cargue (fecha de corte, TRM, clasificador, total…) se aplican abajo,
+      // en `mapeoDeCarga`, igual para las tres lecturas y para las pruebas del mapeo.
       return {
         hoja,
-        spec: normalizarSpecModuloArchivo(descriptor, spec),
+        spec: normalizarSpecModuloArchivo(descriptor, aplicarPatronASpec(descriptor, ubicacion, hoja).spec),
         origen: "patron",
-        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue },
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje },
       };
     };
 
@@ -1614,7 +1568,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       : configurarEnCarga ? await lecturaConfigurada() : await lecturaPorPatron();
     if (typeof lectura === "string") return marcarNoProcesable(lectura);
     if ("rechazo" in lectura) return { ok: false, message: lectura.rechazo };
-    const { hoja, origen, patron } = lectura;
+    const { hoja, origen, patron: patronLeido } = lectura;
     let spec = lectura.spec;
     // Las reglas que combinan celdas/filas necesitan la confirmación vinculada a
     // su interpretación. El camino genérico no debe omitir esa compuerta.
@@ -1631,19 +1585,24 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         }
       : null;
 
-    // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
-    // manipulado solo conservan roles vigentes del descriptor.
-    spec = normalizarSpecModuloArchivo(descriptor, spec);
-    // Nómina: «¿Separar por centro de costo?» — con patrón, con el mapeo armado en la carga y con
-    // Archivo manual (5/Oct/2026; antes solo con patrón). Con «No» ESTE cargue no lee la columna del
-    // centro; el patrón, el patrón propuesto y el perfil del cliente la conservan. Sin respuesta es
-    // un dato que falta en el formulario: el original no se marca como no procesable.
-    const columnaCentroFormato = spec.columnas.agrupador ?? 0;
-    const respuestaCentro = String(formData.get("separarAgrupador") ?? "").trim();
-    const centro = aplicarAgrupadorDeCarga(descriptor, spec, respuestaCentro === "si" ? true : respuestaCentro === "no" ? false : null);
-    if (!centro.ok) return { ok: false, message: centro.message };
-    const sinCentro = descriptor.confirmarAgrupadorEnCarga === true && columnaCentroFormato >= 1 && !centro.separado;
-    spec = centro.spec;
+    // Las respuestas de ESTE cargue —fecha de corte, TRM, clasificador y total con patrón; centro de
+    // costo, agrupación, contenido, signos, mes de corte y la celda del total en las tres lecturas—
+    // se aplican en UN solo lugar, el mismo que usan las pruebas del mapeo (`mapeo-de-carga.ts`).
+    // Lo que falte o no sirva en el formulario no marca el original como no procesable; lo que no
+    // sirve del archivo (TRM de una hoja en divisa, la celda del total) sí.
+    const mapeo = mapeoDeCarga(
+      descriptor,
+      normalizarSpecModuloArchivo(descriptor, spec),
+      hoja,
+      { ...respuestasCargaDeFormulario(formData), periodo: periodoArchivo },
+      { conPatron: origen === "patron", anexoAgruparPor },
+    );
+    if (!mapeo.ok) return mapeo.noProcesable ? marcarNoProcesable(mapeo.message) : { ok: false, message: mapeo.message };
+    spec = mapeo.spec;
+    const { sinCentro } = mapeo;
+    const patron = patronLeido
+      ? { ...patronLeido, clasificadorCambiado: mapeo.clasificadorCambiado, totalDelCargue: mapeo.totalDelCargue }
+      : null;
     if (descriptor.confirmarAgrupadorEnCarga && anexoEncabezadoId != null) {
       // Un anexo se separa igual que el cargue al que se suma: mezclar deja el mismo concepto
       // en dos renglones del Consolidado («8 ∥ GYA» y «8»).
@@ -1662,83 +1621,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         };
       }
     }
-    // Nómina: «¿Cómo agrupar los conceptos?» — código, nombre o cuenta del cliente, en las tres
-    // lecturas (patrón, mapeo armado en la carga y Archivo manual). Un ANEXO no pregunta: toma la
-    // agrupación del cargue al que se suma y se rechaza si este archivo no trae esa columna. Sin
-    // respuesta es un dato que falta en el formulario: el original no se marca como no procesable.
-    const respuestaAgrupar = anexoAgruparPor ?? (String(formData.get("agruparPor") ?? "").trim() || null);
-    const agruparCarga = aplicarAgruparPorDeCarga(descriptor, spec, respuestaAgrupar);
-    if (!agruparCarga.ok) {
-      return {
-        ok: false,
-        message: anexoAgruparPor
-          ? `El cargue al que agregas este archivo agrupa por ${etiquetaAgruparPor(anexoAgruparPor).toLocaleLowerCase("es")}: este archivo no trae esa columna mapeada.`
-          : agruparCarga.message,
-      };
-    }
-    spec = agruparCarga.spec;
-    // Ingresos: qué trae ESTE archivo (facturas / notas crédito). Manda la respuesta del modal.
-    const contenidoCarga = aplicarContenidoDeCarga(descriptor, spec, contenidoRespuesta, signoNotasCreditoRespuesta, signoVentasRespuesta);
-    if (!contenidoCarga.ok) return { ok: false, message: contenidoCarga.message };
-    spec = contenidoCarga.spec;
-    // Activos fijos: qué trae ESTE archivo (costo / depreciación / ambos). Manda el modal.
-    const contenidoActivosCarga = aplicarContenidoActivosDeCarga(descriptor, spec, contenidoActivosRespuesta);
-    if (!contenidoActivosCarga.ok) return { ok: false, message: contenidoActivosCarga.message };
-    spec = contenidoActivosCarga.spec;
-    // Ingresos: el valor puede venir de una columna (o fórmula) de «total», pero solo con la
-    // confirmación de que excluye el IVA. Es una omisión del mapeo que se corrige en el mismo
-    // modal, así que el original NO se marca como no procesable (como «Faltan columnas»).
     const encabezadoLectura = hoja.filas[spec.filaEncabezado - 1] ?? [];
-    const valorSinConfirmar = impedimentoValorSinConfirmar(descriptor, spec, encabezadoLectura);
-    if (valorSinConfirmar) return { ok: false, message: valorSinConfirmar };
     const confirmacion = confirmacionValor(descriptor, spec, encabezadoLectura);
     const letraLectura = (columna: number) => letraColumnaModulo(columna + (hoja.columnaInicial ?? 0));
     const detalleValor = (tieneValorFormula(spec) ? ` · valor = ${textoValorFormula(spec.valorFormula, letraLectura, encabezadoLectura)}` : "")
       + detalleAuditoriaValor(confirmacion.rotulo, confirmacion.confirmado);
-
-    // Nómina: el mes de corte del cargue viaja en el spec de ESTE archivo (nunca al perfil). El
-    // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese
-    // mes; las posteriores y las de años anteriores quedan fuera y se avisan.
-    if (descriptor.nomina?.periodoPorFila && periodoArchivo) {
-      const { periodoDesde: _desde, ...resto } = spec;
-      void _desde;
-      spec = { ...resto, periodoHasta: periodoArchivo };
-    }
-
-    // La fecha de corte tampoco puede ser futura. Es un dato del formulario: el original no se
-    // marca como no procesable (como la confirmación del IVA).
-    const corteFuturo = spec.fechaCorte ? motivoFechaFutura(spec.fechaCorte, "La fecha de corte") : null;
-    if (corteFuturo) return { ok: false, message: corteFuturo };
-
-    // Importes en divisa: sin la TRM de cierre se leerían dólares como si fueran pesos.
-    if (descriptor.crucePorTercero.detalleTercero && esMonedaExtranjera(spec.monedaArchivo) && !(spec.trmCierre != null && spec.trmCierre > 0)) {
-      return marcarNoProcesable(`Los importes de esta hoja están en ${spec.monedaArchivo}: indica la TRM de cierre para convertirlos a pesos.`);
-    }
-
-    // La coordenada manual es autoridad solo para ESTE original. Nunca se acepta una fila
-    // heredada del perfil ni se confía en el texto enviado por el navegador: se vuelve a
-    // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda. Con
-    // patrón la coordenada puede venir con otro modo de detección (Sí al total).
-    if (spec.subtotales === "manual" || spec.subtotalesFila != null) {
-      const columna = spec.subtotalesColumna ?? 0;
-      const fila = spec.subtotalesFila ?? 0;
-      if (columna < 1) return marcarNoProcesable("Indica la columna del archivo donde está el total.");
-      if (!Number.isInteger(fila) || fila < 1) {
-        return marcarNoProcesable("Ubica la celda exacta del total para este archivo antes de crear el borrador.");
-      }
-      const indiceFila = hoja.filasFisicas
-        ? hoja.filasFisicas.findIndex((numero) => numero === fila)
-        : fila - 1;
-      const valorUbicado = indiceFila >= 0 ? aCeldaMuestra(hoja.filas[indiceFila]?.[columna - 1] ?? null) : null;
-      const textoUbicado = textoCeldaMuestra(valorUbicado);
-      if (!textoUbicado) {
-        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna + (hoja.columnaInicial ?? 0))}${fila} no existe o está vacía en este archivo.`);
-      }
-      if (textoUbicado.length > 80) {
-        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna + (hoja.columnaInicial ?? 0))}${fila} no puede usarse como total porque supera 80 caracteres.`);
-      }
-      spec = { ...spec, subtotalesColumna: columna, subtotalesFila: fila, subtotalesTexto: textoUbicado };
-    }
 
     const resultado = transformarModulo(descriptor, spec, hoja);
     if (resultado.erroresLectura?.length) return marcarNoProcesable(resultado.erroresLectura.join(" "));
@@ -1838,7 +1725,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
       : configurarEnCarga
         ? ` · ${aplicativo.name} sin patrón · lectura configurada en la carga`
-        : ` · ${aplicativo.name}${detalleFormatoManual}`) + detalleCentro + detalleAuditoriaAgruparPor(agruparCarga.agruparPor);
+        : ` · ${aplicativo.name}${detalleFormatoManual}`) + detalleCentro + detalleAuditoriaAgruparPor(mapeo.agruparPor);
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -1901,7 +1788,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleAuditoriaContenido(signoContenido)}${contenidoActivosCarga.contenido ? ` · contenido: ${INFO_CONTENIDO_ACTIVOS[contenidoActivosCarga.contenido].rotulo}` : ""}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${detalleAuditoriaContenido(signoContenido)}${mapeo.contenidoActivos ? ` · contenido: ${INFO_CONTENIDO_ACTIVOS[mapeo.contenidoActivos].rotulo}` : ""}${detalleValor}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);
