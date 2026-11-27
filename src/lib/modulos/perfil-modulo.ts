@@ -9,7 +9,7 @@
 import type { DescriptorModulo } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
 export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from "./subtotales";
-import { descripcionModoSubtotales } from "./subtotales";
+import { descripcionModoSubtotales, marcaFilasDelPatron } from "./subtotales";
 import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
 import { sanearValorFormula, textoValorFormula, tieneValorFormula, validarValorFormula } from "./extraccion/valor-formula";
 import { esContenidoArchivo, esSignoNotasCredito, esSignoVentas, exigeSignoNotasCredito, exigeSignoVentas } from "./ingresos/contenido-archivo";
@@ -212,6 +212,20 @@ function normalizarSpecModuloInterno(
       normalizado.subtotalesFila = fila;
       const texto = spec.subtotalesTexto?.trim();
       if (texto) normalizado.subtotalesTexto = texto;
+    }
+  }
+  // La marcadora del patrón que el cargue conservó aparte de la celda del total. En el spec del
+  // archivo sigue aparte; en el reutilizable vuelve a ser lo que era en el patrón: modo «manual»
+  // con su columna y su rótulo (la celda del total es de ESTE archivo y no se guarda).
+  if (spec.subtotalesMarcaColumna != null && spec.subtotales !== "nunca") {
+    const marca = marcaFilasDelPatron(spec);
+    if (marca && conservarCoordenadaArchivo) {
+      normalizado.subtotalesMarcaColumna = marca.columna;
+      normalizado.subtotalesMarcaTexto = marca.texto;
+    } else if (marca) {
+      normalizado.subtotales = "manual";
+      normalizado.subtotalesColumna = marca.columna;
+      normalizado.subtotalesTexto = marca.texto;
     }
   }
   // El valor como FÓRMULA y la confirmación «excluye el IVA» son del FORMATO, no del cargue:

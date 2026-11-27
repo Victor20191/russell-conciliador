@@ -84,7 +84,7 @@ export function fichaModuloCargados(d: DescriptorModulo): FichaAyuda {
           },
           {
             nombre: "¿El archivo trae el valor total?",
-            queHace: "Con «Sí, confirmo su ubicación» ubicas la celda del total para comprobar que el archivo cuadra; con «No trae total» se lee sin ese control.",
+            queHace: "Con «Sí, confirmo su ubicación» ubicas la celda del total para comprobar que el archivo cuadra; con «No trae total» se lee sin ese control. Con cualquiera de las dos, las filas de total que el patrón marca con un rótulo (por ejemplo «Total cliente») quedan fuera de los documentos.",
             regla: REGLAS.cargarModulo,
             aplica: noInv,
           },

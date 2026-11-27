@@ -53,6 +53,13 @@ export const SpecModuloSchema = z.object({
   // Coordenada EFÍMERA del archivo actual. Autoriza exactamente una fila como gran total;
   // nunca se copia al perfil reutilizable porque la posición puede cambiar en otro archivo.
   subtotalesFila: z.number().int().min(1).max(1_048_576).optional(),
+  // Columna + texto con que el PATRÓN marca sus filas de total («la columna D cuando contiene
+  // "Total cliente"»), cuando en ESTE cargue `subtotalesColumna`/`subtotalesFila` pasan a ser la
+  // celda del gran total que ubicó el analista (o el analista dijo que no hay total). Antes la
+  // celda pisaba la marcadora y los «Total cliente» entraban como documentos. Es del cargue:
+  // el perfil reutilizable la devuelve a `subtotalesColumna`/`subtotalesTexto` en modo «manual».
+  subtotalesMarcaColumna: z.number().int().min(1).optional(),
+  subtotalesMarcaTexto: z.string().max(80).optional(),
 
   // ===== Columnas cuyo número y rótulos los pone el ARCHIVO (ver `FamiliaDinamica`) =====
   // Llaveado por el nombre de la familia («edades»). Un módulo que no declara familias en

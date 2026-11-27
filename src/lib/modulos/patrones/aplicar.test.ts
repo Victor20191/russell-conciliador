@@ -319,6 +319,57 @@ describe("aplicarTotalDeCarga («¿El archivo trae el valor total?» en el cargu
     expect(manual.spec.subtotalesFila).toBeUndefined();
     expect(manual.spec.subtotalesTexto).toBeUndefined();
   });
+
+  it("un patrón manual con importe en la columna no deja marcadora: solo describía la celda del total", () => {
+    const r = aplicarTotalDeCarga(INV, MANUAL, { trae: true, columna: 6, fila: 91 }, 6);
+    expect(r.ok && r.spec.subtotalesMarcaColumna).toBeUndefined();
+    expect(r.ok && r.spec.subtotalesMarcaTexto).toBeUndefined();
+  });
+
+  // INDAER (27/Nov/2026): el patrón marca «la columna D cuando contiene "Total cliente"». La celda
+  // del gran total pisaba esa columna y los veinte «Total Cliente» entraban como documentos.
+  describe("la marcadora de filas del patrón sobrevive a la respuesta", () => {
+    const CAR = descriptorModulo("CAR")!;
+    const CARTERA: SpecModulo = {
+      hoja: "Sheet1",
+      filaEncabezado: 8,
+      primeraFilaDatos: 9,
+      columnas: columnas({ cuenta: 5, nit: 5, documento: 4, tipoDocumento: 2, fecha: 9, vencimiento: 13 }),
+      valorFormula: [{ columna: 17, signo: "+" }, { columna: 21, signo: "+" }],
+      tipoFormato: "documento",
+      subtotales: "manual",
+      subtotalesColumna: 4,
+      subtotalesTexto: "Total cliente",
+    };
+
+    it("Sí: la celda del total va a la coordenada y la marcadora queda aparte", () => {
+      const r = aplicarTotalDeCarga(CAR, CARTERA, { trae: true, columna: 12, fila: 160 }, 34);
+      expect(r.ok && r.spec).toMatchObject({
+        subtotales: "manual",
+        subtotalesColumna: 12,
+        subtotalesFila: 160,
+        subtotalesMarcaColumna: 4,
+        subtotalesMarcaTexto: "Total cliente",
+      });
+    });
+
+    it("No: se lee por rótulo y la marcadora sigue marcando los totales por cliente", () => {
+      const r = aplicarTotalDeCarga(CAR, CARTERA, { trae: false }, 34);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.spec.subtotales).toBe("rotulo");
+      expect(r.spec.subtotalesColumna).toBeUndefined();
+      expect(r.spec).toMatchObject({ subtotalesMarcaColumna: 4, subtotalesMarcaTexto: "Total cliente" });
+    });
+
+    it("responder otra vez no arrastra la marcadora de una respuesta anterior", () => {
+      const primera = aplicarTotalDeCarga(CAR, CARTERA, { trae: true, columna: 12, fila: 160 }, 34);
+      if (!primera.ok) throw new Error(primera.message);
+      const otra = aplicarTotalDeCarga(CAR, primera.spec, { trae: false }, 34);
+      expect(otra.ok && otra.spec).toMatchObject({ subtotalesMarcaColumna: 4, subtotalesMarcaTexto: "Total cliente" });
+      expect(otra.ok && otra.spec.subtotalesFila).toBeUndefined();
+    });
+  });
 });
 
 describe("aplicarAgruparPorDeCarga («¿Cómo agrupar los conceptos?» en el cargue)", () => {

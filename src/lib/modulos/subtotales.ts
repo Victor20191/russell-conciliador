@@ -143,6 +143,25 @@ export function coincideMarcaSubtotal(celda: unknown, patron?: string | null): b
   return buscado ? norm(texto).includes(buscado) : true;
 }
 
+/**
+ * La MARCADORA de un patrón «manual» que se debe seguir aplicando en un cargue aunque el analista
+ * ubique la celda del gran total (o diga que no hay total). Solo cuenta un rótulo de texto
+ * («Total cliente»): marca FILAS del archivo. Sin texto, la columna marcaría cualquier celda con
+ * dato —en una columna de importes, todas las filas—; y un texto numérico es el importe de una
+ * celda de total de otro archivo, no una marca. En esos dos casos la columna del patrón solo
+ * describía dónde estaba el total, y la coordenada del cargue ya la reemplaza.
+ */
+export function marcaFilasDelPatron(
+  spec: Pick<SpecModulo, "subtotales" | "subtotalesColumna" | "subtotalesTexto" | "subtotalesMarcaColumna" | "subtotalesMarcaTexto">,
+): { columna: number; texto: string } | null {
+  const yaSeparada = spec.subtotalesMarcaColumna != null;
+  const columna = yaSeparada ? spec.subtotalesMarcaColumna : spec.subtotales === "manual" ? spec.subtotalesColumna : undefined;
+  const texto = String((yaSeparada ? spec.subtotalesMarcaTexto : spec.subtotalesTexto) ?? "").trim();
+  if (!Number.isInteger(columna) || (columna as number) < 1) return null;
+  if (!texto || texto.length > 80 || NUMERO_MARCA_SUBTOTAL.test(texto) || !/\p{L}/u.test(texto)) return null;
+  return { columna: columna as number, texto };
+}
+
 const ROTULOS_EXACTOS = new Set(["total", "totales", "subtotal", "sub total", "total general", "gran total", "sumas", "suma", "sumas iguales"]);
 
 /** ¿El texto es un rótulo FUERTE de subtotal? Exacto, o «(sub)total (de) <grupo>». */
@@ -418,8 +437,10 @@ export function resolverGranTotalUnico(
  *  - "auto"   → lo anterior, o aritmética + (sin detalle | negrita). Un candidato con
  *               clasificador propio distinto al del bloque y sin rótulo NO es subtotal
  *               (es la primera fila del grupo siguiente).
- *  - "manual" → solo la coordenada exacta (abajo). Sin coordenada conserva el legado por
- *               patrón (`marcaManual`) para perfiles administrados.
+ *  - "manual" → solo la coordenada exacta (abajo) y las filas que señala la columna marcadora
+ *               (`marcaManual`).
+ * Una fila con `marcaManual` es total en cualquier modo salvo «nunca»: el cargue con patrón
+ * conserva la marcadora del patrón aunque la respuesta sobre el total cambie el modo.
  * Coordenada exacta (`marcaManualExacta`, en cualquier modo, también «nunca»): ESA fila es el
  * gran total y solo el sufijo posterior sin columnas de detalle se excluye como cuadro de control.
  * Un rótulo fuerte que NO cuadra sigue siendo subtotal: ese es justamente el descuadre a reportar.
@@ -536,15 +557,19 @@ export function detectarSubtotales(
       senales.push(bloque.direccion === "arriba" ? "aritmetica" : "aritmetica_arriba");
     }
 
-    if (modo === "manual" && f.marcaManual === true) senales.unshift("marca_manual");
+    // La marca llega en «manual» (columna marcadora del patrón o del perfil) o en otro modo
+    // cuando el cargue conserva la marcadora del patrón junto a la respuesta sobre el total
+    // (`subtotalesMarcaColumna`): en los dos casos esa fila es un total.
+    if (f.marcaManual === true) senales.unshift("marca_manual");
+    const marca = senales.includes("marca_manual");
     const rotulo = senales.includes("rotulo");
     const debil = senales.includes("rotulo_debil");
     const sinDetalle = senales.includes("sin_detalle");
     const negrita = senales.includes("negrita");
     const aritmetica = senales.includes("aritmetica") || senales.includes("aritmetica_arriba");
     let esSubtotal = modo === "manual"
-      ? senales.includes("marca_manual")
-      : rotulo || (debil && (sinDetalle || negrita || aritmetica));
+      ? marca
+      : marca || rotulo || (debil && (sinDetalle || negrita || aritmetica));
     if (!esSubtotal && modo === "auto" && aritmetica && (sinDetalle || negrita)) {
       // Sin rótulo: si trae su propio clasificador y es OTRO que el del bloque, es un ítem
       // del grupo siguiente que casualmente vale lo mismo, no un subtotal.

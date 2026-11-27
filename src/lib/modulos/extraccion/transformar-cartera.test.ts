@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
-import { normalizarSpecModulo } from "../perfil-modulo";
+import { normalizarSpecModulo, normalizarSpecModuloArchivo } from "../perfil-modulo";
+import { aplicarTotalDeCarga } from "../patrones/aplicar";
 import { controlSubtotales } from "../subtotales";
 import { detectarFilaTercero, sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
@@ -736,5 +737,63 @@ describe("regresión: un módulo sin familias se lee exactamente igual", () => {
     const filas = movimientos(r);
     expect(filas.map((f) => f.valor)).toEqual([1_000, 2_000]);
     expect(filas.every((f) => f.familias === undefined && f.origenValor === undefined)).toBe(true);
+  });
+});
+
+// INDAER · «Análisis de vencimientos de clientes» (27/Nov/2026). Cada cliente cierra con un
+// «Total Cliente .....» en la columna del documento y el archivo con «Totales» al pie. El patrón
+// marca esos renglones con «la columna D cuando contiene "Total cliente"»; la respuesta «Sí, el
+// total está en la fila del pie» pisaba esa columna y los totales por cliente se cargaban como
+// documentos: la cartera quedaba exactamente al doble.
+describe("patrón manual con marcadora de filas y la pregunta del total en la carga", () => {
+  const VENCIMIENTOS = hoja("Sheet1", [
+    [null, "Tipo", null, "Documento", null, "Fecha", "Sin Vencer", "0 a 30"],
+    [null, null, "BOGOTA", null, null, null, 300, 50],
+    [null, null, null, null, 800111222, "CLIENTE UNO SAS", null, null],
+    [null, "FE", null, 101, null, "Sep.22/2026", 100, 0],
+    [null, "FE", null, 102, null, "Sep.23/2026", 0, 200],
+    [null, null, null, "Total Cliente .....", null, null, 100, 200],
+    [null, null, null, null, 900333444, "CLIENTE DOS SAS", null, null],
+    [null, "FN", null, 7, null, "Sep.29/2026", 50, 0],
+    [null, null, null, "Total Cliente .....", null, null, 50, 0],
+    [null, null, null, "Totales ...............", null, null, 150, 200],
+  ]);
+  const PATRON: SpecModulo = normalizarSpecModulo(CAR, {
+    hoja: "Sheet1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { cuenta: 5, nit: 5, nombre: 6, documento: 4, tipoDocumento: 2, fecha: 6, total: 0 },
+    clasificadorModo: "arrastrar",
+    valorFormula: [{ columna: 7, signo: "+" }, { columna: 8, signo: "+" }],
+    tipoFormato: "documento",
+    subtotales: "manual",
+    subtotalesColumna: 4,
+    subtotalesTexto: "Total cliente",
+  });
+  const leer = (eleccion: Parameters<typeof aplicarTotalDeCarga>[2]) => {
+    const r = aplicarTotalDeCarga(CAR, PATRON, eleccion, 8);
+    if (!r.ok) throw new Error(r.message);
+    // El servidor vuelve a leer la celda ubicada del original antes de transformar.
+    const spec = r.spec.subtotalesFila != null ? { ...r.spec, subtotalesTexto: "Totales ..............." } : r.spec;
+    return transformarModulo(CAR, normalizarSpecModuloArchivo(CAR, spec), VENCIMIENTOS);
+  };
+
+  it("Sí: los «Total Cliente» quedan como totales y la cartera vale lo que dice el pie", () => {
+    const r = leer({ trae: true, columna: 4, fila: 10 });
+    expect(movimientos(r).filter((f) => f.valor !== 0).map((f) => f.valor)).toEqual([100, 200, 50]);
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => [f.filaNum, f.motivo])).toEqual([
+      [6, "subtotal:marca_manual,rotulo_debil,aritmetica"],
+      [9, "subtotal:marca_manual,rotulo_debil"],
+      [10, "gran_total:marca_manual"],
+    ]);
+    const control = controlSubtotales(r.filas);
+    expect(control.granTotal).toMatchObject({ filaNum: 10, subtotalArchivo: 350, sumaMovimientos: 350, estado: "cuadra" });
+    expect(control.descuadres).toBe(0);
+  });
+
+  it("No: la marcadora del patrón sigue sacando los «Total Cliente» y el pie sale por su rótulo", () => {
+    const r = leer({ trae: false });
+    expect(movimientos(r).filter((f) => f.valor !== 0).map((f) => f.valor)).toEqual([100, 200, 50]);
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => f.filaNum)).toEqual([6, 9, 10]);
   });
 });

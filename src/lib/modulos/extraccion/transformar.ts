@@ -19,7 +19,7 @@ import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { origenInventarioDeTraza, prepararSpecLecturaEstructurada, type TrazaRegistroLectura } from "./lectura-estructurada";
 import { norm, puntajeRol } from "./sugerir";
-import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
+import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, marcaFilasDelPatron, motivoDe } from "../subtotales";
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, prefijosCuentaDeCedula, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { esPieDeReporte } from "./pie-reporte";
 import { totalEnTexto } from "./total-en-texto";
@@ -427,6 +427,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
   // un rol) cuyo contenido marca las filas de subtotal.
   const colMarcaSubtotal = spec.subtotales === "manual" ? (spec.subtotalesColumna ?? 0) : 0;
+  // La marcadora del PATRÓN que el cargue conservó aparte de la celda del total («la columna D
+  // cuando contiene "Total cliente"»): marca filas en cualquier modo, con o sin coordenada.
+  const marcaPatron = spec.subtotalesMarcaColumna != null ? marcaFilasDelPatron(spec) : null;
   // INVENTARIOS · los roles de texto del producto que el mapa lee (referencia, descripción): una
   // fila sin ninguno no es un producto, sea un total suelto o el pie del informe.
   const esInventario = descriptor.codigo === "INV";
@@ -1224,7 +1227,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         spec.subtotalesFila == null
         && colMarcaSubtotal >= 1
         && coincideMarcaSubtotal(celda(fila, colMarcaSubtotal), spec.subtotalesTexto)
-      ),
+      ) || (marcaPatron != null && coincideMarcaSubtotal(celda(fila, marcaPatron.columna), marcaPatron.texto)),
       marcaManualExacta,
     });
   }

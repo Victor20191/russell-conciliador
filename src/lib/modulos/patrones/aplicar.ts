@@ -15,6 +15,7 @@ import { esContenidoActivos, type ContenidoActivos } from "../activos/contenido-
 import { esAgruparPor, type AgruparPorNomina } from "../nomina/agrupar-por";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 import { trasladarLecturaEstructurada } from "../extraccion/lectura-estructurada";
+import { marcaFilasDelPatron } from "../subtotales";
 
 export type SpecAplicado = { spec: SpecModulo; advertencias: string[] };
 
@@ -445,6 +446,11 @@ const MAX_FILA_HOJA = 1_048_576;
  * - **No**: sin coordenada ni control del total. Un patrón «manual» exige coordenada, así que ese
  *   cargue se lee «por rótulo»: solo las filas rotuladas «Total/Subtotal» salen del detalle, para
  *   no contarlas dos veces.
+ *
+ * En los dos casos, si el patrón «manual» marca sus filas de total con un rótulo («la columna D
+ * cuando contiene "Total cliente"»), esa marcadora se conserva aparte (`subtotalesMarcaColumna`):
+ * la celda del gran total ocupa `subtotalesColumna`, y sin esto los totales por cliente entraban
+ * como documentos y el archivo quedaba al doble.
  */
 export function aplicarTotalDeCarga(
   descriptor: DescriptorModulo,
@@ -455,6 +461,13 @@ export function aplicarTotalDeCarga(
   if (eleccion.trae == null) return { ok: false, message: "Indica si el archivo trae el valor total." };
   const siguiente: SpecModulo = { ...spec };
   delete siguiente.subtotalesFila;
+  delete siguiente.subtotalesMarcaColumna;
+  delete siguiente.subtotalesMarcaTexto;
+  const marca = marcaFilasDelPatron(spec);
+  if (marca) {
+    siguiente.subtotalesMarcaColumna = marca.columna;
+    siguiente.subtotalesMarcaTexto = marca.texto;
+  }
   if (!eleccion.trae) {
     if (siguiente.subtotales === "manual") {
       siguiente.subtotales = "rotulo";

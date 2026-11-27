@@ -11,6 +11,7 @@ import {
   detectarSubtotales,
   estadoGeneralControlSubtotales,
   esRotuloTotal,
+  marcaFilasDelPatron,
   motivoDe,
   type FilaCandidata,
 } from "./subtotales";
@@ -404,6 +405,50 @@ describe("modo manual (columna marcadora)", () => {
     const det = detectarSubtotales(filas, INV, { modo: "manual" });
 
     expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "gran_total"]]);
+  });
+});
+
+// Cargue con patrón cuya marcadora señala FILAS («la columna D cuando contiene "Total cliente"»):
+// la respuesta sobre el total puede cambiar el modo, pero la marca sigue sacando esas filas.
+describe("marcadora de filas del patrón", () => {
+  it("solo un rótulo de texto marca filas; sin texto o con un importe solo describía el total", () => {
+    expect(marcaFilasDelPatron({ subtotales: "manual", subtotalesColumna: 4, subtotalesTexto: " Total cliente " })).toEqual({ columna: 4, texto: "Total cliente" });
+    expect(marcaFilasDelPatron({ subtotales: "manual", subtotalesColumna: 4 })).toBeNull();
+    expect(marcaFilasDelPatron({ subtotales: "manual", subtotalesColumna: 12, subtotalesTexto: "1218366439.55" })).toBeNull();
+    expect(marcaFilasDelPatron({ subtotales: "manual", subtotalesColumna: 12, subtotalesTexto: "$ 1.218.366.439,55" })).toBeNull();
+    expect(marcaFilasDelPatron({ subtotales: "rotulo", subtotalesColumna: 4, subtotalesTexto: "Total cliente" })).toBeNull();
+    expect(marcaFilasDelPatron({ subtotales: "manual", subtotalesColumna: 0, subtotalesTexto: "Total cliente" })).toBeNull();
+  });
+
+  it("ya separada del total del cargue, manda la marcadora guardada aparte", () => {
+    expect(marcaFilasDelPatron({
+      subtotales: "rotulo",
+      subtotalesMarcaColumna: 4,
+      subtotalesMarcaTexto: "Total cliente",
+    })).toEqual({ columna: 4, texto: "Total cliente" });
+    expect(marcaFilasDelPatron({
+      subtotales: "manual",
+      subtotalesColumna: 12,
+      subtotalesTexto: "1218366439.55",
+      subtotalesMarcaColumna: 4,
+      subtotalesMarcaTexto: "Total cliente",
+    })).toEqual({ columna: 4, texto: "Total cliente" });
+  });
+
+  it("una fila marcada es total también fuera del modo manual, salvo en «nunca»", () => {
+    for (const modo of ["auto", "rotulo"] as const) {
+      reset();
+      const filas = [
+        item("A", "R1", 100), item("A", "R2", 200), item("A", "Total Cliente .....", 300, { marcaManual: true }),
+        item("B", "R3", 50), item("B", "Total Cliente .....", 50, { marcaManual: true }),
+      ];
+      const det = detectarSubtotales(filas, CAR, { modo });
+      expect(det.map((d) => [d.filaNum, d.clase]), modo).toEqual([[3, "subtotal"], [5, "subtotal"]]);
+      expect(det[1].senales[0]).toBe("marca_manual");
+    }
+    reset();
+    const filas = [item("A", "R1", 100), item("A", "Total Cliente .....", 100, { marcaManual: true })];
+    expect(detectarSubtotales(filas, CAR, { modo: "nunca" })).toEqual([]);
   });
 });
 

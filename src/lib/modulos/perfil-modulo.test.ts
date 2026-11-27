@@ -246,6 +246,34 @@ describe("normalizarSpecModulo · subtotales", () => {
     expect(normalizarSpecModuloArchivo(INV, specInv({ subtotalesFila: 91 })).subtotalesFila).toBeUndefined();
   });
 
+  it("marcadora del patrón junto a la celda del total: aparte en el lote, de vuelta a «manual» en el perfil", () => {
+    const cargue = specInv({
+      subtotales: "manual",
+      subtotalesColumna: 6,
+      subtotalesFila: 91,
+      subtotalesTexto: "420",
+      subtotalesMarcaColumna: 3,
+      subtotalesMarcaTexto: " Total cliente ",
+    });
+    expect(normalizarSpecModuloArchivo(INV, cargue)).toMatchObject({
+      subtotales: "manual",
+      subtotalesColumna: 6,
+      subtotalesFila: 91,
+      subtotalesMarcaColumna: 3,
+      subtotalesMarcaTexto: "Total cliente",
+    });
+    const perfil = normalizarSpecModulo(INV, cargue);
+    expect(perfil).toMatchObject({ subtotales: "manual", subtotalesColumna: 3, subtotalesTexto: "Total cliente" });
+    expect(perfil.subtotalesFila).toBeUndefined();
+    expect(perfil.subtotalesMarcaColumna).toBeUndefined();
+    // Con «No» el lote se lee por rótulo, pero el perfil sigue siendo el del patrón.
+    const sinTotal = specInv({ subtotales: "rotulo", subtotalesMarcaColumna: 3, subtotalesMarcaTexto: "Total cliente" });
+    expect(normalizarSpecModuloArchivo(INV, sinTotal)).toMatchObject({ subtotales: "rotulo", subtotalesMarcaColumna: 3 });
+    expect(normalizarSpecModulo(INV, sinTotal)).toMatchObject({ subtotales: "manual", subtotalesColumna: 3, subtotalesTexto: "Total cliente" });
+    // Un importe no es una marca de filas: no se conserva.
+    expect(normalizarSpecModuloArchivo(INV, specInv({ subtotalesMarcaColumna: 3, subtotalesMarcaTexto: "420" })).subtotalesMarcaColumna).toBeUndefined();
+  });
+
   it("modo MANUAL: exige la columna marcadora", () => {
     expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ subtotales: "manual" }))))
       .toBe("Indica la columna del archivo que marca las filas de subtotal.");
